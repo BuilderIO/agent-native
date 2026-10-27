@@ -47,14 +47,7 @@ const clientState = vi.hoisted(() => {
   };
 });
 
-vi.mock("@agent-native/core/client/chat-first", () => ({
-  CHAT_FIRST_DEFAULT_APP_IDS: [
-    "content",
-    "design",
-    "mail",
-    "calendar",
-    "clips",
-  ],
+vi.mock("@agent-native/toolkit/app/chat/chat-first/app-pane", () => ({
   ChatFirstAppPane: ({
     app,
     embedUrl,
@@ -69,6 +62,7 @@ vi.mock("@agent-native/core/client/chat-first", () => ({
     status: string;
   }) => (
     <div
+      data-chat-first-app-embed-url={embedUrl ?? ""}
       data-chat-first-app-error={errorMessage ?? ""}
       data-chat-first-app-status={status}
     >
@@ -88,7 +82,14 @@ vi.mock("@agent-native/core/client/chat-first", () => ({
         : null}
     </div>
   ),
+}));
+
+vi.mock("@agent-native/toolkit/app/chat/chat-first-copy", () => ({
   defaultChatFirstCopy: (key: string) => key,
+}));
+
+vi.mock("@agent-native/toolkit/app/chat/AgentSidebar", () => ({
+  AgentSidebar: () => null,
 }));
 
 vi.mock("@agent-native/core/client/feature-flags", () => ({
@@ -249,37 +250,33 @@ describe("WorkspaceAppKeepAlive", () => {
       )?.params,
     ).toEqual({ includeAgentCards: false, includeArchived: true });
     expect(
-      clientState.actionQueryOptions.find((query) => query.name === "list_apps")
-        ?.options?.enabled,
+      clientState.actionQueryParams.some((query) => query.name === "list_apps"),
     ).toBe(false);
   });
 
-  it("resolves a granted external app instead of showing app not found", async () => {
+  it("does not resolve apps granted through Dispatch MCP", async () => {
     await act(async () => {
       root.render(
-        <WorkspaceAppKeepAlive activeAppId="analytics.agent-native.com" />,
+        <MemoryRouter>
+          <WorkspaceAppKeepAlive activeAppId="analytics.agent-native.com" />
+        </MemoryRouter>,
       );
       await Promise.resolve();
       await Promise.resolve();
     });
 
     expect(
-      container.querySelector(
-        '[data-dispatch-workspace-app-cache-entry="analytics.agent-native.com"]',
-      ),
-    ).not.toBeNull();
-    expect(
       container.querySelector('[data-chat-first-app-status="ready"]'),
-    ).not.toBeNull();
-    expect(clientState.legacyMutateAsync).toHaveBeenCalledWith({
-      app: "analytics.agent-native.com",
-      url: "https://analytics.agent-native.com/home",
-      chrome: "minimal",
-    });
+    ).toBeNull();
+    expect(clientState.legacyMutateAsync).not.toHaveBeenCalled();
     expect(
-      clientState.actionQueryOptions.find((query) => query.name === "list_apps")
-        ?.options?.enabled,
-    ).toBe(true);
+      clientState.actionQueryParams.some((query) => query.name === "list_apps"),
+    ).toBe(false);
+    expect(
+      clientState.actionQueryParams.some(
+        (query) => query.name === "list-connected-agents",
+      ),
+    ).toBe(false);
   });
 
   it("does not resolve archived workspace apps from granted discovery", async () => {
@@ -385,6 +382,92 @@ describe("WorkspaceAppKeepAlive", () => {
     });
   });
 
+  it.each([
+    ["coach", "/", "/"],
+    ["onboarding", "/accounts", "/accounts"],
+  ])(
+    "embeds %s by its own home path when its registry url is this Dispatch's page",
+    async (id, homePath, expectedPath) => {
+      await act(async () => {
+        root.render(
+          <WorkspaceAppFrame
+            app={{
+              id,
+              name: id,
+              path: `/${id}`,
+              homePath,
+              url: `${window.location.origin}/dispatch/apps/${id}`,
+            }}
+          />,
+        );
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(clientState.legacyMutateAsync).toHaveBeenCalledWith({
+        app: id,
+        path: expectedPath,
+        chrome: "minimal",
+      });
+    },
+  );
+
+  it("never falls back to framing this Dispatch's own page for the app", async () => {
+    clientState.legacyMutateError = new Error("Embed failed");
+    clientState.legacyErrorMutateAsync.mockRejectedValue(
+      clientState.legacyMutateError,
+    );
+    clientState.suppressFrameLoad = true;
+
+    await act(async () => {
+      root.render(
+        <WorkspaceAppFrame
+          app={{
+            id: "onboarding",
+            name: "Onboarding",
+            path: "/onboarding",
+            homePath: "/accounts",
+            url: `${window.location.origin}/dispatch/apps/onboarding`,
+          }}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container
+        .querySelector("[data-chat-first-app-embed-url]")
+        ?.getAttribute("data-chat-first-app-embed-url"),
+    ).toBe("/onboarding/accounts");
+  });
+
+  it("keeps a Dispatch page url on another origin as the app url", async () => {
+    const url = "https://gateway.example.test/dispatch/apps/coach";
+
+    await act(async () => {
+      root.render(
+        <WorkspaceAppFrame
+          app={{
+            id: "coach",
+            name: "Coach",
+            path: "/coach",
+            homePath: "/",
+            url,
+          }}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(clientState.legacyMutateAsync).toHaveBeenCalledWith({
+      app: "coach",
+      url,
+      chrome: "minimal",
+    });
+  });
+
   it("uses the granted-app session action for mounted apps outside the SSO registry", async () => {
     clientState.workspaceSsoEnabled = true;
 
@@ -447,7 +530,7 @@ describe("WorkspaceAppKeepAlive", () => {
     expect(container.querySelector("iframe")).toBeNull();
   });
 
-  it("sends the parent theme on iframe load and when the parent changes", async () => {
+  it("sends the parent origin and theme on iframe load", async () => {
     await act(async () => {
       root.render(
         <WorkspaceAppFrame app={{ id: "mail", name: "Mail", path: "/mail" }} />,
@@ -471,7 +554,16 @@ describe("WorkspaceAppKeepAlive", () => {
       await Promise.resolve();
     });
 
-    expect(postMessage).toHaveBeenCalledWith(
+    expect(postMessage).toHaveBeenNthCalledWith(
+      1,
+      {
+        type: "agentNative.frameOrigin",
+        origin: window.location.origin,
+      },
+      "*",
+    );
+    expect(postMessage).toHaveBeenNthCalledWith(
+      2,
       {
         type: "agent-native-theme-update",
         theme: "dark",
@@ -544,7 +636,7 @@ describe("WorkspaceAppKeepAlive", () => {
     });
 
     expect(onChildRouteChange).toHaveBeenCalledWith(
-      "/apps/design/foobar?mode=edit#canvas",
+      "/apps/design?__workspace_app_path=%2Ffoobar%3Fmode%3Dedit%23canvas",
     );
 
     await act(async () => {

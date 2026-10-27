@@ -1,15 +1,4 @@
 import { type LocaleCode } from "@agent-native/core/client/i18n";
-/**
- * AvailabilityEditor — weekly schedule grid with per-day toggles and time
- * pickers. Matches the calendar template's visual baseline.
- *
- * This is the "schedule body" — for the full per-day intervals +
- * date-override grid, compose this with a `DateOverridesEditor`
- * (not included yet; scheduling's existing per-page implementation
- * remains canonical for v0.1).
- *
- * Shadcn primitives expected in the consumer: input, switch.
- */
 import { Input, Switch } from "@agent-native/toolkit/ui";
 
 import { schedulingMessage, useSchedulingT } from "../../i18n.js";
@@ -131,10 +120,6 @@ export function AvailabilityEditor({
   );
 }
 
-/**
- * Summarize a `WeeklySchedule` in a short phrase, e.g. "Weekdays, 9 am - 5 pm".
- * Useful for list-row subtitles.
- */
 export function summarizeAvailability(
   ws: WeeklySchedule,
   locale: LocaleCode = "en-US",

@@ -1,5 +1,5 @@
 import { IconDownload, IconPlus, IconX } from "@tabler/icons-react";
-import { useEffect, useState } from "react";
+import { useEffect, useImperativeHandle, useState, type Ref } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,7 +20,6 @@ import { cn } from "@/lib/utils";
 
 export type ExportFormat = "png" | "jpg" | "svg" | "pdf" | "webp";
 
-/** Scale preset value — "custom" means the user typed a freeform multiplier */
 export type ExportScale = "0.5" | "1" | "2" | "3" | "4" | "custom";
 
 export interface ExportSettingsValue {
@@ -39,6 +38,10 @@ export interface ExportSettingsPanelLabels {
   removeExport: string;
 }
 
+export interface ExportSettingsPanelController {
+  addRow: () => void;
+}
+
 export interface ExportSettingsPanelProps {
   value: ExportSettingsValue;
   onChange: (patch: Partial<ExportSettingsValue>) => void;
@@ -48,6 +51,8 @@ export interface ExportSettingsPanelProps {
   disabled?: boolean;
   exporting?: boolean;
   className?: string;
+  /** A host section that owns the title and "+" adds rows through this. */
+  controllerRef?: Ref<ExportSettingsPanelController>;
 }
 
 const DEFAULT_LABELS: ExportSettingsPanelLabels = {
@@ -65,12 +70,9 @@ const DEFAULT_FORMATS: ExportFormat[] = ["png", "jpg", "svg", "pdf", "webp"];
 const controlChromeClass =
   "border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-foreground shadow-none hover:bg-[var(--design-editor-panel-raised-bg)] hover:text-foreground focus:ring-1 focus:ring-[var(--design-editor-accent-color)] focus:ring-offset-0 focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)] focus-visible:ring-offset-0";
 
-// Export scale bounds — must match the clamp in DesignEditor's PNG/SVG export
-// handlers so the panel never promises a range the exporter won't render.
 const MIN_EXPORT_SCALE = 0.1;
 const MAX_EXPORT_SCALE = 4;
 
-/** Preset scale options shown in the scale dropdown — matches the design editor's presets */
 const SCALE_PRESETS: { label: string; value: ExportScale }[] = [
   { label: "0.5x", value: "0.5" },
   { label: "1x", value: "1" },
@@ -80,10 +82,6 @@ const SCALE_PRESETS: { label: string; value: ExportScale }[] = [
   { label: "Custom…", value: "custom" }, // i18n-ignore fixed scale preset label
 ];
 
-/**
- * Map a numeric scale to the nearest preset key, or "custom" if it doesn't
- * match any of the five standard multipliers.
- */
 function scaleToPreset(scale: number): ExportScale {
   const hit = SCALE_PRESETS.find(
     (p) => p.value !== "custom" && Number(p.value) === scale,
@@ -91,13 +89,11 @@ function scaleToPreset(scale: number): ExportScale {
   return hit ? hit.value : "custom";
 }
 
-/** A single in-progress export row (multi-row internal state) */
 interface ExportRow {
   id: number;
   scale: number;
   format: ExportFormat;
   suffix: string;
-  /** Whether the user has switched to freeform scale entry */
   customScale: boolean;
 }
 
@@ -116,7 +112,6 @@ function rowFromValue(v: ExportSettingsValue): ExportRow {
   };
 }
 
-/** Scale dropdown — shows the design editor's 0.5x/1x/2x/3x/4x presets + Custom */
 function ScaleSelect({
   scale,
   customScale,
@@ -173,11 +168,11 @@ export function ExportSettingsPanel({
   disabled = false,
   exporting = false,
   className,
+  controllerRef,
 }: ExportSettingsPanelProps) {
   const copy = { ...DEFAULT_LABELS, ...labels };
   const isDisabled = disabled || exporting;
 
-  // Multi-row internal state — primary row is kept in sync with the `value` prop
   const [rows, setRows] = useState<ExportRow[]>(() => [rowFromValue(value)]);
 
   useEffect(() => {
@@ -194,7 +189,6 @@ export function ExportSettingsPanel({
 
   function patchRow(id: number, patch: Partial<ExportRow>) {
     setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
-    // Report primary row changes to the parent via `onChange`
     if (id === rows[0]?.id) {
       const next = { ...rows[0], ...patch };
       const parent: Partial<ExportSettingsValue> = {};
@@ -218,12 +212,12 @@ export function ExportSettingsPanel({
     ]);
   }
 
+  useImperativeHandle(controllerRef, () => ({ addRow }));
+
   function removeRow(id: number) {
     setRows((prev) => {
-      // Must keep at least one row
       if (prev.length <= 1) return prev;
       const next = prev.filter((r) => r.id !== id);
-      // If the primary (first) row was removed, the new first row becomes primary
       if (prev[0]?.id === id && next[0]) {
         onChange({
           scale: next[0].scale,
@@ -244,21 +238,22 @@ export function ExportSettingsPanel({
 
   return (
     <div className={cn("space-y-2", className)}>
-      {/* Section header: title left, "+" right — matches the design editor export header */}
-      <div className="flex h-6 items-center justify-between">
-        <span className="design-sidebar-field-label text-muted-foreground">
-          {copy.title}
-        </span>
-        <button
-          type="button"
-          aria-label={copy.addExport}
-          disabled={isDisabled}
-          className="flex size-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
-          onClick={addRow}
-        >
-          <IconPlus className="size-3.5" />
-        </button>
-      </div>
+      {controllerRef ? null : (
+        <div className="flex h-6 items-center justify-between">
+          <span className="design-sidebar-field-label text-muted-foreground">
+            {copy.title}
+          </span>
+          <button
+            type="button"
+            aria-label={copy.addExport}
+            disabled={isDisabled}
+            className="flex size-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+            onClick={addRow}
+          >
+            <IconPlus className="size-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Export rows: [scale ▾] [format ▾] [suffix] [×] — design-editor compact inline layout */}
       {rows.map((row) => (
@@ -289,7 +284,6 @@ export function ExportSettingsPanel({
   );
 }
 
-/** A single export row: [scale ▾ or custom input] [format ▾] [suffix] [×] */
 function ExportRow({
   row,
   formats,
@@ -315,9 +309,6 @@ function ExportRow({
           type="number"
           value={row.scale}
           disabled={isDisabled}
-          // Bounds match the exporter's real clamp ([0.1, 4]); see
-          // DesignEditor handleDownload* . Previously the field accepted up to
-          // 100x but the exporter silently clamped to 4x with no feedback.
           min={MIN_EXPORT_SCALE}
           max={MAX_EXPORT_SCALE}
           step={0.5}
@@ -332,7 +323,6 @@ function ExportRow({
             }
           }}
           onBlur={() => {
-            // Switch back to preset dropdown if the typed value matches a preset
             if (scaleToPreset(row.scale) !== "custom") {
               onPatchRow(row.id, { customScale: false });
             }

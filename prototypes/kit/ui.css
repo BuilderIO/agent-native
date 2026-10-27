@@ -1,0 +1,51 @@
+/* Menu density defaults to the Design editor's (12/16 text, 28px rows, 3px inset); a prototype sets
+   --kit-menu-font, --kit-menu-line, --kit-menu-row, --kit-menu-padding, and --kit-menu-item-radius for its own. */
+/* Shared controls: the review strip and its chips, icon buttons, buttons, the segmented control, menus,
+   the click-away scrim, and toasts. Colors come from the code's tokens; --kit-accent is the prototype's accent. */
+.review { height: 36px; display: flex; align-items: center; gap: 8px; padding-inline: 12px; border-bottom: 1px solid var(--color-border); background: var(--color-muted); font-size: 12px; }
+.review .name { font-weight: 600; }
+.review .ver { color: var(--color-muted-foreground); }
+.review .grow { flex: 1; }
+.chip { height: 24px; padding-inline: 8px; border-radius: 6px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--color-border); background: var(--color-background); white-space: nowrap; }
+.chip[aria-pressed="true"] { border-color: var(--kit-accent); color: var(--kit-accent); }
+.chip .k { color: var(--color-muted-foreground); font-size: 11px; }
+.icon-btn { width: 32px; height: 32px; border-radius: 6px; display: grid; place-items: center; flex: none; }
+.icon-btn:hover { background: var(--color-accent); }
+.icon-btn.sm { width: 22px; height: 22px; border-radius: 6px; }
+.icon-btn.xs { width: 24px; height: 24px; border-radius: 6px; }
+.kit-seg { display: inline-flex; padding: 4px; border-radius: 14px; background: var(--color-muted); flex: none; }
+.kit-seg button { height: 20px; padding-inline: 6px; border-radius: 8px; font-size: 12px; font-weight: 500; line-height: 16px; color: var(--color-muted-foreground); }
+.kit-seg button[aria-pressed="true"] { background: var(--color-background); color: var(--color-foreground); box-shadow: 0 1px 2px rgb(0 0 0 / 10%), 0 1px 1.5px rgb(0 0 0 / 10%); }
+.btn { height: 32px; padding-inline: 10px; border-radius: 10px; display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 500; white-space: nowrap; }
+.btn.secondary { background: var(--color-muted); }
+.btn.secondary:hover { background: var(--color-border); }
+.btn.primary { background: var(--color-primary); color: var(--color-primary-foreground); }
+.btn.primary:hover { opacity: .9; }
+.btn.agent { color: hsl(262 70% 52%); background: color-mix(in srgb, hsl(262 70% 52%) 8%, transparent); }
+.btn.agent:hover { background: color-mix(in srgb, hsl(262 70% 52%) 14%, transparent); }
+.btn[disabled] { opacity: .5; cursor: default; }
+/* menus: Nova dropdown. Full-bleed 28px rows, no inner padding, dividers edge to edge. */
+/* The editor's menu density, from CanvasContextMenu.tsx: 3px inset, 28px rows of 12px text with 4px corners,
+   inset separators, 11px muted shortcuts. Same structure as the toolkit's shadcn DropdownMenu, at the editor's scale. */
+.menu { position: fixed; z-index: 1000; background: var(--color-popover); color: var(--color-foreground); border: 1px solid var(--color-border); border-radius: 6px; padding: var(--kit-menu-padding, 3px); min-width: 128px; box-shadow: 0 4px 16px rgb(0 0 0 / 16%), 0 0 0 .5px rgb(0 0 0 / 8%); font-size: var(--kit-menu-font, 12px); line-height: var(--kit-menu-line, 16px); overflow: hidden; animation: swap .12s ease-out; }
+.menu button { width: 100%; height: var(--kit-menu-row, 28px); padding: 0 8px; border-radius: var(--kit-menu-item-radius, 4px); display: flex; align-items: center; gap: 8px; text-align: left; white-space: nowrap; }
+.menu button:hover, .menu button:focus-visible, .menu button.open { background: var(--color-accent); outline: none; }
+.menu button[disabled] { opacity: .35; cursor: default; background: none; }
+.menu button.two { height: auto; min-height: 40px; padding-block: 5px; align-items: flex-start; }
+.menu .tt { display: flex; flex-direction: column; min-width: 0; }
+.menu .tt small { color: var(--color-muted-foreground); font-size: 11px; line-height: 16px; }
+.menu .kbd { margin-left: auto; padding-left: 16px; font-size: 11px; color: var(--color-muted-foreground); opacity: .7; font-variant-numeric: tabular-nums; }
+.menu button svg { flex: none; }
+.menu button.danger { color: var(--color-destructive); }
+.menu hr { border: 0; height: 1px; background: var(--color-border); opacity: .8; margin: 3px 0; }
+.menu .lbl { height: 24px; display: flex; align-items: center; padding: 0 8px; font-size: 11px; font-weight: 500; color: var(--color-muted-foreground); }
+.menu .ck { width: 16px; display: grid; place-items: center; flex: none; }
+.menu .sub { margin-left: auto; padding-left: 16px; display: grid; }
+.menu img.mi-img { width: 16px; height: 16px; border-radius: 4px; flex: none; }
+.menu .search { height: 32px; display: flex; align-items: center; gap: 8px; padding-inline: 11px; margin: -3px -3px 3px; color: var(--color-muted-foreground); border-bottom: 1px solid var(--color-border); }
+.menu .search input { flex: 1; min-width: 0; border: 0; background: none; outline: none; font-size: 12px; color: var(--color-foreground); }
+.menu .field-row { padding: 8px; margin: -3px -3px 3px; border-bottom: 1px solid var(--color-border); }
+.menu .field-row input { width: 100%; height: 24px; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-background); padding-inline: 8px; font-size: 12px; }
+/* Menus and their click-away scrim sit above any prototype dialog, popover, or sheet, so a menu opened from one is usable. */
+.scrim { position: fixed; inset: 0; z-index: 990; }
+.toast { position: fixed; left: 50%; bottom: 84px; transform: translateX(-50%); background: var(--color-primary); color: var(--color-primary-foreground); padding: 8px 12px; border-radius: 8px; font-size: 12px; z-index: 1100; box-shadow: var(--agent-kit-overlay-elevation); }

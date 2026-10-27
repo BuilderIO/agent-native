@@ -19,7 +19,6 @@ interface CapturableBrowserContents {
 }
 
 const MAX_SCREENSHOT_DIMENSION = 1_600;
-// Keep the MCP image below the core tool-result limit after base64 encoding.
 const MAX_SCREENSHOT_BASE64_CHARS = 1_900_000;
 const INITIAL_JPEG_QUALITY = 80;
 const MIN_JPEG_QUALITY = 45;

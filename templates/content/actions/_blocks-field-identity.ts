@@ -1,3 +1,4 @@
+import { ActionContractError } from "@agent-native/core";
 import { and, asc, eq, inArray } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -14,6 +15,16 @@ import {
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 
 type ContentDb = ReturnType<typeof getDb>;
+
+// Postgres counts bind parameters in 16 bits, and a block row binds 15 of them:
+// one INSERT of a few thousand blocks overflows and fails the whole save.
+const BLOCK_ROWS_PER_STATEMENT = 1000;
+
+function* chunkBlockRows<T>(rows: readonly T[]): Generator<T[]> {
+  for (let start = 0; start < rows.length; start += BLOCK_ROWS_PER_STATEMENT) {
+    yield rows.slice(start, start + BLOCK_ROWS_PER_STATEMENT);
+  }
+}
 
 export interface PrimaryBlocksField {
   propertyId: string;
@@ -60,17 +71,28 @@ function groups<T>(values: T[], size: number): T[][] {
 export async function lockPrimaryBlocksFields(
   db: ContentDb,
   documentId: string,
+  options: LockPrimaryBlocksFieldsOptions = {},
 ): Promise<PrimaryBlocksField[]> {
   return (
-    (await lockPrimaryBlocksFieldsForDocuments(db, [documentId])).get(
+    (await lockPrimaryBlocksFieldsForDocuments(db, [documentId], options)).get(
       documentId,
     ) ?? []
   );
 }
 
+interface LockPrimaryBlocksFieldsOptions {
+  /**
+   * Memberships the caller locked before the page. Any other membership was
+   * added since, and locking it after the page deadlocks against an edit or
+   * restore that locks memberships first, so it is refused instead.
+   */
+  heldMembershipIds?: ReadonlySet<string>;
+}
+
 export async function lockPrimaryBlocksFieldsForDocuments(
   db: ContentDb,
   documentIds: string[],
+  options: LockPrimaryBlocksFieldsOptions = {},
 ): Promise<Map<string, PrimaryBlocksField[]>> {
   const uniqueDocumentIds = [...new Set(documentIds)];
   const memberships: Array<{
@@ -91,6 +113,13 @@ export async function lockPrimaryBlocksFieldsForDocuments(
     );
   }
   const membershipIds = memberships.map((membership) => membership.id);
+  const held = options.heldMembershipIds;
+  if (held && membershipIds.some((membershipId) => !held.has(membershipId))) {
+    throw new ActionContractError(
+      "The document was added to a collection while it saved. Read the document again and retry.",
+      { errorCode: "DOCUMENT_METADATA_SCOPE_CHANGED", statusCode: 409 },
+    );
+  }
   await lockDatabaseMemberships(db, membershipIds);
   if (membershipIds.length === 0) return new Map();
 
@@ -275,6 +304,11 @@ export async function persistBlocksFieldIdentity(args: {
   propertyId: string;
   previousMarkdown: string;
   markdown: string;
+  /**
+   * Markdown between previousMarkdown and markdown, in order. Block IDs follow
+   * each one in turn, as if each had been saved.
+   */
+  intermediateMarkdown?: readonly string[];
   expectedRevision?: number;
   preferredIdsByPath?: Readonly<Record<string, string>>;
   rejectCrossFieldIdRemapping?: boolean;
@@ -300,15 +334,22 @@ export async function persistBlocksFieldIdentity(args: {
       markdown: args.previousMarkdown,
     });
 
-  // A legacy whole-field writer may have changed Markdown without updating the
-  // sidecar. Reconcile exact unique blocks first and report the resulting extra
-  // revision instead of silently pretending continuity was complete.
   if (previous.contentHash !== blocksContentHash(args.previousMarkdown)) {
     previous = reconcileBlocksFieldIdentity({
       documentId: args.documentId,
       propertyId: args.propertyId,
       previous,
       markdown: args.previousMarkdown,
+      createId: () => `block_${nanoid(16)}`,
+    });
+  }
+
+  for (const markdown of args.intermediateMarkdown ?? []) {
+    previous = reconcileBlocksFieldIdentity({
+      documentId: args.documentId,
+      propertyId: args.propertyId,
+      previous,
+      markdown,
       createId: () => `block_${nanoid(16)}`,
     });
   }
@@ -323,18 +364,18 @@ export async function persistBlocksFieldIdentity(args: {
   });
 
   if (next.blocks.length > 0) {
-    const existingOwners = await args.db
-      .select({
-        id: schema.documentBlocks.id,
-        fieldId: schema.documentBlocks.fieldId,
-      })
-      .from(schema.documentBlocks)
-      .where(
-        inArray(
-          schema.documentBlocks.id,
-          next.blocks.map((block) => block.id),
-        ),
+    const existingOwners: { id: string; fieldId: string }[] = [];
+    for (const ids of chunkBlockRows(next.blocks.map((block) => block.id))) {
+      existingOwners.push(
+        ...(await args.db
+          .select({
+            id: schema.documentBlocks.id,
+            fieldId: schema.documentBlocks.fieldId,
+          })
+          .from(schema.documentBlocks)
+          .where(inArray(schema.documentBlocks.id, ids))),
       );
+    }
     const remappedIds = new Map<string, string>();
     const reserved = new Set(next.blocks.map((block) => block.id));
     for (const existing of existingOwners) {
@@ -405,26 +446,25 @@ export async function persistBlocksFieldIdentity(args: {
   await args.db
     .delete(schema.documentBlocks)
     .where(eq(schema.documentBlocks.fieldId, fieldId));
-  if (next.blocks.length > 0) {
-    await args.db.insert(schema.documentBlocks).values(
-      next.blocks.map((block, sortIndex) => ({
-        id: block.id,
-        ownerEmail: args.ownerEmail,
-        fieldId,
-        parentId: block.parentId,
-        kind: block.kind,
-        position: block.position,
-        sortIndex,
-        addressable: block.addressable,
-        contentHash: block.contentHash,
-        markdown: block.markdown,
-        state: block.state,
-        deletedAtRevision: block.deletedAtRevision,
-        recoveredAtRevision: block.recoveredAtRevision,
-        createdAt: args.now,
-        updatedAt: args.now,
-      })),
-    );
+  const rows = next.blocks.map((block, sortIndex) => ({
+    id: block.id,
+    ownerEmail: args.ownerEmail,
+    fieldId,
+    parentId: block.parentId,
+    kind: block.kind,
+    position: block.position,
+    sortIndex,
+    addressable: block.addressable,
+    contentHash: block.contentHash,
+    markdown: block.markdown,
+    state: block.state,
+    deletedAtRevision: block.deletedAtRevision,
+    recoveredAtRevision: block.recoveredAtRevision,
+    createdAt: args.now,
+    updatedAt: args.now,
+  }));
+  for (const chunk of chunkBlockRows(rows)) {
+    await args.db.insert(schema.documentBlocks).values(chunk);
   }
   return next;
 }

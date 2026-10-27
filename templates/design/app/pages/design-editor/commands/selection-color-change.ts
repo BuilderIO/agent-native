@@ -1,12 +1,10 @@
 import {
-  replaceSelectionFillColorsInHtml,
   replaceSelectionColorsInHtml,
   type SelectionColorScope,
 } from "@/components/design/edit-panel/document-colors";
 import type { StyleChangeMeta } from "@/components/design/edit-panel/style-change-types";
 
 import type { ContentHistoryEntry } from "../history";
-import type { ApplyFileContentUpdateResult } from "./apply-file-content-update";
 
 export interface SelectionColorPreviewHistoryEntry {
   before: string;
@@ -45,32 +43,6 @@ export interface SelectionColorChangeArgs {
     current: Map<string, SelectionColorPickerSessionEntry>;
   };
   scopes: SelectionColorScope[];
-}
-
-export function restoreSelectionColorPreview(
-  args: Pick<SelectionColorChangeArgs, "activeFileId" | "previewHistoryRef"> & {
-    applyFileContentUpdate: (
-      ...args: Parameters<SelectionColorChangeArgs["applyFileContentUpdate"]>
-    ) => ApplyFileContentUpdateResult;
-  },
-  fileId: string,
-  content: string | undefined,
-): ApplyFileContentUpdateResult["status"] | "stale" {
-  const preview = args.previewHistoryRef.current.get(fileId);
-  if (!preview || content === undefined || preview.after !== content) {
-    args.previewHistoryRef.current.delete(fileId);
-    return "stale";
-  }
-  if (preview.before !== content) {
-    const result = args.applyFileContentUpdate(fileId, preview.before, {
-      forcePreviewFullDocument: fileId === args.activeFileId,
-      persist: false,
-      recordHistory: false,
-    });
-    if (result.status !== "accepted") return result.status;
-  }
-  args.previewHistoryRef.current.delete(fileId);
-  return "accepted";
 }
 
 export type SelectionColorChangeResult =
@@ -127,7 +99,6 @@ export function runSelectionColorChange(
   from: string,
   to: string,
   meta?: StyleChangeMeta,
-  mode: "all-colors" | "fill-colors" = "all-colors",
 ): SelectionColorChangeResult {
   if (!args.canEditDesign) return { status: "ignored" };
   if (args.scopes.length === 0) return { status: "ignored" };
@@ -260,20 +231,12 @@ export function runSelectionColorChange(
       ? scopes.map((scope) => ({ ...scope, content: replacementContent }))
       : scopes;
     const sourceColor = pickerSession?.from ?? previewBaseline?.from ?? from;
-    const nextContent =
-      mode === "fill-colors"
-        ? replaceSelectionFillColorsInHtml(
-            replacementContent,
-            replacementScopes,
-            sourceColor,
-            to,
-          )
-        : replaceSelectionColorsInHtml(
-            replacementContent,
-            replacementScopes,
-            sourceColor,
-            to,
-          );
+    const nextContent = replaceSelectionColorsInHtml(
+      replacementContent,
+      replacementScopes,
+      sourceColor,
+      to,
+    );
     if (nextContent === null) return { status: "refused" };
     plannedUpdates.push({
       content,
@@ -331,8 +294,6 @@ export function runSelectionColorChange(
     scopeIdentity,
   } of plannedUpdates) {
     if (nextContent === content) {
-      // A picker commit can repeat its final preview value. Still route that
-      // value through the normal save/history path after the preview skipped it.
       if (!previewOnly) {
         args.applyFileContentUpdate(fileId, content, {
           forcePreviewFullDocument: fileId === args.activeFileId,

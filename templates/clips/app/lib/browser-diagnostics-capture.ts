@@ -258,7 +258,7 @@ export function createBrowserDiagnosticsCapture(): BrowserDiagnosticsCapture {
         type: "fetch",
         method,
         url,
-        status: response.status,
+        status: response.status || undefined,
         statusText: response.statusText,
         ok: response.ok,
         durationMs: performance.now() - startedAtPerfForRequest,

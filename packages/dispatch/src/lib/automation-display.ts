@@ -13,11 +13,6 @@ export function automationIdentity(
   return `${item.owner}:${item.path}`;
 }
 
-/**
- * Dispatch is the workspace-wide surface. Keep legacy resources without an
- * app owner visible in its default view while making an explicit app owner
- * opt into the global filter.
- */
 export function belongsToDispatch(
   item: Pick<DispatchAutomationItem, "appId">,
 ): boolean {
@@ -86,7 +81,7 @@ export function automationStatus(item: DispatchAutomationItem): {
   if (item.lastStatus === "running")
     return { label: "Running", tone: "warning" };
   if (item.lastStatus === "skipped")
-    return { label: "Blocked", tone: "warning" };
+    return { label: item.lastStatus, tone: "muted" };
   if (item.lastStatus === "success")
     return { label: "Healthy", tone: "success" };
   return { label: "Ready", tone: "default" };
@@ -96,14 +91,8 @@ export function sortAutomations(
   automations: DispatchAutomationItem[],
 ): DispatchAutomationItem[] {
   return [...automations].sort((a, b) => {
-    const aError =
-      a.enabled && (a.lastStatus === "error" || a.lastStatus === "skipped")
-        ? 1
-        : 0;
-    const bError =
-      b.enabled && (b.lastStatus === "error" || b.lastStatus === "skipped")
-        ? 1
-        : 0;
+    const aError = a.enabled && a.lastStatus === "error" ? 1 : 0;
+    const bError = b.enabled && b.lastStatus === "error" ? 1 : 0;
     if (aError !== bError) return bError - aError;
     return (b.lastRun || "").localeCompare(a.lastRun || "");
   });

@@ -12,13 +12,6 @@ function readRendererTheme(): RendererTheme {
     : "light";
 }
 
-/**
- * Reflects the OS color-scheme preference onto the document root.
- *
- * The desktop shell and embedded Agent tab use the same `.dark` / `.light`
- * class-based strategy as the web templates. Electron has no in-app theme
- * picker today, so this mirrors `prefers-color-scheme` live.
- */
 export function initRendererTheme(): void {
   const media = window.matchMedia("(prefers-color-scheme: dark)");
   const root = document.documentElement;
@@ -35,7 +28,6 @@ export function initRendererTheme(): void {
   media.addEventListener("change", (event) => applyTheme(event.matches));
 }
 
-/** Tracks the shell's resolved theme so every live app surface can follow it. */
 export function useRendererTheme(): RendererTheme {
   const [theme, setTheme] = useState<RendererTheme>(readRendererTheme);
 
@@ -54,12 +46,6 @@ export function useRendererTheme(): RendererTheme {
   return theme;
 }
 
-/**
- * Applies a shell theme inside a webview without relying on an app-specific
- * preload. The custom event lets apps using AppProviders synchronize their
- * next-themes state as well as the initial DOM, while the DOM/localStorage
- * fallback still covers apps that do not use the shared provider.
- */
 export function buildGuestThemeScript(theme: RendererTheme): string {
   const encodedTheme = JSON.stringify(theme);
   const encodedEventName = JSON.stringify(EMBEDDED_THEME_CHANGE_EVENT);

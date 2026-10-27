@@ -36,7 +36,6 @@ export function registerBuiltinAgentHarnesses(
     });
   }
 
-  // Generic ACP entry: resolve with { command, args } for any ACP agent.
   const acpAdapter = createAcpHarnessAdapter({ command: "acp" });
   registerAgentHarness({
     name: "acp",

@@ -5,22 +5,39 @@ const getSettingMock = vi.hoisted(() => vi.fn());
 const readDeployCredentialEnvMock = vi.hoisted(() => vi.fn());
 const canUseDeployCredentialFallbackForRequestMock = vi.hoisted(() => vi.fn());
 const getProviderCredentialAuthFailureMock = vi.hoisted(() => vi.fn());
+const readOrgMemberRoleMock = vi.hoisted(() => vi.fn());
 const requestContextState = vi.hoisted(() => ({
   synthetic: false,
   orgId: undefined as string | undefined,
+  orgScope: undefined as "personal" | undefined,
+  defaultAgentEngineScope: undefined as "deployment" | undefined,
 }));
 
 vi.mock("../secrets/storage.js", () => ({
   readAppSecret: readAppSecretMock,
 }));
 
-vi.mock("../settings/store.js", () => ({
+vi.mock("../settings/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/store.js")>()),
   getSetting: getSettingMock,
 }));
 
 vi.mock("../server/request-context.js", () => ({
-  getRequestContext: () =>
-    requestContextState.synthetic ? { isSyntheticTraffic: true } : undefined,
+  getRequestContext: () => {
+    const context = {
+      ...(requestContextState.synthetic ? { isSyntheticTraffic: true } : {}),
+      ...(requestContextState.orgScope
+        ? { orgScope: requestContextState.orgScope }
+        : {}),
+      ...(requestContextState.defaultAgentEngineScope
+        ? {
+            defaultAgentEngineScope:
+              requestContextState.defaultAgentEngineScope,
+          }
+        : {}),
+    };
+    return Object.keys(context).length > 0 ? context : undefined;
+  },
   getRequestOrgId: () => requestContextState.orgId,
   getRequestUserEmail: () => "owner@example.com",
 }));
@@ -32,12 +49,22 @@ vi.mock("../server/credential-provider.js", () => ({
   readDeployCredentialEnv: readDeployCredentialEnvMock,
 }));
 
+vi.mock(
+  "../server/personal-provider-key-policy.js",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("../server/personal-provider-key-policy.js")
+    >()),
+    readOrgMemberRole: readOrgMemberRoleMock,
+  }),
+);
+
 import {
   getOwnerApiKey,
+  getOwnerApiKeyForEngine,
   resolveOwnerEngineApiKey,
 } from "./production-agent.js";
 
-/** Owner-scoped `app_secrets` rows, keyed by the provider env var. */
 function ownerSecrets(secrets: Record<string, string>) {
   readAppSecretMock.mockImplementation(async ({ key }: { key: string }) =>
     secrets[key] ? { value: secrets[key], last4: "-key", updatedAt: 1 } : null,
@@ -53,17 +80,85 @@ beforeEach(() => {
   getProviderCredentialAuthFailureMock.mockResolvedValue(null);
   requestContextState.synthetic = false;
   requestContextState.orgId = undefined;
+  requestContextState.orgScope = undefined;
+  requestContextState.defaultAgentEngineScope = undefined;
+  readOrgMemberRoleMock.mockResolvedValue("member");
+});
+
+describe("getOwnerApiKey scope order", () => {
+  it("runs an owner or admin on the org's key ahead of their own, and a member on theirs", async () => {
+    requestContextState.orgId = "org-1";
+    readAppSecretMock.mockImplementation(
+      async ({ key, scope }: { key: string; scope: string }) =>
+        key === "ANTHROPIC_API_KEY" && (scope === "user" || scope === "org")
+          ? { value: `test-anthropic-${scope}`, last4: "-key", updatedAt: 1 }
+          : null,
+    );
+    for (const [role, expected] of [
+      ["owner", "test-anthropic-org"],
+      ["admin", "test-anthropic-org"],
+      ["member", "test-anthropic-user"],
+    ] as const) {
+      readOrgMemberRoleMock.mockResolvedValue(role);
+      await expect(
+        getOwnerApiKey("anthropic", "owner@example.com"),
+      ).resolves.toBe(expected);
+    }
+    expect(readOrgMemberRoleMock).toHaveBeenCalledWith(
+      "org-1",
+      "owner@example.com",
+    );
+  });
+
+  it("does not replace an unreadable owner-key lookup with a deployment key", async () => {
+    readAppSecretMock.mockRejectedValue(new Error("secret store unavailable"));
+    readDeployCredentialEnvMock.mockReturnValue("deploy-provider-key");
+    const onLookupFailure = vi.fn();
+
+    await expect(
+      getOwnerApiKeyForEngine("ai-sdk:openai", "owner@example.com", {
+        onLookupFailure,
+      }),
+    ).resolves.toEqual({ apiKey: undefined, apiKeyEnvVar: undefined });
+
+    expect(onLookupFailure).toHaveBeenCalledOnce();
+    expect(readDeployCredentialEnvMock).not.toHaveBeenCalled();
+  });
+
+  it("does not fall back to a legacy owner key after secret-store failure", async () => {
+    readAppSecretMock.mockRejectedValue(new Error("secret store unavailable"));
+    getSettingMock.mockResolvedValue({ key: "legacy-openai-owner-key" });
+    const onLookupFailure = vi.fn();
+
+    await expect(
+      getOwnerApiKeyForEngine("ai-sdk:openai", "owner@example.com", {
+        onLookupFailure,
+      }),
+    ).resolves.toEqual({ apiKey: undefined, apiKeyEnvVar: undefined });
+
+    expect(onLookupFailure).toHaveBeenCalledOnce();
+    expect(getSettingMock).not.toHaveBeenCalled();
+    expect(readDeployCredentialEnvMock).not.toHaveBeenCalled();
+  });
+
+  it("can disable deployment-key fallback for a confirmed missing owner key", async () => {
+    readDeployCredentialEnvMock.mockReturnValue("deploy-provider-key");
+
+    await expect(
+      getOwnerApiKeyForEngine("ai-sdk:openai", "owner@example.com", {
+        allowDeploymentFallback: false,
+      }),
+    ).resolves.toEqual({ apiKey: undefined, apiKeyEnvVar: undefined });
+
+    expect(readDeployCredentialEnvMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("resolveOwnerEngineApiKey", () => {
   it("resolves the named engine's own key rather than the active setting's", async () => {
-    // The regression this guards: the saved `agent-engine` setting decides
-    // which provider `getOwnerActiveApiKey` reads, so a plugin configured for
-    // OpenAI used to receive the owner's Anthropic key — untagged, which meant
-    // `resolveEngine` handed a live Anthropic secret to OpenAI.
     getSettingMock.mockResolvedValue({ engine: "anthropic" });
     ownerSecrets({
-      ANTHROPIC_API_KEY: "sk-ant-owner",
+      ANTHROPIC_API_KEY: "test-anthropic-owner",
       OPENAI_API_KEY: "sk-openai-owner",
     });
 
@@ -75,12 +170,17 @@ describe("resolveOwnerEngineApiKey", () => {
     ).resolves.toEqual({
       apiKey: "sk-openai-owner",
       apiKeyEnvVar: "OPENAI_API_KEY",
+      credentialProvenance: {
+        scope: "user",
+        scopeId: "owner@example.com",
+        source: "app_secrets",
+      },
     });
   });
 
   it("never returns another provider's key for an engine the owner has no key for", async () => {
     getSettingMock.mockResolvedValue({ engine: "anthropic" });
-    ownerSecrets({ ANTHROPIC_API_KEY: "sk-ant-owner" });
+    ownerSecrets({ ANTHROPIC_API_KEY: "test-anthropic-owner" });
 
     await expect(
       resolveOwnerEngineApiKey({
@@ -101,18 +201,76 @@ describe("resolveOwnerEngineApiKey", () => {
     ).resolves.toEqual({
       apiKey: "sk-openai-owner",
       apiKeyEnvVar: "OPENAI_API_KEY",
+      credentialProvenance: {
+        scope: "user",
+        scopeId: "owner@example.com",
+        source: "app_secrets",
+      },
     });
   });
 
-  it("falls back to the active engine's key, untagged, when no engine is named", async () => {
-    // No explicit engine means the registry picks one and re-derives the
-    // credential itself, so an opaque key is the honest answer here.
+  it("preserves the active engine key's provenance when no engine is named", async () => {
+    // The registry may select another engine, so the key must stay tagged for
+    // provider matching while retaining the scope that owns its value.
+    requestContextState.defaultAgentEngineScope = "deployment";
     getSettingMock.mockResolvedValue({ engine: "anthropic" });
-    ownerSecrets({ ANTHROPIC_API_KEY: "sk-ant-owner" });
+    ownerSecrets({ ANTHROPIC_API_KEY: "test-anthropic-owner" });
 
     await expect(
       resolveOwnerEngineApiKey({ ownerEmail: "owner@example.com" }),
-    ).resolves.toEqual({ apiKey: "sk-ant-owner", apiKeyEnvVar: undefined });
+    ).resolves.toEqual({
+      apiKey: "test-anthropic-owner",
+      apiKeyEnvVar: undefined,
+      credentialProvenance: {
+        scope: "user",
+        scopeId: "owner@example.com",
+        source: "app_secrets",
+      },
+    });
+  });
+
+  it("uses the tagged host fallback when the active engine setting is unavailable", async () => {
+    requestContextState.defaultAgentEngineScope = "deployment";
+    getSettingMock.mockRejectedValue(new Error("settings unavailable"));
+
+    await expect(
+      resolveOwnerEngineApiKey({
+        ownerEmail: "owner@example.com",
+        anthropicFallback: "host-anthropic-key",
+      }),
+    ).resolves.toEqual({
+      apiKey: "host-anthropic-key",
+      apiKeyEnvVar: "ANTHROPIC_API_KEY",
+      credentialProvenance: { scope: "deployment", source: "env" },
+    });
+    expect(readAppSecretMock).not.toHaveBeenCalled();
+  });
+
+  it("surfaces an unavailable active engine setting without a safe fallback", async () => {
+    requestContextState.defaultAgentEngineScope = "deployment";
+    const settingsError = new Error("settings unavailable");
+    getSettingMock.mockRejectedValue(settingsError);
+
+    await expect(
+      resolveOwnerEngineApiKey({ ownerEmail: "owner@example.com" }),
+    ).rejects.toMatchObject({
+      errorCode: "agent_engine_settings_unavailable",
+      cause: settingsError,
+    });
+  });
+
+  it("does not read a personal key when the active engine scope is unresolved", async () => {
+    ownerSecrets({ ANTHROPIC_API_KEY: "test-anthropic-owner" });
+
+    await expect(
+      resolveOwnerEngineApiKey({ ownerEmail: "owner@example.com" }),
+    ).rejects.toMatchObject({
+      errorCode: "agent_engine_settings_unavailable",
+      cause: expect.objectContaining({
+        message: "Organization scope could not be resolved.",
+      }),
+    });
+    expect(readAppSecretMock).not.toHaveBeenCalled();
   });
 
   it("pairs an explicit OpenAI engine with the OpenAI deploy key", async () => {
@@ -124,11 +282,12 @@ describe("resolveOwnerEngineApiKey", () => {
       resolveOwnerEngineApiKey({
         engineOption: "openai",
         ownerEmail: "owner@example.com",
-        anthropicFallback: "sk-ant-plugin-key",
+        anthropicFallback: "test-anthropic-plugin-key",
       }),
     ).resolves.toEqual({
       apiKey: "sk-openai-deploy",
       apiKeyEnvVar: "OPENAI_API_KEY",
+      credentialProvenance: { scope: "deployment", source: "env" },
     });
   });
 
@@ -137,11 +296,12 @@ describe("resolveOwnerEngineApiKey", () => {
       resolveOwnerEngineApiKey({
         engineOption: "openai",
         ownerEmail: "owner@example.com",
-        anthropicFallback: "sk-ant-plugin-key",
+        anthropicFallback: "test-anthropic-plugin-key",
       }),
     ).resolves.toEqual({
-      apiKey: "sk-ant-plugin-key",
+      apiKey: "test-anthropic-plugin-key",
       apiKeyEnvVar: "ANTHROPIC_API_KEY",
+      credentialProvenance: { scope: "deployment", source: "env" },
     });
   });
 
@@ -158,6 +318,11 @@ describe("resolveOwnerEngineApiKey", () => {
     ).resolves.toEqual({
       apiKey: "scoped-owner-key",
       apiKeyEnvVar: "ANTHROPIC_API_KEY",
+      credentialProvenance: {
+        scope: "user",
+        scopeId: "owner@example.com",
+        source: "app_secrets",
+      },
     });
   });
 

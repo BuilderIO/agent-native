@@ -1,31 +1,10 @@
-/**
- * Framework-table store for the cross-app SSO client.
- *
- * The current protocol uses a fresh flow-state table instead of extending the
- * original `identity_sso_state` table. That keeps the migration additive for
- * deployments that already have the merged PR's schema:
- *
- *   - `identity_sso_flow_state` binds state to the exact app, client,
- *     authority, callback, and PKCE challenge. State is single-use.
- *   - `identity_sso_jti` is the legacy-named shared replay guard for short-lived
- *     server-to-server assertions, including identity SSO and privileged A2A
- *     mutations.
- *
- * Uses the same portable raw-SQL pattern as the other framework stores. Local
- * development may initialize these tables lazily; production release
- * migrations own their creation before serverless requests are served.
- */
-
 import { randomBytes } from "node:crypto";
 
-import {
-  getDbExec,
-  isConnectionError,
-  isProductionServerlessFunctionRuntime,
-} from "../db/client.js";
+import { getDbExec, isConnectionError } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
-
-let _initPromise: Promise<void> | undefined;
+import { defineStore } from "../db/store-registry.js";
+import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
+import { IDENTITY_SSO_MIGRATIONS } from "./identity-sso-migrations.js";
 
 const DESKTOP_SSO_USER_AGENT = /AgentNativeDesktop(?:SsoCanary)?\//i;
 const DESKTOP_SSO_CANARY_USER_AGENT = /AgentNativeDesktopSsoCanary\//i;
@@ -80,11 +59,6 @@ const NETLIFY_PREVIEW_IDENTITY_SSO_SITE_NAMES = new Set(
   ),
 );
 
-// ---------------------------------------------------------------------------
-// Feature switch — this module is intentionally dependency-light because the
-// auth guard and the route handler both import the same pure switch.
-// ---------------------------------------------------------------------------
-
 function configuredAppOrigin(): string | undefined {
   for (const raw of [
     process.env.APP_URL,
@@ -126,8 +100,6 @@ export function getIdentityHubUrl(): string | undefined {
     }
   }
 
-  // Canonical hosted apps are all registered with Dispatch already. Keep
-  // self-hosted deployments opt-in, and never make Dispatch federate to itself.
   const appOrigin = configuredAppOrigin();
   return isCanonicalIdentitySsoClientOrigin(appOrigin)
     ? CANONICAL_IDENTITY_SSO_HUB_URL
@@ -228,8 +200,6 @@ function isNetlifyDeployPermalinkRequestForSites(
   forwardedProtocol: string | undefined,
   allowedSiteNames: Set<string>,
 ): boolean {
-  // Netlify exposes the site identity under either name at runtime; accept the
-  // immutable deploy URL, not DEPLOY_PRIME_URL's movable Deploy Preview alias.
   const requestProtocol = forwardedProtocol?.trim().toLowerCase() || "https";
   const configuredSiteName = (
     process.env.SITE_NAME?.trim() || process.env.NETLIFY_SITE_NAME?.trim()
@@ -301,7 +271,6 @@ function isNetlifyDeployPermalinkOriginForSites(
   }
 }
 
-/** Silent federation and post-login bootstrap remain limited to canonical or explicitly configured clients. */
 export function isIdentitySsoAvailableForRequest(
   options: {
     requestHost?: string;
@@ -372,29 +341,33 @@ function buildIdentitySsoJtiCreateSql(): string {
       `;
 }
 
-export async function ensureTable(): Promise<void> {
-  // Release migrations own schema in production serverless functions. A
-  // request must not turn a missing migration into request-time DDL.
-  if (isProductionServerlessFunctionRuntime()) return;
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const flowStateSql = buildIdentitySsoFlowStateCreateSql();
-      const jtiSql = buildIdentitySsoJtiCreateSql();
-      {
-        await ensureTableExists("identity_sso_flow_state", flowStateSql);
-        await ensureTableExists("identity_sso_jti", jtiSql);
-        return;
-      }
+export const identitySsoStore = defineStore({
+  id: "identity_sso",
+  // Hosted requests never created these tables on main, release-owned or not.
+  releaseOnly: true,
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        await ensureTableExists(
+          "identity_sso_flow_state",
+          buildIdentitySsoFlowStateCreateSql(),
+        );
+        await ensureTableExists(
+          "identity_sso_jti",
+          buildIdentitySsoJtiCreateSql(),
+        );
+      },
+    },
+    ...fromMigrationEntries(
+      "_identity_sso_migrations",
+      IDENTITY_SSO_MIGRATIONS,
+    ),
+  ],
+});
 
-      const client = getDbExec();
-      await client.execute(flowStateSql);
-      await client.execute(jtiSql);
-    })().catch((error) => {
-      _initPromise = undefined;
-      throw error;
-    });
-  }
-  return _initPromise;
+export function ensureTable(): Promise<void> {
+  return identitySsoStore.ready();
 }
 
 function numOrNull(value: unknown): number | null {
@@ -454,7 +427,6 @@ function isSafeStateInput(input: CreateSsoStateInput): boolean {
   return true;
 }
 
-/** Mint and persist a bound, crypto-random state value. */
 export async function createSsoState(
   input: CreateSsoStateInput,
 ): Promise<string> {
@@ -575,12 +547,6 @@ export async function consumeSsoState(
   };
 }
 
-/**
- * Strict replay defense for the server-to-server assertion. A database error
- * fails closed here: code exchange already provides the primary single-use
- * guarantee, and refusing a login is safer than accepting an unverifiable
- * replay boundary.
- */
 export async function consumeOneTimeJti(
   jti: string | undefined,
 ): Promise<boolean> {

@@ -24,7 +24,6 @@ describe("resolveAppForSkill", () => {
     expect(recapSkill?.serverName).toBe("plan");
     expect(recapSkill?.mcpUrl.endsWith("plan.agent-native.com/mcp")).toBe(true);
     expect(recapSkill?.aliases).toContain("agent-native-plans");
-    // Both skills resolve to the very same registry entry.
     expect(recapSkill).toBe(planSkill);
   });
 

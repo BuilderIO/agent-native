@@ -15,6 +15,15 @@ import {
   normalizeLocaleCode,
 } from "../../core/src/localization/shared";
 import { createAgentWebVitePlugin } from "../../core/src/vite/agent-web-plugin";
+import { getArticleTopics } from "../lib/article-topics";
+import {
+  ARTICLES_BASE,
+  ARTICLES_PAGE_SIZE,
+  USE_CASES_BASE,
+  articleMarkdown,
+  type CampaignContent,
+} from "../lib/campaign-content";
+import { loadCampaignContentFromDisk } from "../lib/campaign-content-node";
 import { docsBodyToMarkdownMirror } from "../lib/docs-markdown-export";
 import {
   docSourceSlugFromFilename,
@@ -23,6 +32,7 @@ import {
 import { communityApps } from "./components/community-apps";
 import {
   DOCS_LOCALES,
+  docsLocaleFromSegment,
   docsMarkdownPathForSlug,
   docsPathForSlug,
   localizeDocsMarkdownLinks,
@@ -36,10 +46,6 @@ import { LEGAL_POLICY_METADATA } from "./legal-policy-list";
 export const SITE_URL = "https://www.agent-native.com";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-/**
- * Returns the last git commit date for a file path, falling back to fs mtime
- * when git is unavailable (non-git contexts such as Docker/CI without history).
- */
 function gitLastmod(filePath: string): Date {
   try {
     const iso = execSync(`git log -1 --format=%cI -- "${filePath}"`, {
@@ -53,10 +59,6 @@ function gitLastmod(filePath: string): Date {
   return fs.statSync(filePath).mtime;
 }
 
-/**
- * Vite plugin that auto-generates the public agent-web surface for the docs:
- * sitemap.xml, robots.txt, llms files, and Markdown mirrors for crawlable docs.
- */
 export function sitemapPlugin(): Plugin {
   const rootDir = path.resolve(__dirname, "..");
   const pkg = JSON.parse(
@@ -68,10 +70,13 @@ export function sitemapPlugin(): Plugin {
     description:
       "Open source framework for building apps where AI agents and UI share one state model.",
     pages: () => buildAgentWebPages(rootDir),
+    sitemapGroup: sitemapGroupForPage,
     whenToUse: [
       "Use Agent-Native when an AI agent and a user-facing UI need to share the same actions, SQL data, and application state.",
       "Start with the documentation when you are building an agentic app, adding an action, or exposing a safe capability to external agents.",
       "Connect the MCP server when an external host such as Claude, ChatGPT, Codex, or Cursor should drive the app through its actions.",
+      "Create a standalone Chat app with `npx --yes @agent-native/core@latest create <name> --standalone --template chat`.",
+      "After scaffolding, read AGENTS.md and the `build-an-app` and `adding-a-feature` skills before making changes.",
     ],
     developerResources: [
       {
@@ -149,30 +154,15 @@ export function sitemapPlugin(): Plugin {
   }) as unknown as Plugin;
 }
 
+export function sitemapGroupForPage(page: AgentWebPage): string {
+  const firstSegment = page.path.split("/").filter(Boolean)[0];
+  return (docsLocaleFromSegment(firstSegment) ?? DEFAULT_LOCALE).toLowerCase();
+}
+
 export function buildSitemapPaths(rootDir: string): string[] {
   return buildAgentWebPages(rootDir).map((page) => page.path);
 }
 
-/**
- * Paths React Router prerenders to static HTML at build time. Narrower than the
- * sitemap on purpose — prerendering a path whose loader does not answer 200
- * bakes the wrong response into a static file, so drop:
- *
- * - renamed slugs, whose loader throws a 301 that would be frozen as a
- *   `<meta http-equiv="refresh">` 200 page;
- * - draft docs, hidden by `VITE_SHOW_DRAFTS` — including every translation of a
- *   canonically-draft slug, matching `loadDocRespectingDraftVisibility`.
- * - the Getting Started roots, whose `?tab=cloud` variant must reach SSR
- *   instead of inheriting the local guide from a static file.
- * - community detail paths, so newly published app slugs remain available
- *   without waiting for the next docs build. The catalog index itself is a
- *   prerendered seed shell and refreshes published listings after hydration.
- *
- * Redirected and draft paths keep falling through to the SSR function, which
- * still answers 301/404. Published docs stay prerendered because the Netlify
- * edge negotiation hook rewrites Markdown requests to the SSR function before
- * static routing can serve the HTML file.
- */
 export function buildPrerenderPaths(): string[] {
   const pages = buildDocsSitePages(path.resolve(__dirname, ".."));
   const draftSlugs = new Set(
@@ -198,17 +188,92 @@ export function isDynamicCommunityPath(pagePath: string): boolean {
 }
 
 export function buildAgentWebPages(rootDir: string): AgentWebPage[] {
-  // A redirected slug answers 301, so advertising it in the sitemap, llms.txt,
-  // or a Markdown twin points crawlers at a redirect. Stale translations
-  // outlive an English rename -- `locales/*/database.mdx` survived the rename
-  // to `server-database` -- so the filter has to run here, not just on the
-  // prerender list.
   return buildDocsSitePages(rootDir)
     .filter((page) => !isRedirectedDocsPath(page.path))
     .map(({ docSlug: _docSlug, draft: _draft, ...page }) => page);
 }
 
-/** An `AgentWebPage` plus the doc-source facts the prerender list filters on. */
+export function buildCampaignPages(content: CampaignContent): AgentWebPage[] {
+  const { useCases, articles } = content;
+  const latestDate = (dates: string[]): Date | undefined => {
+    const latest = dates.sort().at(-1);
+    return latest ? new Date(`${latest}T00:00:00Z`) : undefined;
+  };
+  const articleIndex = (
+    base: string,
+    title: string,
+    items: typeof articles,
+  ): AgentWebPage[] =>
+    Array.from(
+      { length: Math.max(1, Math.ceil(items.length / ARTICLES_PAGE_SIZE)) },
+      (_, index) => ({
+        path: index === 0 ? `${base}/` : `${base}/page/${index + 1}/`,
+        title,
+        markdown: `# ${title}\n\n${items
+          .slice(index * ARTICLES_PAGE_SIZE, (index + 1) * ARTICLES_PAGE_SIZE)
+          .map(
+            (article) =>
+              `- [${article.title}](${ARTICLES_BASE}/${article.slug}/)`,
+          )
+          .join("\n")}\n`,
+        lastmod: latestDate(
+          items.map((article) => article.updated ?? article.published),
+        ),
+      }),
+    );
+  const pages: AgentWebPage[] = [
+    {
+      path: `${USE_CASES_BASE}/`,
+      title: "Use cases",
+      markdown: `# Use cases\n\n${useCases.map((item) => `- [${item.title}](${USE_CASES_BASE}/${item.slug}/)`).join("\n")}\n`,
+      lastmod: latestDate(useCases.map((item) => item.updated)),
+    },
+    ...useCases.map((item) => ({
+      path: `${USE_CASES_BASE}/${item.slug}/`,
+      title: item.title,
+      description: item.meta_description,
+      lastmod: new Date(`${item.updated}T00:00:00Z`),
+      markdown:
+        [
+          `# ${item.title}`,
+          item.subhead,
+          `## ${item.old_way.heading}`,
+          item.old_way.body,
+          `## ${item.new_way.heading}`,
+          ...item.new_way.steps.map((step) => `- ${step}`),
+          ...item.faqs.flatMap((faq) => [`## ${faq.q}`, faq.a]),
+        ].join("\n\n") + "\n",
+    })),
+    ...articleIndex(ARTICLES_BASE, "Articles", articles),
+    ...getArticleTopics(articles).map((topic) => {
+      const items = articles.filter((article) => article.topic === topic.slug);
+      return {
+        path: `${ARTICLES_BASE}/topic/${topic.slug}/`,
+        title: topic.name,
+        description: topic.description,
+        markdown: `# ${topic.name}\n\n${topic.description}\n\n${items
+          .map(
+            (article) =>
+              `- [${article.title}](${ARTICLES_BASE}/${article.slug}/)`,
+          )
+          .join("\n")}\n`,
+        lastmod: latestDate(
+          items.map((article) => article.updated ?? article.published),
+        ),
+      };
+    }),
+    ...articles.map((article) => ({
+      path: `${ARTICLES_BASE}/${article.slug}/`,
+      title: article.title,
+      description: article.meta_description,
+      lastmod: new Date(`${article.updated ?? article.published}T00:00:00Z`),
+      markdown: articleMarkdown(article),
+      markdownPath: `${ARTICLES_BASE}/${article.slug}.md`,
+    })),
+  ];
+  return pages;
+}
+
 type DocsSitePage = AgentWebPage & { docSlug?: string; draft?: boolean };
 
 function buildDocsSitePages(rootDir: string): DocsSitePage[] {
@@ -512,6 +577,7 @@ Agent-Native is an open source framework for building apps where AI agents and U
         "# Agent Skills\n\nInstall app-backed skills your coding agent runs as slash commands. `/visual-plan` opens structured visual plans before you build; `/visual-recap` turns a PR diff into a high-altitude review. Install with `npx @agent-native/core@latest skills add visual-plan`.\n",
       lastmod: gitLastmod(path.resolve(rootDir, "app/routes/skills.tsx")),
     },
+    ...buildCampaignPages(loadCampaignContentFromDisk(rootDir)),
     ...docsPages,
     ...localizedDocsPages,
     ...templatePages,

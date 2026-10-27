@@ -1,14 +1,16 @@
 import { mergeCodeAgentTranscriptEvents } from "@agent-native/core/client/agent-chat";
-import { PromptComposer } from "@agent-native/core/client/composer";
+import { useT } from "@agent-native/core/client/i18n";
+import { PromptComposer } from "@agent-native/toolkit/app/chat/composer";
 import {
   IconEye,
   IconLoader2,
   IconMessageCircle,
   IconX,
 } from "@tabler/icons-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { createCodeAgentAiReadinessGate } from "./ai-readiness.js";
 import type { CodeAgentsHost } from "./CodeAgentsApp.js";
 import type { CodeAgentRun, CodeAgentTranscriptEvent } from "./types.js";
 
@@ -23,12 +25,6 @@ export function mergeSessionWatchTranscriptEvents(
   );
 }
 
-/**
- * A deliberately small second-session surface. It watches a run through the
- * same transcript subscription as the main chat and sends follow-ups through
- * the host's existing run-manager boundary, so watching never grants direct
- * access to another session's files or process.
- */
 export function SessionWatchPanel({
   host,
   run,
@@ -40,11 +36,14 @@ export function SessionWatchPanel({
   sourceRunId?: string | null;
   onClose: () => void;
 }) {
+  const t = useT();
   const [events, setEvents] = useState<CodeAgentTranscriptEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [, setPrompt] = useState("");
+  const selectedEngine =
+    typeof run.metadata?.engine === "string" ? run.metadata.engine : undefined;
   const transcriptGenerationRef = useRef(0);
 
   const loadTranscript = useCallback(
@@ -85,8 +84,6 @@ export function SessionWatchPanel({
     setError(null);
     setLoading(true);
 
-    // Subscribe before reading the snapshot. The merge below keeps events that
-    // arrive in the gap between those two operations.
     const unsubscribe = host.subscribeTranscript?.(
       { goalId: run.goalId, runId: run.id },
       (batch) => {
@@ -154,6 +151,28 @@ export function SessionWatchPanel({
     }
   }
 
+  const verifyAiBeforeSubmit = useMemo(
+    () =>
+      createCodeAgentAiReadinessGate(
+        host.getHostMetadata,
+        selectedEngine,
+        (readiness) => {
+          toast(
+            readiness === "missing"
+              ? t("agentChat.setup.connectToChat", {
+                  defaultValue: "Connect AI before sending.",
+                })
+              : t("agentChat.composer.submitFailed", {
+                  defaultValue:
+                    "Could not verify the AI connection. Try again.",
+                }),
+            { duration: 3200 },
+          );
+        },
+      ),
+    [host.getHostMetadata, selectedEngine],
+  );
+
   return (
     <section className="code-agents-session-watch" aria-label="Watched session">
       <div className="code-agents-session-watch__header">
@@ -206,11 +225,12 @@ export function SessionWatchPanel({
         <PromptComposer
           className="code-agents-standard-composer code-agents-session-watch__composer"
           layoutVariant="compact"
+          onBeforeSubmit={verifyAiBeforeSubmit}
+          selectedEngine={selectedEngine}
           draftScope={`agent-native-code:watch:${run.id}`}
           disabled={sending}
           placeholder="Message this session…"
           showModelSelector={false}
-          modelStatusChecksEnabled={false}
           attachmentsEnabled={false}
           voiceEnabled={false}
           includeDefaultSlashCommands={false}

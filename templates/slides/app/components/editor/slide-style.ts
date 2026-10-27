@@ -3,7 +3,6 @@ import type { DesignSystemData } from "@shared/api";
 import type { InlineTextStyleKey } from "./rich-text-selection";
 
 export interface SlideStyleSnapshot {
-  /** Omitted snapshots are existing object snapshots for backward compatibility. */
   mode?: "object";
   selector: string;
   label: string;
@@ -18,7 +17,8 @@ export interface SlideStyleSnapshot {
   y: number;
   width: number;
   height: number;
-  rotation: number;
+  /** Clockwise degrees in [0, 360), or null when the object's transform is not readable. */
+  rotation: number | null;
   slideWidth: number;
   slideHeight: number;
   color: string;
@@ -40,6 +40,31 @@ export interface SlideStyleSnapshot {
   listKind: "bullet" | "ordered" | null;
   textStyleScope?: "block" | "selection";
   mixedTextStyles?: InlineTextStyleKey[];
+}
+
+export function haveSameSlideStyleControls(
+  current: SlideStyleSnapshot | null,
+  next: SlideStyleSnapshot,
+): boolean {
+  if (!current) return false;
+  const currentKeys = Object.keys(current) as (keyof SlideStyleSnapshot)[];
+  const nextKeys = Object.keys(next) as (keyof SlideStyleSnapshot)[];
+  if (currentKeys.length !== nextKeys.length) return false;
+
+  return currentKeys.every((key) => {
+    if (!Object.prototype.hasOwnProperty.call(next, key)) return false;
+    // Text preview is published with the selection; the toolbar only needs style changes.
+    if (key === "textPreview") return true;
+    if (key === "mixedTextStyles") {
+      const previous = current.mixedTextStyles;
+      const upcoming = next.mixedTextStyles;
+      return previous === undefined
+        ? upcoming === undefined
+        : previous.length === upcoming?.length &&
+            previous.every((style, index) => style === upcoming[index]);
+    }
+    return Object.is(current[key], next[key]);
+  });
 }
 
 export type SlideStylePatch = Partial<{
@@ -64,8 +89,9 @@ export type SlideStylePatch = Partial<{
   top: string;
   width: string;
   height: string;
-  transform: string;
   zIndex: string;
+  /** Degrees; set on the object's effective transform, not written as a `transform`. */
+  rotation: number;
 }>;
 
 const MULTI_STYLE_KEYS = [
@@ -77,7 +103,6 @@ const MULTI_STYLE_KEYS = [
   "textDecoration",
 ] as const satisfies readonly InlineTextStyleKey[];
 
-/** Keep the first item's controls while marking values that disagree. */
 export function mergeSlideStyleSnapshots(
   snapshots: readonly SlideStyleSnapshot[],
 ): SlideStyleSnapshot | null {
@@ -94,8 +119,6 @@ export function mergeSlideStyleSnapshots(
 
   return {
     ...first,
-    // Group position controls would write one object's coordinates to every
-    // member, so group snapshots expose appearance controls only.
     isAbsolute: false,
     mixedTextStyles: first.isText
       ? MULTI_STYLE_KEYS.filter((key) =>
@@ -150,9 +173,6 @@ export function tokenPalette(
       ]
     : [];
 
-  // Fixed swatches offered when a deck has no design system. These are
-  // document colors the user paints onto slide content, so they must stay
-  // literal — theming them would repaint finished decks on a theme switch.
   const presets: Array<[key: string, hex: string]> = [
     ["white", "#ffffff"], // guard:allow-raw-color
     ["black", "#000000"], // guard:allow-raw-color
@@ -180,10 +200,6 @@ export function formatValue(value: number) {
   return Number.isInteger(value)
     ? String(value)
     : String(Number(value.toFixed(2)));
-}
-
-export function rotationTransform(rotation: number) {
-  return `rotate(${formatValue(rotation)}deg)`;
 }
 
 export function resolveHorizontalAlignment(snapshot: SlideStyleSnapshot) {

@@ -1,66 +1,63 @@
-import { readFileSync } from "node:fs";
-
+import { isValidElement, type ReactElement, type ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 
+import { MotionDock } from "@/components/design/MotionDock";
+
+import { renderMotionDockPanel } from "./design-editor/view/motion-dock-panel";
+
+function renderRestoredMotionDock(motionLabEnabled: boolean) {
+  return renderMotionDockPanel({
+    editorCore: { hostOwnsChrome: false },
+    editorHistory: {
+      motionDockMounted: true,
+      motionDockOpen: true,
+      hiddenLayerIds: new Set<string>(),
+    },
+    editorGenerationAndAccess: { motionAutosavePending: false },
+    editorActiveScreenAndGeometry: {
+      activeFile: { id: "active-screen" },
+    },
+    editorCanvasAndScreens: { canvasIframeRef: { current: null } },
+    editorLayerActions: { handleToggleLayerHidden: () => {} },
+    editorLiveEditsAndPresence: {
+      initialGenerationChromeLimited: false,
+      motionLabEnabled,
+      motionTracks: [],
+      activeCodeLayerProjection: { nodes: [] },
+      motionDurationMs: 1000,
+      motionDefaultEase: "ease",
+      motionAutoKeyframeEnabled: false,
+      setMotionAutoKeyframeEnabled: () => {},
+      motionPlayhead: 0,
+      setMotionPlayhead: () => {},
+      motionSelectedTarget: null,
+    },
+    editorContentAndComponents: {
+      handleMotionTracksChange: () => {},
+      handleMotionDurationChange: () => {},
+      motionLivePlayheadRef: { current: null },
+    },
+  } as unknown as Parameters<typeof renderMotionDockPanel>[0]);
+}
+
 describe("DesignEditor motion dock transition", () => {
-  const source = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+  it("does not mount a restored open dock while the Motion Lab is off", () => {
+    const panel = renderRestoredMotionDock(false);
 
-  it("opens after a painted collapsed frame so height can transition", () => {
-    const openStart = source.indexOf("const setMotionDockOpenAnimated");
-    const openEnd = source.indexOf(
-      "const handleMotionDockExitComplete",
-      openStart,
-    );
-    expect(openStart).toBeGreaterThanOrEqual(0);
-    expect(openEnd).toBeGreaterThan(openStart);
+    expect(isValidElement(panel)).toBe(true);
+    const children = (panel as ReactElement<{ children?: ReactNode }>).props
+      .children;
+    expect(children).toBeNull();
 
-    const openBlock = source.slice(openStart, openEnd);
-    const mountIndex = openBlock.indexOf("setMotionDockMounted(true)");
-    const firstFrameIndex = openBlock.indexOf("window.requestAnimationFrame");
-    const secondFrameIndex = openBlock.indexOf(
-      "motionDockOpenAnimationFrameRef.current =\n              window.requestAnimationFrame",
-      firstFrameIndex + 1,
-    );
-    const openIndex = openBlock.indexOf(
-      "setMotionDockOpen(true)",
-      firstFrameIndex,
-    );
+    const enabledPanel = renderRestoredMotionDock(true);
 
-    expect(mountIndex).toBeGreaterThanOrEqual(0);
-    expect(firstFrameIndex).toBeGreaterThan(mountIndex);
-    expect(secondFrameIndex).toBeGreaterThan(firstFrameIndex);
-    expect(openIndex).toBeGreaterThan(secondFrameIndex);
-  });
-
-  it("cancels pending enter animation work on close and unmount", () => {
-    expect(source).toContain(
-      "clearMotionDockOpenAnimationFrame();\n      if (open)",
-    );
-    expect(source).toContain("window.cancelAnimationFrame");
-    expect(source).toContain("clearMotionDockOpenAnimationFrame();\n    },");
-  });
-
-  it("keeps the motion dock behind the secondary-panel experiment", () => {
-    expect(source).toContain(
-      "SHOW_DESIGN_SECONDARY_LEFT_PANELS &&\n      !initialGenerationChromeLimited &&\n      activeFile &&\n      motionDockMounted",
-    );
-    expect(source).toContain(
-      "motionDisabled={!activeFile || initialGenerationChromeLimited}",
-    );
-  });
-
-  it("keeps inspector motion controls gated and preserves explicit collapse", () => {
-    expect(source).toContain(
-      "motionKeyframeState: SHOW_DESIGN_SECONDARY_LEFT_PANELS\n      ? motionKeyframeState\n      : undefined,",
-    );
-    expect(source).toContain(
-      "onToggleMotionKeyframe:\n      SHOW_DESIGN_SECONDARY_LEFT_PANELS && canEditDesign\n        ? handleToggleMotionKeyframe",
-    );
-    expect(source).toContain(
-      'if (!initialGenerationChromeLimited) return;\n    setActiveLeftPanel("agent");\n  }, [initialGenerationChromeLimited]);',
-    );
-    expect(source).toContain(
-      "if (panel === null && initialGenerationChromeLimited) return;",
-    );
+    expect(isValidElement(enabledPanel)).toBe(true);
+    const enabledChildren = (
+      enabledPanel as ReactElement<{ children?: ReactNode }>
+    ).props.children;
+    expect(isValidElement(enabledChildren)).toBe(true);
+    if (isValidElement(enabledChildren)) {
+      expect(enabledChildren.type).toBe(MotionDock);
+    }
   });
 });

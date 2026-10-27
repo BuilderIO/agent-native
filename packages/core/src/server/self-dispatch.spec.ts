@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   SYNTHETIC_TRAFFIC_BETA_E2E,
@@ -7,7 +7,10 @@ import {
 import { runWithRequestContext } from "./request-context.js";
 import {
   fireInternalDispatch,
+  resolveDeploymentBaseUrl,
   resolveSelfDispatchBaseUrl,
+  SelfDispatchHttpError,
+  SelfDispatchNetworkError,
 } from "./self-dispatch.js";
 
 describe("fireInternalDispatch", () => {
@@ -125,8 +128,6 @@ describe("fireInternalDispatch", () => {
 
     try {
       await fireInternalDispatch({
-        // Base url is already app-base-path-prefixed (as resolveSelfDispatchBaseUrl
-        // returns it for a workspace app).
         baseUrl: "https://workspace.example.test/starter",
         path: "/.netlify/functions/starter-agent-background",
         taskId: "task-1",
@@ -138,7 +139,6 @@ describe("fireInternalDispatch", () => {
       else process.env.APP_BASE_PATH = previous;
     }
 
-    // The /starter base path must be stripped for the host-root function url.
     expect(calledUrl).toBe(
       "https://workspace.example.test/.netlify/functions/starter-agent-background",
     );
@@ -274,8 +274,6 @@ describe("fireInternalDispatch", () => {
     ).resolves.toBeUndefined();
   });
 
-  // ─── awaitResponse (confirmed handoff for continuation dispatch) ───────────
-
   describe("awaitResponse", () => {
     it("resolves once the target confirms receipt with a 2xx", async () => {
       globalThis.fetch = vi.fn(async () => ({
@@ -317,6 +315,80 @@ describe("fireInternalDispatch", () => {
       errorSpy.mockRestore();
     });
 
+    describe("typed HTTP errors", () => {
+      function throttledResponse(headers: Record<string, string>) {
+        return {
+          ok: false,
+          status: 429,
+          statusText: "Too Many Requests",
+          headers: new Headers(headers),
+          text: async () => "slow down",
+        };
+      }
+
+      async function dispatchAndCatch(): Promise<unknown> {
+        try {
+          await fireInternalDispatch({
+            baseUrl: "https://slides.example.test",
+            path: "/_agent-native/agent-chat/_process-run",
+            taskId: "task-await-429",
+            awaitResponse: true,
+          });
+        } catch (err) {
+          return err;
+        }
+        throw new Error("fireInternalDispatch resolved");
+      }
+
+      it("carries httpStatus and a Retry-After in seconds, keeping the message", async () => {
+        vi.spyOn(console, "error").mockImplementation(() => {});
+        globalThis.fetch = vi.fn(async () =>
+          throttledResponse({ "Retry-After": "7" }),
+        ) as unknown as typeof fetch;
+
+        const err = await dispatchAndCatch();
+
+        expect(err).toBeInstanceOf(SelfDispatchHttpError);
+        expect(err).toMatchObject({ httpStatus: 429, retryAfterMs: 7_000 });
+        expect((err as Error).message).toBe(
+          "Self-dispatch to /_agent-native/agent-chat/_process-run returned HTTP 429 Too Many Requests: slow down",
+        );
+      });
+
+      it("parses a Retry-After HTTP-date relative to now", async () => {
+        vi.spyOn(console, "error").mockImplementation(() => {});
+        vi.useFakeTimers({
+          now: Date.UTC(2026, 9, 14, 12, 0, 0),
+          toFake: ["Date"],
+        });
+        globalThis.fetch = vi.fn(async () =>
+          throttledResponse({ "Retry-After": "Wed, 14 Oct 2026 12:00:30 GMT" }),
+        ) as unknown as typeof fetch;
+
+        try {
+          const err = await dispatchAndCatch();
+          expect(err).toMatchObject({ httpStatus: 429, retryAfterMs: 30_000 });
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it("leaves retryAfterMs undefined when the header is absent or unparsable", async () => {
+        vi.spyOn(console, "error").mockImplementation(() => {});
+        for (const headers of [{}, { "Retry-After": "soon" }]) {
+          globalThis.fetch = vi.fn(async () =>
+            throttledResponse(headers),
+          ) as unknown as typeof fetch;
+
+          const err = await dispatchAndCatch();
+
+          expect(err).toBeInstanceOf(SelfDispatchHttpError);
+          expect((err as SelfDispatchHttpError).httpStatus).toBe(429);
+          expect((err as SelfDispatchHttpError).retryAfterMs).toBeUndefined();
+        }
+      });
+    });
+
     it("throws when the fetch itself rejects (network error)", async () => {
       const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
       globalThis.fetch = vi.fn(async () => {
@@ -331,6 +403,87 @@ describe("fireInternalDispatch", () => {
           awaitResponse: true,
         }),
       ).rejects.toThrow("network unreachable");
+      errorSpy.mockRestore();
+    });
+
+    it("names the target and the socket code when the connection is refused", async () => {
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      // What undici throws: an opaque "fetch failed" with the code one level down.
+      const refused = new TypeError("fetch failed", {
+        cause: Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:3000"), {
+          code: "ECONNREFUSED",
+        }),
+      });
+      globalThis.fetch = vi.fn(async () => {
+        throw refused;
+      }) as unknown as typeof fetch;
+
+      const err = await fireInternalDispatch({
+        baseUrl: "http://localhost:3000/base?token=not-a-secret",
+        path: "/_agent-native/agent-chat/_process-run",
+        taskId: "task-await-refused",
+        awaitResponse: true,
+      }).catch((error: unknown) => error);
+
+      expect(err).toBeInstanceOf(SelfDispatchNetworkError);
+      expect(err).toMatchObject({
+        target: "http://localhost:3000",
+        causeCode: "ECONNREFUSED",
+        cause: refused,
+      });
+      expect((err as Error).message).toBe(
+        "Self-dispatch to /_agent-native/agent-chat/_process-run at http://localhost:3000 failed: fetch failed (ECONNREFUSED)",
+      );
+      errorSpy.mockRestore();
+    });
+
+    it("reads the code from a dual-stack refusal and names a timeout", async () => {
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const dispatch = () =>
+        fireInternalDispatch({
+          baseUrl: "https://slides.example.test",
+          path: "/_agent-native/agent-chat/_process-run",
+          taskId: "task-await-codes",
+          awaitResponse: true,
+        }).catch((error: unknown) => error as SelfDispatchNetworkError);
+
+      globalThis.fetch = vi.fn(async () => {
+        throw new TypeError("fetch failed", {
+          cause: Object.assign(new AggregateError([]), {
+            errors: [{ code: "ECONNREFUSED" }, { code: "ENETUNREACH" }],
+          }),
+        });
+      }) as unknown as typeof fetch;
+      expect((await dispatch()).causeCode).toBe("ECONNREFUSED");
+
+      globalThis.fetch = vi.fn(async () => {
+        throw new DOMException("The operation timed out.", "TimeoutError");
+      }) as unknown as typeof fetch;
+      expect((await dispatch()).causeCode).toBe("TimeoutError");
+      errorSpy.mockRestore();
+    });
+
+    it("names the target on a non-2xx answer too", async () => {
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      globalThis.fetch = vi.fn(async () => ({
+        ok: false,
+        status: 401,
+        statusText: "Unauthorized",
+        text: async () => "",
+      })) as unknown as typeof fetch;
+
+      const err = await fireInternalDispatch({
+        baseUrl: "https://slides.example.test",
+        path: "/_agent-native/agent-chat/_process-run",
+        taskId: "task-await-401",
+        awaitResponse: true,
+      }).catch((error: unknown) => error);
+
+      expect(err).toBeInstanceOf(SelfDispatchHttpError);
+      expect(err).toMatchObject({
+        httpStatus: 401,
+        target: "https://slides.example.test",
+      });
       errorSpy.mockRestore();
     });
 
@@ -397,7 +550,6 @@ describe("fireInternalDispatch", () => {
         }),
       ).resolves.toBeUndefined();
 
-      // Let the late 503 land and be swallowed by the existing .catch path.
       await new Promise((resolve) => setTimeout(resolve, 80));
       process.off("unhandledRejection", onUnhandledRejection);
       await Promise.race([unhandledGuard, Promise.resolve()]);
@@ -435,5 +587,166 @@ describe("fireInternalDispatch", () => {
       if (previous.A2A_SECRET === undefined) delete process.env.A2A_SECRET;
       else process.env.A2A_SECRET = previous.A2A_SECRET;
     }
+  });
+});
+
+describe("resolveSelfDispatchBaseUrl with AGENT_NATIVE_SELF_DISPATCH_URL", () => {
+  const originalFetch = globalThis.fetch;
+
+  function stubPlatformUrls() {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv(
+      "DEPLOY_PRIME_URL",
+      "https://deploy-preview-7--app.example.test",
+    );
+    vi.stubEnv("DEPLOY_URL", "https://7--app.example.test");
+    vi.stubEnv("URL", "https://app.example.test");
+    vi.stubEnv("APP_URL", "https://app.example.com");
+    vi.stubEnv("APP_BASE_PATH", "");
+  }
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    vi.unstubAllEnvs();
+  });
+
+  it("wins over every platform and app URL", () => {
+    stubPlatformUrls();
+    vi.stubEnv("AGENT_NATIVE_SELF_DISPATCH_URL", "http://127.0.0.1:8080/");
+
+    expect(resolveSelfDispatchBaseUrl()).toBe("http://127.0.0.1:8080");
+  });
+
+  it("is enough on its own in production", () => {
+    for (const key of [
+      "DEPLOY_PRIME_URL",
+      "DEPLOY_URL",
+      "URL",
+      "APP_URL",
+      "VITE_APP_URL",
+      "BETTER_AUTH_URL",
+      "VITE_BETTER_AUTH_URL",
+      "APP_BASE_PATH",
+    ]) {
+      vi.stubEnv(key, "");
+    }
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AGENT_NATIVE_SELF_DISPATCH_URL", "http://127.0.0.1:8080");
+
+    expect(resolveSelfDispatchBaseUrl()).toBe("http://127.0.0.1:8080");
+  });
+
+  it("gets the configured app base path", async () => {
+    stubPlatformUrls();
+    vi.stubEnv("APP_BASE_PATH", "/starter");
+    vi.stubEnv("A2A_SECRET", "test-secret");
+    vi.stubEnv("AGENT_NATIVE_SELF_DISPATCH_URL", "http://127.0.0.1:8080");
+    let calledUrl = "";
+    globalThis.fetch = vi.fn(async (url: string) => {
+      calledUrl = url;
+      return { ok: true, status: 200, statusText: "OK", text: async () => "" };
+    }) as unknown as typeof fetch;
+
+    expect(resolveSelfDispatchBaseUrl()).toBe("http://127.0.0.1:8080/starter");
+    await fireInternalDispatch({
+      path: "/_agent-native/agent-chat/_process-run",
+      taskId: "task-loopback",
+      settleMs: 1000,
+    });
+    expect(calledUrl).toBe(
+      "http://127.0.0.1:8080/starter/_agent-native/agent-chat/_process-run",
+    );
+  });
+
+  it("rejects a value that is not an absolute http(s) URL", () => {
+    stubPlatformUrls();
+    for (const value of ["127.0.0.1:8080", "localhost:3000", "ftp://host"]) {
+      vi.stubEnv("AGENT_NATIVE_SELF_DISPATCH_URL", value);
+      expect(() => resolveSelfDispatchBaseUrl()).toThrow(
+        /AGENT_NATIVE_SELF_DISPATCH_URL must be an absolute http\(s\) URL/,
+      );
+    }
+  });
+
+  it("keeps today's order when unset or blank", () => {
+    stubPlatformUrls();
+    for (const value of ["", "   "]) {
+      vi.stubEnv("AGENT_NATIVE_SELF_DISPATCH_URL", value);
+      expect(resolveSelfDispatchBaseUrl()).toBe(
+        "https://deploy-preview-7--app.example.test",
+      );
+    }
+  });
+
+  it("is ignored by resolveDeploymentBaseUrl, which outside callers use", () => {
+    stubPlatformUrls();
+    vi.stubEnv("AGENT_NATIVE_SELF_DISPATCH_URL", "http://127.0.0.1:8080");
+
+    expect(resolveDeploymentBaseUrl()).toBe(
+      "https://deploy-preview-7--app.example.test",
+    );
+  });
+});
+
+describe("resolveSelfDispatchBaseUrl inside a request", () => {
+  const keys = [
+    "DEPLOY_PRIME_URL",
+    "DEPLOY_URL",
+    "URL",
+    "APP_URL",
+    "VITE_APP_URL",
+    "BETTER_AUTH_URL",
+    "VITE_BETTER_AUTH_URL",
+    "AGENT_NATIVE_SELF_DISPATCH_URL",
+    "PORT",
+  ] as const;
+  const previous = Object.fromEntries(
+    keys.map((key) => [key, process.env[key]]),
+  );
+
+  beforeEach(() => {
+    for (const key of keys) delete process.env[key];
+  });
+
+  afterEach(() => {
+    for (const key of keys) {
+      const value = previous[key];
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
+  it("reaches the dev server at the origin the request was served on, with no inbound event", () => {
+    // An agent turn and a CLI call forwarded to the dev server both look like
+    // this: no event to read a host from, and Vite is not on port 3000.
+    expect(
+      runWithRequestContext(
+        { userEmail: "a@example.test", requestOrigin: "http://localhost:8080" },
+        () => resolveSelfDispatchBaseUrl(),
+      ),
+    ).toBe("http://localhost:8080");
+  });
+
+  it("still prefers the inbound host over the request origin", () => {
+    expect(
+      runWithRequestContext(
+        { userEmail: "a@example.test", requestOrigin: "http://localhost:8080" },
+        () =>
+          resolveSelfDispatchBaseUrl({
+            node: { req: { headers: { host: "127.0.0.1:8092" } } },
+          }),
+      ),
+    ).toBe("http://127.0.0.1:8092");
+  });
+
+  it("never replaces a configured deployment URL", () => {
+    process.env.DEPLOY_PRIME_URL = "https://deploy-preview-7--app.example.test";
+
+    expect(
+      runWithRequestContext(
+        { userEmail: "a@example.test", requestOrigin: "http://localhost:8080" },
+        () => resolveSelfDispatchBaseUrl(),
+      ),
+    ).toBe("https://deploy-preview-7--app.example.test");
   });
 });

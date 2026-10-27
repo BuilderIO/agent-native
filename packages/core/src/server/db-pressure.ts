@@ -27,31 +27,17 @@ export interface DbPressureCounters {
   idleInTxn: number;
   oldestIdleTxnS: number;
   maxSameQuery: number;
-  /** Round-trip of this statement on an already-open connection. */
   trivialQueryMs: number;
 }
 
-/**
- * Measured counters, or an explicit reason they could not be taken.
- *
- * A monitor must never read "not measured" as "healthy", so the two are
- * different shapes rather than an empty warning list.
- */
 export type DbPressure =
   | ({ measured: true; warnings: string[] } & DbPressureCounters)
   | { measured: false; reason: string };
 
-// Thresholds set from that outage, not intuition. Healthy analytics reads
-// 0 / 128ms / 1; at the point it went down it read 20 / 6000ms / 56.
 export const MAX_IDLE_TXN_AGE_S = 60;
 export const MAX_TRIVIAL_QUERY_MS = 1_000;
 export const MAX_SAME_QUERY_CONCURRENCY = 10;
 
-/**
- * A hung probe must not hang the health route — that is the defect that took
- * the docs site permanently cold. Short because this runs on a connection the
- * liveness probe just proved is answering.
- */
 const PRESSURE_PROBE_DEADLINE_MS = 3_000;
 
 export const DB_PRESSURE_SQL = `
@@ -74,7 +60,6 @@ FROM pg_stat_activity
 WHERE pid <> pg_backend_pid()
   AND datname = current_database()`;
 
-/** Reasons this database looks pressured, or [] when it looks fine. */
 export function dbPressureWarnings(p: DbPressureCounters): string[] {
   const out: string[] = [];
   if (p.idleInTxn > 0 && p.oldestIdleTxnS > MAX_IDLE_TXN_AGE_S) {
@@ -98,7 +83,6 @@ export function dbPressureWarnings(p: DbPressureCounters): string[] {
 function readCount(row: Record<string, unknown>, key: string): number | null {
   const value = row[key];
   if (typeof value === "number" && Number.isFinite(value)) return value;
-  // Some drivers hand back bigint-ish columns as strings.
   if (typeof value === "string" && value.trim() !== "") {
     const parsed = Number(value);
     if (Number.isFinite(parsed)) return parsed;
@@ -106,10 +90,6 @@ function readCount(row: Record<string, unknown>, key: string): number | null {
   return null;
 }
 
-/**
- * Read the pressure counters from Postgres. A database that cannot answer
- * reports `measured: false` rather than a clean-looking zero.
- */
 export async function probeDbPressure(
   exec: { execute: (sql: string) => Promise<unknown> },
   options: { trivialQueryMs?: number } = {},

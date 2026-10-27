@@ -67,24 +67,10 @@ export default defineAction({
   },
   run: async (args, ctx) => {
     const bundle = await loadPlanBundle(args.id);
-    // The interactive web viewer renders modern (structured-`content`) plans
-    // with the React `PlanContentRenderer` and never reads the server-built
-    // `html` or `mdx`: `html` only feeds the legacy iframe path (plans with no
-    // `content`), and `mdx` is the source-control export served on demand by
-    // `export-visual-plan`. Both were rebuilt on every read, and `usePlan`
-    // polls this action every 3s, so for the common case — a modern plan open
-    // in a browser — that was pure throwaway work holding the loading skeleton
-    // up, `mdx` worst of all (it Prettier-formats up to three MDX files). So
-    // skip what the frontend won't use. Agents / HTTP / CLI keep the full
-    // advertised contract, and legacy (content-less) plans still get `html`
-    // for their iframe.
     const isFrontend = ctx?.caller === "frontend";
     const isModern = Boolean(bundle.plan.content);
     const isAgentCaller =
       ctx?.caller === "tool" || ctx?.caller === "mcp" || ctx?.caller === "a2a";
-    // Agent reads default to the structured model only; source-control and
-    // legacy-rendered exports remain opt-in so they do not inflate the next
-    // tool turn.
     const wantMdx = args.includeMdx ?? args.include?.mdx ?? !isAgentCaller;
     const wantHtml = args.includeHtml ?? args.include?.html ?? !isAgentCaller;
     const includeStoredPlanExportFields = wantHtml || wantMdx;

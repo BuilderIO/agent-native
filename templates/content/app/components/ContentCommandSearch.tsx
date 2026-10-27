@@ -3,8 +3,13 @@ import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import {
   CommandMenu,
   useCommandMenuNestedDialog,
-} from "@agent-native/core/client/navigation";
+} from "@agent-native/toolkit/app/shared";
 import { parseSearchQuery, searchQueryNeedles } from "@shared/search-query";
+import {
+  buildTitleSearchIndex,
+  rankTitlesByQuery,
+  type NormalizedTitleCandidate,
+} from "@shared/search-title-ranking";
 import {
   IconDatabase,
   IconFileText,
@@ -14,12 +19,21 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router";
 
 import { useContentSpaces } from "@/hooks/use-content-spaces";
+import { useDocuments } from "@/hooks/use-documents";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import {
+  buildDocumentSpaceRootIndex,
   contentCommandDocumentPath,
+  documentPassesInstantSearchFilters,
+  documentSpaceRootIds,
+  documentToInstantSearchResult,
+  excludeAlreadyShownDocuments,
   isLocalFileSearchResult,
+  mergeInstantAndServerResults,
   searchHighlightParts,
+  type CommandSearchDocumentResult,
   type CommandSearchDocumentsResponse,
+  type InstantSearchFilters,
 } from "@/lib/content-command-search";
 
 import {
@@ -37,9 +51,10 @@ import {
 } from "./ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { Skeleton } from "./ui/skeleton";
+import { Spinner } from "./ui/spinner";
 
-// Sentinel scope value for searching every authorized space at once; the
-// request simply omits spaceId, and the server still scopes by access.
+const INSTANT_RESULT_LIMIT = 20;
+
 const ALL_SPACES = "all";
 
 export type ModifiedDateFilter =
@@ -114,9 +129,6 @@ function SearchChoice({
       </DropdownMenuTrigger>
       <DropdownMenuContent
         onCloseAutoFocus={(event) => {
-          // Without this, focus lands back on the trigger inside the filter
-          // toolbar, whose key handler swallows arrows and Enter before the
-          // command menu sees them.
           event.preventDefault();
           focusInput();
         }}
@@ -151,6 +163,36 @@ function SearchLoading() {
   );
 }
 
+/** Unobtrusive: a background server refresh while instant results already fill the list. */
+function SearchUpdating() {
+  const t = useT();
+  return (
+    <div
+      role="status"
+      aria-label={t("root.commandSearchLoading")}
+      className="flex items-center justify-center p-2"
+    >
+      <Spinner className="text-muted-foreground" />
+    </div>
+  );
+}
+
+function SearchPartialError({
+  onRetry,
+}: {
+  onRetry: (event: { currentTarget: HTMLElement }) => void;
+}) {
+  const t = useT();
+  return (
+    <div role="alert" className="p-3 text-sm">
+      {t("root.commandSearchPartialError")}
+      <Button variant="ghost" size="sm" onClick={onRetry}>
+        {t("root.searchRetry")}
+      </Button>
+    </div>
+  );
+}
+
 export function SearchEmptyOption() {
   const t = useT();
   return (
@@ -165,11 +207,6 @@ export function SearchEmptyOption() {
   );
 }
 
-// Radix portals DropdownMenuContent to document.body, so focus restoration
-// from a filter menu's close event cannot walk up to the picker dialog from
-// that element; walk up from the filter toolbar (which lives inside the
-// dialog) instead of searching the document, where another mounted dialog
-// could win document order.
 function focusSearchInput(control: HTMLElement | null) {
   control
     ?.closest('[role="dialog"]')
@@ -177,9 +214,6 @@ function focusSearchInput(control: HTMLElement | null) {
     ?.focus();
 }
 
-// sourceUpdatedAt is persisted as text and may hold a bare epoch number or
-// another unparseable form; normalize it or drop the freshness line rather
-// than letting formatDate throw.
 function normalizeTimestamp(value: string): string | null {
   const date = new Date(/^\d+$/.test(value) ? Number(value) : value);
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
@@ -279,8 +313,81 @@ export function DateSearchChoice({
   );
 }
 
-function SearchPage({
-  query,
+function renderSearchResultItem({
+  document,
+  needles,
+  onOpenChange,
+  navigate,
+  formatDate,
+  t,
+}: {
+  document: CommandSearchDocumentResult;
+  needles: string[];
+  onOpenChange: (open: boolean) => void;
+  navigate: ReturnType<typeof useNavigate>;
+  formatDate: ReturnType<typeof useFormatters>["formatDate"];
+  t: ReturnType<typeof useT>;
+}) {
+  const Icon =
+    document.documentType === "database"
+      ? IconDatabase
+      : isLocalFileSearchResult(document)
+        ? IconFolderOpen
+        : IconFileText;
+  const sourceUpdated = document.sourceUpdatedAt
+    ? normalizeTimestamp(document.sourceUpdatedAt)
+    : null;
+  return (
+    <CommandMenu.Item
+      key={document.id}
+      value={`document:${document.id}`}
+      deferSelect={false}
+      className="group items-start py-2"
+      onSelect={() => {
+        onOpenChange(false);
+        void navigate(contentCommandDocumentPath(document.id));
+      }}
+    >
+      <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate font-medium">
+          <Highlight
+            text={document.title || t("sidebar.untitled")}
+            needles={needles}
+          />
+        </span>
+        <span className="block truncate text-xs text-muted-foreground">
+          {[
+            document.parentTitle,
+            document.sourceKind,
+            t("root.searchModified", { date: formatDate(document.updatedAt) }),
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+        </span>
+        {document.snippet ? (
+          <span className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground group-data-[selected=true]:line-clamp-6">
+            <Highlight text={document.snippet} needles={needles} />
+          </span>
+        ) : null}
+        {document.description ? (
+          <span className="hidden mt-1 text-xs text-muted-foreground group-data-[selected=true]:block">
+            {document.description}
+          </span>
+        ) : null}
+        {sourceUpdated ? (
+          <span className="hidden text-xs text-muted-foreground group-data-[selected=true]:block">
+            {t("root.searchSourceUpdated", { date: formatDate(sourceUpdated) })}
+          </span>
+        ) : null}
+      </span>
+    </CommandMenu.Item>
+  );
+}
+
+export function SearchPage({
+  liveQuery,
+  debouncedQuery,
   needles,
   spaceId,
   searchFields,
@@ -289,8 +396,10 @@ function SearchPage({
   onOpenChange,
   renderList,
   staticItems,
+  titleIndex,
 }: {
-  query: string;
+  liveQuery: string;
+  debouncedQuery: string;
   needles: string[];
   spaceId?: string;
   searchFields: "all" | "title";
@@ -299,135 +408,155 @@ function SearchPage({
   onOpenChange: (open: boolean) => void;
   renderList: (results?: ReactNode) => ReactNode;
   staticItems: ReactNode;
+  titleIndex: NormalizedTitleCandidate<CommandSearchDocumentResult>[];
 }) {
   const t = useT();
   const navigate = useNavigate();
   const { formatDate } = useFormatters();
   const [offset, setOffset] = useState(0);
-  const results = useActionQuery<CommandSearchDocumentsResponse>(
-    "search-documents",
-    {
-      query,
-      spaceId,
-      searchFields,
-      documentType,
-      modifiedAfter,
-      limit: 20,
-      offset,
-    },
-    { retry: false },
+  useEffect(() => {
+    setOffset(0);
+  }, [debouncedQuery, spaceId, searchFields, documentType, modifiedAfter]);
+
+  // Instant lane: reranked on every keystroke straight from the precomputed
+  // index, no debounce and no network wait (SO-01).
+  const instantMatches = useMemo(
+    () =>
+      rankTitlesByQuery(titleIndex, liveQuery, {
+        limit: INSTANT_RESULT_LIMIT,
+      })
+        .slice(0, INSTANT_RESULT_LIMIT)
+        .map((result) => result.candidate),
+    [titleIndex, liveQuery],
   );
-  if (results.isFetching)
+
+  const baseArgs = {
+    query: debouncedQuery,
+    spaceId,
+    searchFields,
+    documentType,
+    modifiedAfter,
+    limit: 20,
+  };
+  // No `placeholderData`: a query-key change (a new debounced query, or a
+  // different filter/scope) must never keep showing the previous key's
+  // response as though it answered the current one
+  // (docs/command-menu-architecture.md ~L111-112). The instant lane already
+  // covers the resulting gap while the new request is in flight. Page one is
+  // always kept mounted (even while viewing a later page) so its shown-id set
+  // stays available to dedupe Next/Previous pages against.
+  const pageOneResults = useActionQuery<CommandSearchDocumentsResponse>(
+    "search-documents",
+    { ...baseArgs, offset: 0 },
+    { retry: false, enabled: Boolean(debouncedQuery) },
+  );
+  const pagedResults = useActionQuery<CommandSearchDocumentsResponse>(
+    "search-documents",
+    { ...baseArgs, offset },
+    { retry: false, enabled: Boolean(debouncedQuery) },
+  );
+  // Server responses answer `debouncedQuery`. While the user is still typing,
+  // they belong to an earlier query, so only the instant lane is shown until
+  // the server catches up to the current text.
+  const serverIsCurrent = liveQuery === debouncedQuery;
+  const visibleOffset = serverIsCurrent ? offset : 0;
+  const activeResults = visibleOffset === 0 ? pageOneResults : pagedResults;
+  const pageOneServerDocuments = serverIsCurrent
+    ? pageOneResults.data?.documents
+    : undefined;
+
+  const pageOneMerged = useMemo(
+    () =>
+      mergeInstantAndServerResults(
+        instantMatches,
+        pageOneServerDocuments ?? [],
+      ),
+    [instantMatches, pageOneServerDocuments],
+  );
+  const pageOneShownIds = useMemo(
+    () => new Set(pageOneMerged.map((document) => document.id)),
+    [pageOneMerged],
+  );
+  const displayedDocuments = useMemo(
+    () =>
+      visibleOffset === 0
+        ? pageOneMerged
+        : excludeAlreadyShownDocuments(
+            pagedResults.data?.documents ?? [],
+            pageOneShownIds,
+          ),
+    [visibleOffset, pageOneMerged, pagedResults.data, pageOneShownIds],
+  );
+
+  const hasResults = displayedDocuments.length > 0;
+  const isFetchingActive = !serverIsCurrent || activeResults.isFetching;
+  const serverError = serverIsCurrent ? activeResults.error : null;
+  const retryActive = (event: { currentTarget: HTMLElement }) => {
+    focusSearchInput(event.currentTarget);
+    void activeResults.refetch();
+  };
+
+  if (!hasResults) {
+    if (isFetchingActive || (!serverError && !activeResults.data)) {
+      return (
+        <>
+          {renderList(staticItems)}
+          <SearchLoading />
+        </>
+      );
+    }
+    if (serverError) {
+      return (
+        <>
+          {renderList(staticItems)}
+          <div role="alert" className="p-3 text-sm">
+            {t("root.commandSearchError")}
+            <Button variant="ghost" size="sm" onClick={retryActive}>
+              {t("root.searchRetry")}
+            </Button>
+          </div>
+        </>
+      );
+    }
     return (
       <>
-        {renderList(staticItems)}
-        <SearchLoading />
-      </>
-    );
-  if (results.error) {
-    return (
-      <>
-        {renderList(staticItems)}
-        <div role="alert" className="p-3 text-sm">
-          {t("root.commandSearchError")}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={(event) => {
-              focusSearchInput(event.currentTarget);
-              void results.refetch();
-            }}
-          >
-            {t("root.searchRetry")}
-          </Button>
-        </div>
+        {renderList(
+          <>
+            <SearchEmptyOption />
+            {staticItems}
+          </>,
+        )}
       </>
     );
   }
-  if (!results.data)
-    return (
-      <>
-        {renderList(staticItems)}
-        <SearchLoading />
-      </>
-    );
+
+  const pagination = serverIsCurrent
+    ? activeResults.data?.pagination
+    : undefined;
   return (
     <>
       {renderList(
         <>
-          {results.data.documents.length > 0 ? (
-            <CommandMenu.Group heading={t("root.commandSearchHeading")}>
-              {results.data.documents.map((document) => {
-                const Icon =
-                  document.documentType === "database"
-                    ? IconDatabase
-                    : isLocalFileSearchResult(document)
-                      ? IconFolderOpen
-                      : IconFileText;
-                const sourceUpdated = document.sourceUpdatedAt
-                  ? normalizeTimestamp(document.sourceUpdatedAt)
-                  : null;
-                return (
-                  <CommandMenu.Item
-                    key={document.id}
-                    deferSelect={false}
-                    className="group items-start py-2"
-                    onSelect={() => {
-                      onOpenChange(false);
-                      void navigate(contentCommandDocumentPath(document.id));
-                    }}
-                  >
-                    <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate font-medium">
-                        <Highlight
-                          text={document.title || t("sidebar.untitled")}
-                          needles={needles}
-                        />
-                      </span>
-                      <span className="block truncate text-xs text-muted-foreground">
-                        {[
-                          document.parentTitle,
-                          document.sourceKind,
-                          t("root.searchModified", {
-                            date: formatDate(document.updatedAt),
-                          }),
-                        ]
-                          .filter(Boolean)
-                          .join(" · ")}
-                      </span>
-                      {document.snippet ? (
-                        <span className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground group-data-[selected=true]:line-clamp-6">
-                          <Highlight
-                            text={document.snippet}
-                            needles={needles}
-                          />
-                        </span>
-                      ) : null}
-                      {document.description ? (
-                        <span className="hidden mt-1 text-xs text-muted-foreground group-data-[selected=true]:block">
-                          {document.description}
-                        </span>
-                      ) : null}
-                      {sourceUpdated ? (
-                        <span className="hidden text-xs text-muted-foreground group-data-[selected=true]:block">
-                          {t("root.searchSourceUpdated", {
-                            date: formatDate(sourceUpdated),
-                          })}
-                        </span>
-                      ) : null}
-                    </span>
-                  </CommandMenu.Item>
-                );
-              })}
-            </CommandMenu.Group>
-          ) : (
-            <SearchEmptyOption />
-          )}
+          <CommandMenu.Group heading={t("root.commandSearchHeading")}>
+            {displayedDocuments.map((document) =>
+              renderSearchResultItem({
+                document,
+                needles,
+                onOpenChange,
+                navigate,
+                formatDate,
+                t,
+              }),
+            )}
+          </CommandMenu.Group>
           {staticItems}
         </>,
       )}
-      {offset > 0 || results.data.pagination.hasMore ? (
+      {isFetchingActive ? <SearchUpdating /> : null}
+      {serverError && !isFetchingActive ? (
+        <SearchPartialError onRetry={retryActive} />
+      ) : null}
+      {visibleOffset > 0 || pagination?.hasMore ? (
         <div
           className="flex justify-between gap-2 border-t p-2"
           onKeyDown={(event) => {
@@ -441,17 +570,17 @@ function SearchPage({
           <Button
             variant="ghost"
             size="sm"
-            disabled={offset === 0}
-            onClick={() => setOffset(Math.max(0, offset - 20))}
+            disabled={visibleOffset === 0}
+            onClick={() => setOffset(Math.max(0, visibleOffset - 20))}
           >
             {t("root.searchPrevious")}
           </Button>
           <Button
             variant="ghost"
             size="sm"
-            disabled={!results.data.pagination.hasMore}
+            disabled={!pagination?.hasMore}
             onClick={() => {
-              const next = results.data?.pagination.nextOffset;
+              const next = pagination?.nextOffset;
               if (next != null) setOffset(next);
             }}
           >
@@ -486,8 +615,6 @@ export function ContentCommandSearchResults({
     spaces: spaces.data?.spaces ?? [],
     storedSpaceId,
   });
-  // null follows the sidebar's selected space; "all" searches every
-  // authorized space; a space id pins the search to that space.
   const searchingAll = chosenScope === ALL_SPACES;
   const scopeId =
     chosenScope && chosenScope !== ALL_SPACES ? chosenScope : selectedSpace?.id;
@@ -501,10 +628,14 @@ export function ContentCommandSearchResults({
     const timer = window.setTimeout(() => setDebouncedQuery(query.trim()), 200);
     return () => window.clearTimeout(timer);
   }, [query]);
+  const liveQuery = query.trim();
   const highlightNeedles = useMemo(() => {
-    const parsed = parseSearchQuery(debouncedQuery);
+    const parsed = parseSearchQuery(liveQuery);
     return parsed.empty ? [] : searchQueryNeedles(parsed);
-  }, [debouncedQuery]);
+  }, [liveQuery]);
+  const resolvedDocumentType =
+    documentType === "all" ? undefined : (documentType as "page" | "database");
+
   const toolbarRef = useRef<HTMLDivElement>(null);
   const focusPickerInput = () => focusSearchInput(toolbarRef.current);
   const customDate =
@@ -522,6 +653,58 @@ export function ContentCommandSearchResults({
     ? t("root.searchModifiedSince", { date: customDate })
     : t("root.searchDate");
   const modifiedAfter = modifiedAfterForFilter(modifiedDate);
+
+  // Instant title lane: reads whatever the sidebar has already loaded for
+  // `useDocuments()` without forcing a fetch of its own (`enabled: false`
+  // still returns cached data, if any). Filtering and indexing are memoized
+  // separately from ranking, which reruns on every keystroke.
+  const documentsQuery = useDocuments({ enabled: false });
+  const documents = documentsQuery.data;
+  const rootIndex = useMemo(
+    () => buildDocumentSpaceRootIndex(documents ?? []),
+    [documents],
+  );
+  const scopeSpace = useMemo(
+    () =>
+      searchingAll
+        ? null
+        : ((spaces.data?.spaces ?? []).find((space) => space.id === scopeId) ??
+          null),
+    [searchingAll, spaces.data, scopeId],
+  );
+  const spaceRootIds = useMemo(
+    () => (scopeSpace ? documentSpaceRootIds(scopeSpace) : null),
+    [scopeSpace],
+  );
+  const instantFilters: InstantSearchFilters = useMemo(
+    () => ({
+      searchingAll,
+      spaceRootIds,
+      rootIndex,
+      documentType: resolvedDocumentType,
+      modifiedAfter,
+    }),
+    [
+      searchingAll,
+      spaceRootIds,
+      rootIndex,
+      resolvedDocumentType,
+      modifiedAfter,
+    ],
+  );
+  const candidateDocuments = useMemo(
+    () =>
+      (documents ?? [])
+        .filter((document) =>
+          documentPassesInstantSearchFilters(document, instantFilters),
+        )
+        .map(documentToInstantSearchResult),
+    [documents, instantFilters],
+  );
+  const titleIndex = useMemo(
+    () => buildTitleSearchIndex(candidateDocuments),
+    [candidateDocuments],
+  );
 
   const applyPreset = (value: "all" | "7" | "30") => {
     setModifiedDate(
@@ -607,33 +790,24 @@ export function ContentCommandSearchResults({
             {t("root.searchScopeUnavailable")}
           </div>
         </>
-      ) : (!searchingAll && !scopeId) || query.trim() !== debouncedQuery ? (
+      ) : !searchingAll && !scopeId ? (
         <>
           {renderList(staticItems)}
           <SearchLoading />
         </>
-      ) : debouncedQuery ? (
+      ) : liveQuery ? (
         <SearchPage
-          key={JSON.stringify([
-            debouncedQuery,
-            searchingAll ? ALL_SPACES : scopeId,
-            searchFields,
-            documentType,
-            modifiedAfter,
-          ])}
-          query={debouncedQuery}
+          liveQuery={liveQuery}
+          debouncedQuery={debouncedQuery}
           needles={highlightNeedles}
           spaceId={searchingAll ? undefined : scopeId}
           searchFields={searchFields as "all" | "title"}
-          documentType={
-            documentType === "all"
-              ? undefined
-              : (documentType as "page" | "database")
-          }
+          documentType={resolvedDocumentType}
           modifiedAfter={modifiedAfter}
           onOpenChange={onOpenChange}
           renderList={renderList}
           staticItems={staticItems}
+          titleIndex={titleIndex}
         />
       ) : (
         renderList(staticItems)

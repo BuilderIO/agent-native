@@ -139,7 +139,7 @@ export async function createZoomMeetingForEvent(
     timezone: await getCalendarTimezone(ownerEmail),
   });
 
-  if (!zoomResult?.meetingUrl) {
+  if (zoomResult.status !== "created" || !zoomResult.meetingUrl) {
     throw new Error("Zoom is connected, but no Zoom meeting could be created.");
   }
 

@@ -6,13 +6,6 @@ import type {
   FileUploadResult,
 } from "./types.js";
 
-// Why globalThis: in dev (Vite HMR) and in some Nitro/Rollup bundle splits,
-// this module can be evaluated more than once — the plugin file that
-// registers a provider lands in one module instance and the request handler
-// that reads providers lands in another, so the call site sees an empty map
-// even though `registerFileUploadProvider` succeeded. Pinning the singletons
-// on `globalThis` guarantees one set of providers per Node process,
-// independent of how the bundler split the chunks.
 interface FileUploadGlobals {
   __agentNativeFileUploadProviders?: Map<string, FileUploadProvider>;
   __agentNativeFileUploadWarnedFallback?: { value: boolean };
@@ -23,10 +16,6 @@ const providers: Map<string, FileUploadProvider> =
 const warnedFallbackRef: { value: boolean } =
   (globals.__agentNativeFileUploadWarnedFallback ??= { value: false });
 
-/**
- * Register a file upload provider. Call from a server plugin or app
- * bootstrap. Idempotent per id — later calls with the same id replace.
- */
 export function registerFileUploadProvider(provider: FileUploadProvider): void {
   providers.set(provider.id, provider);
 }
@@ -40,11 +29,39 @@ export function listFileUploadProviders(): FileUploadProvider[] {
 }
 
 /**
- * Returns the first configured provider, checking user-registered ones first
- * and falling back to the built-in Builder.io provider when its env is set.
- * Returns `null` when nothing is configured. Callers must fail closed rather
- * than persisting the original binary payload in SQL.
+ * Resolve a public upload URL only through a provider that claims ownership.
+ * Each provider is checked independently: one provider whose check throws
+ * (S3 reads its config from the DB) must not hide another's positive claim, so
+ * this throws only when no provider claims the URL and at least one could not
+ * answer — "unverifiable", never reported as "not owned".
  */
+export async function findFileUploadProviderOwningUrl(
+  url: string,
+): Promise<FileUploadProvider | null> {
+  const candidates = [
+    builderFileUploadProvider,
+    ...[...providers.values()].filter((p) => p !== builderFileUploadProvider),
+  ];
+  const failures: unknown[] = [];
+  const unverifiable: string[] = [];
+  for (const provider of candidates) {
+    if (!provider.isOwnedUrl) continue;
+    try {
+      if (await provider.isOwnedUrl(url)) return provider;
+    } catch (error) {
+      failures.push(error);
+      unverifiable.push(provider.id);
+    }
+  }
+  if (failures.length > 0) {
+    throw new AggregateError(
+      failures,
+      `Upload URL ownership is unverifiable: ${unverifiable.join(", ")} failed its check`,
+    );
+  }
+  return null;
+}
+
 export function getActiveFileUploadProvider(): FileUploadProvider | null {
   for (const provider of providers.values()) {
     if (provider.isConfigured()) return provider;
@@ -55,6 +72,27 @@ export function getActiveFileUploadProvider(): FileUploadProvider | null {
   return null;
 }
 
+/**
+ * Every registered provider's configured state for this request, in the same
+ * precedence order `getActiveFileUploadProviderForRequest` walks. A status read
+ * that needs both the list and the active provider derives the active one from
+ * this instead of detecting each provider a second time.
+ */
+export async function listFileUploadProviderStatusesForRequest(): Promise<
+  Array<{ provider: FileUploadProvider; configured: boolean }>
+> {
+  return Promise.all(
+    [...providers.values()].map(async (provider) => ({
+      provider,
+      configured:
+        provider.isConfigured() ||
+        (provider.isConfiguredForRequest
+          ? await provider.isConfiguredForRequest()
+          : false),
+    })),
+  );
+}
+
 export async function getActiveFileUploadProviderForRequest(): Promise<FileUploadProvider | null> {
   for (const provider of providers.values()) {
     if (provider.isConfigured()) return provider;
@@ -62,26 +100,17 @@ export async function getActiveFileUploadProviderForRequest(): Promise<FileUploa
       if (await provider.isConfiguredForRequest()) return provider;
     }
   }
-  try {
-    const [{ canAuthorizeBuilderApiRequest }, { BUILDER_ASSETS_WRITE_SCOPE }] =
-      await Promise.all([
-        import("../server/builder-api-auth.js"),
-        import("../server/builder-oauth.js"),
-      ]);
-    if (await canAuthorizeBuilderApiRequest(BUILDER_ASSETS_WRITE_SCOPE)) {
-      return builderFileUploadProvider;
-    }
-  } catch {
-    // Treat failed scoped credential lookups as unavailable.
+  const [{ canAuthorizeBuilderApiRequest }, { BUILDER_ASSETS_WRITE_SCOPE }] =
+    await Promise.all([
+      import("../server/builder-api-auth.js"),
+      import("../server/builder-oauth.js"),
+    ]);
+  if (await canAuthorizeBuilderApiRequest(BUILDER_ASSETS_WRITE_SCOPE)) {
+    return builderFileUploadProvider;
   }
   return null;
 }
 
-/**
- * Upload a file via the active provider, or `null` if no provider is
- * configured. `null` is an explicit storage-setup state: callers must not
- * turn the input into a base64 SQL fallback.
- */
 export async function deleteUploadedFile(
   providerId: string,
   input: FileUploadDeleteInput,
@@ -105,10 +134,6 @@ export async function uploadFile(
     return provider.upload(input);
   }
 
-  // Resolve credentials asynchronously (works when request context is set
-  // via runWithRequestContext — actions always have one via action-routes.ts).
-  // Two separate try-catch blocks ensure a real upload failure is never
-  // silently swallowed as a "no credentials" case.
   let hasBuilderCredential = false;
   try {
     const [{ canAuthorizeBuilderApiRequest }, { BUILDER_ASSETS_WRITE_SCOPE }] =
@@ -130,8 +155,6 @@ export async function uploadFile(
   }
 
   if (hasBuilderCredential) {
-    // Credentials confirmed — attempt the upload. Real errors (network,
-    // API, rate-limit) propagate to the caller; do NOT catch them here.
     return await builderFileUploadProvider.upload(input);
   }
 
@@ -139,7 +162,7 @@ export async function uploadFile(
     warnedFallbackRef.value = true;
     console.warn(
       "[agent-native] No file upload provider configured. " +
-        "Connect or reconnect Builder.io (free tier available) in Settings → File uploads, " +
+        "Use Builder.io (free tier available) in Settings → File uploads, " +
         "or register a custom provider (S3, R2, GCS, …) via registerFileUploadProvider().",
     );
   }

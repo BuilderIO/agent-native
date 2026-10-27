@@ -32,8 +32,6 @@ function isDrizzleTable(value: unknown): value is DrizzleTable {
   return (
     !!value &&
     typeof value === "object" &&
-    // Drizzle tables carry a Symbol-keyed metadata bag; plain exports (types,
-    // functions) don't.
     Object.getOwnPropertySymbols(value).some((s) =>
       s.toString().includes("drizzle"),
     )
@@ -59,10 +57,6 @@ describe("mail db migrations cover every schema.ts column", () => {
         .filter(
           (columnName) => !new RegExp(`\\b${columnName}\\b`).test(dbTsSource),
         );
-      // No known drift as of writing this guard — every declared column is
-      // mentioned in db.ts's migration history. If this starts failing, add
-      // a named, idempotent `ADD COLUMN IF NOT EXISTS` migration for the
-      // missing column(s) rather than loosening this assertion.
       expect(missing).toEqual([]);
     });
   }
@@ -91,11 +85,6 @@ describe("mail db migrations cover every schema.ts column", () => {
  * confirmed all of v1-v14 are cleanly applied with no swallowed DDL.
  */
 describe("mail db.ts migration entries follow the naming convention", () => {
-  // Matches one migration entry's `version: N` followed later (before the
-  // next `version:`) by an optional `name: "..."`. Entries in this file are
-  // written as `{ version: N, [name: "...",] sql: ... }`, so scanning for
-  // `version:` occurrences and capturing an optional immediately-following
-  // `name:` is sufficient without a full parser.
   const entryRe = /version:\s*(\d+),\s*(?:name:\s*"([^"]+)",\s*)?/g;
 
   function extractEntries(source: string): Array<{
@@ -133,15 +122,6 @@ describe("mail db.ts migration entries follow the naming convention", () => {
   });
 });
 
-/**
- * Belt-and-braces guard for the same bug class: even with the regression
- * guard above, a future column could still ship without a migration if
- * someone forgets to update this file. `ensureAdditiveColumns` (from
- * @agent-native/core/db) is the framework-level safety net that patches any
- * gap at boot. This asserts db.ts actually wires it in — after
- * `runMigrations(...)` so hand-written migrations stay authoritative — not
- * just that the regex guard above passes.
- */
 describe("mail db.ts wires ensureAdditiveColumns after runMigrations", () => {
   it("imports ensureAdditiveColumns from @agent-native/core/db", () => {
     expect(dbTsSource).toMatch(
@@ -156,8 +136,6 @@ describe("mail db.ts wires ensureAdditiveColumns after runMigrations", () => {
     expect(ensureCallIdx).toBeGreaterThan(-1);
     expect(ensureCallIdx).toBeGreaterThan(migrationsCallIdx);
 
-    // The runMigrations(...) plugin function must be awaited before
-    // ensureAdditiveColumns runs, not just textually after it.
     expect(dbTsSource).toMatch(
       /await\s+runMailMigrations\([^)]*\)[\s\S]*?ensureAdditiveColumns\(\{/,
     );
@@ -172,6 +150,18 @@ describe("mail db.ts wires ensureAdditiveColumns after runMigrations", () => {
     );
     expect(dbTsSource).toMatch(
       /CREATE INDEX IF NOT EXISTS idx_automation_rules_owner ON automation_rules\(owner_email\)/,
+    );
+  });
+
+  it("prevents concurrent active backfills for one owner and rule set", () => {
+    expect(dbTsSource).toMatch(
+      /CREATE UNIQUE INDEX IF NOT EXISTS mail_ai_filter_backfills_owner_rule_set_active_idx[\s\S]*?ON mail_ai_filter_backfills\(owner_email, rule_set_key\)[\s\S]*?WHERE rule_set_key IS NOT NULL AND status IN \('queued', 'running', 'undoing'\)/,
+    );
+  });
+
+  it("widens quota-budget timestamps for millisecond values", () => {
+    expect(dbTsSource).toMatch(
+      /name: "mail-gmail-quota-budget-timestamps-bigint"[\s\S]*?ALTER COLUMN created_at TYPE BIGINT USING created_at::BIGINT[\s\S]*?ALTER COLUMN updated_at TYPE BIGINT USING updated_at::BIGINT/,
     );
   });
 });

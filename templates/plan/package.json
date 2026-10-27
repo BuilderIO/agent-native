@@ -16,7 +16,9 @@
   },
   "dependencies": {
     "@agent-native/core": "workspace:*",
+    "@agent-native/otel": "workspace:*",
     "@agent-native/toolkit": "workspace:*",
+    "@electric-sql/pglite": "^0.5.8",
     "@excalidraw/excalidraw": "0.18.1",
     "@excalidraw/mermaid-to-excalidraw": "2.2.2",
     "@fontsource-variable/inter": "^5.2.8",
@@ -26,6 +28,7 @@
     "@tiptap/core": "catalog:",
     "@tiptap/pm": "catalog:",
     "@tiptap/react": "catalog:",
+    "@tiptap/y-tiptap": "catalog:",
     "diff": "9.0.0",
     "drizzle-orm": "^0.45.2",
     "gray-matter": "^4.0.3",
@@ -47,6 +50,7 @@
     "shiki": "^4.0.2",
     "unified": "^11.0.5",
     "unist-util-visit": "^5.1.0",
+    "yjs": "catalog:",
     "zod": "^4.4.3"
   },
   "devDependencies": {

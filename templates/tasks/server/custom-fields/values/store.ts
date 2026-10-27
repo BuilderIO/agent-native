@@ -251,7 +251,6 @@ export async function updateCustomFieldValue(
   );
 }
 
-/** Upsert a task's values by field id; an empty value clears the stored row. */
 export async function updateCustomFieldValuesByTaskId(
   input: {
     ownerEmail: string;
@@ -346,8 +345,6 @@ function buildValueSelector(input: {
   const fieldIds = input.fieldIds ? [...new Set(input.fieldIds)] : undefined;
   if (!ids && !taskIds && !fieldIds) return null;
 
-  // An explicit empty id list selects nothing; without this it would fall
-  // through to matching every value the owner has.
   const selectsNothing =
     ids?.length === 0 || taskIds?.length === 0 || fieldIds?.length === 0;
 

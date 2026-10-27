@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { resolveLocalhostSourceWriteContent } from "./design-editor/editor-state";
+import {
+  isLocalhostWriteConsentError,
+  localhostConsentRequestDisposition,
+  localhostConsentRequestRefetchInterval,
+} from "./design-editor/localhost-consent-request";
 
 describe("resolveLocalhostSourceWriteContent", () => {
   it("uses the authenticated live snapshot for URL-backed HTML screens", () => {
@@ -48,5 +53,81 @@ describe("resolveLocalhostSourceWriteContent", () => {
         liveSnapshotHtml: undefined,
       }),
     ).toBe(":root { --accent: #7c3aed; }");
+  });
+});
+
+describe("localhostConsentRequestDisposition", () => {
+  it("shows and clears a new request", () => {
+    expect(
+      localhostConsentRequestDisposition({
+        requestKey: "design:requested-at",
+        lastHandledKey: null,
+        failedClearKey: null,
+      }),
+    ).toBe("show-and-clear");
+  });
+
+  it("retries a failed clear without showing the request again", () => {
+    expect(
+      localhostConsentRequestDisposition({
+        requestKey: "design:requested-at",
+        lastHandledKey: "design:requested-at",
+        failedClearKey: "design:requested-at",
+      }),
+    ).toBe("retry-clear");
+  });
+
+  it("ignores a request that was already cleared", () => {
+    expect(
+      localhostConsentRequestDisposition({
+        requestKey: "design:requested-at",
+        lastHandledKey: "design:requested-at",
+        failedClearKey: null,
+      }),
+    ).toBe("ignore");
+  });
+
+  it("backs off idle polling and retries only a failed clear", () => {
+    expect(
+      localhostConsentRequestRefetchInterval({
+        requestKey: null,
+        failedClearKey: null,
+        queryFailed: false,
+      }),
+    ).toBe(10_000);
+    expect(
+      localhostConsentRequestRefetchInterval({
+        requestKey: "design:requested-at",
+        failedClearKey: null,
+        queryFailed: false,
+      }),
+    ).toBe(false);
+    expect(
+      localhostConsentRequestRefetchInterval({
+        requestKey: "design:requested-at",
+        failedClearKey: "design:requested-at",
+        queryFailed: false,
+      }),
+    ).toBe(1_000);
+  });
+});
+
+describe("isLocalhostWriteConsentError", () => {
+  it("recognizes missing or expired grants without masking other authorization errors", () => {
+    expect(
+      isLocalhostWriteConsentError(
+        Object.assign(new Error("Grant required"), {
+          name: "WriteConsentRequiredError",
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isLocalhostWriteConsentError(
+        new Error("The localhost write-consent grant expired."),
+      ),
+    ).toBe(true);
+    expect(
+      isLocalhostWriteConsentError(new Error("Design editor access revoked.")),
+    ).toBe(false);
   });
 });

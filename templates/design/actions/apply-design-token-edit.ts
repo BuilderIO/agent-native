@@ -3,7 +3,7 @@ import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import {
   mutateDesignData,
   type DesignDataRecord,
@@ -14,17 +14,16 @@ import {
   hasCapability,
 } from "../shared/design-source-capabilities.js";
 import {
+  DESIGN_TOKEN_TYPES,
+  readTokenTypes,
+} from "../shared/design-token-types.js";
+import {
   isSafeCssTokenValue,
   isSafeCssVarName,
   resolveTweaksToCssVars,
 } from "../shared/resolve-tweaks.js";
 
-// ---------------------------------------------------------------------------
-// Token-edit patch schema (mirrors preview-design-token-edit)
-// ---------------------------------------------------------------------------
-
 const tokenEditSchema = z.object({
-  /** The CSS custom property to update, e.g. "--primary-color". */
   cssVar: z
     .string()
     .startsWith("--")
@@ -35,7 +34,6 @@ const tokenEditSchema = z.object({
       "cssVar must be a valid CSS custom property name (-- followed by letters, digits, hyphens, or underscores).",
     )
     .describe("CSS custom property to edit"),
-  /** New value string, e.g. "#3B82F6" or "0.75rem". */
   value: z
     .string()
     // The value is rendered into CSS custom-property declarations; reject
@@ -45,9 +43,16 @@ const tokenEditSchema = z.object({
       'Token value may not contain ";", "{", "}", "<", ">", CSS comments, or control characters.',
     )
     .describe("New value for the token"),
+  type: z
+    .enum(DESIGN_TOKEN_TYPES)
+    .optional()
+    .describe(
+      "Token type, saved in designs.data.tokenTypes so the token keeps it " +
+        "instead of a guess from its name. Pass it when creating a token; " +
+        "omit it when only changing a value.",
+    ),
 });
 
-/** Editor deep link so external agents can surface "Open design". */
 function designDeepLink(designId: string): string {
   return buildDeepLink({
     app: "design",
@@ -75,16 +80,14 @@ function selectionKeyForCssVar(tweaks: TweakDef[], cssVar: string): string {
   return tweaks.find((tweak) => tweak.cssVar === cssVar)?.id ?? cssVar;
 }
 
-// ---------------------------------------------------------------------------
-// Action — persist token edit through the Tweaks loop (Tier-A)
-// ---------------------------------------------------------------------------
-
 export default defineAction({
   description:
     "Persist one or more design token edits for a design. " +
     "Tier-A (inline/Alpine): routes the edit through the same mechanism as " +
     "apply-tweaks — merges the value into designs.data.tweakSelections so the " +
     "tuned token survives reload and is visible in the Tokens panel. " +
+    "Pass `type` on new tokens to save it in designs.data.tokenTypes; " +
+    "otherwise the type is guessed from the name. " +
     "Source file write-back (Tier-B, real apps) is gated behind a capability " +
     "check and currently returns a 'planned' advisory — no file is written.",
   schema: z.object({
@@ -92,7 +95,7 @@ export default defineAction({
     edits: z
       .array(tokenEditSchema)
       .min(1)
-      .describe("One or more { cssVar, value } edits to persist"),
+      .describe("One or more { cssVar, value, type? } edits to persist"),
     sourceRef: z
       .string()
       .optional()
@@ -105,40 +108,35 @@ export default defineAction({
     await assertAccess("design", designId, "editor");
     await snapshotDesignBeforeAgentEdit(designId, context);
 
-    // ------------------------------------------------------------------
-    // Capability check — real-app write-back (writeTokens) is gated
-    // ------------------------------------------------------------------
-    // TODO(fusion): When the bridge proves writeTokens capability, pass the
-    // resolved capabilities from the active source connection here instead of
-    // falling back to INLINE_DEFAULT_CAPABILITIES.
     const caps = INLINE_DEFAULT_CAPABILITIES;
     const canWriteTokens = hasCapability(caps, "writeTokens");
-    // sourceRef will be used once real write-back is implemented
     void sourceRef;
 
-    // Merge against the latest designs.data revision. Each retry re-resolves
-    // cssVar -> tweak id so a concurrent tweak-definition change cannot leave
-    // the value under a stale key.
     const { data: persistedData } = await mutateDesignData({
       designId,
       mutate: (prevData, { updatedAt }) => {
         const tweaks = readTweaks(prevData);
         const newSelections = { ...readSelections(prevData) };
-        for (const { cssVar, value } of edits) {
+        const tokenTypes = readTokenTypes(prevData);
+        for (const { cssVar, value, type } of edits) {
           newSelections[selectionKeyForCssVar(tweaks, cssVar)] = value;
+          if (type) tokenTypes[cssVar] = type;
         }
         return {
           ...prevData,
           tweakSelections: newSelections,
+          tokenTypes,
           tweaksAppliedAt: updatedAt,
         };
       },
       isApplied: (data) => {
         const tweaks = readTweaks(data);
         const selections = readSelections(data);
+        const tokenTypes = readTokenTypes(data);
         return edits.every(
-          ({ cssVar, value }) =>
-            selections[selectionKeyForCssVar(tweaks, cssVar)] === value,
+          ({ cssVar, value, type }) =>
+            selections[selectionKeyForCssVar(tweaks, cssVar)] === value &&
+            (!type || tokenTypes[cssVar] === type),
         );
       },
     });
@@ -146,23 +144,16 @@ export default defineAction({
     const tweaks = readTweaks(persistedData);
     const newSelections = readSelections(persistedData);
 
-    // Resolve to full CSS var map for the response (so the caller can send a
-    // tweak-values postMessage without a separate round-trip)
     const resolvedCssVars = resolveTweaksToCssVars(tweaks, newSelections);
 
     return {
       designId,
       persisted: true,
-      /**
-       * Advisory when real-app source write-back is not yet available.
-       * `null` means the edit was fully applied via the Tweaks loop.
-       */
       writeTokensAdvisory: canWriteTokens
         ? null
         : "Token source write-back is not yet available for this source tier. " +
           "The value is persisted in the design's tweakSelections and reflected " +
-          "live via the CSS-var bridge. Connect Builder (free tier available) to unlock real write-back.",
-      /** Resolved CSS var map — pass directly to the tweak-values postMessage. */
+          "live via the CSS-var bridge. Use Builder.io (free tier available) to unlock real write-back.",
       resolvedCssVars,
       deepLink: designDeepLink(designId),
     };

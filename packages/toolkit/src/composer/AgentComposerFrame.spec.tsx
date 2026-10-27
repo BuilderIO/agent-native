@@ -20,7 +20,11 @@ describe("AgentComposerFrame", () => {
       </AgentComposerFrame>,
     );
 
-    expect(html).toContain("border-input");
+    // The border color is a components-layer default, so a host's
+    // rootClassName utilities can replace it.
+    expect(html).toContain("agent-composer-root");
+    expect(html).not.toContain("border-input");
+    expect(html).not.toContain("bg-muted/45");
     expect(html).not.toContain("focus-within:border-ring");
   });
 });

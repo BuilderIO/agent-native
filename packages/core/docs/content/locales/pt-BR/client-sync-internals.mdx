@@ -77,7 +77,7 @@ Uma mutação chega à UI de uma de duas formas, e elas têm latências diferent
 
 Uma mutação local, uma que sua própria chamada `useActionMutation()` acabou de fazer, dispara um evento `source: "action"` no momento em que tem sucesso. Toda consulta que depende dessa action busca novamente imediatamente. Não há atraso de ida e volta, já que a aba que fez a gravação já sabe sobre ela.
 
-Uma mutação remota, do agente, um webhook, outra aba, ou outro usuário, precisa chegar a esta aba primeiro. `useDbSync()` a capta via SSE quase imediatamente, ou via o fallback de pesquisa em cerca de dois segundos se o SSE não estiver disponível. Somente quando esse evento chega é que o contador de versão relevante incrementa e a consulta busca novamente em segundo plano.
+Uma mutação remota, do agente, um webhook, outra aba, ou outro usuário, precisa chegar a esta aba primeiro. `useDbSync()` a capta via SSE quase imediatamente em um host de longa duração, ou via o fallback de pesquisa caso contrário. Somente quando esse evento chega é que o contador de versão relevante incrementa e a consulta busca novamente em segundo plano. Em uma implantação serverless de produção, o próprio stream SSE do app não é um caminho mais lento para recorrer — ele está desligado por design (veja [Live Sync](/docs/key-concepts#polling-sync)), então toda mutação remota ali viaja pela pesquisa, a menos que o app tenha ativado o [Gateway de sincronização em tempo real hospedado](/docs/real-time-collaboration#hosted-gateway).
 
 <Diagram id="doc-block-client-sync-internals-3" title="Dois caminhos para uma nova busca" summary="Uma mutação local invalida seus próprios caches instantaneamente. Uma gravação remota chega a esta aba via SSE, ou o tick de pesquisa como fallback.">
 

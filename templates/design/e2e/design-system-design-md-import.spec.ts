@@ -1,6 +1,102 @@
-import { expect, test } from "@playwright/test";
+import { type Page } from "@playwright/test";
+
+import { e2eBaseURL } from "./base-url";
+import { expect, test } from "./rails";
+
+const INDEX_RESPONSE = {
+  ok: true,
+  source: "builder",
+  projectId: "project-design-md-e2e",
+  jobId: "job-design-md-e2e",
+  designSystemId: "ds-design-md-e2e",
+  suggestedTitle: "Acme",
+  builderUrl:
+    "https://builder.io/app/design-system-intelligence/ds-design-md-e2e",
+  status: "in-progress",
+  localDesignSystemId: "builder-ds-design-md-e2e",
+  uploadedFileCount: 1,
+};
+
+/** Builder DSI is external, so the indexing action is answered locally and its input captured. */
+async function captureIndexInput(page: Page) {
+  const captured: { input: Record<string, unknown> | null } = { input: null };
+  await page.route(
+    "**/_agent-native/actions/index-design-system-with-builder**",
+    async (route) => {
+      captured.input = route.request().postDataJSON() as Record<
+        string,
+        unknown
+      >;
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify(INDEX_RESPONSE),
+      });
+    },
+  );
+  return captured;
+}
+
+let restoreDesignSystemWorkflows: (() => Promise<void>) | undefined;
+
+async function setFeatureFlagRules(
+  page: Page,
+  key: string,
+  rules: Record<string, unknown>,
+) {
+  const response = await page.request.post(
+    `${e2eBaseURL()}/_agent-native/actions/set-feature-flag`,
+    { data: { operation: "replace-rules", key, rules } },
+  );
+  if (!response.ok()) {
+    throw new Error(
+      `set-feature-flag failed: ${response.status()} ${await response.text()}`,
+    );
+  }
+  return response.json();
+}
+
+async function enableDesignSystemWorkflowsAndRestore(
+  page: Page,
+): Promise<() => Promise<void>> {
+  const response = await page.request.get(
+    `${e2eBaseURL()}/_agent-native/actions/list-feature-flags`,
+  );
+  if (!response.ok()) {
+    throw new Error(
+      `list-feature-flags failed: ${response.status()} ${await response.text()}`,
+    );
+  }
+  const listed = await response.json();
+  const key = "design-system-workflows";
+  const currentRules = listed.flags?.find(
+    (flag: { key: string }) => flag.key === key,
+  )?.rules;
+  if (!currentRules || !["off", "on", "rules"].includes(currentRules.mode)) {
+    throw new Error(`list-feature-flags did not return rules for ${key}`);
+  }
+  const previousRules = {
+    mode: currentRules.mode,
+    ...(currentRules.emails !== undefined && {
+      emails: currentRules.emails,
+    }),
+    ...(currentRules.orgIds !== undefined && {
+      orgIds: currentRules.orgIds,
+    }),
+    ...(currentRules.percentage !== undefined && {
+      percentage: currentRules.percentage,
+    }),
+  };
+
+  await setFeatureFlagRules(page, key, { mode: "on" });
+  return async () => {
+    const restored = await setFeatureFlagRules(page, key, previousRules);
+    expect(restored.rules).toMatchObject(previousRules);
+  };
+}
 
 test.beforeEach(async ({ page }) => {
+  restoreDesignSystemWorkflows =
+    await enableDesignSystemWorkflowsAndRestore(page);
   await page.route("**/_agent-native/actions/list-designs**", async (route) => {
     await route.fulfill({
       contentType: "application/json",
@@ -18,33 +114,15 @@ test.beforeEach(async ({ page }) => {
   );
 });
 
+test.afterEach(async () => {
+  await restoreDesignSystemWorkflows?.();
+  restoreDesignSystemWorkflows = undefined;
+});
+
 test("imports design.md guidance through Builder DSI", async ({ page }) => {
-  let capturedInput: Record<string, unknown> | null = null;
+  const captured = await captureIndexInput(page);
 
-  await page.route(
-    "**/_agent-native/actions/index-design-system-with-builder**",
-    async (route) => {
-      capturedInput = route.request().postDataJSON() as Record<string, unknown>;
-      await route.fulfill({
-        contentType: "application/json",
-        body: JSON.stringify({
-          ok: true,
-          source: "builder",
-          projectId: "project-design-md-e2e",
-          jobId: "job-design-md-e2e",
-          designSystemId: "ds-design-md-e2e",
-          suggestedTitle: "Acme",
-          builderUrl:
-            "https://builder.io/app/design-system-intelligence/ds-design-md-e2e",
-          status: "in-progress",
-          localDesignSystemId: "builder-ds-design-md-e2e",
-          uploadedFileCount: 1,
-        }),
-      });
-    },
-  );
-
-  await page.goto("/design-systems/setup");
+  await page.goto("/design-systems/setup", { waitUntil: "domcontentloaded" });
   await page
     .getByRole("button", { name: "Import design.md", exact: true })
     .click();
@@ -70,19 +148,22 @@ test("imports design.md guidance through Builder DSI", async ({ page }) => {
   await expect(
     page.getByRole("link", { name: "Open in Builder" }),
   ).toHaveAttribute("href", /design-system-intelligence\/ds-design-md-e2e/);
-  expect(capturedInput).toMatchObject({
+  expect(captured.input).toMatchObject({
     designMd:
       "# Acme Design System\n\nUse cobalt accents and compact controls.",
   });
 });
 
-test("imports a dropped design.md file", async ({ page }) => {
+test("imports a dropped design.md file and sends its contents", async ({
+  page,
+}) => {
+  const captured = await captureIndexInput(page);
   await page.goto("/design-systems/setup");
   await page
     .getByRole("button", { name: "Import design.md", exact: true })
     .click();
 
-  await page
+  const accepted = await page
     .locator("#design-system-design-md-source > button")
     .evaluate((button) => {
       const file = new File(
@@ -92,20 +173,35 @@ test("imports a dropped design.md file", async ({ page }) => {
       );
       const dataTransfer = new DataTransfer();
       dataTransfer.items.add(file);
-      button.dispatchEvent(
-        new DragEvent("drop", {
+      const fire = (type: string) => {
+        const event = new DragEvent(type, {
           bubbles: true,
           cancelable: true,
           dataTransfer,
-        }),
-      );
+        });
+        button.dispatchEvent(event);
+        return event.defaultPrevented;
+      };
+      fire("dragenter");
+      const overAccepted = fire("dragover");
+      fire("drop");
+      return overAccepted;
     });
+  expect(accepted, "the drop zone accepts the drag on dragover").toBe(true);
 
   await expect(
     page.locator("#design-system-design-md-source").getByText("design.md", {
       exact: true,
     }),
   ).toBeVisible();
+  await page
+    .getByRole("banner")
+    .getByRole("button", { name: "Continue to generation", exact: true })
+    .click();
+  await expect(page.getByRole("heading", { name: "Acme" })).toBeVisible();
+  expect(captured.input).toMatchObject({
+    designMd: "# Dropped Design System\n\nUse cobalt accents.",
+  });
 });
 
 test("rejects design.md files larger than the inline Builder limit", async ({
@@ -124,4 +220,15 @@ test("rejects design.md files larger than the inline Builder limit", async ({
   await expect(page.getByRole("alert")).toHaveText(
     "The Markdown file must be 2 MB or smaller.",
   );
+  await expect(
+    page.locator("#design-system-design-md-source").getByText("design.md", {
+      exact: true,
+    }),
+    "the oversized file is not attached",
+  ).toHaveCount(0);
+  await expect(
+    page
+      .getByRole("banner")
+      .getByRole("button", { name: "Continue to generation", exact: true }),
+  ).toBeDisabled();
 });

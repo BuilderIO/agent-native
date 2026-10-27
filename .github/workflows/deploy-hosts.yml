@@ -1,0 +1,144 @@
+name: Deploy hosts
+
+# Deploys the documented standalone path to a real hosting provider and proves
+# the live site works: sign up, call the `hello` action, confirm the account is
+# in Postgres. Today that is Netlify and Vercel. scripts/qa-deploy-paths.ts is
+# the check.
+#
+# It needs the host's token and a Postgres server the host can reach, so it
+# never runs for a pull request. Callers are the nightly canary and manual
+# dispatch; both reach it only from `main` or by a maintainer's dispatch.
+# Each host has one project per slot (`an-deploy-ci-<host>-local|latest|nightly`)
+# that the check creates once and reuses, because the token is not guaranteed to
+# be allowed to delete a project. A run overwrites that project's two secrets
+# and removes them again on every exit. The throwaway database it creates
+# carries the `an_deploy_ci` name the reaper in deploy-paths-reaper.yml sweeps,
+# and the check drops it on every exit.
+#
+# `source: local` installs the packages from this checkout; `source: npm` runs
+# the guide's own `npx @agent-native/core@<tag> create`.
+
+on:
+  workflow_call:
+    inputs:
+      source:
+        description: "local installs this checkout's packages; npm follows the guides' own npx create"
+        type: string
+        required: false
+        default: local
+      npm_tag:
+        description: "npm dist-tag the npm source installs"
+        type: string
+        required: false
+        default: latest
+    secrets:
+      NETLIFY_AUTH_TOKEN:
+        required: false
+      VERCEL_TOKEN:
+        required: false
+      DEPLOY_CHECK_DATABASE_URL:
+        required: false
+  workflow_dispatch:
+    inputs:
+      source:
+        description: "local installs this checkout's packages; npm follows the guides' own npx create"
+        type: choice
+        options:
+          - local
+          - npm
+        default: local
+      npm_tag:
+        description: "npm dist-tag the npm source installs"
+        type: string
+        required: false
+        default: latest
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-host:
+    name: ${{ matrix.host }} (${{ inputs.source == 'npm' && format('npm@{0}', inputs.npm_tag) || 'local' }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    # Two runs on one project would overwrite each other's secrets and deploy,
+    # so runs that share a host and slot wait for each other.
+    concurrency:
+      group: deploy-hosts-${{ matrix.host }}-${{ inputs.source == 'npm' && inputs.npm_tag || 'local' }}
+      cancel-in-progress: false
+    strategy:
+      fail-fast: false
+      matrix:
+        host: [netlify, vercel]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Check the inputs and credentials
+        id: inputs
+        env:
+          input_source: ${{ inputs.source }}
+          input_npm_tag: ${{ inputs.npm_tag }}
+          host: ${{ matrix.host }}
+          NETLIFY_AUTH_TOKEN: ${{ matrix.host == 'netlify' && secrets.NETLIFY_AUTH_TOKEN || '' }}
+          VERCEL_TOKEN: ${{ matrix.host == 'vercel' && secrets.VERCEL_TOKEN || '' }}
+          DEPLOY_CHECK_DATABASE_URL: ${{ secrets.DEPLOY_CHECK_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          case "$input_source" in
+            local | npm) ;;
+            *)
+              echo "::error::source must be local or npm (got '$input_source')"
+              exit 1
+              ;;
+          esac
+          if ! [[ "$input_npm_tag" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            echo "::error::npm_tag must be a plain dist-tag (got '$input_npm_tag')"
+            exit 1
+          fi
+          # A missing credential fails the run. Skipping would report a deploy
+          # path as checked when nothing was checked.
+          case "$host" in
+            netlify) names=(NETLIFY_AUTH_TOKEN DEPLOY_CHECK_DATABASE_URL) ;;
+            vercel) names=(VERCEL_TOKEN DEPLOY_CHECK_DATABASE_URL) ;;
+            *)
+              echo "::error::Unknown host '$host'"
+              exit 1
+              ;;
+          esac
+          missing=0
+          for name in "${names[@]}"; do
+            if [ -z "${!name}" ]; then
+              echo "::error::The $name secret is not available to this run."
+              missing=1
+            fi
+          done
+          [ "$missing" = 0 ] || exit 1
+          echo "source=$input_source" >> "$GITHUB_OUTPUT"
+          echo "npm_tag=$input_npm_tag" >> "$GITHUB_OUTPUT"
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          install: ${{ steps.inputs.outputs.source == 'local' && 'full' || 'no-scripts' }}
+          restore-dist-cache: ${{ steps.inputs.outputs.source == 'local' && 'true' || 'false' }}
+
+      - name: Prove the ${{ matrix.host }} path
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ matrix.host == 'netlify' && secrets.NETLIFY_AUTH_TOKEN || '' }}
+          VERCEL_TOKEN: ${{ matrix.host == 'vercel' && secrets.VERCEL_TOKEN || '' }}
+          DEPLOY_CHECK_DATABASE_URL: ${{ secrets.DEPLOY_CHECK_DATABASE_URL }}
+        run: >-
+          pnpm qa:deploy-paths
+          --target ${{ matrix.host }}
+          --source ${{ steps.inputs.outputs.source }}
+          --npm-tag ${{ steps.inputs.outputs.npm_tag }}
+          --netlify-account-slug builder-io
+          --vercel-scope builder-io
+
+      - name: Upload the step timings and result
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: deploy-hosts-${{ matrix.host }}-${{ steps.inputs.outputs.source }}-${{ steps.inputs.outputs.npm_tag }}-${{ github.run_attempt }}
+          path: .tmp/deploy-paths/
+          if-no-files-found: ignore
+          retention-days: 7

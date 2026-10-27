@@ -17,7 +17,9 @@
   },
   "dependencies": {
     "@agent-native/core": "workspace:*",
+    "@agent-native/otel": "workspace:*",
     "@agent-native/toolkit": "workspace:*",
+    "@electric-sql/pglite": "^0.5.8",
     "@fontsource-variable/inter": "^5.3.0",
     "@tanstack/react-query": "5.101.2",
     "drizzle-orm": "^0.45.2",
@@ -44,7 +46,7 @@
     "@types/node": "^25.8.0",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
-    "@vitejs/plugin-react-swc": "^4.3.1",
+    "@vitejs/plugin-react-swc": "^4.3.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "next-themes": "^0.4.6",

@@ -5,7 +5,7 @@ the center, durable threads, standard app navigation, auth, live sync, and
 actions. Start here when you want a real browser app to build on without
 committing to a domain template.
 
-**Live app: [chat.agent-native.com](https://chat.agent-native.com)**
+**Live app: [chat.agent-native.com](https://chat.agent-native.com?utm_source=github&utm_medium=referral&utm_content=outbound-in-your-voice-readme)**
 
 Chat is the basic agent-native app starting point. It gives you the app-agent
 loop wired end to end and one example action, so you can add your own UI, data,
@@ -30,4 +30,4 @@ pnpm install
 pnpm dev
 ```
 
-Full docs: [agent-native.com/docs/template-chat](https://agent-native.com/docs/template-chat).
+Full docs: [agent-native.com/docs/template-chat](https://agent-native.com/docs/template-chat?utm_source=github&utm_medium=referral&utm_content=outbound-in-your-voice-readme).

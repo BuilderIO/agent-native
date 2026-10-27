@@ -5,10 +5,12 @@ import { eq, desc, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { requireFormsPermission } from "../server/lib/app-roles.js";
 import { publicSubmitterEmail } from "../shared/submitter-email.js";
 import type { FormResponse } from "../shared/types.js";
 
 export default defineAction({
+  authorize: requireFormsPermission("forms.review", "formId"),
   description:
     "List response data for a form when you need rows for reasoning or export. If the user asks to see, open, or view all responses, use navigate with view=responses instead.",
   schema: z

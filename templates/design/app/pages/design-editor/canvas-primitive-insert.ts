@@ -1,6 +1,13 @@
 import { isBoardFile } from "@shared/board-file";
+import { parseCssColorExtended } from "@shared/color-utils";
 import { normalizedDesignFileType } from "@shared/design-files";
-import { isClosedPathData } from "@shared/pen-path";
+import { cloneNativeEffectsForNodes } from "@shared/native-effect-cloning";
+import {
+  isClosedPathData,
+  serializePenNodes,
+  serializePenPath,
+  type PenPath,
+} from "@shared/pen-path";
 import {
   vectorEndpointAttributesMarkup,
   vectorEndpointDefsMarkup,
@@ -9,6 +16,7 @@ import {
   VECTOR_END_ENDPOINT_PROPERTY,
   VECTOR_START_ENDPOINT_PROPERTY,
 } from "@shared/vector-endpoints";
+import { compositeOver, contrastRatio, type Rgb } from "@shared/wcag-contrast";
 
 import {
   canvasPrimitiveVisual,
@@ -21,6 +29,7 @@ import {
   defaultCanvasFrameFill,
   defaultCanvasTextColor,
 } from "./canvas-primitives";
+import { ensureGoogleFontLinkInHtml } from "./code-layer-state";
 import {
   BOARD_TEXT_AUTO_COLOR_MARKER,
   destinationBackgroundLightness,
@@ -28,6 +37,10 @@ import {
 } from "./cross-screen-text-color";
 import { escapeHtmlAttributeValue, escapeHtmlText } from "./dom-utils";
 import { isStandaloneHttpUrl } from "./editor-state";
+import { patchElementInlineStyle } from "./html-layer-positioning";
+import { describeFlowContainer } from "./nudge-intent";
+import { isPasteContainer } from "./paste-placement";
+import { hidePenPathFill } from "./pen-path-paint";
 import type { DesignFile } from "./types";
 
 export { normalizedDesignFileType };
@@ -68,10 +81,7 @@ export function nextBlankScreenFilename(files: DesignFile[]): string {
 export function blankScreenHtml(title: string): string {
   const safeTitle = escapeHtmlText(title);
   const safeTitleAttribute = escapeHtmlAttributeValue(title);
-  // Blank screen = free canvas: <body> is the positioned root and drawn shapes
-  // are absolute children (x,y in the HTML). A centering grid / <main> wrapper
-  // trapped shapes at center and got auto-layout-converted on drop.
-  return `<!DOCTYPE html>
+  const content = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -95,6 +105,13 @@ export function blankScreenHtml(title: string): string {
 <body data-agent-native-layer-name="${safeTitleAttribute}">
 </body>
 </html>`;
+  const linkedContent = ensureGoogleFontLinkInHtml(content, "Inter");
+  const links = [...linkedContent.matchAll(/<link\b[^>]*>/g)].map(
+    ([link]) => link,
+  );
+  return links.length > 0
+    ? content.replace("</head>", `${links.join("\n")}\n</head>`)
+    : content;
 }
 
 export function uniqueLayerId(prefix: string): string {
@@ -103,13 +120,6 @@ export function uniqueLayerId(prefix: string): string {
     : `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-/**
- * Re-stamp every `data-agent-native-node-id` in duplicated screen content with a
- * fresh unique id. Without this, a duplicated screen carries the SAME node ids as
- * its source, which collapses the cross-file layer-owner map (selecting a layer
- * in one screen resolves to the other) and can produce a malformed aggregate
- * projection.
- */
 export function reassignDuplicatedNodeIds(content: string): string {
   const nodeIdMap = new Map<string, string>();
   const withNewNodeIds = content.replace(
@@ -130,21 +140,25 @@ export function reassignDuplicatedNodeIds(content: string): string {
     return `${safeNodeId}-vector-marker-${side}`;
   };
 
-  const rewriteReference = (id: string): string => {
-    for (const [oldNodeId, nextNodeId] of nodeIdMap) {
-      if (id === `${oldNodeId}-arrow`) return `${nextNodeId}-arrow`;
-      for (const side of ["start", "end"] as const) {
-        if (
-          id === vectorEndpointMarkerId(oldNodeId, side) ||
-          id === legacyVectorEndpointMarkerId(oldNodeId, side)
-        ) {
-          return vectorEndpointMarkerId(nextNodeId, side);
-        }
-      }
+  // A screen holds thousands of nodes and ids, so references resolve through a
+  // table; the first node to claim a reference wins, as a scan in order would.
+  const rewrittenReferences = new Map<string, string>();
+  const claim = (reference: string, next: string) => {
+    if (!rewrittenReferences.has(reference)) {
+      rewrittenReferences.set(reference, next);
     }
-    return id;
   };
-  return withNewNodeIds
+  for (const [oldNodeId, nextNodeId] of nodeIdMap) {
+    claim(`${oldNodeId}-arrow`, `${nextNodeId}-arrow`);
+    for (const side of ["start", "end"] as const) {
+      const nextMarkerId = vectorEndpointMarkerId(nextNodeId, side);
+      claim(vectorEndpointMarkerId(oldNodeId, side), nextMarkerId);
+      claim(legacyVectorEndpointMarkerId(oldNodeId, side), nextMarkerId);
+    }
+  }
+  const rewriteReference = (id: string): string =>
+    rewrittenReferences.get(id) ?? id;
+  const rewrittenContent = withNewNodeIds
     .replace(
       /\bid=(['"])([^'"]*)\1/g,
       (_match, quote: string, id: string) =>
@@ -154,15 +168,11 @@ export function reassignDuplicatedNodeIds(content: string): string {
       /url\(#([^)]*)\)/g,
       (_match, id: string) => `url(#${rewriteReference(id)})`,
     );
+  return cloneNativeEffectsForNodes(content, rewrittenContent, nodeIdMap, {
+    wholeDocument: true,
+  });
 }
 
-/**
- * Figma's default text-layer name IS its content. A freshly drawn text
- * primitive is committed with no content yet (the draft is still empty), so
- * this only produces the real name once the user's typed value is known —
- * see `runTextContentChange`'s creation-finalizing commit, which re-derives
- * the layer name from this same function once typing lands.
- */
 export function defaultTextLayerName(text: string | undefined): string {
   return text?.trim() || "Text";
 }
@@ -230,20 +240,37 @@ export function polygonPointsForHtmlShape(
     .join(" ");
 }
 
-/**
- * Marker attribute stamped on board-drawn text whose inline `color` is the
- * auto-applied board default (defaultCanvasTextColor's "#ffffff" branch),
- * NOT a user-chosen color. Mirrors BOARD_TEXT_AUTO_COLOR_MARKER in
- * editor-chrome.bridge.ts (keep both in sync) — that bridge's
- * adaptAutoTextColorForNest reads this marker to decide whether an
- * in-screen re-parent should switch the forced white to `inherit` so the
- * text doesn't render white-on-white in a light container. Cross-screen
- * drops (handleCrossScreenElementDrop below) key off the same marker via
- * adaptAutoTextColorForCrossScreenNode. Any explicit user color edit must
- * remove this attribute so the text is never "helpfully" overridden again.
- */
+export function updateCanvasPolygonSvgGeometry(
+  svg: SVGSVGElement,
+  kind: "polygon" | "star",
+  width: number,
+  height: number,
+): void {
+  const safeWidth = Math.max(1, width);
+  const safeHeight = Math.max(1, height);
+  svg.setAttribute("viewBox", `0 0 ${safeWidth} ${safeHeight}`);
+  const polygon = svg.querySelector<SVGPolygonElement>(":scope > polygon");
+  if (polygon) {
+    polygon.setAttribute(
+      "points",
+      polygonPointsForHtmlShape(kind, safeWidth, safeHeight),
+    );
+    return;
+  }
 
-/** Inline absolute rect, or null when the element is not absolutely placed. */
+  const nodes = polygonPointsForHtmlShape(kind, safeWidth, safeHeight)
+    .split(/\s+/)
+    .map((pair) => {
+      const [x, y] = pair!.split(",").map(Number);
+      return { point: { x: x!, y: y! } };
+    });
+  const path: PenPath = { closed: true, nodes };
+  svg.setAttribute("data-an-pen-nodes", serializePenNodes(path));
+  svg
+    .querySelector<SVGPathElement>(":scope > path")
+    ?.setAttribute("d", serializePenPath(path));
+}
+
 function absoluteRect(
   element: Element,
 ): { x: number; y: number; w: number; h: number } | null {
@@ -258,8 +285,6 @@ function absoluteRect(
   const w = read(style.width);
   const h = read(style.height);
   if (x === null || y === null || w === null || h === null) return null;
-  // Inline left/top are relative to the nearest positioned ancestor, so a
-  // nested frame must add its own offsets or it matches the wrong origin.
   let originX = 0;
   let originY = 0;
   for (
@@ -282,12 +307,6 @@ function absoluteRect(
   return { x: originX + x, y: originY + y, w, h };
 }
 
-/**
- * Figma's frame is the container primitive and a rectangle is not, so only
- * `data-an-primitive="frame"` adopts. Bounds come from inline geometry
- * because this document is parsed, never laid out.
- */
-/** Inline border widths, which an absolute child's offsets resolve inside of. */
 function inlineBorderInset(element: Element): { x: number; y: number } {
   const style = (element as HTMLElement).style;
   const read = (value: string) => {
@@ -297,11 +316,122 @@ function inlineBorderInset(element: Element): { x: number; y: number } {
   return { x: read(style.borderLeftWidth), y: read(style.borderTopWidth) };
 }
 
+const POSITIONED = new Set(["absolute", "fixed", "relative", "sticky"]);
+
+interface CreationHost {
+  element: Element;
+  x: number;
+  y: number;
+  border: { x: number; y: number };
+  live: Element | null;
+}
+
+// Paste and draw must agree on what holds a layer, so this is paste's rule
+// plus the layer-state exclusions a hit test applies.
+function isCreationParent(element: Element): boolean {
+  if (
+    element.closest(
+      '[data-agent-native-locked="true"],[data-agent-native-hidden="true"]',
+    )
+  ) {
+    return false;
+  }
+  const display = (element as HTMLElement).style?.display;
+  return isPasteContainer({
+    tag: element.localName,
+    hasElementChildren: element.children.length > 0,
+    hasText: Boolean(element.textContent?.trim()),
+    container: describeFlowContainer({
+      style: display ? { display } : {},
+      classes: (element.getAttribute("class") ?? "").split(/\s+/),
+    }),
+    primitiveKind: element.getAttribute("data-an-primitive"),
+  });
+}
+
+function containsPoint(
+  rect: { x: number; y: number; w: number; h: number },
+  x: number,
+  y: number,
+) {
+  return (
+    x >= rect.x && y >= rect.y && x <= rect.x + rect.w && y <= rect.y + rect.h
+  );
+}
+
+function uniqueLiveNode(live: Document, nodeId: string): Element | null {
+  const matches = live.querySelectorAll(
+    `[data-agent-native-node-id="${CSS.escape(nodeId)}"]`,
+  );
+  return matches.length === 1 ? (matches[0] ?? null) : null;
+}
+
+function liveDocumentRect(element: Element) {
+  const rect = element.getBoundingClientRect();
+  const view = element.ownerDocument.defaultView;
+  return {
+    x: rect.left + (view?.scrollX ?? 0),
+    y: rect.top + (view?.scrollY ?? 0),
+    w: rect.width,
+    h: rect.height,
+  };
+}
+
+/**
+ * Authored layouts carry no inline geometry, so the rendered screen decides
+ * which container a point is over. Document order puts every descendant and
+ * every later-painted sibling after the element it covers, so the last
+ * container hit is the one on top.
+ */
+function liveCreationHost(
+  root: Element,
+  x: number,
+  y: number,
+  liveDocument: Document,
+): CreationHost | null {
+  // null marks an id the rendered screen repeats, which names no one element.
+  const liveById = new Map<string, Element | null>();
+  for (const live of Array.from(
+    liveDocument.querySelectorAll("[data-agent-native-node-id]"),
+  )) {
+    const id = live.getAttribute("data-agent-native-node-id") ?? "";
+    liveById.set(id, liveById.has(id) ? null : live);
+  }
+  let host: CreationHost | null = null;
+  for (const element of Array.from(
+    root.querySelectorAll("[data-agent-native-node-id]"),
+  )) {
+    if (!isCreationParent(element)) continue;
+    const live = liveById.get(
+      element.getAttribute("data-agent-native-node-id") ?? "",
+    );
+    if (!live) continue;
+    const rect = liveDocumentRect(live);
+    if (!(rect.w > 0 && rect.h > 0) || !containsPoint(rect, x, y)) continue;
+    const computed = liveDocument.defaultView?.getComputedStyle(live);
+    const read = (value: string | undefined) => {
+      const parsed = Number.parseFloat(value ?? "");
+      return Number.isFinite(parsed) ? parsed : 0;
+    };
+    host = {
+      element,
+      x: rect.x - live.scrollLeft,
+      y: rect.y - live.scrollTop,
+      border: {
+        x: read(computed?.borderLeftWidth),
+        y: read(computed?.borderTopWidth),
+      },
+      live,
+    };
+  }
+  return host;
+}
+
 function deepestFrameContaining(
   root: Element,
   x: number,
   y: number,
-): { element: Element; x: number; y: number } | null {
+): CreationHost | null {
   const contained = Array.from(
     root.querySelectorAll('[data-an-primitive="frame"]'),
   )
@@ -312,35 +442,621 @@ function deepestFrameContaining(
       ): candidate is {
         element: Element;
         rect: { x: number; y: number; w: number; h: number };
-      } =>
-        // Nest on the origin, as Figma does. Requiring the whole box to fit
-        // drops a click-created text (default width) out to the root, where
-        // it overlaps the frame it looks like it belongs to.
-        candidate.rect !== null &&
-        x >= candidate.rect.x &&
-        y >= candidate.rect.y &&
-        x <= candidate.rect.x + candidate.rect.w &&
-        y <= candidate.rect.y + candidate.rect.h,
+      } => candidate.rect !== null && containsPoint(candidate.rect, x, y),
     )
     .sort((a, b) => a.rect.w * a.rect.h - b.rect.w * b.rect.h);
   const best = contained[0];
   return best
-    ? { element: best.element, x: best.rect.x, y: best.rect.y }
+    ? {
+        element: best.element,
+        x: best.rect.x,
+        y: best.rect.y,
+        border: inlineBorderInset(best.element),
+        live: null,
+      }
     : null;
 }
 
-/**
- * Return the stable authored identity of the exact frame the insertion helper
- * will choose, a body marker when no frame contains the point, or `null` when
- * the content/host cannot be resolved. The command uses this only to verify the
- * host's computed layout in the target's live iframe before enabling flow
- * positioning; the inert source document itself is never used as a layout
- * oracle.
- */
+function creationHostAt(
+  root: Element,
+  x: number,
+  y: number,
+  liveDocument: Document | null | undefined,
+): CreationHost | null {
+  return (
+    (liveDocument?.body ? liveCreationHost(root, x, y, liveDocument) : null) ??
+    deepestFrameContaining(root, x, y)
+  );
+}
+
+/** The in-flow child a layer dropped at the point goes before, in the host's flow order. */
+function flowInsertionReference(
+  host: CreationHost,
+  x: number,
+  y: number,
+): Element | null {
+  const live = host.live;
+  const view = live?.ownerDocument.defaultView;
+  if (!live || !view) return null;
+  const computed = view.getComputedStyle(live);
+  const direction = computed.flexDirection || "row";
+  const column = direction.startsWith("column");
+  const reversed =
+    direction.endsWith("-reverse") !==
+    (!column && computed.direction === "rtl");
+  const rowsOfItems =
+    computed.display.includes("grid") ||
+    (computed.flexWrap !== "" && computed.flexWrap !== "nowrap");
+  for (const child of Array.from(host.element.children)) {
+    const id = child.getAttribute("data-agent-native-node-id");
+    const liveChild: Element | null = id
+      ? uniqueLiveNode(live.ownerDocument, id)
+      : null;
+    if (!liveChild || liveChild.parentElement !== live) continue;
+    const position = view.getComputedStyle(liveChild).position;
+    if (position === "absolute" || position === "fixed") continue;
+    const rect = liveDocumentRect(liveChild);
+    const centerX = rect.x + rect.w / 2;
+    const centerY = rect.y + rect.h / 2;
+    const before = column
+      ? reversed
+        ? centerY < y
+        : y < centerY
+      : rowsOfItems && (y < rect.y || rect.y + rect.h < y)
+        ? y < rect.y
+        : reversed
+          ? centerX < x
+          : x < centerX;
+    if (before) return child;
+  }
+  return null;
+}
+
+function elementsFromPointIncludingPointerTransparent(
+  liveDocument: Document,
+  x: number,
+  y: number,
+): Element[] {
+  const liveView = liveDocument.defaultView;
+  if (!liveView) return liveDocument.elementsFromPoint(x, y);
+
+  // elementsFromPoint skips pointer-events:none even when those elements paint over the point.
+  const pointerTransparentElements = Array.from(
+    liveDocument.querySelectorAll<HTMLElement | SVGElement>("*"),
+  ).filter((element) => {
+    if (liveView.getComputedStyle(element).pointerEvents !== "none") {
+      return false;
+    }
+    const rect = element.getBoundingClientRect();
+    return (
+      rect.width > 0 &&
+      rect.height > 0 &&
+      x >= rect.left &&
+      y >= rect.top &&
+      x <= rect.right &&
+      y <= rect.bottom
+    );
+  });
+  if (!pointerTransparentElements.length) {
+    return liveDocument.elementsFromPoint(x, y);
+  }
+
+  const originalStyles = pointerTransparentElements.map((element) => ({
+    element,
+    style: element.getAttribute("style"),
+  }));
+  try {
+    pointerTransparentElements.forEach((element) => {
+      element.style.setProperty("pointer-events", "auto", "important");
+    });
+    return liveDocument.elementsFromPoint(x, y);
+  } finally {
+    originalStyles.forEach(({ element, style }) => {
+      if (style === null) element.removeAttribute("style");
+      else element.setAttribute("style", style);
+    });
+  }
+}
+
+function paintedSurfaceAtPoint(
+  root: Element,
+  x: number,
+  y: number,
+  liveDocument?: Document | null,
+  includeDocumentBackground = false,
+  fallbackBackground: string | null = null,
+  fallbackIsMeasured = false,
+  sampleElement?: Element | null,
+):
+  | { kind: "known"; color: Rgb }
+  | {
+      kind: "unknown";
+      reason:
+        | "background-image"
+        | "flow-overlap"
+        | "translucent"
+        | "unmeasured";
+    }
+  | null {
+  const isZeroOpacity = (style: CSSStyleDeclaration): boolean => {
+    const opacity = style.opacity?.trim();
+    return Boolean(opacity && Number.parseFloat(opacity) === 0);
+  };
+  const hasUnknownPaint = (
+    style: CSSStyleDeclaration,
+    includeBackgroundImage = true,
+  ): "background-image" | "translucent" | null => {
+    const opacity = style.opacity?.trim();
+    if (opacity && Number.parseFloat(opacity) === 0) return null;
+    const backgroundImage = style.backgroundImage?.trim().toLowerCase();
+    if (
+      includeBackgroundImage &&
+      backgroundImage &&
+      ![
+        "none",
+        "initial",
+        "unset",
+        "inherit",
+        "revert",
+        "revert-layer",
+      ].includes(backgroundImage)
+    ) {
+      return "background-image";
+    }
+    if (!opacity || opacity === "1") return null;
+    const parsedOpacity = Number.parseFloat(opacity);
+    return !Number.isFinite(parsedOpacity) || parsedOpacity !== 1
+      ? "translucent"
+      : null;
+  };
+  const svgPaintAtPoint = (
+    element: Element,
+    style: CSSStyleDeclaration,
+  ): string | "unmeasured" | null => {
+    if (element.namespaceURI !== "http://www.w3.org/2000/svg") return null;
+    const tagName = element.localName.toLowerCase();
+    if (["image", "use", "foreignobject"].includes(tagName)) {
+      return "unmeasured";
+    }
+    if (
+      ![
+        "circle",
+        "ellipse",
+        "line",
+        "path",
+        "polygon",
+        "polyline",
+        "rect",
+        "text",
+        "tspan",
+      ].includes(tagName)
+    ) {
+      return null;
+    }
+
+    const readProperty = (property: string, fallback: string): string => {
+      const computedValue = style.getPropertyValue(property).trim();
+      if (computedValue && !["inherit", "unset"].includes(computedValue)) {
+        return computedValue;
+      }
+      for (
+        let ancestor: Element | null = element;
+        ancestor?.namespaceURI === "http://www.w3.org/2000/svg";
+        ancestor = ancestor.parentElement
+      ) {
+        const inlineValue = (ancestor as SVGElement).style
+          .getPropertyValue(property)
+          .trim();
+        const authoredValue =
+          inlineValue || ancestor.getAttribute(property)?.trim() || "";
+        if (authoredValue && !["inherit", "unset"].includes(authoredValue)) {
+          return authoredValue;
+        }
+      }
+      return fallback;
+    };
+    const opacityFor = (property: string): number | null => {
+      const value = readProperty(property, "1").trim();
+      const parsed = value.endsWith("%")
+        ? Number(value.slice(0, -1)) / 100
+        : Number(value);
+      return Number.isFinite(parsed) ? Math.min(1, Math.max(0, parsed)) : null;
+    };
+    const paintFor = (
+      paint: string,
+      opacity: number | null,
+    ): { r: number; g: number; b: number; a: number } | "unmeasured" | null => {
+      if (paint.trim().toLowerCase() === "none") return null;
+      if (opacity === null) return "unmeasured";
+      if (opacity === 0) return null;
+      const normalizedPaint = paint.trim().toLowerCase();
+      if (
+        normalizedPaint.startsWith("url(") ||
+        normalizedPaint.startsWith("context-")
+      ) {
+        return "unmeasured";
+      }
+      const color =
+        normalizedPaint === "currentcolor"
+          ? readProperty("color", "black")
+          : paint;
+      const parsed = parseCssColorExtended(color);
+      return parsed ? { ...parsed, a: parsed.a * opacity } : "unmeasured";
+    };
+    const fill =
+      tagName === "line"
+        ? null
+        : paintFor(readProperty("fill", "black"), opacityFor("fill-opacity"));
+    const stroke = paintFor(
+      readProperty("stroke", "none"),
+      opacityFor("stroke-opacity"),
+    );
+    if (fill === "unmeasured" || stroke === "unmeasured") {
+      return "unmeasured";
+    }
+    if (!fill) {
+      return stroke
+        ? `rgb(${stroke.r} ${stroke.g} ${stroke.b} / ${stroke.a})` // guard:allow-raw-color — This serializes sampled SVG paint for contrast parsing.
+        : null;
+    }
+    if (!stroke) {
+      return `rgb(${fill.r} ${fill.g} ${fill.b} / ${fill.a})`; // guard:allow-raw-color — This serializes sampled SVG paint for contrast parsing.
+    }
+    if (
+      fill.a === 1 &&
+      stroke.a === 1 &&
+      fill.r === stroke.r &&
+      fill.g === stroke.g &&
+      fill.b === stroke.b
+    ) {
+      return `rgb(${fill.r} ${fill.g} ${fill.b})`; // guard:allow-raw-color — This serializes sampled SVG paint for contrast parsing.
+    }
+    return "unmeasured";
+  };
+  const compositePaintStack = (
+    colorsFromFrontToBack: ReadonlyArray<string | null>,
+  ):
+    | { kind: "known"; color: Rgb }
+    | { kind: "unknown"; reason: "translucent" | "unmeasured" }
+    | null => {
+    const fallback = fallbackBackground
+      ? parseCssColorExtended(fallbackBackground)
+      : null;
+    const hasMeasuredPaint = colorsFromFrontToBack.some((paint) => {
+      const foreground = paint ? parseCssColorExtended(paint) : null;
+      return foreground !== null && foreground.a > 0;
+    });
+    if (
+      !hasMeasuredPaint &&
+      (!fallbackIsMeasured || !fallback || fallback.a < 1)
+    ) {
+      return { kind: "unknown", reason: "unmeasured" };
+    }
+    let background: Rgb | null = fallback?.a === 1 ? fallback : null;
+    for (let index = colorsFromFrontToBack.length - 1; index >= 0; index -= 1) {
+      const paint = colorsFromFrontToBack[index];
+      const foreground = paint ? parseCssColorExtended(paint) : null;
+      if (!foreground || foreground.a <= 0) continue;
+      if (foreground.a >= 1) {
+        background = foreground;
+      } else if (background) {
+        background = compositeOver(foreground, background);
+      }
+    }
+    return background
+      ? { kind: "known", color: background }
+      : { kind: "unknown", reason: "translucent" };
+  };
+  const liveView = liveDocument?.defaultView;
+  const hasZeroOpacityAncestor = (element: Element): boolean => {
+    for (
+      let ancestor: Element | null = element;
+      ancestor;
+      ancestor = ancestor.parentElement
+    ) {
+      const inlineStyle = (ancestor as HTMLElement).style;
+      const computedStyle = liveView?.getComputedStyle(ancestor);
+      if (
+        isZeroOpacity(inlineStyle) ||
+        (computedStyle && isZeroOpacity(computedStyle))
+      ) {
+        return true;
+      }
+    }
+    return false;
+  };
+  if (sampleElement) {
+    if (!liveDocument || !liveView) {
+      return { kind: "unknown", reason: "unmeasured" };
+    }
+    const nodeId = sampleElement.getAttribute("data-agent-native-node-id");
+    const liveSampleElement =
+      sampleElement === root.ownerDocument?.body
+        ? liveDocument.body
+        : sampleElement === root.ownerDocument?.documentElement
+          ? liveDocument.documentElement
+          : nodeId
+            ? liveDocument.querySelector(
+                `[data-agent-native-node-id="${CSS.escape(nodeId)}"]`,
+              )
+            : null;
+    if (!liveSampleElement) {
+      return { kind: "unknown", reason: "unmeasured" };
+    }
+    const hostRect = liveSampleElement.getBoundingClientRect();
+    const hasOverlappingPositionedDescendant = Array.from(
+      liveSampleElement.querySelectorAll("*"),
+    ).some((descendant) => {
+      const style = liveView.getComputedStyle(descendant);
+      if (
+        !["absolute", "fixed"].includes(style.position) ||
+        ["none", "hidden", "collapse"].includes(style.display) ||
+        ["hidden", "collapse"].includes(style.visibility) ||
+        hasZeroOpacityAncestor(descendant)
+      ) {
+        return false;
+      }
+      const rect = descendant.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return false;
+      if (hostRect.width <= 0 || hostRect.height <= 0) return true;
+      if (rect.right <= hostRect.left) return false;
+      if (rect.left >= hostRect.right) return false;
+      if (rect.bottom <= hostRect.top) return false;
+      return rect.top < hostRect.bottom;
+    });
+    // A flow insertion appends after existing children, where positioned
+    // descendants can paint over it without inheriting the host's surface.
+    if (hasOverlappingPositionedDescendant) {
+      return { kind: "unknown", reason: "flow-overlap" };
+    }
+    const colors: string[] = [];
+    for (
+      let element: Element | null = liveSampleElement;
+      element;
+      element = element.parentElement
+    ) {
+      if (hasZeroOpacityAncestor(element)) continue;
+      const includesBackgroundImage =
+        includeDocumentBackground ||
+        (element !== liveDocument.body &&
+          element !== liveDocument.documentElement);
+      const style = liveView.getComputedStyle(element);
+      const unknownPaint = hasUnknownPaint(style, includesBackgroundImage);
+      if (unknownPaint) return { kind: "unknown", reason: unknownPaint };
+      if (
+        includeDocumentBackground ||
+        (element !== liveDocument.body &&
+          element !== liveDocument.documentElement)
+      ) {
+        colors.push(style.backgroundColor);
+      }
+    }
+    return compositePaintStack(colors);
+  }
+  if (
+    liveDocument &&
+    liveView &&
+    typeof liveDocument.elementsFromPoint === "function"
+  ) {
+    const sampleX = x - liveView.scrollX;
+    const sampleY = y - liveView.scrollY;
+    const hits = elementsFromPointIncludingPointerTransparent(
+      liveDocument,
+      sampleX,
+      sampleY,
+    );
+    const hitSet = new Set(hits);
+    const colors: string[] = [];
+    let opaqueForeground = false;
+    const unseenAncestors: Element[] = [];
+    const seenAncestors = new Set<Element>();
+    for (const hit of hits) {
+      if (hasZeroOpacityAncestor(hit)) continue;
+      const includesBackgroundImage =
+        includeDocumentBackground ||
+        (hit !== liveDocument.body && hit !== liveDocument.documentElement);
+      const style = liveView.getComputedStyle(hit);
+      if (!opaqueForeground) {
+        const unknownPaint = hasUnknownPaint(style, includesBackgroundImage);
+        if (unknownPaint) return { kind: "unknown", reason: unknownPaint };
+        if (["img", "video", "canvas"].includes(hit.localName.toLowerCase())) {
+          return { kind: "unknown", reason: "unmeasured" };
+        }
+      }
+      for (
+        let element: Element | null = hit;
+        !opaqueForeground && element;
+        element = element.parentElement
+      ) {
+        if (element === hit) continue;
+        const ancestorStyle = liveView.getComputedStyle(element);
+        const unknownOpacity = hasUnknownPaint(ancestorStyle, false);
+        if (unknownOpacity) {
+          return { kind: "unknown", reason: unknownOpacity };
+        }
+      }
+      if (
+        includeDocumentBackground ||
+        (hit !== liveDocument.body && hit !== liveDocument.documentElement)
+      ) {
+        colors.push(style.backgroundColor);
+        const foreground = parseCssColorExtended(style.backgroundColor);
+        if (foreground?.a === 1) opaqueForeground = true;
+      }
+      if (!opaqueForeground) {
+        const svgPaint = svgPaintAtPoint(hit, style);
+        if (svgPaint === "unmeasured") {
+          return { kind: "unknown", reason: "unmeasured" };
+        }
+        if (svgPaint) {
+          colors.push(svgPaint);
+          const foreground = parseCssColorExtended(svgPaint);
+          if (foreground?.a === 1) opaqueForeground = true;
+        }
+      }
+      for (
+        let element = hit.parentElement;
+        element;
+        element = element.parentElement
+      ) {
+        if (hitSet.has(element) || seenAncestors.has(element)) continue;
+        seenAncestors.add(element);
+        unseenAncestors.push(element);
+      }
+    }
+    if (!opaqueForeground) {
+      for (const element of unseenAncestors) {
+        if (hasZeroOpacityAncestor(element)) continue;
+        const includesBackgroundImage =
+          includeDocumentBackground ||
+          (element !== liveDocument.body &&
+            element !== liveDocument.documentElement);
+        const style = liveView.getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        if (
+          style.visibility !== "visible" ||
+          sampleX < rect.left ||
+          sampleY < rect.top ||
+          sampleX > rect.right ||
+          sampleY > rect.bottom
+        ) {
+          continue;
+        }
+        const unknownPaint = hasUnknownPaint(style, includesBackgroundImage);
+        if (unknownPaint) return { kind: "unknown", reason: unknownPaint };
+        if (includesBackgroundImage) {
+          colors.push(style.backgroundColor);
+          const foreground = parseCssColorExtended(style.backgroundColor);
+          if (foreground?.a === 1) break;
+        }
+      }
+    }
+    return compositePaintStack(colors);
+  }
+
+  const candidates: Array<{ color: string | null }> = [];
+  for (const element of Array.from(root.querySelectorAll<HTMLElement>("*"))) {
+    if (hasZeroOpacityAncestor(element)) continue;
+    const rect = absoluteRect(element);
+    if (
+      !rect ||
+      x < rect.x ||
+      y < rect.y ||
+      x > rect.x + rect.w ||
+      y > rect.y + rect.h
+    ) {
+      continue;
+    }
+    const includesBackgroundImage =
+      includeDocumentBackground ||
+      (element !== root && element !== root.ownerDocument?.documentElement);
+    const unknownPaint = hasUnknownPaint(
+      element.style,
+      includesBackgroundImage,
+    );
+    if (unknownPaint) return { kind: "unknown", reason: unknownPaint };
+    const color =
+      element.style.backgroundColor || element.style.background || null;
+    if (color && parseCssColorExtended(color)) candidates.push({ color });
+  }
+  for (
+    let element: Element | null = root;
+    element;
+    element = element.parentElement
+  ) {
+    const style = (element as HTMLElement).style;
+    const includesBackgroundImage =
+      includeDocumentBackground ||
+      (element !== root && element !== root.ownerDocument?.documentElement);
+    const unknownPaint = hasUnknownPaint(style, includesBackgroundImage);
+    if (unknownPaint) return { kind: "unknown", reason: unknownPaint };
+  }
+  const colors: (string | null)[] = candidates
+    .reverse()
+    .map((candidate) => candidate.color);
+  if (includeDocumentBackground) {
+    for (
+      let element: Element | null = root;
+      element;
+      element = element.parentElement
+    ) {
+      const style = (element as HTMLElement).style;
+      colors.push(style.backgroundColor || style.background || null);
+    }
+  }
+  return compositePaintStack(colors);
+}
+
+function textColorWithBestContrast(background: Rgb): string {
+  const whiteContrast = contrastRatio({ r: 255, g: 255, b: 255 }, background);
+  const blackContrast = contrastRatio({ r: 0, g: 0, b: 0 }, background);
+  const whiteHasMoreContrast = whiteContrast > blackContrast;
+  return defaultCanvasTextColor(whiteHasMoreContrast, !whiteHasMoreContrast);
+}
+
+/** Later siblings paint over earlier ones; z-index is ignored. */
+function topmostBoxContaining(
+  root: Element,
+  x: number,
+  y: number,
+): Element | null {
+  let topmost: Element | null = null;
+  for (const element of Array.from(root.querySelectorAll("*"))) {
+    const rect = absoluteRect(element);
+    if (
+      rect &&
+      x >= rect.x &&
+      y >= rect.y &&
+      x <= rect.x + rect.w &&
+      y <= rect.y + rect.h
+    ) {
+      topmost = element;
+    }
+  }
+  return topmost;
+}
+
+export interface LayerSize {
+  width: number;
+  height: number;
+}
+
+/** A drawn frame adopts the absolutely placed host children it fully encloses, keeping them in place. */
+function adoptEnclosedLayers(
+  host: Element,
+  frame: HTMLElement,
+  box: { left: number; top: number; width: number; height: number },
+  liveLayerSizes: ReadonlyMap<string, LayerSize> | undefined,
+) {
+  if (!liveLayerSizes?.size) return;
+  const border = inlineBorderInset(frame);
+  for (const child of Array.from(host.children)) {
+    const id = child.getAttribute("data-agent-native-node-id");
+    const size = id ? liveLayerSizes.get(id) : undefined;
+    const style = (child as HTMLElement).style;
+    if (!size || style.position !== "absolute") continue;
+    if (!style.left.endsWith("px") || !style.top.endsWith("px")) continue;
+    const left = Number.parseFloat(style.left);
+    const top = Number.parseFloat(style.top);
+    if (
+      left < box.left ||
+      top < box.top ||
+      left + size.width > box.left + box.width ||
+      top + size.height > box.top + box.height
+    ) {
+      continue;
+    }
+    style.left = `${Math.round(left - box.left - border.x)}px`;
+    style.top = `${Math.round(top - box.top - border.y)}px`;
+    frame.appendChild(child);
+  }
+}
+
 export function canvasPrimitiveInsertionHostNodeId(
   content: string,
   primitive: CanvasPrimitiveInsert,
   preserveNegativePosition = false,
+  liveDocument?: Document | null,
 ): { kind: "body" } | { kind: "frame"; nodeId: string } | null {
   if (typeof window === "undefined" || isStandaloneHttpUrl(content))
     return null;
@@ -353,7 +1069,7 @@ export function canvasPrimitiveInsertionHostNodeId(
     const top = preserveNegativePosition
       ? Math.round(primitive.geometry.y)
       : Math.max(0, Math.round(primitive.geometry.y));
-    const host = deepestFrameContaining(doc.body, left, top)?.element;
+    const host = creationHostAt(doc.body, left, top, liveDocument)?.element;
     if (!host) return { kind: "body" };
     const id = host.getAttribute("data-agent-native-node-id");
     return id ? { kind: "frame", nodeId: id } : null;
@@ -369,47 +1085,40 @@ export function appendCanvasPrimitiveToHtml(
   options?: {
     preserveNegativePosition?: boolean;
     isBoardTarget?: boolean;
-    /** Let a verified auto-layout parent place this primitive. */
     positioning?: "absolute" | "flow";
-    /** The canvas colour behind the board. The board document is transparent
-     *  by design, so its surface can only be measured from the host. */
     boardBackground?: string | null;
+    liveDocument?: Document | null;
+    liveLayerSizes?: ReadonlyMap<string, LayerSize>;
   },
 ): string | null {
   if (typeof window === "undefined") return null;
-  // A live/localhost screen stores its route URL here, not a document.
-  // Appending to it parses the URL as body text and returns a whole HTML file,
-  // which the caller then persists OVER the URL — the screen stops being live
-  // and the route is gone. There is no correct append for this shape.
   if (isStandaloneHttpUrl(content)) return null;
   try {
     const doc = new DOMParser().parseFromString(content, "text/html");
     if (!doc.body) return null;
     const geometry = primitive.geometry;
-    const left = options?.preserveNegativePosition
+    const explicitPathData = primitive.pathData?.trim()
+      ? primitive.pathData
+      : null;
+    const preserveNegativePosition =
+      options?.preserveNegativePosition || explicitPathData !== null;
+    const left = preserveNegativePosition
       ? Math.round(geometry.x)
       : Math.max(0, Math.round(geometry.x));
-    const top = options?.preserveNegativePosition
+    const top = preserveNegativePosition
       ? Math.round(geometry.y)
       : Math.max(0, Math.round(geometry.y));
     const width = Math.max(1, Math.round(geometry.width));
     const height = Math.max(1, Math.round(geometry.height));
     const nodeId = primitive.nodeId ?? uniqueLayerId(primitive.kind);
     const layerName = primitiveLayerName(primitive);
-    // Resolved once so every primitive kind nests identically, and so text can
-    // pick a fill that is legible against its actual container.
-    const host = deepestFrameContaining(doc.body, left, top);
+    const host = creationHostAt(doc.body, left, top, options?.liveDocument);
     const hostOrBody: Element = host?.element ?? doc.body;
-    // An absolute child resolves against the host's PADDING box, while
-    // host.x/host.y are its border-box origin — so a bordered frame shifts
-    // everything dropped into it by the border width.
-    const hostBorder = host ? inlineBorderInset(host.element) : { x: 0, y: 0 };
-    const hostLeft = host ? left - host.x - hostBorder.x : left;
-    const hostTop = host ? top - host.y - hostBorder.y : top;
+    const hostLeft = host ? left - host.x - host.border.x : left;
+    const hostTop = host ? top - host.y - host.border.y : top;
     const finishPrimitive = (element: Element): string => {
-      if (options?.positioning === "flow") {
-        // Keep a positioned containing block for Frame children, while
-        // forcing all authored primitive kinds into the parent's layout.
+      const flow = options?.positioning === "flow";
+      if (flow) {
         const style = (element as HTMLElement | SVGElement).style;
         for (const property of [
           "position",
@@ -426,8 +1135,28 @@ export function appendCanvasPrimitiveToHtml(
           );
         }
       }
-      hostOrBody.appendChild(element);
-      return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+      const hostPosition =
+        host?.live?.ownerDocument.defaultView?.getComputedStyle(
+          host.live,
+        ).position;
+      if (
+        host &&
+        !flow &&
+        hostPosition !== undefined &&
+        !POSITIONED.has(hostPosition)
+      ) {
+        patchElementInlineStyle(host.element as HTMLElement, [
+          { property: "position", value: "relative" },
+        ]);
+      }
+      hostOrBody.insertBefore(
+        element,
+        flow && host ? flowInsertionReference(host, left, top) : null,
+      );
+      const content = `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+      return primitive.kind === "text"
+        ? ensureGoogleFontLinkInHtml(content, "Inter")
+        : content;
     };
 
     if (
@@ -437,15 +1166,6 @@ export function appendCanvasPrimitiveToHtml(
     ) {
       const svg = doc.createElementNS("http://www.w3.org/2000/svg", "svg");
       const path = doc.createElementNS("http://www.w3.org/2000/svg", "path");
-      const explicitPathData = primitive.pathData?.trim()
-        ? primitive.pathData
-        : null;
-      const pathViewBoxLeft = options?.preserveNegativePosition
-        ? geometry.x
-        : Math.max(0, geometry.x);
-      const pathViewBoxTop = options?.preserveNegativePosition
-        ? geometry.y
-        : Math.max(0, geometry.y);
       const pathViewBoxWidth = Math.max(1, geometry.width);
       const pathViewBoxHeight = Math.max(1, geometry.height);
       const points = primitive.points?.length
@@ -469,12 +1189,17 @@ export function appendCanvasPrimitiveToHtml(
             .join(" "),
       );
       const paint = canvasVectorPaint({
-        closed: isClosedPathData(explicitPathData),
+        outline: isClosedPathData(explicitPathData)
+          ? "closed-path"
+          : "open-path",
         fill: primitive.fill,
         stroke: primitive.stroke,
         strokeWidth: primitive.strokeWidth,
       });
       path.setAttribute("fill", paint.fill);
+      if (explicitPathData && !isClosedPathData(explicitPathData)) {
+        hidePenPathFill(path);
+      }
       path.setAttribute("stroke", paint.stroke);
       path.setAttribute("stroke-width", String(paint.strokeWidth));
       path.setAttribute("stroke-linecap", "round");
@@ -532,31 +1257,30 @@ export function appendCanvasPrimitiveToHtml(
       }
       svg.setAttribute("data-agent-native-node-id", nodeId);
       svg.setAttribute("data-agent-native-layer-name", layerName);
-      // Kind marker so the layers panel shows a true vector/line/arrow icon for
-      // this SVG primitive instead of falling through to the rectangle glyph.
-      // Read by treeTypeForNode in shared/code-layer.ts.
       svg.setAttribute("data-an-primitive", primitive.kind);
       svg.setAttribute(
         "viewBox",
         explicitPathData
-          ? `${pathViewBoxLeft} ${pathViewBoxTop} ${pathViewBoxWidth} ${pathViewBoxHeight}`
+          ? `${geometry.x} ${geometry.y} ${pathViewBoxWidth} ${pathViewBoxHeight}`
           : `0 0 ${width} ${height}`,
       );
-      // P4: without this, resizing the shape non-uniformly (e.g. dragging
-      // only the right handle) letterboxes the path inside its viewBox
-      // (SVG's default preserveAspectRatio is "xMidYMid meet") instead of
-      // stretching it to fill the new box — every other primitive kind here
-      // (polygon/star, div-based shapes) already stretches to its
-      // width/height, so pen paths/lines/arrows should match.
       svg.setAttribute("preserveAspectRatio", "none");
+      const box = explicitPathData
+        ? {
+            left: hostLeft + geometry.x - left,
+            top: hostTop + geometry.y - top,
+            width: pathViewBoxWidth,
+            height: pathViewBoxHeight,
+          }
+        : { left: hostLeft, top: hostTop, width, height };
       svg.setAttribute(
         "style",
         [
           "position:absolute",
-          `left:${hostLeft}px`,
-          `top:${hostTop}px`,
-          `width:${width}px`,
-          `height:${height}px`,
+          `left:${box.left}px`,
+          `top:${box.top}px`,
+          `width:${box.width}px`,
+          `height:${box.height}px`,
           "overflow:visible",
           `${VECTOR_START_ENDPOINT_PROPERTY}:${endpoints.startPoint}`,
           `${VECTOR_END_ENDPOINT_PROPERTY}:${endpoints.endPoint}`,
@@ -571,41 +1295,23 @@ export function appendCanvasPrimitiveToHtml(
 
     if (primitive.kind === "polygon" || primitive.kind === "star") {
       const svg = doc.createElementNS("http://www.w3.org/2000/svg", "svg");
-      const polygon = doc.createElementNS(
+      const shapePath = doc.createElementNS(
         "http://www.w3.org/2000/svg",
-        "polygon",
-      );
-      polygon.setAttribute(
-        "points",
-        polygonPointsForHtmlShape(primitive.kind, width, height),
+        "path",
       );
       const polygonPaint = canvasVectorPaint({
-        closed: true,
+        outline: "shape",
         fill: primitive.fill,
         stroke: primitive.stroke,
         strokeWidth: primitive.strokeWidth,
       });
-      polygon.setAttribute("fill", polygonPaint.fill);
-      polygon.setAttribute("stroke", polygonPaint.stroke);
-      polygon.setAttribute("stroke-width", String(polygonPaint.strokeWidth));
-      polygon.setAttribute("stroke-linejoin", "round");
+      shapePath.setAttribute("fill", polygonPaint.fill);
+      shapePath.setAttribute("stroke", polygonPaint.stroke);
+      shapePath.setAttribute("stroke-width", String(polygonPaint.strokeWidth));
+      shapePath.setAttribute("stroke-linejoin", "round");
       svg.setAttribute("data-agent-native-node-id", nodeId);
       svg.setAttribute("data-agent-native-layer-name", layerName);
-      // Kind marker so the layers panel shows a true polygon/star icon for this
-      // SVG primitive instead of falling through to the rectangle glyph.
-      // Read by treeTypeForNode in shared/code-layer.ts.
       svg.setAttribute("data-an-primitive", primitive.kind);
-      svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
-      // Without this, resizing the shape non-uniformly (e.g. dragging only
-      // the height handle) letterboxes the polygon inside its viewBox
-      // (SVG's default preserveAspectRatio is "xMidYMid meet") instead of
-      // stretching it to fill the new box — the box's own width/height
-      // still resize correctly, but the visible shape stays centered at its
-      // creation-time aspect ratio, masking any later resize (including a
-      // flip-through-zero) since the rendered polygon barely changes. The
-      // path/pen-tool primitive right above already sets this for the same
-      // reason; polygon/star never did despite the comment there claiming it
-      // did.
       svg.setAttribute("preserveAspectRatio", "none");
       svg.setAttribute(
         "style",
@@ -621,25 +1327,19 @@ export function appendCanvasPrimitiveToHtml(
           .filter(Boolean)
           .join(";"),
       );
-      svg.appendChild(polygon);
+      svg.appendChild(shapePath);
+      updateCanvasPolygonSvgGeometry(svg, primitive.kind, width, height);
       return finishPrimitive(svg);
     }
 
     const element = doc.createElement("div");
     element.setAttribute("data-agent-native-node-id", nodeId);
     element.setAttribute("data-agent-native-layer-name", layerName);
-    // Kind marker so the layers panel shows a shape/text/frame icon for this
-    // primitive (rectangle/ellipse/text/frame) instead of the generic code
-    // glyph. Read by treeTypeForNode in shared/code-layer.ts.
     element.setAttribute("data-an-primitive", primitive.kind);
     element.style.position = "absolute";
     element.style.left = `${hostLeft}px`;
     element.style.top = `${hostTop}px`;
     if (primitive.kind === "text" && primitive.autoSize) {
-      // Point text grows to its intrinsic width, independent of how much room
-      // remains between the insertion point and the screen edge. Keeping the
-      // explicit auto dimensions also lets the inspector identify this as the
-      // same auto-width mode it applies to existing text layers.
       element.style.width = "max-content";
       element.style.height = "auto";
     } else {
@@ -650,19 +1350,10 @@ export function appendCanvasPrimitiveToHtml(
       element.style.transform = `rotate(${geometry.rotation}deg)`;
     }
 
-    // Use the shared canvas-primitive-style module so committed output is
-    // pixel-identical to the draft preview (fixes B5 color jump, B6 ellipse
-    // radius jump).  User-supplied fill/stroke/strokeWidth override the
-    // canonical defaults so hand-chosen colours are preserved.
     const canonical = canvasPrimitiveVisual(
       primitive.kind === "rectangle" ? "rect" : primitive.kind,
     );
     if (primitive.kind === "frame") {
-      // A committed frame carries a real surface, not the draft preview's
-      // dashed tint (editor chrome, canvas-primitive-style.ts): selection
-      // chrome only covers the frame while it stays selected, and a bare
-      // container is invisible the moment it is not.
-      // overflow:hidden matches Figma frames clipping their content.
       element.style.background = primitive.fill ?? defaultCanvasFrameFill();
       if (
         primitive.stroke !== undefined ||
@@ -671,44 +1362,94 @@ export function appendCanvasPrimitiveToHtml(
         element.style.border = `${primitive.strokeWidth ?? 1}px solid ${primitive.stroke ?? canonical.border.split(" ").slice(2).join(" ")}`;
       }
       element.style.overflow = "hidden";
+      adoptEnclosedLayers(
+        hostOrBody,
+        element,
+        { left: hostLeft, top: hostTop, width, height },
+        options?.liveLayerSizes,
+      );
     } else if (primitive.kind === "text") {
       element.textContent = primitive.text ?? "";
       element.style.display = primitive.autoSize ? "inline-block" : "flex";
       if (!primitive.autoSize) {
-        // Figma defaults fixed-size text frames to TOP vertical alignment,
-        // not centered — match that instead of centering the text block.
         element.style.alignItems = "flex-start";
       }
-      // "currentColor" inherits the unstyled document's black body text, so
-      // it is invisible on any dark surface. The board renderer forces its own
-      // document transparent, so a colour on that body is never painted and
-      // measuring it would judge a surface nobody sees — a frame inside the
-      // board still can be. The canvas behind it arrives from the host.
       const boardSurfaceIsLight =
         options?.isBoardTarget === true
           ? resolveDestinationBackgroundLightnessOrNull([
               { color: options.boardBackground ?? null },
             ])
           : null;
-      const measuredIsLight =
-        options?.isBoardTarget === true && hostOrBody === doc.body
+      const usesFlowPositioning = options?.positioning === "flow";
+      const boxUnderText = usesFlowPositioning
+        ? hostOrBody
+        : topmostBoxContaining(hostOrBody, left, top);
+      const measuredIsLight = boxUnderText
+        ? destinationBackgroundLightness(boxUnderText, options?.liveDocument)
+        : options?.isBoardTarget === true && hostOrBody === doc.body
           ? null
-          : destinationBackgroundLightness(hostOrBody);
-      const surfaceIsLight = measuredIsLight ?? boardSurfaceIsLight;
+          : destinationBackgroundLightness(hostOrBody, options?.liveDocument);
+      const canSampleFlowHost = usesFlowPositioning && options?.liveDocument;
+      const paintedSurface =
+        usesFlowPositioning && !canSampleFlowHost
+          ? null
+          : paintedSurfaceAtPoint(
+              doc.body,
+              left,
+              top,
+              options?.liveDocument,
+              options?.isBoardTarget !== true,
+              options?.isBoardTarget === true
+                ? (options.boardBackground ?? null)
+                : defaultCanvasFrameFill(),
+              options?.isBoardTarget === true &&
+                options.boardBackground !== null &&
+                options.boardBackground !== undefined,
+              usesFlowPositioning ? boxUnderText : null,
+            );
+      const surfaceIsLight =
+        paintedSurface?.kind === "unknown" &&
+        paintedSurface.reason === "unmeasured" &&
+        options?.isBoardTarget === true
+          ? (boardSurfaceIsLight ?? measuredIsLight)
+          : (measuredIsLight ?? boardSurfaceIsLight);
       const autoTextNeedsLightFill =
         surfaceIsLight === null
           ? options?.isBoardTarget === true
           : !surfaceIsLight;
+      const sampledSurfaceIsLight =
+        paintedSurface?.kind === "known"
+          ? resolveDestinationBackgroundLightnessOrNull([
+              {
+                // guard:allow-raw-color — This RGB value feeds luminance parsing for arbitrary user-painted surfaces, not UI styling.
+                color: `rgb(${paintedSurface.color.r} ${paintedSurface.color.g} ${paintedSurface.color.b})`,
+              },
+            ])
+          : null;
+      const measuredSurfaceDisagreesWithSample =
+        !options?.liveDocument &&
+        surfaceIsLight !== null &&
+        sampledSurfaceIsLight !== null &&
+        sampledSurfaceIsLight !== surfaceIsLight;
+      const preserveInheritedTextColor =
+        paintedSurface?.kind === "unknown" &&
+        ((paintedSurface.reason === "translucent" &&
+          !(boardSurfaceIsLight === null && measuredIsLight !== null)) ||
+          (paintedSurface.reason === "background-image" &&
+            options?.isBoardTarget !== true) ||
+          paintedSurface.reason === "flow-overlap" ||
+          (surfaceIsLight === null && options?.isBoardTarget !== true));
       const resolvedTextColor =
-        primitive.fill ?? defaultCanvasTextColor(autoTextNeedsLightFill);
+        primitive.fill ??
+        (paintedSurface?.kind === "known" && !measuredSurfaceDisagreesWithSample
+          ? textColorWithBestContrast(paintedSurface.color)
+          : preserveInheritedTextColor
+            ? "currentColor"
+            : defaultCanvasTextColor(
+                autoTextNeedsLightFill,
+                measuredSurfaceDisagreesWithSample && surfaceIsLight === true,
+              ));
       element.style.color = resolvedTextColor;
-      // Stamp the auto-color marker whenever the color came from the
-      // default (no explicit primitive.fill) rather than a user-chosen
-      // value, so a later cross-screen or in-screen re-parent (see
-      // adaptAutoTextColorForCrossScreenNode below and
-      // adaptAutoTextColorForNest in editor-chrome.bridge.ts) can safely
-      // detect "this white was auto-applied" and rewrite it to inherit
-      // instead of leaving invisible white-on-white text.
       if (primitive.fill === undefined) {
         element.setAttribute(BOARD_TEXT_AUTO_COLOR_MARKER, "");
       }
@@ -717,11 +1458,6 @@ export function appendCanvasPrimitiveToHtml(
       element.style.whiteSpace = "pre-wrap";
       element.style.border = canonical.border;
       element.style.borderRadius = canonical.borderRadius;
-      // Item 2: canvas-drawn text defaulted to the browser's serif fallback
-      // (no font-family was ever set here) — match the editor's own Inter
-      // stack instead. Only applies when the caller doesn't already carry an
-      // explicit font (kept future-proof even though CanvasPrimitiveInsert
-      // has no fontFamily field today).
       element.style.fontFamily = CANVAS_TEXT_DEFAULT_FONT_FAMILY;
     } else if (primitive.kind === "ellipse") {
       element.style.background = primitive.fill ?? canonical.background;
@@ -729,9 +1465,8 @@ export function appendCanvasPrimitiveToHtml(
         primitive.stroke !== undefined || primitive.strokeWidth !== undefined
           ? `${primitive.strokeWidth ?? 1}px solid ${primitive.stroke ?? canonical.border.split(" ").slice(2).join(" ")}`
           : canonical.border;
-      element.style.borderRadius = canonical.borderRadius; // "50%"
+      element.style.borderRadius = canonical.borderRadius;
     } else {
-      // rect / rectangle / frame fallthrough
       element.style.background = primitive.fill ?? canonical.background;
       element.style.border =
         primitive.stroke !== undefined || primitive.strokeWidth !== undefined
@@ -746,12 +1481,6 @@ export function appendCanvasPrimitiveToHtml(
   }
 }
 
-/**
- * Extract one newly-created primitive from a temporary document as markup the
- * live iframe bridge can insert. URL-backed screens keep their route URL in the
- * Design file, so their creation path must serialize a node without ever
- * rewriting that file content.
- */
 export function extractCanvasPrimitiveHtml(
   content: string,
   nodeId: string,

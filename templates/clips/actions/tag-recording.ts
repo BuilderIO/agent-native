@@ -5,6 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import { nanoid } from "../server/lib/recordings.js";
 
 export default defineAction({
@@ -16,7 +17,9 @@ export default defineAction({
     op: z.enum(["add", "remove"]).default("add").describe("Add or remove"),
   }),
   run: async (args) => {
-    await assertAccess("recording", args.recordingId, "editor");
+    assertRecordingNotExpired(
+      await assertAccess("recording", args.recordingId, "editor"),
+    );
 
     const db = getDb();
 
@@ -29,7 +32,6 @@ export default defineAction({
     }
 
     if (args.op === "add") {
-      // De-dup — only insert if not already present
       const [existing] = await db
         .select()
         .from(schema.recordingTags)
@@ -60,7 +62,6 @@ export default defineAction({
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
-    // Return current tag set
     const tags = await db
       .select({ tag: schema.recordingTags.tag })
       .from(schema.recordingTags)

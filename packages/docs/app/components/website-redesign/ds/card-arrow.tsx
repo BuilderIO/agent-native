@@ -1,8 +1,5 @@
 import { IconArrowUpRight } from "@tabler/icons-react";
 
-// Decorative on purpose: every card that shows this is itself a link, so the
-// arrow would only repeat that link's accessible name. It fills in on hover
-// from the card's `group`, which is why it is a span and not a control.
 export const CARD_ARROW_CLASS = [
   "mt-auto flex h-8 w-8 items-center justify-center rounded-[var(--b-radius)] border border-solid border-[var(--b-action-secondary-border)] bg-transparent text-[var(--b-text-primary)]",
   "transition-[background,border-color,color] duration-150 ease-[ease]",

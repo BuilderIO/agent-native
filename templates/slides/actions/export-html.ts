@@ -8,11 +8,18 @@ import {
 } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
-import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
-import "../server/db/index.js"; // ensure registerShareableResource runs
-import { sanitizeCssValue } from "../app/lib/sanitize-slide-html.js";
+import "../server/db/index.js";
+import {
+  sanitizeCssValue,
+  sanitizeSlideHtml,
+} from "../app/lib/sanitize-slide-html.js";
+import {
+  trackDeckExported,
+  withExportFailureTracking,
+} from "../server/lib/deck-export-tracking.js";
+import { generationAttemptIdOf } from "../server/lib/slides-tracking.js";
 import {
   safeGeneratedFilename,
   tenantExportDir,
@@ -28,26 +35,14 @@ import {
   DEFAULT_SLIDE_BACKGROUND,
   resolveSlideBackground,
 } from "../shared/slide-background.js";
-
-/**
- * Minimal server-side HTML sanitizer for exported slide content.
- * DOMParser is not available in Node/Nitro, so we use a regex pass to strip
- * scripts, event handlers, and dangerous URL schemes before embedding slide
- * HTML into the standalone export file.
- */
-function sanitizeSlideContent(html: string): string {
-  return html
-    .replace(
-      /<(script|iframe|object|embed|form|meta|base|link)\b[\s\S]*?<\/\1>/gi,
-      "",
-    )
-    .replace(
-      /<(script|iframe|object|embed|form|meta|base|link)\b[^>]*\/?>/gi,
-      "",
-    )
-    .replace(/\s+on[a-z][\w:-]*\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-    .replace(/\s+srcdoc\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
-}
+import {
+  SLIDE_NUMBER_CSS,
+  slideNumberInlineStyle,
+} from "../shared/slide-number.js";
+import {
+  projectRenderingDesignSystemData,
+  readDeckLinkedDesignSystem,
+} from "./_linked-design-system.js";
 
 function safeCssToken(
   value: unknown,
@@ -244,25 +239,36 @@ function standaloneDesignSystemVars(
     builderTokenValues,
   );
   const darkBackground = isDarkStandaloneBackground(safeBackground);
+  // Must match SlideRenderer: publishing a token an unlinked deck never chose
+  // overrides the theme baked into its slide HTML.
+  const token = (name: string, value: unknown): string | null => {
+    if (typeof value !== "string" || !value.trim()) return null;
+    const resolved = safeCssToken(value, "", builderTokenValues);
+    return resolved ? `${name}: ${resolved}` : null;
+  };
+  const designSystemTokens = designSystem
+    ? [
+        token("--ds-text", colors?.text),
+        token("--ds-text-muted", colors?.textMuted),
+        token("--ds-accent", colors?.accent),
+        token("--ds-primary", colors?.primary),
+        token("--ds-secondary", colors?.secondary),
+        token("--ds-surface", colors?.surface),
+        token("--ds-heading-font", typography?.headingFont),
+        token("--ds-body-font", typography?.bodyFont),
+        token("--ds-radius", borders?.radius),
+      ].filter((entry): entry is string => entry !== null)
+    : [];
+  const needsDarkTextOverride =
+    darkBackground &&
+    (!colors?.text || isDarkStandaloneBackground(colors.text));
   return [
     `--ds-bg: ${safeBackground}`,
-    // guard:allow-raw-color - standalone export fallback palette
-    // guard:allow-raw-color - standalone export dark-background fallback
-    `--ds-text: ${safeCssToken(colors?.text, darkBackground ? "#FFFFFF" : "#1F2933", builderTokenValues)}`,
-    // guard:allow-raw-color - standalone export fallback palette
-    // guard:allow-raw-color - standalone export dark-background fallback
-    `--ds-text-muted: ${safeCssToken(colors?.textMuted, darkBackground ? "rgba(255, 255, 255, 0.72)" : "#667085", builderTokenValues)}`,
-    // guard:allow-raw-color - standalone export fallback palette
-    `--ds-accent: ${safeCssToken(colors?.accent, "#2457D6", builderTokenValues)}`,
-    // guard:allow-raw-color - standalone export fallback palette
-    `--ds-primary: ${safeCssToken(colors?.primary, "#2457D6", builderTokenValues)}`,
-    // guard:allow-raw-color - standalone export fallback palette
-    `--ds-secondary: ${safeCssToken(colors?.secondary, "#C85C3A", builderTokenValues)}`,
-    // guard:allow-raw-color - standalone export fallback palette
-    `--ds-surface: ${safeCssToken(colors?.surface, "#FFFFFF", builderTokenValues)}`,
-    `--ds-heading-font: ${safeCssToken(typography?.headingFont, "Inter, sans-serif", builderTokenValues)}`,
-    `--ds-body-font: ${safeCssToken(typography?.bodyFont, "Inter, sans-serif", builderTokenValues)}`,
-    `--ds-radius: ${safeCssToken(borders?.radius, "14px", builderTokenValues)}`,
+    ...designSystemTokens,
+    ...(needsDarkTextOverride
+      ? // guard:allow-raw-color - readable defaults on explicit dark backgrounds
+        [`--ds-text: #FFFFFF`, `--ds-text-muted: rgba(255, 255, 255, 0.72)`]
+      : []),
     ...Object.entries(builderTokenValues ?? {})
       .filter(
         ([name, value]) =>
@@ -294,8 +300,9 @@ export function buildStandaloneHtml(
         slide.background,
         designSystem,
       );
-      const style = `display: ${i === 0 ? "flex" : "none"}; background: ${safeCssToken(standaloneBackgroundCssValue(slideBackground), DEFAULT_SLIDE_BACKGROUND, builderTokenValues)}; ${standaloneDesignSystemVars(designSystem, slideBackground, builderTokenValues)}`;
-      return `<section class="slide" data-index="${i}" style="${escapeHtml(style)}">${sanitizeSlideContent(slide.content)}</section>`;
+      const position = { number: i + 1, count: slides.length };
+      const style = `display: ${i === 0 ? "flex" : "none"}; background: ${safeCssToken(standaloneBackgroundCssValue(slideBackground), DEFAULT_SLIDE_BACKGROUND, builderTokenValues)}; ${standaloneDesignSystemVars(designSystem, slideBackground, builderTokenValues)}; ${slideNumberInlineStyle(position)}`;
+      return `<section class="slide" data-index="${i}" data-slide-index="${position.number}" data-slide-count="${position.count}" style="${escapeHtml(style)}">${sanitizeSlideHtml(slide.content)}</section>`;
     })
     .join("\n");
 
@@ -359,6 +366,8 @@ export function buildStandaloneHtml(
       width: 100%;
       height: 100%;
     }
+
+    ${SLIDE_NUMBER_CSS}
 
     .fmd-slide {
       width: 100%;
@@ -483,6 +492,7 @@ export function buildStandaloneHtml(
 
       function showSlide(index) {
         if (index < 0 || index >= totalSlides) return;
+        slides[currentSlide].querySelectorAll('video').forEach(function(video) { video.pause(); });
         slides[currentSlide].style.display = 'none';
         currentSlide = index;
         slides[currentSlide].style.display = 'flex';
@@ -515,7 +525,29 @@ export function buildStandaloneHtml(
       window.addEventListener('resize', fitSlide);
       fitSlide();
 
+      function isMediaKeyboardEvent(e) {
+        if (e.target instanceof Element && e.target.closest('video, audio')) return true;
+        if (typeof e.composedPath === 'function' && e.composedPath().some(function(node) {
+          return node instanceof Element && node.closest('video, audio');
+        })) return true;
+        var active = document.activeElement;
+        return active instanceof Element && !!active.closest('video, audio');
+      }
+
+      function isMediaPlaybackKey(key) {
+        return (
+          key === ' ' ||
+          key === 'ArrowRight' ||
+          key === 'ArrowDown' ||
+          key === 'ArrowLeft' ||
+          key === 'ArrowUp' ||
+          key === 'Home' ||
+          key === 'End'
+        );
+      }
+
       document.addEventListener('keydown', function(e) {
+        if (isMediaKeyboardEvent(e) && isMediaPlaybackKey(e.key)) return;
         switch (e.key) {
           case 'ArrowRight':
           case 'ArrowDown':
@@ -558,6 +590,7 @@ export function buildStandaloneHtml(
       // Click to advance (left third = back, right two-thirds = forward)
       document.getElementById('viewport').addEventListener('click', function(e) {
         if (e.target.closest('.bottom-bar')) return;
+        if (e.target instanceof Element && e.target.closest('video, audio')) return;
         var rect = this.getBoundingClientRect();
         var x = e.clientX - rect.left;
         if (x < rect.width / 3) {
@@ -594,13 +627,17 @@ function parseStoredDesignSystem(
   }
 }
 
+const trackHtmlExportFailures = withExportFailureTracking<{
+  deckId: string;
+}>("html");
+
 export default defineAction({
   description:
     "Export a deck as a standalone HTML file with built-in keyboard navigation. Returns a download URL for the generated file.",
   schema: z.object({
     deckId: z.string().describe("Deck ID to export"),
   }),
-  run: async ({ deckId }, ctx) => {
+  run: trackHtmlExportFailures(async ({ deckId }, ctx, facts) => {
     const userEmail = getRequestUserEmail();
     if (!userEmail)
       fail("no authenticated user", {
@@ -615,9 +652,14 @@ export default defineAction({
         statusCode: 404,
       });
 
+    facts.deckId = deckId;
     const row = access.resource;
     const deckData = JSON.parse(row.data);
     const slides = deckData.slides || [];
+    facts.slideCount = slides.length;
+    facts.generationAttemptId = generationAttemptIdOf(
+      deckData.generationContext,
+    );
     const rawAspectRatio = deckData.aspectRatio;
     const aspectRatio: AspectRatio | undefined = ASPECT_RATIO_VALUES.includes(
       rawAspectRatio,
@@ -636,15 +678,20 @@ export default defineAction({
     let designSystem: DesignSystemData | undefined;
     let builderTokenValues: Record<string, string> | undefined;
     if (typeof designSystemId === "string" && designSystemId.trim()) {
-      const designSystemAccess = await resolveAccess(
-        "design-system",
+      const designSystemAccess = await readDeckLinkedDesignSystem(
+        row,
         designSystemId,
       );
-      const rawData = designSystemAccess?.resource?.data;
+      // Deck-only readers get the rendering projection and no Builder token
+      // hydration: the token map is emitted whole into the exported HTML.
+      const rawData = designSystemAccess?.viaDeck
+        ? projectRenderingDesignSystemData(designSystemAccess.resource.data)
+        : designSystemAccess?.resource?.data;
       if (typeof rawData === "string") {
         designSystem = parseStoredDesignSystem(rawData);
-        const builderReference =
-          parseBuilderDesignSystemProxyReference(rawData);
+        const builderReference = designSystemAccess?.viaDeck
+          ? null
+          : parseBuilderDesignSystemProxyReference(rawData);
         if (builderReference) {
           try {
             builderTokenValues = (
@@ -669,13 +716,6 @@ export default defineAction({
     );
     const filename = safeGeneratedFilename(row.title, ".html");
 
-    // Disk write is only useful when the same process can later serve the
-    // file. On serverless (Netlify / Vercel / Lambda), the function filesystem
-    // vanishes between invocations, so `/api/exports/:filename` requests land
-    // on a different container that doesn't have the file — the user sees
-    // "file doesn't exist on site". Skip the disk write entirely on those
-    // hosts; the route handler streams `html` directly. CLI and local-dev
-    // still get a real file path.
     let filePath: string | undefined;
     if (!isServerless()) {
       const exportDir = tenantExportDir(userEmail);
@@ -684,21 +724,19 @@ export default defineAction({
       fs.writeFileSync(filePath, html);
     }
 
-    track(
-      "deck_exported",
+    trackDeckExported(
       {
-        app_name: "slides",
-        template_name: "slides",
-        output_id: deckId,
-        output_type: "deck",
-        export_format: "html",
-        slide_count: slides.length,
+        ...facts,
+        deckId,
+        exportFormat: "html",
+        renderLocation: "server",
+        status: "completed",
       },
       ctx,
     );
 
     return { html, filePath, filename, slideCount: slides.length };
-  },
+  }),
 });
 
 function isServerless(): boolean {

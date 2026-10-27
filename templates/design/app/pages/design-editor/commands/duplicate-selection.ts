@@ -1,5 +1,6 @@
 import type { CodeLayerNode } from "@shared/code-layer";
 import { buildCodeLayerProjection } from "@shared/code-layer";
+import { remapClonedNativeEffectBindings } from "@shared/native-effect-cloning";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 import * as Y from "yjs";
@@ -33,10 +34,25 @@ import {
   projectAcceptedSource,
 } from "@/pages/design-editor/commands/selection-publication";
 import { isStandaloneHttpUrl } from "@/pages/design-editor/editor-state";
-import type { GeometryHistorySelection } from "@/pages/design-editor/history";
+import {
+  captureContentUndoStackTop,
+  captureYjsUndoStackTop,
+  stampContentHistorySelectionAfter,
+  stampLocalContentHistorySelectionAfter,
+  stampLocalContentHistorySelectionBefore,
+  stampYjsUndoSelection,
+  stampYjsUndoSelectionAfter,
+  type ContentHistoryEntry,
+  type ContentHistorySelectionAfterMap,
+  type ContentHistoryChange,
+  type GeometryHistorySelection,
+  type YjsUndoSelectionSnapshot,
+} from "@/pages/design-editor/history";
 import type { DesignFile } from "@/pages/design-editor/types";
 
 import type { ApplyLinkedComponentEdit } from "./linked-component-structure";
+
+let duplicateSelectionBatchSequence = 0;
 
 function planLinkedDuplicateSelection(args: {
   content: string;
@@ -105,6 +121,7 @@ function planLinkedDuplicateSelection(args: {
 export interface DuplicateSelectionArgs {
   activeFile: DesignFile;
   applyLinkedComponentEdit?: ApplyLinkedComponentEdit;
+  clearExplicitOverviewScreenSelection?: () => void;
   designId: string | undefined;
   applyFileContentUpdate: (
     fileId: string,
@@ -117,6 +134,7 @@ export interface DuplicateSelectionArgs {
       recordHistory?: boolean;
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
+      selectionBefore?: YjsUndoSelectionSnapshot;
     },
   ) => ApplyFileContentUpdateResult;
   applyLocalContentUpdate: (
@@ -141,13 +159,16 @@ export interface DuplicateSelectionArgs {
   getSelectedLayerSnapshots: () => SelectedCanvasLayerSnapshot[];
   handleDuplicateScreen: (
     screenId: string,
-    request?: { canvasPosition?: { x: number; y: number } },
+    request?: {
+      canvasPosition?: { x: number; y: number };
+      historyBatchId?: string;
+      duplicateStackSourceIds?: string[];
+    },
   ) => void;
-  lastDuplicateTransformRef: RefObject<{
-    rootNodeIds: string[];
-    dx: number;
-    dy: number;
-  } | null>;
+  lastDuplicateTransformRef: RefObject<DuplicateTransform | null>;
+  contentHistorySelectionAfterRef?: RefObject<ContentHistorySelectionAfterMap>;
+  contentUndoStackRef?: RefObject<ContentHistoryEntry[]>;
+  localContentUndoStackRef?: RefObject<ContentHistoryChange[]>;
   overviewSelectedScreenIds: string[];
   remapMotionTracksForClone: (
     nodeIdMap: Map<string, string>,
@@ -171,9 +192,38 @@ export interface DuplicateSelectionArgs {
   viewModeRef: RefObject<"single" | "overview">;
 }
 
+interface DuplicateTransform {
+  rootNodeIds: string[];
+  dx: number;
+  dy: number;
+  /** One duplicate and where its source sat, so a later move of it, however
+   * many commits it took, is the offset the next duplicate repeats. */
+  anchor?: { rootNodeId: string; sourceX: number; sourceY: number };
+}
+
+function resolveRepeatOffset(
+  transform: DuplicateTransform,
+  snapshots: readonly SelectedCanvasLayerSnapshot[],
+): { dx: number; dy: number } {
+  const anchor = transform.anchor;
+  const anchorSnapshot = anchor
+    ? snapshots.find(
+        (snapshot) =>
+          (snapshot.rootNodeId ?? snapshot.node.id) === anchor.rootNodeId,
+      )
+    : undefined;
+  const current = anchorSnapshot
+    ? extractLayerPosition(anchorSnapshot.html)
+    : null;
+  return anchor && current
+    ? { dx: current.x - anchor.sourceX, dy: current.y - anchor.sourceY }
+    : { dx: transform.dx, dy: transform.dy };
+}
+
 export function runDuplicateSelection({
   activeFile,
   applyLinkedComponentEdit,
+  clearExplicitOverviewScreenSelection,
   designId,
   applyFileContentUpdate,
   applyLocalContentUpdate,
@@ -185,6 +235,9 @@ export function runDuplicateSelection({
   getSelectedLayerSnapshots,
   handleDuplicateScreen,
   lastDuplicateTransformRef,
+  contentHistorySelectionAfterRef,
+  contentUndoStackRef,
+  localContentUndoStackRef,
   overviewSelectedScreenIds,
   remapMotionTracksForClone,
   runtimeStructureInsertRevisionRef,
@@ -203,6 +256,8 @@ export function runDuplicateSelection({
   trace("structure", "duplicate-selection", {
     canEdit: canEditDesign || canEditLiveScreen,
     selectedLayers: selectedLayerIdsState.length,
+    activeFileId: activeFile?.id ?? null,
+    viewMode: viewModeRef.current,
   });
   let structureUnsupported = false;
   const onUnsupportedStructure = () => {
@@ -221,11 +276,7 @@ export function runDuplicateSelection({
       snapshots.every((snapshot) => snapshot.sourceFileId === activeFile.id),
     );
   if (!canEditDesign && !liveScreenSelection) return;
-  // U19: duplicate is a discrete one-shot action — see the matching note
-  // in handlePasteSelection.
   undoManagerRef.current?.stopCapturing();
-  // A repeat's rows are data: duplicating the markup adds a second authored
-  // row next to the template rather than another item.
   if (canEditDesign && activeFile && selectedElement?.repeat) {
     const edit = runRepeatItemEdit({
       content: getFreshActiveContent(),
@@ -233,6 +284,7 @@ export function runDuplicateSelection({
       operation: { kind: "duplicate" },
     });
     if (edit.status === "written") {
+      clearExplicitOverviewScreenSelection?.();
       applyLocalContentUpdate(edit.content, {
         forcePreviewFullDocument: true,
       });
@@ -254,11 +306,6 @@ export function runDuplicateSelection({
     }
   }
   if (snapshots.length > 0) {
-    // U7: replay the last recorded move delta when duplicating the exact
-    // same selection again (e.g. dup, drag it, dup again repeats the same
-    // offset — matching Figma). Otherwise an absolutely-positioned source
-    // duplicates with zero offset (lands exactly in place) instead of the
-    // previous unconditional stripRootPosition cascade.
     const currentSourceIds = snapshots
       .map((snapshot) => snapshot.rootNodeId ?? snapshot.node.id)
       .sort();
@@ -269,16 +316,11 @@ export function runDuplicateSelection({
       lastDuplicateTransformRef.current.rootNodeIds.every(
         (id, index) => id === currentSourceIds[index],
       )
-        ? lastDuplicateTransformRef.current
+        ? resolveRepeatOffset(lastDuplicateTransformRef.current, snapshots)
         : null;
     const nextDuplicateRootNodeIds: string[] = [];
+    let nextDuplicateAnchor: DuplicateTransform["anchor"];
 
-    // A localhost screen stores its route URL, while the selected layer only
-    // exists in the running iframe. Reusing the design-file clone path here
-    // would ask the URL string for an HTML projection and silently turn Cmd+D
-    // into a no-op. Prepare the runtime snapshots for the same one-shot bridge
-    // insert lifecycle used by paste so the clone gets a fresh identity and
-    // participates in pending-edit undo/redo.
     if (liveScreenSelection) {
       const sourcePositions = snapshots.map((snapshot) =>
         extractLayerPosition(snapshot.html),
@@ -304,6 +346,7 @@ export function runDuplicateSelection({
         runtimeStructureInsertRevisionRef &&
         setRuntimeStructureInsertRequest
       ) {
+        clearExplicitOverviewScreenSelection?.();
         const anchorSelector =
           selectedElement?.runtimeSelector ??
           selectedCanvasSelector ??
@@ -347,9 +390,14 @@ export function runDuplicateSelection({
     const selectedIds: string[] = [];
     const selectedScreenIds: string[] = [];
     let lastActiveNode: CodeLayerNode | null = null;
+    let activeSelectedIds: string[] = [];
+    let activeSelectionBefore: YjsUndoSelectionSnapshot | undefined;
+    let activeUndoStackTopBefore: ReturnType<typeof captureYjsUndoStackTop>;
+    let activeLocalUndoStackTopBefore: ContentHistoryChange | undefined;
+    let activeContentHistoryTopBefore: ContentHistoryEntry | undefined;
+    let activeContentAfter: string | undefined;
+    let activeYjsHistoryRecorded = false;
 
-    // Only the runtime branch above is safe for a public localhost screen.
-    // The remaining paths publish persisted design/source content.
     if (!canEditDesign) return;
 
     const sortedSnapshotsByFile = new Map(
@@ -389,6 +437,7 @@ export function runDuplicateSelection({
           onUnsupportedStructure,
         });
         if (plan) {
+          clearExplicitOverviewScreenSelection?.();
           applyLinkedComponentEdit(
             file.id,
             plan.targetNodeId,
@@ -417,6 +466,11 @@ export function runDuplicateSelection({
         filename: file.filename,
       };
       const insertedRootNodeIds: string[] = [];
+      const sourcePositionByInsertedRootId = new Map<
+        string,
+        { x: number; y: number }
+      >();
+      const clonedNodeIdMap = new Map<string, string>();
       for (const snapshot of group) {
         const projection = buildCodeLayerProjection(content, { source });
         const anchorNode =
@@ -431,9 +485,6 @@ export function runDuplicateSelection({
           onUnsupportedStructure,
           targetSelectors: codeLayerSelectorAliases(anchorNode),
           placement: "after",
-          // Absolutely-positioned board items land exactly in place (or at
-          // the replayed delta); only in-flow elements (no left/top) use
-          // stripRootPosition so they join the document as a plain sibling.
           stripRootPosition: !sourcePosition,
           positions: sourcePosition
             ? [
@@ -453,18 +504,63 @@ export function runDuplicateSelection({
         if (structureUnsupported) return;
         if (!result) continue;
         content = result.content;
+        result.nodeIdMap.forEach((value, key) =>
+          clonedNodeIdMap.set(key, value),
+        );
         insertedRootNodeIds.unshift(...result.rootNodeIds);
-        // U14: duplicate keeps the clone's animation.
+        if (sourcePosition) {
+          for (const rootNodeId of result.rootNodeIds) {
+            sourcePositionByInsertedRootId.set(rootNodeId, sourcePosition);
+          }
+        }
         remapMotionTracksForClone(result.nodeIdMap, file.id);
       }
       if (insertedRootNodeIds.length === 0) continue;
+      content = remapClonedNativeEffectBindings(content, clonedNodeIdMap);
       const submittedProjection = buildCodeLayerProjection(content, { source });
+      const tracksActiveSelectionHistory = file.id === activeFile?.id;
+      if (tracksActiveSelectionHistory) {
+        activeSelectionBefore = {
+          selectedElement:
+            snapshots.length === 1 && snapshots[0]?.sourceFileId === file.id
+              ? elementInfoFromCodeLayerNode(snapshots[0].node)
+              : selectedElement,
+          selectedLayerIds:
+            selectionBefore?.selectedLayerIds ?? selectedLayerIdsState,
+          ...(selectionBefore?.sourceContentByFileId
+            ? { sourceContentByFileId: selectionBefore.sourceContentByFileId }
+            : {}),
+          ...(selectionBefore?.sourceFileIdByFileId
+            ? { sourceFileIdByFileId: selectionBefore.sourceFileIdByFileId }
+            : {}),
+        };
+        if (viewModeRef.current === "single") {
+          activeUndoStackTopBefore = captureYjsUndoStackTop(
+            undoManagerRef.current,
+          );
+          activeLocalUndoStackTopBefore =
+            localContentUndoStackRef?.current[
+              localContentUndoStackRef.current.length - 1
+            ];
+        } else if (contentUndoStackRef) {
+          activeContentHistoryTopBefore = captureContentUndoStackTop(
+            contentUndoStackRef.current,
+          );
+        }
+      }
       const publication = applyFileContentUpdate(file.id, content, {
         forcePreviewFullDocument: true,
         refreshPreview: false,
+        ...(activeSelectionBefore && tracksActiveSelectionHistory
+          ? { selectionBefore: activeSelectionBefore }
+          : {}),
       });
       if (publication.status !== "accepted") continue;
       selectedScreenIds.push(file.id);
+      if (tracksActiveSelectionHistory) {
+        activeContentAfter = publication.content;
+        activeYjsHistoryRecorded = publication.yjsHistoryRecorded === true;
+      }
       const finalProjection = projectAcceptedSource(publication, source);
       insertedRootNodeIds.forEach((rootNodeId) => {
         const submittedNode = submittedProjection.nodes.find(
@@ -479,30 +575,84 @@ export function runDuplicateSelection({
         );
         if (!insertedNode) return;
         selectedIds.push(insertedNode.id);
-        nextDuplicateRootNodeIds.push(
+        if (file.id === activeFile?.id) activeSelectedIds.push(insertedNode.id);
+        const duplicateRootNodeId =
           insertedNode.dataAttributes["data-agent-native-node-id"] ??
-            insertedNode.id,
-        );
+          insertedNode.id;
+        nextDuplicateRootNodeIds.push(duplicateRootNodeId);
+        const sourcePosition = sourcePositionByInsertedRootId.get(rootNodeId);
+        if (!nextDuplicateAnchor && sourcePosition) {
+          nextDuplicateAnchor = {
+            rootNodeId: duplicateRootNodeId,
+            sourceX: sourcePosition.x,
+            sourceY: sourcePosition.y,
+          };
+        }
         if (file.id === activeFile?.id) lastActiveNode = insertedNode;
       });
     }
 
     if (selectedIds.length > 0) {
+      clearExplicitOverviewScreenSelection?.();
       setSelectedLayerIdsState(selectedIds);
-      setSelectedElement(
-        lastActiveNode ? elementInfoFromCodeLayerNode(lastActiveNode) : null,
-      );
+      const selectedElementAfter = lastActiveNode
+        ? elementInfoFromCodeLayerNode(lastActiveNode)
+        : null;
+      setSelectedElement(selectedElementAfter);
+      if (activeSelectedIds.length > 0 && activeFile && activeSelectionBefore) {
+        const selectionAfterDuplicate: YjsUndoSelectionSnapshot = {
+          selectedElement: selectedElementAfter,
+          selectedLayerIds: activeSelectedIds,
+          sourceContentByFileId: {
+            [activeFile.id]:
+              activeContentAfter ?? getScreenContent(activeFile.id),
+          },
+          sourceFileIdByFileId: { [activeFile.id]: activeFile.id },
+        };
+        if (viewModeRef.current === "single") {
+          stampYjsUndoSelection(
+            undoManagerRef.current,
+            activeUndoStackTopBefore,
+            activeSelectionBefore,
+          );
+          stampYjsUndoSelectionAfter(
+            undoManagerRef.current,
+            activeYjsHistoryRecorded,
+            selectionAfterDuplicate,
+          );
+          if (localContentUndoStackRef) {
+            stampLocalContentHistorySelectionBefore(
+              localContentUndoStackRef.current,
+              activeLocalUndoStackTopBefore,
+              activeSelectionBefore,
+            );
+            stampLocalContentHistorySelectionAfter(
+              localContentUndoStackRef.current,
+              activeLocalUndoStackTopBefore,
+              selectionAfterDuplicate,
+            );
+          }
+        } else if (contentUndoStackRef && contentHistorySelectionAfterRef) {
+          stampContentHistorySelectionAfter(
+            contentUndoStackRef.current,
+            contentHistorySelectionAfterRef.current,
+            activeContentHistoryTopBefore,
+            {
+              overviewSelectedScreenIds: selectedScreenIds,
+              selectedLayerIds: selectedIds,
+              activeFileId: activeFile.id,
+            },
+          );
+        }
+      }
       if (viewModeRef.current === "overview") {
         setOverviewSelectedScreenIds(selectedScreenIds);
       }
-      // Track this duplicate as the new "last duplicate" so a subsequent
-      // drag-then-Cmd+D can record/replay a delta against it. Preserve the
-      // previous delta across repeated Cmd+D so chained duplicates (no drag
-      // in between) keep applying the same recorded offset, matching Figma.
       lastDuplicateTransformRef.current = {
         rootNodeIds: [...nextDuplicateRootNodeIds].sort(),
         dx: repeatTransform?.dx ?? 0,
         dy: repeatTransform?.dy ?? 0,
+        ...(nextDuplicateAnchor ? { anchor: nextDuplicateAnchor } : {}),
       };
       return;
     }
@@ -515,9 +665,6 @@ export function runDuplicateSelection({
       toast.error(t("designEditor.toasts.duplicateElementFailed"));
       return;
     }
-    // B7 fix: duplicate inserts the clone as an in-flow sibling right AFTER
-    // the original — not as an absolutely-positioned body child.  Strip
-    // position/left/top so it joins normal document flow.
     const selector = selectedCanvasSelector ?? selectedElement.selector;
     const strippedHtml = (() => {
       try {
@@ -568,6 +715,7 @@ export function runDuplicateSelection({
     });
     if (structureUnsupported) return;
     if (nextContent) {
+      clearExplicitOverviewScreenSelection?.();
       applyLocalContentUpdate(nextContent, {
         forcePreviewFullDocument: true,
       });
@@ -576,14 +724,17 @@ export function runDuplicateSelection({
     }
     return;
   }
-  // U17: duplicate every selected screen, not just the active one — a
-  // multi-screen overview selection (no deeper layer focus) previously
-  // silently duplicated only activeFile.id and dropped the rest.
   const screenIdsToDuplicate =
-    viewModeRef.current === "overview" && overviewSelectedScreenIds.length > 1
+    viewModeRef.current === "overview" && overviewSelectedScreenIds.length > 0
       ? overviewSelectedScreenIds
       : activeFile
         ? [activeFile.id]
         : [];
-  screenIdsToDuplicate.forEach((screenId) => handleDuplicateScreen(screenId));
+  const historyBatchId = `duplicate-selection-${++duplicateSelectionBatchSequence}`;
+  screenIdsToDuplicate.forEach((screenId) =>
+    handleDuplicateScreen(screenId, {
+      historyBatchId,
+      duplicateStackSourceIds: screenIdsToDuplicate,
+    }),
+  );
 }

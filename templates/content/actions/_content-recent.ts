@@ -9,6 +9,7 @@ import {
   type ContentRecentResult,
 } from "../shared/content-personal-navigation.js";
 import { readPersonalDatabaseViewOverrides } from "./_content-database-personal-view.js";
+import { favoriteDocumentIds } from "./_content-favorites.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import { documentDiscoveryWhere } from "./_document-discovery-query.js";
 import { parseDatabaseViewConfig } from "./_property-utils.js";
@@ -22,6 +23,22 @@ const viewIdentitySchema = z.object({
     .array(z.object({ id: z.string().trim().min(1), name: z.string() }))
     .optional(),
 });
+
+export async function withRecentPinnedState(
+  userEmail: string,
+  entries: ContentRecentResult[],
+): Promise<ContentRecentResult[]> {
+  if (entries.length === 0) return entries;
+  const pinned = await favoriteDocumentIds(
+    getDb(),
+    userEmail,
+    entries.map((entry) => entry.target.documentId),
+  );
+  return entries.map((entry) => ({
+    ...entry,
+    isFavorite: pinned.has(entry.target.documentId),
+  }));
+}
 
 export async function resolveContentRecentEntries(
   userEmail: string,
@@ -143,7 +160,6 @@ export async function resolveContentRecentEntries(
     if (entry.target.databaseId) {
       if (!database || database.documentId !== document.id) continue;
       if (entry.target.viewId) {
-        // Validate before the legacy parser, which otherwise coerces unreadable JSON to a default.
         viewIdentitySchema.parse(JSON.parse(database.viewConfigJson));
         const config = parseDatabaseViewConfig(database.viewConfigJson);
         const view = config.views.find(

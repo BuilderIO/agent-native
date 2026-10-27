@@ -1,6 +1,7 @@
 import type {
   AgentChatRuntime,
   AgentChatRuntimeCancelResult,
+  AgentChatRuntimeContinueInput,
   AgentChatRuntimeEvent,
   AgentChatRuntimeSession,
   AgentChatRuntimeTurn,
@@ -88,6 +89,11 @@ class AsyncEventQueue<T> implements AsyncIterable<T> {
     }
   }
 
+  closeAndClear(): void {
+    this.values.length = 0;
+    this.close();
+  }
+
   next(): Promise<IteratorResult<T>> {
     const value = this.values.shift();
     if (value !== undefined) {
@@ -113,8 +119,10 @@ interface ActiveTurn {
   assistantText: string;
   messageStarted: boolean;
   sawAssistantDelta: boolean;
+  discarded: boolean;
   unsubscribe: (() => void) | null;
   removeAbortListener: (() => void) | null;
+  cancelPromise?: Promise<AgentChatRuntimeCancelResult>;
   finished: boolean;
 }
 
@@ -123,7 +131,10 @@ interface SessionState {
   threadId?: string;
   runId?: string;
   goalId?: string;
+  pendingApprovalId?: string;
   active?: ActiveTurn;
+  starting?: Promise<AgentChatRuntimeTurn>;
+  disposed: boolean;
   knownEventIds: Set<string>;
 }
 
@@ -171,7 +182,7 @@ function runtimeMessageEvent(
 }
 
 function pushAssistantText(active: ActiveTurn, text: string): void {
-  if (!text.trim()) return;
+  if (active.discarded || !text.trim()) return;
   if (!active.messageStarted) {
     active.messageStarted = true;
     active.queue.push(runtimeMessageEvent(active, "message-start"));
@@ -187,6 +198,7 @@ function pushAssistantText(active: ActiveTurn, text: string): void {
 }
 
 function finishTurn(
+  state: SessionState,
   active: ActiveTurn,
   reason: "complete" | "cancelled" | "error" | "interrupted",
 ): void {
@@ -206,6 +218,7 @@ function finishTurn(
   active.removeAbortListener?.();
   active.removeAbortListener = null;
   active.queue.close();
+  if (state.active === active) state.active = undefined;
 }
 
 function handleTranscriptEvent(
@@ -236,16 +249,32 @@ function handleTranscriptEvent(
   const status = metadata.status;
   if (!isTerminalStatus(status)) return;
 
-  if (status === "errored" || status === "needs-approval") {
+  if (status === "needs-approval") {
+    state.pendingApprovalId = event.id;
+    if (active.messageStarted) {
+      active.queue.push(runtimeMessageEvent(active, "message-done"));
+      active.messageStarted = false;
+    }
+    active.queue.push({
+      type: "approval-request",
+      sessionId: active.sessionId,
+      turnId: active.messageId,
+      approvalId: event.id,
+      message: event.text,
+    });
+    finishTurn(state, active, "interrupted");
+    return;
+  }
+  if (status === "errored") {
     active.queue.push({
       type: "error",
       sessionId: active.sessionId,
       turnId: active.messageId,
       error: event.text || "The local agent could not complete the request.",
-      recoverable: status === "needs-approval",
     });
   }
   finishTurn(
+    state,
     active,
     status === "completed"
       ? "complete"
@@ -269,7 +298,7 @@ function subscribeToTranscript(
           turnId: active.messageId,
           error: batch.error ?? "The local agent transcript is unavailable.",
         });
-        finishTurn(active, "error");
+        finishTurn(state, active, "error");
         return;
       }
       for (const event of batch.events) {
@@ -306,98 +335,39 @@ function createSessionView(
   ): Promise<AgentChatRuntimeCancelResult> => {
     const active = state.active;
     if (!active) return { status: "not-found" };
-    const result = await window.electronAPI.codeAgents.controlRun(
-      active.goalId,
-      active.runId,
-      "stop",
-    );
-    if (!result.ok) {
-      return {
-        status: "already-finished",
-        message: result.error ?? result.message,
-      };
-    }
-    finishTurn(active, reason === "abort" ? "cancelled" : "interrupted");
-    state.active = undefined;
-    return { status: "cancelled", message: result.message };
+    if (active.finished) return { status: "already-finished" };
+    if (active.cancelPromise) return active.cancelPromise;
+
+    const cancellation = (async (): Promise<AgentChatRuntimeCancelResult> => {
+      const result = await window.electronAPI.codeAgents.controlRun(
+        active.goalId,
+        active.runId,
+        "stop",
+      );
+      if (!result.ok) {
+        return {
+          status: "unsupported",
+          message: result.error ?? result.message,
+        };
+      }
+      finishTurn(
+        state,
+        active,
+        reason === "abort" ? "cancelled" : "interrupted",
+      );
+      return { status: "cancelled", message: result.message };
+    })();
+    active.cancelPromise = cancellation.finally(() => {
+      active.cancelPromise = undefined;
+    });
+    return active.cancelPromise;
   };
 
-  const startTurn = async (
-    input: AgentChatRuntimeTurnInput,
-  ): Promise<AgentChatRuntimeTurn> => {
-    const prompt = input.prompt?.trim();
-    if (!prompt) localRuntimeUnavailable("A local agent needs a prompt.");
-
-    if (state.active && !state.active.finished) {
-      await cancelActiveTurn("superseded");
-    }
-
-    let runId = state.runId;
-    let goalId = state.goalId;
-    if (runId && goalId) {
-      const transcript = await window.electronAPI.codeAgents.readTranscript({
-        goalId,
-        runId,
-      });
-      for (const event of transcript.events) state.knownEventIds.add(event.id);
-      const followUp = await window.electronAPI.codeAgents.appendFollowUp({
-        goalId,
-        runId,
-        prompt,
-        followUpMode: "immediate",
-        model: input.model,
-        effort: input.reasoningEffort,
-        metadata: {
-          source: "desktop-chat",
-          runtimeId: runtime.id,
-          threadId: state.threadId,
-        },
-      });
-      if (!followUp.ok) {
-        localRuntimeUnavailable(
-          followUp.error ??
-            followUp.message ??
-            "Could not continue the local agent.",
-        );
-      }
-    } else {
-      const permissionMode = isDesktopLocalAgentPermissionMode(
-        input.metadata?.permissionMode,
-      )
-        ? input.metadata.permissionMode
-        : defaultPermissionMode;
-      const created = await window.electronAPI.codeAgents.createRun({
-        prompt,
-        engine:
-          DESKTOP_LOCAL_AGENT_ENGINE_BY_ID[
-            runtime.id.replace("desktop-local-", "") as DesktopLocalAgentId
-          ],
-        model: input.model,
-        effort: input.reasoningEffort,
-        permissionMode,
-        metadata: {
-          source: "desktop-chat",
-          runtimeId: runtime.id,
-          threadId: state.threadId,
-        },
-      });
-      if (!created.ok || !created.run) {
-        localRuntimeUnavailable(
-          created.error ??
-            created.message ??
-            "Could not start the local agent.",
-        );
-      }
-      runId = created.run.id;
-      goalId = created.run.goalId;
-      state.runId = runId;
-      state.goalId = goalId;
-    }
-
-    if (!runId || !goalId) {
-      localRuntimeUnavailable("The local agent did not return a run id.");
-    }
-
+  const openTurn = (
+    runId: string,
+    goalId: string,
+    abortSignal?: AbortSignal,
+  ): AgentChatRuntimeTurn => {
     const queue = new AsyncEventQueue<RuntimeEvent>();
     const active: ActiveTurn = {
       queue,
@@ -408,27 +378,189 @@ function createSessionView(
       assistantText: "",
       messageStarted: false,
       sawAssistantDelta: false,
+      discarded: false,
       unsubscribe: null,
       removeAbortListener: null,
       finished: false,
     };
     state.active = active;
     active.unsubscribe = subscribeToTranscript(state, active);
-    if (input.abortSignal) {
+    if (abortSignal) {
       const onAbort = () => {
         void cancelActiveTurn("abort");
       };
-      input.abortSignal.addEventListener("abort", onAbort, { once: true });
+      abortSignal.addEventListener("abort", onAbort, { once: true });
       active.removeAbortListener = () =>
-        input.abortSignal?.removeEventListener("abort", onAbort);
+        abortSignal.removeEventListener("abort", onAbort);
     }
     return {
       id: active.messageId,
       sessionId: state.id,
       runId,
       events: queue,
+      closeEvents: () => {
+        active.discarded = true;
+        active.assistantText = "";
+        active.messageStarted = false;
+        queue.closeAndClear();
+      },
       cancel: (cancelInput) => cancelActiveTurn(cancelInput?.reason),
     };
+  };
+
+  const startTurn = async (
+    input: AgentChatRuntimeTurnInput,
+  ): Promise<AgentChatRuntimeTurn> => {
+    if (state.disposed) {
+      localRuntimeUnavailable("The local agent session has been disposed.");
+    }
+    if (state.starting) {
+      localRuntimeUnavailable("A local agent turn is already starting.");
+    }
+
+    const starting = (async (): Promise<AgentChatRuntimeTurn> => {
+      const prompt = input.prompt?.trim();
+      if (!prompt) localRuntimeUnavailable("A local agent needs a prompt.");
+
+      if (state.active && !state.active.finished) {
+        const cancellation = await cancelActiveTurn("superseded");
+        if (cancellation.status !== "cancelled") {
+          localRuntimeUnavailable(
+            cancellation.message ??
+              "Could not stop the previous local agent turn.",
+          );
+        }
+      }
+
+      let runId = state.runId;
+      let goalId = state.goalId;
+      if (runId && goalId) {
+        const transcript = await window.electronAPI.codeAgents.readTranscript({
+          goalId,
+          runId,
+        });
+        for (const event of transcript.events)
+          state.knownEventIds.add(event.id);
+        const followUp = await window.electronAPI.codeAgents.appendFollowUp({
+          goalId,
+          runId,
+          prompt,
+          followUpMode: "immediate",
+          model: input.model,
+          effort: input.reasoningEffort,
+          metadata: {
+            source: "desktop-chat",
+            runtimeId: runtime.id,
+            threadId: state.threadId,
+          },
+        });
+        if (!followUp.ok) {
+          localRuntimeUnavailable(
+            followUp.error ??
+              followUp.message ??
+              "Could not continue the local agent.",
+          );
+        }
+      } else {
+        const permissionMode = isDesktopLocalAgentPermissionMode(
+          input.metadata?.permissionMode,
+        )
+          ? input.metadata.permissionMode
+          : defaultPermissionMode;
+        const created = await window.electronAPI.codeAgents.createRun({
+          prompt,
+          engine:
+            DESKTOP_LOCAL_AGENT_ENGINE_BY_ID[
+              runtime.id.replace("desktop-local-", "") as DesktopLocalAgentId
+            ],
+          model: input.model,
+          effort: input.reasoningEffort,
+          permissionMode,
+          metadata: {
+            source: "desktop-chat",
+            runtimeId: runtime.id,
+            threadId: state.threadId,
+          },
+        });
+        if (!created.ok || !created.run) {
+          localRuntimeUnavailable(
+            created.error ??
+              created.message ??
+              "Could not start the local agent.",
+          );
+        }
+        runId = created.run.id;
+        goalId = created.run.goalId;
+        state.runId = runId;
+        state.goalId = goalId;
+      }
+
+      if (!runId || !goalId) {
+        localRuntimeUnavailable("The local agent did not return a run id.");
+      }
+
+      return openTurn(runId, goalId, input.abortSignal);
+    })();
+
+    state.starting = starting;
+    try {
+      return await starting;
+    } finally {
+      if (state.starting === starting) state.starting = undefined;
+    }
+  };
+
+  const continueTurn = async (
+    input: AgentChatRuntimeContinueInput = {},
+  ): Promise<AgentChatRuntimeTurn> => {
+    if (state.disposed) {
+      localRuntimeUnavailable("The local agent session has been disposed.");
+    }
+    if (state.starting) {
+      localRuntimeUnavailable("A local agent turn is already starting.");
+    }
+
+    const continuing = (async (): Promise<AgentChatRuntimeTurn> => {
+      const { approval } = input;
+      const { runId, goalId, pendingApprovalId } = state;
+      if (
+        !approval ||
+        !pendingApprovalId ||
+        approval.id !== pendingApprovalId
+      ) {
+        localRuntimeUnavailable(
+          "The local agent is not waiting for this approval.",
+        );
+      }
+      if (!runId || !goalId) {
+        localRuntimeUnavailable("The local agent run is unavailable.");
+      }
+      if (state.active && !state.active.finished) {
+        localRuntimeUnavailable("A local agent turn is already active.");
+      }
+
+      const result = await window.electronAPI.codeAgents.controlRun(
+        goalId,
+        runId,
+        approval.approved ? "approve" : "deny",
+      );
+      if (!result.ok) {
+        localRuntimeUnavailable(
+          result.error ??
+            result.message ??
+            "Could not resolve the local approval.",
+        );
+      }
+      state.pendingApprovalId = undefined;
+      return openTurn(runId, goalId, input.abortSignal);
+    })();
+
+    state.starting = continuing;
+    try {
+      return await continuing;
+    } finally {
+      if (state.starting === continuing) state.starting = undefined;
+    }
   };
 
   return {
@@ -437,14 +569,23 @@ function createSessionView(
     threadId: state.threadId,
     startTurn,
     sendMessage: startTurn,
+    continueTurn,
     cancelTurn: (input) => cancelActiveTurn(input?.reason),
     dispose: async () => {
+      if (state.disposed) return;
+      state.disposed = true;
       try {
+        await state.starting?.catch(() => undefined);
         if (state.active && !state.active.finished) {
           await cancelActiveTurn("dispose");
         }
       } finally {
-        state.active?.unsubscribe?.();
+        const active = state.active;
+        if (active) {
+          finishTurn(state, active, "interrupted");
+          active.unsubscribe?.();
+          active.removeAbortListener?.();
+        }
         state.active = undefined;
         onDispose();
       }
@@ -468,6 +609,7 @@ export function createDesktopLocalAgentRuntime(
     description: option?.description,
     capabilities: {
       messages: { streaming: true, history: true },
+      tools: { events: false, approvals: true },
       sessions: { create: true, persistent: true },
       cancellation: { abortSignal: true, explicitCancel: true },
       models: { selectable: true, reasoningEffort: true },
@@ -478,6 +620,7 @@ export function createDesktopLocalAgentRuntime(
       const state = sessions.get(id) ?? {
         id,
         threadId: input.threadId,
+        disposed: false,
         knownEventIds: new Set<string>(),
       };
       sessions.set(id, state);

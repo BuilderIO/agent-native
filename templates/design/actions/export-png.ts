@@ -1,8 +1,18 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import { track } from "@agent-native/core/tracking";
+import { MAX_TOOL_RESULT_IMAGE_BASE64_CHARS } from "@agent-native/core/agent/tool-result-images";
 import { z } from "zod";
 
-import takeDesignScreenshot from "./take-design-screenshot.js";
+import {
+  trackDesignExported,
+  withDesignExportFailureTracking,
+} from "../server/lib/design-export-tracking.js";
+import {
+  sampleContactValuesSchema,
+  type SampleContactValues,
+} from "../server/lib/hubspot-email-preview.js";
+import takeDesignScreenshot, {
+  getScreenshotPngData,
+} from "./take-design-screenshot.js";
 
 function suggestedPngFilename(filename: string): string {
   const base = filename
@@ -14,11 +24,26 @@ function suggestedPngFilename(filename: string): string {
   return `${base || "screen"}.png`;
 }
 
+const trackPngExportFailures = withDesignExportFailureTracking<{
+  designId?: string;
+  fileId?: string;
+  filename: string;
+  width?: number;
+  height?: number;
+  templatePreview?: "hubspot-email";
+  sampleContactValues?: SampleContactValues;
+}>("png");
+
 export default defineAction({
   description:
     "Export one Design screen as a PNG image. Pass fileId, or pass designId " +
-    "and filename, to choose the screen. Returns a durable image URL; the " +
-    "screen is rendered at 1440px wide by default and full-page height.",
+    "and filename, to choose the screen. Returns a durable image URL; MCP " +
+    "callers also receive an inline PNG preview when it fits the image limit. " +
+    "Screens with enabled native WebGPU effects require the foreground " +
+    "request-native-local-export action in an open editor tab; this " +
+    "headless action fails typed for those screens rather than returning " +
+    "pixels without the effect. Other screens render at 1440px wide " +
+    "by default and full-page height. Optional templatePreview=hubspot-email uses fake sample template values for browser-layout proof, not HubSpot compilation or inbox rendering; source and HTML export remain unchanged.",
   schema: z
     .object({
       designId: z
@@ -37,6 +62,17 @@ export default defineAction({
         .default("index.html")
         .describe(
           "Screen filename when fileId is not provided. Defaults to index.html.",
+        ),
+      templatePreview: z
+        .literal("hubspot-email")
+        .optional()
+        .describe(
+          "Optional hubspot-email sample preview using supported template tokens/contact defaults. Omit to render raw HTML unchanged.",
+        ),
+      sampleContactValues: sampleContactValuesSchema
+        .optional()
+        .describe(
+          "Optional in-memory recipient samples, only with templatePreview=hubspot-email: an array of at most 8 unique {field, value} entries, with contact.field names and 500 characters per value. Fields must match supported personalization_token calls; unknown or unused fields fail. Omit fields to use literal defaults; saved HTML is unchanged.",
         ),
       width: z.coerce
         .number()
@@ -58,22 +94,59 @@ export default defineAction({
     .refine(({ designId, fileId }) => Boolean(designId || fileId), {
       message: "Provide designId or fileId to select a screen.",
       path: ["designId"],
-    }),
+    })
+    .refine(
+      ({ templatePreview, sampleContactValues }) =>
+        sampleContactValues === undefined ||
+        templatePreview === "hubspot-email",
+      {
+        message:
+          'sampleContactValues requires templatePreview="hubspot-email".',
+        path: ["sampleContactValues"],
+      },
+    ),
   readOnly: false,
   http: { method: "POST" },
-  run: async ({ designId, fileId, filename, width, height }, ctx) => {
+  run: trackPngExportFailures(async (args, ctx, facts) => {
+    const {
+      designId,
+      fileId,
+      filename,
+      width,
+      height,
+      templatePreview,
+      sampleContactValues,
+    } = args;
     const result = await takeDesignScreenshot.run(
       {
         ...(designId ? { designId } : {}),
         ...(fileId ? { fileId } : {}),
         filename,
         widths: [width ?? 1440],
+        ...(templatePreview ? { templatePreview } : {}),
+        ...(sampleContactValues === undefined ? {} : { sampleContactValues }),
         ...(height === undefined ? {} : { heights: [height] }),
       },
       ctx,
     );
 
-    if (result.ok !== true) return result;
+    if (result.ok !== true) {
+      // The screenshot only reports an unavailable renderer after it found the
+      // file through the caller's access filter. That lookup goes by fileId
+      // when one is given, so a design id is verified only without one.
+      trackDesignExported(
+        {
+          ...(designId && !fileId ? { designId } : {}),
+          exportFormat: "png",
+          status: "failed",
+          errorType: "chromium_unavailable",
+        },
+        ctx,
+      );
+      return result;
+    }
+    facts.designId = result.designId;
+    facts.fileId = result.fileId;
 
     const screenshot = result.screenshots?.[0];
     if (!screenshot) {
@@ -93,7 +166,7 @@ export default defineAction({
       }
       fail(
         "The PNG was rendered but could not be returned because file storage is not configured. " +
-          "Connect or reconnect Builder.io in Settings → File uploads, or register a custom file provider.",
+          "Use Builder.io in Settings → File uploads, or register a custom file provider.",
         {
           errorCode: "file_storage_not_configured",
           details: { designId: result.designId, fileId: result.fileId },
@@ -102,17 +175,30 @@ export default defineAction({
     }
 
     const screenFilename = result.filename ?? filename ?? "screen.html";
+    const png =
+      ctx?.caller === "mcp" ? getScreenshotPngData(screenshot) : undefined;
+    const maxInlinePngBytes =
+      Math.floor(MAX_TOOL_RESULT_IMAGE_BASE64_CHARS / 4) * 3;
+    const imageData =
+      png && Buffer.byteLength(png) <= maxInlinePngBytes
+        ? png.toString("base64")
+        : undefined;
+    const agentImages = imageData
+      ? [
+          {
+            data: imageData,
+            mediaType: "image/png" as const,
+            label: `${screenFilename} (${screenshot.viewport.label})`,
+          },
+        ]
+      : undefined;
+    const message =
+      ctx?.caller === "mcp" && png && !imageData
+        ? "The PNG exceeds the inline image limit; use its durable URL to view it."
+        : undefined;
 
-    track(
-      "design_exported",
-      {
-        app_name: "design",
-        template_name: "design",
-        output_id: result.designId,
-        output_type: "design",
-        export_format: "png",
-        file_id: result.fileId,
-      },
+    trackDesignExported(
+      { ...facts, exportFormat: "png", status: "completed" },
       ctx,
     );
 
@@ -125,9 +211,13 @@ export default defineAction({
       mimeType: "image/png",
       url: screenshot.url,
       bytes: screenshot.bytes,
+      ...(agentImages ? { _agentImages: agentImages } : {}),
+      ...(message ? { message } : {}),
       viewport: screenshot.viewport,
       diagnostics: screenshot.diagnostics,
       capturedAt: result.capturedAt,
+      captureTimings: result.captureTimings,
+      ...(result.preview ? { preview: result.preview } : {}),
     };
-  },
+  }),
 });

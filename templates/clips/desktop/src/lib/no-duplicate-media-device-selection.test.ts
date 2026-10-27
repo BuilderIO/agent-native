@@ -2,11 +2,6 @@ import { existsSync, readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-// Regression guard for the mic-resolver fork: desktop once carried a
-// byte-for-byte copy of shared/media-device-selection.ts instead of
-// importing it, so a fix applied to one surface silently missed the other.
-// This asserts the duplicate stays deleted and both desktop consumers keep
-// resolving through the single shared module.
 describe("desktop mic resolver has a single source of truth", () => {
   it("does not re-fork shared/media-device-selection.ts locally", () => {
     expect(

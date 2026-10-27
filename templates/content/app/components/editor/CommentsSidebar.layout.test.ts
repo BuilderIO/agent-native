@@ -9,9 +9,10 @@ import type { CommentThread } from "@/hooks/use-comments";
 
 import {
   estimateThreadCardHeight,
-  findPendingCommentOffset,
+  findPendingCommentPosition,
   findThreadPosition,
   getAiCommentSource,
+  highlightedQuote,
   layoutCommentThreads,
   scrollToCommentAnchor,
 } from "./CommentsSidebar";
@@ -31,6 +32,14 @@ function rect(top: number) {
 }
 
 describe("comments sidebar layout", () => {
+  it("constrains thread rows to the panel's available width", () => {
+    const source = readFileSync(
+      "app/components/editor/CommentsSidebar.tsx",
+      "utf8",
+    );
+    expect(source.includes('"relative grid grid-cols-1 gap-3.5"')).toBe(true);
+  });
+
   it("keeps the selected history comment visible through status changes", () => {
     const source = readFileSync(
       "app/components/editor/CommentsSidebar.tsx",
@@ -40,19 +49,21 @@ describe("comments sidebar layout", () => {
       source.indexOf("const historyThreads ="),
       source.indexOf("const pendingFocus ="),
     );
-    expect(
-      history.indexOf('if (historyKind === "suggestions") return [];'),
-    ).toBeLessThan(
-      history.indexOf("if (selectedThreadId === thread.threadId) return true;"),
+    // The selected thread passes every filter, Type included.
+    const selected = history.indexOf("thread.threadId === selectedThreadId ||");
+    const kind = history.indexOf(
+      'if (historyKind === "suggestions") return false;',
     );
-    expect(
-      history.indexOf("if (selectedThreadId === thread.threadId) return true;"),
-    ).toBeLessThan(
+    expect(selected).toBeGreaterThan(-1);
+    expect(selected).toBeLessThan(kind);
+    expect(kind).toBeLessThan(
       history.indexOf('if (historyStatus === "open" && thread.resolved)'),
     );
-    expect(history).toContain("threads, selectedThreadId]");
+    expect(history).toMatch(
+      /threads,\s+selectedThreadId,\s+postedThreadIds,?\s*\]/,
+    );
     expect(source).toContain(
-      'presentation === "inline" && thread.threadId === selectedThreadId',
+      '(presentation === "inline" &&\n              (thread.threadId === selectedThreadId ||',
     );
     const resolve = source.slice(
       source.indexOf("const handleResolve ="),
@@ -103,7 +114,9 @@ describe("comments sidebar layout", () => {
       "utf8",
     );
     expect(source).toContain("replyDrafts.revealHistory(");
-    expect(source).toContain("setRevealedStatus({ documentId, accountKey })");
+    expect(source).toContain(
+      "setRevealed({ documentId, accountKey, status: true, filters: true })",
+    );
     expect(source).toContain("Number(right.id === activeConflictId)");
   });
   it("lays out mixed suggestion and comment identities in one collision flow", () => {
@@ -194,6 +207,19 @@ describe("comments sidebar layout", () => {
     });
   });
 
+  it("reads a quote across blocks with a space where its highlight crosses", () => {
+    document.body.innerHTML =
+      '<div class="ProseMirror"><p>Alpha <span data-comment-thread="t">ends <strong>here.</strong></span></p><ul><li><p><span data-comment-thread="t">Bravo</span> starts</p></li></ul></div>';
+    const marked = document.querySelectorAll('[data-comment-thread="t"]');
+
+    expect(highlightedQuote(marked, "ends here.Bravo")).toBe(
+      "ends here. Bravo",
+    );
+    // One block reads as stored, and text edited since no longer matches.
+    expect(highlightedQuote([marked[0]!], "ends here.")).toBeNull();
+    expect(highlightedQuote(marked, "ends there.Bravo")).toBeNull();
+  });
+
   it("positions pending comments from the pending highlight rect", () => {
     document.body.innerHTML =
       '<div id="scroll"><span class="comment-highlight--pending"></span></div>';
@@ -206,7 +232,10 @@ describe("comments sidebar layout", () => {
     scroll.getBoundingClientRect = () => rect(80) as DOMRect;
     pending.getBoundingClientRect = () => rect(125) as DOMRect;
 
-    expect(findPendingCommentOffset(scroll)).toBe(45);
+    expect(findPendingCommentPosition(scroll, scroll)).toEqual({
+      documentTop: 45,
+      layoutTop: 45,
+    });
   });
 
   it("gives the selected thread first claim near its anchor without overlap", () => {
@@ -343,7 +372,9 @@ describe("comments sidebar layout", () => {
     const globalStyles = readFileSync("app/global.css", { encoding: "utf8" });
 
     expect(source).not.toContain('container.addEventListener("scroll"');
-    expect(source.match(/scrollIntoView/g)).toHaveLength(1);
+    // The second brings an opened comment stack's selected card into view;
+    // CommentsSidebar.stacks.test.tsx covers it.
+    expect(source.match(/scrollIntoView/g)).toHaveLength(2);
     expect(source).toMatch(
       /if \(!focusRequested\) return;[\s\S]*?requestAnimationFrame[\s\S]*?target\.scrollIntoView/,
     );
@@ -358,15 +389,17 @@ describe("comments sidebar layout", () => {
       encoding: "utf8",
     });
 
-    expect(source).toContain('aria-label={t("comments.askAi")}');
+    expect(source).not.toContain('aria-label={t("comments.askAi")}');
+    expect(source).toContain("onAiDraftChange={onAiDraftChange}");
     expect(source).toContain(
       'resolved ? "comments.reopen" : "comments.resolve"',
     );
-    expect(source).toContain('aria-label={t("comments.submit")}');
+    expect(source).toContain('submitLabel={t("comments.submit")}');
     expect(source).toMatch(
-      /aria-label=\{t\(\s+resolved \? "comments.reopen" : "comments.resolve"/,
+      /t\(resolved \? "comments.reopen" : "comments.resolve"\)/,
     );
-    expect(source).toContain("group-focus-within/thread:opacity-100");
+    expect(source).toContain("aria-label={resolveLabel}");
+    expect(source).toContain("data-comment-resolve");
     expect(source).toContain("focus-visible:ring-ring");
     expect(source).not.toContain("hidden group-hover/thread:flex");
     expect(source).toContain('presentation === "history"');
@@ -381,14 +414,14 @@ describe("comments sidebar layout", () => {
     });
 
     expect(source).toContain(
-      "transition-[background-color,transform,translate] duration-[260ms] ease-[var(--ease-drawer)]",
+      "transition-[box-shadow,translate] duration-[260ms] ease-[var(--ease-drawer)]",
     );
     expect(source).not.toContain("allowEmphasisMotion");
     expect(source).toContain(
-      "hover:-translate-x-2 hover:bg-[color-mix(in_srgb,hsl(var(--accent))_60%,hsl(var(--popover)))]",
+      "hover:-translate-x-2 hover:shadow-comment-emphasis",
     );
     expect(source).toContain(
-      "focus-within:-translate-x-2 focus-within:bg-[color-mix(in_srgb,hsl(var(--accent))_60%,hsl(var(--popover)))]",
+      "focus-within:-translate-x-2 focus-within:shadow-comment-emphasis",
     );
     expect(source).toContain("ease-[var(--ease-drawer)]");
     expect(source).toContain("data-comment-layout-thread");
@@ -398,17 +431,17 @@ describe("comments sidebar layout", () => {
     expect(source).toContain("motion-reduce:hover:translate-x-0");
     expect(source).not.toContain("bg-accent/60");
     expect(source).toContain(
-      '? "-translate-x-2 bg-[color-mix(in_srgb,hsl(var(--accent))_60%,hsl(var(--popover)))] shadow-lg"',
+      '? "-translate-x-2 shadow-comment-emphasis ring-foreground/15"',
     );
     expect(source).toContain(
-      ': "bg-popover hover:-translate-x-2 hover:bg-[color-mix(in_srgb,hsl(var(--accent))_60%,hsl(var(--popover)))] hover:shadow-lg focus-within:-translate-x-2 focus-within:bg-[color-mix(in_srgb,hsl(var(--accent))_60%,hsl(var(--popover)))] focus-within:shadow-lg"',
+      ': "hover:-translate-x-2 hover:shadow-comment-emphasis focus-within:-translate-x-2 focus-within:shadow-comment-emphasis"',
     );
   });
 
   it("keeps multiline comment highlights padded as one forgiving target", () => {
     const styles = readFileSync("app/global.css", { encoding: "utf8" });
     const highlightStyles = styles.slice(
-      styles.indexOf(".notion-editor .comment-highlight"),
+      styles.indexOf(".content-editor .comment-highlight"),
       styles.indexOf("/* @mention tokens inside comment bodies */"),
     );
 
@@ -423,7 +456,7 @@ describe("comments sidebar layout", () => {
   it("smoothly strengthens ordinary comment highlights without moving them", () => {
     const styles = readFileSync("app/global.css", { encoding: "utf8" });
     const highlightStyles = styles.slice(
-      styles.indexOf(".notion-editor .comment-highlight"),
+      styles.indexOf(".content-editor .comment-highlight"),
       styles.indexOf("/* Pending suggested edits"),
     );
 
@@ -434,7 +467,7 @@ describe("comments sidebar layout", () => {
       "transition: background-color 160ms var(--ease-out-strong)",
     );
     expect(highlightStyles).toMatch(
-      /\.comment-highlight:hover,\s*\.notion-editor \.comment-highlight\.comment-highlight--hovered\s*\{[^}]*\/ 0\.28\)/,
+      /\.comment-highlight:hover,\s*\.content-editor \.comment-highlight\.comment-highlight--hovered\s*\{[^}]*\/ 0\.28\)/,
     );
     expect(highlightStyles).toMatch(
       /\.comment-highlight\.comment-highlight--active\s*\{[^}]*\/ 0\.38\)/,
@@ -480,16 +513,18 @@ describe("comments sidebar layout", () => {
       encoding: "utf8",
     });
 
-    expect(source.match(/t\("comments.filter"\)/g)).toHaveLength(1);
-    expect(source).toContain("DropdownMenuCheckboxItem");
+    // The filter button lives in the Discussion toolbar; the rendered panel
+    // tests in CommentsSidebar.discussion.test.tsx cover it.
+    expect(source).toContain("<DiscussionToolbar");
+    expect(source).not.toContain('t("comments.filter")');
     expect(source).toContain('"all" | "comments" | "suggestions"');
-    expect(source).toContain('historyKind === "comments"');
+    expect(source).toContain('historyKind !== "comments"');
     expect(source).toContain('historyKind === "suggestions"');
     expect(source).toContain('t("comments.typeFilter")');
     expect(source).not.toContain("aria-pressed={historyKind === kind}");
     expect(source).toContain('t("comments.statusFilter")');
     expect(source).toContain('t("comments.authorFilter")');
-    expect(source).toContain("event.preventDefault()");
+    expect(source).toContain('t("comments.targetFilter")');
     expect(source).toContain('["open", "resolved", "all"] as const');
     expect(source).toContain("historySuggestions.map((suggestion)");
     expect(source).toContain("renderSuggestionCard(thread.suggestion)");
@@ -505,9 +540,9 @@ describe("comments sidebar layout", () => {
       type: "text",
       value: "  ",
     });
-    expect(source).toContain(
-      'className="w-full min-w-0 overflow-hidden rounded-lg bg-popover',
-    );
+    // The panel is one flat feed rather than a stack of summary cards.
+    expect(source).toContain("data-comments-feed");
+    expect(source).not.toContain("HistoryThreadView");
   });
 
   it("labels pending suggestions whose page anchor cannot be resolved", () => {
@@ -525,10 +560,9 @@ describe("comments sidebar layout", () => {
       encoding: "utf8",
     });
 
-    expect(source).toContain('target?.closest("[data-comment-thread]")');
-    expect(source).toContain("onPointerOverCapture");
-    expect(source).toContain("onPointerOutCapture");
-    expect(source).toContain("setHoveredThreadId(threadId)");
+    expect(source).toContain("commentThreadAt(");
+    // oracle-change: the pointer lookup and hover capture moved into commentThreadAt and commentThreadHoverHandlers, whose behaviour comment-block-anchors.test.ts covers
+    expect(source).toContain("commentThreadHoverHandlers(");
     expect(source).toContain("activateCommentThread(threadId)");
     expect(source).toContain("data-comments-flow-lane");
     expect(source).toContain("commentLaneRef");
@@ -547,26 +581,21 @@ describe("comments sidebar layout", () => {
     );
     expect(source).toContain('className="pointer-events-none absolute z-30"');
     expect(source).toContain("data-comments-anchored-popover");
-    expect(source).toContain("useElementMinWidth(documentLayoutRef, 960)");
-    expect(source).toMatch(
-      /utilityPanel === "comments" &&\s+!hasInlineCommentSpace &&\s+!!selectedSuggestionId/,
-    );
-    expect(source).toContain('window.addEventListener("resize", update)');
     expect(source).toContain(
-      'window.visualViewport?.addEventListener("resize", update)',
+      "const commentSurfaces = shellCommentSurfaces ?? measuredCommentSurfaces;",
     );
-    expect(source).toContain("observer?.observe(element)");
-    expect(source).not.toContain("CONTENT_COMMENTS_UI_CLEANUP_FLAG");
-  });
-
-  it("recomputes anchors when comment indicators are restored", () => {
-    const source = readFileSync("app/components/editor/VisualEditor.tsx", {
-      encoding: "utf8",
-    });
-
     expect(source).toMatch(
-      /scheduleApply\(false\);[\s\S]*?showCommentIndicators/,
+      /const showUtilityPanelOffColumn = documentEditorShowsUtilityPanelSheet\(\{\s+utilityPanel,\s+commentsHistoryDrawerOpen: showCommentsHistoryDrawer,\s+hasUtilityRailSpace,\s+hasInlineCommentSpace,\s+selectedSuggestionId,/,
     );
+    expect(source).toContain(
+      `showUtilityPanelOffColumn &&
+    (commentSurfaces.list === "sheet" ||
+      (utilityPanel === "comments" && shellLayout?.agentPanel === "overlay"))`,
+    );
+    expect(source).toContain(
+      'showUtilityPanelOffColumn && commentSurfaces.list === "region-list"',
+    );
+    expect(source).not.toContain("CONTENT_COMMENTS_UI_CLEANUP_FLAG");
   });
 
   it("keeps the pending composer in normal flow in the anchored card", () => {
@@ -575,9 +604,7 @@ describe("comments sidebar layout", () => {
     });
 
     expect(source).toContain("alignToAnchors");
-    expect(source).toContain(
-      '"relative mx-2 mt-3 rounded-lg bg-popover p-3 shadow-md ring-1 ring-border/50"',
-    );
+    expect(source).toContain('"relative mx-2 mt-3"');
     expect(source).toContain(": undefined");
   });
 

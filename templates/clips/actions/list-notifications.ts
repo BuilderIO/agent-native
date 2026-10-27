@@ -1,15 +1,3 @@
-/**
- * Aggregate notification feed for the current user.
- *
- * Returns comments and reactions added TO the user's recordings in the last
- * N days (default 30), plus mentions in comments. Used by the Notifications
- * Center route.
- *
- * Usage:
- *   pnpm action list-notifications
- *   pnpm action list-notifications --days=7
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { accessFilter } from "@agent-native/core/sharing";
 import { getUserProfiles } from "@agent-native/core/user-profile/server";
@@ -23,6 +11,7 @@ import {
   sameOwnerEmail,
 } from "../server/lib/recordings.js";
 import { profileNameFor } from "../server/lib/user-identities.js";
+import { canReadRecordingComments } from "../shared/comment-access.js";
 import { parseCommentMentions } from "../shared/comment-mentions.js";
 
 export default defineAction({
@@ -37,7 +26,6 @@ export default defineAction({
     const db = getDb();
     const me = getCurrentOwnerEmail();
 
-    // Activity on recordings I own plus mentions on recordings I can open.
     const visibleRecordings = await db
       .select({
         id: schema.recordings.id,
@@ -45,6 +33,8 @@ export default defineAction({
         ownerEmail: schema.recordings.ownerEmail,
         password: schema.recordings.password,
         expiresAt: schema.recordings.expiresAt,
+        trashedAt: schema.recordings.trashedAt,
+        enableComments: schema.recordings.enableComments,
       })
       .from(schema.recordings)
       .where(accessFilter(schema.recordings, schema.recordingShares));
@@ -54,6 +44,7 @@ export default defineAction({
         recipientEmail: me,
         hasPassword: Boolean(recording.password),
         expiresAt: recording.expiresAt,
+        trashedAt: recording.trashedAt,
       }),
     );
     if (accessibleRecordings.length === 0) {
@@ -64,7 +55,14 @@ export default defineAction({
       .filter((recording) => sameOwnerEmail(recording.ownerEmail, me))
       .map((recording) => recording.id);
     const myRecordingIdSet = new Set(myRecordingIds);
-    const ids = accessibleRecordings.map((recording) => recording.id);
+    const commentRecordingIds = accessibleRecordings
+      .filter((recording) =>
+        canReadRecordingComments({
+          enableComments: recording.enableComments,
+          viewerIsOwner: sameOwnerEmail(recording.ownerEmail, me),
+        }),
+      )
+      .map((recording) => recording.id);
     const titleById = new Map(
       accessibleRecordings.map(
         (recording) => [recording.id, recording.title] as const,
@@ -84,18 +82,23 @@ export default defineAction({
       : sql`lower(${schema.recordingComments.mentionsJson}) LIKE ${mentionPattern}`;
 
     const [comments, reactions] = await Promise.all([
-      db
-        .select()
-        .from(schema.recordingComments)
-        .where(
-          and(
-            inArray(schema.recordingComments.recordingId, ids),
-            gte(schema.recordingComments.createdAt, cutoff),
-            commentScope,
-          ),
-        )
-        .orderBy(desc(schema.recordingComments.createdAt))
-        .limit(args.limit),
+      commentRecordingIds.length
+        ? db
+            .select()
+            .from(schema.recordingComments)
+            .where(
+              and(
+                inArray(
+                  schema.recordingComments.recordingId,
+                  commentRecordingIds,
+                ),
+                gte(schema.recordingComments.createdAt, cutoff),
+                commentScope,
+              ),
+            )
+            .orderBy(desc(schema.recordingComments.createdAt))
+            .limit(args.limit)
+        : Promise.resolve([]),
       myRecordingIds.length
         ? db
             .select()

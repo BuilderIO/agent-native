@@ -138,7 +138,7 @@ export function ListSelectionBar<
           <Button
             variant="ghost"
             size="sm"
-            className="h-8 shrink-0 gap-1 px-2 text-xs"
+            className="shrink-0 gap-1 px-2 text-xs"
             disabled={
               selectedCount === 0 || toolbarDisabled || allSelectedComplete
             }
@@ -153,7 +153,7 @@ export function ListSelectionBar<
           <Button
             variant="ghost"
             size="sm"
-            className="h-8 shrink-0 gap-1 px-2 text-xs"
+            className="shrink-0 gap-1 px-2 text-xs"
             disabled={
               selectedCount === 0 || toolbarDisabled || allSelectedIncomplete
             }
@@ -170,7 +170,7 @@ export function ListSelectionBar<
         <Button
           variant="ghost"
           size="sm"
-          className="h-8 shrink-0 gap-1 px-2 text-xs"
+          className="shrink-0 gap-1 px-2 text-xs"
           disabled={selectedCount === 0 || toolbarDisabled}
           aria-label={t("common.markReady")}
           onClick={() => void markSelectedReady()}

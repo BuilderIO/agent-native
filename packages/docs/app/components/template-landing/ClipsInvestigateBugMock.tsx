@@ -54,11 +54,6 @@ const CLIPS_CELL_MOCK_CSS = [
 
   ".clips-cell-mock-response { display: flex; flex-direction: column; gap: 11px; }",
 
-  // Hidden by default and revealed by adding clips-cell-reveal-in once the
-  // card scrolls into view (see the IntersectionObserver in the component).
-  // The two fallbacks below keep it from ever being stuck invisible:
-  // scripting:none covers no-JS, and reduced-motion covers visitors who
-  // asked not to see things move — both just show the end state immediately.
   ".clips-cell-mock-response { opacity: 0; filter: blur(8px); transform: translateY(16px); transition: opacity 0.7s cubic-bezier(0.5, 1, 0.89, 1), filter 0.7s cubic-bezier(0.5, 1, 0.89, 1), transform 0.7s cubic-bezier(0.5, 1, 0.89, 1); }",
   ".clips-cell-mock-response.clips-cell-reveal-in { opacity: 1; filter: blur(0); transform: translateY(0); }",
   "@media (scripting: none) { .clips-cell-mock-response { opacity: 1; filter: none; transform: none; } }",

@@ -51,14 +51,11 @@ export default defineAction({
     );
     const actor = crmActorFrom(ctx);
     const now = new Date().toISOString();
-    // Value rows inherit the ENTRY's ownership, not the caller's, so an editor
-    // writing to a shared entry cannot fork its visibility.
     const ownership = {
       ownerEmail: entry.ownerEmail,
       orgId: entry.orgId,
       visibility: entry.visibility,
     };
-    // Reject an unauthenticated caller the same way a fresh write would.
     requireCrmScope(ctx);
 
     const writes = await db.transaction(async (tx) => {

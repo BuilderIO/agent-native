@@ -106,6 +106,14 @@ Las rutas canónicas que controlan cómo el agente usa cada recurso:
 
 Estas rutas se aplican en los tres ámbitos: espacio de trabajo, organización/aplicación y personal. El ámbito posterior gana cuando existe la misma ruta en múltiples niveles.
 
+## Llevar los recursos contigo {#resource-pack}
+
+Exporta un paquete JSON con suma de comprobación de los recursos de texto que ya puedes leer (`export-resource-pack`) e impórtalo en otra aplicación o usuario (`import-resource-pack`). Los controles **Export pack** / **Import pack** de la pestaña Recursos llaman a las mismas acciones.
+
+- La exportación incluye solo texto. Se omiten las cargas binarias. Las cadenas con forma de clave de API y los campos de token `env` / `headers` de MCP se redactan; vuelve a conectar MCP después de importar.
+- La importación usa por defecto el ámbito **personal** y omite conflictos. La importación de organización exige el mismo ACL de escritura de administrador que editar archivos de la organización. La importación de espacio de trabajo no está disponible.
+- Un paquete que supere 200 archivos de texto o 1 MB falla con `too_large` en lugar de truncarse. Un desajuste de suma de comprobación falla en cerrado.
+
 <Diagram id="doc-block-pmpd5a" title="Tres alcances, un archivo efectivo" summary={"El tiempo de ejecución resuelve la misma ruta en los ámbitos del espacio de trabajo, la aplicación y el personal durante la lectura: gana el ámbito más específico."}>
 
 ```html

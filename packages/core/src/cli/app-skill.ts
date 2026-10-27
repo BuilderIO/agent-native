@@ -1,12 +1,3 @@
-/**
- * `agent-native app-skill` packages an agent-native app as a distributable
- * skill bundle: instructions + MCP connector + embeddable app surfaces.
- *
- * The manifest intentionally contains no user secrets. Hosted installs write
- * URL-only MCP entries; clients that need auth complete OAuth/device setup in
- * the host. Local installs point at a developer-owned app process.
- */
-
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
@@ -27,6 +18,7 @@ import {
   buildHttpMcpEntry,
   removeSameUrlDuplicatesForClient,
 } from "./mcp-config-writers.js";
+import { openUrlInBrowser } from "./open-url.js";
 
 export type SkillVisibility = "internal" | "exported" | "both";
 export type AppSkillHostAdapter =
@@ -44,6 +36,41 @@ export interface AppSkillManifestSkill {
   exportAs?: string;
 }
 
+export interface AppSkillChatGptTestCase {
+  description: string;
+  prompt: string;
+  tools_triggered?: string;
+  expected_behavior?: string;
+}
+
+export interface AppSkillChatGptPlugin {
+  version: string;
+  interface: {
+    displayName: string;
+    shortDescription: string;
+    longDescription: string;
+    developerName: string;
+    category: string;
+    capabilities: string[];
+    websiteURL: string;
+    supportURL: string;
+    privacyPolicyURL: string;
+    termsOfServiceURL: string;
+    defaultPrompt: string[];
+    logoPath: string;
+    keywords?: string[];
+  };
+  review: {
+    test_cases: {
+      positive: AppSkillChatGptTestCase[];
+      negative: AppSkillChatGptTestCase[];
+    };
+    commerce: boolean;
+    iframeJustification: string;
+    demo_recording_url?: string;
+  };
+}
+
 export interface AppSkillSurface {
   id: string;
   action?: string;
@@ -57,11 +84,6 @@ export interface AppSkillManifest {
   id: string;
   displayName: string;
   description: string;
-  /**
-   * Optional semver base for generated plugin manifests. Codex keys its plugin
-   * cache on the version string, so the packer appends a content hash to this
-   * base; leave it unset to default to "1.0.0".
-   */
   version?: string;
   hosted: {
     url: string;
@@ -88,6 +110,7 @@ export interface AppSkillManifest {
   surfaces: AppSkillSurface[];
   skills: AppSkillManifestSkill[];
   hostAdapters: AppSkillHostAdapter[];
+  chatgpt?: AppSkillChatGptPlugin;
 }
 
 export interface LoadedAppSkillManifest {
@@ -269,6 +292,190 @@ function uniqueAdapters(values: AppSkillHostAdapter[]): AppSkillHostAdapter[] {
   });
 }
 
+function requiredPluginString(
+  record: Record<string, unknown>,
+  key: string,
+  field: string,
+): string {
+  const value = record[key];
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error(`${field} must be a non-empty string.`);
+  }
+  return value;
+}
+
+function requiredPluginStringArray(value: unknown, field: string): string[] {
+  if (
+    !Array.isArray(value) ||
+    !value.every((item) => typeof item === "string" && item.trim())
+  ) {
+    throw new Error(`${field} must be an array of non-empty strings.`);
+  }
+  return value;
+}
+
+function normalizeChatGptPlugin(value: unknown): AppSkillChatGptPlugin {
+  if (!isRecord(value)) throw new Error("chatgpt must be an object.");
+  if (!isRecord(value.interface)) {
+    throw new Error("chatgpt.interface must be an object.");
+  }
+  if (!isRecord(value.review)) {
+    throw new Error("chatgpt.review must be an object.");
+  }
+  const listing = value.interface;
+  const review = value.review;
+  if (!isRecord(review.test_cases)) {
+    throw new Error("chatgpt.review.test_cases must be an object.");
+  }
+
+  const normalizeCases = (
+    rawCases: unknown,
+    field: string,
+  ): AppSkillChatGptTestCase[] => {
+    if (!Array.isArray(rawCases)) {
+      throw new Error(`${field} must be an array.`);
+    }
+    return rawCases.map((rawCase, index) => {
+      const caseField = `${field}[${index}]`;
+      if (!isRecord(rawCase)) {
+        throw new Error(`${caseField} must be an object.`);
+      }
+      return {
+        description: requiredPluginString(
+          rawCase,
+          "description",
+          `${caseField}.description`,
+        ),
+        prompt: requiredPluginString(rawCase, "prompt", `${caseField}.prompt`),
+        ...(rawCase.tools_triggered === undefined
+          ? {}
+          : {
+              tools_triggered: requiredPluginString(
+                rawCase,
+                "tools_triggered",
+                `${caseField}.tools_triggered`,
+              ),
+            }),
+        ...(rawCase.expected_behavior === undefined
+          ? {}
+          : {
+              expected_behavior: requiredPluginString(
+                rawCase,
+                "expected_behavior",
+                `${caseField}.expected_behavior`,
+              ),
+            }),
+      };
+    });
+  };
+
+  if (typeof review.commerce !== "boolean") {
+    throw new Error("chatgpt.review.commerce must be a boolean.");
+  }
+  if (
+    review.demo_recording_url !== undefined &&
+    (typeof review.demo_recording_url !== "string" ||
+      !review.demo_recording_url.trim())
+  ) {
+    throw new Error(
+      "chatgpt.review.demo_recording_url must be a non-empty string when set.",
+    );
+  }
+  const keywords =
+    listing.keywords === undefined
+      ? undefined
+      : requiredPluginStringArray(
+          listing.keywords,
+          "chatgpt.interface.keywords",
+        );
+
+  return {
+    version: requiredPluginString(value, "version", "chatgpt.version"),
+    interface: {
+      displayName: requiredPluginString(
+        listing,
+        "displayName",
+        "chatgpt.interface.displayName",
+      ),
+      shortDescription: requiredPluginString(
+        listing,
+        "shortDescription",
+        "chatgpt.interface.shortDescription",
+      ),
+      longDescription: requiredPluginString(
+        listing,
+        "longDescription",
+        "chatgpt.interface.longDescription",
+      ),
+      developerName: requiredPluginString(
+        listing,
+        "developerName",
+        "chatgpt.interface.developerName",
+      ),
+      category: requiredPluginString(
+        listing,
+        "category",
+        "chatgpt.interface.category",
+      ),
+      capabilities: requiredPluginStringArray(
+        listing.capabilities,
+        "chatgpt.interface.capabilities",
+      ),
+      websiteURL: requiredPluginString(
+        listing,
+        "websiteURL",
+        "chatgpt.interface.websiteURL",
+      ),
+      supportURL: requiredPluginString(
+        listing,
+        "supportURL",
+        "chatgpt.interface.supportURL",
+      ),
+      privacyPolicyURL: requiredPluginString(
+        listing,
+        "privacyPolicyURL",
+        "chatgpt.interface.privacyPolicyURL",
+      ),
+      termsOfServiceURL: requiredPluginString(
+        listing,
+        "termsOfServiceURL",
+        "chatgpt.interface.termsOfServiceURL",
+      ),
+      defaultPrompt: requiredPluginStringArray(
+        listing.defaultPrompt,
+        "chatgpt.interface.defaultPrompt",
+      ),
+      logoPath: requiredPluginString(
+        listing,
+        "logoPath",
+        "chatgpt.interface.logoPath",
+      ),
+      ...(keywords ? { keywords } : {}),
+    },
+    review: {
+      test_cases: {
+        positive: normalizeCases(
+          review.test_cases.positive,
+          "chatgpt.review.test_cases.positive",
+        ),
+        negative: normalizeCases(
+          review.test_cases.negative,
+          "chatgpt.review.test_cases.negative",
+        ),
+      },
+      commerce: review.commerce,
+      iframeJustification: requiredPluginString(
+        review,
+        "iframeJustification",
+        "chatgpt.review.iframeJustification",
+      ),
+      ...(review.demo_recording_url !== undefined
+        ? { demo_recording_url: review.demo_recording_url }
+        : {}),
+    },
+  };
+}
+
 export function normalizeAppSkillManifest(raw: unknown): AppSkillManifest {
   if (!isRecord(raw)) throw new Error("App skill manifest must be an object.");
   const schemaVersion = raw.schemaVersion ?? 1;
@@ -308,6 +515,8 @@ export function normalizeAppSkillManifest(raw: unknown): AppSkillManifest {
       .map(normalizeHostAdapter)
       .filter((value): value is AppSkillHostAdapter => Boolean(value)),
   );
+  const chatgpt =
+    raw.chatgpt === undefined ? undefined : normalizeChatGptPlugin(raw.chatgpt);
 
   return {
     schemaVersion: 1,
@@ -386,6 +595,7 @@ export function normalizeAppSkillManifest(raw: unknown): AppSkillManifest {
       }))
       .filter((skill) => skill.path),
     hostAdapters: adapters.length ? adapters : defaultHostAdapters(),
+    ...(chatgpt ? { chatgpt } : {}),
   };
 }
 
@@ -706,9 +916,6 @@ export function exportedSkillContentHash(
   const parts = skills
     .map((skill) => {
       const skillDir = path.join(manifestDir, skill.path);
-      // Hash SKILL.md plus every sibling file under the skill dir (e.g.
-      // references/*), so a progressive-disclosure reference edit still changes
-      // the content hash and bumps the Codex plugin version for auto-upgrade.
       const body = collectSkillFiles(skillDir)
         .map(
           (rel) =>
@@ -727,11 +934,6 @@ export function exportedSkillContentHash(
     .slice(0, 12);
 }
 
-/**
- * List a skill dir's files (SKILL.md + any siblings like references/*) as
- * skill-relative POSIX paths, sorted for a stable content hash. A bare SKILL.md
- * source (file, not dir) falls back to just "SKILL.md".
- */
 function collectSkillFiles(skillDir: string): string[] {
   const out: string[] = [];
   const walk = (dir: string, prefix: string): void => {
@@ -744,21 +946,11 @@ function collectSkillFiles(skillDir: string): string[] {
   };
   walk(skillDir, "");
   if (out.length === 0) {
-    // Source resolved to a single SKILL.md file rather than a dir, or is empty.
     return ["SKILL.md"];
   }
   return out.sort();
 }
 
-/**
- * Plugin version embeds a content hash of the exported skills + MCP server
- * identity/endpoint.
- * Codex keys its plugin cache on the version string, so a changed skill or MCP
- * URL yields a new version and `codex plugin marketplace upgrade` (which runs
- * on startup) delivers the update automatically — no manual semver bump per
- * edit. Claude Code uses commit-SHA versioning instead (plugin.json omits
- * version), so it auto-updates on every push.
- */
 export function resolvePluginVersion(
   manifest: AppSkillManifest,
   manifestDir: string,
@@ -1233,22 +1425,6 @@ function runShell(command: string, cwd: string): Promise<number> {
   });
 }
 
-function openUrl(url: string): void {
-  const command =
-    process.platform === "darwin"
-      ? "open"
-      : process.platform === "win32"
-        ? "cmd"
-        : "xdg-open";
-  const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
-  const child = spawn(command, args, {
-    detached: true,
-    stdio: "ignore",
-    shell: process.platform === "win32",
-  });
-  child.unref();
-}
-
 export async function ensureAppSkill(
   loaded: LoadedAppSkillManifest,
   options: EnsureAppSkillOptions = {},
@@ -1308,11 +1484,6 @@ export async function ensureAppSkill(
     return result;
   }
 
-  // Aliases are intentionally NOT written as separate entries. Instead,
-  // repurpose the alias list as a cleanup list: remove any other entries in
-  // the same config files that point at the same URL (covers legacy alias
-  // names, old default names like 'agent-native-<slug>', and any stale
-  // custom names left from previous installs).
   const allRemovedNames: string[] = [];
   for (const client of writableClients) {
     const removed = removeSameUrlDuplicatesForClient(
@@ -1382,7 +1553,7 @@ export async function launchAppSkill(
 
   if (plan.mode === "hosted") {
     log(`Opening ${loaded.manifest.displayName}: ${plan.url}`);
-    openUrl(plan.url);
+    openUrlInBrowser(plan.url);
     return plan;
   }
 

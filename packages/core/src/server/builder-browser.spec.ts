@@ -36,6 +36,7 @@ vi.mock("./credential-provider.js", async (importOriginal) => {
   };
 });
 
+import { ActionContractError } from "../action.js";
 import {
   appendBuilderConnectToken,
   appendBuilderConnectStateCookie,
@@ -159,6 +160,60 @@ describe("Builder account provisioning", () => {
     });
   });
 
+  it("signs app attribution into one-click account provisioning", async () => {
+    const secret = "test-builder-sso-secret-with-at-least-32-chars";
+    vi.stubEnv(BUILDER_ACCOUNT_PROVISIONING_SECRET_ENV, secret);
+    const fetchSpy = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            credentials: {
+              privateKey: "bpk-test-provisioned",
+              publicKey: "space-test-provisioned",
+            },
+          }),
+          { headers: { "Content-Type": "application/json" } },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await provisionBuilderAccount({
+      email: "owner@example.com",
+      name: "Owner",
+      agentNativeApp: " agent-native-clips ",
+      agentNativeTemplate: " clips ",
+    });
+
+    const [, requestInit] = fetchSpy.mock.calls[0]!;
+    const headers = requestInit?.headers as Record<string, string>;
+    const timestamp = headers["x-agent-native-account-timestamp"];
+    const requestId = headers["x-agent-native-account-request-id"];
+    const expectedSignature = createHmac("sha256", secret)
+      .update(
+        [
+          "agent-native-account-v2",
+          timestamp,
+          requestId,
+          "owner@example.com",
+          "Owner",
+          "agent-native-clips",
+          "clips",
+        ].join("\n"),
+      )
+      .digest("base64url");
+
+    expect(headers["x-agent-native-account-version"]).toBe(
+      "agent-native-account-v2",
+    );
+    expect(headers["x-agent-native-account-signature"]).toBe(expectedSignature);
+    expect(JSON.parse(String(requestInit?.body))).toEqual({
+      email: "owner@example.com",
+      name: "Owner",
+      agentNativeApp: "agent-native-clips",
+      agentNativeTemplate: "clips",
+    });
+  });
+
   it("only advertises account provisioning for a valid deploy secret", () => {
     expect(isBuilderAccountProvisioningEnabled()).toBe(false);
 
@@ -198,6 +253,95 @@ describe("Builder account provisioning", () => {
       message: "An account already exists for this email.",
       code: "account_incomplete",
     });
+  });
+
+  it("redacts compound secrets and full Basic authorization values in diagnostics", async () => {
+    vi.stubEnv(
+      BUILDER_ACCOUNT_PROVISIONING_SECRET_ENV,
+      "test-builder-sso-secret-with-at-least-32-chars",
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              code: "upstream_failure",
+              message: "sessionToken=private-session-value",
+              detail:
+                "webhookSecret: private-webhook-value; signing_secret=private-signing-value, accessKey: private access key value, sessionKey=private session key value, signingKey: private signing key value, jwt: private jwt payload",
+              error: "Authorization: Basic private-basic-credential",
+            }),
+            { status: 502, headers: { "Content-Type": "application/json" } },
+          ),
+      ),
+    );
+
+    let provisioningError: unknown;
+    try {
+      await provisionBuilderAccount({ email: "owner@example.com" });
+    } catch (error) {
+      provisioningError = error;
+    }
+
+    expect(provisioningError).toMatchObject({ upstreamStatus: 502 });
+    const diagnostic = (provisioningError as BuilderAccountProvisioningError)
+      .upstreamErrorBody;
+    expect(diagnostic).toContain('"message":"sessionToken=[redacted]"');
+    expect(diagnostic).toContain("webhookSecret: [redacted]");
+    expect(diagnostic).toContain("signing_secret=[redacted]");
+    expect(diagnostic).toContain("Authorization: [redacted]");
+    expect(diagnostic).toContain("accessKey: [redacted]");
+    expect(diagnostic).toContain("sessionKey=[redacted]");
+    expect(diagnostic).toContain("signingKey: [redacted]");
+    expect(diagnostic).toContain("jwt: [redacted]");
+    expect(diagnostic).not.toContain("private-session-value");
+    expect(diagnostic).not.toContain("private-webhook-value");
+    expect(diagnostic).not.toContain("private-signing-value");
+    expect(diagnostic).not.toContain("private-basic-credential");
+    expect(diagnostic).not.toContain("private access key value");
+    expect(diagnostic).not.toContain("private session key value");
+    expect(diagnostic).not.toContain("private signing key value");
+    expect(diagnostic).not.toContain("private jwt payload");
+  });
+
+  it("redacts bare tokens inside multiply escaped upstream diagnostics", async () => {
+    vi.stubEnv(
+      BUILDER_ACCOUNT_PROVISIONING_SECRET_ENV,
+      "test-builder-sso-secret-with-at-least-32-chars",
+    );
+    const githubToken = `ghp_${"G".repeat(36)}`;
+    const jwt = [
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+      "eyJ1c2VySWQiOiIxMjM0NTY3ODkwIn0",
+      "signature-segment-value-1234567890",
+    ].join(".");
+    const nestedMessage = JSON.stringify(
+      JSON.stringify({ detail: `${githubToken} ${jwt}` }),
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ message: nestedMessage }), {
+            status: 502,
+            headers: { "Content-Type": "application/json" },
+          }),
+      ),
+    );
+
+    let provisioningError: unknown;
+    try {
+      await provisionBuilderAccount({ email: "owner@example.com" });
+    } catch (error) {
+      provisioningError = error;
+    }
+
+    const diagnostic = (provisioningError as BuilderAccountProvisioningError)
+      .upstreamErrorBody;
+    expect(diagnostic).toContain("[redacted-token]");
+    expect(diagnostic).not.toContain(githubToken);
+    expect(diagnostic).not.toContain(jwt);
   });
 
   it("classifies existing-account errors across runtime boundaries", () => {
@@ -349,7 +493,6 @@ describe("Builder callback CSRF state", () => {
     });
 
     it("rejects a token whose embedded email was swapped post-sign", () => {
-      // Forge attempt: keep the MAC but swap the encoded email field.
       const token = signBuilderCallbackState("alice@example.com");
       const [nonce, _emailEncoded, ts, mac] = token.split(".");
       const swappedEmail = Buffer.from("bob@example.com", "utf8").toString(
@@ -371,7 +514,6 @@ describe("Builder callback CSRF state", () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date("2026-04-24T12:00:00.000Z"));
       const token = signBuilderCallbackState("alice@example.com");
-      // 11 minutes later — past the 10-min TTL.
       vi.setSystemTime(new Date("2026-04-24T12:11:00.000Z"));
       expect(verifyBuilderCallbackState(token, "alice@example.com")).toBe(
         false,
@@ -382,7 +524,6 @@ describe("Builder callback CSRF state", () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date("2026-04-24T12:00:00.000Z"));
       const token = signBuilderCallbackState("alice@example.com");
-      // 9 minutes later — still inside the 10-min TTL.
       vi.setSystemTime(new Date("2026-04-24T12:09:00.000Z"));
       expect(verifyBuilderCallbackState(token, "alice@example.com")).toBe(true);
     });
@@ -398,8 +539,6 @@ describe("Builder callback CSRF state", () => {
     it("rejects a token whose timestamp is far in the future", () => {
       const token = signBuilderCallbackState("alice@example.com");
       const [nonce, email, _ts, mac] = token.split(".");
-      // Pretend the token was minted an hour from now — an attacker
-      // trying to give a leaked state arbitrary lifetime.
       const futureTs = Date.now() + 60 * 60 * 1000;
       const forged = `${nonce}.${email}.${futureTs}.${mac}`;
       expect(verifyBuilderCallbackState(forged, "alice@example.com")).toBe(
@@ -706,6 +845,67 @@ describe("Builder callback CSRF state", () => {
       );
     });
 
+    it("sends a Netlify-proxied Builder Cloud site to its declared APP_URL", () => {
+      process.env.NODE_ENV = "production";
+      setOnlyBuilderAppUrl("https://secret-santa.builder.cloud");
+      process.env.URL = "https://nimble-dolphin-656dea.netlify.app";
+      process.env.DEPLOY_URL =
+        "https://abc123--nimble-dolphin-656dea.netlify.app";
+      const event = createBuilderBrowserEvent(
+        {
+          host: "nimble-dolphin-656dea.netlify.app",
+          "x-forwarded-proto": "https",
+        },
+        "203.0.113.10",
+      );
+
+      const callbackUrl = resolveBuilderConnectCallbackUrl(
+        event,
+        "<STATE_EXAMPLE>",
+      );
+
+      expect(getBuilderBrowserStatusForEvent(event).connectUrl).toBe(
+        "https://secret-santa.builder.cloud/_agent-native/builder/connect",
+      );
+      expect(callbackUrl).toBe(
+        "https://secret-santa.builder.cloud/_agent-native/builder/callback?state=%3CSTATE_EXAMPLE%3E",
+      );
+      expect(isBuilderConnectCallbackUrlAllowed(callbackUrl!, event)).toBe(
+        true,
+      );
+    });
+
+    it("keeps an inbound origin the app declared", () => {
+      process.env.NODE_ENV = "production";
+      setOnlyBuilderAppUrl("https://app.example.com");
+      process.env.BETTER_AUTH_TRUSTED_ORIGINS = "https://other.example.com";
+      const event = createBuilderBrowserEvent(
+        { host: "other.example.com", "x-forwarded-proto": "https" },
+        "203.0.113.10",
+      );
+
+      expect(getBuilderBrowserStatusForEvent(event).connectUrl).toBe(
+        "https://other.example.com/_agent-native/builder/connect",
+      );
+    });
+
+    it("keeps the inbound Netlify origin when the app declares none", () => {
+      process.env.NODE_ENV = "production";
+      clearBuilderOriginEnv();
+      process.env.URL = "https://nimble-dolphin-656dea.netlify.app";
+      const event = createBuilderBrowserEvent(
+        {
+          host: "nimble-dolphin-656dea.netlify.app",
+          "x-forwarded-proto": "https",
+        },
+        "203.0.113.10",
+      );
+
+      expect(getBuilderBrowserStatusForEvent(event).connectUrl).toBe(
+        "https://nimble-dolphin-656dea.netlify.app/_agent-native/builder/connect",
+      );
+    });
+
     it("ignores a forwarded Builder Cloud host without a proxy host", () => {
       process.env.NODE_ENV = "production";
       setOnlyBuilderAppUrl("https://default-template.netlify.app");
@@ -844,13 +1044,10 @@ describe("Builder callback CSRF state", () => {
         otherState,
       );
 
-      // Ambiguous: Builder dropped the query state and two states are live.
       expect(
         resolveBuilderConnectCallbackState(null, concurrentCookie),
       ).toEqual({ state: null, resetStateCookie: true });
 
-      // A callback naming a state this browser never started belongs to
-      // another flow; the live states must survive it.
       expect(
         resolveBuilderConnectCallbackState(
           "unexpected-state",
@@ -860,13 +1057,9 @@ describe("Builder callback CSRF state", () => {
     });
 
     it("lets the next restart succeed after a failed attempt instead of poisoning it", () => {
-      // The reported trap: every "Restart the connection from Settings"
-      // appended another state, so a callback without query state stayed
-      // ambiguous forever and the suggested remedy re-armed the failure.
       const first = createBuilderConnectState();
       let cookie = appendBuilderConnectStateCookie(null, first);
 
-      // First attempt fails for its own reason; the route drops its state.
       cookie = removeBuilderConnectStateCookie(cookie, first);
       expect(cookie).toBe("");
 
@@ -932,9 +1125,6 @@ describe("Builder callback CSRF state", () => {
   });
 
   describe("buildBuilderCliAuthUrl", () => {
-    // New clients get a ready-to-open /cli-auth URL from /builder/status with
-    // _an_state embedded in redirect_url so the popup can skip the app
-    // trampoline entirely.
     it("builds a clean redirect_url (no _an_state) when state is null", () => {
       const cliAuthUrl = buildBuilderCliAuthUrl(
         "https://alice.agent-native.com",
@@ -946,7 +1136,6 @@ describe("Builder callback CSRF state", () => {
       const parsedRedirect = new URL(redirectUrl!);
       expect(parsedRedirect.pathname).toBe(BUILDER_CALLBACK_PATH);
       expect(parsed.searchParams.get("cli")).toBe("true");
-      // No _an_state — Builder can safely append its own params.
       expect(parsedRedirect.searchParams.has(BUILDER_STATE_PARAM)).toBe(false);
     });
 
@@ -962,7 +1151,6 @@ describe("Builder callback CSRF state", () => {
       finalUrl.searchParams.set("user-id", "user-123");
       finalUrl.searchParams.set("org-name", "Acme");
       finalUrl.searchParams.set("kind", "team");
-      // State param is absent — callback authenticates via server-side row.
       expect(finalUrl.searchParams.has(BUILDER_STATE_PARAM)).toBe(false);
       expect(finalUrl.searchParams.get("p-key")).toBe("bpk-test-private-key");
       expect(finalUrl.searchParams.get("api-key")).toBe("test-api-key");
@@ -1121,14 +1309,9 @@ describe("Builder callback CSRF state", () => {
       expect(redirectUrl).toContain(
         "https://agent-workspace.builder.io/dispatch/_agent-native/builder/callback",
       );
-      // The callback origin (the part Builder validates against its allow-list)
-      // must be the gateway, not the preview host.
       expect(new URL(redirectUrl!).origin).toBe(
         "https://agent-workspace.builder.io",
       );
-      // The original preview origin must still ride along inside the
-      // redirect_url query string so the callback can use it as the
-      // postMessage targetOrigin for the opener tab.
       expect(new URL(redirectUrl!).searchParams.get("_an_opener")).toBe(
         "https://940ebc5a83164aa6a37dde445e494f3a-fluid-crack-ctnhvsyb.builderio.xyz",
       );
@@ -1186,8 +1369,6 @@ describe("Builder callback CSRF state", () => {
 
       const previewOrigin = "https://preview-example.builderio.xyz";
 
-      // The relay POST lands on the internal loopback host, but the preview
-      // proxy forwards the public host that minted the signed state.
       const event = createBuilderBrowserEvent({
         host: "127.0.0.1:8094",
         "x-forwarded-host": "preview-example.builderio.xyz",
@@ -1224,7 +1405,6 @@ describe("Builder callback CSRF state", () => {
         signature: request.headers[BUILDER_RELAY_SIGNATURE_HEADER],
       };
 
-      // The fix: requestOrigin is the forwarded host and matches targetOrigin.
       expect(
         verifyBuilderRelayRequest({
           body: request.body,
@@ -1235,7 +1415,6 @@ describe("Builder callback CSRF state", () => {
         }),
       ).not.toBeNull();
 
-      // The old behavior used the internal loopback origin and failed.
       expect(
         verifyBuilderRelayRequest({
           body: request.body,
@@ -1356,10 +1535,6 @@ describe("Builder callback CSRF state", () => {
     });
 
     it("uses the app's localhost origin for cli-auth when reached via a tunnel Builder rejects (local dev)", () => {
-      // Reproduces the ngrok/tunnel dev case: the preview host is trusted by us
-      // but not by Builder's /cli-auth allow-list, and no public gateway env is
-      // set. Without the fallback the app hands Builder the rejected origin and
-      // Builder redirects to its own dead http://localhost:10110/auth.
       delete process.env.NODE_ENV;
       process.env.PORT = "8080";
       clearBuilderOriginEnv();
@@ -1386,8 +1561,6 @@ describe("Builder callback CSRF state", () => {
         "x-forwarded-proto": "https",
       });
 
-      // Unchanged production behavior: with no gateway configured it returns the
-      // preview origin (never a localhost callback).
       expect(getBuilderCliAuthCallbackOriginForEvent(event)).toBe(
         "https://alice.builderio.xyz",
       );
@@ -1606,6 +1779,47 @@ describe("Builder callback CSRF state", () => {
       expect(error).not.toHaveProperty("actionContractError");
     });
 
+    // Builder's own error text rarely names the status, so callers that
+    // report what Builder answered need it on the error itself.
+    it.each([
+      [401, "Unauthorized"],
+      [403, "Not a member"],
+      [404, "No such project"],
+      [429, "Slow down"],
+      [500, "Something broke"],
+    ])(
+      "carries Builder's %i status on the error, whatever its text says",
+      async (status, text) => {
+        process.env.BUILDER_PRIVATE_KEY = "bpk-test";
+        process.env.BUILDER_PUBLIC_KEY = "pub-test";
+        process.env.BUILDER_USER_ID = "builder-user-123";
+        process.env.BUILDER_API_HOST = "https://api.test.builder.io";
+
+        // A 403 or 404 is asked again as the connected user, so each call
+        // needs a body of its own to read.
+        vi.stubGlobal(
+          "fetch",
+          vi.fn().mockImplementation(
+            async () =>
+              new Response(JSON.stringify({ error: text }), {
+                status,
+                headers: { "Content-Type": "application/json" },
+              }),
+          ),
+        );
+
+        const error = await runBuilderAgent({
+          prompt: "Create an app",
+          projectId: "project-123",
+          userEmail: "brent@builder.io",
+        }).catch((err: unknown) => err);
+
+        expect(error).toMatchObject({ message: text, builderStatus: status });
+        // Only a 401 is the reconnectable contract error.
+        expect("actionContractError" in (error as object)).toBe(status === 401);
+      },
+    );
+
     it("attributes the branch to the requesting user, not the connected credential", async () => {
       process.env.BUILDER_PRIVATE_KEY = "bpk-test";
       process.env.BUILDER_PUBLIC_KEY = "pub-test";
@@ -1703,7 +1917,6 @@ describe("Builder callback CSRF state", () => {
           name: "notes.txt",
           dataUrl: "",
           text: "Read these notes",
-          size: Buffer.byteLength("Read these notes", "utf8"),
           id: "file-notes",
         },
         { type: "url" as const, value: "https://example.com/spec" },
@@ -1719,7 +1932,13 @@ describe("Builder callback CSRF state", () => {
       const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
       expect(body.userMessage).toEqual({
         userPrompt: "Use the attached requirements",
-        attachments,
+        attachments: [
+          {
+            ...attachments[0],
+            size: Buffer.byteLength("Read these notes", "utf8"),
+          },
+          attachments[1],
+        ],
       });
     });
 
@@ -1730,8 +1949,7 @@ describe("Builder callback CSRF state", () => {
             type: "upload",
             contentType: "image/png",
             name: "preview.png",
-            dataUrl: "data:image/png;base64,ZmFrZQ==",
-            size: 5,
+            dataUrl: "data:image/png;charset=binary;base64,ZmFrZQ==",
             id: "file-image",
           },
           {
@@ -1739,7 +1957,6 @@ describe("Builder callback CSRF state", () => {
             contentType: "application/pdf",
             name: "requirements.pdf",
             dataUrl: "data:application/pdf;base64,ZmFrZQ==",
-            size: 5,
             id: "file-pdf",
           },
           {
@@ -1748,7 +1965,6 @@ describe("Builder callback CSRF state", () => {
             name: "config.json",
             dataUrl: "",
             text: '{"enabled":true}',
-            size: Buffer.byteLength('{"enabled":true}', "utf8"),
             id: "file-json",
           },
         ]),
@@ -1763,11 +1979,67 @@ describe("Builder callback CSRF state", () => {
             contentType: "application/octet-stream" as never,
             name: "data.bin",
             dataUrl: "",
-            size: 1,
             id: "file-bin",
           },
         ]),
       ).toThrow("Unsupported Builder attachment content type");
+    });
+
+    it("derives each upload's byte size on the server", () => {
+      const text = "“Curly” – quotes";
+      const sizes = normalizeBuilderAgentAttachments([
+        {
+          type: "upload",
+          contentType: "text/plain",
+          name: "notes.md",
+          dataUrl: "",
+          text,
+          id: "file-text",
+        },
+        {
+          type: "upload",
+          contentType: "application/pdf",
+          name: "spec.pdf",
+          dataUrl: "data:application/pdf;base64,ZmFrZQ==",
+          id: "file-pdf",
+        },
+      ])?.map((attachment) =>
+        attachment.type === "upload" ? attachment.size : null,
+      );
+
+      expect(sizes).toEqual([Buffer.byteLength(text, "utf8"), 4]);
+    });
+
+    it("rejects invalid attachments with a typed error", () => {
+      expect(() =>
+        normalizeBuilderAgentAttachments([
+          {
+            type: "upload",
+            contentType: "application/pdf",
+            name: "spec.pdf",
+            dataUrl: "data:image/png;base64,ZmFrZQ==",
+            id: "file-pdf",
+          },
+        ]),
+      ).toThrow(ActionContractError);
+      expect(() =>
+        normalizeBuilderAgentAttachments([
+          { type: "url", value: "ftp://example.test/a.txt" },
+        ]),
+      ).toThrow(ActionContractError);
+      for (const data of ["@@@@", "ab=c", "abcde", "ab="]) {
+        expect(() =>
+          normalizeBuilderAgentAttachments([
+            {
+              type: "upload",
+              contentType: "application/pdf",
+              name: "spec.pdf",
+              dataUrl: `data:application/pdf;base64,${data}`,
+              id: "file-pdf",
+            },
+          ]),
+        ).toThrow(ActionContractError);
+      }
     });
 
     it("omits attachments when none are supplied", async () => {

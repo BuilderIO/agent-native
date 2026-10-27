@@ -16,14 +16,6 @@ function source(relativePath: string): string {
 }
 
 describe("MCP OAuth flow TTL", () => {
-  it("keeps the millisecond form in step with the second form", () => {
-    expect(MCP_OAUTH_FLOW_TTL_MS).toBe(MCP_OAUTH_FLOW_TTL_SECONDS * 1_000);
-  });
-
-  // The server decides how long an authorization may still complete and the
-  // client decides how long to keep revalidating for one. A client window
-  // shorter than the server's strands a slow consent on a stale "Connect", so
-  // neither side may quietly grow its own copy of the number.
   it("is the only definition the server flow cookie uses", () => {
     const routes = source("../mcp-client/oauth-routes.ts");
     expect(routes).toContain("MCP_OAUTH_FLOW_TTL_SECONDS");

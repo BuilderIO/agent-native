@@ -17,36 +17,28 @@ function errorField(error: unknown, field: string): unknown {
 }
 
 export function designSaveErrorMessage(error: unknown): string | null {
-  // Integrity errors carry located, agent-facing guidance in `message`. Toasts
-  // get the summary instead; the two audiences need different text.
   if (isDesignHtmlIntegrityError(error)) return DESIGN_HTML_INTEGRITY_SUMMARY;
   const message = errorField(error, "message");
   if (typeof message !== "string" || !message.trim()) return null;
   return message.replace(/^DESIGN_HTML_INTEGRITY:\s*/, "");
 }
 
-/**
- * Collab conflicts often return 200 with `skippedStaleMirror` instead of throwing 409.
- */
+export function isContentPatchRejection(error: unknown): boolean {
+  return errorField(error, "errorCode") === "content_patch_mismatch";
+}
+
 export function isDesignSaveSuccessConflict(
   persistedContentMatches: boolean,
 ): boolean {
   return !persistedContentMatches;
 }
 
-/** A 200 stale-mirror skip still toasts conflict; queued proofs must not
- * flip to applied or later commit/rollback treats the skipped write as done. */
 export function patchProofStatusAfterPersistedSave(
   persistedContentMatches: boolean,
 ): "applied" | "failed" {
   return persistedContentMatches ? "applied" : "failed";
 }
 
-/**
- * Only true transport failures deserve the “save when reconnected” warning.
- * HMR/editor reload aborts, optimistic conflicts, IndexedDB/outbox failures,
- * and HTML-integrity rejections are not connectivity failures.
- */
 export function classifyDesignSaveFailure(
   error: unknown,
   navigatorOnline: boolean,
@@ -67,8 +59,17 @@ export function classifyDesignSaveFailure(
   }
 
   if (!navigatorOnline) return "offline";
+  // The action client times a stalled request out locally, as status 408.
+  if (errorField(error, "timedOut") === true) return "offline";
+  // A 2xx that throws lost its body after the server accepted the write, so
+  // only the outbox replay can settle it; calling it failed rolls back a move.
+  if (typeof status === "number" && status >= 200 && status < 300) {
+    return "offline";
+  }
+  // The action client rethrows a fetch rejection as a plain Error with no status.
+  const reachedServer = typeof status === "number" && status !== 0;
   if (
-    (name === "TypeError" || status === 0) &&
+    !reachedServer &&
     (message.includes("failed to fetch") ||
       message.includes("networkerror") ||
       message.includes("network request failed") ||
@@ -78,4 +79,20 @@ export function classifyDesignSaveFailure(
   }
 
   return "other";
+}
+
+export function reportDesignSaveFailure(
+  error: unknown,
+  navigatorOnline: boolean,
+  report: {
+    warnChangesWillRetry: () => void;
+    showConflict: () => void;
+    showError: (message: string | null) => void;
+  },
+): void {
+  const kind = classifyDesignSaveFailure(error, navigatorOnline);
+  if (kind === "offline") report.warnChangesWillRetry();
+  else if (kind === "conflict") report.showConflict();
+  else if (kind !== "intentional-abort")
+    report.showError(designSaveErrorMessage(error));
 }

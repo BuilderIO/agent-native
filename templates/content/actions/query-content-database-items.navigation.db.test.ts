@@ -6,9 +6,24 @@ import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { putUserSetting } from "@agent-native/core/settings";
 import { eq, inArray } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
-import { CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION } from "../shared/api.js";
+import {
+  CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
+  type ContentDatabaseFilter,
+  type ContentDatabaseItem,
+  type ContentDatabaseNavigationPageResponse,
+  type DocumentProperty,
+} from "../shared/api.js";
+import { applyContentDatabaseTableQuery } from "../shared/database-query.js";
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -223,6 +238,7 @@ async function navigate(
     sort?: "custom" | "name" | "created" | "last_edited";
     viewId?: string;
     cursor?: string;
+    expand?: string[];
   },
   limit?: number,
 ) {
@@ -230,7 +246,36 @@ async function navigate(
     action.run({ databaseId: DATABASE_ID, navigation, limit }, {
       userEmail: OWNER,
     } as any),
-  );
+  ) as Promise<ContentDatabaseNavigationPageResponse>;
+}
+
+async function saveCustomOrder(itemIds: string[]) {
+  const { personalDatabaseViewSettingKey } =
+    await import("./_content-database-personal-view.js");
+  await putUserSetting(OWNER, personalDatabaseViewSettingKey(DATABASE_ID), {
+    version: CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
+    activeViewId: "files",
+    views: [
+      {
+        id: "files",
+        sorts: [],
+        filters: [],
+        filterMode: "and",
+        sidebarOrder: { mode: "custom", itemIds },
+      },
+    ],
+  });
+}
+
+// Records the SQL the database client runs while `read` is in flight.
+async function statementsDuring(read: () => Promise<unknown>) {
+  const query = vi.spyOn(getDb().$client, "query");
+  try {
+    await read();
+    return query.mock.calls.map(([text]) => String(text));
+  } finally {
+    query.mockRestore();
+  }
 }
 
 describe("query-content-database-items Files navigation", () => {
@@ -574,6 +619,61 @@ describe("query-content-database-items Files navigation", () => {
     });
   });
 
+  it("finds saved siblings that sit deep in a long saved order", async () => {
+    await addFile({ id: "long-order-parent", position: 250 });
+    for (let index = 0; index < 5; index += 1) {
+      await addFile({
+        id: `long-order-${index}`,
+        parentId: "long-order-parent",
+        position: index,
+      });
+    }
+    const { personalDatabaseViewSettingKey } =
+      await import("./_content-database-personal-view.js");
+    await putUserSetting(OWNER, personalDatabaseViewSettingKey(DATABASE_ID), {
+      version: CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
+      activeViewId: "files",
+      views: [
+        {
+          id: "files",
+          sorts: [],
+          filters: [],
+          filterMode: "and",
+          sidebarOrder: {
+            mode: "custom",
+            itemIds: [
+              ...Array.from(
+                { length: 150 },
+                (_, index) => `membership-elsewhere-${index}`,
+              ),
+              "membership-long-order-3",
+              "membership-long-order-1",
+            ],
+          },
+        },
+      ],
+    });
+
+    const seen: string[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await navigate(
+        { parentId: "long-order-parent", sort: "custom", cursor },
+        2,
+      );
+      seen.push(...page.items.map((item) => item.documentId));
+      cursor = page.pagination.nextCursor ?? undefined;
+    } while (cursor);
+
+    expect(seen).toEqual([
+      "long-order-3",
+      "long-order-1",
+      "long-order-0",
+      "long-order-2",
+      "long-order-4",
+    ]);
+  });
+
   it("applies personal custom order and invalidates cursors when it changes", async () => {
     const { personalDatabaseViewSettingKey } =
       await import("./_content-database-personal-view.js");
@@ -612,6 +712,73 @@ describe("query-content-database-items Files navigation", () => {
     ).rejects.toMatchObject({ errorCode: "invalid_navigation_cursor" });
   });
 
+  it("invalidates custom-order cursors when a saved or unsaved sibling at or before them changes", async () => {
+    await addFile({ id: "custom-cursor-parent", position: 260 });
+    for (let index = 0; index < 4; index += 1) {
+      await addFile({
+        id: `custom-cursor-${index}`,
+        parentId: "custom-cursor-parent",
+        position: index,
+      });
+    }
+    const { personalDatabaseViewSettingKey } =
+      await import("./_content-database-personal-view.js");
+    await putUserSetting(OWNER, personalDatabaseViewSettingKey(DATABASE_ID), {
+      version: CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
+      activeViewId: "files",
+      views: [
+        {
+          id: "files",
+          sorts: [],
+          filters: [],
+          filterMode: "and",
+          sidebarOrder: {
+            mode: "custom",
+            itemIds: [
+              "membership-custom-cursor-3",
+              "membership-custom-cursor-1",
+            ],
+          },
+        },
+      ],
+    });
+    // Saved siblings 3 and 1 come first, then 0 and 2 by position.
+    const firstPage = (limit: number) =>
+      navigate({ parentId: "custom-cursor-parent", sort: "custom" }, limit);
+    const nextPage = (cursor: string) =>
+      navigate({ parentId: "custom-cursor-parent", sort: "custom", cursor }, 4);
+    const rename = (id: string, title: string) =>
+      getDb()
+        .update(schema.documents)
+        .set({ title, updatedAt: new Date().toISOString() })
+        .where(eq(schema.documents.id, id));
+    const invalid = { errorCode: "invalid_navigation_cursor" };
+
+    const savedCursor = (await firstPage(1)).pagination.nextCursor!;
+    await rename("custom-cursor-1", "after the saved cursor");
+    await expect(nextPage(savedCursor)).resolves.toMatchObject({
+      items: [
+        { documentId: "custom-cursor-1", title: "after the saved cursor" },
+        { documentId: "custom-cursor-0" },
+        { documentId: "custom-cursor-2" },
+      ],
+    });
+    await rename("custom-cursor-3", "saved sibling at the cursor");
+    await expect(nextPage(savedCursor)).rejects.toMatchObject(invalid);
+
+    const unsavedCursor = (await firstPage(3)).pagination.nextCursor!;
+    await rename("custom-cursor-2", "after the unsaved cursor");
+    await expect(nextPage(unsavedCursor)).resolves.toMatchObject({
+      items: [{ documentId: "custom-cursor-2" }],
+    });
+    await rename("custom-cursor-1", "saved sibling before the cursor");
+    await expect(nextPage(unsavedCursor)).rejects.toMatchObject(invalid);
+
+    const atUnsavedCursor = (await firstPage(3)).pagination.nextCursor!;
+    await rename("custom-cursor-0", "unsaved sibling at the cursor");
+    await expect(nextPage(atUnsavedCursor)).rejects.toMatchObject(invalid);
+  });
+
   it("rejects malformed and wrong-scope cursors instead of falling back", async () => {
     await expect(
       navigate({ parentId: null, cursor: "not-a-cursor" }),
@@ -626,7 +793,7 @@ describe("query-content-database-items Files navigation", () => {
     ).rejects.toMatchObject({ errorCode: "invalid_navigation_cursor" });
   });
 
-  it("invalidates a page cursor for accessible sibling edits but ignores inaccessible rows", async () => {
+  it("invalidates a cursor when a readable sibling at or before it changes and reads later siblings fresh", async () => {
     await addFile({ id: "revision-parent", position: 400 });
     await addFile({
       id: "revision-a",
@@ -638,53 +805,58 @@ describe("query-content-database-items Files navigation", () => {
       parentId: "revision-parent",
       position: 1,
     });
-    const first = await navigate(
-      { parentId: "revision-parent", sort: "name" },
-      1,
-    );
+    const firstPage = () =>
+      navigate({ parentId: "revision-parent", sort: "name" }, 1);
+    const nextPage = (cursor: string) =>
+      navigate({ parentId: "revision-parent", sort: "name", cursor }, 1);
+    const invalid = { errorCode: "invalid_navigation_cursor" };
+
+    const first = await firstPage();
+    expect(first.items.map((item) => item.documentId)).toEqual(["revision-a"]);
     await getDb()
       .update(schema.documents)
-      .set({ title: "renamed", updatedAt: "2026-03-01T00:00:00.000Z" })
+      .set({
+        title: "revision-b renamed",
+        updatedAt: "2026-03-01T00:00:00.000Z",
+      })
       .where(eq(schema.documents.id, "revision-b"));
-    await expect(
-      navigate(
-        {
-          parentId: "revision-parent",
-          sort: "name",
-          cursor: first.pagination.nextCursor!,
-        },
-        1,
-      ),
-    ).rejects.toMatchObject({ errorCode: "invalid_navigation_cursor" });
-
-    const beforeReparent = await navigate(
-      { parentId: "revision-parent", sort: "name" },
-      1,
+    await expect(nextPage(first.pagination.nextCursor!)).resolves.toMatchObject(
+      {
+        items: [{ documentId: "revision-b", title: "revision-b renamed" }],
+      },
     );
+
+    const beforeRename = await firstPage();
+    await getDb()
+      .update(schema.documents)
+      .set({
+        title: "revision-a renamed",
+        updatedAt: "2026-03-01T00:00:00.000Z",
+      })
+      .where(eq(schema.documents.id, "revision-a"));
+    await expect(
+      nextPage(beforeRename.pagination.nextCursor!),
+    ).rejects.toMatchObject(invalid);
+
+    const beforeReparent = await firstPage();
     await getDb()
       .update(schema.documents)
       .set({ parentId: null })
-      .where(eq(schema.documents.id, "revision-b"));
+      .where(eq(schema.documents.id, "revision-a"));
     await expect(
-      navigate(
-        {
-          parentId: "revision-parent",
-          sort: "name",
-          cursor: beforeReparent.pagination.nextCursor!,
-        },
-        1,
-      ),
-    ).rejects.toMatchObject({ errorCode: "invalid_navigation_cursor" });
+      nextPage(beforeReparent.pagination.nextCursor!),
+    ).rejects.toMatchObject(invalid);
     await getDb()
       .update(schema.documents)
       .set({ parentId: "revision-parent" })
-      .where(eq(schema.documents.id, "revision-b"));
+      .where(eq(schema.documents.id, "revision-a"));
 
     await addFile({
       id: "revision-shared",
       parentId: "revision-parent",
       ownerEmail: OTHER,
-      position: 3,
+      position: -1,
+      title: "revision-0-shared",
     });
     await getDb().insert(schema.documentShares).values({
       id: "revision-shared-share",
@@ -695,71 +867,48 @@ describe("query-content-database-items Files navigation", () => {
       createdBy: OTHER,
       createdAt: new Date().toISOString(),
     });
-    const beforeRevoke = await navigate(
-      { parentId: "revision-parent", sort: "name" },
-      1,
-    );
+    const beforeRevoke = await firstPage();
+    expect(beforeRevoke.items.map((item) => item.documentId)).toEqual([
+      "revision-shared",
+    ]);
     await getDb()
       .delete(schema.documentShares)
       .where(eq(schema.documentShares.id, "revision-shared-share"));
     await expect(
-      navigate(
-        {
-          parentId: "revision-parent",
-          sort: "name",
-          cursor: beforeRevoke.pagination.nextCursor!,
-        },
-        1,
-      ),
-    ).rejects.toMatchObject({ errorCode: "invalid_navigation_cursor" });
+      nextPage(beforeRevoke.pagination.nextCursor!),
+    ).rejects.toMatchObject(invalid);
 
-    const beforeDelete = await navigate(
-      { parentId: "revision-parent", sort: "name" },
-      1,
-    );
+    const beforeDelete = await firstPage();
     await getDb()
       .update(schema.documents)
       .set({ trashedAt: "2026-03-03T00:00:00.000Z" })
-      .where(eq(schema.documents.id, "revision-b"));
+      .where(eq(schema.documents.id, "revision-a"));
     await expect(
-      navigate(
-        {
-          parentId: "revision-parent",
-          sort: "name",
-          cursor: beforeDelete.pagination.nextCursor!,
-        },
-        1,
-      ),
-    ).rejects.toMatchObject({ errorCode: "invalid_navigation_cursor" });
+      nextPage(beforeDelete.pagination.nextCursor!),
+    ).rejects.toMatchObject(invalid);
     await getDb()
       .update(schema.documents)
       .set({ trashedAt: null })
-      .where(eq(schema.documents.id, "revision-b"));
+      .where(eq(schema.documents.id, "revision-a"));
 
     await addFile({
       id: "revision-inaccessible",
       parentId: "revision-parent",
       ownerEmail: OTHER,
-      position: 2,
+      position: -2,
+      title: "revision-00-hidden",
     });
-    const stable = await navigate(
-      { parentId: "revision-parent", sort: "name" },
-      1,
-    );
+    const stable = await firstPage();
+    expect(stable.items.map((item) => item.documentId)).toEqual(["revision-a"]);
     await getDb()
       .update(schema.documents)
       .set({ title: "still hidden", updatedAt: "2026-03-02T00:00:00.000Z" })
       .where(eq(schema.documents.id, "revision-inaccessible"));
     await expect(
-      navigate(
-        {
-          parentId: "revision-parent",
-          sort: "name",
-          cursor: stable.pagination.nextCursor!,
-        },
-        1,
-      ),
-    ).resolves.toMatchObject({ items: expect.any(Array) });
+      nextPage(stable.pagination.nextCursor!),
+    ).resolves.toMatchObject({
+      items: [{ documentId: "revision-b" }],
+    });
   });
 
   it("applies effective view filters before paging and invalidates changed-filter cursors", async () => {
@@ -871,6 +1020,91 @@ describe("query-content-database-items Files navigation", () => {
         await navigate({ parentId: "shared-view-parent", viewId: "default" })
       ).items.map((item) => item.title),
     ).toEqual(["A", "Z"]);
+    await getDb()
+      .update(schema.contentDatabases)
+      .set({ viewConfigJson: "{}" })
+      .where(eq(schema.contentDatabases.id, DATABASE_ID));
+  });
+
+  it("combines each filter group with its own mode", async () => {
+    await addFile({ id: "group-mode-parent", position: 600 });
+    for (const title of [
+      "Alpha draft",
+      "Alpha final",
+      "Beta draft",
+      "Beta final",
+      "Gamma final",
+    ]) {
+      await addFile({
+        id: `group-mode-${title.toLowerCase().replace(" ", "-")}`,
+        parentId: "group-mode-parent",
+        title,
+      });
+    }
+    const name = (
+      operator: string,
+      value: string,
+      group: Record<string, string> = {},
+    ) => ({ key: "name", label: "Name", operator, value, ...group });
+    const advanced = (mode: "and" | "or") => ({
+      filterGroupId: "advanced",
+      filterGroupMode: mode,
+    });
+    const nested = (mode: "and" | "or", parentMode: "and" | "or") => ({
+      filterGroupId: "advanced-nested",
+      parentFilterGroupId: "advanced",
+      filterGroupMode: mode,
+      parentFilterGroupMode: parentMode,
+    });
+    const titlesFor = async (filters: unknown[], filterMode: "and" | "or") => {
+      await getDb()
+        .update(schema.contentDatabases)
+        .set({
+          viewConfigJson: JSON.stringify({
+            activeViewId: "default",
+            views: [
+              {
+                id: "default",
+                name: "Table",
+                type: "table",
+                sorts: [{ key: "name", label: "Name", direction: "asc" }],
+                filters,
+                filterMode,
+                columnWidths: {},
+              },
+            ],
+          }),
+        })
+        .where(eq(schema.contentDatabases.id, DATABASE_ID));
+      const page = await navigate({
+        parentId: "group-mode-parent",
+        viewId: "default",
+      });
+      return page.items.map((item) => item.title);
+    };
+
+    expect(
+      await titlesFor(
+        [
+          name("does_not_equal", "Gamma final"),
+          name("contains", "Alpha", advanced("or")),
+          name("contains", "Beta", nested("and", "or")),
+          name("contains", "draft", nested("and", "or")),
+        ],
+        "and",
+      ),
+    ).toEqual(["Alpha draft", "Alpha final", "Beta draft"]);
+    expect(
+      await titlesFor(
+        [
+          name("equals", "Gamma final"),
+          name("contains", "final", advanced("and")),
+          name("contains", "Alpha", nested("or", "and")),
+          name("contains", "Beta", nested("or", "and")),
+        ],
+        "or",
+      ),
+    ).toEqual(["Alpha final", "Beta final", "Gamma final"]);
     await getDb()
       .update(schema.contentDatabases)
       .set({ viewConfigJson: "{}" })
@@ -1065,6 +1299,66 @@ describe("query-content-database-items Files navigation", () => {
     ]);
   });
 
+  it("ends the path at the first unreadable or trashed ancestor even when a higher one is readable", async () => {
+    const readContext = (id: string) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        navigationContextAction.run({ id }),
+      );
+    await addFile({ id: "gap-root", position: 800 });
+    await addFile({
+      id: "gap-middle",
+      parentId: "gap-root",
+      ownerEmail: OTHER,
+    });
+    await addFile({ id: "gap-leaf", parentId: "gap-middle" });
+    await addFile({ id: "trashed-middle", parentId: "gap-root" });
+    await getDb()
+      .update(schema.documents)
+      .set({ trashedAt: "2026-03-04T00:00:00.000Z" })
+      .where(eq(schema.documents.id, "trashed-middle"));
+    await addFile({ id: "trashed-leaf", parentId: "trashed-middle" });
+
+    expect(
+      (await readContext("gap-leaf")).path.map((entry) => entry.id),
+    ).toEqual(["gap-leaf"]);
+    expect(
+      (await readContext("trashed-leaf")).path.map((entry) => entry.id),
+    ).toEqual(["trashed-leaf"]);
+  });
+
+  it("rejects a readable ancestry cycle", async () => {
+    await addFile({ id: "cycle-a", parentId: "cycle-b" });
+    await addFile({ id: "cycle-b", parentId: "cycle-a" });
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        navigationContextAction.run({ id: "cycle-a" }),
+      ),
+    ).rejects.toThrow("Document ancestry contains a cycle");
+  });
+
+  it("reads a 100-level ancestry and rejects a deeper one", async () => {
+    for (let depth = 0; depth <= 100; depth += 1) {
+      await addFile({
+        id: `depth-${depth}`,
+        parentId: depth === 0 ? null : `depth-${depth - 1}`,
+        position: 900,
+      });
+    }
+    const readContext = (id: string) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        navigationContextAction.run({ id }),
+      );
+
+    const deepest = await readContext("depth-99");
+    expect(deepest.path).toHaveLength(100);
+    expect(deepest.path[0]?.id).toBe("depth-0");
+    expect(deepest.path.at(-1)?.id).toBe("depth-99");
+    await expect(readContext("depth-100")).rejects.toThrow(
+      "Document ancestry exceeds the supported navigation depth",
+    );
+  });
+
   it("associates a child without denormalized spaceId to its authoritative Files path", async () => {
     await addFile({ id: "space-less-parent", position: 300 });
     await addFile({
@@ -1128,6 +1422,346 @@ describe("query-content-database-items Files navigation", () => {
     });
   });
 
+  it("ranks a child branch from its own siblings in one read", async () => {
+    await addFile({ id: "sibling-rank-parent", position: 900 });
+    for (let index = 0; index < 6; index += 1) {
+      await addFile({
+        id: `sibling-rank-${index}`,
+        parentId: "sibling-rank-parent",
+        position: index,
+      });
+    }
+    await saveCustomOrder([
+      ...Array.from(
+        { length: 400 },
+        (_, index) => `membership-elsewhere-${index}`,
+      ),
+      "membership-sibling-rank-4",
+      "membership-sibling-rank-1",
+    ]);
+
+    let first: ContentDatabaseNavigationPageResponse | undefined;
+    const statements = await statementsDuring(async () => {
+      first = await navigate({ parentId: "sibling-rank-parent" }, 3);
+    });
+    expect(first!.items.map((item) => item.documentId)).toEqual([
+      "sibling-rank-4",
+      "sibling-rank-1",
+      "sibling-rank-0",
+    ]);
+    // One read finds the siblings, ranks them, and returns their row flags;
+    // the saved list is never expanded into rows to walk.
+    expect(
+      statements.filter((text) => text.includes('"documents"."parent_id" = $')),
+    ).toHaveLength(1);
+    expect(statements.join("\n")).not.toContain("jsonb_to_recordset");
+
+    const rest = await navigate(
+      {
+        parentId: "sibling-rank-parent",
+        cursor: first!.pagination.nextCursor!,
+      },
+      3,
+    );
+    expect(rest.items.map((item) => item.documentId)).toEqual([
+      "sibling-rank-2",
+      "sibling-rank-3",
+      "sibling-rank-5",
+    ]);
+    expect(rest.pagination.hasMore).toBe(false);
+  });
+
+  it("returns each row's permissions and favorite state from the page read", async () => {
+    for (const role of ["editor", "viewer", "admin", "owner"] as const) {
+      await addFile({ id: `row-flags-${role}`, ownerEmail: OTHER });
+      await getDb()
+        .insert(schema.documentShares)
+        .values({
+          id: `row-flags-${role}-share`,
+          resourceId: `row-flags-${role}`,
+          principalType: "user",
+          principalId: OWNER,
+          role,
+          createdBy: OTHER,
+          createdAt: new Date().toISOString(),
+        });
+    }
+    await addFile({ id: "row-flags-favorite" });
+    const { setFavoriteMembership } = await import("./_content-favorites.js");
+    await setFavoriteMembership({
+      db: getDb(),
+      userEmail: OWNER,
+      documentId: "row-flags-favorite",
+      favorite: true,
+      now: new Date().toISOString(),
+    });
+    await saveCustomOrder([
+      "membership-row-flags-editor",
+      "membership-row-flags-viewer",
+      "membership-row-flags-admin",
+      "membership-row-flags-owner",
+      "membership-row-flags-favorite",
+    ]);
+
+    const roots = await navigate({ parentId: null }, 5);
+    expect(
+      roots.items.map(({ documentId, canEdit, canManage, isFavorite }) => ({
+        documentId,
+        canEdit,
+        canManage,
+        isFavorite,
+      })),
+    ).toEqual([
+      {
+        documentId: "row-flags-editor",
+        canEdit: true,
+        canManage: false,
+        isFavorite: false,
+      },
+      {
+        documentId: "row-flags-viewer",
+        canEdit: false,
+        canManage: false,
+        isFavorite: false,
+      },
+      {
+        documentId: "row-flags-admin",
+        canEdit: true,
+        canManage: true,
+        isFavorite: false,
+      },
+      {
+        documentId: "row-flags-owner",
+        canEdit: true,
+        canManage: true,
+        isFavorite: false,
+      },
+      {
+        documentId: "row-flags-favorite",
+        canEdit: true,
+        canManage: true,
+        isFavorite: true,
+      },
+    ]);
+  });
+
+  it("returns expanded folders' first pages with the tree", async () => {
+    await addFile({ id: "expand-a", position: 1 });
+    await addFile({ id: "expand-b", position: 2 });
+    await addFile({ id: "expand-c", position: 3 });
+    for (let index = 0; index < 3; index += 1) {
+      await addFile({
+        id: `expand-a-${index}`,
+        parentId: "expand-a",
+        position: index,
+      });
+    }
+    await addFile({ id: "expand-a-1-x", parentId: "expand-a-1" });
+    await addFile({ id: "expand-a-1-x-y", parentId: "expand-a-1-x" });
+    await addFile({ id: "expand-b-trashed", parentId: "expand-b" });
+    await getDb()
+      .update(schema.documents)
+      .set({ trashedAt: "2026-01-02T00:00:00.000Z" })
+      .where(eq(schema.documents.id, "expand-b-trashed"));
+    await addFile({ id: "expand-c-0", parentId: "expand-c" });
+    await addFile({ id: "expand-c-0-x", parentId: "expand-c-0" });
+    await addFile({
+      id: "expand-hidden-child",
+      parentId: "expand-a",
+      ownerEmail: OTHER,
+      position: -1,
+    });
+    await addFile({ id: "expand-hidden-x", parentId: "expand-hidden-child" });
+    await saveCustomOrder([
+      "membership-expand-a",
+      "membership-expand-b",
+      "membership-expand-c",
+    ]);
+
+    const tree = await navigate(
+      {
+        parentId: null,
+        expand: [
+          "expand-a",
+          "expand-a-1",
+          "expand-a-1-x",
+          "expand-b",
+          "expand-c-0",
+          "expand-hidden-child",
+          "expand-unknown",
+        ],
+      },
+      3,
+    );
+
+    expect(tree.items.map((item) => item.documentId)).toEqual([
+      "expand-a",
+      "expand-b",
+      "expand-c",
+    ]);
+    // Only expanded folders this read returned, with children the caller can
+    // see, come back; a collapsed folder keeps its expanded descendants out.
+    expect(Object.keys(tree.branches ?? {}).sort()).toEqual([
+      "expand-a",
+      "expand-a-1",
+      "expand-a-1-x",
+    ]);
+    expect(tree.branchesTruncated).toBe(false);
+    for (const [parentId, branch] of Object.entries(tree.branches!)) {
+      expect(branch).toEqual(await navigate({ parentId }, 3));
+    }
+    expect(
+      tree.branches!["expand-a"]!.items.map((item) => item.documentId),
+    ).toEqual(["expand-a-0", "expand-a-1", "expand-a-2"]);
+
+    const unexpanded = await navigate({ parentId: null }, 3);
+    expect(unexpanded).not.toHaveProperty("branches");
+    expect(unexpanded).not.toHaveProperty("branchesTruncated");
+  });
+
+  it("opens expanded folders past their parent's first page only from that first page", async () => {
+    for (const [index, id] of [
+      "past-a",
+      "past-b",
+      "past-c",
+      "past-d",
+    ].entries()) {
+      await addFile({ id, position: index });
+    }
+    await addFile({ id: "past-d-1", parentId: "past-d" });
+    await addFile({ id: "past-d-1-x", parentId: "past-d-1" });
+    await saveCustomOrder([
+      "membership-past-a",
+      "membership-past-b",
+      "membership-past-c",
+      "membership-past-d",
+    ]);
+    const expand = ["past-d", "past-d-1"];
+
+    const first = await navigate({ parentId: null, expand }, 2);
+    expect(first.items.map((item) => item.documentId)).toEqual([
+      "past-a",
+      "past-b",
+    ]);
+    expect(Object.keys(first.branches ?? {}).sort()).toEqual([
+      "past-d",
+      "past-d-1",
+    ]);
+    expect(first.branches!["past-d-1"]).toEqual(
+      await navigate({ parentId: "past-d-1" }, 2),
+    );
+
+    const rest = await navigate(
+      { parentId: null, cursor: first.pagination.nextCursor!, expand },
+      1,
+    );
+    expect(rest.items.map((item) => item.documentId)).toEqual(["past-c"]);
+    expect(rest).not.toHaveProperty("branches");
+  });
+
+  it("caps how many expanded folders one read returns", async () => {
+    const { MAX_NAVIGATION_EXPANDED_BRANCHES } =
+      await import("./_database-navigation.js");
+    const expand: string[] = [];
+    for (const root of ["expand-cap-0", "expand-cap-1"]) {
+      await addFile({ id: root });
+      expand.push(root);
+      for (let index = 0; index < 20; index += 1) {
+        const child = `${root}-${String(index).padStart(2, "0")}`;
+        await addFile({ id: child, parentId: root, position: index });
+        await addFile({ id: `${child}-x`, parentId: child });
+        expand.push(child);
+      }
+    }
+    await saveCustomOrder([
+      "membership-expand-cap-0",
+      "membership-expand-cap-1",
+    ]);
+
+    const tree = await navigate({ parentId: null, expand }, 20);
+
+    expect(Object.keys(tree.branches ?? {})).toHaveLength(
+      MAX_NAVIGATION_EXPANDED_BRANCHES,
+    );
+    expect(tree.branches).toHaveProperty("expand-cap-0");
+    expect(tree.branches).toHaveProperty("expand-cap-1");
+    // The folders the cap left out are marked, not reported as empty.
+    expect(tree.branchesTruncated).toBe(true);
+  });
+
+  it("keeps the folders asked for first, with the open folders above them, when the cap applies", async () => {
+    const { MAX_NAVIGATION_EXPANDED_BRANCHES } =
+      await import("./_database-navigation.js");
+    const wide: string[] = [];
+    for (let index = 0; index < 40; index += 1) {
+      const id = `cap-wide-${String(index).padStart(2, "0")}`;
+      await addFile({ id, position: index });
+      await addFile({ id: `${id}-x`, parentId: id });
+      wide.push(id);
+    }
+    const deep = ["cap-deep-0", "cap-deep-1", "cap-deep-2", "cap-deep-3"];
+    for (const [index, id] of deep.entries()) {
+      await addFile({ id, parentId: index === 0 ? null : deep[index - 1] });
+    }
+    await addFile({ id: "cap-deep-3-x", parentId: "cap-deep-3" });
+
+    // The deepest open folder is asked for first, ahead of its ancestors.
+    const tree = await navigate(
+      { parentId: null, expand: ["cap-deep-3", ...wide, ...deep] },
+      20,
+    );
+
+    expect(Object.keys(tree.branches ?? {})).toHaveLength(
+      MAX_NAVIGATION_EXPANDED_BRANCHES,
+    );
+    for (const id of deep) expect(tree.branches).toHaveProperty(id);
+    expect(tree.branches).toHaveProperty(wide[0]!);
+    expect(tree.branches).not.toHaveProperty(wide[wide.length - 1]!);
+    expect(tree.branchesTruncated).toBe(true);
+  });
+
+  it("returns a deleted database's typed response even when its saved view cannot be read", async () => {
+    const { personalDatabaseViewSettingKey } =
+      await import("./_content-database-personal-view.js");
+    const now = new Date().toISOString();
+    await getDb().insert(schema.documents).values({
+      id: "deleted-files-document",
+      ownerEmail: OWNER,
+      title: "Deleted Files",
+      content: "",
+      visibility: "private",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await getDb().insert(schema.contentDatabases).values({
+      id: "deleted-files",
+      ownerEmail: OWNER,
+      documentId: "deleted-files-document",
+      title: "Deleted Files",
+      deletedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await putUserSetting(
+      OWNER,
+      personalDatabaseViewSettingKey("deleted-files"),
+      { version: 0, views: "unreadable" },
+    );
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        action.run(
+          { databaseId: "deleted-files", navigation: { parentId: null } },
+          { userEmail: OWNER } as any,
+        ),
+      ),
+    ).resolves.toMatchObject({
+      available: false,
+      reason: "deleted",
+      databaseId: "deleted-files",
+    });
+  });
+
   it("requires an explicit parent and rejects unsupported pagination combinations", () => {
     expect(() =>
       action.schema.parse({ databaseId: DATABASE_ID, navigation: {} }),
@@ -1151,5 +1785,373 @@ describe("query-content-database-items Files navigation", () => {
         ),
       ),
     ).rejects.toMatchObject({ errorCode: "navigation_limit_exceeded" });
+  });
+});
+
+describe("Files navigation text and date filters", () => {
+  const CREATED_ID = "navigation-created-time";
+  const PARENT_ID = "date-filter-parent";
+  const createdDefinition = {
+    id: CREATED_ID,
+    databaseId: DATABASE_ID,
+    name: "Created",
+    type: "created_time",
+    visibility: "always_show",
+    options: {},
+    position: 0,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  } satisfies DocumentProperty["definition"];
+  const files = [
+    {
+      id: "date-filter-oct-14",
+      title: "Alpha Launch",
+      createdAt: "2026-10-14T12:00:00.000Z",
+    },
+    {
+      id: "date-filter-oct-21",
+      title: "alpha notes",
+      createdAt: "2026-10-21T23:30:00.000Z",
+    },
+    {
+      id: "date-filter-oct-22-start",
+      title: "Beta launch plan",
+      createdAt: "2026-10-22T00:00:00.000Z",
+    },
+    {
+      id: "date-filter-oct-22-evening",
+      title: "Beta Recap",
+      createdAt: "2026-10-22T18:00:00.000Z",
+    },
+    {
+      id: "date-filter-oct-22-end",
+      title: "\tGamma\n",
+      createdAt: "2026-10-22T23:59:59.999Z",
+    },
+    {
+      id: "date-filter-oct-23",
+      title: "Gamma launch",
+      createdAt: "2026-10-23T00:00:00.000Z",
+    },
+    {
+      id: "date-filter-oct-29",
+      title: "Delta\u00a0",
+      createdAt: "2026-10-29T12:00:00.000Z",
+    },
+    {
+      id: "date-filter-oct-30",
+      title: "Epsilon LAUNCH",
+      createdAt: "2026-10-30T00:00:00.000Z",
+    },
+  ];
+
+  beforeAll(async () => {
+    await getDb().insert(schema.documentPropertyDefinitions).values({
+      id: CREATED_ID,
+      ownerEmail: OWNER,
+      databaseId: DATABASE_ID,
+      name: "Created",
+      type: "created_time",
+    });
+    await addFile({ id: PARENT_ID, position: 700 });
+    for (const file of files) {
+      await addFile({ ...file, parentId: PARENT_ID });
+    }
+  });
+
+  afterEach(async () => {
+    vi.useRealTimers();
+    await getDb()
+      .update(schema.contentDatabases)
+      .set({ viewConfigJson: "{}" })
+      .where(eq(schema.contentDatabases.id, DATABASE_ID));
+  });
+
+  // Each Files row as the shared evaluator sees it.
+  const evaluatorItems: ContentDatabaseItem[] = files.map((file, position) => ({
+    id: `membership-${file.id}`,
+    databaseId: DATABASE_ID,
+    position,
+    document: {
+      id: file.id,
+      parentId: PARENT_ID,
+      title: file.title,
+      content: "",
+      icon: null,
+      position,
+      isFavorite: false,
+      hideFromSearch: false,
+      visibility: "private",
+      createdAt: file.createdAt,
+      updatedAt: file.createdAt,
+    },
+    properties: [
+      { definition: createdDefinition, value: file.createdAt, editable: false },
+    ],
+  }));
+
+  async function navigatedIds(filter: ContentDatabaseFilter, timezone: string) {
+    await getDb()
+      .update(schema.contentDatabases)
+      .set({
+        viewConfigJson: JSON.stringify({
+          activeViewId: "default",
+          views: [
+            {
+              id: "default",
+              name: "Table",
+              type: "table",
+              sorts: [],
+              filters: [filter],
+              filterMode: "and",
+              columnWidths: {},
+            },
+          ],
+        }),
+      })
+      .where(eq(schema.contentDatabases.id, DATABASE_ID));
+    const page = (await runWithRequestContext(
+      { userEmail: OWNER, timezone },
+      () =>
+        action.run(
+          {
+            databaseId: DATABASE_ID,
+            navigation: { parentId: PARENT_ID, viewId: "default" },
+          },
+          { userEmail: OWNER } as any,
+        ),
+    )) as ContentDatabaseNavigationPageResponse;
+    return page.items.map((item) => item.documentId).sort();
+  }
+
+  function evaluatedIds(
+    filter: ContentDatabaseFilter,
+    today: string,
+    timeZone?: string,
+  ) {
+    return applyContentDatabaseTableQuery(
+      evaluatorItems,
+      [evaluatorItems[0]!.properties[0]!],
+      { search: "", filters: [filter], sorts: [] },
+      { today, timeZone },
+    )
+      .map((item) => item.document.id)
+      .sort();
+  }
+
+  const name = (
+    operator: ContentDatabaseFilter["operator"],
+    value: string,
+  ): ContentDatabaseFilter => ({ key: "name", label: "Name", operator, value });
+  const created = (
+    operator: ContentDatabaseFilter["operator"],
+    value: string,
+  ): ContentDatabaseFilter => ({
+    key: CREATED_ID,
+    label: "Created",
+    operator,
+    value,
+  });
+  const ids = (...suffixes: string[]) =>
+    suffixes.map((suffix) => `date-filter-${suffix}`).sort();
+
+  it("matches the shared evaluator for the new text operators", async () => {
+    const expected: Array<[ContentDatabaseFilter, string[]]> = [
+      [
+        name("does_not_contain", "LAUNCH"),
+        ids("oct-21", "oct-22-evening", "oct-22-end", "oct-29"),
+      ],
+      [name("starts_with", "alpha"), ids("oct-14", "oct-21")],
+      [name("starts_with", "BETA "), ids("oct-22-start", "oct-22-evening")],
+      [name("ends_with", "launch"), ids("oct-14", "oct-23", "oct-30")],
+      // Titles are trimmed of tabs, newlines and no-break spaces too.
+      [name("starts_with", "gamma"), ids("oct-22-end", "oct-23")],
+      [name("ends_with", "delta"), ids("oct-29")],
+      [name("equals", "gamma"), ids("oct-22-end")],
+    ];
+    for (const [filter, rows] of expected) {
+      expect(await navigatedIds(filter, "UTC")).toEqual(rows);
+      expect(evaluatedIds(filter, "2026-10-22")).toEqual(rows);
+    }
+  });
+
+  it("matches the shared evaluator on whole days and relative dates", async () => {
+    // 02:30 UTC on 23 October is still 22 October in New York.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-23T02:30:00.000Z"));
+    const today = "2026-10-22";
+    const october22 = ["oct-22-start", "oct-22-evening", "oct-22-end"];
+    const everyFile = files.map((file) => file.id.replace("date-filter-", ""));
+    const expected: Array<[ContentDatabaseFilter, string[]]> = [
+      [created("equals", "2026-10-22"), ids(...october22)],
+      [
+        created("does_not_equal", "2026-10-22"),
+        ids("oct-14", "oct-21", "oct-23", "oct-29", "oct-30"),
+      ],
+      [created("before", "2026-10-22"), ids("oct-14", "oct-21")],
+      [
+        created("on_or_before", "2026-10-22"),
+        ids("oct-14", "oct-21", ...october22),
+      ],
+      [created("after", "2026-10-22"), ids("oct-23", "oct-29", "oct-30")],
+      [
+        created("on_or_after", "2026-10-22"),
+        ids(...october22, "oct-23", "oct-29", "oct-30"),
+      ],
+      [
+        created("between", JSON.stringify(["2026-10-22", "2026-10-22"])),
+        ids(...october22),
+      ],
+      [created("on_or_before", "today"), ids("oct-14", "oct-21", ...october22)],
+      [created("equals", "tomorrow"), ids("oct-23")],
+      [
+        created("between", JSON.stringify(["yesterday", "today"])),
+        ids("oct-21", ...october22),
+      ],
+      // 22 to 28 October.
+      [created("is_within", "next_7_days"), ids(...october22, "oct-23")],
+      [created("is_within", "past_7_days"), ids("oct-21", ...october22)],
+      [
+        created("is_within", "this_week"),
+        ids("oct-21", ...october22, "oct-23"),
+      ],
+      [
+        created("on_or_after", "2026-10-22T12:00:00.000Z"),
+        ids("oct-22-evening", "oct-22-end", "oct-23", "oct-29", "oct-30"),
+      ],
+      // 17:00 UTC: as text, "…T19:00:00+02:00" sorts after the 18:00 UTC row.
+      [
+        created("on_or_after", "2026-10-22T19:00:00+02:00"),
+        ids("oct-22-evening", "oct-22-end", "oct-23", "oct-29", "oct-30"),
+      ],
+      [created("equals", "2026-10-22T20:00:00+02:00"), ids("oct-22-evening")],
+      [
+        created("does_not_equal", "2026-10-22T18:00:00.000Z"),
+        ids(
+          "oct-14",
+          "oct-21",
+          "oct-22-start",
+          "oct-22-end",
+          "oct-23",
+          "oct-29",
+          "oct-30",
+        ),
+      ],
+      [created("on_or_before", "2026-02-30"), []],
+      [created("is_within", "next_fortnight"), []],
+      // A range with a blank end is still being filled in, so it's skipped.
+      [
+        created("between", JSON.stringify(["2026-10-22", ""])),
+        ids(...everyFile),
+      ],
+      [created("between", "2026-10-22"), ids(...everyFile)],
+    ];
+    for (const [filter, rows] of expected) {
+      expect(await navigatedIds(filter, "America/New_York")).toEqual(rows);
+      expect(evaluatedIds(filter, today, "America/New_York")).toEqual(rows);
+    }
+  });
+
+  it("reads a time without an offset in the caller's time zone", async () => {
+    // Both are 17:00 UTC on 22 October; this machine's zone plays no part.
+    const rows = ids(
+      "oct-22-evening",
+      "oct-22-end",
+      "oct-23",
+      "oct-29",
+      "oct-30",
+    );
+    for (const [timezone, value, today] of [
+      ["America/New_York", "2026-10-22T13:00", "2026-10-22"],
+      ["Asia/Tokyo", "2026-10-23T02:00", "2026-10-23"],
+    ] as const) {
+      const filter = created("on_or_after", value);
+      expect(await navigatedIds(filter, timezone)).toEqual(rows);
+      expect(evaluatedIds(filter, today, timezone)).toEqual(rows);
+    }
+  });
+
+  it("reads a row's time to the millisecond in both readers", async () => {
+    // The database's own timestamps keep microseconds; JavaScript dates don't.
+    const evening = "date-filter-oct-22-evening";
+    const precise = "2026-10-22 18:00:00.0004+00";
+    const setCreated = (createdAt: string) =>
+      getDb()
+        .update(schema.documents)
+        .set({ createdAt })
+        .where(eq(schema.documents.id, evening));
+    const items = evaluatorItems.map((item) =>
+      item.document.id === evening
+        ? {
+            ...item,
+            document: { ...item.document, createdAt: precise },
+            properties: [{ ...item.properties[0]!, value: precise }],
+          }
+        : item,
+    );
+    await setCreated(precise);
+    try {
+      for (const [operator, rows] of [
+        [
+          "on_or_before",
+          ids("oct-14", "oct-21", "oct-22-start", "oct-22-evening"),
+        ],
+        ["after", ids("oct-22-end", "oct-23", "oct-29", "oct-30")],
+      ] as const) {
+        const filter = created(operator, "2026-10-22T18:00:00.000Z");
+        expect(await navigatedIds(filter, "UTC")).toEqual(rows);
+        expect(
+          applyContentDatabaseTableQuery(
+            items,
+            [items[0]!.properties[0]!],
+            { search: "", filters: [filter], sorts: [] },
+            { today: "2026-10-22", timeZone: "UTC" },
+          )
+            .map((item) => item.document.id)
+            .sort(),
+        ).toEqual(rows);
+      }
+    } finally {
+      await setCreated("2026-10-22T18:00:00.000Z");
+    }
+  });
+
+  it("ties a cursor under a time without an offset to the caller's time zone", async () => {
+    await navigatedIds(created("on_or_after", "2026-10-22T13:00"), "UTC");
+    const page = (timezone: string, cursor?: string) =>
+      runWithRequestContext({ userEmail: OWNER, timezone }, () =>
+        action.run(
+          {
+            databaseId: DATABASE_ID,
+            navigation: { parentId: PARENT_ID, viewId: "default", cursor },
+            limit: 2,
+          },
+          { userEmail: OWNER } as any,
+        ),
+      ) as Promise<ContentDatabaseNavigationPageResponse>;
+    const first = await page("America/New_York");
+    const cursor = first.pagination.nextCursor!;
+    expect(cursor).toEqual(expect.any(String));
+    await expect(page("America/New_York", cursor)).resolves.toMatchObject({
+      items: expect.any(Array),
+    });
+    await expect(page("Asia/Tokyo", cursor)).rejects.toMatchObject({
+      errorCode: "invalid_navigation_cursor",
+    });
+  });
+
+  it("resolves relative dates in the caller's time zone when the view is read", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-23T02:30:00.000Z"));
+    const isToday = created("equals", "today");
+    expect(await navigatedIds(isToday, "America/New_York")).toEqual(
+      ids("oct-22-start", "oct-22-evening", "oct-22-end"),
+    );
+    expect(await navigatedIds(isToday, "Asia/Tokyo")).toEqual(ids("oct-23"));
+
+    vi.setSystemTime(new Date("2026-10-29T15:00:00.000Z"));
+    expect(await navigatedIds(isToday, "America/New_York")).toEqual(
+      ids("oct-29"),
+    );
   });
 });

@@ -13,7 +13,6 @@ type ServerManifestVerificationResult = {
 const ABSOLUTE_ASSET_PATH =
   /["'`]((?:\/[A-Za-z0-9._~-]+)*\/assets\/[^"'`\s?#]+)["'`]/g;
 
-// Netlify rewrites this routing control file after Vite copies public files.
 const NETLIFY_GENERATED_FILES = new Set(["_headers", "_redirects"]);
 
 function listFiles(root: string, relative = ""): string[] {
@@ -31,10 +30,6 @@ function listFiles(root: string, relative = ""): string[] {
   });
 }
 
-/**
- * React Router's client directory is the asset manifest Nitro bakes into the
- * trusted server bundle. Every byte must survive in the paired publish tree.
- */
 export function verifyNetlifyPrebuiltClientArtifact(
   clientDirectory: string,
   publishDirectory: string,
@@ -84,11 +79,6 @@ export function verifyNetlifyPrebuiltClientArtifact(
   return { checkedFiles: clientFiles.length };
 }
 
-/**
- * Nitro's server bundle contains the route manifest used by serveStatic. Check
- * those absolute asset paths against the tree that the deploy will upload,
- * rather than trusting the client artifact graph alone.
- */
 export function verifyNetlifyPrebuiltServerManifest(
   serverDirectory: string,
   publishDirectory: string,

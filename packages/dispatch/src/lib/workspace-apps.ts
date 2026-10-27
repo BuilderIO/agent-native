@@ -1,4 +1,4 @@
-import { CHAT_FIRST_DEFAULT_APP_IDS } from "@agent-native/core/client/chat-first";
+import { CHAT_FIRST_DEFAULT_APP_IDS } from "@agent-native/core/client/chat-first-state";
 import {
   getClientSurface,
   isInBuilderFrame,
@@ -9,15 +9,20 @@ import {
   withBuilderUtmTrackingParams,
 } from "@agent-native/core/shared";
 
+import { workspaceAppRoute } from "../shared/workspace-app-route";
 import {
   CANONICAL_WORKSPACE_SSO_APP_ORIGINS,
   isWorkspaceSsoAppUrl,
 } from "../shared/workspace-sso";
 
+export { workspaceAppRoute } from "../shared/workspace-app-route";
+
 export interface WorkspaceAppSummary {
   id: string;
   name: string;
   description?: string;
+  whenToUse?: string[];
+  defaultDescriptionKey?: string;
   path: string;
   homePath?: string;
   url?: string | null;
@@ -41,6 +46,18 @@ export interface WorkspaceAppSummary {
   agentSkillsCount?: number | null;
   archived?: boolean;
   workspaceSso?: boolean;
+  source?: WorkspaceAppSource;
+}
+
+export type WorkspaceAppSource = "workspace" | "builtin" | "connected";
+
+/** Maps list-connected-agents' `source` onto the sidebar grouping. */
+export function workspaceAppSourceFromConnected(
+  source: string | undefined,
+): WorkspaceAppSource {
+  if (source === "builtin") return "builtin";
+  if (source === "custom") return "connected";
+  return "workspace";
 }
 
 interface WorkspaceAppHrefSource {
@@ -94,11 +111,6 @@ function clientEnvironmentLane(): "production" | "beta" {
   return targets?.betaHost === hostname ? "beta" : "production";
 }
 
-/**
- * The workspace SSO action only accepts an exact registered app identity and
- * origin. The catalog's boolean is a server-derived projection for custom
- * registrations; the URL check keeps malformed metadata out of the action.
- */
 export function isWorkspaceSsoApp(
   app: WorkspaceAppHrefSource & { id: string },
 ): boolean {
@@ -133,11 +145,6 @@ function isCanonicalWorkspaceSsoOrigin(rawUrl: string): boolean {
   }
 }
 
-/**
- * A mounted app URL leaves Dispatch's `/apps/:id` host route. Canonical
- * first-party origins can stay inline even at `/`, while external published
- * apps must open at their own origin regardless of their path.
- */
 export function isPathMountedWorkspaceApp(
   app: WorkspaceAppHrefSource,
 ): boolean {
@@ -166,7 +173,33 @@ export function isWorkspaceAppVisibleInDefaultLaunchers(
   return !app.isDispatch && !isDefaultWorkspaceAppHiddenId(app.id);
 }
 
-function defaultWorkspaceAppUrl(rawUrl: string): string {
+const DEFAULT_WORKSPACE_APP_DESCRIPTIONS: Record<
+  string,
+  { text: string; key: string }
+> = {
+  calendar: {
+    text: "Agent-Native Google Calendar — manage events, sync, and public booking",
+    key: "dispatch.pages.chatFirstDefaultDescriptionCalendar",
+  },
+  clips: {
+    text: "Screen recording, meeting notes, and voice dictation — all with AI",
+    key: "dispatch.pages.chatFirstDefaultDescriptionClips",
+  },
+  content: {
+    text: "Open-source Obsidian for MDX — edit local docs with agent assistance",
+    key: "dispatch.pages.chatFirstDefaultDescriptionContent",
+  },
+  design: {
+    text: "Agent-Native design tool — create and edit visual designs with agent assistance",
+    key: "dispatch.pages.chatFirstDefaultDescriptionDesign",
+  },
+  mail: {
+    text: "Agent-Native Superhuman — email client with keyboard shortcuts and AI triage",
+    key: "dispatch.pages.chatFirstDefaultDescriptionMail",
+  },
+};
+
+export function defaultWorkspaceAppUrl(rawUrl: string): string {
   if (typeof window === "undefined") return rawUrl;
 
   const hostname = window.location.hostname
@@ -188,10 +221,6 @@ function defaultWorkspaceAppUrl(rawUrl: string): string {
     // coercion-ok: malformed default metadata remains an absent navigation target.
     return rawUrl;
   }
-}
-
-export function workspaceAppRoute(appId: string): string {
-  return `/apps/${encodeURIComponent(appId)}`;
 }
 
 function normalizeWorkspaceAppRoutePath(rawPath: string): URL | null {
@@ -236,11 +265,6 @@ function workspaceAppMountPath(
   return normalizedWorkspaceAppMountPath(app.path?.trim() || "/");
 }
 
-/**
- * Convert a child app route into Dispatch's shareable workspace-app route.
- * Mounted workspace apps may report their full mount path, while hosted apps
- * normally report only the app-local path, so accept both forms here.
- */
 export function workspaceAppRouteForChildPath(
   app: Pick<WorkspaceAppSummary, "id" | "path" | "url">,
   childPath: string,
@@ -256,8 +280,10 @@ export function workspaceAppRouteForChildPath(
       ? parsed.pathname.slice(mountPath.length) || "/"
       : parsed.pathname;
   const routePath = workspaceAppRoute(app.id);
-  const suffix = relativePathname === "/" ? "" : relativePathname;
-  return `${routePath}${suffix}${parsed.search}${parsed.hash}`;
+  const childRoute = `${relativePathname}${parsed.search}${parsed.hash}`;
+  if (childRoute === "/") return routePath;
+  const search = new URLSearchParams([["__workspace_app_path", childRoute]]);
+  return `${routePath}?${search}`;
 }
 
 export function workspaceAppInitialPathFromSplat(
@@ -265,6 +291,14 @@ export function workspaceAppInitialPathFromSplat(
   search: string,
   hash: string,
 ): string | undefined {
+  const appPath = new URLSearchParams(search).get("__workspace_app_path");
+  if (appPath !== null) {
+    const parsed = normalizeWorkspaceAppRoutePath(appPath);
+    if (!parsed) return undefined;
+    const path = `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    return path === "/" ? undefined : path;
+  }
+
   const pathname = routeSplat?.trim()
     ? `/${routeSplat.trim().replace(/^[/\\]+/, "")}`
     : "/";
@@ -284,6 +318,27 @@ export function workspaceAppIdFromRoute(pathname: string): string | null {
     // coercion-ok: malformed app routes are inactive, not app ids.
     return null;
   }
+}
+
+// A mounted app's registry `url` is the Dispatch page that hosts it
+// (`<dispatch>/apps/<id>`). Read from that same Dispatch, it is the page doing
+// the framing, so framing it again nests Dispatch inside itself.
+export function isWorkspaceAppHostPageUrl(
+  app: Pick<WorkspaceAppSummary, "id" | "url">,
+  dispatchOrigin: string | undefined,
+): boolean {
+  const rawUrl = app.url?.trim();
+  if (!rawUrl || !dispatchOrigin) return false;
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    // coercion-ok: a URL that does not parse is not Dispatch's page for the app.
+    return false;
+  }
+  if (url.origin !== dispatchOrigin) return false;
+  const pathname = url.pathname.replace(/\/+$/, "").toLowerCase();
+  return pathname.endsWith(workspaceAppRoute(app.id.trim()).toLowerCase());
 }
 
 export function workspaceAppHref(app: WorkspaceAppSummary): string | null {
@@ -326,6 +381,15 @@ export function workspaceAppTargetPath(app: {
   return normalizeWorkspaceAppHomePath(undefined);
 }
 
+export function workspaceAppDirectLaunchHref(app: {
+  path?: string | null;
+  url?: string | null;
+  homePath?: string | null;
+}): string | null {
+  if (app.path?.trim()) return null;
+  return workspaceAppDirectHref(app, workspaceAppTargetPath(app));
+}
+
 export function workspaceAppEmbedTarget(
   app: Pick<WorkspaceAppSummary, "path" | "url">,
 ): { path?: string; url?: string } {
@@ -336,10 +400,6 @@ export function workspaceAppEmbedTarget(
   return path.startsWith("/") ? { path } : path ? { url: path } : {};
 }
 
-/**
- * Resolve an app route without an embed ticket so the target can render its
- * own error document when session setup fails.
- */
 export function workspaceAppDirectHref(
   app: WorkspaceAppHrefSource,
   targetPath: string,
@@ -409,8 +469,6 @@ export function isPendingBuilderHref(app: WorkspaceAppSummary): boolean {
 
 export function shouldOpenWorkspaceAppInTopWindow(): boolean {
   if (typeof window === "undefined") return false;
-  // Standard browser iframes stay inline; Builder and native shells need the
-  // app as the top-level document so browser APIs such as WebMCP bind to it.
   return isInBuilderFrame() || getClientSurface() !== "web";
 }
 
@@ -433,27 +491,83 @@ export function navigateToWorkspaceApp(href: string): boolean {
 }
 
 /**
- * Keep the chat-first rail useful before a workspace manifest is populated.
- * Mounted workspace rows still win, so custom names and routes remain the
- * source of truth once an app exists in the workspace.
+ * Mounted workspace apps plus the chat-first default built-ins that are part
+ * of this workspace. `enabledBuiltinAppIds` must come from the server
+ * (list-connected-agents entries with source "builtin"), which already applies
+ * the builder's `agent-native.builtinAgents` config. While it is unknown, no
+ * default is added. `extraApps` fill missing rows and configured built-in URLs.
  */
 export function mergeChatFirstWorkspaceApps(
   apps: readonly WorkspaceAppSummary[] | undefined,
+  enabledBuiltinAppIds: readonly string[] | undefined,
+  extraApps: readonly {
+    id: string;
+    name: string;
+    description?: string | null;
+    url?: string | null;
+    source?: WorkspaceAppSource;
+  }[] = [],
 ): WorkspaceAppSummary[] {
+  const enabledBuiltins = new Set(
+    (enabledBuiltinAppIds ?? []).map((id) => id.trim().toLowerCase()),
+  );
   const merged = new Map<string, WorkspaceAppSummary>();
   for (const id of CHAT_FIRST_DEFAULT_APP_IDS) {
+    if (!enabledBuiltins.has(id)) continue;
+    const fallback = DEFAULT_WORKSPACE_APP_DESCRIPTIONS[id];
     merged.set(id, {
       id,
       name: id.charAt(0).toUpperCase() + id.slice(1),
-      // The five default rows are hosted sibling apps, not routes owned by
-      // Dispatch. Keep a mounted path for legacy callers, but give embed
-      // session resolution the exact canonical origin.
+      description: fallback?.text,
+      defaultDescriptionKey: fallback?.key,
       path: "/",
       url: defaultWorkspaceAppUrl(CANONICAL_WORKSPACE_SSO_APP_ORIGINS[id]),
       status: "ready",
+      source: "builtin",
     });
   }
-  for (const app of apps ?? []) merged.set(app.id, app);
+  for (const app of apps ?? []) {
+    const id = app.id.trim().toLowerCase();
+    const fallback = DEFAULT_WORKSPACE_APP_DESCRIPTIONS[id];
+    merged.set(id, {
+      ...app,
+      id,
+      source: app.source ?? "workspace",
+      description: app.description ?? fallback?.text,
+      defaultDescriptionKey:
+        app.description === undefined ||
+        app.description === null ||
+        app.description === fallback?.text
+          ? fallback?.key
+          : undefined,
+    });
+  }
+
+  for (const app of extraApps) {
+    const id = app.id.trim().toLowerCase();
+    if (!id) continue;
+    const existing = merged.get(id);
+    if (existing) {
+      if (existing.source === "builtin" && app.source === "builtin") {
+        merged.set(id, {
+          ...existing,
+          name: app.name.trim() || existing.name,
+          description: app.description ?? existing.description,
+          url: app.url?.trim() || existing.url,
+        });
+      }
+      continue;
+    }
+    merged.set(id, {
+      id,
+      name: app.name.trim() || id,
+      description: app.description ?? undefined,
+      path: "",
+      url: app.url?.trim() || null,
+      status: "ready",
+      source: app.source ?? "connected",
+    });
+  }
 
   return [...merged.values()];
 }

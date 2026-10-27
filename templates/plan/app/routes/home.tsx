@@ -5,7 +5,6 @@ export function loader() {
   return withSsrHtmlContentType(redirect("/plans"));
 }
 
-// Private app redirect retained at /home; / serves the public marketing page.
 export default function IndexRedirect() {
   return null;
 }

@@ -7,24 +7,13 @@ vi.mock("sonner", () => ({
 
 import { runRedo } from "@/pages/design-editor/commands/redo";
 
-/**
- * Redo preserves selection history while the deleted file is dormant in the
- * redo stack. Undoing that deletion can recreate it under a new id and remap
- * these original selection snapshots; pruning them at redo time would lose
- * that history. `preserveHistory` tells the shared delete action to retain the
- * stacks during this replay.
- */
 function sharedRefs() {
   return {
     redoOrderRef: {
-      current: ["file-deleted"] as (
-        | "selection"
-        | "file-deleted"
-        | "file-created"
-      )[],
+      current: ["file-deleted"] as ("file-deleted" | "file-created")[],
     },
     historyOrderRef: {
-      current: [] as ("selection" | "file-deleted" | "file-created")[],
+      current: [] as ("file-deleted" | "file-created")[],
     },
     fileDeletionRedoStackRef: {
       current: [
@@ -43,37 +32,6 @@ function sharedRefs() {
       ],
     },
     fileDeletionUndoStackRef: { current: [] as any[] },
-    selectionUndoStackRef: {
-      current: [
-        {
-          // Mixed entry remains intact while screen-a is dormant.
-          before: {
-            overviewSelectedScreenIds: ["screen-a"],
-            selectedLayerIds: ["screen-a"],
-            activeFileId: "screen-a",
-          },
-          after: {
-            overviewSelectedScreenIds: ["screen-b"],
-            selectedLayerIds: ["screen-b"],
-            activeFileId: "screen-b",
-          },
-        },
-        {
-          // A screen-a-only entry remains available for a later undo restore.
-          before: {
-            overviewSelectedScreenIds: ["screen-a"],
-            selectedLayerIds: [],
-            activeFileId: null,
-          },
-          after: {
-            overviewSelectedScreenIds: [],
-            selectedLayerIds: [],
-            activeFileId: null,
-          },
-        },
-      ],
-    },
-    selectionRedoStackRef: { current: [] as any[] },
   };
 }
 
@@ -128,8 +86,6 @@ function commonArgs(refs: ReturnType<typeof sharedRefs>) {
     pendingVisualStyleEditsRef: { current: [] },
     pendingVisualStyleRedoStackRef: { current: [] },
     pendingVisualStyleUndoStackRef: { current: [] },
-    // Redo re-deletes under the SAME ids it was handed — no renaming, unlike
-    // undo's createFileMutation recreate.
     performDeleteFiles: vi.fn((filesToDelete, options) => {
       options?.onMutationSettled?.(filesToDelete, [], filesToDelete);
     }),
@@ -148,8 +104,6 @@ function commonArgs(refs: ReturnType<typeof sharedRefs>) {
     restoreSelectionSnapshot: vi.fn(),
     runtimeStructureInsertRevisionRef: { current: 0 },
     runtimeStructureMoveRevisionRef: { current: 0 },
-    selectionRedoStackRef: refs.selectionRedoStackRef,
-    selectionUndoStackRef: refs.selectionUndoStackRef,
     setActiveFileId: vi.fn(),
     setContentRenderRevision: vi.fn(),
     setHoveredElement: vi.fn(),
@@ -180,12 +134,9 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe("redo — selection history after a file-deletion redo", () => {
-  it("preserves dormant selection history and requests history-preserving deletion", () => {
+describe("redo — file-deletion redo", () => {
+  it("requests history-preserving deletion", () => {
     const refs = sharedRefs();
-    const originalSelectionHistory = structuredClone(
-      refs.selectionUndoStackRef.current,
-    );
     const args = commonArgs(refs);
 
     runRedo(args as unknown as Parameters<typeof runRedo>[0]);
@@ -195,18 +146,6 @@ describe("redo — selection history after a file-deletion redo", () => {
       expect.arrayContaining([expect.objectContaining({ id: "screen-a" })]),
       expect.objectContaining({ preserveHistory: true }),
     );
-    expect(refs.selectionUndoStackRef.current).toEqual(
-      originalSelectionHistory,
-    );
-    expect(
-      refs.selectionUndoStackRef.current[0]?.before.selectedLayerIds,
-    ).toEqual(["screen-a"]);
-    expect(
-      refs.selectionUndoStackRef.current[0]?.after.selectedLayerIds,
-    ).toEqual(["screen-b"]);
-    expect(
-      refs.selectionUndoStackRef.current[1]?.before.overviewSelectedScreenIds,
-    ).toEqual(["screen-a"]);
   });
 
   it("builds the next undo entry from the delete action snapshot", () => {

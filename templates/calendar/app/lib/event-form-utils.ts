@@ -245,7 +245,6 @@ export function getLocalTimezone() {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 }
 
-/** New event drafts follow the viewer's browser zone unless they name one. */
 export function resolveEventTimezone(timezone?: string | null) {
   return timezone?.trim() || getLocalTimezone();
 }

@@ -1,9 +1,9 @@
 import { ActionContractError } from "@agent-native/core";
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, type ActionRunContext } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { agentTouchDocument } from "@agent-native/core/collab";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { assertAccess } from "@agent-native/core/sharing";
+import { assertAccess, currentAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import {
   getGenerationCreativeContext,
@@ -12,7 +12,7 @@ import {
   validateGenerationCreativeContext,
 } from "@agent-native/creative-context/server";
 import type { CreativeContextReuseLabel } from "@agent-native/creative-context/types";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -20,16 +20,41 @@ import {
   documentEditAttribution,
   requireDocumentRequestActor,
 } from "../server/lib/document-attribution.js";
+import {
+  isUnsupportedBodyWriter,
+  lockLegacyBodyWrites,
+} from "../server/lib/document-body-revision.js";
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
+import { isLiveBodyWriterPage } from "../server/lib/live-body-writer.js";
+import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
+import { CONTENT_LIVE_COPY_EDITS } from "../server/live-copy/binding.js";
+import { drizzleOverExec } from "../server/live-copy/exec-db.js";
+import {
+  editContentLiveCopy,
+  liveCopyBaseChanged,
+  liveCopyWriteLeftPath,
+  unrepresentableBodyError,
+} from "../server/live-copy/write.js";
 import { applyDocumentTextEdits } from "../shared/document-text-edits.js";
 import { inspectNfmFidelity } from "../shared/nfm.js";
 import {
   lockPrimaryBlocksFields,
   persistBlocksFieldIdentity,
 } from "./_blocks-field-identity.js";
-import { mutateDocumentBody } from "./_document-edit-mutation.js";
+import {
+  observeDocumentEditOutcome,
+  recordContentSaveOutcome,
+  type ContentSaveOutcomeDimensions,
+} from "./_content-save-outcomes.js";
+import {
+  assertEditableDocument,
+  mutateDocumentBody,
+} from "./_document-edit-mutation.js";
+import { assertSourceAllowsPageEdit } from "./_document-source.js";
 import { editLinkedLocalDocumentThroughBrowser } from "./_linked-local-document-edit.js";
+import { NFM_CONTAINER_SYNTAX } from "./_nfm-syntax.js";
 
 interface TextEdit {
   find: string;
@@ -93,12 +118,13 @@ const editDocumentSchema = z.object({
     .optional()
     .describe(
       'Replacement text in single-edit mode; omit to delete the matched text (default: ""). ' +
-        'Plain Markdown body, no admonition/callout shorthand like "> [!TIP]" — use <callout icon="💡">...</callout> with the body indented one tab.',
+        'NFM body: each line is a block; use <br> for hard breaks and <empty-block/> for empty paragraphs. Plain CommonMark blank lines are not preserved. No admonition/callout shorthand like "> [!TIP]" — use a <callout icon="💡"> block. ' +
+        NFM_CONTAINER_SYNTAX,
     ),
   edits: textEditsSchema
     .optional()
     .describe(
-      "JSON array of {find, replace} objects for a snapshot-stable batch; use instead of find/replace.",
+      "JSON array of {find, replace} objects for a snapshot-stable batch; use instead of find/replace. Each replace is NFM, written as for replace.",
     ),
   initializeContent: z
     .string()
@@ -108,7 +134,8 @@ const editDocumentSchema = z.object({
     })
     .optional()
     .describe(
-      "Exact Markdown containing non-whitespace content, used only to initialize a literally empty document body; mutually exclusive with find, replace, and edits.",
+      "Exact NFM containing non-whitespace content, used only to initialize a literally empty document body; mutually exclusive with find, replace, and edits. Each line is a block; use <br> for hard breaks and <empty-block/> for empty paragraphs. " +
+        NFM_CONTAINER_SYNTAX,
     ),
   contextPackId: z
     .string()
@@ -219,22 +246,87 @@ async function resolveEditCreativeContext(args: {
   };
 }
 
+/**
+ * Writes an edit without a revision to a switched page through its live
+ * copy. False when the page isn't switched, or left its live copy before
+ * anything committed.
+ */
+async function editThroughLiveCopy(args: {
+  id: string;
+  expected: string;
+  content: string;
+  ctx: ActionRunContext | undefined;
+  creativeContext: Awaited<ReturnType<typeof resolveEditCreativeContext>>;
+}): Promise<boolean> {
+  if (!(await isLiveBodyWriterPage(args.id))) return false;
+  try {
+    await editContentLiveCopy(args.id, {
+      cause: { ctx: args.ctx, operation: "edit-document" },
+      edit: CONTENT_LIVE_COPY_EDITS.replaceBody,
+      input: { content: args.content, expected: args.expected },
+      persist: async (tx, change) => {
+        await assertAccess("document", args.id, "editor", {
+          ...currentAccess(),
+          transaction: tx,
+        });
+        if (!change.changed || !args.creativeContext) return;
+        await recordGenerationCreativeContext(
+          {
+            appId: "content",
+            artifactType: "document",
+            artifactId: args.id,
+            ...args.creativeContext,
+          },
+          { db: drizzleOverExec(tx) },
+        );
+      },
+    });
+    return true;
+  } catch (error) {
+    if (liveCopyBaseChanged(error)) {
+      throw new ActionContractError(
+        "The document changed before this edit could be written. Read it again and retry.",
+        { errorCode: "DOCUMENT_REVISION_CONFLICT", statusCode: 409 },
+      );
+    }
+    if (liveCopyWriteLeftPath(error)) return false;
+    throw unrepresentableBodyError(error) ?? error;
+  }
+}
+
 export default defineAction({
   description:
-    "Edit an existing document's Markdown with exact search-and-replace operations, or initialize a literally empty body with initializeContent. Every find string must match exactly once in the immutable base. First call get-document, then pass its baseRevision and a caller-generated idempotencyKey.",
+    "Edit an existing document's NFM with exact search-and-replace operations, or initialize a literally empty body with initializeContent. NFM uses one block per line, <br> for hard breaks, and <empty-block/> for empty paragraphs; plain CommonMark blank lines are not preserved. Every find string must match exactly once in the immutable base. First call get-document, then pass its baseRevision and a caller-generated idempotencyKey.",
   deferLoading: false,
   mcpTool: true,
   agentInputSchema: externalEditDocumentSchema,
   schema: editDocumentSchema,
   http: false,
-  run: async (args, ctx) => {
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
+  changeResource: (input) => documentChangeResource(input.id),
+  run: observeDocumentEditOutcome(async (args, ctx, measurement) => {
+    const countOutcome = (
+      outcome: ContentSaveOutcomeDimensions["outcome"],
+      historyEffect: ContentSaveOutcomeDimensions["history_effect"],
+      reasonCode?: string,
+    ) => {
+      measurement.settled = true;
+      recordContentSaveOutcome("edit_document", {
+        outcome,
+        origin: "agent",
+        stale_base: "unknown",
+        history_effect: historyEffect,
+        reason_code: reasonCode,
+      });
+    };
     const id = args.id;
     if (!id) throw new Error("--id is required");
     const actor = requireDocumentRequestActor(ctx);
 
-    // Only publish AI presence for genuine agent invocations (in-app tool loop,
-    // sub-agents/A2A → "tool"; external MCP agents → "mcp"). A browser or
-    // programmatic call must never light the "AI editing" flag.
     const isAgentCaller =
       ctx?.caller === "tool" || ctx?.caller === "mcp" || ctx?.caller === "a2a";
 
@@ -271,12 +363,17 @@ export default defineAction({
 
     const access = await assertAccess("document", id, "editor");
     const existing = access.resource;
+    assertSourceAllowsPageEdit(existing);
     const isExternalCaller =
       ctx?.caller === "tool" ||
       ctx?.caller === "mcp" ||
       ctx?.caller === "webmcp" ||
       ctx?.caller === "a2a";
-    if (isExternalCaller || initializesBody) {
+    const suppliesRevisionProtocol =
+      args.baseRevision !== undefined || args.idempotencyKey !== undefined;
+    const usesRevisionProtocol =
+      isExternalCaller || initializesBody || suppliesRevisionProtocol;
+    if (usesRevisionProtocol) {
       if (!args.baseRevision || !args.idempotencyKey) {
         throw new ActionContractError(
           "External document edits require baseRevision and idempotencyKey from get-document.",
@@ -307,6 +404,7 @@ export default defineAction({
       const mutation = initializesBody
         ? { initializeContent: args.initializeContent as string }
         : { edits };
+      measurement.settled = true;
       const result = await mutateDocumentBody({
         documentId: id,
         baseRevision: args.baseRevision,
@@ -327,23 +425,25 @@ export default defineAction({
         ctx,
       });
       await writeAppState("refresh-signal", { ts: Date.now() });
-      try {
-        agentTouchDocument(id, {
-          edit: {
-            descriptor: {
-              kind: "text",
-              quote:
-                args.initializeContent?.slice(0, 80) ??
-                edits?.[0]?.replace.slice(0, 80) ??
-                "",
+      if (isAgentCaller) {
+        try {
+          agentTouchDocument(id, {
+            edit: {
+              descriptor: {
+                kind: "text",
+                quote:
+                  args.initializeContent?.slice(0, 80) ??
+                  edits?.[0]?.replace.slice(0, 80) ??
+                  "",
+              },
+              label: existing.title || undefined,
             },
-            label: existing.title || undefined,
-          },
-        });
-      } catch (error) {
-        console.error("edit-document: agent presence publish failed", error);
+          });
+        } catch (error) {
+          console.error("edit-document: agent presence publish failed", error);
+        }
       }
-      if (result.applied > 0) {
+      if (isAgentCaller && result.applied > 0) {
         track(
           "ai_refine_used",
           {
@@ -360,24 +460,20 @@ export default defineAction({
       return result;
     }
 
-    // ─── Apply edits to the document markdown ───────────────────────────────
-    //
-    // Native documents edit canonical `documents.content`. A linked local file
-    // instead commits through its exact live source bridge before SQL mirrors
-    // the accepted bytes. The SQL change is delivered to open editors through
-    // normal change-sync and parsed through the real editor pipeline so new
-    // block structure renders correctly and merges through Yjs.
-    //
-    // (The old approach POSTed a Yjs search-replace to a localhost collab origin,
-    // which silently no-oped on serverless — different process, no localhost —
-    // and could only patch text inside existing nodes, never create structure.)
+    assertEditableDocument(existing);
     const applied = applyDocumentTextEdits(existing.content ?? "", edits);
     let { content } = applied;
     const { results, changeCount } = applied;
 
     if (changeCount === 0) {
+      countOutcome(
+        edits.length === 0 ? "unchanged" : "refusal",
+        "none",
+        edits.length === 0 ? undefined : "EDIT_MATCH_MISSING",
+      );
       return { applied: 0, total: edits.length, results };
     }
+    assertNoNewlySharedVideoIds(existing.content, content);
 
     let linkedLocalPersistence:
       | {
@@ -419,6 +515,7 @@ export default defineAction({
     if (isLinkedLocalSource) {
       const ownerEmail = getRequestUserEmail();
       if (!ownerEmail) {
+        countOutcome("refusal", "none", "local_source_unavailable");
         return {
           applied: 0,
           total: edits.length,
@@ -459,6 +556,7 @@ export default defineAction({
         receipt.status !== "source-persisted/history-pending" &&
         receipt.status !== "source-persisted/readback-pending"
       ) {
+        countOutcome("refusal", "none", "local_source_refused");
         return {
           applied: 0,
           total: edits.length,
@@ -475,13 +573,44 @@ export default defineAction({
       };
     }
 
-    // Persist. The fresh updatedAt is the signal the open editor uses to tell an
-    // intentional external edit apart from a stale autosave echo.
+    if (
+      !isLinkedLocalSource &&
+      (await editThroughLiveCopy({
+        id,
+        expected: existing.content ?? "",
+        content,
+        ctx,
+        creativeContext,
+      }))
+    ) {
+      countOutcome("applied", "transition");
+      await writeAppState("refresh-signal", { ts: Date.now() });
+      return {
+        applied: changeCount,
+        total: edits.length,
+        results,
+        contentFidelity: inspectNfmFidelity(content),
+        ...(creativeContext
+          ? {
+              contextMode: creativeContext.contextMode,
+              contextPackId: creativeContext.contextPackId,
+              reuseLabels: creativeContext.reuseLabels,
+            }
+          : {}),
+      };
+    }
+
     const db = getDb();
     const now = nextDocumentUpdatedAt(existing.updatedAt);
     try {
       await db.transaction(async (tx: any) => {
         const primaryBlocksFields = await lockPrimaryBlocksFields(tx, id);
+        // The page may have switched since its write path was checked.
+        await lockLegacyBodyWrites(tx, [id], {
+          operation: "edit-document",
+          routed: !isLinkedLocalSource,
+          content: null,
+        });
         const mirrored = await tx
           .update(schema.documents)
           .set({
@@ -495,12 +624,19 @@ export default defineAction({
             and(
               eq(schema.documents.id, id),
               eq(schema.documents.updatedAt, existing.updatedAt),
+              isNull(schema.documents.trashedAt),
             ),
           )
           .returning({ id: schema.documents.id });
         if (mirrored.length !== 1) {
-          throw new Error(
-            "The document changed before Content history could be updated.",
+          const [current] = await tx
+            .select()
+            .from(schema.documents)
+            .where(eq(schema.documents.id, id));
+          assertEditableDocument(current);
+          throw new ActionContractError(
+            "The document changed before this edit could be written. Read it again and retry.",
+            { errorCode: "DOCUMENT_REVISION_CONFLICT", statusCode: 409 },
           );
         }
         for (const field of primaryBlocksFields) {
@@ -540,6 +676,23 @@ export default defineAction({
       });
     } catch (error) {
       if (!linkedLocalPersistence) throw error;
+      if (isUnsupportedBodyWriter(error)) {
+        // The page left its file and took its live copy while the file took
+        // the edit, so the file has it and the page doesn't.
+        throw new ActionContractError(
+          `Wrote this edit to local file ${linkedLocalPersistence.path}, but page ${id} now takes body writes through its live copy, so the page doesn't have it.`,
+          {
+            errorCode: error.errorCode,
+            statusCode: 409,
+            details: {
+              documentId: id,
+              operation: "edit-document",
+              sourcePath: linkedLocalPersistence.path,
+            },
+          },
+        );
+      }
+      countOutcome("applied", "none", "source_persisted_history_pending");
       return {
         applied: changeCount,
         total: edits.length,
@@ -554,6 +707,11 @@ export default defineAction({
     }
 
     if (linkedLocalHistoryReconciliation) {
+      countOutcome(
+        "refusal",
+        "transition",
+        "source_persisted_history_reconciled",
+      );
       return {
         applied: 0,
         total: edits.length,
@@ -565,8 +723,14 @@ export default defineAction({
       };
     }
 
-    // Presence is metadata only. Canonical SQL and change-sync are the sole
-    // body-delivery path; this action must never independently mutate Yjs.
+    countOutcome(
+      "applied",
+      "transition",
+      linkedLocalPersistence?.status === "source-persisted/readback-pending"
+        ? "local_source_readback_pending"
+        : undefined,
+    );
+
     if (isAgentCaller) {
       try {
         const firstChange = edits.find((edit) => edit.replace)?.replace;
@@ -621,5 +785,5 @@ export default defineAction({
           }
         : {}),
     };
-  },
+  }),
 });

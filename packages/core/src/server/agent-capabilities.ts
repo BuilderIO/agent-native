@@ -2,32 +2,24 @@ import { canonicalA2AAudience } from "../a2a/audience.js";
 import { A2AClient, A2ANoJsonRpcInterfaceError } from "../a2a/client.js";
 import { resolveRemoteAgentToken } from "../a2a/remote-agent-auth.js";
 import type { AgentCard, AgentSkill } from "../a2a/types.js";
+import {
+  AGENT_PROFILE_WHEN_TO_USE_MAX_ITEMS,
+  AGENT_PROFILE_WHEN_TO_USE_MAX_LENGTH,
+} from "../shared/agent-profile.js";
 import { type DiscoveredAgent } from "./agent-discovery.js";
 import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 
-/** Matches the `<available-apps>` prompt block so both surfaces agree. */
 export const MAX_APPS = 30;
 const MAX_SKILLS_IN_SUMMARY = 8;
 const MAX_SKILLS_IN_DETAIL = 60;
 const MAX_DESCRIPTION_CHARS = 240;
+// Every valid profile fits; the cap only bounds unparsed sources.
+const MAX_WHEN_TO_USE_CHARS =
+  AGENT_PROFILE_WHEN_TO_USE_MAX_ITEMS *
+  (AGENT_PROFILE_WHEN_TO_USE_MAX_LENGTH + "; ".length);
 const CARD_TIMEOUT_MS = 6_000;
 const CARD_CONCURRENCY = 8;
-/**
- * How long a fetched card stays reusable.
- *
- * Nothing upstream dedupes these probes: `describe-workspace-apps` ships in the
- * default first-request tool set and the `<available-apps>` prompt block names
- * it, so a single turn can re-probe every peer, and the next turn does it all
- * again. Against a local dev gateway each probe also COLD-STARTS the peer it
- * touches, so an uncached call spawns a dev server per sibling at once and the
- * whole machine stalls behind them.
- */
 const CARD_CACHE_TTL_MS = 30_000;
-/**
- * Failures expire much sooner: an unreachable peer is usually one that is still
- * booting, and holding "unreachable" for the full TTL would keep reporting a
- * live app as having no skills.
- */
 const CARD_CACHE_ERROR_TTL_MS = 5_000;
 
 interface CardCacheEntry {
@@ -38,11 +30,6 @@ interface CardCacheEntry {
 const cardCache = new Map<string, CardCacheEntry>();
 const cardsInFlight = new Map<string, Promise<PeerCapabilities>>();
 
-/**
- * Cards are fetched AS the calling user, and an anonymous card lists fewer
- * skills than an authenticated one — so identity has to be part of the key or
- * one caller would serve another caller's view.
- */
 function cardCacheKey(agent: DiscoveredAgent, authenticate = true): string {
   return [
     getRequestUserEmail() ?? "",
@@ -75,15 +62,9 @@ export function _resetCapabilityCacheForTests(): void {
 
 export interface PeerCapabilities {
   agent: DiscoveredAgent;
-  /** null distinguishes an unreachable card from a peer that exposes nothing. */
   skills: AgentSkill[] | null;
   cardDescription?: string;
   error?: string;
-  /**
-   * The full card from this same fetch, for callers that need more than
-   * skills/description (e.g. the peer-probe route's name/securitySchemes).
-   * Kept optional so existing consumers of this shape are unaffected.
-   */
   card?: AgentCard;
   cardStatus?: "reachable" | "auth-rejected" | "no-json-rpc";
 }
@@ -94,9 +75,6 @@ function truncate(value: string, max: number): string {
 }
 
 function isReadOnlySkill(skill: AgentSkill): boolean {
-  // Public cards carry the read-only contract on `publicAgent`; authenticated
-  // cards carry the normalized `readOnly` flag. Treat either as a read so a
-  // caller does not mistake a safe capability for a message-only mutation.
   return (
     skill.readOnly === true ||
     (skill.readOnly === undefined && skill.publicAgent?.readOnly === true)
@@ -111,8 +89,6 @@ export async function loadCapabilities(
   const key = cardCacheKey(agent, authenticate);
   const cached = cardCache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.value;
-  // Collapse a burst for the same peer onto one probe. Without this, the
-  // concurrency window below still issues one fetch per caller in the burst.
   const inFlight = cardsInFlight.get(key);
   if (inFlight) return inFlight;
 
@@ -146,10 +122,6 @@ async function fetchCapabilities(
     };
   }
   try {
-    // Discover as ourselves. An anonymous card lists only publicly-safe
-    // actions, which never overlap the set `actions/invoke` accepts, so an
-    // unauthenticated probe reports every sibling as having no callable
-    // actions and pushes the caller into open-ended delegation.
     let token: string | undefined;
     if (authenticate && agent.auth) {
       token = await resolveRemoteAgentToken(agent.auth, {
@@ -233,21 +205,19 @@ export async function loadAllCapabilities(
 }
 
 export function purposeOf(peer: PeerCapabilities): string {
-  // The manifest description comes from the app's own package.json and is
-  // authored; the card description is a generic template for auto-mounted
-  // apps, so it is only a fallback.
-  const manifest = peer.agent.description?.trim();
-  if (manifest) return truncate(manifest, MAX_DESCRIPTION_CHARS);
-  const card = peer.cardDescription?.trim();
-  return card
-    ? truncate(card, MAX_DESCRIPTION_CHARS)
+  const description =
+    peer.agent.description?.trim() || peer.cardDescription?.trim();
+  const purpose = description
+    ? truncate(description, MAX_DESCRIPTION_CHARS)
     : "(no description published)";
+  // Ranking matches on whenToUse; without it here the model picks between
+  // ranked apps by name alone and can overrule the ranking.
+  const whenToUse = peer.agent.whenToUse?.join("; ").trim();
+  return whenToUse
+    ? `${purpose}\nWhen to use: ${truncate(whenToUse, MAX_WHEN_TO_USE_CHARS)}`
+    : purpose;
 }
 
-/**
- * `detailHint` differs per surface: the agent tool tells the model to call
- * itself again with an app id, the CLI tells the reader to pass `--app`.
- */
 export function formatCapabilitySummary(
   peers: PeerCapabilities[],
   truncated: number,
@@ -294,11 +264,6 @@ export function formatCapabilitySummary(
     .join("\n");
 }
 
-/**
- * Render a skill's `input` contract as `input: { field*: type, other?: type }`,
- * marking required fields with `*`. Returns undefined when the skill publishes
- * no schema, so callers fall back to the description alone.
- */
 function formatSkillInput(skill: AgentSkill): string | undefined {
   const schema = skill.inputSchema as
     | {
@@ -345,9 +310,6 @@ export function formatCapabilityDetail(
     const summary = skill.description
       ? truncate(skill.description, MAX_DESCRIPTION_CHARS)
       : skill.name || "(no description)";
-    // Naming an action without its parameters is what makes a caller invoke it
-    // with `{}` and fail on a required field, which reads as the sibling being
-    // broken rather than as a malformed call.
     const readOnly = isReadOnlySkill(skill);
     const classification = readOnly
       ? ""

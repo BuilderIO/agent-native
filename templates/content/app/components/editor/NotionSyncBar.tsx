@@ -52,8 +52,6 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
       lastSyncedRef.current &&
       lastSyncedRef.current !== syncStatus.lastSyncedAt
     ) {
-      // Bare ["action"] refetches every mounted query app-wide (sidebar tree,
-      // comments, database views, search, connection status) on each sync tick.
       invalidateDocumentQueries(queryClient, documentId);
     }
     lastSyncedRef.current = syncStatus.lastSyncedAt;
@@ -223,10 +221,11 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
             {!syncStatus?.pageId ? (
               <>
                 <Input
+                  size="sm"
                   value={pageIdOrUrl}
                   onChange={(e) => setPageIdOrUrl(e.target.value)}
                   placeholder={t("editor.toolbar.notionPageUrlOrId")}
-                  className="h-8 w-full sm:w-[260px]"
+                  className="w-full sm:w-[260px]"
                 />
                 <Button
                   size="sm"

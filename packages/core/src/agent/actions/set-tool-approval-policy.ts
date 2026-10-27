@@ -9,6 +9,15 @@ export default defineAction({
   schema: z.object({
     toolName: z.string().trim().min(1).max(128),
     enabled: z.boolean().default(true),
+    approvalId: z
+      .string()
+      .trim()
+      .min(1)
+      .max(200)
+      .optional()
+      .describe(
+        "The approval the user clicked, so the grant covers that tool revision.",
+      ),
   }),
   http: { method: "POST" },
   agentTool: false,
@@ -23,6 +32,7 @@ export default defineAction({
         toolName: args.toolName,
       },
       enabled: args.enabled,
+      ...(args.approvalId ? { approvalId: args.approvalId } : {}),
     });
     return { toolName: args.toolName, enabled: args.enabled };
   },

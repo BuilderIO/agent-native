@@ -24,10 +24,6 @@ import {
   type FormSettings,
 } from "./types.js";
 
-// ---------------------------------------------------------------------------
-// Minimal zero-dependency assertion harness
-// ---------------------------------------------------------------------------
-
 let passed = 0;
 const failures: string[] = [];
 
@@ -47,10 +43,6 @@ function assert(cond: unknown, message: string) {
   if (!cond) throw new Error(message);
 }
 
-// ---------------------------------------------------------------------------
-// Fixture: a full owner FormSettings carrying secrets + legit public fields
-// ---------------------------------------------------------------------------
-
 const SLACK_WEBHOOK =
   "https://hooks.slack.com/services/T00000000/B11111111/SECRETxxxxxxxxxxxxxxxx";
 const DISCORD_WEBHOOK =
@@ -67,7 +59,6 @@ const SECRET_STRINGS = [
 ];
 
 const ownerSettings: FormSettings = {
-  // legitimate public-facing fields
   submitText: "Send it",
   successMessage: "Thanks, we got your response!",
   redirectUrl: "https://example.com/thanks",
@@ -75,7 +66,6 @@ const ownerSettings: FormSettings = {
   completionRefreshSeconds: 7,
   showProgressBar: true,
   anonymous: true,
-  // owner-private secrets that must NOT leak
   integrations: [
     {
       id: "int-slack",
@@ -101,10 +91,6 @@ const ownerSettings: FormSettings = {
   ],
   allowedOrigins: ["https://app.example.com", SECRET_ORIGIN],
 };
-
-// ---------------------------------------------------------------------------
-// 1. toPublicFormSettings projection
-// ---------------------------------------------------------------------------
 
 console.log("toPublicFormSettings projection");
 
@@ -141,7 +127,6 @@ check(
         `secret leaked into projection: ${secret}`,
       );
     }
-    // Also guard against partial leaks of the obvious secret tokens.
     for (const token of [
       "hooks.slack.com",
       "discord.com/api/webhooks",
@@ -244,17 +229,8 @@ check("rejects invalid completion settings at the action boundary", () => {
   assert(threw, "invalid completion mode was accepted");
 });
 
-// ---------------------------------------------------------------------------
-// 2. Public payload shape — mirrors what getPublicForm / getFormBySlugOrId
-//    build from a stored DB row. We reproduce the exact `result` object both
-//    public handlers serialize (settings projected through the allowlist) from
-//    a stubbed row, and assert no integration/webhook data survives.
-// ---------------------------------------------------------------------------
-
 console.log("public handler payload (stubbed DB row)");
 
-// A stored forms row keeps `settings` and `fields` as JSON strings (see
-// JSON.parse(row.settings) in both public handlers).
 const stubbedRow = {
   id: "form_abc123",
   title: "Customer Feedback",
@@ -267,8 +243,6 @@ const stubbedRow = {
   settings: JSON.stringify(ownerSettings),
 };
 
-// This is byte-for-byte the projection logic both public handlers run after the
-// row passes the published/not-deleted gate.
 const settings = JSON.parse(stubbedRow.settings) as FormSettings;
 const publicResult = {
   id: stubbedRow.id,
@@ -312,10 +286,6 @@ check("public payload still exposes what the renderer needs", () => {
   assert(publicResult.title === "Customer Feedback", "title missing");
   assert(Array.isArray(publicResult.fields), "fields missing");
 });
-
-// ---------------------------------------------------------------------------
-// Summary / exit code
-// ---------------------------------------------------------------------------
 
 const total = passed + failures.length;
 console.log("");

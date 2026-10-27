@@ -219,9 +219,7 @@ function buildRegistryServer(
       REGISTRY_DESCRIPTION_OVERRIDES[template.name] ??
       normalizeDescription(template.hint),
     version: REGISTRY_VERSIONS[template.name],
-    websiteUrl:
-      REGISTRY_WEBSITE_OVERRIDES[template.name] ??
-      `https://www.agent-native.com/apps/${template.name}`,
+    websiteUrl: registryWebsiteUrl(template.name),
     repository: {
       url: REPOSITORY_URL,
       source: "github",
@@ -236,6 +234,17 @@ function buildRegistryServer(
 
   validateRegistryServer(server, template.name);
   return server;
+}
+
+// Registries render websiteUrl as a link, so it carries the registry it appears in.
+function registryWebsiteUrl(appName: string): string {
+  const url = new URL(
+    REGISTRY_WEBSITE_OVERRIDES[appName] ??
+      `https://www.agent-native.com/apps/${appName}`,
+  );
+  url.search =
+    "utm_source=mcp-registry&utm_medium=referral&utm_content=server-website";
+  return url.toString();
 }
 
 function normalizeDescription(description: string): string {

@@ -1,19 +1,5 @@
 import { readFileSync } from "node:fs";
 
-/**
- * DesignEditor.linkedBreakpointUndo.spec.ts
- *
- * BUG-UNDO-LINKED-BREAKPOINT — overview shows one screen as a primary frame
- * plus linked breakpoint iframes (`screenId::bp-<width>`). Editing padding
- * (or another base style) on the main frame updates every linked frame
- * because they share one design_files document. Undo used to call only the
- * active canvas's replace bridge, so the main frame reverted while the
- * smaller breakpoint kept the edited styles.
- *
- * The active `__designCanvasReplaceContent` helper now fans out through
- * replaceLinkedScreenPreviewContent. This spec pins that contract the same
- * way DesignEditor.liveSnapshotUndoSync.spec.ts pins live-snapshot undo.
- */
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -57,7 +43,6 @@ describe("linked breakpoint undo/redo — multi-frame preview sync (BUG-UNDO-LIN
       primary: after,
       breakpoint390: after,
     };
-    // Old undo path: only __designCanvasReplaceContent on the active frame.
     state.primary = before;
     expect(state.primary).toBe(before);
     expect(state.breakpoint390).toBe(after);

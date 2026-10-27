@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 
@@ -92,7 +92,10 @@ export default defineAction({
   run: async ({ url, maxChars }) => {
     const documentId = extractGoogleDocId(url);
     if (!documentId) {
-      throw new Error("That does not look like a Google Docs document URL.");
+      fail("That does not look like a Google Docs document URL.", {
+        errorCode: "invalid_google_doc_url",
+        statusCode: 400,
+      });
     }
 
     const limit = maxChars ?? DEFAULT_MAX_CHARS;
@@ -100,11 +103,15 @@ export default defineAction({
     const owner = getRequestUserEmail();
     let userConnection: { accessToken: string; accountEmail: string } | null =
       null;
+    // The lookup reads the DB, vault and credential store; its error text is
+    // server detail (a driver message can carry the owner's email), never part
+    // of the user's "could not read" message.
+    let connectionLookupError: unknown;
     if (owner) {
       try {
         userConnection = await getGoogleDocsAccessToken(owner);
       } catch (error) {
-        errors.push(error instanceof Error ? error.message : String(error));
+        connectionLookupError = error;
       }
     }
 
@@ -133,12 +140,16 @@ export default defineAction({
     }
 
     if (!text || !source) {
+      // Unreadable only through Google is the user's problem; without the
+      // user's own connection checked, it is the server's.
+      if (connectionLookupError !== undefined) throw connectionLookupError;
       const shareHint = userConnection
         ? `Choose this document from the Google Docs picker so ${userConnection.accountEmail} grants file access, or set the link to "Anyone with the link can view", then try again.`
         : 'Connect Google Docs and choose the file, set the link to "Anyone with the link can view", or upload an exported .docx file.';
-      throw new Error(
-        `Could not read that Google Doc. ${shareHint} ${errors.join(" ")}`,
-      );
+      fail(`Could not read that Google Doc. ${shareHint} ${errors.join(" ")}`, {
+        errorCode: "google_doc_unreadable",
+        statusCode: 422,
+      });
     }
 
     const truncated = text.length > limit;

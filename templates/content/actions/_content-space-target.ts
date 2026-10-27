@@ -7,13 +7,15 @@ import {
   normalizeContentSpaceEmail,
   resolveContentSpaceAccess,
 } from "./_content-space-access.js";
-import { provisionContentSpaces } from "./_content-spaces.js";
+import {
+  personalContentSpaceId,
+  provisionContentSpaces,
+} from "./_content-spaces.js";
 
 export type ContentSpaceNameCandidate = { id: string; name: string };
 
 export type ContentSpaceTargetResolution = {
   spaceId: string;
-  /** How the target was chosen, so callers can report it instead of assuming. */
   matchedBy: "id" | "name" | "default";
 };
 
@@ -21,11 +23,6 @@ function compare(value: string) {
   return value.trim().toLowerCase();
 }
 
-/**
- * Name matching is deliberately exact-after-normalization. A near match is
- * reported as unresolved rather than guessed, because guessing here writes a
- * user's pages into a workspace they did not name.
- */
 export function matchContentSpaceByName(
   candidates: ContentSpaceNameCandidate[],
   name: string,
@@ -68,19 +65,14 @@ export async function listAuthorizedContentSpaces(
   return rows as ContentSpaceNameCandidate[];
 }
 
-/**
- * Resolves the workspace a create call should write into.
- *
- * A named workspace that cannot be resolved is an error, never a fall back to
- * the personal workspace: silently retargeting the write makes a wrong-workspace
- * create indistinguishable from a correct one for both the caller and the user.
- */
 export async function resolveContentSpaceTarget(args: {
   db: any;
   userEmail: string;
   spaceId?: string | null;
   spaceName?: string | null;
   requiredRole?: "viewer" | "contributor" | "editor";
+  /** false resolves without creating the caller's workspaces, for previews. */
+  provision?: boolean;
 }): Promise<ContentSpaceTargetResolution> {
   const requiredRole = args.requiredRole ?? "contributor";
   const spaceName = args.spaceName?.trim() || null;
@@ -90,10 +82,10 @@ export async function resolveContentSpaceTarget(args: {
       { errorCode: "SPACE_TARGET_CONFLICT", statusCode: 400 },
     );
   }
-  // Provisioning first is load-bearing: a workspace the caller was just granted
-  // has no row until it is reconciled, so resolving an id or a name before this
-  // reports an authorized workspace as missing.
-  const provisioned = await provisionContentSpaces(args.db, args.userEmail);
+  const personalSpaceId =
+    args.provision === false
+      ? personalContentSpaceId(args.userEmail)
+      : (await provisionContentSpaces(args.db, args.userEmail)).personalSpaceId;
   if (args.spaceId) {
     await resolveContentSpaceAccess(args.spaceId, requiredRole, {
       db: args.db,
@@ -129,8 +121,12 @@ export async function resolveContentSpaceTarget(args: {
     });
     return { spaceId: match.spaceId, matchedBy: "name" };
   }
-  await resolveContentSpaceAccess(provisioned.personalSpaceId, requiredRole, {
-    db: args.db,
-  });
-  return { spaceId: provisioned.personalSpaceId, matchedBy: "default" };
+  // An unprovisioned Personal workspace has no row to check yet, but its id
+  // derives from the caller's own email.
+  if (args.provision !== false) {
+    await resolveContentSpaceAccess(personalSpaceId, requiredRole, {
+      db: args.db,
+    });
+  }
+  return { spaceId: personalSpaceId, matchedBy: "default" };
 }

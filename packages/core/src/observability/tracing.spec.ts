@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   type AgentSpan,
@@ -15,11 +15,6 @@ import {
   withAgentSpanContext,
 } from "./tracing.js";
 
-/**
- * In-memory test tracer standing in for a registered OpenTelemetry provider.
- * Records every span and its attributes/status so we can assert the helper
- * emits the expected span names and attributes when a provider IS present.
- */
 interface RecordedSpan {
   name: string;
   attributes: Record<string, string | number | boolean>;
@@ -73,6 +68,7 @@ function createTestTracer() {
 
 afterEach(() => {
   __resetAgentTracerCache();
+  vi.doUnmock("@opentelemetry/api");
 });
 
 describe("tracing helper — no provider registered", () => {
@@ -83,10 +79,37 @@ describe("tracing helper — no provider registered", () => {
   });
 
   it("endAgentSpan no-ops safely on a null span", () => {
-    // Must not throw.
     expect(() =>
       endAgentSpan(null, { status: "error", errorMessage: "boom" }),
     ).not.toThrow();
+  });
+
+  it("treats an absent optional OpenTelemetry peer as no provider", async () => {
+    vi.doMock("@opentelemetry/api", () => {
+      throw Object.assign(
+        new Error("Cannot find package '@opentelemetry/api'"),
+        { code: "ERR_MODULE_NOT_FOUND" },
+      );
+    });
+
+    await expect(startAgentSpan("agent.run")).resolves.toBeNull();
+  });
+
+  it("disables tracing and warns once when OpenTelemetry fails to load", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.doMock("@opentelemetry/api", () => ({
+      trace: {
+        getTracer() {
+          throw new Error("OpenTelemetry module failed to initialize");
+        },
+      },
+    }));
+
+    await expect(startAgentSpan("agent.run")).resolves.toBeNull();
+    await expect(startAgentSpan("agent.run")).resolves.toBeNull();
+    expect(warning).toHaveBeenCalledTimes(1);
+    expect(warning.mock.calls[0]?.[0]).toContain("tracing disabled");
+    warning.mockRestore();
   });
 });
 
@@ -154,10 +177,10 @@ describe("tracing helper — test provider registered", () => {
     __setAgentTracerForTests(tracer as any);
 
     await recordTrackingEvent(
-      "http.response",
+      "action_completed",
       {
         source: "server",
-        action_name: "list-visual-plans",
+        action: "list-visual-plans",
         method: "GET",
         path: "/_agent-native/actions/list-visual-plans",
         route_template: "/_agent-native/actions/:action",
@@ -169,9 +192,9 @@ describe("tracing helper — test provider registered", () => {
     );
 
     expect(spans[0]).toMatchObject({
-      name: "http.server",
+      name: "action.server",
       attributes: {
-        "agent.event_name": "http.response",
+        "agent.event_name": "action_completed",
         "agent.source": "server",
         "agent.telemetry_source": "server",
         "agent.action": "list-visual-plans",
@@ -284,7 +307,7 @@ describe("tracing helper — test provider registered", () => {
     const { tracer, spans } = createTestTracer();
     __setAgentTracerForTests(tracer as any);
 
-    queueTrackingEvent("http.response", { duration_ms: 42 }, "server");
+    queueTrackingEvent("action_completed", { duration_ms: 42 }, "server");
     await flushTrackingEvents();
 
     expect(spans[0]?.ended).toBe(true);

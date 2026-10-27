@@ -118,11 +118,6 @@ function selectedSubtreeNodeIds(layerHtml: string): Set<string> {
   return nodeIds;
 }
 
-/**
- * Capture only managed declarations owned by the selected subtree. Responsive
- * utility classes need no parallel payload: they already live on the cloned
- * elements' `class` attributes and are copied with the subtree HTML.
- */
 export function extractDesignClipboardManagedStyles(
   sourceHtml: string,
   layerHtml: string,
@@ -184,12 +179,6 @@ export function extractDesignClipboardManagedStyles(
   return { version: 1, breakpoints, interactionStates };
 }
 
-/**
- * Merge remapped declarations into the target document in the same content
- * value as the cloned DOM insertion. Model serialization preserves the
- * desktop-down cascade and makes repeated application with the same id map
- * byte-idempotent rather than appending duplicate raw rules.
- */
 export function applyDesignClipboardManagedStyles(
   targetHtml: string,
   snapshots: Array<DesignClipboardManagedStyleSnapshot | null | undefined>,

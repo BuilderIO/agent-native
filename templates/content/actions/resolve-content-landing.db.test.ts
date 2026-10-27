@@ -279,7 +279,22 @@ describe("resolve-content-landing", () => {
       return resolveContentLandingAction.run({});
     });
 
-    expect(result).toEqual({ documentId, resolution: "restored" });
+    expect(result).toEqual({
+      documentId,
+      resolution: "restored",
+      account: { email: userEmail, orgId: null },
+    });
+  });
+
+  it("names the account and organization it resolved the landing for", async () => {
+    const userEmail = "landing-account@example.com";
+    const orgId = "landing-account-org";
+
+    const result = await runWithRequestContext({ userEmail, orgId }, () =>
+      resolveContentLandingAction.run({}),
+    );
+
+    expect(result.account).toEqual({ email: userEmail, orgId });
   });
 
   it("falls back without exposing an inaccessible saved document", async () => {
@@ -307,7 +322,43 @@ describe("resolve-content-landing", () => {
       "documentId",
       "resolution",
       "fallbackReason",
+      "welcomeCreated",
+      "account",
     ]);
+  });
+
+  it("reports a Welcome page created while falling back", async () => {
+    const userEmail = "landing-fallback-creates@example.com";
+    const deletedDocumentId = "landing-fallback-creates-document";
+    await createPersonalDocument(userEmail, deletedDocumentId);
+    await getDb()
+      .update(schema.documents)
+      .set({ trashedAt: new Date().toISOString() })
+      .where(eq(schema.documents.id, deletedDocumentId));
+
+    const [first, second] = await runWithRequestContext(
+      { userEmail },
+      async () => {
+        await writeAppState(CONTENT_LAST_LOCATION_STATE_KEY, {
+          documentId: deletedDocumentId,
+        });
+        return [
+          await resolveContentLandingAction.run({}),
+          await resolveContentLandingAction.run({}),
+        ];
+      },
+    );
+
+    expect(first).toMatchObject({
+      resolution: "fallback",
+      fallbackReason: "saved-document-unavailable",
+      welcomeCreated: true,
+    });
+    expect(second).toMatchObject({
+      documentId: first.documentId,
+      resolution: "fallback",
+    });
+    expect(second).not.toHaveProperty("welcomeCreated");
   });
 
   it("falls back from a deleted saved document", async () => {
@@ -360,6 +411,7 @@ describe("resolve-content-landing", () => {
     expect(second).toEqual({
       documentId: first.documentId,
       resolution: "welcome-reused",
+      account: { email: userEmail, orgId: null },
     });
   });
 
@@ -380,6 +432,7 @@ describe("resolve-content-landing", () => {
     expect(second).toEqual({
       documentId: first.documentId,
       resolution: "welcome-reused",
+      account: { email: userEmail, orgId: null },
     });
   });
 

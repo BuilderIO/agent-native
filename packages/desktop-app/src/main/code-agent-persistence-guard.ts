@@ -11,7 +11,6 @@ function boundedLogValue(value: string): string {
   return value.slice(0, MAX_LOG_VALUE_LENGTH);
 }
 
-/** Keeps child-process event handlers from escalating transient store failures. */
 export function guardCodeAgentPersistence(
   context: CodeAgentPersistenceLogContext,
   persist: () => void,

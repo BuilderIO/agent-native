@@ -13,8 +13,6 @@ import {
   sanitizeFormFileValue,
 } from "./file-upload-policy.js";
 
-// Field value size limits by type. Keep public submissions bounded even when
-// callers bypass the browser renderer and POST directly to /api/submit/:id.
 const MAX_FIELD_LENGTH: Record<string, number> = {
   text: 1000,
   email: 1000,
@@ -85,10 +83,6 @@ function isAbsentSubmissionValue(value: unknown): boolean {
 function validatePattern(field: FormField, value: string): string | null {
   const pattern = field.validation?.pattern;
   if (!pattern) return null;
-  // Forms authored before the authoring gate landed can still hold a pattern
-  // that backtracks exponentially, and this runs inside the submit handler -
-  // evaluating one would peg the event loop for every other request too.
-  // Refuse the submission rather than silently accepting an unenforced rule.
   const result = testUserRegex(pattern, value);
   if (result.status === "unevaluated") {
     return `${fieldLabel(field)} has a validation pattern that cannot be checked safely: ${result.reason}`;

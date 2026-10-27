@@ -1,12 +1,7 @@
 import { SHELL_CANVAS_PATH } from "@shared/shell-screens";
 
-/**
- * The parent origin the Builder handshake arrived from, recorded once a
- * `design:init` message passes the host check.
- *
- * Origin sniffing cannot confirm a Builder running on localhost — every local
- * dev session — so the handshake is the only signal that works in both.
- */
+import { isInProcessDesignHost } from "@/host/design-host-channel";
+
 let verifiedBuilderHostOrigin: string | null = null;
 
 export function rememberBuilderHostOrigin(origin: string): void {
@@ -23,6 +18,8 @@ export function getVerifiedBuilderHostOrigin(): string | null {
  */
 export function isBuilderHostEmbed(): boolean {
   if (typeof window === "undefined") return false;
+  // Mounted in-process by a host page: the URL is the host's, not ours.
+  if (isInProcessDesignHost()) return true;
   return window.location.pathname === SHELL_CANVAS_PATH;
 }
 

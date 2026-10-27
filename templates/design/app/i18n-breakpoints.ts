@@ -1,8 +1,3 @@
-/**
- * Localized strings for BreakpointDeviceControl and breakpoint interactions.
- * Used in: app/components/design/BreakpointBar.tsx (the unified breakpoint
- * targeting control in the right-inspector header).
- */
 export const breakpointBarOverrides = {
   "en-US": {
     designEditor: {

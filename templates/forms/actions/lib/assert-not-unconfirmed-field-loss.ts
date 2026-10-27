@@ -1,25 +1,8 @@
-/**
- * Guards the one `update-form` call shape that silently destroys a form: a
- * whole-array `fields` replacement that discards most of what the form already
- * asked.
- *
- * The routing mistake this backstops is not hypothetical. `<current-screen>`
- * names exactly one open form on every turn, so after the agent creates a
- * draft, an unrelated "build me an X form" prompt in the same chat reads as an
- * edit to that draft, and `update-form` replaces its schema in place. The
- * previous questions are then unrecoverable — forms keep no revision history.
- *
- * Detection is structural on purpose: intent lives in the prompt, but "this
- * call drops most of the existing questions" is visible right here, at the only
- * boundary that can still refuse.
- */
 import { fail } from "@agent-native/core/action";
 
 import type { FormField } from "../../shared/types.js";
 
-/** Below this, there is not enough of a form to meaningfully lose. */
 const MIN_EXISTING_FIELDS = 2;
-/** Dropping one field is an edit; dropping several is a rewrite. */
 const MIN_DROPPED_FIELDS = 2;
 const MIN_DROPPED_RATIO = 0.5;
 
@@ -51,9 +34,6 @@ export function detectMassFieldLoss(
     incoming.map((field) => [field.id, normalizeLabel(field.label)]),
   );
 
-  // Budget, not a membership set: labels are not unique, so one incoming
-  // "Name" must cover exactly one existing "Name". A set lets a single field
-  // stand in for every duplicate and hides the rest of the loss.
   const availableLabels = new Map<string, number>();
   for (const label of incomingLabelById.values()) {
     if (label)
@@ -67,8 +47,6 @@ export function detectMassFieldLoss(
     return true;
   }
 
-  // An id match consumes that incoming field outright, so its label is no
-  // longer available to cover a different existing field.
   for (const field of existing) {
     const matchedLabel = incomingLabelById.get(field.id);
     if (matchedLabel) consumeLabel(matchedLabel);
@@ -91,13 +69,6 @@ export function detectMassFieldLoss(
   };
 }
 
-/**
- * Fails the update unless the caller explicitly acknowledged the loss.
- *
- * The message leads with `create-form` because that is the correct recovery for
- * the common case (a new, unrelated form request), and names the confirmation
- * flag second for the genuine "rewrite this form" case.
- */
 export function assertNotUnconfirmedFieldLoss(options: {
   existing: FormField[];
   incoming: FormField[];

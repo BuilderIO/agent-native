@@ -57,7 +57,6 @@ export const DEFAULT_MOBILE_ACTIONS: MobileActionId[] = [
   "next",
 ];
 
-/** Metadata for each action: stable id plus icon SVG. */
 const ACTION_META: Record<
   MobileActionId,
   {
@@ -224,7 +223,6 @@ export function MobileActionBar({
                       const next = enabled
                         ? actions.filter((a) => a !== id)
                         : [...actions, id];
-                      // Maintain canonical order
                       const ordered = ALL_MOBILE_ACTIONS.filter((a) =>
                         next.includes(a),
                       );
@@ -243,7 +241,6 @@ export function MobileActionBar({
                         const next = checked
                           ? [...actions, id]
                           : actions.filter((a) => a !== id);
-                        // Maintain canonical order
                         const ordered = ALL_MOBILE_ACTIONS.filter((a) =>
                           next.includes(a),
                         );

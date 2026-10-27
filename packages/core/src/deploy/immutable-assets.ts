@@ -11,16 +11,11 @@ export const IMMUTABLE_ASSET_CACHE_HEADERS = {
 } as const;
 
 export const IMMUTABLE_ASSET_PATH_PATTERN =
-  "^/assets/[^/]+-[A-Za-z0-9_-]{8}\\.[a-z0-9]+$";
+  "^/assets/(?:[^/]+/)*[^/]+-[A-Za-z0-9_-]{8}\\.[a-z0-9]+$";
 
 const IMMUTABLE_ASSET_PATH_RE = new RegExp(IMMUTABLE_ASSET_PATH_PATTERN);
 
 export function isImmutableAssetPath(pathname: string): boolean {
-  // Vite emits content-hashed production chunks under /assets/. Those URLs are
-  // stable forever because any content change produces a new filename, so they
-  // should be cached for a year at both the browser and CDN layer. Keep this
-  // exact hashed-file check; broad /assets/* immutable caching would pin
-  // manually named files like logo.png that templates may replace in place.
   return IMMUTABLE_ASSET_PATH_RE.test(pathname);
 }
 

@@ -5,10 +5,13 @@ const mocks = vi.hoisted(() => ({
     kind: "auth-plugin",
     options,
   })),
+  registerAuthPublicPaths: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
   createAuthPlugin: mocks.createAuthPlugin,
+  registerAuthPublicPaths: mocks.registerAuthPublicPaths,
+  registerDelegatedBuilderCredentials: vi.fn(),
 }));
 
 import authPlugin from "./auth.js";
@@ -44,6 +47,16 @@ describe("design auth plugin", () => {
     );
   });
 
+  it("registers only the storyboard upload route for its own A2A verifier", () => {
+    expect(mocks.registerAuthPublicPaths).toHaveBeenCalledOnce();
+    expect(mocks.registerAuthPublicPaths).toHaveBeenCalledWith([
+      "/api/session-replay-storyboard",
+    ]);
+
+    const options = mocks.createAuthPlugin.mock.calls[0]?.[0];
+    expect(options.publicPaths).not.toContain("/api/session-replay-storyboard");
+  });
+
   it("does not expose review comment mutations", () => {
     const options = mocks.createAuthPlugin.mock.calls[0]?.[0];
 
@@ -55,5 +68,19 @@ describe("design auth plugin", () => {
         "/_agent-native/actions/delete-review-comment",
       ]),
     );
+  });
+
+  it("reads a Builder user on cookie-only pages from the same signed cookie", async () => {
+    vi.resetModules();
+    vi.stubEnv("BUILDER_IDENTITY", "1");
+    mocks.createAuthPlugin.mockClear();
+    try {
+      await import("./auth.js");
+      const options = mocks.createAuthPlugin.mock.calls[0]?.[0];
+      expect(options.getSession).toBeTypeOf("function");
+      expect(options.getBrowserSession).toBe(options.getSession);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

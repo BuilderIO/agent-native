@@ -19,7 +19,7 @@ Votre Bibliothèque affiche d'abord les dossiers, puis les enregistrements, sous
 Trois façons d'ajouter un clip à votre bibliothèque, toutes depuis le bouton **Enregistrer** et le menu **Importer** juste à côté. Faire un clic droit sur un espace vide de la Bibliothèque propose les mêmes trois options, plus **Nouveau dossier**.
 
 - **Enregistrer.** L'enregistreur d'écran intégré de Clips, avec une superposition webcam, une capture audio, et des contrôles de pause/coupe.
-- **Importer un fichier vidéo.** Ajoutez une vidéo existante directement depuis votre ordinateur, sans avoir besoin d'enregistrer.
+- **Importer un fichier vidéo.** Ajoutez une vidéo existante directement depuis votre ordinateur, ou déposez-la sur la grille de la Bibliothèque ou des Espaces. Aucun enregistrement n'est nécessaire.
 - **Importer depuis Loom.** Ramenez une vidéo Loom publique sans avoir à la réenregistrer. À côté de **Enregistrer**, ouvrez **Importer**, choisissez **Importer depuis Loom**, puis collez une URL de partage ou d'intégration Loom. Clips enregistre une copie dans votre bibliothèque et importe la transcription publique quand Loom en fournit une.
 
 ### Gérer un clip
@@ -86,11 +86,13 @@ Archiver et mettre à la corbeille masquent tous les deux un clip de la Biblioth
 
 ### Afficher les clips {#shared-view-clips}
 
-Cette vue liste chaque enregistrement que quelqu'un a partagé directement avec vous ou votre organisation, par nom ou par un réglage de visibilité à l'échelle de l'organisation. Un lien public que quelqu'un possède par hasard ne compte pas dans cette liste. Vous pouvez regarder et commenter ici, mais il n'y a pas de menu à trois points : gérer un clip (le déplacer, l'archiver, le partager davantage) reste la décision du propriétaire.
+Cette vue liste chaque enregistrement que quelqu'un a partagé directement avec vous ou votre organisation, par nom ou par un réglage de visibilité à l'échelle de l'organisation. Un lien public que quelqu'un possède par hasard ne compte pas dans cette liste.
+
+Vous pouvez regarder et naviguer dans les clips partagés, et réduire la barre latérale pour donner plus de place à la vidéo. Vous pouvez commenter ici, mais il n'y a pas de menu à trois points : gérer un clip (le déplacer, l'archiver, le partager davantage) reste la décision du propriétaire.
 
 ### Commenter les clips
 
-Ajoutez un commentaire au point exact de la vidéo que vous regardez, pas seulement sur l'enregistrement dans son ensemble. Les commentaires se répondent en fil de discussion, prennent en charge le gras, l'italique, le code en ligne, et les liens (les titres sont aplatis en texte brut), et peuvent mentionner un coéquipier avec @ pour le notifier.
+Ajoutez un commentaire au point exact de la vidéo que vous regardez, pas seulement sur l'enregistrement dans son ensemble. Les commentaires se répondent en fil de discussion, prennent en charge le gras, l'italique, le code en ligne, et les liens (les titres sont aplatis en texte brut), et peuvent mentionner un coéquipier avec @ pour le notifier. Les champs de commentaire s'agrandissent au fur et à mesure que vous tapez, et le fil s'étend pour afficher les commentaires plus longs.
 
 ## Espaces
 
@@ -132,23 +134,57 @@ Rewind est désactivé par défaut. Rien n'est capturé jusqu'à ce que vous l'a
 
 Activez Rewind depuis l'onglet Rewind dans les Paramètres. Une fois activé, vous pouvez demander à l'agent des choses comme « qu'est-ce que je regardais il y a 20 minutes ? » et il lit des extraits de texte depuis le tampon local du texte à l'écran, du contexte de l'application et de la fenêtre, et des fragments de transcription. L'agent ne reçoit jamais les enregistrements eux-mêmes, à une exception : une demande que vous examinez et approuvez, qui transforme une plage exacte en un clip privé.
 
-#### Ajouter ce qui s'est passé avant
+### Temps d'écran précédent {#earlier-screen-time}
 
-Dans l'éditeur d'un clip, **Ajouter ce qui s'est passé avant** récupère les 30 secondes ou les 5 minutes précédentes depuis votre historique Rewind local et les ajoute au début du clip. Le clip doit avoir été enregistré sur cet appareil pendant que Rewind était actif, et les moments doivent encore se trouver dans l'historique conservé par Rewind.
+Le temps d’écran précédent joint jusqu’à cinq minutes d’historique d’écran local antérieur à un enregistrement, comme contexte distinct. Il ne fait jamais partie de la vidéo.
 
-- Le clip doit être privé, sans accès direct accordé à personne d'autre. L'historique Rewind peut contenir du contexte d'avant que vous ayez choisi d'enregistrer, donc Clips rend d'abord le clip privé et s'arrête si quelqu'un d'autre y a encore accès.
-- Le média du clip est remplacé par l'enregistrement combiné. La transcription, les chapitres, les commentaires, et les réactions se décalent pour que leurs horodatages restent alignés, et la timeline marque où l'enregistrement d'origine commençait.
-- Cela s'exécute une fois par clip et seulement quand vous le demandez. Rien n'est ajouté automatiquement depuis Rewind.
+<WireframeBlock id="clips-earlier-screen-time-popover">
+  <Screen
+    surface="popover"
+    frame="show"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:10px;padding:16px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:8px;padding:8px'><span>Inclure les derniers</span><div style='flex:1'></div><span>Désactivé</span><span data-icon='chevronDown'></span></div><div class='wf-card' style='display:flex;flex-direction:column;gap:8px'><strong>Activer Rewind</strong><small class='wf-muted'>Désactivé par défaut. L’historique de l’écran reste sur cet appareil jusqu’à ce que vous l’ajoutiez à un enregistrement ou approuviez une demande de partage.</small><button class='primary'>Activer Rewind</button><button style='width:100%;display:flex;justify-content:center;background:transparent;border:0'>Qu'est-ce que c'est ?</button></div></div>"
+    }
+  />
+</WireframeBlock>
+
+**L’inclure à un enregistrement**
+
+- Le temps d’écran précédent est un lab facultatif, activé par défaut. Vous pouvez le désactiver sous **Paramètres > Labs**, dans l’application web ou de bureau Clips. Dans le tray de bureau, choisissez **Désactivé** (par défaut), **30 s**, **5 min** ou **Personnalisé…**, jusqu’à cinq minutes. Rewind doit être activé et en cours d’exécution ; s’il est désactivé, choisir une durée ouvre une brève explication avec le bouton **Activer Rewind**.
+- Au démarrage de l’enregistrement, Clips demande la fenêtre choisie à cet appareil et la téléverse. Avec **Désactivé**, aucune demande n’est faite.
+
+**Le vérifier avant le téléversement**
+
+- Une fois prêt, dans l’application de bureau Clips, choisissez **Modifier** pour ouvrir un aperçu sur l’appareil pouvant aller jusqu’à cinq minutes. Il n’est jamais téléversé ; il commence à la fenêtre choisie et se termine au début de l’enregistrement. Faites glisser les poignées pour l’ajuster, ou choisissez **Lire la sélection** pour lire cette plage.
+- **Enregistrer** téléverse uniquement la sélection. Annulez ou fermez l’éditeur pour supprimer l’aperçu. Les indicateurs montrent le décalage du début, la durée et le début de l’enregistrement ; si la plage commence avec l’enregistrement, le décalage indique **Depuis le début de l’enregistrement**.
+
+**Confidentialité et suppression**
+
+- Le temps d’écran précédent suit les règles de partage habituelles du clip. En demander l’inclusion ne modifie pas la visibilité du clip ; si le clip est public, partagé avec votre organisation ou avec d’autres personnes, ces spectateurs voient aussi le temps d’écran précédent. Le partage partage les deux en un seul lot, et le mot de passe et l’expiration du clip s’y appliquent également. Les spectateurs n’accèdent au contenu vidéo qu’à travers le clip qu’ils peuvent ouvrir ; il est stocké comme un enregistrement distinct appartenant au propriétaire du clip. Seul le propriétaire peut le supprimer.
+- L’onglet **Transcription** du clip affiche la fenêtre jointe au-dessus de la transcription, avec un lecteur intégré. Pour la supprimer, utilisez la vue de modification de l’application de bureau Clips ou le panneau **Transcription** du clip, puis confirmez. Le contenu vidéo est déplacé dans la corbeille et le clip ne l’inclut plus. Supprimer l’enregistrement supprime aussi le temps d’écran précédent. L’agent peut lire la fenêtre et son statut, et le supprimer.
+- Si un autre appareil a capturé l’enregistrement, le temps d’écran précédent attend que cet appareil enregistre le contenu vidéo. Seul cet appareil peut l’exporter ; les autres appareils l’ignorent. Si aucun appareil d’enregistrement n’est indiqué, l’application de bureau qui a capturé l’enregistrement le traite.
+- La limite est de cinq minutes ; seul l’historique que Rewind conserve encore sur cet appareil est disponible.
 
 ### Journaux du navigateur de l'extension Chrome
 
 Installez l'extension Chrome de Clips pour obtenir un enregistrement plus les journaux du navigateur et l'activité réseau de l'onglet que vous déboguez, utile pour signaler des bugs produit et des reproductions uniquement liées au navigateur.
 
-Elle ne surveille que l'onglet que vous enregistrez activement, et seulement pendant que l'enregistrement est en cours. Elle enregistre les messages de la console et des informations basiques par requête (méthode, une URL expurgée, statut, durée, et si une requête a échoué), jamais les corps de requête ou de réponse, les en-têtes, ou les cookies. Utilisez l'application de bureau pour l'enregistrement quotidien, et tournez-vous vers l'extension Chrome spécifiquement quand vous avez besoin de ces journaux du navigateur joints.
+| Sujet               | Comportement                                                                                                                                                                                                                                                         |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Onglets             | Jusqu'à cinq : l'onglet à partir duquel vous avez démarré l'enregistrement, puis les onglets utilisés au cours des 10 dernières minutes, du plus récent au plus ancien.                                                                                              |
+| Changement d'onglet | Un onglet vers lequel vous basculez pendant l'enregistrement est également capturé. Si plus de cinq onglets sont joints, l'onglet le moins récemment utilisé, autre que celui au premier plan, est détaché, et ses journaux jusque-là restent dans l'enregistrement. |
+| Rétrospective       | Jusqu'à 30 secondes avant le début de l'enregistrement, dans la limite de l'historique de console et des données de resource timing conservées par la page. Ces entrées ont des décalages temporels négatifs.                                                        |
+| Enregistré          | Messages de la console, et informations sur les requêtes fetch/XHR : méthode, une URL expurgée, statut, durée et si la requête a échoué. Chaque entrée indique l'onglet d'où elle provient.                                                                          |
+| Activité de l'app   | Sur les apps Agent-Native : les actions, changements d'état, navigations et erreurs propres à l'onglet enregistré, issus de l'[enregistreur](/docs/recorder), y compris les 30 secondes précédant le début de l'enregistrement.                                      |
+| Jamais enregistré   | Corps des requêtes ou des réponses, en-têtes ou cookies.                                                                                                                                                                                                             |
+
+Les entrées réseau de la rétrospective n'ont pas de méthode HTTP ; leur méthode est donc enregistrée comme `UNKNOWN`. Les requêtes effectuées pendant l'enregistrement incluent leur méthode. Les onglets ne sont suivis que pendant l'exécution de l'extension ; ainsi, pendant les 10 premières minutes qui suivent son démarrage, moins de cinq onglets peuvent être retenus.
+
+Utilisez l'application de bureau pour l'enregistrement quotidien, et tournez-vous vers l'extension Chrome spécifiquement quand vous avez besoin de ces journaux du navigateur joints.
 
 ## Transcription et métadonnées IA {#transcription-and-ai-metadata}
 
-La transcription essaie d'abord l'option la plus rapide et gratuite et ne se replie sur une option payante que quand c'est nécessaire :
+La transcription essaie d'abord l'option la plus rapide et gratuite et ne se replie sur une option payante que quand c'est nécessaire. L'historique de dictée affiche des aperçus de transcription qui se développent en transcriptions complètes et en actions alignées :
 
 | Ordre | Fournisseur                     | Notes                                                                                                                                                                                           |
 | ----- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -156,7 +192,7 @@ La transcription essaie d'abord l'option la plus rapide et gratuite et ne se rep
 | 2     | Géré par Builder.io (Gemini)    | Solution de repli dans le cloud quand le texte natif est manquant. Aucune clé supplémentaire nécessaire une fois Builder connecté. Le niveau gratuit de Builder.io inclut des crédits IA gérés. |
 | 3     | Groq (`whisper-large-v3-turbo`) | Solution de secours facultative si vous préférez apporter votre propre clé.                                                                                                                     |
 
-Une fois qu'une transcription est prête, l'agent remplit automatiquement un titre, un résumé, et des marqueurs de chapitre, et les tient à jour au fil de vos modifications. Vous pouvez aussi demander directement :
+Une fois qu'une transcription est prête, l'agent remplit automatiquement un titre, un résumé, et des marqueurs de chapitre, et les tient à jour au fil de vos modifications. Pendant la lecture, la transcription suit la position actuelle. Vous pouvez aussi demander directement :
 
 - « Régénère le titre et le résumé. »
 - « Ajoute des chapitres. Celui-ci est long. »
@@ -169,7 +205,9 @@ La transcription de secours, le nettoyage de la transcription, et les titres et 
 
 ## Édition non destructive {#non-destructive-editing}
 
-Coupez, découpez, retirez les silences ou les mots de remplissage, ou combinez des clips ensemble, tout cela sans jamais toucher au fichier d'origine. Chaque modification est superposée comme une instruction sur votre enregistrement d'origine, réversible, et rien n'est figé dans un nouveau fichier jusqu'à ce que vous exportiez.
+Utilisez la timeline pour couper et découper des clips, retirer les silences ou les mots de remplissage, et combiner des clips. Faites glisser les limites de coupe pour les ajuster, et utilisez annuler ou rétablir pour revoir les modifications. Ces modifications restent superposées sur l'enregistrement d'origine, et rien n'est figé dans un nouveau fichier jusqu'à ce que vous exportiez.
+
+Les masquages fonctionnent différemment. Dessiner un masquage ne fait que couvrir cette zone dans l'éditeur — les pixels d'origine restent dans le fichier. Rien n'est réellement masqué tant que vous n'avez pas cliqué sur **Appliquer** pour les masquages : cela réencode la vidéo, détruit définitivement les pixels couverts, et supprime le fichier d'origine. Il n'y a pas d'annulation possible après cette étape, qui est la seule véritablement irréversible ici.
 
 <Video
   src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fed43d85ea6084a18a555aae13c5ae4ff?alt=media&token=70e78642-d149-4070-8b58-4bf7167ddfbe&apiKey=YJIGb4i01jvw0SRdL5Bt"

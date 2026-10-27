@@ -44,11 +44,6 @@ import {
 const HOUR_MS = 60 * 60 * 1000;
 const THIRTY_DAYS_MS = 30 * 24 * HOUR_MS;
 
-/**
- * Read a non-negative integer from the environment, clamped to [min, max].
- * Blank/missing/non-integer values fall back to `fallback` so a typo can never
- * silently disable a guard or set an absurd limit.
- */
 function intEnv(
   name: string,
   fallback: number,
@@ -62,27 +57,19 @@ function intEnv(
   return Math.min(max, Math.max(min, n));
 }
 
-/**
- * Master escape hatch. When set, every guard short-circuits to "allowed" so the
- * abuse mitigation can be disabled wholesale (e.g. for load testing) without a
- * code change. Defaults to OFF (guards active).
- */
 export function guestAbuseDisabled(): boolean {
   return /^(1|true)$/i.test(process.env.PLAN_GUEST_ABUSE_DISABLED ?? "");
 }
 
-/** Max plans a single guest identity may own at once. */
 function guestMaxPlans(): number {
   return intEnv("PLAN_GUEST_MAX_PLANS", 25, 1, 1_000_000);
 }
-/** Max NEW guest identities a single client IP may mint per mint window. */
 function guestMintLimit(): number {
   return intEnv("PLAN_GUEST_MINT_LIMIT", 30, 1, 1_000_000);
 }
 function guestMintWindowMs(): number {
   return intEnv("PLAN_GUEST_MINT_WINDOW_MS", HOUR_MS, 1_000, THIRTY_DAYS_MS);
 }
-/** Backstop cap on total guest plan creations across all IPs per window. */
 function guestGlobalLimit(): number {
   return intEnv("PLAN_GUEST_GLOBAL_CREATE_LIMIT", 500, 1, 100_000_000);
 }
@@ -90,11 +77,6 @@ function guestGlobalWindowMs(): number {
   return intEnv("PLAN_GUEST_GLOBAL_WINDOW_MS", HOUR_MS, 1_000, THIRTY_DAYS_MS);
 }
 
-/**
- * Error thrown when a guest hits a create limit. The `statusCode` makes the
- * action route reply 429 and echo the (user-safe) message instead of a generic
- * 500 — see the `statusCode < 500` branch in `action-routes.ts`.
- */
 export class GuestAbuseLimitError extends Error {
   readonly statusCode = 429;
   constructor(message: string) {
@@ -103,20 +85,12 @@ export class GuestAbuseLimitError extends Error {
   }
 }
 
-/**
- * Best-effort client IP for rate limiting. Prefers the trusted edge headers set
- * by the hosting platform (the platform overwrites these, so a remote client
- * cannot spoof them), then the left-most `X-Forwarded-For` entry, then the raw
- * socket peer. This is a rate-limit signal, NOT an auth boundary: spoofing only
- * shifts an attacker into a different per-IP bucket, which the global throttle
- * still backstops.
- */
 export function getClientIpFromEvent(event: H3Event): string | undefined {
   const trusted =
-    getHeader(event, "x-nf-client-connection-ip") ?? // Netlify
-    getHeader(event, "cf-connecting-ip") ?? // Cloudflare
-    getHeader(event, "true-client-ip") ?? // Akamai / CF Enterprise
-    getHeader(event, "x-real-ip"); // common reverse proxies
+    getHeader(event, "x-nf-client-connection-ip") ??
+    getHeader(event, "cf-connecting-ip") ??
+    getHeader(event, "true-client-ip") ??
+    getHeader(event, "x-real-ip");
   if (trusted && trusted.trim()) return trusted.trim();
 
   const xff = getHeader(event, "x-forwarded-for");
@@ -187,7 +161,6 @@ export async function tryConsumeGuestMint(event: H3Event): Promise<boolean> {
     `SELECT COUNT(*) AS n FROM plan_guest_mints WHERE ip_hash = $1 AND created_at > $2`,
     [ipHash, cutoff],
   );
-  // countRows returned null => DB error => fail open.
   if (count !== null && count >= guestMintLimit()) return false;
 
   try {
@@ -196,7 +169,6 @@ export async function tryConsumeGuestMint(event: H3Event): Promise<boolean> {
       sql: `INSERT INTO plan_guest_mints (id, ip_hash, created_at) VALUES ($1, $2, $3)`,
       args: [randomUUID(), ipHash, new Date().toISOString()],
     });
-    // Opportunistic prune of expired rows to bound table growth. Best-effort.
     await db.execute({
       sql: `DELETE FROM plan_guest_mints WHERE created_at < $1`,
       args: [cutoff],
@@ -207,20 +179,12 @@ export async function tryConsumeGuestMint(event: H3Event): Promise<boolean> {
   return true;
 }
 
-/**
- * Enforce the per-guest plan cap and the global anonymous-create throttle at
- * the top of every plan-create action. No-op for non-guest owners (real users
- * and local mode), so their behavior is byte-identical.
- *
- * Throws {@link GuestAbuseLimitError} (HTTP 429) when a limit is exceeded.
- */
 export async function assertGuestCreateWithinLimits(
   ownerEmail: string,
 ): Promise<void> {
   if (guestAbuseDisabled()) return;
   if (!isGuestAuthorIdentity(ownerEmail)) return;
 
-  // 1. Per-guest ownership cap. Bounds the rows a single identity can hold.
   const owned = await countRows(
     `SELECT COUNT(*) AS n FROM plans WHERE owner_email = $1`,
     [ownerEmail],
@@ -232,8 +196,6 @@ export async function assertGuestCreateWithinLimits(
     );
   }
 
-  // 2. Global anonymous-create throttle (backstop for IP-spoofing / cookie
-  //    rotation). Counts guest-owned plans created within the window.
   const recent = await countRows(
     `SELECT COUNT(*) AS n FROM plans WHERE owner_email LIKE $1 AND created_at > $2`,
     [`guest-%@${GUEST_AUTHOR_DOMAIN}`, isoAgo(guestGlobalWindowMs())],

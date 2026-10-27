@@ -12,7 +12,6 @@ export interface NavigationState {
   label?: string;
   filter?: string;
   activeInboxTab?: string;
-  /** Inbox tab id from a `navigate({ tab })` agent command; see actions/navigate.ts. */
   tab?: string;
   activeAccounts?: string[];
   sort?: MailSortMode;
@@ -23,12 +22,6 @@ export interface NavigationState {
   _ts?: number;
 }
 
-/**
- * Returns `{ sync, command, clearCommand }` — mail manages navigation state
- * imperatively (callers drive what to write) rather than deriving it from the
- * URL, so this hook exposes write + read helpers instead of auto-syncing the
- * route.
- */
 export function useNavigationState() {
   const [pendingState, setPendingState] = useState<NavigationState | null>(
     null,

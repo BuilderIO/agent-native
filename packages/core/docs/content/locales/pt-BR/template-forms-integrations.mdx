@@ -17,7 +17,7 @@ Se o Forms e o Dispatch foram gerados ou adicionados juntos em um único workspa
 
 ### Implantações separadas: um passo manual
 
-Se o Forms e o Dispatch são dois projetos Agent-Native criados de forma independente, eles não compartilham um segredo e ainda não podem se chamar. Conectá-los exige um passo manual em cada lado: adicionar um recurso `remote-agents/<id>.json` com um segredo compartilhado, a partir de Configurações → Agentes conectados, da aba Conexões da página Agent, ou Dispatch → Agentes → Adicionar agente externo. Veja [Protocolo A2A](/docs/a2a-protocol) para o passo a passo completo.
+Se o Forms e o Dispatch são dois projetos Agent-Native criados de forma independente, eles não compartilham um segredo e ainda não podem se chamar. Conectá-los exige um passo manual em cada lado: adicionar um recurso `remote-agents/<id>.json` com um segredo compartilhado, a partir de Settings → Agent → Sub-agents (Connect agent), ou Dispatch → Agentes → Adicionar agente externo. Veja [Protocolo A2A](/docs/a2a-protocol) para o passo a passo completo.
 
 Para verificar em qual situação você está, pergunte ao agente de qualquer um dos aplicativos "quais aplicativos você consegue ver?" Se o Forms estiver ausente da resposta do Dispatch, você está no segundo caso.
 

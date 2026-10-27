@@ -1,13 +1,94 @@
 // @vitest-environment jsdom
-import { act } from "react";
+import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { completionActionCopy } from "../i18n/completion-en-US";
+import { RECORDER_MIC_TRACK_ENDED_EVENT } from "../lib/recorder-events";
+
+const tauriEvents = vi.hoisted(() => {
+  const listeners = new Map<
+    string,
+    Set<(event: { payload: unknown }) => void>
+  >();
+  return {
+    listeners,
+    emit: vi.fn(async (event: string, payload: unknown) => {
+      for (const listener of listeners.get(event) ?? []) listener({ payload });
+    }),
+    listen: vi.fn(
+      async (
+        event: string,
+        listener: (event: { payload: unknown }) => void,
+      ) => {
+        const handlers = listeners.get(event) ?? new Set();
+        handlers.add(listener);
+        listeners.set(event, handlers);
+        return () => handlers.delete(listener);
+      },
+    ),
+  };
+});
+const tauriCore = vi.hoisted(() => ({ invoke: vi.fn(async () => undefined) }));
+const tauriWindow = vi.hoisted(() => ({
+  close: vi.fn(async () => undefined),
+  outerPosition: vi.fn(async () => ({ x: 0, y: 0 })),
+  outerSize: vi.fn(async () => ({ width: 150, height: 42 })),
+  scaleFactor: vi.fn(async () => 1),
+}));
+const copy = vi.hoisted(() => vi.fn());
+const lookback = vi.hoisted(() => ({ requestedIds: [] as (string | null)[] }));
+vi.mock("@tauri-apps/api/event", () => ({
+  emit: tauriEvents.emit,
+  listen: tauriEvents.listen,
+}));
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: tauriCore.invoke,
+}));
+vi.mock("@tauri-apps/api/window", () => ({
+  currentMonitor: vi.fn(async () => null),
+  getCurrentWindow: vi.fn(() => tauriWindow),
+}));
+vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({ writeText: copy }));
+vi.mock("../lookback/use-lookback", () => ({
+  currentLookbackTarget: vi.fn(),
+  useLookbackLabEnabled: () => true,
+  useRecordingContext: (recordingId: string | null, enabled: boolean) => {
+    lookback.requestedIds.push(recordingId);
+    return {
+      view:
+        recordingId && enabled
+          ? { status: "error", item: null }
+          : { status: "idle", item: null },
+      setItem: vi.fn(),
+    };
+  },
+}));
 
 vi.mock("../../../shared/recording-playhead", () => ({
-  RecordingPlayhead: ({ onStop }: { onStop: () => void }) => (
-    <button onClick={onStop}>Stop recording</button>
+  RecordingPlayhead: ({
+    onStop,
+    onConfirmChange,
+    meter,
+  }: {
+    onStop: () => void;
+    meter?: ReactNode;
+    onConfirmChange?: (change: {
+      type: "open";
+      enteredPaused: boolean;
+    }) => void;
+  }) => (
+    <>
+      <div data-testid="recording-meter">{meter}</div>
+      <button onClick={onStop}>Stop recording</button>
+      <button
+        onClick={() =>
+          onConfirmChange?.({ type: "open", enteredPaused: false })
+        }
+      >
+        Open restart confirmation
+      </button>
+    </>
   ),
 }));
 vi.mock("../components/live-waveform", () => ({ LiveWaveform: () => null }));
@@ -15,12 +96,19 @@ vi.mock("../components/live-waveform", () => ({ LiveWaveform: () => null }));
 describe("completion card actions", () => {
   let host: HTMLDivElement;
   let root: Root;
-  const copy = vi.fn();
+  let resizeObserverCallbacks: Array<() => void> = [];
   const url = "https://example.test/r/example-clip";
 
   beforeEach(async () => {
     vi.useFakeTimers();
     vi.resetModules();
+    tauriEvents.listeners.clear();
+    tauriEvents.emit.mockClear();
+    tauriEvents.listen.mockClear();
+    tauriCore.invoke.mockClear();
+    tauriWindow.close.mockClear();
+    lookback.requestedIds = [];
+    resizeObserverCallbacks = [];
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     const stored = new Map<string, string>();
     const storage = {
@@ -46,6 +134,12 @@ describe("completion card actions", () => {
     vi.stubGlobal(
       "ResizeObserver",
       class {
+        constructor(callback: ResizeObserverCallback) {
+          resizeObserverCallbacks.push(() =>
+            callback([], this as unknown as ResizeObserver),
+          );
+        }
+
         observe() {}
         disconnect() {}
       },
@@ -70,6 +164,7 @@ describe("completion card actions", () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
   });
 
   function button(label: string) {
@@ -78,6 +173,10 @@ describe("completion card actions", () => {
     );
     expect(found, `button ${label}`).toBeDefined();
     return found!;
+  }
+
+  function audioWarning() {
+    return host.querySelector('[aria-label="No microphone audio detected"]');
   }
 
   async function showCard(ok = false) {
@@ -89,6 +188,18 @@ describe("completion card actions", () => {
     expect(host.textContent).toContain(
       ok ? "Recording saved" : "Upload paused",
     );
+  }
+
+  async function renderTauriPill() {
+    await act(async () => root.unmount());
+    Object.defineProperty(window, "__TAURI_INTERNALS__", {
+      configurable: true,
+      value: {},
+    });
+    vi.resetModules();
+    const { RecordingPill } = await import("./record-pill");
+    root = createRoot(host);
+    await act(async () => root.render(<RecordingPill />));
   }
 
   it.each([false, true])(
@@ -107,7 +218,7 @@ describe("completion card actions", () => {
   );
 
   it.each(["Copy", "url", "icon"])(
-    "dismisses after successful copying through %s",
+    "shows copied feedback before dismissing after copying through %s",
     async (target) => {
       await showCard();
       const control =
@@ -120,6 +231,11 @@ describe("completion card actions", () => {
               )[1];
       await act(async () => control.click());
       expect(copy).toHaveBeenCalledExactlyOnceWith(url);
+      expect(button("Copied").disabled).toBe(true);
+      expect(host.querySelector('[aria-label="Dismiss"]')).not.toBeNull();
+      await act(async () => vi.advanceTimersByTimeAsync(999));
+      expect(host.querySelector('[aria-label="Dismiss"]')).not.toBeNull();
+      await act(async () => vi.advanceTimersByTimeAsync(1));
       expect(host.querySelector('[aria-label="Dismiss"]')).toBeNull();
     },
   );
@@ -158,6 +274,9 @@ describe("completion card actions", () => {
     expect(host.querySelector('[aria-label="Dismiss"]')).not.toBeNull();
     expect(button("Copy").disabled).toBe(true);
     await act(async () => finish());
+    expect(button("Copied").disabled).toBe(true);
+    expect(host.querySelector('[aria-label="Dismiss"]')).not.toBeNull();
+    await act(async () => vi.advanceTimersByTimeAsync(1_000));
     expect(host.querySelector('[aria-label="Dismiss"]')).toBeNull();
   });
 
@@ -176,5 +295,408 @@ describe("completion card actions", () => {
     expect(host.querySelector('[aria-label="Dismiss"]')).not.toBeNull();
     expect(copy).not.toHaveBeenCalled();
     expect(window.open).not.toHaveBeenCalled();
+  });
+
+  it("shows Copy and Open after the recording shortcut reaches the pill", async () => {
+    await renderTauriPill();
+    expect("__TAURI_INTERNALS__" in window).toBe(true);
+    expect(tauriEvents.listeners.has("clips:tray-stop-request")).toBe(true);
+
+    await act(async () => {
+      await tauriEvents.emit("clips:toolbar-enabled", true);
+      await tauriEvents.emit("clips:recorder-session", {
+        viewUrl: url,
+        recordingId: "example-clip",
+        localOnly: false,
+      });
+    });
+    await act(async () => button("Open restart confirmation").click());
+    const eventStart = tauriEvents.emit.mock.calls.length;
+    const { listenForRecordingShortcutStopAcks, requestRecordingShortcutStop } =
+      await import("../lib/recording-shortcut-stop");
+    const unlistenAcks = await listenForRecordingShortcutStopAcks();
+    await act(async () => requestRecordingShortcutStop());
+    unlistenAcks();
+    const shortcutEvents = tauriEvents.emit.mock.calls
+      .slice(eventStart)
+      .map(([event]) => event);
+    expect(
+      shortcutEvents.indexOf("clips:recorder-stop"),
+    ).toBeGreaterThanOrEqual(0);
+    expect(shortcutEvents.indexOf("clips:tray-stop-ack")).toBeGreaterThan(
+      shortcutEvents.indexOf("clips:recorder-stop"),
+    );
+    expect(tauriEvents.emit).toHaveBeenCalledWith(
+      "clips:tray-stop-ack",
+      expect.any(String),
+    );
+    await act(async () => {
+      await tauriEvents.emit("clips:native-upload-finished", {
+        recordingId: "example-clip",
+        ok: true,
+        viewUrl: url,
+      });
+    });
+
+    expect(host.textContent).toContain("Recording saved");
+    expect(button("Copy")).toBeDefined();
+    expect(button("Open")).toBeDefined();
+
+    tauriCore.invoke.mockClear();
+    await act(async () =>
+      tauriEvents.emit("clips:tray-stop-request", { fallback: true }),
+    );
+    expect(tauriCore.invoke).not.toHaveBeenCalledWith(
+      "show_popover",
+      undefined,
+    );
+    await act(async () =>
+      tauriEvents.emit("clips:tray-stop-request", undefined),
+    );
+    expect(tauriCore.invoke).toHaveBeenCalledWith("show_popover", undefined);
+  });
+
+  it("skips context lookup when this recording did not request it", async () => {
+    await renderTauriPill();
+    await act(async () => {
+      await tauriEvents.emit("clips:toolbar-enabled", true);
+      await tauriEvents.emit("clips:recorder-session", {
+        viewUrl: url,
+        recordingId: "example-clip",
+        localOnly: false,
+        lookbackEnabled: false,
+      });
+    });
+
+    await showCard();
+
+    expect(lookback.requestedIds[lookback.requestedIds.length - 1]).toBeNull();
+    expect(host.textContent).not.toContain("earlier screen time");
+    expect(host.textContent).not.toContain("Unreadable");
+    expect(button("Copy")).toBeDefined();
+    expect(button("Open")).toBeDefined();
+  });
+
+  it("checks context when this recording requested it", async () => {
+    await renderTauriPill();
+    await act(async () => {
+      await tauriEvents.emit("clips:toolbar-enabled", true);
+      await tauriEvents.emit("clips:recorder-session", {
+        viewUrl: url,
+        recordingId: "example-clip",
+        localOnly: false,
+        lookbackEnabled: true,
+      });
+    });
+
+    await showCard();
+
+    expect(lookback.requestedIds[lookback.requestedIds.length - 1]).toBe(
+      "example-clip",
+    );
+    expect(host.textContent).toContain("Unreadable");
+    expect(button("Copy")).toBeDefined();
+    expect(button("Open")).toBeDefined();
+  });
+
+  it("warns for startup silence, then suppresses silence alerts after mic audio", async () => {
+    await renderTauriPill();
+    await act(async () => {
+      await tauriEvents.emit("clips:toolbar-enabled", true);
+      await tauriEvents.emit("clips:recorder-session", {
+        recordingId: "silent-start",
+        microphoneEnabled: true,
+      });
+      await vi.advanceTimersByTimeAsync(5_001);
+    });
+    expect(audioWarning()).not.toBeNull();
+
+    await act(async () =>
+      tauriEvents.emit("voice:audio-level", { source: "mic", level: 0.1 }),
+    );
+    expect(audioWarning()).toBeNull();
+
+    await act(async () => {
+      for (let i = 0; i < 10; i += 1) {
+        await vi.advanceTimersByTimeAsync(1_000);
+        await tauriEvents.emit("voice:audio-level", {
+          source: "mic",
+          level: 0,
+        });
+      }
+    });
+    expect(audioWarning()).toBeNull();
+
+    await act(async () => tauriEvents.emit("clips:toolbar-preparing", {}));
+    await act(async () => {
+      await tauriEvents.emit("clips:toolbar-enabled", true);
+      await tauriEvents.emit("clips:recorder-session", {
+        recordingId: "next-clip",
+        microphoneEnabled: true,
+      });
+      await vi.advanceTimersByTimeAsync(5_001);
+    });
+    expect(audioWarning()).not.toBeNull();
+  });
+
+  it("warns when mic audio signals stop after audible input", async () => {
+    await renderTauriPill();
+    await act(async () => {
+      await tauriEvents.emit("clips:toolbar-enabled", true);
+      await tauriEvents.emit("clips:recorder-session", {
+        recordingId: "signal-loss",
+        microphoneEnabled: true,
+      });
+      await tauriEvents.emit("voice:audio-level", {
+        source: "mic",
+        level: 0.1,
+      });
+    });
+    expect(audioWarning()).toBeNull();
+
+    await act(async () => vi.advanceTimersByTimeAsync(5_001));
+
+    expect(audioWarning()).not.toBeNull();
+  });
+
+  it("warns when the browser microphone track ends after audible input", async () => {
+    await renderTauriPill();
+    await act(async () => {
+      await tauriEvents.emit("clips:toolbar-enabled", true);
+      await tauriEvents.emit("clips:recorder-session", {
+        recordingId: "track-ended",
+        microphoneEnabled: true,
+      });
+      await tauriEvents.emit("voice:audio-level", {
+        source: "mic",
+        level: 0.1,
+      });
+    });
+    expect(audioWarning()).toBeNull();
+
+    await act(async () => tauriEvents.emit(RECORDER_MIC_TRACK_ENDED_EVENT, {}));
+
+    expect(audioWarning()).not.toBeNull();
+  });
+
+  it("re-measures the completion card after a resize during the native layout guard", async () => {
+    await renderTauriPill();
+    await act(async () => {
+      await tauriEvents.emit("clips:toolbar-enabled", true);
+      await tauriEvents.emit("clips:recorder-session", {
+        viewUrl: url,
+        recordingId: "example-clip",
+        localOnly: false,
+      });
+    });
+    localStorage.setItem(
+      "clips-finalizing-result",
+      JSON.stringify({ recordingId: "example-clip", viewUrl: url, ok: false }),
+    );
+    await act(async () => button("Stop recording").click());
+
+    const card = host.querySelector<HTMLElement>(
+      "[data-tw-surface] > div:nth-child(2)",
+    );
+    expect(card).not.toBeNull();
+    if (!card) throw new Error("Completion card was not rendered");
+    expect(card.textContent).toContain("Upload paused");
+
+    let contentHeight = 180;
+    Object.defineProperty(card, "offsetWidth", {
+      configurable: true,
+      get: () => 340,
+    });
+    Object.defineProperty(card, "offsetHeight", {
+      configurable: true,
+      get: () => contentHeight,
+    });
+    const notifyResize =
+      resizeObserverCallbacks[resizeObserverCallbacks.length - 1];
+    expect(notifyResize).toBeDefined();
+
+    // Model the earlier-screen row arriving while the initial short window is guarded.
+    contentHeight = 240;
+    await act(async () => {
+      notifyResize?.();
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(tauriCore.invoke).not.toHaveBeenCalledWith(
+      "toolbar_set_bounds",
+      expect.objectContaining({ height: 240 }),
+    );
+
+    await act(async () => vi.advanceTimersByTimeAsync(1_200));
+    expect(tauriCore.invoke).toHaveBeenCalledWith(
+      "toolbar_set_bounds",
+      expect.objectContaining({ width: 340, height: 240 }),
+    );
+  });
+
+  it("keeps a new toolbar open if it starts during copied feedback", async () => {
+    await renderTauriPill();
+    await act(async () => {
+      await tauriEvents.emit("clips:toolbar-enabled", true);
+      await tauriEvents.emit("clips:recorder-session", {
+        viewUrl: url,
+        recordingId: "example-clip",
+        localOnly: false,
+      });
+    });
+    await act(async () => button("Stop recording").click());
+    await act(async () =>
+      tauriEvents.emit("clips:native-upload-finished", {
+        recordingId: "example-clip",
+        ok: true,
+        viewUrl: url,
+      }),
+    );
+
+    await act(async () => button("Copy").click());
+    expect(button("Copied").disabled).toBe(true);
+
+    await act(async () => tauriEvents.emit("clips:toolbar-preparing", {}));
+    await act(async () => tauriEvents.emit("clips:toolbar-enabled", true));
+    await act(async () => vi.advanceTimersByTimeAsync(1_000));
+
+    expect(button("Stop recording")).toBeDefined();
+    expect(tauriWindow.close).not.toHaveBeenCalled();
+  });
+
+  it("still dispatches manual stop when the finishing hold fails", async () => {
+    await renderTauriPill();
+    await act(async () => {
+      await tauriEvents.emit("clips:toolbar-enabled", true);
+      await tauriEvents.emit("clips:recorder-session", {
+        viewUrl: url,
+        recordingId: "example-clip",
+        localOnly: false,
+      });
+    });
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    tauriCore.invoke.mockRejectedValueOnce(new Error("hold unavailable"));
+
+    await act(async () => button("Stop recording").click());
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      tauriEvents.emit.mock.calls.some(
+        ([event]) => event === "clips:recorder-stop",
+      ),
+    ).toBe(true);
+    expect(log).toHaveBeenCalledWith(
+      "[record-pill] finishing hold failed:",
+      expect.any(Error),
+    );
+  });
+
+  it("shows Copy and Open when direct shortcut fallback reaches the pill", async () => {
+    await renderTauriPill();
+    await act(async () => {
+      await tauriEvents.emit("clips:toolbar-enabled", true);
+      await tauriEvents.emit("clips:recorder-session", {
+        viewUrl: url,
+        recordingId: "example-clip",
+        localOnly: false,
+      });
+    });
+
+    const { requestRecordingShortcutStop } =
+      await import("../lib/recording-shortcut-stop");
+    let outcome;
+    await act(async () => {
+      outcome = await requestRecordingShortcutStop();
+    });
+    expect(outcome).toEqual({
+      type: "direct",
+      reason: "acknowledgement-listener-not-registered",
+    });
+    await act(async () => {
+      await tauriEvents.emit("clips:native-upload-finished", {
+        recordingId: "example-clip",
+        ok: true,
+        viewUrl: url,
+      });
+    });
+
+    expect(host.textContent).toContain("Recording saved");
+    expect(button("Copy")).toBeDefined();
+    expect(button("Open")).toBeDefined();
+    const fallbackRequest = tauriEvents.emit.mock.calls.findIndex(
+      ([event, payload]) =>
+        event === "clips:tray-stop-request" &&
+        payload !== null &&
+        typeof payload === "object" &&
+        "fallback" in payload &&
+        payload.fallback === true,
+    );
+    const recorderStop = tauriEvents.emit.mock.calls.findIndex(
+      ([event]) => event === "clips:recorder-stop",
+    );
+    expect(fallbackRequest).toBeGreaterThanOrEqual(0);
+    expect(fallbackRequest).toBeLessThan(recorderStop);
+  });
+
+  it("does not acknowledge a shortcut when the finishing hold fails", async () => {
+    await renderTauriPill();
+    await act(async () => {
+      await tauriEvents.emit("clips:toolbar-enabled", true);
+      await tauriEvents.emit("clips:recorder-session", {
+        viewUrl: url,
+        recordingId: "example-clip",
+        localOnly: false,
+      });
+    });
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    tauriCore.invoke.mockRejectedValue(new Error("hold unavailable"));
+    const { listenForRecordingShortcutStopAcks, requestRecordingShortcutStop } =
+      await import("../lib/recording-shortcut-stop");
+    const unlistenAcks = await listenForRecordingShortcutStopAcks();
+    let outcome;
+    const stopRequest = requestRecordingShortcutStop();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(
+      tauriEvents.emit.mock.calls.some(
+        ([event]) => event === "clips:recorder-stop",
+      ),
+    ).toBe(false);
+    expect(tauriEvents.emit).not.toHaveBeenCalledWith(
+      "clips:tray-stop-ack",
+      expect.anything(),
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(230);
+      outcome = await stopRequest;
+    });
+    unlistenAcks();
+
+    expect(outcome).toEqual({
+      type: "direct",
+      reason: "pill-did-not-acknowledge",
+    });
+    expect(tauriEvents.emit).not.toHaveBeenCalledWith(
+      "clips:tray-stop-ack",
+      expect.anything(),
+    );
+    const trayRequests = tauriEvents.emit.mock.calls.filter(
+      ([event]) => event === "clips:tray-stop-request",
+    );
+    expect(trayRequests).toHaveLength(2);
+    expect(trayRequests[1]).toEqual([
+      "clips:tray-stop-request",
+      { fallback: true },
+    ]);
+    expect(tauriEvents.emit).toHaveBeenCalledWith("clips:recorder-stop");
+    expect(tauriCore.invoke).toHaveBeenCalledWith("show_popover");
+    expect(tauriCore.invoke).toHaveBeenCalledWith("set_toolbar_finishing", {
+      hold: true,
+    });
+    expect(log).toHaveBeenCalled();
   });
 });

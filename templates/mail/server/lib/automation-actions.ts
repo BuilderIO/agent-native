@@ -1,5 +1,7 @@
+import { notify } from "@agent-native/core/notifications";
 import type { AutomationAction } from "@shared/types.js";
 
+import type { GmailQuotaLane } from "./gmail-quota.js";
 import {
   gmailModifyMessage,
   gmailTrashMessage,
@@ -14,51 +16,66 @@ export interface ActionContext {
   messageId: string;
   ownerEmail: string;
   accountEmail: string;
-  labelCache: Map<string, string>; // lowercase name → Gmail label ID
+  labelCache: Map<string, string>;
+  lane?: GmailQuotaLane;
+  signal?: AbortSignal;
+  notificationIdempotencyKey?: string;
+  from?: string;
+  subject?: string;
+  snippet?: string;
 }
 
-/**
- * Build a label name→id cache from the user's Gmail labels.
- */
 export async function buildLabelCache(
   accessToken: string,
+  lane: GmailQuotaLane = "interactive",
+  signal?: AbortSignal,
 ): Promise<Map<string, string>> {
   const cache = new Map<string, string>();
   try {
-    const res = await gmailListLabels(accessToken);
+    const res = await gmailListLabels(accessToken, lane, signal);
+    signal?.throwIfAborted();
     for (const label of res.labels || []) {
       if (label.id && label.name) {
         cache.set(label.name.toLowerCase(), label.id);
       }
     }
   } catch (err) {
+    if (signal?.aborted) signal.throwIfAborted();
+    if (err instanceof Error && err.name === "AbortError") throw err;
     console.error("[automation-actions] Failed to load labels:", err);
   }
   return cache;
 }
 
-/**
- * Resolve a label name to a Gmail label ID, creating the label if needed.
- */
 export async function ensureGmailLabel(
   accessToken: string,
   labelName: string,
   labelCache: Map<string, string>,
+  lane: GmailQuotaLane = "interactive",
+  signal?: AbortSignal,
 ): Promise<string> {
+  signal?.throwIfAborted();
   const key = labelName.toLowerCase();
   const existing = labelCache.get(key);
   if (existing) return existing;
 
-  // Create the label
   try {
-    const created = await gmailCreateLabel(accessToken, labelName);
+    const created = await gmailCreateLabel(
+      accessToken,
+      labelName,
+      undefined,
+      lane,
+      signal,
+    );
+    signal?.throwIfAborted();
     if (created.id) {
       labelCache.set(key, created.id);
       return created.id;
     }
   } catch (err: any) {
-    // Label might already exist (race condition) — try to find it
-    const refreshed = await buildLabelCache(accessToken);
+    if (signal?.aborted) signal.throwIfAborted();
+    if (err instanceof Error && err.name === "AbortError") throw err;
+    const refreshed = await buildLabelCache(accessToken, lane, signal);
     for (const [k, v] of refreshed) labelCache.set(k, v);
     const retryId = labelCache.get(key);
     if (retryId) return retryId;
@@ -68,13 +85,6 @@ export async function ensureGmailLabel(
   throw new Error(`Failed to create or find label "${labelName}"`);
 }
 
-/**
- * Mirror an automation's Gmail mutation into the synced inbox store,
- * best-effort: resolves the message's threadId from the store's own
- * `message_ids_json` (no extra Gmail round-trip) and skips silently when the
- * message hasn't synced yet — the next history sync reconciles it, same as
- * every other optimistic store patch.
- */
 async function mirrorStoreDelta(
   ctx: ActionContext,
   delta: {
@@ -83,11 +93,13 @@ async function mirrorStoreDelta(
     providerHistoryId?: string;
   },
 ): Promise<void> {
+  ctx.signal?.throwIfAborted();
   const threadId = (
     await findThreadIdsByMessageIds(ctx.ownerEmail, ctx.accountEmail, [
       ctx.messageId,
     ])
   ).get(ctx.messageId);
+  ctx.signal?.throwIfAborted();
   if (!threadId) return;
   await syncInboxLabelDelta(ctx.ownerEmail, ctx.accountEmail, [threadId], {
     ...delta,
@@ -96,26 +108,57 @@ async function mirrorStoreDelta(
   });
 }
 
-/**
- * Execute a single automation action against a Gmail message.
- */
 export async function executeAction(
   action: AutomationAction,
   ctx: ActionContext,
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    ctx.signal?.throwIfAborted();
     switch (action.type) {
+      case "notify": {
+        const notification = await notify(
+          {
+            severity: "info",
+            channels: ["inbox"],
+            title: ctx.subject?.trim() || ctx.from?.trim() || ctx.accountEmail,
+            body: [ctx.from?.trim(), ctx.snippet?.trim()]
+              .filter(Boolean)
+              .join(" · "),
+            metadata: {
+              accountEmail: ctx.accountEmail,
+              messageId: ctx.messageId,
+            },
+            ...(ctx.notificationIdempotencyKey
+              ? { idempotencyKey: ctx.notificationIdempotencyKey }
+              : {}),
+          },
+          { owner: ctx.ownerEmail },
+          { signal: ctx.signal },
+        );
+        ctx.signal?.throwIfAborted();
+        if (!notification) {
+          throw new Error("Mail notification was not persisted.");
+        }
+        return { success: true };
+      }
       case "label": {
         const labelId = await ensureGmailLabel(
           ctx.accessToken,
           action.labelName,
           ctx.labelCache,
+          ctx.lane,
+          ctx.signal,
         );
+        ctx.signal?.throwIfAborted();
         const updated = (await gmailModifyMessage(
           ctx.accessToken,
           ctx.messageId,
           [labelId],
+          undefined,
+          ctx.lane,
+          ctx.signal,
         )) as { historyId?: string } | undefined;
+        ctx.signal?.throwIfAborted();
         await mirrorStoreDelta(ctx, {
           add: [labelId],
           providerHistoryId: updated?.historyId,
@@ -128,7 +171,10 @@ export async function executeAction(
           ctx.messageId,
           undefined,
           ["INBOX"],
+          ctx.lane,
+          ctx.signal,
         )) as { historyId?: string } | undefined;
+        ctx.signal?.throwIfAborted();
         await mirrorStoreDelta(ctx, {
           remove: ["INBOX"],
           providerHistoryId: updated?.historyId,
@@ -141,7 +187,10 @@ export async function executeAction(
           ctx.messageId,
           undefined,
           ["UNREAD"],
+          ctx.lane,
+          ctx.signal,
         )) as { historyId?: string } | undefined;
+        ctx.signal?.throwIfAborted();
         await mirrorStoreDelta(ctx, {
           remove: ["UNREAD"],
           providerHistoryId: updated?.historyId,
@@ -153,7 +202,11 @@ export async function executeAction(
           ctx.accessToken,
           ctx.messageId,
           ["STARRED"],
+          undefined,
+          ctx.lane,
+          ctx.signal,
         )) as { historyId?: string } | undefined;
+        ctx.signal?.throwIfAborted();
         await mirrorStoreDelta(ctx, {
           add: ["STARRED"],
           providerHistoryId: updated?.historyId,
@@ -164,8 +217,10 @@ export async function executeAction(
         const updated = (await gmailTrashMessage(
           ctx.accessToken,
           ctx.messageId,
+          ctx.lane,
+          ctx.signal,
         )) as { historyId?: string } | undefined;
-        // Gmail's messages.trash contract: adds TRASH, removes INBOX.
+        ctx.signal?.throwIfAborted();
         await mirrorStoreDelta(ctx, {
           add: ["TRASH"],
           remove: ["INBOX"],
@@ -180,29 +235,36 @@ export async function executeAction(
         };
     }
   } catch (err: any) {
+    if (ctx.signal?.aborted) ctx.signal.throwIfAborted();
+    if (err instanceof Error && err.name === "AbortError") throw err;
     return { success: false, error: err?.message ?? String(err) };
   }
 }
 
-/**
- * Execute all actions for a matched rule against a message.
- */
 export async function executeActions(
   actions: AutomationAction[],
   ctx: ActionContext,
-): Promise<{ successes: number; failures: number }> {
+): Promise<{
+  successes: number;
+  failures: number;
+  failedActions: AutomationAction[];
+}> {
   let successes = 0;
   let failures = 0;
+  const failedActions: AutomationAction[] = [];
   for (const action of actions) {
+    ctx.signal?.throwIfAborted();
     const result = await executeAction(action, ctx);
+    ctx.signal?.throwIfAborted();
     if (result.success) successes++;
     else {
       failures++;
+      failedActions.push(action);
       console.error(
         `[automation-actions] Action ${action.type} failed for ${ctx.messageId}:`,
         result.error,
       );
     }
   }
-  return { successes, failures };
+  return { successes, failures, failedActions };
 }

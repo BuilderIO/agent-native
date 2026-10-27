@@ -7,10 +7,6 @@ type LifecycleToastOptions = Pick<
   "action" | "description" | "duration"
 >;
 
-/**
- * Keeps one in-flight operation in one Sonner instead of stacking a loading,
- * success, and error notification for the same work.
- */
 export function useSonnerLifecycleToast() {
   const toastIdRef = useRef<ToastId | null>(null);
 
@@ -38,7 +34,9 @@ export function useSonnerLifecycleToast() {
       const id = toastIdRef.current;
       const nextOptions = {
         ...options,
-        duration: options?.duration ?? 6_000,
+        duration:
+          options?.duration ??
+          (options?.action ? Number.POSITIVE_INFINITY : 6_000),
         ...(id === null ? {} : { id }),
       };
       toast[kind](message, nextOptions);

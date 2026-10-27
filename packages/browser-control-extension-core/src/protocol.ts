@@ -1,4 +1,3 @@
-// Keep the command protocol transport-neutral so every browser host shares it.
 export type BrowserTarget = {
   observationId: string;
   backendNodeId: number;
@@ -26,17 +25,32 @@ export type BrowserCommand =
   | { type: "attach"; tabId: number; allowedOrigins: string[] }
   | { type: "detach" }
   | { type: "stop" }
-  | { type: "observe"; includeScreenshot?: boolean; maxNodes?: number }
+  | {
+      type: "observe";
+      includeScreenshot?: boolean | undefined;
+      maxNodes?: number | undefined;
+    }
   | {
       type: "click";
       target: BrowserTarget;
-      button?: "left" | "middle" | "right";
+      button?: "left" | "middle" | "right" | undefined;
     }
-  | { type: "type"; target: BrowserTarget; text: string; replace?: boolean }
+  | {
+      type: "type";
+      target: BrowserTarget;
+      text: string;
+      replace?: boolean | undefined;
+    }
   | { type: "key"; key: BrowserKey; modifiers?: BrowserModifier[] }
   | { type: "navigate"; url: string }
   | { type: "open-tab"; url: string }
-  | { type: "scroll"; deltaX: number; deltaY: number; x?: number; y?: number };
+  | {
+      type: "scroll";
+      deltaX: number;
+      deltaY: number;
+      x?: number | undefined;
+      y?: number | undefined;
+    };
 
 export type NativeRequest = {
   id: string;

@@ -1,28 +1,35 @@
-import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
+import { withExecutionFence } from "./execution-fence.js";
 
-/**
- * FIX 3 (durable-background incident, 2026-07-12): when a background chat-
- * turn worker dies silently mid-stream (heartbeats stop, no terminal event,
- * no chain-continuation ever runs because the process is just gone), the
- * stale-run reapers (`reapIfStale`, the per-poll read path; `reapAllStaleRuns`,
- * the process-startup sweep) are the ONLY code that ever notices. Before this
- * fix they just flipped the row to errored/stale_run and stopped — no
- * successor was ever created, so the turn died mid-sentence with no recovery.
- *
- * These tests run against a REAL in-memory PGlite engine (not a hand-rolled
- * mock) so the conditional UPDATE / transaction / rowsAffected semantics the
- * recovery logic depends on are real, mirroring `run-store.foreground-self-
- * chain.spec.ts`. `client.transaction` is implemented here (unlike that
- * sibling file) specifically to exercise FIX 3's primary transactional path;
- * a dedicated test below exercises the non-transactional fallback too.
- */
+const foldReapedRunIntoThreadMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue("projected"),
+);
+
+vi.mock("./reaped-run-thread.js", () => ({
+  foldReapedRunIntoThread: foldReapedRunIntoThreadMock,
+}));
 
 const pglite = await createTestPglite();
+let afterStaleCandidateScan: (() => Promise<void>) | undefined;
 
 afterAll(async () => {
   await pglite.close();
+});
+
+afterEach(async () => {
+  await pglite.exec(
+    "DELETE FROM agent_run_events; DELETE FROM agent_execution_leases; DELETE FROM agent_runs;",
+  );
 });
 
 function makeRawClient(withTransaction: boolean) {
@@ -39,7 +46,21 @@ function makeRawClient(withTransaction: boolean) {
         const stmt = await pglite.prepare(input.sql);
         const args = (input.args ?? []) as unknown[];
         if (/^\s*select/i.test(input.sql)) {
-          return { rows: await stmt.all(...args), rowsAffected: 0 };
+          const rows = await stmt.all(...args);
+          if (
+            /SELECT id FROM agent_runs[\s\S]*ORDER BY started_at ASC[\s\S]*LIMIT/i.test(
+              input.sql,
+            )
+          ) {
+            const afterScan = afterStaleCandidateScan;
+            afterStaleCandidateScan = undefined;
+            await afterScan?.();
+          }
+          return { rows, rowsAffected: 0 };
+        }
+        if (/\bRETURNING\b/i.test(input.sql)) {
+          const rows = await stmt.all(...args);
+          return { rows, rowsAffected: rows.length };
         }
         const info = await stmt.run(...args);
         return { rows: [] as unknown[], rowsAffected: info.changes };
@@ -64,18 +85,15 @@ function makeRawClient(withTransaction: boolean) {
   return client;
 }
 
-// Default: transactional client (the primary, expected-in-production path —
-// every real DbExec implementation provides `.transaction`, see db/client.ts).
 let currentClient = makeRawClient(true);
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => currentClient,
+  getScopedTransactionDbExec: () => undefined,
   isProductionServerlessFunctionRuntime: () => false,
   retryOnDdlRace: (fn: () => any) => fn(),
 }));
 
-// FIX 3's best-effort immediate redispatch calls out to self-dispatch — stub
-// it so tests never attempt a real network fetch (and never hang on one).
 const fireInternalDispatchMock = vi.fn(async () => {});
 vi.mock("../server/self-dispatch.js", () => ({
   fireInternalDispatch: (...args: unknown[]) =>
@@ -83,25 +101,41 @@ vi.mock("../server/self-dispatch.js", () => ({
 }));
 
 const {
+  AgentRunJournalUnreadableError,
   insertRun,
+  insertRunEvent,
   tryClaimRunSlot,
+  claimTurnExecutionLease,
   claimBackgroundRun,
+  persistRunCheckpointEvent,
+  CHECKPOINT_TERMINAL_EVENT_SEQ,
   getRunByThread,
+  getCurrentTurnEventsForThread,
   isTurnAborted,
   markTurnAborted,
+  listUnclaimedBackgroundRunRows,
   reapIfStale,
   reapAllStaleRuns,
+  reapUnclaimedBackgroundRun,
+  cleanupOldRuns,
+  failRunBeforeDispatch,
+  markRunAbortedAtSafeBoundary,
+  retryRunThreadProjection,
   recordRunDiagnostic,
   RUN_DIAG_STAGE,
+  BACKGROUND_RUN_STALE_MS,
   BACKGROUND_PROCESSING_RUN_STALE_MS,
+  UNCLAIMED_BACKGROUND_RUN_GRACE_MS,
   STALE_RUN_TERMINAL_REASON,
   __resetNoRunningRunsProbeForTests,
 } = await import("./run-store.js");
+const { assertNoInlineImageBytes } = await import("../shared/inline-bytes.js");
 
-// The sweeps' shared `status='running'` probe caches a negative answer for
-// seconds; tests insert their rows in milliseconds, so clear it per test.
 beforeEach(async () => {
   __resetNoRunningRunsProbeForTests();
+  afterStaleCandidateScan = undefined;
+  foldReapedRunIntoThreadMock.mockReset().mockResolvedValue("projected");
+  fireInternalDispatchMock.mockClear();
 });
 
 let seq = 0;
@@ -114,6 +148,70 @@ function ids(): { runId: string; thread: string; turn: string } {
   };
 }
 
+describe("recovery ledger integrity", () => {
+  it.each([
+    "{broken",
+    "null",
+    "[]",
+    "{}",
+    '{"type":"tool_start","input":{}}',
+    '{"type":"tool_start","tool":"send-email"}',
+    '{"type":"tool_done","tool":"send-email"}',
+    '{"type":"tool_start ","tool":"send-email","input":{}}',
+    '{"type":"tool_done","tool":"send-email","result":"failed","isError":"true"}',
+    '{"type":"tool_done","tool":"send-email","result":"failed","completedSideEffect":"false"}',
+    '{"type":"tool_done","tool":"send-email","result":"failed","replayed":null}',
+  ])(
+    "rejects a malformed event instead of returning partial history: %s",
+    async (raw) => {
+      const { runId, thread, turn } = ids();
+      await insertRun(runId, thread, turn);
+      const insert = await pglite.prepare(
+        "INSERT INTO agent_run_events (run_id, seq, event_at, event_data) VALUES (?, ?, ?, ?)",
+      );
+      await insert.run(
+        runId,
+        0,
+        Date.now(),
+        JSON.stringify({ type: "text", text: "Checking" }),
+      );
+      await insert.run(runId, 1, Date.now(), raw);
+      await expect(
+        getCurrentTurnEventsForThread(thread, turn),
+      ).rejects.toThrow();
+    },
+  );
+  it.each(['{"body":', [], null, false, 42])(
+    "reads a recorded model input followed by its non-execution result: %j",
+    async (input) => {
+      const { runId, thread, turn } = ids();
+      await insertRun(runId, thread, turn);
+      const events = [
+        {
+          type: "tool_start",
+          tool: "send-email",
+          id: "truncated",
+          input,
+        },
+        {
+          type: "tool_done",
+          tool: "send-email",
+          id: "truncated",
+          result: "Invalid action parameters for send-email",
+          isError: true,
+          completedSideEffect: false,
+        },
+      ];
+      const insert = await pglite.prepare(
+        "INSERT INTO agent_run_events (run_id, seq, event_at, event_data) VALUES (?, ?, ?, ?)",
+      );
+      for (const [index, event] of events.entries())
+        await insert.run(runId, index, Date.now(), JSON.stringify(event));
+      expect(await getCurrentTurnEventsForThread(thread, turn)).toEqual(events);
+    },
+  );
+});
+
 async function setStaleLiveness(runId: string, atMs: number): Promise<void> {
   await pglite
     .prepare(
@@ -122,10 +220,6 @@ async function setStaleLiveness(runId: string, atMs: number): Promise<void> {
     .run(atMs, atMs, runId);
 }
 
-// Simulates a run that started long enough ago to be reap-eligible, made a
-// token of real progress a few seconds in, then went completely silent for
-// the rest of its life — the "deterministic early hang" signature behind
-// the STALE_RUN_RECOVERY_CONSECUTIVE_NO_PROGRESS_LIMIT circuit breaker.
 async function setDeadOnArrival(
   runId: string,
   startedAtMs: number,
@@ -145,13 +239,15 @@ async function readRow(runId: string): Promise<
       dispatch_mode: string | null;
       dispatch_payload: string | null;
       terminal_reason: string | null;
+      thread_projection_pending: boolean;
       diag_stage: string | null;
+      error_code: string | null;
     }
   | undefined
 > {
   const rows = await pglite
     .prepare(
-      `SELECT id, status, turn_id, dispatch_mode, dispatch_payload, terminal_reason, diag_stage FROM agent_runs WHERE id = ?`,
+      `SELECT id, status, turn_id, dispatch_mode, dispatch_payload, terminal_reason, thread_projection_pending, diag_stage, error_code FROM agent_runs WHERE id = ?`,
     )
     .all(runId);
   return rows[0] as any;
@@ -165,10 +261,6 @@ async function rowsForTurn(
     .all(turnId)) as any;
 }
 
-// Seeds a PRIOR, already-terminal run for a turn directly (bypassing the
-// reap path) so a test can control its error_code/started_at independently —
-// used to build the "N stale_run rows already exist for this turn" fixtures
-// the total-cap check reads.
 async function seedPriorRun(
   runId: string,
   thread: string,
@@ -183,9 +275,312 @@ async function seedPriorRun(
     .run(opts.errorCode, opts.startedAtMs, runId);
 }
 
-const STALE_PAST_MS = 5 * 60_000; // comfortably past BACKGROUND_RUN_STALE_MS (90s)
+const STALE_PAST_MS = 5 * 60_000;
 
 describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () => {
+  it("reaps a stale 12-minute in-flight tool after its execution lease expires", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn, { dispatchMode: "background" });
+    await claimTurnExecutionLease(thread, turn, runId);
+
+    const now = Date.now();
+    const toolStartedAt = now - 12 * 60_000;
+    await pglite
+      .prepare(
+        `UPDATE agent_runs
+            SET started_at = ?, heartbeat_at = ?, last_progress_at = ?,
+                in_flight_since = ?
+          WHERE id = ?`,
+      )
+      .run(
+        toolStartedAt,
+        now - (BACKGROUND_RUN_STALE_MS + 10_000),
+        toolStartedAt,
+        toolStartedAt,
+        runId,
+      );
+    await pglite
+      .prepare(
+        `UPDATE agent_execution_leases
+            SET lease_expires_at = clock_timestamp() - INTERVAL '1 second'
+          WHERE thread_id = ? AND turn_id = ? AND owner_run_id = ?`,
+      )
+      .run(thread, turn, runId);
+
+    expect(await reapIfStale(runId)).toBe(true);
+    expect((await readRow(runId))?.status).toBe("errored");
+  });
+
+  it("retries a stale-run thread projection after its terminal event commits", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn);
+    await setStaleLiveness(runId, Date.now() - STALE_PAST_MS);
+    foldReapedRunIntoThreadMock.mockRejectedValueOnce(
+      new Error("thread write failed"),
+    );
+
+    await expect(reapIfStale(runId)).resolves.toBe(true);
+
+    const [reaped] = (await pglite
+      .prepare(
+        `SELECT status, thread_projection_pending
+         FROM agent_runs WHERE id = ?`,
+      )
+      .all(runId)) as Array<{
+      status: string;
+      thread_projection_pending: boolean;
+    }>;
+    const terminalEvents = await pglite
+      .prepare(
+        `SELECT event_data FROM agent_run_events
+         WHERE run_id = ? ORDER BY seq`,
+      )
+      .all(runId);
+    expect(reaped).toEqual({
+      status: "errored",
+      thread_projection_pending: true,
+    });
+    expect(terminalEvents).toHaveLength(1);
+    expect(String(terminalEvents[0]?.event_data)).toContain(
+      '"errorCode":"stale_run"',
+    );
+
+    await expect(reapAllStaleRuns()).resolves.toEqual({
+      reaped: 0,
+      failed: 0,
+      truncated: false,
+    });
+    const [projected] = (await pglite
+      .prepare(
+        `SELECT thread_projection_pending
+         FROM agent_runs WHERE id = ?`,
+      )
+      .all(runId)) as Array<{ thread_projection_pending: boolean }>;
+    expect(foldReapedRunIntoThreadMock).toHaveBeenCalledTimes(2);
+    expect(projected?.thread_projection_pending).toBe(false);
+  });
+
+  it("keeps a retryable stale-run projection pending until a retry succeeds", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn);
+    await setStaleLiveness(runId, Date.now() - STALE_PAST_MS);
+    foldReapedRunIntoThreadMock
+      .mockResolvedValueOnce("retry")
+      .mockResolvedValueOnce("projected");
+
+    await expect(reapIfStale(runId)).resolves.toBe(true);
+    const [pending] = (await pglite
+      .prepare(
+        `SELECT thread_projection_pending
+         FROM agent_runs WHERE id = ?`,
+      )
+      .all(runId)) as Array<{ thread_projection_pending: boolean }>;
+    expect(pending?.thread_projection_pending).toBe(true);
+
+    await expect(reapAllStaleRuns()).resolves.toEqual({
+      reaped: 0,
+      failed: 0,
+      truncated: false,
+    });
+    const [projected] = (await pglite
+      .prepare(
+        `SELECT thread_projection_pending
+         FROM agent_runs WHERE id = ?`,
+      )
+      .all(runId)) as Array<{ thread_projection_pending: boolean }>;
+    expect(foldReapedRunIntoThreadMock).toHaveBeenCalledTimes(2);
+    expect(projected?.thread_projection_pending).toBe(false);
+  });
+
+  it("does not fail a missing-payload dispatch while a worker owns the live lease", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn);
+    const fence = await claimTurnExecutionLease(thread, turn, runId);
+
+    await expect(
+      failRunBeforeDispatch(
+        runId,
+        "dispatch_payload_missing",
+        "Background dispatch payload is missing or unreadable.",
+        "dispatch_payload_missing",
+      ),
+    ).resolves.toBe(false);
+
+    expect((await readRow(runId))?.status).toBe("running");
+    expect(fence.runId).toBe(runId);
+  });
+
+  it("records a missing-payload failure atomically when no worker owns the lease", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn);
+
+    await expect(
+      failRunBeforeDispatch(
+        runId,
+        "dispatch_payload_missing",
+        "Background dispatch payload is missing or unreadable.",
+        "dispatch_payload_missing",
+      ),
+    ).resolves.toBe(true);
+
+    expect(await readRow(runId)).toMatchObject({
+      status: "errored",
+      error_code: "dispatch_payload_missing",
+      terminal_reason: "dispatch_payload_missing",
+    });
+  });
+
+  it("surfaces and retries a run abort terminal-event failure", async () => {
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn);
+
+    const client = makeRawClient(true);
+    const execute = client.execute.getMockImplementation();
+    if (!execute) throw new Error("run-store test client is not configured");
+    let failedWrites = 2;
+    client.execute.mockImplementation(async (input) => {
+      if (
+        typeof input !== "string" &&
+        /INSERT INTO agent_run_events/i.test(input.sql) &&
+        failedWrites > 0
+      ) {
+        failedWrites--;
+        throw new Error("terminal event write unavailable");
+      }
+      return execute(input);
+    });
+    currentClient = client;
+
+    await expect(markRunAbortedAtSafeBoundary(runId, "user")).rejects.toThrow(
+      "terminal event write unavailable",
+    );
+    expect((await readRow(runId))?.status).toBe("running");
+    expect(
+      await pglite
+        .prepare("SELECT seq FROM agent_run_events WHERE run_id = ?")
+        .all(runId),
+    ).toHaveLength(0);
+
+    await expect(markRunAbortedAtSafeBoundary(runId, "user")).resolves.toBe(
+      true,
+    );
+    const events = (await pglite
+      .prepare("SELECT event_data FROM agent_run_events WHERE run_id = ?")
+      .all(runId)) as Array<{ event_data: string }>;
+    expect(events).toHaveLength(1);
+    expect(JSON.parse(events[0].event_data)).toMatchObject({
+      type: "done",
+      reason: "user",
+    });
+  });
+
+  it("retries a terminal append when a concurrent event claims its sequence", async () => {
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn);
+
+    const client = makeRawClient(true);
+    const execute = client.execute.getMockImplementation();
+    if (!execute) throw new Error("run-store test client is not configured");
+    let conflictInjected = false;
+    client.execute.mockImplementation(async (input) => {
+      if (
+        typeof input !== "string" &&
+        /INSERT INTO agent_run_events/i.test(input.sql) &&
+        /RETURNING seq/i.test(input.sql) &&
+        !conflictInjected
+      ) {
+        conflictInjected = true;
+        const [eventRunId, eventSeq] = input.args ?? [];
+        await pglite
+          .prepare(
+            `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
+             VALUES (?, ?, ?, ?)`,
+          )
+          .run(
+            String(eventRunId),
+            Number(eventSeq),
+            Date.now(),
+            JSON.stringify({ type: "tool_start", toolName: "slow_tool" }),
+          );
+      }
+      return execute(input);
+    });
+    currentClient = client;
+
+    await expect(markRunAbortedAtSafeBoundary(runId, "user")).resolves.toBe(
+      true,
+    );
+
+    const events = (await pglite
+      .prepare(
+        `SELECT seq, event_data FROM agent_run_events
+         WHERE run_id = ? ORDER BY seq`,
+      )
+      .all(runId)) as Array<{ seq: number; event_data: string }>;
+    expect(conflictInjected).toBe(true);
+    expect(events.map((row) => JSON.parse(row.event_data).type)).toEqual([
+      "tool_start",
+      "done",
+    ]);
+  });
+
+  it("surfaces and retries a turn abort terminal-event failure", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn);
+    const newerRunId = `${runId}-newer`;
+    await insertRun(newerRunId, thread, turn);
+    await pglite
+      .prepare(
+        `UPDATE agent_runs
+         SET status = 'completed', terminal_reason = 'completed',
+             completed_at = ?, started_at = ?
+         WHERE id = ?`,
+      )
+      .run(Date.now(), Date.now() + 1, newerRunId);
+
+    const client = makeRawClient(true);
+    const execute = client.execute.getMockImplementation();
+    if (!execute) throw new Error("run-store test client is not configured");
+    let failedWrites = 2;
+    client.execute.mockImplementation(async (input) => {
+      if (
+        typeof input !== "string" &&
+        /INSERT INTO agent_run_events/i.test(input.sql) &&
+        failedWrites > 0
+      ) {
+        failedWrites--;
+        throw new Error("turn terminal event write unavailable");
+      }
+      return execute(input);
+    });
+    currentClient = client;
+
+    await expect(markTurnAborted(thread, turn, "user")).rejects.toThrow(
+      "turn terminal event write unavailable",
+    );
+    expect((await readRow(runId))?.status).toBe("running");
+    expect(
+      await pglite
+        .prepare("SELECT seq FROM agent_run_events WHERE run_id = ?")
+        .all(runId),
+    ).toHaveLength(0);
+
+    await expect(markTurnAborted(thread, turn, "user")).resolves.toBe(
+      "aborted",
+    );
+    const events = (await pglite
+      .prepare("SELECT event_data FROM agent_run_events WHERE run_id = ?")
+      .all(runId)) as Array<{ event_data: string }>;
+    expect(events).toHaveLength(1);
+    expect(JSON.parse(events[0].event_data)).toMatchObject({ type: "done" });
+  });
+
   it("records an early Stop as a turn marker before any real run exists", async () => {
     currentClient = makeRawClient(true);
     const { thread, turn } = ids();
@@ -305,8 +700,6 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     const { abortTurnDurably } = await import("./run-manager.js");
     await abortTurnDurably(runId);
 
-    // Without the turn marker the successor claims itself and the turn keeps
-    // looping — the "Stop didn't stop it" report.
     expect(await isTurnAborted(thread, turn)).toBe(true);
     expect((await readRow(successor))?.status).toBe("aborted");
   });
@@ -319,8 +712,6 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
       dispatchMode: "background",
       dispatchPayload: payload,
     });
-    // Mirror the incident: the worker claimed the run (background ->
-    // background-processing) and was genuinely executing before it died.
     expect(await claimBackgroundRun(runId)).toBe(true);
     await setStaleLiveness(runId, Date.now() - STALE_PAST_MS);
 
@@ -337,7 +728,7 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     expect(oldRow?.diag_stage).toContain("recovered");
 
     const siblings = await rowsForTurn(turn);
-    expect(siblings).toHaveLength(2); // the original + exactly one successor
+    expect(siblings).toHaveLength(2);
     const successorRow = siblings.find((r) => r.id !== runId);
     expect(successorRow).toBeDefined();
     expect(successorRow?.status).toBe("running");
@@ -347,14 +738,216 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
       message: "original ingress",
       foo: "bar",
       internalContinuation: true,
+      __agentChatRecoveryOfRunId: runId,
     });
 
-    // Re-reaping the now-terminal row is a no-op (status is no longer
-    // 'running', so the conditional UPDATE's WHERE clause can't match) — at
-    // most ONE recovery successor per reaped run, even under a retry.
     const reapedAgain = await reapIfStale(runId);
     expect(reapedAgain).toBe(false);
     expect(await rowsForTurn(turn)).toHaveLength(2);
+  });
+
+  it("distinguishes an untracked predecessor from a completed projection retry", async () => {
+    currentClient = makeRawClient(true);
+    await expect(
+      retryRunThreadProjection("missing-predecessor"),
+    ).resolves.toEqual({ state: "untracked" });
+  });
+
+  it("reports a rejected predecessor fold as deferred and keeps its marker", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn);
+    await pglite
+      .prepare(
+        "UPDATE agent_runs SET thread_projection_pending = TRUE WHERE id = ?",
+      )
+      .run(runId);
+    foldReapedRunIntoThreadMock.mockResolvedValueOnce("retry");
+
+    await expect(retryRunThreadProjection(runId)).resolves.toEqual({
+      state: "deferred",
+    });
+    expect((await readRow(runId))?.thread_projection_pending).toBe(true);
+  });
+
+  it("clears quarantine when an explicit retry fails transiently", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn);
+    await pglite
+      .prepare(
+        `UPDATE agent_runs
+         SET thread_projection_pending = TRUE,
+             thread_projection_error_code = 'tool_call_journal_unreadable'
+         WHERE id = ?`,
+      )
+      .run(runId);
+    const foldError = new Error("projection fold failed");
+    foldReapedRunIntoThreadMock.mockRejectedValueOnce(foldError);
+
+    await expect(retryRunThreadProjection(runId)).rejects.toBe(foldError);
+    expect(
+      await pglite
+        .prepare(
+          "SELECT thread_projection_pending, thread_projection_error_code FROM agent_runs WHERE id = ?",
+        )
+        .get(runId),
+    ).toEqual({
+      thread_projection_pending: true,
+      thread_projection_error_code: null,
+    });
+    const retryOrder = (await pglite
+      .prepare(
+        "SELECT thread_projection_retry_order FROM agent_runs WHERE id = ?",
+      )
+      .get(runId)) as { thread_projection_retry_order: number | null };
+    expect(retryOrder.thread_projection_retry_order).not.toBeNull();
+  });
+
+  it("re-quarantines an explicit retry when its source remains unreadable", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn);
+    await pglite
+      .prepare(
+        `UPDATE agent_runs
+         SET thread_projection_pending = TRUE,
+             thread_projection_error_code = 'tool_call_journal_unreadable'
+         WHERE id = ?`,
+      )
+      .run(runId);
+    const unreadable = new AgentRunJournalUnreadableError(
+      thread,
+      turn,
+      0,
+      "invalid_thread_data",
+    );
+    foldReapedRunIntoThreadMock.mockRejectedValueOnce(unreadable);
+
+    await expect(retryRunThreadProjection(runId)).rejects.toBe(unreadable);
+    expect(
+      await pglite
+        .prepare(
+          "SELECT thread_projection_pending, thread_projection_error_code FROM agent_runs WHERE id = ?",
+        )
+        .get(runId),
+    ).toEqual({
+      thread_projection_pending: true,
+      thread_projection_error_code: "tool_call_journal_unreadable",
+    });
+  });
+
+  it("keeps a legacy-order recovery successor unclaimable and unreapable until predecessor projection finishes", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn, {
+      dispatchMode: "background",
+      dispatchPayload: JSON.stringify({ message: "recover this turn" }),
+    });
+    expect(await claimBackgroundRun(runId)).toBe(true);
+    const staleAt = Date.now() - STALE_PAST_MS;
+    await pglite
+      .prepare(
+        `UPDATE agent_runs
+         SET continuation_order = NULL, started_at = ?, heartbeat_at = ?,
+             last_progress_at = ?
+         WHERE id = ?`,
+      )
+      .run(staleAt, staleAt, staleAt, runId);
+    foldReapedRunIntoThreadMock.mockResolvedValueOnce("retry");
+
+    expect(await reapIfStale(runId)).toBe(true);
+    const [successor] = (await pglite
+      .prepare(
+        `SELECT id, continuation_order FROM agent_runs
+         WHERE thread_id = ? AND id <> ?`,
+      )
+      .all(thread, runId)) as Array<{
+      id: string;
+      continuation_order: number;
+    }>;
+    expect(successor).toMatchObject({ continuation_order: 1 });
+    expect(await claimBackgroundRun(successor!.id)).toBe(false);
+
+    await setStaleLiveness(
+      successor!.id,
+      Date.now() - UNCLAIMED_BACKGROUND_RUN_GRACE_MS - 1_000,
+    );
+    expect(await reapUnclaimedBackgroundRun(successor!.id)).toBe(false);
+    expect((await readRow(successor!.id))?.status).toBe("running");
+
+    await pglite
+      .prepare(
+        "UPDATE agent_runs SET thread_projection_pending = FALSE WHERE id = ?",
+      )
+      .run(runId);
+    expect(await claimBackgroundRun(successor!.id)).toBe(true);
+  });
+
+  it("does not let another thread's reused turn id suppress stale recovery", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn, {
+      dispatchMode: "background",
+      dispatchPayload: JSON.stringify({ ok: true }),
+    });
+    await claimBackgroundRun(runId);
+    await pglite
+      .prepare(
+        "UPDATE agent_runs SET started_at = ?, heartbeat_at = ?, last_progress_at = ? WHERE id = ?",
+      )
+      .run(
+        Date.now() - STALE_PAST_MS,
+        Date.now() - STALE_PAST_MS,
+        Date.now() - STALE_PAST_MS,
+        runId,
+      );
+
+    const otherThreadRun = `${runId}-other-thread`;
+    await insertRun(otherThreadRun, `${thread}-other`, turn);
+    await pglite
+      .prepare("UPDATE agent_runs SET started_at = ? WHERE id = ?")
+      .run(Date.now() + 1_000, otherThreadRun);
+
+    expect(await reapIfStale(runId)).toBe(true);
+    const successors = await pglite
+      .prepare("SELECT id FROM agent_runs WHERE thread_id = ? AND id <> ?")
+      .all(thread, runId);
+    expect(successors).toHaveLength(1);
+  });
+
+  it("does not copy a legacy payload's inline image bytes into the successor", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn, { dispatchMode: "background" });
+    // Seed a pre-guard row without using the current persistence boundary.
+    await pglite
+      .prepare("UPDATE agent_runs SET dispatch_payload = ? WHERE id = ?")
+      .run(
+        JSON.stringify({
+          message: "look",
+          attachments: [
+            {
+              type: "image",
+              name: "shot.png",
+              data: "data:image/png;base64,LEGACY_SENTINEL_NOT_IMAGE_BYTES",
+            },
+          ],
+        }),
+        runId,
+      );
+    expect(await claimBackgroundRun(runId)).toBe(true);
+    await setStaleLiveness(runId, Date.now() - STALE_PAST_MS);
+
+    expect(await reapIfStale(runId)).toBe(true);
+
+    const successor = (await rowsForTurn(turn)).find((r) => r.id !== runId);
+    const payload = (await readRow(successor!.id))?.dispatch_payload;
+    assertNoInlineImageBytes(payload, "dispatch_payload");
+    expect(JSON.parse(payload!).attachments[0]).toMatchObject({
+      name: "shot.png",
+      omitted: "inline-bytes",
+    });
   });
 
   it("stops recovering after 3 consecutive stale_run reaps that made near-zero progress (deterministic dead-on-arrival loop)", async () => {
@@ -372,7 +965,7 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     expect(await reapIfStale(runId)).toBe(true);
 
     let siblings = await rowsForTurn(turn);
-    expect(siblings).toHaveLength(2); // original + 1st successor (recovered)
+    expect(siblings).toHaveLength(2);
     let successorId = siblings.find((r) => r.id !== runId)!.id;
 
     await claimBackgroundRun(successorId);
@@ -380,7 +973,7 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     expect(await reapIfStale(successorId)).toBe(true);
 
     siblings = await rowsForTurn(turn);
-    expect(siblings).toHaveLength(3); // + 2nd successor (recovered) — 2 in a row isn't enough to trip the breaker
+    expect(siblings).toHaveLength(3);
     const thirdRunId = siblings.find(
       (r) => r.id !== runId && r.id !== successorId,
     )!.id;
@@ -389,8 +982,6 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     await setDeadOnArrival(thirdRunId, longAgo);
     expect(await reapIfStale(thirdRunId)).toBe(true);
 
-    // The 3rd consecutive dead-on-arrival stale_run reap trips the breaker —
-    // no 4th successor, and the decline is diagnosable.
     expect((await readRow(thirdRunId))?.diag_stage).toContain("declined");
     expect((await readRow(thirdRunId))?.diag_stage).toContain(
       "repeated_no_progress",
@@ -403,10 +994,6 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     const { runId, thread, turn } = ids();
     const longAgo = Date.now() - STALE_PAST_MS;
 
-    // 3 prior stale_run rows, with a non-stale http_429 row interleaved
-    // between them — the CONSECUTIVE check (3-in-a-row) would be reset by
-    // the interleaved row, but the total cap counts all 3 regardless of
-    // order or what happened in between.
     await seedPriorRun(`${runId}-p1`, thread, turn, {
       errorCode: "stale_run",
       startedAtMs: longAgo,
@@ -437,16 +1024,12 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     expect((await readRow(runId))?.diag_stage).toContain(
       "repeated_no_progress",
     );
-    // 4 priors + the reaped row = 5 rows; no successor inserted.
     expect(await rowsForTurn(turn)).toHaveLength(5);
   });
 
   it("two prior stale rows plus the current one still allows a successor; three prior stale rows decline", async () => {
     currentClient = makeRawClient(true);
 
-    // 2 PRIOR stale_run rows — below the cap — and the row currently being
-    // reaped is NOT a prior row, so it still gets a successor (3rd
-    // successor overall would come from a 3rd prior, not from this one).
     {
       const { runId, thread, turn } = ids();
       const longAgo = Date.now() - STALE_PAST_MS;
@@ -467,11 +1050,9 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
 
       expect(await reapIfStale(runId)).toBe(true);
       expect((await readRow(runId))?.diag_stage).toContain("recovered");
-      // 2 priors + the reaped row + 1 new successor = 4.
       expect(await rowsForTurn(turn)).toHaveLength(4);
     }
 
-    // 3 PRIOR stale_run rows — AT the cap — this reap is declined.
     {
       const { runId, thread, turn } = ids();
       const longAgo = Date.now() - STALE_PAST_MS;
@@ -499,7 +1080,6 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
       expect((await readRow(runId))?.diag_stage).toContain(
         "repeated_no_progress",
       );
-      // 3 priors + the reaped row = 4; no successor inserted.
       expect(await rowsForTurn(turn)).toHaveLength(4);
     }
   });
@@ -512,10 +1092,6 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
       dispatchPayload: JSON.stringify({ ok: true }),
     });
     await claimBackgroundRun(runId);
-    // The dying run's own worker recorded losing the claim (a duplicate
-    // delivery already owned it) right before it went silent — this is the
-    // forensic signal `reapSingleStaleRun` must capture before its own
-    // `staleRunRecoveryAttempted` write overwrites `diag_stage`.
     await recordRunDiagnostic(runId, RUN_DIAG_STAGE.workerClaimLost);
     await setStaleLiveness(runId, Date.now() - STALE_PAST_MS);
 
@@ -529,9 +1105,6 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
   it("does NOT create a successor once the per-turn run budget is exhausted", async () => {
     currentClient = makeRawClient(true);
     const { runId, thread, turn } = ids();
-    // Seed the turn's SQL ledger past STALE_RUN_RECOVERY_MAX_TURN_RUNS (25)
-    // with prior (already-terminal) chunks, mirroring a pathological
-    // continuation loop that ran long before this worker ever died.
     for (let i = 0; i < 25; i++) {
       await insertRun(`${runId}-prior-${i}`, thread, turn, {
         dispatchMode: "background",
@@ -550,15 +1123,12 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     expect((await readRow(runId))?.diag_stage).toContain("declined");
     expect((await readRow(runId))?.diag_stage).toContain("budget_exhausted");
 
-    // 25 priors + the reaped row itself = 26 rows for the turn; no successor.
     expect(await rowsForTurn(turn)).toHaveLength(26);
   });
 
   it("does NOT create a successor when the dying run has no dispatch_payload to carry over", async () => {
     currentClient = makeRawClient(true);
     const { runId, thread, turn } = ids();
-    // No dispatchPayload — an in-process background automation, which was never
-    // HTTP-dispatched and so has no request body to rehydrate.
     await insertRun(runId, thread, turn, { dispatchMode: "background" });
     await claimBackgroundRun(runId);
     await setStaleLiveness(runId, Date.now() - STALE_PAST_MS);
@@ -566,17 +1136,12 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     const reaped = await reapIfStale(runId);
     expect(reaped).toBe(true);
     expect((await readRow(runId))?.status).toBe("errored");
-    // Named for what it is. "payload_missing" read as data loss in production
-    // forensics for the one case where nothing was ever lost.
     expect((await readRow(runId))?.diag_stage).toContain("not_redispatchable");
-    expect(await rowsForTurn(turn)).toHaveLength(1); // no successor inserted
+    expect(await rowsForTurn(turn)).toHaveLength(1);
   });
 
   it("gives a claimed run with no redispatch path the wider background stale window", async () => {
     currentClient = makeRawClient(true);
-    // A payload-less claimed run is an in-process automation: reaping it at the
-    // 45s post-claim window kills a job that is still working and that nothing
-    // can recover. It must survive to the 90s background window instead.
     const noPayload = ids();
     await insertRun(noPayload.runId, noPayload.thread, noPayload.turn, {
       dispatchMode: "background",
@@ -589,8 +1154,6 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     expect(await reapIfStale(noPayload.runId)).toBe(false);
     expect((await readRow(noPayload.runId))?.status).toBe("running");
 
-    // A genuine HTTP worker (payload present) keeps the tight window, because
-    // for it an early reap does buy a durable successor.
     const withPayload = ids();
     await insertRun(withPayload.runId, withPayload.thread, withPayload.turn, {
       dispatchMode: "background",
@@ -613,8 +1176,6 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     });
     await claimBackgroundRun(runId);
     await setStaleLiveness(runId, Date.now() - STALE_PAST_MS);
-    // A normal chainServerDrivenContinuation (or an earlier recovery pass)
-    // already continued this turn with a genuinely newer row.
     await new Promise((resolve) => setTimeout(resolve, 2));
     const newerRunId = `${runId}-already-continued`;
     await insertRun(newerRunId, thread, turn, { dispatchMode: "background" });
@@ -623,32 +1184,106 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     expect(reaped).toBe(true);
     expect((await readRow(runId))?.status).toBe("errored");
     expect((await readRow(runId))?.diag_stage).toContain("newer_run_exists");
-    // Only the original + the pre-existing newer run — nothing new inserted.
+    expect(await rowsForTurn(turn)).toHaveLength(2);
+  });
+
+  it("does not create a recovery successor after a newer lease generation takes ownership", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn, {
+      dispatchMode: "background",
+      dispatchPayload: JSON.stringify({ ok: true }),
+    });
+    const oldFence = await claimTurnExecutionLease(thread, turn, runId);
+    await setStaleLiveness(runId, Date.now() - STALE_PAST_MS);
+
+    const successorId = `${runId}-successor-owner`;
+    await insertRun(successorId, thread, turn, {
+      dispatchMode: "background",
+      dispatchPayload: JSON.stringify({ ok: true }),
+    });
+    await pglite
+      .prepare(
+        `UPDATE agent_execution_leases
+         SET lease_expires_at = clock_timestamp() - INTERVAL '1 millisecond'
+         WHERE thread_id = ? AND turn_id = ?`,
+      )
+      .run(thread, turn);
+    const newFence = await claimTurnExecutionLease(thread, turn, successorId);
+    expect(newFence.generation).not.toBe(oldFence.generation);
+
+    expect(await reapIfStale(runId)).toBe(true);
+
+    expect((await readRow(runId))?.status).toBe("errored");
+    expect((await readRow(runId))?.diag_stage).toContain(
+      "declined reason=execution_lease_changed",
+    );
+    expect(await rowsForTurn(turn)).toHaveLength(2);
+    expect((await readRow(successorId))?.status).toBe("running");
+  });
+
+  it("does not create a recovery successor when a leased run has lost its lease row", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn, {
+      dispatchMode: "background",
+      dispatchPayload: JSON.stringify({ ok: true }),
+    });
+    await claimTurnExecutionLease(thread, turn, runId);
+    await setStaleLiveness(runId, Date.now() - STALE_PAST_MS);
+    await pglite
+      .prepare(
+        `DELETE FROM agent_execution_leases
+         WHERE thread_id = ? AND turn_id = ? AND owner_run_id = ?`,
+      )
+      .run(thread, turn, runId);
+
+    expect(await reapIfStale(runId)).toBe(true);
+
+    expect((await readRow(runId))?.status).toBe("errored");
+    expect((await readRow(runId))?.diag_stage).toContain(
+      "declined reason=execution_lease_changed",
+    );
+    expect(await rowsForTurn(turn)).toHaveLength(1);
+  });
+
+  it("does not recover into a turn that was cancelled before the stale insert", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn, {
+      dispatchMode: "background",
+      dispatchPayload: JSON.stringify({ ok: true }),
+    });
+    await claimBackgroundRun(runId);
+    await setStaleLiveness(runId, Date.now() - STALE_PAST_MS);
+    const markerId = `turn-abort:${encodeURIComponent(thread)}:${encodeURIComponent(turn)}`;
+    await insertRun(markerId, thread, turn, { dispatchMode: "turn-abort" });
+    await pglite
+      .prepare("UPDATE agent_runs SET status = 'aborted' WHERE id = ?")
+      .run(markerId);
+
+    expect(await reapIfStale(runId)).toBe(true);
+    expect((await readRow(runId))?.status).toBe("errored");
+    expect((await readRow(runId))?.diag_stage).toContain("turn_aborted");
     expect(await rowsForTurn(turn)).toHaveLength(2);
   });
 
   it("does NOT attempt recovery for a foreground (non-background) run", async () => {
     currentClient = makeRawClient(true);
     const { runId, thread, turn } = ids();
-    await insertRun(runId, thread, turn); // no dispatchMode => plain foreground row
+    await insertRun(runId, thread, turn);
     await setStaleLiveness(runId, Date.now() - 60_000);
 
     const reaped = await reapIfStale(runId);
     expect(reaped).toBe(true);
     expect((await readRow(runId))?.status).toBe("errored");
-    // "not_background" is the common case and is deliberately NOT recorded
-    // as a diag stage (see attemptStaleRunRecovery's doc comment) — the row
-    // must not gain a stale-run-recovery diag entry at all.
     expect((await readRow(runId))?.diag_stage ?? "").not.toContain(
       "stale_run_recovery_attempted",
     );
     expect(await rowsForTurn(turn)).toHaveLength(1);
   });
 
-  it("falls back to insert-then-update ordering when the DbExec has no transaction() primitive, and still recovers", async () => {
-    // Defensive fallback path — see reapSingleStaleRun's comment. Every real
-    // DbExec provides `.transaction`; this proves the degraded path still
-    // produces a correct, recoverable outcome.
+  it("fails closed when stale reaping has no transaction() primitive", async () => {
     currentClient = makeRawClient(false);
     const { runId, thread, turn } = ids();
     await insertRun(runId, thread, turn, {
@@ -658,10 +1293,155 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     await claimBackgroundRun(runId);
     await setStaleLiveness(runId, Date.now() - STALE_PAST_MS);
 
-    const reaped = await reapIfStale(runId);
-    expect(reaped).toBe(true);
-    expect((await readRow(runId))?.status).toBe("errored");
-    expect(await rowsForTurn(turn)).toHaveLength(2);
+    await expect(reapIfStale(runId)).rejects.toThrow(
+      "Atomic stale-run fencing requires transaction support",
+    );
+    expect((await readRow(runId))?.status).toBe("running");
+    expect(await rowsForTurn(turn)).toHaveLength(1);
+  });
+
+  it("does not append terminal state when the bulk sweep cannot fence a candidate", async () => {
+    currentClient = makeRawClient(false);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn, {
+      dispatchMode: "background",
+      dispatchPayload: JSON.stringify({ ok: true }),
+    });
+    await claimBackgroundRun(runId);
+    await setStaleLiveness(runId, Date.now() - STALE_PAST_MS);
+
+    const swept = await reapAllStaleRuns();
+
+    expect(swept.reaped).toBe(0);
+    expect(swept.failed).toBeGreaterThanOrEqual(1);
+    expect((await readRow(runId))?.status).toBe("running");
+    expect(await rowsForTurn(turn)).toHaveLength(1);
+    const eventRows = await pglite
+      .prepare(
+        "SELECT event_data FROM agent_run_events WHERE run_id = ? ORDER BY seq",
+      )
+      .all(runId);
+    expect(
+      eventRows.some((row) =>
+        String(row.event_data).includes('"errorCode":"stale_run"'),
+      ),
+    ).toBe(false);
+  });
+
+  it("defers an explicit projection retry behind its earlier same-turn projection", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    const predecessorId = `${runId}-predecessor`;
+    const laterRunId = `${runId}-later`;
+    await insertRun(predecessorId, thread, turn, { continuationOrder: 0 });
+    await pglite
+      .prepare(
+        `UPDATE agent_runs
+         SET status = 'completed', completed_at = ?, thread_projection_pending = TRUE
+         WHERE id = ?`,
+      )
+      .run(Date.now(), predecessorId);
+    await insertRun(laterRunId, thread, turn, { continuationOrder: 1 });
+    await pglite
+      .prepare(
+        `UPDATE agent_runs
+         SET status = 'completed', completed_at = ?, thread_projection_pending = TRUE,
+             thread_projection_error_code = 'tool_call_journal_unreadable'
+         WHERE id = ?`,
+      )
+      .run(Date.now() + 1, laterRunId);
+
+    await expect(retryRunThreadProjection(laterRunId)).resolves.toEqual({
+      state: "deferred",
+    });
+    expect(foldReapedRunIntoThreadMock).not.toHaveBeenCalled();
+    expect(
+      await pglite
+        .prepare(
+          "SELECT thread_projection_pending, thread_projection_error_code FROM agent_runs WHERE id = ?",
+        )
+        .get(laterRunId),
+    ).toEqual({
+      thread_projection_pending: true,
+      thread_projection_error_code: "tool_call_journal_unreadable",
+    });
+
+    await pglite
+      .prepare(
+        "UPDATE agent_runs SET thread_projection_pending = FALSE WHERE id = ?",
+      )
+      .run(predecessorId);
+    await expect(retryRunThreadProjection(laterRunId)).resolves.toEqual({
+      state: "projected",
+    });
+    expect(foldReapedRunIntoThreadMock).toHaveBeenCalledWith(laterRunId);
+    expect(
+      await pglite
+        .prepare(
+          "SELECT thread_projection_pending, thread_projection_error_code FROM agent_runs WHERE id = ?",
+        )
+        .get(laterRunId),
+    ).toEqual({
+      thread_projection_pending: false,
+      thread_projection_error_code: null,
+    });
+  });
+
+  it("surfaces failed recovery instead of confirming a successful reap", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn, {
+      dispatchMode: "background",
+      dispatchPayload: JSON.stringify({ ok: true }),
+    });
+    await claimBackgroundRun(runId);
+    await setStaleLiveness(runId, Date.now() - STALE_PAST_MS);
+    const execute = currentClient.execute.getMockImplementation()!;
+    currentClient.execute.mockImplementation(async (input) => {
+      if (
+        typeof input !== "string" &&
+        input.sql.includes("INSERT INTO agent_runs") &&
+        input.sql.includes("'background'")
+      )
+        throw new Error("fixture successor preparation failed");
+      return execute(input);
+    });
+    await expect(reapIfStale(runId)).rejects.toThrow(
+      "fixture successor preparation failed",
+    );
+    expect((await readRow(runId))?.status).toBe("running");
+    expect(await rowsForTurn(turn)).toHaveLength(1);
+  });
+
+  it("fails closed when a generated stale-run successor ID already exists", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn, {
+      dispatchMode: "background",
+      dispatchPayload: JSON.stringify({ ok: true }),
+    });
+    await claimBackgroundRun(runId);
+    await setStaleLiveness(runId, Date.now() - STALE_PAST_MS);
+
+    const now = Date.now();
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const dateSpy = vi.spyOn(Date, "now").mockReturnValue(now);
+    const successorId = `run-${now}-${(0.5).toString(36).slice(2, 8)}`;
+    try {
+      await insertRun(successorId, "other-thread", "other-turn");
+      fireInternalDispatchMock.mockClear();
+
+      await expect(reapIfStale(runId)).rejects.toThrow(
+        `Stale-run successor ${successorId} was not inserted`,
+      );
+
+      expect((await readRow(runId))?.status).toBe("running");
+      expect(await rowsForTurn(turn)).toHaveLength(1);
+      expect(fireInternalDispatchMock).not.toHaveBeenCalled();
+    } finally {
+      randomSpy.mockRestore();
+      dateSpy.mockRestore();
+    }
   });
 
   it("serializes two concurrent reapers for the same turn so the cap is never exceeded", async () => {
@@ -691,10 +1471,6 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     const { thread, turn } = ids();
     const longAgo = Date.now() - STALE_PAST_MS;
 
-    // 2 PRIOR stale rows — at the cap (3) once EITHER concurrent reap below
-    // counts the other as a 3rd already-stale sibling (see NOTE above), so
-    // neither creates a successor: the turn is never left with more than
-    // the 1 successor slot the cap actually had room for.
     const p1 = `${turn}-p1`;
     const p2 = `${turn}-p2`;
     await seedPriorRun(p1, thread, turn, {
@@ -718,11 +1494,6 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     });
     await claimBackgroundRun(runA);
     await claimBackgroundRun(runB);
-    // Same `started_at` for both — the pre-existing `newer_run_exists` guard
-    // (a DIFFERENT, already-correct check) compares each row's own
-    // started_at against its siblings', and would otherwise deterministically
-    // decline whichever of A/B is older regardless of the race this test is
-    // actually targeting.
     const sameStartedAt = longAgo + 2_000;
     await pglite
       .prepare(
@@ -753,6 +1524,62 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
 });
 
 describe("FIX 3 — stale-run reaper server-owned recovery (reapAllStaleRuns)", () => {
+  it("does not finalize a candidate whose heartbeat renews after the stale scan", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn);
+    await setStaleLiveness(runId, Date.now() - STALE_PAST_MS);
+    afterStaleCandidateScan = async () => {
+      const renewedAt = Date.now();
+      await pglite
+        .prepare(
+          "UPDATE agent_runs SET heartbeat_at = ?, last_progress_at = ? WHERE id = ?",
+        )
+        .run(renewedAt, renewedAt, runId);
+    };
+
+    const swept = await reapAllStaleRuns();
+
+    expect(swept.failed).toBe(0);
+    expect((await readRow(runId))?.status).toBe("running");
+    const eventRows = await pglite
+      .prepare(
+        "SELECT event_data FROM agent_run_events WHERE run_id = ? ORDER BY seq",
+      )
+      .all(runId);
+    expect(
+      eventRows.some((row) =>
+        String(row.event_data).includes('"errorCode":"stale_run"'),
+      ),
+    ).toBe(false);
+  });
+
+  it("cleanup does not age-fail a run with a live heartbeat", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn);
+    const liveAt = Date.now();
+    await pglite
+      .prepare(
+        "UPDATE agent_runs SET started_at = ?, heartbeat_at = ?, last_progress_at = ? WHERE id = ?",
+      )
+      .run(liveAt - 2 * 24 * 60 * 60 * 1000, liveAt, liveAt, runId);
+
+    await cleanupOldRuns(24 * 60 * 60 * 1000);
+
+    expect((await readRow(runId))?.status).toBe("running");
+    const eventRows = await pglite
+      .prepare(
+        "SELECT event_data FROM agent_run_events WHERE run_id = ? ORDER BY seq",
+      )
+      .all(runId);
+    expect(
+      eventRows.some((row) =>
+        String(row.event_data).includes('"errorCode":"stale_run"'),
+      ),
+    ).toBe(false);
+  });
+
   it("recovers a dead background worker discovered by the bulk startup sweep", async () => {
     currentClient = makeRawClient(true);
     const { runId, thread, turn } = ids();
@@ -769,9 +1596,404 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapAllStaleRuns)", 
     expect((await readRow(runId))?.status).toBe("errored");
     expect(await rowsForTurn(turn)).toHaveLength(2);
 
-    // A second sweep pass over the now-terminal row must not stack another
-    // successor.
     await reapAllStaleRuns();
     expect(await rowsForTurn(turn)).toHaveLength(2);
+  });
+
+  it("recovers and projects a checkpointed continuation after its worker dies", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn, {
+      dispatchMode: "background",
+      dispatchPayload: JSON.stringify({ prompt: "Continue the original turn" }),
+    });
+    await claimBackgroundRun(runId);
+    const fence = await claimTurnExecutionLease(thread, turn, runId);
+    await withExecutionFence(fence, async () => {
+      await insertRunEvent(
+        runId,
+        0,
+        JSON.stringify({ type: "text", text: "Completed before timeout" }),
+      );
+      await persistRunCheckpointEvent(
+        runId,
+        { type: "auto_continue", reason: "run_timeout" },
+        "run_timeout",
+      );
+    });
+    await setStaleLiveness(runId, Date.now() - STALE_PAST_MS);
+    await pglite
+      .prepare(
+        `UPDATE agent_execution_leases
+         SET lease_expires_at = clock_timestamp() - INTERVAL '1 millisecond'
+         WHERE thread_id = ? AND turn_id = ?`,
+      )
+      .run(thread, turn);
+
+    foldReapedRunIntoThreadMock.mockImplementation(
+      async (foldedRunId: string) => {
+        expect(foldedRunId).toBe(runId);
+        expect(await rowsForTurn(turn)).toHaveLength(2);
+        return "projected";
+      },
+    );
+    const swept = await reapAllStaleRuns();
+
+    expect(swept).toEqual({ reaped: 0, failed: 0, truncated: false });
+    const repaired = await readRow(runId);
+    expect(repaired).toMatchObject({
+      status: "truncated",
+      terminal_reason: "run_timeout",
+    });
+    const siblings = await rowsForTurn(turn);
+    expect(siblings).toHaveLength(2);
+    const successor = siblings.find((row) => row.id !== runId);
+    expect(successor?.status).toBe("running");
+    const successorRun = await readRow(successor!.id);
+    expect(JSON.parse(successorRun?.dispatch_payload ?? "null")).toMatchObject({
+      prompt: "Continue the original turn",
+      internalContinuation: true,
+      __agentChatRecoveryOfRunId: runId,
+    });
+    const checkpoint = (await pglite
+      .prepare(
+        "SELECT event_data FROM agent_run_events WHERE run_id = ? AND seq = ?",
+      )
+      .get(runId, CHECKPOINT_TERMINAL_EVENT_SEQ)) as {
+      event_data: string;
+    };
+    expect(JSON.parse(checkpoint.event_data)).toEqual({
+      type: "auto_continue",
+      reason: "run_timeout",
+    });
+    const projection = (await pglite
+      .prepare("SELECT thread_projection_pending FROM agent_runs WHERE id = ?")
+      .get(runId)) as { thread_projection_pending: boolean };
+    expect(projection.thread_projection_pending).toBe(false);
+    await vi.waitFor(() =>
+      expect(fireInternalDispatchMock).toHaveBeenCalledTimes(1),
+    );
+    expect(fireInternalDispatchMock.mock.calls[0]?.[0]).toMatchObject({
+      taskId: successor!.id,
+      body: { internalContinuation: true },
+    });
+
+    await reapAllStaleRuns();
+    expect(await rowsForTurn(turn)).toHaveLength(2);
+    expect(fireInternalDispatchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("defers terminal-event repair behind an earlier run projection", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    const laterRunId = `${runId}-later`;
+    await insertRun(runId, thread, turn, { continuationOrder: 0 });
+    await pglite
+      .prepare(
+        `UPDATE agent_runs
+         SET status = 'completed', completed_at = ?, thread_projection_pending = TRUE
+         WHERE id = ?`,
+      )
+      .run(Date.now(), runId);
+    await insertRun(laterRunId, thread, turn, {
+      dispatchMode: "background",
+      dispatchPayload: JSON.stringify({
+        prompt: "Continue after earlier work",
+      }),
+      continuationOrder: 1,
+    });
+    await pglite
+      .prepare(
+        "INSERT INTO agent_run_events (run_id, seq, event_at, event_data) VALUES (?, ?, ?, ?)",
+      )
+      .run(laterRunId, 0, Date.now(), JSON.stringify({ type: "done" }));
+    await setStaleLiveness(laterRunId, Date.now() - STALE_PAST_MS);
+    foldReapedRunIntoThreadMock.mockImplementation(async (foldedRunId) =>
+      foldedRunId === runId ? "retry" : "projected",
+    );
+
+    const swept = await reapAllStaleRuns();
+
+    expect(swept).toEqual({ reaped: 0, failed: 1, truncated: false });
+    expect((await readRow(laterRunId))?.status).toBe("running");
+    expect(foldReapedRunIntoThreadMock).not.toHaveBeenCalledWith(laterRunId);
+  });
+
+  it("does not let projection-blocked rows starve later stale runs", async () => {
+    currentClient = makeRawClient(true);
+    const blockedCount = 201;
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn, { continuationOrder: 0 });
+    await pglite
+      .prepare(
+        `UPDATE agent_runs
+         SET status = 'completed', completed_at = ?, thread_projection_pending = TRUE
+         WHERE id = ?`,
+      )
+      .run(Date.now(), runId);
+    for (let order = 1; order <= blockedCount; order += 1) {
+      await insertRun(`${runId}-blocked-${order}`, thread, turn, {
+        continuationOrder: order,
+      });
+    }
+    const staleAt = Date.now() - STALE_PAST_MS;
+    await pglite
+      .prepare(
+        `UPDATE agent_runs
+         SET started_at = 1, heartbeat_at = ?, last_progress_at = ?
+         WHERE thread_id = ? AND id <> ?`,
+      )
+      .run(staleAt, staleAt, thread, runId);
+    const eligible = ids();
+    await insertRun(eligible.runId, eligible.thread, eligible.turn);
+    await setStaleLiveness(eligible.runId, staleAt);
+    foldReapedRunIntoThreadMock.mockImplementation(async (foldedRunId) =>
+      foldedRunId === runId ? "retry" : "projected",
+    );
+
+    const swept = await reapAllStaleRuns();
+
+    expect(swept).toEqual({ reaped: 1, failed: 1, truncated: false });
+    expect((await readRow(eligible.runId))?.status).toBe("errored");
+  });
+
+  it("does not let deferred projection markers starve later projections", async () => {
+    currentClient = makeRawClient(true);
+    const blockedCount = 201;
+    const { runId, thread, turn } = ids();
+    const deferredRunPrefix = `${runId}-deferred-`;
+    const completedAt = 1_000;
+    const startedAt = 1;
+    await pglite
+      .prepare(
+        `INSERT INTO agent_runs (
+           id, thread_id, status, started_at, turn_id, continuation_order,
+           completed_at, thread_projection_pending
+         )
+         SELECT ? || order_number, ? || order_number, 'completed', ?,
+                ? || order_number, 0,
+                CAST(? AS BIGINT) + order_number, TRUE
+         FROM generate_series(1, ?) AS generated(order_number)`,
+      )
+      .run(
+        deferredRunPrefix,
+        `${thread}-deferred-`,
+        startedAt,
+        `${turn}-deferred-`,
+        completedAt,
+        blockedCount,
+      );
+    const eligible = ids();
+    await insertRun(eligible.runId, eligible.thread, eligible.turn);
+    await pglite
+      .prepare(
+        `UPDATE agent_runs
+         SET status = 'completed', completed_at = ?, thread_projection_pending = TRUE
+         WHERE id = ?`,
+      )
+      .run(completedAt + blockedCount + 1, eligible.runId);
+    foldReapedRunIntoThreadMock.mockImplementation(async (foldedRunId) =>
+      foldedRunId.startsWith(deferredRunPrefix) ? "retry" : "projected",
+    );
+
+    const firstSweep = await reapAllStaleRuns();
+
+    expect(firstSweep).toEqual({ reaped: 0, failed: 200, truncated: true });
+    expect(foldReapedRunIntoThreadMock).not.toHaveBeenCalledWith(
+      eligible.runId,
+    );
+    await reapAllStaleRuns();
+    expect(foldReapedRunIntoThreadMock).toHaveBeenCalledWith(eligible.runId);
+    expect((await readRow(eligible.runId))?.thread_projection_pending).toBe(
+      false,
+    );
+    expect(
+      (await readRow(`${deferredRunPrefix}1`))?.thread_projection_pending,
+    ).toBe(true);
+  });
+
+  it("does not let throwing projection folds starve later projections", async () => {
+    currentClient = makeRawClient(true);
+    const failedRunCount = 200;
+    const { runId, thread, turn } = ids();
+    const failedRunPrefix = `${runId}-failed-`;
+    const completedAt = 1_000;
+    await pglite
+      .prepare(
+        `INSERT INTO agent_runs (
+           id, thread_id, status, started_at, turn_id, continuation_order,
+           completed_at, thread_projection_pending
+         )
+         SELECT ? || order_number, ? || order_number, 'completed', 1,
+                ? || order_number, 0,
+                CAST(? AS BIGINT) + order_number, TRUE
+         FROM generate_series(1, ?) AS generated(order_number)`,
+      )
+      .run(
+        failedRunPrefix,
+        `${thread}-failed-`,
+        `${turn}-failed-`,
+        completedAt,
+        failedRunCount,
+      );
+    const eligible = ids();
+    await insertRun(eligible.runId, eligible.thread, eligible.turn);
+    await pglite
+      .prepare(
+        `UPDATE agent_runs
+         SET status = 'completed', completed_at = ?, thread_projection_pending = TRUE
+         WHERE id = ?`,
+      )
+      .run(completedAt + failedRunCount + 1, eligible.runId);
+    foldReapedRunIntoThreadMock.mockImplementation(async (foldedRunId) => {
+      if (foldedRunId.startsWith(failedRunPrefix)) {
+        throw new Error("projection fold failed");
+      }
+      return "projected";
+    });
+
+    const firstSweep = await reapAllStaleRuns();
+
+    expect(firstSweep).toEqual({ reaped: 0, failed: 200, truncated: true });
+    expect(foldReapedRunIntoThreadMock).not.toHaveBeenCalledWith(
+      eligible.runId,
+    );
+    expect(
+      (await readRow(`${failedRunPrefix}1`))?.thread_projection_pending,
+    ).toBe(true);
+    await reapAllStaleRuns();
+    expect(foldReapedRunIntoThreadMock).toHaveBeenCalledWith(eligible.runId);
+    expect((await readRow(eligible.runId))?.thread_projection_pending).toBe(
+      false,
+    );
+    expect(
+      (await readRow(`${failedRunPrefix}1`))?.thread_projection_pending,
+    ).toBe(true);
+  });
+
+  it("orders equal-time legacy projection retries by run id", async () => {
+    currentClient = makeRawClient(true);
+    const earlierRunId = "legacy-projection-a";
+    const laterRunId = "legacy-projection-b";
+    const thread = "thread-equal-time-legacy-projection";
+    const turn = "turn-equal-time-legacy-projection";
+    const startedAt = Date.now();
+    await insertRun(earlierRunId, thread, turn);
+    await insertRun(laterRunId, thread, turn);
+    await pglite
+      .prepare(
+        `UPDATE agent_runs
+         SET status = 'completed', continuation_order = NULL,
+             started_at = ?, completed_at = ?, thread_projection_pending = TRUE
+         WHERE id IN (?, ?)`,
+      )
+      .run(startedAt, startedAt, earlierRunId, laterRunId);
+
+    const firstSweep = await reapAllStaleRuns();
+
+    expect(firstSweep).toEqual({ reaped: 0, failed: 0, truncated: false });
+    expect(foldReapedRunIntoThreadMock).toHaveBeenCalledOnce();
+    expect(foldReapedRunIntoThreadMock).toHaveBeenCalledWith(earlierRunId);
+    expect((await readRow(earlierRunId))?.thread_projection_pending).toBe(
+      false,
+    );
+    expect((await readRow(laterRunId))?.thread_projection_pending).toBe(true);
+
+    const secondSweep = await reapAllStaleRuns();
+
+    expect(secondSweep).toEqual({ reaped: 0, failed: 0, truncated: false });
+    expect(
+      foldReapedRunIntoThreadMock.mock.calls.map(([runId]) => runId),
+    ).toEqual([earlierRunId, laterRunId]);
+    expect((await readRow(laterRunId))?.thread_projection_pending).toBe(false);
+  });
+
+  it("defers recovered successors until their predecessor projection can be retried", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn, {
+      dispatchMode: "background",
+      dispatchPayload: JSON.stringify({ prompt: "Continue after projection" }),
+    });
+    await claimBackgroundRun(runId);
+    const fence = await claimTurnExecutionLease(thread, turn, runId);
+    await withExecutionFence(fence, async () => {
+      await insertRunEvent(
+        runId,
+        0,
+        JSON.stringify({ type: "text", text: "Saved before timeout" }),
+      );
+      await persistRunCheckpointEvent(
+        runId,
+        { type: "auto_continue", reason: "run_timeout" },
+        "run_timeout",
+      );
+    });
+    await setStaleLiveness(runId, Date.now() - STALE_PAST_MS);
+    await pglite
+      .prepare(
+        `UPDATE agent_execution_leases
+         SET lease_expires_at = clock_timestamp() - INTERVAL '1 millisecond'
+         WHERE thread_id = ? AND turn_id = ?`,
+      )
+      .run(thread, turn);
+
+    foldReapedRunIntoThreadMock.mockResolvedValueOnce("retry");
+    const firstSweep = await reapAllStaleRuns();
+    expect(firstSweep).toEqual({ reaped: 0, failed: 1, truncated: false });
+    expect(fireInternalDispatchMock).not.toHaveBeenCalled();
+
+    const siblings = await rowsForTurn(turn);
+    const successor = siblings.find((row) => row.id !== runId);
+    expect(successor?.status).toBe("running");
+    await setStaleLiveness(successor!.id, Date.now() - STALE_PAST_MS);
+    await expect(reapIfStale(successor!.id)).resolves.toBe(false);
+    expect((await readRow(successor!.id))?.status).toBe("running");
+    const successorStaleEvents = await pglite
+      .prepare(
+        "SELECT event_data FROM agent_run_events WHERE run_id = ? ORDER BY seq",
+      )
+      .all(successor!.id);
+    expect(
+      successorStaleEvents.some((row) =>
+        String(row.event_data).includes('"errorCode":"stale_run"'),
+      ),
+    ).toBe(false);
+    await setStaleLiveness(
+      successor!.id,
+      Date.now() - UNCLAIMED_BACKGROUND_RUN_GRACE_MS - 1_000,
+    );
+    await expect(listUnclaimedBackgroundRunRows()).resolves.toEqual([]);
+    await expect(claimBackgroundRun(successor!.id)).resolves.toBe(false);
+
+    await setStaleLiveness(successor!.id, Date.now() - STALE_PAST_MS);
+    const retrySweep = await reapAllStaleRuns();
+    expect(retrySweep).toEqual({ reaped: 0, failed: 0, truncated: false });
+    const reopenedSuccessor = (await pglite
+      .prepare("SELECT status, heartbeat_at FROM agent_runs WHERE id = ?")
+      .get(successor!.id)) as { status: string; heartbeat_at: number };
+    expect(reopenedSuccessor.status).toBe("running");
+    expect(Number(reopenedSuccessor.heartbeat_at)).toBeGreaterThan(
+      Date.now() - BACKGROUND_RUN_STALE_MS,
+    );
+    const postRetrySuccessorEvents = await pglite
+      .prepare(
+        "SELECT event_data FROM agent_run_events WHERE run_id = ? ORDER BY seq",
+      )
+      .all(successor!.id);
+    expect(
+      postRetrySuccessorEvents.some((row) =>
+        String(row.event_data).includes('"errorCode":"stale_run"'),
+      ),
+    ).toBe(false);
+    await setStaleLiveness(
+      successor!.id,
+      Date.now() - UNCLAIMED_BACKGROUND_RUN_GRACE_MS - 1_000,
+    );
+    await expect(listUnclaimedBackgroundRunRows()).resolves.toMatchObject([
+      { id: successor!.id, hasDispatchPayload: true },
+    ]);
+    await expect(claimBackgroundRun(successor!.id)).resolves.toBe(true);
+    expect(fireInternalDispatchMock).not.toHaveBeenCalled();
   });
 });

@@ -1,35 +1,20 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
+import { registerErrorCaptureProvider } from "./capture-error.js";
 import { encodeMagicLinkSignupAttribution } from "./magic-link-attribution.js";
-
-/**
- * The contract this file pins:
- *
- *   a `user` row insert is only a signup when a request created it.
- *
- * Better Auth calls `user.create.after` for every insert and hands it a null
- * context for anything created through `internalAdapter` outside an HTTP
- * endpoint. In production that is the legacy-session backfill and Google's
- * canonical-identity provisioning — neither of which is a person signing up.
- * Emitting for them is what put ~94% of `better-auth` signups into the
- * warehouse with no `anonymous_id` and a fabricated `referral_source: direct`.
- *
- * Every previous attempt at this bug added another attribution source to the
- * hook and shipped green, because no test ever drove the hook with the context
- * shape production actually produces. These do.
- */
+import { encodeMcpSignupAttribution } from "./mcp-signup-attribution.js";
 
 const tracked: Array<{
   name: string;
   properties: Record<string, unknown>;
-  source?: { userId?: string; anonymousId?: string };
+  source?: { userId?: string; anonymousId?: string; sessionId?: string };
 }> = [];
 
 vi.mock("../tracking/index.js", () => ({
   track: (
     name: string,
     properties: Record<string, unknown>,
-    source?: { userId?: string; anonymousId?: string },
+    source?: { userId?: string; anonymousId?: string; sessionId?: string },
   ) => {
     tracked.push({ name, properties, source });
   },
@@ -39,6 +24,22 @@ vi.mock("../tracking/index.js", () => ({
 
 const AUTH_SECRET = "test-secret-for-magic-link-attribution";
 vi.mock("./app-url.js", () => ({ getAppProductionUrl: () => undefined }));
+
+const persisted: Array<{
+  userId: string;
+  attribution: Record<string, string | undefined> | undefined;
+}> = [];
+let persistError: Error | undefined;
+vi.mock("./user-first-touch-attribution.js", () => ({
+  persistUserFirstTouchAttribution: async (
+    userId: string,
+    attribution: Record<string, string | undefined> | undefined,
+  ) => {
+    if (persistError) throw persistError;
+    persisted.push({ userId, attribution });
+    return true;
+  },
+}));
 
 let requestContext: Record<string, unknown> | undefined;
 vi.mock("./request-context.js", () => ({
@@ -58,11 +59,33 @@ function firstTouchCookie(value: Record<string, string>): string {
 }
 
 function headersWithCookie(cookie: string): Headers {
-  return new Headers({ cookie });
+  return new Headers({ cookie, "x-country": "US" });
+}
+
+function mcpMagicLinkVerifyUrl(
+  mcpSignupAttribution: NonNullable<
+    Parameters<
+      typeof encodeMagicLinkSignupAttribution
+    >[0]["mcpSignupAttribution"]
+  >,
+  attribution?: Record<string, string>,
+): string {
+  const token = encodeMagicLinkSignupAttribution(
+    { mcpSignupAttribution, attribution },
+    getAuthSecret(),
+  );
+  const callback = `/_agent-native/auth/magic-link/new-user?signup_attribution=${encodeURIComponent(
+    token as string,
+  )}`;
+  return `https://app.example.com/_agent-native/auth/ba/magic-link/verify?token=t&newUserCallbackURL=${encodeURIComponent(
+    callback,
+  )}`;
 }
 
 beforeEach(() => {
   tracked.length = 0;
+  persisted.length = 0;
+  persistError = undefined;
   requestContext = undefined;
   process.env.BETTER_AUTH_SECRET = AUTH_SECRET;
 });
@@ -71,7 +94,7 @@ describe("emitSignupEventForCreatedUser", () => {
   it("emits an attributed signup for a browser that reached an endpoint", async () => {
     await emitSignupEventForCreatedUser(USER, {
       headers: headersWithCookie(
-        `an_aid=anon_browser_1; ${firstTouchCookie({
+        `an_aid=anon_browser_1; an_sid=session_browser_1; ${firstTouchCookie({
           utm_source: "google",
           utm_campaign: "launch",
           landing_path: "/",
@@ -82,6 +105,7 @@ describe("emitSignupEventForCreatedUser", () => {
     expect(tracked).toHaveLength(1);
     expect(tracked[0].name).toBe("signup");
     expect(tracked[0].source?.anonymousId).toBe("anon_browser_1");
+    expect(tracked[0].source?.sessionId).toBe("session_browser_1");
     expect(tracked[0].properties).toMatchObject({
       auth_provider: "better-auth",
       signup_origin: "browser_signup",
@@ -89,6 +113,26 @@ describe("emitSignupEventForCreatedUser", () => {
       utm_source: "google",
       utm_campaign: "launch",
     });
+  });
+
+  it("attaches only a valid browser session id from the signup request", async () => {
+    await emitSignupEventForCreatedUser(USER, {
+      headers: new Headers({
+        "x-agent-native-session-id": "browser-session-42",
+        "x-country": "US",
+      }),
+    });
+    expect(tracked[0]?.source?.sessionId).toBe("browser-session-42");
+
+    tracked.length = 0;
+    await emitSignupEventForCreatedUser(USER, {
+      headers: new Headers({
+        "x-agent-native-session-id": "not a session id",
+        "x-country": "US",
+      }),
+    });
+    expect(tracked[0]?.source?.sessionId).toBeUndefined();
+    expect(tracked[0]?.properties).not.toHaveProperty("session_id");
   });
 
   it("labels a signup created by magic-link verification", async () => {
@@ -105,8 +149,6 @@ describe("emitSignupEventForCreatedUser", () => {
     });
   });
 
-  // The regression. `ensureGoogleAuthIdentity` and the legacy-session backfill
-  // both land here with no context; each used to mint an unattributable row.
   it("emits nothing for a row created outside any request", async () => {
     await emitSignupEventForCreatedUser(USER, null);
     await emitSignupEventForCreatedUser(USER, undefined);
@@ -116,14 +158,31 @@ describe("emitSignupEventForCreatedUser", () => {
     expect(tracked).toEqual([]);
   });
 
-  // "No browser" and "a browser with no campaign" must not look alike: only
-  // the second one is direct traffic a marketer can act on.
   it("omits referral_source entirely when the request carried no cookies", async () => {
     await emitSignupEventForCreatedUser(USER, { headers: new Headers() });
 
     expect(tracked).toHaveLength(1);
     expect(tracked[0].properties).not.toHaveProperty("referral_source");
     expect(tracked[0].source?.anonymousId).toBeUndefined();
+  });
+
+  it("requires consent for analytics ids and first touch in a consent region", async () => {
+    await emitSignupEventForCreatedUser(USER, {
+      headers: new Headers({
+        cookie: `an_aid=anon_eu; an_sid=session_eu; ${firstTouchCookie({
+          utm_source: "newsletter",
+          landing_path: "/welcome",
+        })}`,
+        "x-country": "DE",
+      }),
+    });
+
+    expect(tracked).toHaveLength(1);
+    expect(tracked[0]?.source?.anonymousId).toBeUndefined();
+    expect(tracked[0]?.source?.sessionId).toBeUndefined();
+    expect(tracked[0]?.properties).not.toHaveProperty("utm_source");
+    expect(tracked[0]?.properties).not.toHaveProperty("first_touch_path");
+    expect(persisted).toEqual([]);
   });
 
   it("still records direct for a real visitor who arrived with no campaign", async () => {
@@ -149,11 +208,183 @@ describe("emitSignupEventForCreatedUser", () => {
     expect(tracked[0].properties).toMatchObject({ signup_origin: "sso_jit" });
   });
 
+  it("attributes an email signup through MCP OAuth from signed context", async () => {
+    const mcpSignup = encodeMcpSignupAttribution(
+      {
+        vendor: "openai",
+        anonymousId: "anon_mcp_1",
+        sessionId: "session_mcp_1",
+        firstTouchPathAllowed: true,
+      },
+      getAuthSecret(),
+    );
+
+    await emitSignupEventForCreatedUser(USER, {
+      headers: headersWithCookie(`an_mcp_signup=${mcpSignup}`),
+      request: {
+        headers: headersWithCookie(`an_mcp_signup=${mcpSignup}`),
+        url: mcpMagicLinkVerifyUrl({
+          vendor: "openai",
+          anonymousId: "anon_mcp_1",
+          sessionId: "session_mcp_1",
+          firstTouchPathAllowed: true,
+        }),
+      },
+    });
+
+    expect(tracked[0]?.source).toMatchObject({
+      anonymousId: "anon_mcp_1",
+      sessionId: "session_mcp_1",
+    });
+    expect(tracked[0]?.properties).toMatchObject({
+      signup_origin: "mcp_oauth",
+      first_touch_path: "/mcp/oauth/authorize",
+      $mcp_vendor_client_hint: "openai",
+    });
+  });
+
+  it("preserves a populated first-touch path for an MCP OAuth signup", async () => {
+    const mcpSignup = encodeMcpSignupAttribution(
+      {
+        vendor: "claude",
+        sessionId: "session_mcp_2",
+        firstTouchPathAllowed: false,
+      },
+      getAuthSecret(),
+    );
+
+    const headers = headersWithCookie(
+      `an_ft=${encodeURIComponent(JSON.stringify({ landing_path: "/docs" }))}; an_mcp_signup=${mcpSignup}`,
+    );
+    await emitSignupEventForCreatedUser(USER, {
+      headers,
+      request: {
+        headers,
+        url: mcpMagicLinkVerifyUrl(
+          {
+            vendor: "claude",
+            sessionId: "session_mcp_2",
+            firstTouchPathAllowed: false,
+          },
+          { first_touch_path: "/docs" },
+        ),
+      },
+    });
+
+    expect(tracked[0]?.properties).toMatchObject({
+      signup_origin: "mcp_oauth",
+      first_touch_path: "/docs",
+      $mcp_vendor_client_hint: "claude",
+    });
+  });
+
+  it("keeps MCP signup origin and drops vendor attribution after targeting opt-out", async () => {
+    const mcpSignup = encodeMcpSignupAttribution(
+      {
+        vendor: "openai",
+        sessionId: "session_mcp_no_targeting",
+        firstTouchPathAllowed: true,
+      },
+      getAuthSecret(),
+    );
+
+    const headers = headersWithCookie(
+      `an_consent=1.p1.t0; an_mcp_signup=${mcpSignup}`,
+    );
+    await emitSignupEventForCreatedUser(USER, {
+      headers,
+      request: {
+        headers,
+        url: mcpMagicLinkVerifyUrl({
+          vendor: "openai",
+          sessionId: "session_mcp_no_targeting",
+          firstTouchPathAllowed: true,
+        }),
+      },
+    });
+
+    expect(tracked[0]?.properties).toMatchObject({
+      signup_origin: "mcp_oauth",
+    });
+    expect(tracked[0]?.properties).not.toHaveProperty("first_touch_path");
+    expect(tracked[0]?.properties).not.toHaveProperty(
+      "$mcp_vendor_client_hint",
+    );
+    expect(tracked[0]?.source?.sessionId).toBe("session_mcp_no_targeting");
+  });
+
+  it("does not trust a forged MCP signup cookie", async () => {
+    const mcpSignup = encodeMcpSignupAttribution(
+      { vendor: "openai", sessionId: "session_mcp_3" },
+      getAuthSecret(),
+    )!;
+
+    await emitSignupEventForCreatedUser(USER, {
+      headers: headersWithCookie(`an_mcp_signup=${mcpSignup}x`),
+    });
+
+    expect(tracked[0]?.properties).not.toHaveProperty(
+      "$mcp_vendor_client_hint",
+    );
+    expect(tracked[0]?.properties).not.toHaveProperty("first_touch_path");
+    expect(tracked[0]?.properties).toMatchObject({
+      signup_origin: "browser_signup",
+    });
+  });
+
+  it("does not attribute an unrelated signup from an MCP attribution cookie", async () => {
+    const mcpSignup = encodeMcpSignupAttribution(
+      {
+        vendor: "openai",
+        anonymousId: "anon_unrelated_mcp",
+        sessionId: "session_unrelated_mcp",
+      },
+      getAuthSecret(),
+    )!;
+
+    await emitSignupEventForCreatedUser(USER, {
+      headers: headersWithCookie(`an_mcp_signup=${mcpSignup}`),
+      request: { url: "/_agent-native/auth/sign-up/email" },
+    });
+
+    expect(tracked[0]?.properties).toMatchObject({
+      signup_origin: "browser_signup",
+    });
+    expect(tracked[0]?.properties).not.toHaveProperty("first_touch_path");
+    expect(tracked[0]?.properties).not.toHaveProperty(
+      "$mcp_vendor_client_hint",
+    );
+    expect(tracked[0]?.source?.anonymousId).toBeUndefined();
+    expect(tracked[0]?.source?.sessionId).toBeUndefined();
+  });
+
+  it("drops signed MCP visitor ids when performance consent is revoked before verification", async () => {
+    const headers = headersWithCookie("an_consent=1.p0.t1");
+    await emitSignupEventForCreatedUser(USER, {
+      headers,
+      request: {
+        headers,
+        url: mcpMagicLinkVerifyUrl({
+          vendor: "openai",
+          anonymousId: "anon_revoked_mcp",
+          sessionId: "session_revoked_mcp",
+        }),
+      },
+    });
+
+    expect(tracked[0]?.properties).toMatchObject({
+      signup_origin: "mcp_oauth",
+    });
+    expect(tracked[0]?.source?.anonymousId).toBeUndefined();
+    expect(tracked[0]?.source?.sessionId).toBeUndefined();
+  });
+
   it("recovers attribution from the signed magic-link token across browsers", async () => {
     const token = encodeMagicLinkSignupAttribution(
       {
         attribution: { referral_source: "external", utm_source: "newsletter" },
         anonymousId: "anon_magic_1",
+        sessionId: "session_magic_1",
       },
       getAuthSecret(),
     );
@@ -162,9 +393,10 @@ describe("emitSignupEventForCreatedUser", () => {
     )}`;
 
     await emitSignupEventForCreatedUser(USER, {
-      // No cookie: the link was opened in a different browser than the one
-      // that requested it, which is the case the token exists for.
-      headers: new Headers(),
+      headers: new Headers({
+        "x-agent-native-session-id": "session_recipient_1",
+        "x-country": "US",
+      }),
       request: {
         url: `https://app.example.com/_agent-native/auth/ba/magic-link/verify?token=t&newUserCallbackURL=${encodeURIComponent(
           callback,
@@ -173,7 +405,130 @@ describe("emitSignupEventForCreatedUser", () => {
     });
 
     expect(tracked[0].source?.anonymousId).toBe("anon_magic_1");
+    expect(tracked[0].source?.sessionId).toBe("session_magic_1");
     expect(tracked[0].properties).toMatchObject({ utm_source: "newsletter" });
+    expect(persisted).toEqual([
+      {
+        userId: "user_1",
+        attribution: expect.objectContaining({ utm_source: "newsletter" }),
+      },
+    ]);
+  });
+
+  it("does not attach the creating user's session to another user's signup", async () => {
+    await emitSignupEventForCreatedUser(USER, {
+      headers: new Headers({
+        "x-agent-native-session-id": "session_admin_1",
+        "x-country": "US",
+      }),
+      context: { session: { user: { id: "admin_1" } } },
+    });
+
+    expect(tracked[0]?.source?.sessionId).toBeUndefined();
+    expect(tracked[0]?.properties).not.toHaveProperty("session_id");
+  });
+
+  it("persists paid first-touch parameters on the user row for a browser signup", async () => {
+    await emitSignupEventForCreatedUser(USER, {
+      headers: headersWithCookie(
+        `an_aid=anon_paid; ${firstTouchCookie({
+          utm_source: "bing",
+          utm_medium: "cpc",
+          utm_campaign: "slides-competitors",
+          utm_term: "gamma presentations",
+          msclkid: "click-1",
+          vector_source: "GOOGLE",
+          landing_referrer: "www.bing.com",
+          landing_path: "/",
+        })}`,
+      ),
+    });
+
+    expect(persisted).toEqual([
+      {
+        userId: "user_1",
+        attribution: expect.objectContaining({
+          utm_source: "bing",
+          utm_medium: "cpc",
+          utm_campaign: "slides-competitors",
+          utm_term: "gamma presentations",
+          msclkid: "click-1",
+          vector_source: "GOOGLE",
+          landing_referrer: "www.bing.com",
+        }),
+      },
+    ]);
+  });
+
+  it("still emits the signup, and reports the failure, when the first-touch write fails", async () => {
+    persistError = new Error("column first_touch_utm_source does not exist");
+    const captured = vi.fn();
+    const unregister = registerErrorCaptureProvider(
+      "first-touch-test",
+      captured,
+    );
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      await expect(
+        emitSignupEventForCreatedUser(USER, {
+          headers: headersWithCookie(
+            `an_aid=anon_paid; ${firstTouchCookie({ utm_source: "bing" })}`,
+          ),
+        }),
+      ).resolves.toBeUndefined();
+
+      expect(tracked).toHaveLength(1);
+      expect(tracked[0].properties).toMatchObject({ utm_source: "bing" });
+      expect(log).toHaveBeenCalledWith(
+        "[auth] failed to persist signup attribution",
+        persistError,
+      );
+      expect(captured).toHaveBeenCalledWith(
+        persistError,
+        expect.objectContaining({
+          tags: expect.objectContaining({
+            failureClass: "signup-attribution-persist",
+          }),
+        }),
+      );
+    } finally {
+      unregister();
+      log.mockRestore();
+    }
+  });
+
+  it("does not copy another signed-in user's first touch onto an account they create", async () => {
+    const headers = headersWithCookie(
+      `an_aid=anon_admin; ${firstTouchCookie({ utm_source: "admin-campaign" })}`,
+    );
+
+    await emitSignupEventForCreatedUser(USER, {
+      headers,
+      context: { session: { user: { id: "admin_1" } } },
+    });
+    expect(persisted).toEqual([]);
+    expect(tracked).toHaveLength(1);
+    expect(tracked[0].source?.anonymousId).toBeUndefined();
+    expect(tracked[0].source?.sessionId).toBeUndefined();
+    expect(tracked[0].properties).not.toHaveProperty("utm_source");
+
+    await emitSignupEventForCreatedUser(USER, {
+      headers,
+      context: { session: { user: { id: USER.id } } },
+    });
+    expect(persisted).toHaveLength(1);
+    expect(tracked[1].source?.anonymousId).toBe("anon_admin");
+    expect(tracked[1].properties).toMatchObject({
+      utm_source: "admin-campaign",
+    });
+  });
+
+  it("persists nothing for a row created with no browser attribution", async () => {
+    await emitSignupEventForCreatedUser(USER, { headers: new Headers() });
+    await emitSignupEventForCreatedUser(USER, null);
+
+    expect(persisted).toEqual([]);
   });
 
   // The handoff header is unsigned and outranks the cookie, so a request that
@@ -188,6 +543,7 @@ describe("emitSignupEventForCreatedUser", () => {
 
     await emitSignupEventForCreatedUser(USER, {
       headers: new Headers({
+        "x-country": "US",
         "x-agent-native-signup-attribution": encodeURIComponent(
           JSON.stringify({
             attribution: { utm_source: "spoofed" },

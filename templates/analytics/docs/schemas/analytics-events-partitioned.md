@@ -58,6 +58,7 @@ The `data` column is a JSON string containing all properties from `track.functio
 | `data.initialAttributionBucket` | STRING  | First-touch attribution bucket |
 | `data.sessionId`                | STRING  | Session ID                     |
 | `data.isEnterpriseCompany`      | BOOLEAN | Enterprise flag                |
+| `data.test_identity`            | BOOLEAN | QA `$exception`; exclude it    |
 | `data.appEnvironment`           | STRING  | `web`, `vscode`, or `electron` |
 | `data.featureFlags`             | STRING  | JSON of active feature flags   |
 | `data.app`                      | STRING  | App identifier                 |

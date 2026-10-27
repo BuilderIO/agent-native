@@ -38,18 +38,6 @@ function draftKey(id: string) {
   return `${DRAFT_PREFIX}${id}`;
 }
 
-/**
- * Deep link that reopens an unsent calendar event draft.
- *
- * The link is an opaque pointer (draft id + date only). The full draft —
- * title, attendees, description, location — lives in the
- * `calendar-draft-{id}` app-state row written by this action, so the
- * calendar reads it from there on render. We deliberately do NOT inline the
- * draft contents into the URL: external MCP hosts (ChatGPT / Claude)
- * surface this link in their UI, the host LLM can see and remember query
- * strings, and shared / exported chat transcripts would otherwise leak
- * private meeting content.
- */
 function eventDraftDeepLink(draft: CalendarEventDraft): string {
   return buildDeepLink({
     app: "calendar",

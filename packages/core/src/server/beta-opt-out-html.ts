@@ -321,11 +321,6 @@ const betaOptOutPersistenceScript = `<script data-agent-native-beta-opt-out>
 })();
 </script>`;
 
-/**
- * Custom auth pages do not necessarily use the framework onboarding shell.
- * Keep the production switcher's one-time opt-out behavior at the shared auth
- * response boundary so those pages cannot drop the handoff before sign-in.
- */
 export function injectBetaOptOutPersistence(
   loginHtml: string,
   requestPath?: string,
@@ -345,9 +340,6 @@ export function injectBetaOptOutPersistence(
   if (!html.includes(BETA_OPT_OUT_PERSISTENCE_MARKER)) {
     html = insertBeforeClosingTag(html, betaOptOutPersistenceScript, "</body>");
   }
-  // The standard onboarding shell already owns this markup, style, and
-  // initializer. Custom login pages need the shared switcher, but adding a
-  // second copy would create duplicate IDs and event handlers.
   if (EXISTING_ENVIRONMENT_SWITCHER_RE.test(html)) return html;
   if (!html.includes(ENVIRONMENT_SWITCHER_STYLE_MARKER)) {
     html = insertBeforeClosingTag(html, environmentSwitcherStyles, "</head>");

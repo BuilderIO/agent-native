@@ -149,8 +149,6 @@ export function runVisualStructureChange(
         rowEnd: number;
       };
     }>;
-    /** Markup this change introduced; the subject does not exist in the
-     * screen's source yet, so it must be added rather than relocated. */
     insertedHtml?: string;
     replaced?: true;
     replacementSelector?: string;
@@ -280,17 +278,6 @@ export function runVisualStructureChange(
           (node) => node.id === patch.result.after?.nodeId,
         )?.dataAttributes["data-agent-native-node-id"]
       : undefined);
-  // Absolute-container inside drops persist sourceRect − anchorRect.
-  // Sibling un-nests use the bridge's rebased inline left/top instead —
-  // the anchor is the old parent, not the new containing block. On the
-  // BOARD surface, top-level elements carry the content-offset translate
-  // (+65536 — see embeddedContentOffsetStyle in DesignCanvas.tsx) while
-  // nested ones do not, and rect-space delta math doesn't model that
-  // translate. Strip that fingerprint before persisting (a no-op for
-  // screens and for sane offsets), and when it fired, ALSO refresh the
-  // preview: the bridge's optimistic in-iframe placement was off by the
-  // same 65536, so the iframe must be re-rendered from the corrected
-  // content instead of being trusted.
   const rawAbsoluteContainerOffset = rawAbsoluteContainerOffsetFromDrop({
     dropMode: details?.dropMode,
     placement,

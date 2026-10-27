@@ -1,12 +1,3 @@
-/**
- * Delegate: regenerate the recording's description from its transcript.
- *
- * See regenerate-title.ts for the delegation pattern.
- *
- * Usage:
- *   pnpm action regenerate-summary --recordingId=<id>
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -14,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import { withFullVideoAiInstructions } from "../shared/clips-ai-prefs.js";
 import cleanupTranscript from "./cleanup-transcript.js";
 import {
@@ -35,7 +27,9 @@ export default defineAction({
       ),
   }),
   run: async (args) => {
-    await assertAccess("recording", args.recordingId, "editor");
+    assertRecordingNotExpired(
+      await assertAccess("recording", args.recordingId, "editor"),
+    );
 
     const db = getDb();
     const [rec] = await db
@@ -86,6 +80,10 @@ export default defineAction({
           provider: result.provider,
         };
       }
+
+      assertRecordingNotExpired(
+        await assertAccess("recording", args.recordingId, "editor"),
+      );
 
       await db
         .update(schema.recordings)
@@ -146,6 +144,8 @@ export default defineAction({
     );
     return {
       queued: true,
+      kind: "regenerate-summary",
+      requestedAt,
       recordingId: args.recordingId,
       includeFullVideoInAi,
     };

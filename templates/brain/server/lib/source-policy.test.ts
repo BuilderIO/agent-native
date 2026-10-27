@@ -83,7 +83,7 @@ describe("source answer policy", () => {
     });
   });
 
-  it("excludes stale results and raw captures that require review", () => {
+  it("excludes stale results but not unreviewed captures from legacy reviewRequired", () => {
     const policies = new Map([
       [
         "source-1",
@@ -119,8 +119,42 @@ describe("source answer policy", () => {
         now: new Date("2026-07-30T00:00:00.000Z"),
       }),
     ).toMatchObject({
-      eligible: false,
+      eligible: true,
       freshness: "fresh",
+      exclusionReasons: [],
+    });
+  });
+
+  it("keeps an unreviewed capture eligible when its source has reviewRequired", () => {
+    const result = evaluateSourceAnswerPolicy({
+      sourceIds: ["source-1"],
+      sourcePolicies: new Map([
+        ["source-1", snapshot({ reviewRequired: true })],
+      ]),
+      contentUpdatedAt: "2026-07-29T00:00:00.000Z",
+      resultType: "capture",
+      reviewed: false,
+      now: new Date("2026-07-30T00:00:00.000Z"),
+    });
+
+    expect(result.eligible).toBe(true);
+    expect(result.exclusionReasons).not.toContain("review-required");
+  });
+
+  it("still excludes unreviewed captures when conflicts require review", () => {
+    expect(
+      evaluateSourceAnswerPolicy({
+        sourceIds: ["source-1"],
+        sourcePolicies: new Map([
+          ["source-1", snapshot({ conflictBehavior: "require-review" })],
+        ]),
+        contentUpdatedAt: "2026-07-29T00:00:00.000Z",
+        resultType: "capture",
+        reviewed: false,
+        now: new Date("2026-07-30T00:00:00.000Z"),
+      }),
+    ).toMatchObject({
+      eligible: false,
       exclusionReasons: ["review-required"],
     });
   });

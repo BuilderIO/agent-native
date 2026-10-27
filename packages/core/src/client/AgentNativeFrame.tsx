@@ -23,24 +23,13 @@ export interface AgentNativeFrameProps extends Omit<
   IframeHTMLAttributes<HTMLIFrameElement>,
   "src"
 > {
-  /** URL of the Agent-Native sidecar/frame app. */
   agentUrl: string;
-  /**
-   * Exact trusted sidecar origin. Defaults to `new URL(agentUrl).origin`.
-   * Pass "*" only for local prototypes.
-   */
   agentOrigin?: string;
-  /** Stable browser-session identity for multi-tab sidecars. */
   session?: string | Partial<AgentNativeHostSession>;
-  /** Return page, selection, resource, user/org, and host-specific context. */
   getContext?: AgentNativeHostContextGetter;
-  /** Commands the iframe sidecar can ask the host app to run. */
   commands?: AgentNativeHostCommandHandlers;
-  /** Live browser-session actions the iframe sidecar can discover and call. */
   actions?: AgentNativeClientActions;
-  /** WebMCP tools the iframe sidecar may discover and call in the host page. */
   webmcp?: AgentNativeWebMcpClient;
-  /** Optional auth payload sent to the trusted iframe sidecar. */
   auth?: AgentNativeHostAuth;
   onBridgeEvent?: (event: AgentNativeHostBridgeEvent) => void;
   onBridgeReady?: (bridge: AgentNativeHostBridge) => void;

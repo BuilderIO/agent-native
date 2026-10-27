@@ -1,15 +1,23 @@
 import { createHash } from "node:crypto";
 
-import { defineAction } from "@agent-native/core/action";
+import { ActionContractError, defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
+import { assertLocalFileLinkable } from "../server/lib/live-body-writer.js";
+import {
+  syncPrivateCalloutReferences,
+  syncPrivateIconReference,
+  verifyPrivateIconAssignment,
+} from "../server/lib/private-icon-references.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import { LOCAL_FOLDER_SOURCE_TYPE } from "./_local-folder-source.js";
+import { lockDocumentRows } from "./_row-lock-order.js";
 
 const MAX_SOURCE_FILE_BYTES = 2 * 1024 * 1024;
 
@@ -120,7 +128,11 @@ export default defineAction({
       target.database.deletedAt ||
       target.document.spaceId !== target.database.spaceId
     ) {
-      throw new Error(`Open local-folder conflict "${changeSetId}" not found`);
+      // A sync that finds a deleted file again retires its deletion proposal.
+      throw new ActionContractError(
+        `Open local-folder conflict "${changeSetId}" not found`,
+        { errorCode: "LOCAL_FOLDER_CONFLICT_NOT_FOUND", statusCode: 404 },
+      );
     }
     const targetSpaceId = target.database.spaceId;
     await resolveContentSpaceAccess(targetSpaceId, "editor");
@@ -171,6 +183,28 @@ export default defineAction({
 
     const now = new Date().toISOString();
     await db.transaction(async (tx: any) => {
+      // The folder's source before its change set, as a sync and a
+      // disconnect take them: a disconnect deletes the folder's change sets.
+      const claimedSources = await tx
+        .update(schema.contentDatabaseSources)
+        .set({ updatedAt: now })
+        .where(
+          and(
+            eq(schema.contentDatabaseSources.id, target.source.id),
+            eq(schema.contentDatabaseSources.databaseId, target.database.id),
+            eq(
+              schema.contentDatabaseSources.sourceType,
+              LOCAL_FOLDER_SOURCE_TYPE,
+            ),
+          ),
+        )
+        .returning({ id: schema.contentDatabaseSources.id });
+      if (claimedSources.length !== 1) {
+        throw new ActionContractError(
+          `Local folder source "${target.source.id}" was disconnected before resolution.`,
+          { errorCode: "LOCAL_FOLDER_SOURCE_DISCONNECTED", statusCode: 409 },
+        );
+      }
       const claimedChangeSets = await tx
         .update(schema.contentDatabaseSourceChangeSets)
         .set({
@@ -189,30 +223,16 @@ export default defineAction({
         )
         .returning({ id: schema.contentDatabaseSourceChangeSets.id });
       if (claimedChangeSets.length !== 1) {
-        throw new Error(
+        throw new ActionContractError(
           `Open local-folder conflict "${changeSetId}" changed before resolution`,
-        );
-      }
-      const claimedSources = await tx
-        .update(schema.contentDatabaseSources)
-        .set({ updatedAt: now })
-        .where(
-          and(
-            eq(schema.contentDatabaseSources.id, target.source.id),
-            eq(schema.contentDatabaseSources.databaseId, target.database.id),
-            eq(
-              schema.contentDatabaseSources.sourceType,
-              LOCAL_FOLDER_SOURCE_TYPE,
-            ),
-          ),
-        )
-        .returning({ id: schema.contentDatabaseSources.id });
-      if (claimedSources.length !== 1) {
-        throw new Error(
-          `Local folder source "${target.source.id}" was disconnected before resolution`,
+          { errorCode: "LOCAL_FOLDER_CONFLICT_CHANGED", statusCode: 409 },
         );
       }
       if (decision === "accept_source" && sourceDeletion) {
+        // The page before its remaining rows: another folder's sync adds its
+        // row under the page's lock, and a read before it would miss that row
+        // and clear the link the sync just made.
+        await lockDocumentRows(tx, [target.document.id]);
         await tx
           .delete(schema.contentDatabaseSourceRows)
           .where(
@@ -260,6 +280,13 @@ export default defineAction({
           typeof remainingValues.relativePath === "string"
             ? remainingValues.relativePath
             : remainingLocalRow?.sourceDisplayKey;
+        // Another folder's row doesn't mean the page is still linked: a
+        // Builder pull resets its source mode and leaves the rows.
+        if (remainingLocalRow) {
+          await assertLocalFileLinkable(target.document.id, {
+            transaction: tx,
+          });
+        }
         await tx
           .update(schema.documents)
           .set(
@@ -288,6 +315,10 @@ export default defineAction({
             ),
           );
       } else if (decision === "accept_source") {
+        const legacy = await lockLegacyBodyWrites(tx, [target.document.id], {
+          operation: "resolve-local-folder-conflict",
+          content: sourceContent!,
+        });
         const [currentDocument] = await tx
           .select()
           .from(schema.documents)
@@ -325,6 +356,15 @@ export default defineAction({
         )
           ? (metadata.icon ?? null)
           : (currentDocument.icon ?? null);
+        const userEmail = getRequestUserEmail();
+        if (!userEmail) throw new Error("Authentication is required.");
+        if (resolvedIcon !== currentDocument.icon) {
+          await verifyPrivateIconAssignment({
+            icon: resolvedIcon,
+            userEmail,
+            orgId: currentDocument.orgId,
+          });
+        }
         const versionId = `content_document_version_${createHash("sha256")
           .update(
             `${currentDocument.id}:${currentDocument.updatedAt}:${proposedHash}`,
@@ -353,7 +393,7 @@ export default defineAction({
           .update(schema.documents)
           .set({
             content: sourceContent!,
-            bodyRevision: bodyRevisionForContent(sourceContent!),
+            bodyRevision: legacy.bodyRevision(sourceContent!),
             ...(Object.prototype.hasOwnProperty.call(metadata, "title")
               ? { title: metadata.title ?? "" }
               : {}),
@@ -367,6 +407,24 @@ export default defineAction({
             updatedAt: now,
           })
           .where(eq(schema.documents.id, target.document.id));
+        if (resolvedIcon !== currentDocument.icon) {
+          await syncPrivateIconReference(tx as ReturnType<typeof getDb>, {
+            elementType: "document",
+            elementId: currentDocument.id,
+            documentId: currentDocument.id,
+            icon: resolvedIcon,
+            ownerEmail: currentDocument.ownerEmail,
+            orgId: currentDocument.orgId,
+          });
+        }
+        await syncPrivateCalloutReferences(tx as ReturnType<typeof getDb>, {
+          documentId: currentDocument.id,
+          before: currentDocument.content,
+          after: sourceContent!,
+          userEmail,
+          ownerEmail: currentDocument.ownerEmail,
+          orgId: currentDocument.orgId,
+        });
         const [sourceRow] = await tx
           .select()
           .from(schema.contentDatabaseSourceRows)

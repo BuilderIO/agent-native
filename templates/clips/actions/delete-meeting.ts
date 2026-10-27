@@ -1,11 +1,3 @@
-/**
- * Soft-delete a meeting by moving it out of the visible Meetings list.
- *
- * This intentionally does not delete linked recordings, calendar events, or
- * transcripts. Calendar-synced meetings keep their calendar_events.meeting_id
- * link so a future sync does not recreate the same row immediately.
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -38,9 +30,6 @@ export default defineAction({
       .where(eq(schema.meetings.id, args.id))
       .limit(1);
 
-    // Trashing a still-live meeting also closes out capture state (stamp
-    // actualEnd, flip transcriptStatus, un-stick the linked recording) —
-    // otherwise a live desktop session keeps writing to a now-hidden row.
     if (meeting && meeting.actualStart && !meeting.actualEnd) {
       await closeOutStaleMeeting({
         meetingId: args.id,

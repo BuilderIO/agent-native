@@ -11,7 +11,7 @@ The analytics app connects to multiple data sources. This skill covers general p
 
 ## Approach
 
-0. **Orient catalog-first** — before querying, consult what already exists: the injected `<data-dictionary>` and data-source status tell you which sources are configured and which table/columns/join paths to use. Use them to pick the one source that owns the fact instead of fanning out blind queries.
+0. **Use retrieved references first** — data questions may start with a small set of relevant data-dictionary entries and saved dashboard panels in `<resource scope="analytics-catalog">`. Treat them as definitions and query examples, never live results. If they do not fit, call `find-data` before querying; use data-source status when provider availability matters.
 1. **Route named account health deliberately** — for a customer/org health, QBR, renewal, contract-utilization, risk, or adoption request, read `account-health` before writing SQL. It adds identity-lock and metric-definition checks that an ordinary lookup does not need.
 2. **Read the relevant provider skill first** — check `.agents/skills/<provider>/SKILL.md` for table names, column mappings, auth, and gotchas. For BigQuery, read `.agents/skills/bigquery/SKILL.md` and use `search-bigquery-schema` before guessing table or column names.
 3. **Clarify if ambiguous** — if the metric definition, date range, or grain is unclear and a wrong guess would change the numbers, use the `ask-question` clarifying tool (multiple-choice) before querying. Ask at most once per turn; skip it when the dictionary or the user already answered.
@@ -19,7 +19,44 @@ The analytics app connects to multiple data sources. This skill covers general p
 5. **Write ad-hoc scripts** — if no existing script covers the question, create one in `actions/`
 6. **Present data in chat** — don't just say "check the dashboard" — actually query, get the data, and present it. Only present numbers you actually retrieved; never report a value you did not query.
 
-For events recorded by the analytics template itself via its `/track` endpoint, use `pnpm action query-agent-native-analytics --sql "SELECT ... FROM analytics_events ..."`. This includes pageviews, site/app traffic, template usage, app usage, and event counts collected by this analytics app. Pageviews and traffic can also live in GA4, BigQuery/warehouse tables, Mixpanel, PostHog, Amplitude, or another configured provider, so choose the source from the user's wording, connected-source status, existing dashboards, data dictionary, and user/org resources. Ask one concise clarification if multiple configured sources are plausible. Do not use `db-query` for data-source analysis; `db-query` is only for internal app tables and will confuse analytics questions. The shipped `agent-native-templates-first-party` SQL dashboard is the template engagement dashboard for the first-party collector source.
+For a question about something an owner-defined dbt metric measures, even without its exact name (for example, a question about weekly active users), resolve the exact dbt name with `find-data` before using `query-dbt-semantic-metric`. If no dbt candidate appears, retry `find-data` once with concept words from the question (synonyms or likely definition terms). If it still has none, call `get-dbt-connection` and inspect both `readiness` and `connections[]`. Use normal source selection only when a successful result has `readiness: "not_connected"` and an empty `connections[]`. If any row is ready, keep dbt as the source even when top-level readiness is null. If rows exist but none is ready, report or resolve their readiness and do not fall back. A failed or unreadable result, `connected: false`, or null readiness is not evidence dbt is absent. When dbt is configured but no candidate exists, ask one business-definition question only when a wrong guess would change the numbers; otherwise say no owner-defined metric matched without claiming it is missing or silently sending the same question to saved SQL or a warehouse metric.
+
+Use `tool-search` to load `query-dbt-semantic-metric` for a matched metric and pass its exact name. Use dbt as the definition and grain source; Sigma and Amplitude are examples or cross-checks.
+
+Pass a listed `connectionId` on `connection_selection_required`. Call `get-dbt-connection` only on `connection_error`, `connection_unavailable`, a connection-required error, or the no-candidate case above, and report its actual readiness or error, keeping unknown distinct from disconnected. Resume results that carry `queryId` and `nextPage` with their `metricName`, `queryId`, and `nextPage`, and no query scope. `pending` resumes while it stays pending, up to five resumes in one turn; then stop and report it as still running, with its `queryId`. A truncated `success` resumes while `nextPage` is present, stopping after five resumes in one turn or when a resume returns the same `nextPage` again; then report it as partial. A recoverable error that carries them (`connection_error`, `provider_error`, `empty_semantic_manifest`, `permission_denied`, or `deployment_not_ready`) gets one resume before other handling; if the resume fails again, report it as returned, and for `connection_error` also call `get-dbt-connection`. Handle the other statuses:
+
+- `success`: if `truncated` is true, resume first (above) so the answer covers the full result. If the resume fails or `nextPage` is absent, answer from the rows you have and say they are partial.
+- `pending`: resume as above. Do not resend the original `groupBy`, filters, or grain.
+- `metadata_truncated`: call again with its `metricName` and returned `nextPage`, and no query scope (no `groupBy`, `timeRange`, or `allTime`), to read the next metadata page, stopping after five resumes in one turn or when a resume returns the same `nextPage` again. This is separate from the `not_found` recheck.
+- `not_found`: search `find-data` for the exact name once, and retry the query only if it returns a different exact name. If that returns no dbt entry, follow the no-candidate rule above. If the retried query returns `not_found` again, stop and report that no owner-defined metric matched, without claiming it is missing from dbt. A `not_found` result alone does not confirm a missing definition.
+- `ambiguous_metric`: list the names `find-data` returns for it and ask which one is meant.
+- `no_metrics_available`: report as returned.
+- `permission_denied`, `provider_error`: resume once when they carry the cursors (above); otherwise report as returned. `permission_denied` concerns the workspace dbt token, not this user.
+- `deployment_not_ready`, `empty_semantic_manifest`: resume once when they carry the cursors (above); otherwise report the state. A warehouse figure is given only when the user asks for one, labeled as a warehouse calculation.
+- Any other status: report its returned message.
+
+Name each source you use; never silently fall back to saved SQL or a warehouse query.
+
+Use the metric's returned dimensions and `queryableGranularities` for a
+breakdown. Pass exact dimension names in `groupBy`; grouped MetricFlow queries
+require an inclusive `timeRange` no longer than 366 days. Use `metric_time` and
+an explicit grain for a time series. The action validates dimensions and grains
+against dbt metadata, and returns the executed `querySpec`; preserve it when
+interpreting rows or continuing with the returned `queryId` and `nextPage`.
+MetricFlow names grouped time columns `metric_time__<GRAIN>` in the returned
+rows; preserve that key when presenting the result.
+When activity could mean Builder product events or Agent-Native app opens, keep
+the populations separate and ask which one the user intends if the source is
+ambiguous.
+
+## Metric semantics and source status
+
+- Keep event families separate unless the dbt metric or exact saved query defines their union. A UI click and a submitted message are different events even if a dashboard labels both as activity.
+- Verify population filters and exclusions from model/metric SQL or tests. Similar aggregate totals do not prove that a model excludes staff, internal users, or any other group.
+- A bounded date or partition scan supports conclusions only for the scanned range. State that range and any bytes or query limit; an empty result in those partitions does not establish absence elsewhere.
+- For a source inventory, call `data-source-status` and distinguish configured credentials from a healthy workspace connection. A provider appearing in the tool catalog is not evidence that this workspace has connected it.
+
+For events recorded by the analytics template itself via its `/track` endpoint, use `pnpm action query-agent-native-analytics --sql "SELECT ... FROM analytics_events ..."`. This includes pageviews, site/app traffic, template usage, app usage, and event counts collected by this analytics app. Pageviews and traffic can also live in GA4, BigQuery/warehouse tables, Mixpanel, PostHog, Amplitude, or another configured provider, so choose the source from the user's wording, connected-source status, existing dashboards, data dictionary, and user/org resources. Ask one concise clarification only when multiple configured sources are plausible and the choice would change the numbers; otherwise name the source you used. Do not use `db-query` for data-source analysis; `db-query` is only for internal app tables and will confuse analytics questions. The shipped `agent-native-templates-first-party` SQL dashboard is the template engagement dashboard for the first-party collector source.
 
 For first-party counts, active-user, and retention questions, prefer the compact
 tenant-scoped daily event and user-day rollups. Use `analytics_events` only for a
@@ -28,7 +65,38 @@ production organization after the BigQuery cutover, these logical tables are
 served by partitioned BigQuery data and views; the source still does not require
 an end user's separate warehouse connection.
 
-Before a large or historical first-party query, call
+The Builder.io BigQuery path translates a restricted PostgreSQL-compatible SQL
+subset. Extract an event property with `properties::jsonb ->> 'key'`; bare JSON
+operators are not translated. Avoid `LATERAL`, `unnest`, `generate_series`,
+`FILTER (WHERE ...)`, `DISTINCT ON`, and `ILIKE`, which the BigQuery path rejects.
+Use `||` explicitly for string concatenation. Rewrite `FILTER (WHERE ...)` as a
+conditional aggregate such as `SUM(CASE WHEN ... THEN value ELSE 0 END)`,
+`ILIKE` as `LOWER(left) LIKE LOWER(right)`, and `DISTINCT ON` as `ROW_NUMBER()`
+in a CTE with an outer `WHERE` filter. After an unsupported-syntax error, make
+one corrected attempt and do not repeat unchanged SQL. Follow the first-party
+query's typed recovery instruction: schema errors call for `find-data` or
+`search-bigquery-schema`; permission failures stop; billed-byte failures need a
+narrower scan; only timeout, rate-limit, and temporary backend failures permit
+one unchanged retry. Use the separate BigQuery action for GoogleSQL-only SQL.
+
+First-party reads exclude test identities (QA/E2E accounts): ingest never
+stores their events or replays, and the read scope filters `user_id` (events,
+replays) and `user_key` (user-days). Pass `includeTestIdentities: true` to
+`query-agent-native-analytics` only to debug those accounts. Daily event
+rollups and BigQuery-source panels that query the raw warehouse table directly
+are clean from ingest onward but are not filtered at read time. The one
+exception is the legacy `@app_events` table, which keeps a test identity's
+`$exception` rows marked `JSON_VALUE(data, '$.test_identity') = 'true'`;
+exclude those from any metric over it.
+
+When the user rules out BigQuery, skip the health check below, which queries
+BigQuery on a BigQuery-backed scope. Call `get-first-party-analytics-backend`
+to see which tables Postgres serves, then pass `backend: "postgres"` to
+`query-agent-native-analytics`. If it fails with
+`first_party_backend_not_postgres`, this scope reads those tables only from
+BigQuery: say so and let the user decide.
+
+Otherwise, before a large or historical first-party query, call
 `get-first-party-analytics-health`. Keep Neon as the default while its status is
 `healthy` or `monitor`; a `recommend_bigquery` result means the app has observed
 1M+ events, repeated slow queries, or a timeout/30-second query. Treat that
@@ -38,8 +106,10 @@ a requirement to use BigQuery. The health result lists the supported options:
 - BigQuery for warehouse SQL and complete historical analysis.
 - Amplitude for product analytics, funnels, and retention.
 
-If a suitable backend is not configured, use its returned setup link or
-`data-source-status --key <provider>` to guide the user through the existing
+A `recommend_bigquery` result is advice, not a stop: answer the bounded question
+first. Use the setup link only for a historical or high-volume request with no
+suitable backend configured, via its returned link or
+`data-source-status --key <provider>`, to guide the user through the existing
 Data Sources walkthrough. Connecting a query backend alone does not move the
 collector or copy existing Neon events. For the Builder.io production
 organization, the hidden `migrate-first-party-analytics-to-bigquery` action is
@@ -49,6 +119,24 @@ confirmation. The worker excludes `http.response` by default and uses
 BigQuery `insertId` values for retry-safe writes. After cutover, `/track`
 writes and event queries use BigQuery; public-key metadata, derived exception
 issues, and session-replay data remain in SQL.
+
+After cutover, an org admin can point charts at a scheduled warehouse events
+model with `configure-first-party-events-model`; run `check` first, which
+dry-runs as the app and saves nothing. With a model set, a first-party query
+reads `analytics_events` from the model only when its WHERE filters
+`event_name` to named events (`= 'x'` or `IN (...)`) in a top-level AND
+conjunct, or in a parenthesized OR whose every branch does, because the model
+has no `http.response` rows. Other parenthesized conditions may use OR and
+NOT; an OR, NOT, or CASE at the WHERE's own level keeps the query raw; its result carries
+`eventsSource` and `sourceGeneration` (the model build it read). Unfiltered
+queries, `SELECT *`, and queries that name `public_key_id` or `context`, read
+`http.response`, or read `properties` other than through `JSON_VALUE`,
+`JSON_EXTRACT_SCALAR`, `JSON_VALUE_ARRAY`, or `JSON_EXTRACT_STRING_ARRAY` stay
+on the raw table, as do alerts and onboarding journeys;
+`eventsSource.modelSkipped` says why. A model result trails the newest events
+by up to one rebuild, so for the last few minutes give the model's age from
+`get-analytics-source-generation` (a metadata read, no query) rather than
+calling the count complete.
 
 Example pageviews query for a local calendar day:
 
@@ -63,6 +151,19 @@ WHERE event_name = 'pageview'
 Convert the user's requested local date/timezone to UTC before querying. For
 example, May 1, 2026 in America/New_York is `2026-05-01T04:00:00Z`
 through `2026-05-02T04:00:00Z`.
+
+### LLM observability events
+
+Agent runs are `analytics_events` rows with `event_name = '$ai_generation'`.
+Useful `properties`:
+
+- Identity: `$ai_trace_id`/`run_id`, `$ai_session_id`/`thread_id`, `$ai_model`/`model`, `$ai_provider`/`provider`.
+- Usage: `$ai_input_tokens`/`input_tokens`, `$ai_output_tokens`/`output_tokens`, `cache_read_tokens`, `cache_write_tokens`.
+- Cost: `$ai_total_cost_usd`/`cost_usd`, `cost_cents_x100`.
+- Time: `duration_ms` is the full run in milliseconds; `$ai_latency` is model time in seconds (run minus tool time).
+- Tools: `tool_calls`, `successful_tools`, `failed_tools`, `tools`, `tools_truncated`. The bounded `tools` array holds names, relative start times, durations, statuses, and coarse error classes, never args or results; failed runs and interrupted tools stay queryable.
+- Delegation: `delegated`, `delegation_protocol`, `caller_app`, `delegation_task_id`, `a2a_task_id`, `parent_run_id`, `parent_turn_id`. Agent Teams child runs use `delegation_protocol = 'agent-team'`, keep their own `run_id`, and link to the launching run through `parent_run_id`.
+- Errors: `status`, `$ai_error` (terminal code, cause, retryable, and a fixed code-derived message), `$ai_error_type`. Run failure messages are omitted from telemetry.
 
 ## Inline Charts In Chat
 
@@ -124,7 +225,7 @@ pnpm action account-deep-dive --query="The Knot" --days=180 --gongLimit=10 --tra
 # HubSpot contacts or companies
 pnpm action hubspot-records --objectType=companies --query=builder.io --properties=name,domain,lifecyclestage
 
-# Gong call content for a customer deep dive
+# Gong call evidence (quotes, counts); ask run-gong-native-insight first for "what did they say"
 pnpm action gong-calls --company="The Knot" --days=180 --includeTranscripts=true --transcriptLimit=5
 ```
 
@@ -135,10 +236,13 @@ endpoint/filter a shortcut can't express) have **no bespoke action** — reach
 them through the shared provider API escape-hatch pattern:
 `provider-api-catalog` / `provider-api-docs` to learn the endpoint, then
 `provider-api-request` (or `providerFetch` inside `run-code`) against the
-provider's real HTTP API. For broad/corpus-wide questions ("how many", "which",
-"any/none across all …") prefer this raw-API + `run-code` path from the first
-step — fetch the full cohort with `fetchAllPages`/`saveToFile` and
-grep/aggregate locally — rather than stretching a capped shortcut action.
+provider's real HTTP API. Ask the provider to do the work first: use its own
+search or semantic tool, or a server-side filter on a bounded window (for
+Gong, `run-gong-native-insight`). Only for exhaustive coverage, exact counts, or
+an absence claim ("how many", "any/none across all …") stage the raw API
+response with `stageAs`/`saveToFile` and reduce it with `query-staged-dataset`
+or `run-code`, rather than stretching a capped shortcut action or paging by
+hand to filter locally.
 
 ### Writing Ad-Hoc Scripts
 
@@ -169,7 +273,7 @@ For complete answers, combine data from multiple sources:
 - **BigQuery** for analytics events, signups, pageviews
 - **First-party Analytics** (`query-agent-native-analytics`) for events collected through `/track`
 - **HubSpot** for CRM data — `hubspot-records` for contacts/companies/tickets/general lookup; `hubspot-deals` and `hubspot-metrics` for pipeline and revenue analysis
-- **Gong** for sales-call evidence — use `gong-calls` with `includeTranscripts=true` for deep dives, objections, risks, or next steps
+- **Gong** for sales-call evidence — ask `run-gong-native-insight` first for what was said, risks, objections, or next steps; use `gong-calls` with `includeTranscripts=true` for quotes, counts, or when native operations are not connected
 - **Jira** for engineering metrics — tickets, sprints
 - **GitHub** for code metrics — PRs, reviews
 - **Agent-Native Analytics Monitoring -> Errors** for first-party captured
@@ -187,8 +291,28 @@ When you complete an analysis and discover:
 - A schema discovery (table exists but wasn't in the dictionary, a column name differs)
 - An identity-stitching rule (how to match users across two specific sources)
 
-Capture it immediately using `save-memory` or by writing to `LEARNINGS.md` via
-the `resources` tool:
+Analytics automatically captures explicit user corrections and metric
+definitions the user confirms after the thread has been idle. State corrections
+plainly. Before asking for confirmation, restate the complete proposed metric
+definition in plain language, including its key conditions and time window or
+grain when applicable; a bare “yes” to a metric-name-only question is not
+confirmation. These automatic captures stay private to the user. Do not call
+`save-memory` again for those same items. Before writing anything to shared
+`LEARNINGS.md` or organization memory, check its audience and ask the user for
+approval of that shared write. Keep setup-specific findings in personal memory
+or the current analysis.
+
+Use `save-memory` for other verified, durable personal Analytics knowledge,
+with a short actionable description; read the existing entry first when
+updating it. Do not save guesses, one-off result values, raw queries,
+credentials, or personal or customer-identifying details such as names, contact
+information, street/billing/mailing addresses, or personal identifiers. If the
+finding is uncertain or only applies to the current analysis, leave it in the
+answer instead of creating a memory.
+
+For entries not suitable for personal memory, use the project `LEARNINGS.md`
+only after the user approves that shared write and when it contains genuinely
+reusable, non-sensitive guidance:
 
 ```
 resources(action: "read", path: "LEARNINGS.md")  -- read first to merge
@@ -202,11 +326,9 @@ future analyses.
 ## Important Notes
 
 - Always query real data — never guess or approximate. Only present numbers you actually retrieved; do not claim a figure you did not query.
-- State confidence explicitly instead of refusing. Cite the dashboard or saved query you used when a query ran; say so when you're answering from an existing dashboard, especially a certified one. When no live query ran this turn, label every figure "Unverified" instead of asserting it or falling back to a connect-a-source dead end. Never refuse a question just because no certified source exists — try the catalog, then a bounded query, before declining.
+- State confidence explicitly instead of refusing. Answer shape and citing the dashboard are owned by AGENTS.md "Data questions". When no live query ran this turn, label every figure "Unverified" instead of asserting it or falling back to a connect-a-source dead end. Never refuse a question just because no certified source exists — try the catalog, then a bounded query, before declining.
 - Answer questions directly in chat with tables, inline charts, and findings. Never deflect to "check the dashboard" — actually run the query and present the answer.
-- Before finalizing an analytics answer, make the evidence trail explicit enough
-  to audit: source(s), time window, filters, sample size or row count, join or
-  match method, caveats/gaps, and what action to take next when useful.
+- Evidence fields (source, window, filters, sample size, join method, caveats) go in the optional "How it's computed" note defined in AGENTS.md, not the opening line.
 - Data-source status, data-dictionary reads, dashboard dry-runs, `update-dashboard`, and `generate-chart` are not data queries. For dashboard artifacts, run at least one provider query action and preserve the result evidence in the final answer or dashboard config/description.
 - Use action arguments such as `query`, `objectType`, `properties`, `owner`, `limit`, or provider-specific filters to narrow output; if an action returns a broad batch, filter it in your analysis and cite the records used.
 - Update the relevant `.agents/skills/<provider>/SKILL.md` when you discover new patterns.

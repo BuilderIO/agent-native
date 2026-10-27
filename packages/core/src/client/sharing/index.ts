@@ -1,9 +1,29 @@
 export {
-  AgentShareSection,
-  type AgentShareSectionProps,
-} from "./AgentShareSection.js";
-export { ShareDialog, type ShareDialogProps } from "./ShareDialog.js";
-export { ShareButton, type ShareButtonProps } from "./ShareButton.js";
+  SHARE_LINK_REF_PARAM,
+  SHARE_LINK_VIA_PARAM,
+  withShareLinkAttribution,
+} from "./share-link-attribution.js";
+export {
+  useAccessRequestDecisions,
+  useAccessRequestReview,
+  useResourceAccessRequests,
+  type AccessRequestDecisionFailure,
+  type AccessRequestDecisions,
+  type AccessRequestReview,
+  type AccessRequestReviewController,
+  type AccessRequestRole,
+  type ResourceAccessRequestsController,
+} from "./useAccessRequestReview.js";
+export {
+  useResourceAccessGate,
+  type ResourceAccessGateController,
+  type ResourceAccessGateOptions,
+  type ResourceAccessGateRequest,
+  type ResourceAccessRequestFailure,
+  type ResourceAccessGateRole,
+  type ResourceAccessGateState,
+  type ResourceAccessGateStatus,
+} from "./useResourceAccessGate.js";
 export {
   useShareButtonController,
   type ShareButtonController,
@@ -28,12 +48,21 @@ export {
   type ShareVisibility,
 } from "./useShareDialogController.js";
 export {
+  ShareVisibilityNotSavedError,
+  useShareVisibilityTransition,
+  visibilityNeedsConfirmation,
+  type ShareVisibilityTransition,
+  type ShareVisibilityTransitionOptions,
+  type ShareVisibilityTransitionRequest,
+} from "./useShareVisibilityTransition.js";
+export {
   createShareQueryKey,
   createShareQueryParams,
   extractShareErrorMessage,
   fetchOrgMemberPage,
   mergeOrgMembers,
   normalizeOrgMembers,
+  notifyShareChanged,
   optimisticallyUpdateShareCache,
   rollbackShareCache,
   useShareMutationGuard,

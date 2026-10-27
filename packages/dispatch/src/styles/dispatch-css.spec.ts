@@ -47,41 +47,24 @@ describe("dispatch Tailwind styles", () => {
     );
 
     expect(stylesheet).toMatch(
-      /\.dispatch-chat-panel \[data-agent-empty-state="centered"\] \.agent-composer-area \{[\s\S]*?max-width: min\(750px, 100%\);/,
+      /\.dispatch-chat-panel\.agentkit-chat\[data-empty=\\?"true\\?"\]\[data-empty-composer-placement=\\?"center\\?"\][\s\S]*?\.agent-composer-area \{[\s\S]*?max-width: min\(750px, 100%\);/,
     );
   });
-});
 
-describe("dispatch route shells", () => {
-  it("re-exports the private home redirect from the Dispatch template", () => {
-    const homeRoute = fs.readFileSync(
-      path.join(repoRoot, "templates/dispatch/app/routes/home.tsx"),
-      "utf-8",
-    );
+  it("scopes migrated full-page chat styles to the AgentKit root", () => {
+    const surfaces = [
+      ["templates/analytics/app/global.css", "analytics-chat-panel"],
+      ["templates/assets/app/global.css", "assets-create-chat-panel"],
+      ["templates/brain/app/global.css", "brain-chat-panel"],
+      ["templates/crm/app/global.css", "crm-chat-panel"],
+      ["templates/forms/app/global.css", "forms-ask-chat-panel"],
+    ] as const;
 
-    expect(homeRoute).toContain("loader");
-    expect(homeRoute).toContain("clientLoader");
-    expect(homeRoute).toContain("HydrateFallback");
-    expect(homeRoute).toContain("@agent-native/dispatch/routes/pages/_index");
-  });
-
-  it("re-exports the chat route from the Dispatch template", () => {
-    const chatRoute = fs.readFileSync(
-      path.join(repoRoot, "templates/dispatch/app/routes/chat.tsx"),
-      "utf-8",
-    );
-
-    expect(chatRoute).toContain("@agent-native/dispatch/routes/pages/chat");
-  });
-
-  it("re-exports the operations console from the Dispatch template", () => {
-    const operationsRoute = fs.readFileSync(
-      path.join(repoRoot, "templates/dispatch/app/routes/operations.tsx"),
-      "utf-8",
-    );
-
-    expect(operationsRoute).toContain(
-      "@agent-native/dispatch/routes/pages/operations",
-    );
+    for (const [file, surfaceClass] of surfaces) {
+      const stylesheet = fs.readFileSync(path.join(repoRoot, file), "utf-8");
+      expect(stylesheet).toContain(
+        `.${surfaceClass}.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]`,
+      );
+    }
   });
 });

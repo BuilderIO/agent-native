@@ -1,3 +1,460 @@
+## 0.168.13
+
+### Patch Changes
+
+- f2f60b9: Move the environment badge to the bottom-left, show a truthful dev badge during configured local development, raise Dispatch controls above it, and give default notifications enough clearance to avoid overlap.
+
+## 0.168.12
+
+### Patch Changes
+
+- 51b31ed: Format localized core documentation after the release sync.
+
+## 0.168.11
+
+### Patch Changes
+
+- dc0978d: Fix action request context to use the forwarded workspace gateway origin instead of the internal dev proxy host.
+
+## 0.168.10
+
+### Patch Changes
+
+- d9b6279: Fix desktop Google sign-in against a local dev server. `X-Agent-Native-Desktop-Verifier` is now in the shared CORS allow-header list used by every preflight short-circuit (the Tauri dev renderer origin `http://localhost:1420` is answered by the dev server, which never reached the auth CORS handler that already allowed the header), and a localhost origin receives `Access-Control-Allow-Credentials` when `NODE_ENV === "development"` so the desktop app's credentialed calls work locally. Production credential rules are unchanged.
+
+## 0.168.9
+
+### Patch Changes
+
+- e5e6934: Automatically replace a missing saved chat thread with a fresh chat in multi-tab hosts.
+- e5e6934: Cache 404 and 410 SSR shells with the same public CDN policy as 200 shells. They previously carried `no-cache`, so every dead link, stale bookmark, renamed slug and crawler miss re-invoked the render function — the same URL cost a full cold render on every request. Netlify runs one request per container, so those invocations drew from the account-wide concurrency pool other sites share. 5xx stays uncacheable, and 401/403 are deliberately excluded.
+- e5e6934: Add a Google sign-in credential self-check at `/_agent-native/health/google`.
+
+  The callback returns an identical error page for a wrong client secret and a
+  stale authorization code, so a broken credential is invisible from outside
+  while `/_agent-native/health` keeps reporting `ok:true`. The new route asks
+  Google directly and reports `valid`, `invalid`, `unconfigured`, or `unknown` —
+  a transport failure is never reported as valid — plus whether the deploy
+  carries two credential pairs naming different Google clients.
+
+- e5e6934: Keep desktop app chat immediately available while app tabs load, and allow hosts to start fresh chat threads without restoring history on mount.
+- dd80d09: Keep the full workspace credential workflow reachable from the redesigned integrations catalog.
+- 127606d: Sync localized overview documentation with the current English guides.
+- e5e6934: Refresh integration and Dispatch app surfaces with connected-first layouts and two-column cards.
+- e5e6934: Read org-scoped settings with a prefix-scoped query instead of loading the whole settings table. `listOrgSettings` pulled and JSON-parsed every organization's rows into the caller to keep one org's, putting the entire deployment's settings table on the critical path of any org-scoped list read. `listSettingsByPrefix` is now exported from `@agent-native/core/settings` so apps can do the same for their own scoped reads.
+
+## 0.168.8
+
+### Patch Changes
+
+- 81fa180: Show immediate tooltips for apps and navigation controls in the collapsed chat-first rail.
+
+## 0.168.7
+
+### Patch Changes
+
+- a1d24db: Automatically replace a missing saved chat thread with a fresh chat in multi-tab hosts.
+- a1d24db: Cache 404 and 410 SSR shells with the same public CDN policy as 200 shells. They previously carried `no-cache`, so every dead link, stale bookmark, renamed slug and crawler miss re-invoked the render function — the same URL cost a full cold render on every request. Netlify runs one request per container, so those invocations drew from the account-wide concurrency pool other sites share. 5xx stays uncacheable, and 401/403 are deliberately excluded.
+- a1d24db: Add a Google sign-in credential self-check at `/_agent-native/health/google`.
+
+  The callback returns an identical error page for a wrong client secret and a
+  stale authorization code, so a broken credential is invisible from outside
+  while `/_agent-native/health` keeps reporting `ok:true`. The new route asks
+  Google directly and reports `valid`, `invalid`, `unconfigured`, or `unknown` —
+  a transport failure is never reported as valid — plus whether the deploy
+  carries two credential pairs naming different Google clients.
+
+- a1d24db: Read org-scoped settings with a prefix-scoped query instead of loading the whole settings table. `listOrgSettings` pulled and JSON-parsed every organization's rows into the caller to keep one org's, putting the entire deployment's settings table on the critical path of any org-scoped list read. `listSettingsByPrefix` is now exported from `@agent-native/core/settings` so apps can do the same for their own scoped reads.
+
+## 0.168.6
+
+### Patch Changes
+
+- 186d913: Allow encrypted public-upload fallback blobs to delete their backing Builder or S3 assets, and fail closed when an explicitly selected private blob provider is unavailable.
+
+## 0.168.5
+
+### Patch Changes
+
+- 60aaea8: Keep app surfaces mounted when a host temporarily disables the chat sidebar.
+
+## 0.168.4
+
+### Patch Changes
+
+- 4e1ce88: Automatically replace a missing saved chat thread with a fresh chat in multi-tab hosts.
+- 4e1ce88: Add a Google sign-in credential self-check at `/_agent-native/health/google`.
+
+  The callback returns an identical error page for a wrong client secret and a
+  stale authorization code, so a broken credential is invisible from outside
+  while `/_agent-native/health` keeps reporting `ok:true`. The new route asks
+  Google directly and reports `valid`, `invalid`, `unconfigured`, or `unknown` —
+  a transport failure is never reported as valid — plus whether the deploy
+  carries two credential pairs naming different Google clients.
+
+- 4e1ce88: Read org-scoped settings with a prefix-scoped query instead of loading the whole settings table. `listOrgSettings` pulled and JSON-parsed every organization's rows into the caller to keep one org's, putting the entire deployment's settings table on the critical path of any org-scoped list read. `listSettingsByPrefix` is now exported from `@agent-native/core/settings` so apps can do the same for their own scoped reads.
+
+## 0.168.3
+
+### Patch Changes
+
+- 97e8cea: Read org-scoped settings with a prefix-scoped query instead of loading the whole settings table. `listOrgSettings` pulled and JSON-parsed every organization's rows into the caller to keep one org's, putting the entire deployment's settings table on the critical path of any org-scoped list read. `listSettingsByPrefix` is now exported from `@agent-native/core/settings` so apps can do the same for their own scoped reads.
+
+## 0.168.2
+
+### Patch Changes
+
+- 8617890: Generate the canonical public stale-while-revalidate headers for Netlify static build artifacts and guard prerendered apps against the platform default cache policy.
+
+## 0.168.1
+
+### Patch Changes
+
+- 07e0de3: Show the personal or workspace scope choice before connecting an integration in an organization, including a clear owner/admin requirement for members.
+- 68265a5: Forward hosted provider setup callbacks through `AgentSidebar` so Electron chat can show its native AI connection action after sign-in, and allow the native integrations surface to route OAuth through the authenticated app webview.
+
+## 0.168.0
+
+### Minor Changes
+
+- 6203d5d: Add an About Agent-Native command surface for inspecting deployed framework package versions and diagnostics.
+
+## 0.167.5
+
+### Patch Changes
+
+- d3210d7: Make documented `AGENT_NATIVE_CONFIG_*` environment aliases override typed and JSON public configuration defaults.
+
+## 0.167.4
+
+### Patch Changes
+
+- 8b73951: Isolate workspace app chat history and keep short chat-tab titles clear of the close target.
+
+## 0.167.3
+
+### Patch Changes
+
+- 1aafc1d: Keep authenticated Electron app sessions on their configured production lane instead of applying the browser-only employee beta redirect.
+- 40baf42: Preserve browser attribution through Better Auth email signup user creation.
+- 1aafc1d: Avoid treating the desktop broker identity as proof that an app's own session is authenticated.
+
+## 0.167.2
+
+### Patch Changes
+
+- 95d9d70: Bound public-site monitor requests and clarify unified-diff framing in visual recap authoring prompts.
+- 7f22204: Warn on the Agent Automations page when schedule-triggered automations can never fire — recurring jobs disabled at build time, no durable scheduler on the hosting target, or local development — via a new `get-scheduled-trigger-status` action. The build embeds its recurring-jobs decision into the server bundle so the warning reflects whether a scheduled trigger was actually emitted, and a failed status check is reported as unverified rather than healthy.
+- Updated dependencies [95d9d70]
+  - @agent-native/recap-cli@0.5.7
+
+## 0.167.1
+
+### Patch Changes
+
+- ca9ee7e: Merge same-day changelog categories without duplicating headings.
+
+## 0.167.0
+
+### Minor Changes
+
+- 3a7a8f0: support deterministic environment aliases and JSON fragments for public Agent-Native config
+
+## 0.166.1
+
+### Patch Changes
+
+- 8fd035c: Keep authenticated Electron app sessions on their configured production lane instead of applying the browser-only employee beta redirect.
+- Updated dependencies [10de7b9]
+  - @agent-native/recap-cli@0.5.6
+  - @agent-native/toolkit@0.16.9
+
+## 0.166.0
+
+### Minor Changes
+
+- c50b009: Allow request action resolvers to preserve the default tool-loading surface.
+
+## 0.165.5
+
+### Patch Changes
+
+- 8d56ed2: Let the Builder gateway engine run on an OAuth-only connection. The pre-run
+  credential gate required a `BUILDER_PRIVATE_KEY`/`BUILDER_PUBLIC_KEY` pair, so
+  a user connected through Builder OAuth alone had every turn rejected with "No
+  LLM provider is connected" while the connect card reported them connected.
+
+## 0.165.4
+
+### Patch Changes
+
+- 841f072: Expand changelog history windows to 100 releases while preserving folder-backed history.
+
+## 0.165.3
+
+### Patch Changes
+
+- b6ca1a7: Warn when `GOOGLE_SIGN_IN_CLIENT_ID` and `GOOGLE_CLIENT_ID` name different Google clients. Sign-in silently preferred the sign-in pair, so repairing `GOOGLE_CLIENT_SECRET` on a deploy that also set `GOOGLE_SIGN_IN_CLIENT_SECRET` changed nothing while appearing correct.
+- b6ca1a7: Harden MCP OAuth reconnects for mounted apps, legacy settings, and concurrent updates.
+- b6ca1a7: Ensure prebuilt Netlify workspace deployments include the hosted feedback URL.
+
+## 0.165.2
+
+### Patch Changes
+
+- b130f4e: Keep app changelogs compact while preserving folder-backed history in the in-app What's new surface.
+- ac3acfa: Improve provider failure recovery and remove the retired Videos template from Dispatch app creation.
+
+## 0.165.1
+
+### Patch Changes
+
+- 43ef3a8: Fix reconnecting existing OAuth-backed MCP servers in place.
+
+## 0.165.0
+
+### Minor Changes
+
+- b39f22c: Stop regex lookaround from 400ing the whole model turn, and give three
+  always-on core kits a `frameworkTools` switch.
+  - `stripUnsupportedSchemaKeywords` now drops a `pattern` containing lookaround
+    (`(?=`, `(?!`, `(?<=`, `(?<!`). Anthropic rejects it with "regex lookaround is
+    not supported" and rejects the entire request, so one such tool takes every
+    other tool in the payload down with it — visible as an error in chat, and as
+    nothing at all in a background run. `z.string().email()` compiles to two
+    negative lookaheads and appears in ~35 action schemas, so this is answered at
+    the boundary every tool passes through, alongside the existing typeless-schema
+    and unsupported-`format` rewrites. The action's own zod schema still validates
+    the value, so nothing that was enforced is loosened.
+  - `emailCatalog`, `workspaceUserGroups`, and `orgServiceTokens` are new
+    `frameworkTools` groups covering twelve actions that previously had no switch.
+    All three default to on, so the available surface is unchanged — but they are
+    now tagged, which takes them out of every app's default first-request tool
+    list and leaves them reachable through `tool-search`.
+  - `mcp.catalog: "app"` alongside `mcp.connectorCatalog` now throws at plugin
+    init. `catalog: "app"` short-circuits the connector tier, so the two together
+    served the app's full registry while the allow-list sat in the config looking
+    authoritative.
+
+### Patch Changes
+
+- 483f03d: Stop the run-level no-progress backstop from killing runs while the model is
+  still generating. Two watchdogs guarded the same silence on different clocks:
+  the agent loop's `lastModelStreamProgressAt` bumps on every engine frame, while
+  the run manager's backstop only sees events the loop forwards. Extended thinking
+  produces the first without the second, so the 150s bound sat inside the working
+  distribution — runs whose worst gap crossed it were checkpointed as
+  `auto_continue { reason: "no_progress" }` and recorded as errors while still
+  streaming, some missing by a single second, and background automations discarded
+  results the agent went on to finish minutes later.
+
+  The agent loop now brackets each engine call with a `model_stream` start/end
+  pair, and the run manager counts it exactly like `tool_start`/`tool_done`: an
+  engine call in flight suspends the backstop, bounded by the loop's own 90s
+  model-stream watchdog the same way a tool call is bounded by its own timeout.
+  Keepalives still do not count as progress, so a wedged transport with no engine
+  call in flight trips the backstop as before.
+
+  Background automation failures now also report through `captureError`. Both
+  callers — the recurring-jobs scheduler and the trigger dispatcher — recorded the
+  failure onto the automation's own metadata and logged it, and neither reported
+  it, so a cut-off automation was visible only in a resource field and stdout.
+
+  A cut-off run now reports a terminal state instead of none. `runAgentLoop`
+  returns early at an `auto_continue` checkpoint and never reaches its outcome
+  classification, so a truncated run shipped `terminal_state` and `error_message`
+  as null and the reason was recoverable only from `agent_run_events`. Unplanned
+  boundaries (`no_progress`, `stream_ended`, `gateway_timeout`, …) now surface as a
+  retryable failure carrying the reason as the terminal code, while the planned
+  `run_timeout` chunk boundary — which a hosted foreground run hits roughly every
+  40s by design — records its reason without counting as an error.
+
+- Updated dependencies [60b7e74]
+  - @agent-native/toolkit@0.16.8
+
+## 0.164.26
+
+### Patch Changes
+
+- d5ceae9: Preserve the beta environment opt-out when custom authentication pages are served.
+
+## 0.164.25
+
+### Patch Changes
+
+- 562194a: Stop sending `temperature` on model requests that carry Claude thinking. Effort
+  defaults to High on every reasoning-capable Claude model, so internal callers
+  that asked only for `temperature: 0` — the Observational Memory compactor, eval
+  judges, sentiment inference — always got a 400 ("`temperature` may only be set
+  to 1 when thinking is enabled or in adaptive mode"). The Anthropic, AI SDK, and
+  Builder gateway engines now drop the sampling parameters when thinking is on or
+  when the model family removed them, and Observational Memory compaction runs at
+  low effort so thinking cannot consume its whole output budget.
+
+## 0.164.24
+
+### Patch Changes
+
+- 14a3f87: Preserve the beta environment opt-out when custom authentication pages are served.
+- 14a3f87: Keep BYOA sign-in and liveness routes available while unrelated serverless bootstrap work is waiting on the database.
+
+## 0.164.23
+
+### Patch Changes
+
+- b811566: Preserve the beta environment opt-out when custom authentication pages are served.
+
+## 0.164.22
+
+### Patch Changes
+
+- 7bb5be0: Reject host-native database binaries in Netlify server bundles before publication.
+- 7bb5be0: Persist beta-to-production opt-outs from the cached sign-in shell for 24 hours.
+
+## 0.164.21
+
+### Patch Changes
+
+- 68f299c: Clarify deployment targets and document Agent-Native app configuration.
+
+## 0.164.20
+
+### Patch Changes
+
+- bfe4163: Report Telegram webhook registration failures instead of treating rejected `setWebhook` responses as successful setup.
+
+## 0.164.19
+
+### Patch Changes
+
+- 5f4031b: Restore ownerless legacy app visibility while preserving explicit private defaults for new apps.
+
+## 0.164.18
+
+### Patch Changes
+
+- b34de4c: Report Telegram webhook registration failures instead of treating rejected `setWebhook` responses as successful setup.
+
+## 0.164.17
+
+### Patch Changes
+
+- d492462: Support TipTap mark rule helpers in generated SSR stubs.
+
+## 0.164.16
+
+### Patch Changes
+
+- 7d72340: Keep desktop Google exchanges alive through longer passkey ceremonies while retaining one-time verifier binding.
+
+## 0.164.15
+
+### Patch Changes
+
+- 3f1cf50: Send signed-out users directly to the shared sign-in journey after logout so private app data queries cannot flash before the session gate redirects.
+
+## 0.164.14
+
+### Patch Changes
+
+- 667a1c1: Deliver authenticated Desktop task tools to local code-agent MCP clients.
+- 667a1c1: Add a development-only configuration control for isolated Desktop authentication acceptance runs.
+
+## 0.164.13
+
+### Patch Changes
+
+- 62373a8: Fix Google sign-in callbacks in browsers by keeping the OAuth binding cookie available across the provider redirect.
+
+## 0.164.12
+
+### Patch Changes
+
+- 379f7ca: Simplify deployment documentation with dedicated app and workspace paths, a deployment target overview, and a clearer advanced reference.
+
+## 0.164.11
+
+### Patch Changes
+
+- ae91302: Make shared user-share writes conflict-aware when a resource enforces normalized principal uniqueness.
+
+## 0.164.10
+
+### Patch Changes
+
+- 6a18780: Keep the beta environment switcher visible to signed-out visitors, including the standalone auth page.
+- e439054: Support reusable Code Agent worktrees and reliable local chat forking across Desktop sessions.
+- 5ececad: Surface sync-version allocator reseed failures while preserving the existing retry and clock-fallback behavior.
+
+## 0.164.9
+
+### Patch Changes
+
+- b1c420b: Block agent prompts until an LLM provider is connected and provide an inline Connect AI recovery flow with a clear retry action.
+- 8690e40: Make automation details inspectable in Dispatch, including the prompt, trigger configuration, capabilities, and past runs.
+- e542242: Create every framework-owned table at release time, so a hosted deploy comes up with a complete database.
+
+  Most framework tables are defined by their owning store's `ensureTable()`, not by a migration list — `settings`, `application_state`, `app_secrets` and `resources` among them. On a long-lived server the first request creates whatever is missing. On production serverless it cannot: `schemaEnsureDisabled()` reports every table present so a cold start skips ~390 probes, which is correct for latency and means nothing on the request path can create a table. Only 15 of ~75 framework tables had a migration list, so the other 60 had no path to creation at all on a hosted deploy. Sites published successfully and then failed every request with `relation "public.settings" does not exist`.
+
+  `runFrameworkReleaseMigrations` now runs those stores' own ensure paths first, from an explicit list in `server/release-schema.ts`, and `schemaEnsureDisabled()` no longer applies to a caller holding migration duty — the release step was subject to its own skip, because the Netlify build environment also sets `NETLIFY=true`.
+
+  The list loads each store with a dynamic import, so re-exporting `runFrameworkReleaseMigrations` from `server/index.ts` does not pull 60 store modules into every server boot to serve a path that runs once.
+
+  A new `guard:release-schema-complete` fails the build when a module creates tables and is not in that list, so a new store cannot repeat this. It recognises both `ensureTableExists` and stores that execute DDL held in a named constant, which is how `extensions/slots` created its tables without the first version of the guard seeing it. The migration-duty check moved to `db/migration-runtime.ts` to keep it off `db/client.js`, which stores mock.
+
+  Already-published sites need one redeploy to pick up the missing tables.
+
+## 0.164.8
+
+### Patch Changes
+
+- 939f6d2: Keep the core CLI agent-tool imports formatter-clean for package builds.
+
+## 0.164.7
+
+### Patch Changes
+
+- 06cea8f: Keep the desktop chat composer blank while the identity gate is handling an unauthenticated saved thread.
+
+## 0.164.6
+
+### Patch Changes
+
+- 8e51925: Fix Electron chat feedback around app visibility, local development tools, and run recovery.
+
+## 0.164.5
+
+### Patch Changes
+
+- fc85cb2: Bind desktop Google OAuth exchanges to a high-entropy verifier so a known flow ID alone cannot retrieve a session token.
+
+  Previously `/_agent-native/auth/desktop-exchange` returned a live session token to any caller that named the flow ID, and the flow ID came straight from the query string. An attacker could pick an ID, send someone to `/_agent-native/google/auth-url?desktop=1&flow_id=<known>&redirect=1`, then poll the exchange after that person signed in and receive their session token. The verifier now travels in an `X-Agent-Native-Desktop-Verifier` request header — which a link navigation cannot set — only its hash is stored, and the exchange read fails closed when the verifier is missing or does not match.
+
+  **Desktop clients must be upgraded.** The old `GET ?desktop=1&flow_id=…` bootstrap is rejected, because that request shape is exactly what made the exchange stealable; there is no backward-compatible variant that keeps the fix. An older independently deployed desktop client will fail Google sign-in with `Invalid desktop exchange challenge.` until it ships the header-based bootstrap.
+
+- fc85cb2: Stop treating an unreadable code-agent schedules file as an empty schedule list. A transient read error, a corrupt file, or a partially-written `schedules.json` collapsed to `[]`, and because every create/update/delete rewrites the whole file, the next mutation silently deleted every stored schedule. Only a genuinely absent file initializes as empty now; anything unreadable raises `CodeAgentSchedulesUnreadableError` and mutations refuse to run.
+- 61ca441: Persist scheduled automation transcripts into chat threads so Open thread shows the run's agent steps.
+- Updated dependencies [fc85cb2]
+  - @agent-native/toolkit@0.16.7
+
+## 0.164.4
+
+### Patch Changes
+
+- c58cd6e: Preserve verified mutation receipts and exact member identity across Dispatch and A2A delegation.
+
+## 0.164.3
+
+### Patch Changes
+
+- f790010: Keep the current-main merge tree formatter-clean for shared agent runtime sources.
+
+## 0.164.2
+
+### Patch Changes
+
+- 330cf77: Keep impersonal HTML redirects eligible for the shared SSR edge cache.
+
 ## 0.164.1
 
 ### Patch Changes
@@ -3288,7 +3745,7 @@ NOTHING`, and keys the action-marker dedupe on each row's own `updated_at`
 
 - 0aada94: Let Design MCP App canvases hand pending visual source edits back to the host coding conversation while preserving the local Design-agent and copy-prompt fallbacks for ordinary browser panes.
 
-  Teach visual-edit users to minimize Design chrome with Figma's `Shift+\` shortcut or the command menu without claiming the host-reserved `Cmd+\` chord.
+  Teach visual-edit users to minimize Design chrome with the `Shift+\` shortcut or the command menu without claiming the host-reserved `Cmd+\` chord.
 
 - 0aada94: Keep client status timeouts isolated to their own endpoint and preserve the last known model readiness when a status probe is temporarily unavailable.
 - 0aada94: Visual edit: never render a source snapshot in place of the running app. A localhost screen now always loads a live document — the proxied `/live-edit` frame for viewers holding the connection's `previewToken`, and the plain dev-server URL for everyone else. Previously a viewer without a token (signed-out session, public link, inline browser with no cookies) got the `/snapshot` HTML as `srcdoc`: a frozen copy that looked exactly like the app but had no live DOM behind it, so selection, the layers panel, and edits all silently addressed stale markup.

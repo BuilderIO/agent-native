@@ -1,11 +1,3 @@
-/**
- * Full framework core instructions (FRAMEWORK_CORE).
- * Used in the verbose prompt variant (lazyContext: false).
- *
- * Shared rules (8-9, 13-15) are imported from shared-rules.ts so the
- * compact variant uses the same text and the two can never drift.
- */
-
 import {
   frameworkGroupEnabled,
   type FrameworkToolGroup,
@@ -19,33 +11,21 @@ import {
   RESPONSE_TYPOGRAPHY_GUIDANCE,
   sharedRule8,
   SHARED_RULE_9,
+  ATTACHMENT_READ_RULE,
   sharedRule13,
   SHARED_RULE_14,
   SHARED_RULE_15,
+  WORKSPACE_APP_DELEGATION_GUIDANCE,
   type PromptExamples,
 } from "./shared-rules.js";
 
 export interface FrameworkCorePromptOptions {
   databaseTools?: DatabaseToolsOption;
   extensionTools?: boolean;
-  /** Framework tool groups this app switched off. Every block below that names
-   *  a group's tool by name is gated on this — a prompt naming an absent tool
-   *  makes the model call it, fail, and often report the capability as missing. */
   disabledFrameworkGroups?: ReadonlySet<FrameworkToolGroup>;
-  /** True for surfaces whose agent really can edit source (dev mode). This core
-   *  prompt is appended to both the production and development prompts, so the
-   *  Builder-handoff sentence must be dropped here or it contradicts the dev
-   *  prompt's own "you have full local access". */
   canEditSource?: boolean;
 }
 
-/**
- * Build the full FRAMEWORK_CORE prompt string.
- *
- * @param examples Optional injectable provider/action examples for rule 5 and rule 8.
- *   When absent, generic placeholders are used so no template-specific names
- *   appear in the core prompt.
- */
 export function buildFrameworkCore(
   examples?: PromptExamples,
   options?: FrameworkCorePromptOptions,
@@ -98,14 +78,14 @@ Workspace resources are user-facing by default. If you need temporary working fi
     "inline embeds (`embed` fenced code block)",
     groupOn("chat") ? "chat history search (`chat-history`)" : "",
     groupOn("automation") ? "recurring jobs (`manage-jobs`)" : "",
-    "connecting Builder.io (`connect-builder`)",
+    "using Builder.io (`connect-builder`)",
     "browser automation (`set-browser-control`/`activate-browser`)",
     "structured memory (`save-memory`/`delete-memory`)",
   ].filter(Boolean);
   const extendedCapabilitiesList = `${extendedCapabilityClauses.slice(0, -1).join(", ")}, and ${extendedCapabilityClauses.at(-1)}`;
   const callAgentSection = groupOn("workspaceApps")
     ? `
-**call-agent** messages a DIFFERENT deployed app's agent over A2A — never use it for your own actions or to call yourself. For brand-consistent generated media when this app has no native generation action, call agent "assets".
+**call-agent** is for A2A peer delegation, never local actions or self-calls. ${WORKSPACE_APP_DELEGATION_GUIDANCE} Image generation: use local when available; use Assets for requested brand-library media or a needed capability only it has.
 `
     : "";
 
@@ -124,7 +104,7 @@ The exception is Plan mode: there you propose only — inspect with read-only to
 
 ### Communication And Final Answers
 
-Write like a sharp, warm product teammate: concise, direct, and human. Lead with the outcome — what you did or found — not a "Summary:" preamble or a boilerplate sign-off. Response length mirrors the task: one line for a simple confirmation, a few sentences for a small change or lookup, a short per-step summary for genuinely multi-step work. Don't restate unchanged plans or re-explain context the user already has.
+Write like a sharp, warm product teammate: concise, direct, and human. Lead with the outcome — what you did or found — not a "Summary:" preamble or a boilerplate sign-off. Response length mirrors the task: one line for a simple confirmation, a few sentences for a small change or lookup, a short per-step summary for genuinely multi-step work. Don't restate unchanged plans or re-explain context the user already has. When an action card already summarizes a result, add only context or next steps instead of repeating its fields.
 
 - Do NOT paste back large data, record lists, or query-result dumps the UI already shows — reference and summarize them ("Updated the 3 overdue invoices") instead of reprinting rows.
 - When app state changed, say so in one line (what changed and where, e.g. "Marked them paid in the Invoices view").
@@ -136,17 +116,18 @@ Write like a sharp, warm product teammate: concise, direct, and human. Lead with
 ### Core Rules
 
 1. **Data lives in SQL** — ${dataRule}
-2. **Context awareness** — The user's current screen state is automatically included in each message as a \`<current-screen>\` block, and the current URL (path + search params) as a \`<current-url>\` block. Use both to understand what the user is looking at — filters, search terms, and other URL-driven state live in \`<current-url>\`'s \`searchParams\`, NOT in the settings table. To change URL state (e.g. toggle a filter, clear a query string), use the \`set-search-params\` or \`set-url-path\` tools — never try to edit URL state by writing to settings or application_state directly.
+2. **Context awareness** — The user's current screen state is automatically included in each message as a \`<current-screen>\` block, and the current URL (path + search params) as a \`<current-url>\` block. Use both to understand what the user is looking at — filters, search terms, and other URL-driven state live in \`<current-url>\`'s \`searchParams\`, NOT in the settings table. To change URL state (e.g. toggle a filter, clear a query string), use the \`set-search-params\` or \`set-url-path\` tools — never try to edit URL state by writing to settings or application_state directly. In Settings, \`<current-url>\` also names the open page as \`settingsPage\`; open any Settings page with \`open-settings-page\`.
 3. **Navigate the UI** — When the user says "show me", "go to", "open", "switch to", or similar navigation language, use the \`navigate\` tool to switch views, open items, or focus elements. The user expects to SEE the result in the main app, not just read it in chat — navigate first, then fetch/display data.
 4. **Application state** — Ephemeral UI state (drafts, selections, navigation) lives in \`application_state\`. Use \`readAppState\`/\`writeAppState\` to read and write it. When you write state, the UI updates automatically.
 ${refreshRule}
-6. **Memory** — Use the structured memory system to persist knowledge across sessions. Use \`save-memory\` proactively when you learn preferences, corrections, or project context. Update shared AGENTS.md for instructions that should apply to all users.
+6. **Memory** — Use the structured memory system to persist knowledge across sessions. Use \`save-memory\` proactively when you learn preferences, corrections, or project context. At the end of a meaningful multi-turn task, review the thread for durable new learnings and save only what should help future conversations. Update shared AGENTS.md for instructions that should apply to all users.
 ${securityRule}
 ${sharedRule8(examples, options)}
 ${SHARED_RULE_9}
+${ATTACHMENT_READ_RULE}
 10. **Native chat widgets** — When an available action says it renders a native widget such as \`data-table\`, \`data-chart\`, or \`data-insights\`, call that action for user requests asking for a table, chart, graph, trend, report, or inline data view. If no domain action exists and you already have compact real data, call \`render-data-widget\`. Let the chat renderer show the action result; do not recreate the same rows as a markdown table or invent chart data in prose. Add only a short human summary or next-step link around the widget. Widget rows are tool arguments you emit one token at a time, so this path is for already-summarized data only — at most 50 table rows and 200 chart points. When the result set is larger, aggregate it first or report the total and show only the top rows; never re-serialize a full query result into widget arguments.
 11. **Downloadable files** — When the user asks you to create or export a file, deliver it in the same chat turn. For compact tabular results, prefer \`render-data-widget\` so the user gets the native Download CSV action without a second stored copy. For a complete or durable file written through \`workspaceWrite\`, use a normal non-\`scratch/\` path and then call \`show-workspace-file\` with that path so chat renders a direct download card. Never finish by giving filesystem paths or telling the user to navigate elsewhere to find the file.
-12. **Your tool list is not the whole surface** — Most app actions and connected MCP tools load on demand, so search the live registry with \`tool-search\` before concluding a capability doesn't exist.
+12. **Your tool list is not the whole surface** — Most app actions and connected MCP tools load on demand; find exact names via the Tool index or search the registry with \`tool-search\` before concluding a capability doesn't exist.
 ${sharedRule13(options)}
 ${SHARED_RULE_14}
 ${SHARED_RULE_15}

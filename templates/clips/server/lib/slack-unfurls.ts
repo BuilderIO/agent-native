@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 
 import { AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE } from "@agent-native/core/shared";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 
 import {
   clipsShareDescription,
@@ -9,6 +9,7 @@ import {
   resolveClipsSocialImageUrl,
 } from "../../shared/share-meta.js";
 import { getDb, schema } from "../db/index.js";
+import { isRecordingExpired } from "./recording-page-access.js";
 
 const SLACK_API_URL = "https://slack.com/api/chat.unfurl";
 const MAX_UNFURL_LINKS = 5;
@@ -40,6 +41,7 @@ type SlackUnfurlRecording = {
   expiresAt: string | null;
   videoUrl: string | null;
   sourceAppName: string | null;
+  updatedAt: string | null;
 };
 
 export type SlackVideoBlock = {
@@ -193,12 +195,6 @@ function appPath(path: string, basePath: string): string {
   return base ? `/${base}${path}` : path;
 }
 
-function isExpired(value: string | null): boolean {
-  if (!value) return false;
-  const expires = new Date(value).getTime();
-  return Number.isFinite(expires) && expires < Date.now();
-}
-
 function formatSlackDuration(durationMs: number): string | null {
   if (!Number.isFinite(durationMs) || durationMs <= 0) return null;
   const totalSeconds = Math.floor(durationMs / 1000);
@@ -221,7 +217,7 @@ export function isSlackPlayableRecording(
     !recording.password &&
     !recording.archivedAt &&
     !recording.trashedAt &&
-    !isExpired(recording.expiresAt) &&
+    !isRecordingExpired(recording.expiresAt) &&
     Boolean(recording.videoUrl)
   );
 }
@@ -273,6 +269,7 @@ export async function loadSlackVideoBlockForUrl(
   const share = extractShareLink(url);
   if (!share) return null;
 
+  // guard:allow-unscoped — Slack unfurls are anonymous public-share reads; private and password-protected recordings are filtered before metadata is loaded.
   const [recording] = await getDb()
     .select({
       id: schema.recordings.id,
@@ -289,9 +286,16 @@ export async function loadSlackVideoBlockForUrl(
       expiresAt: schema.recordings.expiresAt,
       videoUrl: schema.recordings.videoUrl,
       sourceAppName: schema.recordings.sourceAppName,
+      updatedAt: schema.recordings.updatedAt,
     })
     .from(schema.recordings)
-    .where(eq(schema.recordings.id, share.id))
+    .where(
+      and(
+        eq(schema.recordings.id, share.id),
+        eq(schema.recordings.visibility, "public"),
+        isNull(schema.recordings.password),
+      ),
+    )
     .limit(1);
 
   return recording

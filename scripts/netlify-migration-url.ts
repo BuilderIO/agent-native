@@ -35,17 +35,6 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const isPostgresUrl = (value: unknown): value is string =>
   typeof value === "string" && value.startsWith("postgres");
 
-/**
- * Release migrations run DDL, so they must reach the direct endpoint. Neon's
- * PgBouncer runs in transaction mode: a pooled session can land on a replica
- * and reject `CREATE TABLE`/`UPDATE` with "cannot execute ... in a read-only
- * transaction", and retrying the same URL fails identically every time.
- *
- * Same rule as `getMigrationDatabaseUrl()` in packages/core/src/db/client.ts.
- * The region between `-pooler.` and `.neon.tech` can hold several
- * dot-separated labels (`c-7.us-east-1.aws`), and anchoring on `.neon.tech`
- * keeps non-Neon hosts untouched.
- */
 const stripNeonPooler = (url: string): string =>
   url.replace(/-pooler(\.[a-z0-9.-]+\.neon\.tech)/, "$1");
 

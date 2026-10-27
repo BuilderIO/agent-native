@@ -107,7 +107,6 @@ export interface MultiFrontierCollaborationIdRequest {
   requestId: string;
   action: "start" | "go" | "pause" | "resume" | "cancel" | "subscribe";
   collaborationId: string;
-  /** Present only to re-enter a recovered planning request; it is never persisted. */
   prompt?: string;
 }
 
@@ -151,10 +150,6 @@ export interface MultiFrontierArtifactSummary {
   participantId?: string;
 }
 
-/**
- * Presentation data emitted by Electron main. The renderer must never use it
- * as command authority; every command is revalidated against main-process state.
- */
 export interface MultiFrontierRendererState {
   rendererStateIsAuthoritative: false;
   collaborationId: string;

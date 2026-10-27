@@ -1,16 +1,19 @@
 import type { ActionEntry } from "../agent/production-agent.js";
+import { resolveAutomationAccess } from "../automations/access.js";
 import { DEFAULT_AUTOMATION_SCHEDULE } from "../automations/service.js";
-import { getDbExec } from "../db/client.js";
 import { resolveUserSchedulingTimezone } from "../localization/user-timezone.js";
+import { frameworkMcpTools } from "../mcp/framework-tools.js";
 import {
-  resourcePut,
+  organizationIdFromResourceOwner,
+  resourcePutIfAbsent,
   resourceGetByPath,
   resourceList,
   resourceDelete,
-  organizationIdFromResourceOwner,
-  sharedResourceOwner,
   SHARED_OWNER,
+  sharedResourceOwner,
+  type Resource,
 } from "../resources/store.js";
+import { readOrgMemberRole } from "../server/personal-provider-key-policy.js";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -20,6 +23,7 @@ import {
   isReasoningEffort,
   REASONING_EFFORTS,
 } from "../shared/reasoning-effort.js";
+import { RESUME_AUTOMATION_PATCH } from "./automation-outcome.js";
 import {
   isValidCron,
   nextOccurrence,
@@ -29,10 +33,9 @@ import {
 } from "./cron.js";
 import {
   assertJobExecutionTargetFields,
+  assertJobRunnerTarget,
   classifyJobResource,
   jobBelongsToApp,
-  patchJobFrontmatterFields,
-  replaceJobResourceBody,
   type JobFrontmatterPatch,
 } from "./frontmatter.js";
 import {
@@ -41,6 +44,7 @@ import {
   normalizeJobMcpTools,
   type JobFrontmatter,
 } from "./scheduler.js";
+import { applyJobResourceEdit } from "./update-job-resource.js";
 
 export { jobBelongsToApp } from "./frontmatter.js";
 
@@ -54,12 +58,6 @@ function getSharedOwner(): string {
   return sharedResourceOwner(getRequestOrgId());
 }
 
-/**
- * Determine if the current request's user is an org owner/admin in the
- * given org. Used to allow privileged users to update or delete shared
- * jobs created by other org members. Returns false when there is no org,
- * no user, no membership, or any error querying — fail closed.
- */
 async function isCurrentUserOrgAdmin(
   orgId: string | undefined,
 ): Promise<boolean> {
@@ -67,58 +65,50 @@ async function isCurrentUserOrgAdmin(
   const email = getRequestUserEmail();
   if (!email) return false;
   try {
-    const client = getDbExec();
-    const { rows } = await client.execute({
-      sql: `SELECT role FROM org_members
-            WHERE org_id = ? AND LOWER(email) = ?
-              AND federation_removal_pending_at IS NULL
-            LIMIT 1`,
-      args: [orgId, email.toLowerCase()],
-    });
-    if (rows.length === 0) return false;
-    const role = String((rows[0] as any).role ?? "").toLowerCase();
+    const role = await readOrgMemberRole(orgId, email);
     return role === "owner" || role === "admin";
   } catch {
     return false;
   }
 }
 
-/**
- * Authorise a mutation (update / delete) against a job resource. When the
- * job is in the SHARED scope the caller must either be the original
- * `createdBy` user or an org owner/admin — otherwise any user could rewrite
- * another user's shared job and have it run as that user on the next cron
- * tick (the privilege-escalation chain documented in audit
- * `/tmp/security-audit/12-mcp-a2a-agent.md`, finding #3).
- *
- * Returns null when the mutation is allowed, or an error string suitable
- * for returning to the caller when not.
- */
 export async function authorizeJobMutation(
-  resourceOwner: string,
-  meta: JobFrontmatter,
+  resource: Resource,
+  operation: "edit" | "delete",
   appId?: string,
 ): Promise<string | null> {
+  const { meta } = parseJobFrontmatter(resource.content);
   if (!jobBelongsToApp(meta, appId)) {
     return "This job belongs to another app and cannot be changed here.";
   }
-  const resourceOrgId = organizationIdFromResourceOwner(resourceOwner);
-  if (resourceOwner !== SHARED_OWNER && !resourceOrgId) {
-    // Personal-scope job — owner is the request's user. resourceGetByPath is
-    // already scoped to the caller, so we know meta.createdBy must match.
-    return null;
+  const access = await resolveAutomationAccess(
+    { userEmail: getOwner() },
+    resource.id,
+  );
+  if (!access || access.classification.kind !== "job") return "Job not found.";
+  const allowed =
+    operation === "delete"
+      ? access.capabilities.canDelete
+      : access.capabilities.canEdit;
+  if (allowed) return null;
+
+  const resourceOrgId = organizationIdFromResourceOwner(resource.owner);
+  if (resource.owner !== SHARED_OWNER && !resourceOrgId) {
+    return operation === "delete"
+      ? "Only the job owner can delete it."
+      : "Collaborate access is required to update this job.";
   }
   const caller = getOwner();
   const createdBy = meta.createdBy?.toLowerCase();
   if (createdBy && createdBy === caller.toLowerCase()) return null;
 
-  // Allow org owners/admins to manage shared jobs created by other members.
   const isAdmin = await isCurrentUserOrgAdmin(
     resourceOrgId ?? meta.orgId ?? getRequestOrgId() ?? undefined,
   );
   if (isAdmin) return null;
-
-  return "Only the job's creator (or an org admin) can update or delete it.";
+  return operation === "delete"
+    ? "Only the job owner can delete it."
+    : "Collaborate access is required to update this job.";
 }
 
 async function runCreate(
@@ -170,8 +160,6 @@ async function runCreate(
   const owner = scope === "personal" ? getOwner() : getSharedOwner();
   const path = `jobs/${name}.md`;
   const now = new Date();
-  // A cron time with no zone silently means the host's zone, which is how an
-  // "8am" job ends up firing at 4am for the person who asked for it.
   if (requestedTimezone && !isValidTimezone(requestedTimezone)) {
     return JSON.stringify({
       error: `Unknown timezone: "${requestedTimezone}". Use an IANA zone such as America/New_York.`,
@@ -222,7 +210,21 @@ async function runCreate(
   };
 
   const content = buildJobContent(meta, instructions);
-  await resourcePut(owner, path, content);
+  const created = await resourcePutIfAbsent(owner, path, content);
+  if (!created) {
+    const existing = await resourceGetByPath(owner, path);
+    if (!existing) {
+      return JSON.stringify({
+        error: `Job "${name}" was not created: the write was not applied.`,
+      });
+    }
+    return JSON.stringify({
+      error:
+        classifyJobResource(existing.content).kind === "automation"
+          ? `"${name}" already exists and is an automation. Use manage-automations to change it.`
+          : `Job "${name}" already exists. Use manage-jobs with action 'update' to change it, or pick a different name.`,
+    });
+  }
 
   return JSON.stringify({
     created: true,
@@ -243,7 +245,6 @@ async function runList(
 ): Promise<string> {
   const owner = getOwner();
   const sharedOwner = getSharedOwner();
-  // Fetch only current user's and shared jobs (not other users')
   const [personal, shared] = await Promise.all([
     resourceList(owner, "jobs/"),
     resourceList(sharedOwner, "jobs/"),
@@ -274,6 +275,9 @@ async function runList(
         lastRun: meta.lastRun || null,
         lastStatus: meta.lastStatus || null,
         lastError: meta.lastError || null,
+        lastErrorCode: meta.lastErrorCode || null,
+        pausedReason: meta.pausedReason || null,
+        pausedAt: meta.pausedAt || null,
         nextRun: meta.nextRun || null,
         originScopeId: meta.originScopeId || null,
         deliveryPlatform: meta.deliveryPlatform || null,
@@ -315,7 +319,6 @@ async function runUpdate(
   } = args;
   const path = `jobs/${name}.md`;
 
-  // Try to find the resource
   let resource = await resourceGetByPath(getSharedOwner(), path);
   if (!resource && scope !== "shared") {
     resource = await resourceGetByPath(getOwner(), path);
@@ -332,12 +335,7 @@ async function runUpdate(
     });
   }
 
-  // Reject when the caller doesn't own the shared job and isn't an org
-  // admin. Without this check, any user could rewrite a shared job whose
-  // `createdBy` is alice@…, and the next cron tick would run the
-  // attacker's instructions as alice (creator-runAs schedules in
-  // jobs/scheduler.ts line 273-278).
-  const denied = await authorizeJobMutation(resource.owner, meta, appId);
+  const denied = await authorizeJobMutation(resource, "edit", appId);
   if (denied) {
     return JSON.stringify({ error: denied });
   }
@@ -377,12 +375,18 @@ async function runUpdate(
     fields.nextRun = meta.nextRun;
   }
 
+  let liftsPause = false;
+  let liftsFailureState = false;
   if (enabled !== undefined) {
-    // Accept both the schema's string enum ("true"/"false") and a real boolean
-    // from non-LLM callers. `enabled === "true"` alone treats a boolean `true`
-    // as false — silently *disabling* a job the caller meant to enable.
     meta.enabled = enabled === true || enabled === "true";
     fields.enabled = meta.enabled;
+    const failureFieldsPresent = Boolean(
+      meta.pausedReason || meta.lastErrorCode || meta.consecutiveFailures,
+    );
+    liftsPause = Boolean(meta.enabled && failureFieldsPresent);
+    liftsFailureState = Boolean(
+      meta.enabled && failureFieldsPresent && meta.lastStatus !== "running",
+    );
   }
 
   if (runAs === "creator" || runAs === "shared") {
@@ -431,6 +435,7 @@ async function runUpdate(
   ) {
     try {
       assertJobExecutionTargetFields(meta);
+      assertJobRunnerTarget(meta);
     } catch (err) {
       return JSON.stringify({ error: (err as Error).message });
     }
@@ -447,28 +452,98 @@ async function runUpdate(
     }
   }
 
-  let content = patchJobFrontmatterFields(resource.content, fields);
-  if (instructions) {
-    content = replaceJobResourceBody(content, instructions);
+  // Re-derive nextRun, and the pause reset an "enable" lifts, on each attempt
+  // so they follow the file the edit lands on, not the first snapshot's.
+  const failureStateOf = (job: JobFrontmatter) =>
+    [
+      job.lastStatus ?? "",
+      job.pausedReason ?? "",
+      job.pausedAt ?? "",
+      job.lastError ?? "",
+      job.lastErrorCode ?? "",
+      job.lastFailedEventId ?? "",
+      job.consecutiveFailures ?? 0,
+    ].join("\u0000");
+  const failureStateBeforeEdit = failureStateOf(meta);
+  const pausedReasonBeforeEdit = meta.pausedReason;
+  const pausedAtBeforeEdit = meta.pausedAt;
+  const deriveFields = (baseContent: string): JobFrontmatterPatch => {
+    const latest = parseJobFrontmatter(baseContent).meta;
+    const derived: JobFrontmatterPatch = { ...fields };
+    if (fields.nextRun !== undefined) {
+      const schedule =
+        typeof fields.schedule === "string" ? fields.schedule : latest.schedule;
+      const timezone =
+        typeof fields.timezone === "string" ? fields.timezone : latest.timezone;
+      derived.nextRun = nextOccurrence(
+        schedule,
+        undefined,
+        timezone,
+      ).toISOString();
+    }
+    if (
+      liftsPause &&
+      (latest.pausedReason ?? "") === (pausedReasonBeforeEdit ?? "") &&
+      (latest.pausedAt ?? "") === (pausedAtBeforeEdit ?? "")
+    ) {
+      // The owner enabled the automation, so the pause they saw is lifted. A
+      // newer pause or an active run keeps its state for its own outcome to
+      // settle.
+      derived.pausedReason = undefined;
+      derived.pausedAt = undefined;
+    }
+    if (
+      liftsFailureState &&
+      failureStateOf(latest) === failureStateBeforeEdit
+    ) {
+      // Enabling lifts the failure the editor saw and starts a clean streak; a
+      // failure recorded after that read is left alone.
+      Object.assign(derived, RESUME_AUTOMATION_PATCH);
+    }
+    return derived;
+  };
+  const result = await applyJobResourceEdit({
+    resource,
+    fields: deriveFields,
+    revalidate: async (base) => {
+      // The retry's file must still be a job this editor may change; a same-ID
+      // path that became an automation cannot be updated through manage-jobs.
+      if (classifyJobResource(base.content).kind !== "job") return false;
+      return !(await authorizeJobMutation(base, "edit", appId));
+    },
+    ...(instructions ? { body: instructions } : {}),
+  });
+  if (!result.ok) {
+    return JSON.stringify({
+      error:
+        result.reason === "missing"
+          ? `Job "${name}" no longer exists.`
+          : result.reason === "unauthorized"
+            ? `Only the job's creator (or an org admin) can update it.`
+            : result.reason === "replaced"
+              ? `Job "${name}" was replaced while it was updated. Try again.`
+              : `Job "${name}" changed while it was updated. Try again.`,
+    });
   }
-  await resourcePut(resource.owner, resource.path, content);
 
+  // Report what actually landed, including fields a concurrent writer kept.
+  const landed = parseJobFrontmatter(result.resource.content).meta;
   return JSON.stringify({
     updated: true,
     name,
-    schedule: meta.schedule,
-    timezone: effectiveTimezone(meta.timezone),
+    schedule: landed.schedule,
+    timezone: effectiveTimezone(landed.timezone),
     scheduleDescription: describeCron(
-      meta.schedule,
-      effectiveTimezone(meta.timezone),
+      landed.schedule,
+      effectiveTimezone(landed.timezone),
     ),
-    enabled: meta.enabled,
-    nextRun: meta.nextRun,
-    mcpTools: meta.mcpTools || [],
-    reasoningEffort: meta.reasoningEffort || null,
-    executionHostId: meta.executionHostId || null,
-    executionEngine: meta.executionEngine || null,
-    executionCwd: meta.executionCwd || null,
+    enabled: landed.enabled,
+    nextRun: landed.nextRun,
+    mcpTools: landed.mcpTools || [],
+    reasoningEffort: landed.reasoningEffort || null,
+    executionHostId: landed.executionHostId || null,
+    executionEngine: landed.executionEngine || null,
+    executionCwd: landed.executionCwd || null,
   });
 }
 
@@ -488,16 +563,12 @@ async function runDelete(
     return JSON.stringify({ error: `Job "${name}" not found` });
   }
 
-  // Same access check as runUpdate — only the creator or an org admin can
-  // remove a shared job. Otherwise any user could break another tenant's
-  // recurring schedule.
-  const { meta } = parseJobFrontmatter(resource.content);
   if (classifyJobResource(resource.content).kind === "automation") {
     return JSON.stringify({
       error: `"${name}" is an automation. Use manage-automations to delete it.`,
     });
   }
-  const denied = await authorizeJobMutation(resource.owner, meta, appId);
+  const denied = await authorizeJobMutation(resource, "delete", appId);
   if (denied) {
     return JSON.stringify({ error: denied });
   }
@@ -507,13 +578,13 @@ async function runDelete(
 }
 
 export function createJobTools(appId?: string): Record<string, ActionEntry> {
-  return {
+  return frameworkMcpTools({
     "manage-jobs": {
       tool: {
         description: `Manage recurring jobs that run on a cron schedule.
 
 Actions:
-- "create": Create a new recurring job. Requires name and instructions; an omitted schedule defaults to once per hour.
+- "create": Create a new recurring job. Requires name and instructions; an omitted schedule defaults to once per hour. Fails if a job with that name already exists; use "update" to change an existing job.
 - "list": List all recurring jobs and their status (schedule, enabled, last run, next run).
 - "update": Update a job's schedule, instructions, or enabled state. Requires name.
 - "delete": Delete a recurring job. Requires name. Always confirm with the user first.
@@ -549,7 +620,7 @@ To run code-agent work on a paired always-on computer, pass executionHostId (fro
             instructions: {
               type: "string",
               description:
-                "What the agent should do when this job runs. Be specific — include which actions to call and what to do with the results. Required for create, optional for update.",
+                "What the agent should do when this job runs. Be specific: include which actions to call and what to do with the results. Required for create, optional for update.",
             },
             enabled: {
               type: "string",
@@ -627,5 +698,5 @@ To run code-agent work on a paired always-on computer, pass executionHostId (fro
         }
       },
     },
-  };
+  });
 }

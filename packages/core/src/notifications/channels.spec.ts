@@ -2,13 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { NotificationChannel } from "./types.js";
 
-// Each test imports channels.js fresh (vi.resetModules) so the module-level
-// `_registered` guard re-runs and the channel closure captures the current
-// NOTIFICATIONS_WEBHOOK_URL / _AUTH env. We capture the registered channel,
-// then drive its deliver() directly to exercise the real webhook logic: key-
-// reference resolution, URL allowlist enforcement, auth header, POST body, and
-// non-ok handling.
-
 const resolveKeyReferencesWithRequestScopes = vi.fn();
 const validateUrlAllowlist = vi.fn();
 const getKeyAllowlist = vi.fn();
@@ -95,6 +88,19 @@ describe("webhook notification channel", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("passes cancellation to the webhook request", async () => {
+    const controller = new AbortController();
+    const channel = (await loadWebhookChannel())!;
+
+    await channel.deliver(
+      { severity: "info", title: "Mail arrived" },
+      { owner: "alice@example.com" },
+      { signal: controller.signal },
+    );
+
+    expect(fetchMock.mock.calls[0]?.[1].signal).toBe(controller.signal);
+  });
+
   it("prefers metadata.webhookUrl over the env default", async () => {
     const channel = (await loadWebhookChannel())!;
     await channel.deliver(
@@ -165,15 +171,10 @@ describe("webhook notification channel", () => {
       owner: "alice@example.com",
     });
     expect(typeof payload.emittedAt).toBe("string");
-    // No Authorization header when NOTIFICATIONS_WEBHOOK_AUTH is unset.
     expect(init.headers.Authorization).toBeUndefined();
   });
 
   it("resolves ${keys.NAME} through the request-scope cascade, scoped to the owner", async () => {
-    // Locks in the switch from resolveKeyReferences(text, "user", owner) to
-    // resolveKeyReferencesWithRequestScopes(text, owner) — the cascade
-    // resolver that also backs extension fetches and automation headers, so
-    // a key synced into the org/workspace Dispatch vault resolves here too.
     const channel = (await loadWebhookChannel())!;
     await channel.deliver(
       { severity: "info", title: "x" },
@@ -224,9 +225,7 @@ describe("webhook notification channel", () => {
       ),
     ).rejects.toThrow(/not in the allowlist/i);
 
-    // Critically, the disallowed request must never be sent.
     expect(fetchMock).not.toHaveBeenCalled();
-    // The allowlist was looked up for the referenced key, scoped to the owner.
     expect(getKeyAllowlist).toHaveBeenCalledWith(
       "HOOK_URL",
       "user",
@@ -413,7 +412,6 @@ describe("webhook notification channel", () => {
         { owner: "alice@example.com" },
       ),
     ).rejects.toThrow(/401: upstream rejected: bad token/);
-    // The reader is drained then released rather than left open.
     expect(cancelled).toBe(true);
   });
 });
@@ -424,6 +422,7 @@ describe("Slack notification channel", () => {
       "https://hooks.slack.example.com/services/T/B/C";
     const channels = await loadChannels();
     const channel = channels.find((c) => c.name === "slack")!;
+    const controller = new AbortController();
 
     await channel.deliver(
       {
@@ -433,6 +432,7 @@ describe("Slack notification channel", () => {
         metadata: { ruleId: "alert_1" },
       },
       { owner: "alice@example.com" },
+      { signal: controller.signal },
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -440,6 +440,8 @@ describe("Slack notification channel", () => {
     expect(url).toBe("https://hooks.slack.example.com/services/T/B/C");
     expect(init.method).toBe("POST");
     expect(init.signal).toBeInstanceOf(AbortSignal);
+    controller.abort();
+    expect(init.signal.aborted).toBe(true);
     const payload = JSON.parse(init.body);
     expect(payload.text).toContain("[critical] Clip uploads failing");
     expect(payload.blocks[0].text.text).toBe("*Clip uploads failing*");
@@ -506,6 +508,7 @@ describe("email notification channel", () => {
       "ops@example.com, Alice@Example.com";
     const channels = await loadChannels();
     const channel = channels.find((c) => c.name === "email")!;
+    const controller = new AbortController();
 
     await channel.deliver(
       {
@@ -517,8 +520,10 @@ describe("email notification channel", () => {
           emailSubject: "Custom subject",
           ruleId: "rule_1",
         },
+        idempotencyKey: "mail-rule:rule-1:mailbox@example.com:message-1",
       },
       { owner: "alice@example.com" },
+      { signal: controller.signal },
     );
 
     expect(sendEmail).toHaveBeenCalledTimes(3);
@@ -534,6 +539,14 @@ describe("email notification channel", () => {
     expect(sent.text).not.toContain('"ruleId": "rule_1"');
     expect(sent.text).not.toContain("Metadata:");
     expect(sent.html).not.toContain("<pre>");
+    expect(sendEmail.mock.calls.map(([args]) => args.signal)).toEqual([
+      controller.signal,
+      controller.signal,
+      controller.signal,
+    ]);
+    expect(
+      new Set(sendEmail.mock.calls.map(([args]) => args.idempotencyKey)).size,
+    ).toBe(3);
   });
 
   it("does nothing when email has no recipients", async () => {

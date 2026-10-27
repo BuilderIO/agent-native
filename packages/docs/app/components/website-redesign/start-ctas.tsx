@@ -7,8 +7,6 @@ import { Button } from "./ds/button";
 
 export type StartCtaLocation = "hero" | "bottom_cta";
 
-// The Ahrefs event names use "footer" (not "bottom_cta") because that's the
-// section's plain-language name to whoever reads the Ahrefs dashboard.
 const AHREFS_LOCATION_PREFIX: Record<StartCtaLocation, string> = {
   hero: "hero",
   bottom_cta: "footer",

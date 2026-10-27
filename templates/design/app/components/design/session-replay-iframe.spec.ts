@@ -12,7 +12,7 @@ describe("Design session replay iframe wiring", () => {
     const designCanvas = source("./DesignCanvas.tsx");
 
     expect(designCanvas).toContain(
-      "return injectSessionReplayIframeBootstrap(frameDocument);",
+      "injectSessionReplayIframeBootstrap(frameDocument)",
     );
     expect(designCanvas).toContain("SESSION_REPLAY_IFRAME_ATTRIBUTE");
   });
@@ -20,7 +20,7 @@ describe("Design session replay iframe wiring", () => {
   it("bootstraps and marks overview and breakpoint srcdoc documents", () => {
     const multiScreenCanvas = source("./MultiScreenCanvas.tsx");
 
-    expect(multiScreenCanvas).toContain("appendHitTestResponder(");
+    expect(multiScreenCanvas).toContain("hitTestResponderMarkup(");
     expect(multiScreenCanvas).toContain("injectSessionReplayIframeBootstrap(");
     expect(multiScreenCanvas).toContain("SESSION_REPLAY_IFRAME_ATTRIBUTE");
   });
@@ -61,19 +61,24 @@ describe("Design session replay iframe wiring", () => {
       ),
     ]) {
       expect(block).toContain("src={previewUrl}");
-      expect(block).toContain(
-        "srcDoc={previewUrl ? undefined : srcdocWithHitTest}",
-      );
-      expect(block).toContain("sandbox={getDesignCanvasIframeSandbox({");
-      expect(block).toContain("externalPreview: Boolean(previewUrl)");
-      expect(block).toContain("readOnly: true");
+      expect(block).toMatch(/srcDoc=\{\s*previewUrl\s*\?\s*undefined\s*:/);
+      expect(block).toContain("privateScreenshotPreview.html");
+      expect(block).toContain("onStaticPreviewLoad?.(");
       expect(block).not.toContain('sandbox="allow-scripts"');
     }
   });
 
+  it("uses only script permission for shared Visual Edit snapshots", () => {
+    expect(
+      getDesignCanvasIframeSandbox({
+        externalPreview: false,
+        readOnly: true,
+        snapshotOnly: true,
+      }),
+    ).toBe("allow-scripts");
+  });
+
   it("covers the home thumbnail and Present route srcdoc documents", () => {
-    // The thumbnail moved out of Index.tsx so the editor's first-run rail can
-    // render the same previews; the wiring travels with it.
     const thumbnail = source("./DesignThumbnail.tsx");
     const present = source("../../pages/Present.tsx");
 

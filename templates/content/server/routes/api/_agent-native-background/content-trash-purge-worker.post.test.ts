@@ -20,8 +20,8 @@ vi.mock("drizzle-orm", () => ({ eq: vi.fn(() => "eq") }));
 vi.mock("@agent-native/core/server", () => ({
   runWithRequestContext: (...args: unknown[]) =>
     mocks.runWithRequestContext(...args),
-  verifyScopedAgentAccessToken: (...args: unknown[]) =>
-    mocks.verifyToken(...args),
+  scopedAgentAccessResourceId: (kind: string, id: string) => `${kind}:${id}`,
+  verifyShortLivedToken: (...args: unknown[]) => mocks.verifyToken(...args),
 }));
 
 vi.mock("../../../db/index.js", () => {
@@ -106,10 +106,10 @@ describe("Content Trash purge worker", () => {
       expect.anything(),
       401,
     );
-    expect(mocks.verifyToken).toHaveBeenCalledWith("example-token", {
-      resourceKind: "content-trash-purge",
-      resourceId: operationId,
-    });
+    expect(mocks.verifyToken).toHaveBeenCalledWith(
+      "example-token",
+      `content-trash-purge:${operationId}`,
+    );
     expect(mocks.limit).not.toHaveBeenCalled();
     expect(mocks.processPurge).not.toHaveBeenCalled();
   });

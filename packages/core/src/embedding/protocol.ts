@@ -28,13 +28,7 @@ export interface AgentNativeEmbedEnvelope<TPayload = unknown> {
 }
 
 export interface EmbeddedAppUrlOptions {
-  /**
-   * Add the framework's embedded route marker. Defaults to true.
-   */
   embedded?: boolean;
-  /**
-   * Extra query params to include in the iframe URL.
-   */
   params?: Record<string, string | number | boolean | null | undefined>;
 }
 

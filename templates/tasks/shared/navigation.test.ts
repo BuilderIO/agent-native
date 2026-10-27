@@ -29,7 +29,6 @@ describe("shared navigation", () => {
   });
 
   it("keeps aliases out of the pathname lookup", () => {
-    // NAV_VIEWS drives viewForPath; an alias route here would shadow /tasks.
     expect(viewForPath("/tasks")).toBe("tasks");
     expect(NAV_VIEW_INPUTS).toContain("home");
     expect(NAV_VIEWS).not.toContain("home" as never);

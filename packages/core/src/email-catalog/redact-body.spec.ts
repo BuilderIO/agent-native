@@ -13,6 +13,16 @@ describe("redactSensitiveEmailBodyContent", () => {
     expect(redacted).toContain("Sign in");
   });
 
+  it("redacts the scanner-safe email-link landing URL", () => {
+    const html =
+      '<a href="https://app.example.com/_agent-native/auth/email-link/landing?kind=magic-link&token=one-time-secret">Continue</a>';
+    const redacted = redactSensitiveEmailBodyContent(html);
+
+    expect(redacted).not.toContain("one-time-secret");
+    expect(redacted).not.toContain("email-link");
+    expect(redacted).toContain("[REDACTED LINK]");
+  });
+
   it("redacts a password-reset link", () => {
     const text =
       "Reset your password: https://app.example.com/reset-password?code=xyz9876543";

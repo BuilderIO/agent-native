@@ -12,6 +12,8 @@ export type RecoveredReadyRecording = {
   status: "ready";
   videoUrl?: string;
   durationMs?: number;
+  /** The bytes the server received, when the status route reports them. */
+  sourceSizeBytes?: number;
   width?: number;
   height?: number;
   hasAudio?: boolean;
@@ -208,6 +210,7 @@ export function readyRecordingFromPublicPayload(
       status: "ready",
       ...(videoUrl ? { videoUrl } : {}),
       durationMs: optionalNumber(recording.durationMs),
+      sourceSizeBytes: optionalNumber(recording.sourceSizeBytes),
       width: optionalNumber(recording.width),
       height: optionalNumber(recording.height),
       hasAudio: optionalBoolean(recording.hasAudio),

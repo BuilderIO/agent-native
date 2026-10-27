@@ -225,12 +225,6 @@ function uploadResponseMessage(
   return `${mediaUploadLabel(kind)} upload failed (${response.status}).`;
 }
 
-function isBuilderReconnectError(serverMessage: string): boolean {
-  return /builder(?:\.io)?[^\n]*(auth|credential|token|upload failed|401|403|unauthorized|forbidden|invalid)/i.test(
-    serverMessage,
-  );
-}
-
 async function uploadMediaFile(
   file: File,
   kind: MediaUploadKind,
@@ -256,23 +250,7 @@ async function uploadMediaFile(
   const body = (await response.json().catch(() => ({}))) as UploadResponse;
 
   if (!response.ok) {
-    const serverMessage = uploadResponseMessage(response, body, kind);
-    if (isBuilderReconnectError(serverMessage)) {
-      throw new Error(
-        "Builder.io is connected, but the saved connection was rejected. Reconnect Builder.io in Settings -> File uploads (free tier available), then try again.",
-      );
-    }
-    if (
-      response.status === 503 ||
-      /file upload provider|storage provider|connect builder/i.test(
-        serverMessage,
-      )
-    ) {
-      throw new Error(
-        `${mediaUploadLabel(kind)} uploads need file storage. Connect Builder.io in Settings -> File uploads (free tier available), then try again.`,
-      );
-    }
-    throw new Error(serverMessage);
+    throw new Error(uploadResponseMessage(response, body, kind));
   }
 
   if (typeof body.url !== "string" || !body.url) {

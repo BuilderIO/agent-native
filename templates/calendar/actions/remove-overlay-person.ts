@@ -16,10 +16,6 @@ export default defineAction({
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");
 
-    // Same atomicity reasoning as add-overlay-person: this must run inside
-    // mutateUserSetting's own read, not against a snapshot the client
-    // fetched earlier, or a concurrent add/remove from another tab could be
-    // silently overwritten by whichever full-list PUT lands last.
     const normalizedEmail = args.email.trim().toLowerCase();
     const result = await mutateUserSetting(
       email,

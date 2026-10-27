@@ -1,15 +1,18 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconApps } from "@tabler/icons-react";
+import type { MouseEvent } from "react";
 import { Link, useLocation } from "react-router";
 
 import {
-  filterOtherApps,
+  filterBuiltInApps,
   type ConnectedAppSummary,
 } from "../../lib/other-apps";
 import { cn } from "../../lib/utils";
 import {
   isWorkspaceAppVisibleInDefaultLaunchers,
+  navigateToWorkspaceApp,
+  shouldOpenWorkspaceAppInTopWindow,
   workspaceAppIdFromRoute,
   workspaceAppRoute,
   workspaceAppHref,
@@ -58,14 +61,15 @@ export function WorkspaceAppsRail({
         app.status !== "pending" &&
         !!workspaceAppHref(app),
     ),
-    ...filterOtherApps(connectedAppsQuery.data ?? [], workspaceApps).map(
+    ...filterBuiltInApps(connectedAppsQuery.data ?? [], workspaceApps).map(
       (app) => ({
         id: app.id,
         name: app.name,
         description: app.description,
         path: "",
-        url: app.homeUrl ?? app.url,
+        url: app.homeUrl?.trim() || app.url,
         status: "ready" as const,
+        source: "builtin" as const,
         external: true,
       }),
     ),
@@ -82,7 +86,21 @@ export function WorkspaceAppsRail({
     const linkProps = {
       "aria-current": active ? ("page" as const) : undefined,
       "aria-label": collapsed ? label : undefined,
-      onClick: onNavigate,
+      onClick: (event: MouseEvent<HTMLAnchorElement>) => {
+        onNavigate?.();
+        if (
+          !app.external ||
+          event.button !== 0 ||
+          event.metaKey ||
+          event.ctrlKey ||
+          event.shiftKey ||
+          event.altKey ||
+          !shouldOpenWorkspaceAppInTopWindow()
+        ) {
+          return;
+        }
+        if (navigateToWorkspaceApp(href)) event.preventDefault();
+      },
       className: cn(
         "flex h-9 items-center rounded-md text-sm transition-colors",
         collapsed ? "w-9 justify-center" : "w-full gap-2 px-2 text-start",
@@ -97,7 +115,6 @@ export function WorkspaceAppsRail({
           id={app.id}
           name={label}
           size="sm"
-          monochrome
           className={cn("size-5 rounded-md", active && "ring-1 ring-ring/30")}
         />
         {!collapsed ? <span className="truncate">{label}</span> : null}

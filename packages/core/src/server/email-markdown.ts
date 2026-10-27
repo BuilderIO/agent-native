@@ -34,8 +34,6 @@ function inlineMarkdown(value: string): string {
         trailing = url.slice(-1) + trailing;
         url = url.slice(0, -1);
       }
-      // A bare URL stays its own link text: a recipient who cannot read the
-      // destination cannot tell a digest link from a phishing one.
       return `${prefix}<a href="${url}" style="color:${EMAIL_TEXT};text-decoration:underline;">${url}</a>${trailing}`;
     },
   );

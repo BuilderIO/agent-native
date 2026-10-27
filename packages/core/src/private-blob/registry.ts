@@ -1,34 +1,37 @@
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
-
 import { getAppConfig } from "../app-config/index.js";
-import { deleteUploadedFile, uploadFile } from "../file-upload/index.js";
 import {
-  decryptSecretValue,
-  encryptSecretValue,
-  getSecretEncryptionKey,
-} from "../secrets/crypto.js";
+  deleteUploadedFile,
+  getActiveFileUploadProviderForRequest,
+  uploadFile,
+} from "../file-upload/registry.js";
+import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
+import {
+  decryptBlobBytes,
+  encryptBlobBytes,
+  type BlobEncryptionParams,
+} from "./blob-crypto.js";
+import {
+  isPrivateBlobError,
+  PrivateBlobError,
+  PrivateBlobRangeError,
+  type PrivateBlobFailureKind,
+} from "./errors.js";
 import type {
+  PrivateBlobByteRange,
   PrivateBlobDeleteResult,
   PrivateBlobHandle,
   PrivateBlobProvider,
   PrivateBlobPutInput,
+  PrivateBlobPutRequest,
+  PrivateBlobRangeReadResult,
   PrivateBlobReadResult,
+  PrivateBlobReadUrl,
+  PrivateBlobReadUrlOptions,
 } from "./types.js";
 
 interface PrivateBlobGlobals {
   __agentNativePrivateBlobProviders?: Map<string, PrivateBlobProvider>;
   __agentNativePrivateBlobPublicUploadFallback?: { enabled: boolean };
-}
-
-interface EncryptedPayload {
-  iv: string;
-  tag: string;
-  ciphertext: Uint8Array;
-}
-
-interface EncryptionParams {
-  iv: string;
-  tag: string;
 }
 
 interface PublicUploadDescriptor {
@@ -37,7 +40,7 @@ interface PublicUploadDescriptor {
   url: string;
   uploadProvider: string;
   uploadId?: string;
-  encryption: EncryptionParams;
+  encryption: BlobEncryptionParams;
   mimeType?: string;
   metadata?: PrivateBlobHandle["metadata"];
   size: number;
@@ -58,35 +61,6 @@ function toBytes(data: Uint8Array | Buffer): Uint8Array {
   return data instanceof Uint8Array ? data : new Uint8Array(data);
 }
 
-function encryptBytes(data: Uint8Array): EncryptedPayload {
-  const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", getSecretEncryptionKey(), iv);
-  const ciphertext = Buffer.concat([
-    cipher.update(Buffer.from(data)),
-    cipher.final(),
-  ]);
-  return {
-    iv: iv.toString("base64url"),
-    ciphertext: new Uint8Array(ciphertext),
-    tag: cipher.getAuthTag().toString("base64url"),
-  };
-}
-
-function decryptBytes(
-  params: EncryptionParams,
-  ciphertext: Uint8Array,
-): Uint8Array {
-  const decipher = createDecipheriv(
-    "aes-256-gcm",
-    getSecretEncryptionKey(),
-    Buffer.from(params.iv, "base64url"),
-  );
-  decipher.setAuthTag(Buffer.from(params.tag, "base64url"));
-  return new Uint8Array(
-    Buffer.concat([decipher.update(Buffer.from(ciphertext)), decipher.final()]),
-  );
-}
-
 function encodePublicUploadDescriptor(
   descriptor: PublicUploadDescriptor,
 ): string {
@@ -97,18 +71,32 @@ function encodePublicUploadDescriptor(
 
 function decodePublicUploadDescriptor(id: string): PublicUploadDescriptor {
   if (!id.startsWith(PUBLIC_UPLOAD_HANDLE_PREFIX)) {
-    throw new Error(
+    throw new PrivateBlobError(
       "Private blob handle is not a public-upload fallback handle",
+      "corrupt",
     );
   }
-  const raw = decryptSecretValue(id.slice(PUBLIC_UPLOAD_HANDLE_PREFIX.length));
-  const descriptor = JSON.parse(raw) as PublicUploadDescriptor;
+  let descriptor: PublicUploadDescriptor;
+  try {
+    descriptor = JSON.parse(
+      decryptSecretValue(id.slice(PUBLIC_UPLOAD_HANDLE_PREFIX.length)),
+    ) as PublicUploadDescriptor;
+  } catch (error) {
+    throw new PrivateBlobError(
+      "Private blob handle descriptor could not be decrypted",
+      "corrupt",
+      { cause: error },
+    );
+  }
   if (
     descriptor?.kind !== "agent-native.private-blob.public-upload" ||
     descriptor.version !== 1 ||
     typeof descriptor.url !== "string"
   ) {
-    throw new Error("Private blob handle descriptor is invalid");
+    throw new PrivateBlobError(
+      "Private blob handle descriptor is invalid",
+      "corrupt",
+    );
   }
   return descriptor;
 }
@@ -127,6 +115,18 @@ function isRetryablePublicUploadStatus(status: number): boolean {
   );
 }
 
+/**
+ * A 404/410 from the object store is the only answer that means "this object
+ * is gone". Every other status (403 included: S3 hides missing keys behind it)
+ * says the store could not serve the read, which is not a statement about the
+ * object, so it stays retryable.
+ */
+function publicUploadFailureKind(status: number): PrivateBlobFailureKind {
+  if (status === 404) return "not_found";
+  if (status === 410) return "gone";
+  return "unavailable";
+}
+
 function waitForPublicUploadRetry(delayMs: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, delayMs));
 }
@@ -135,7 +135,7 @@ async function putViaEncryptedPublicUpload(
   input: PrivateBlobPutInput,
 ): Promise<PrivateBlobHandle | null> {
   const bytes = toBytes(input.data);
-  const encrypted = encryptBytes(bytes);
+  const encrypted = encryptBlobBytes(bytes);
   const uploaded = await uploadFile({
     data: Buffer.from(encrypted.ciphertext),
     filename: input.filename ?? input.key ?? "private-blob.bin",
@@ -169,9 +169,6 @@ async function putViaEncryptedPublicUpload(
     metadata: input.metadata,
   };
 
-  // Do not hand callers a reference that the next request cannot read yet.
-  // The public-upload fallback is eventually consistent at the URL boundary,
-  // so readiness belongs to the write path as well as the later read path.
   await readViaEncryptedPublicUpload(handle);
   return handle;
 }
@@ -200,10 +197,11 @@ async function readViaEncryptedPublicUpload(
           provider: handle.provider,
           reason: "network",
         });
-        throw new Error(
+        throw new PrivateBlobError(
           `Private blob public-upload read failed: ${
             error instanceof Error ? error.message : "network error"
           }`,
+          "unavailable",
           { cause: error },
         );
       }
@@ -225,8 +223,10 @@ async function readViaEncryptedPublicUpload(
         provider: handle.provider,
         status: response.status,
       });
-      throw new Error(
+      throw new PrivateBlobError(
         `Private blob public-upload read failed (${response.status}): ${response.statusText}`,
+        publicUploadFailureKind(response.status),
+        { status: response.status },
       );
     }
 
@@ -240,8 +240,9 @@ async function readViaEncryptedPublicUpload(
       provider: handle.provider,
       reason: "no-response",
     });
-    throw new Error(
+    throw new PrivateBlobError(
       "Private blob public-upload read failed without a response",
+      "unavailable",
     );
   }
   if (attempts > 1) {
@@ -251,11 +252,20 @@ async function readViaEncryptedPublicUpload(
       provider: handle.provider,
     });
   }
-  // The uploaded ciphertext is intentionally opaque; the descriptor carries
-  // auth tag + IV separately so the backing public URL is useless by itself.
-  const ciphertext = new Uint8Array(await response.arrayBuffer());
+  let ciphertext: Uint8Array;
+  try {
+    ciphertext = new Uint8Array(await response.arrayBuffer());
+  } catch (error) {
+    throw new PrivateBlobError(
+      `Private blob public-upload read failed: ${
+        error instanceof Error ? error.message : "body read error"
+      }`,
+      "unavailable",
+      { cause: error },
+    );
+  }
   return {
-    data: decryptBytes(descriptor.encryption, ciphertext),
+    data: decryptBlobBytes(descriptor.encryption, ciphertext),
     mimeType: descriptor.mimeType,
     metadata: descriptor.metadata,
     handle,
@@ -281,21 +291,119 @@ export function getActivePrivateBlobProvider(): PrivateBlobProvider | null {
   if (selectedId) {
     const selected = providers.get(selectedId);
     if (!selected) {
-      throw new Error(
+      throw new PrivateBlobError(
         `Private blob config selects '${selectedId}', but no provider with that id is registered`,
+        "not_configured",
       );
     }
     if (!selected.isConfigured()) {
-      throw new Error(
+      throw new PrivateBlobError(
         `Private blob provider '${selectedId}' is selected but not configured`,
+        "not_configured",
       );
     }
     return selected;
   }
   for (const provider of providers.values()) {
+    if (provider.handles) continue;
     if (provider.isConfigured()) return provider;
   }
   return null;
+}
+
+async function isProviderConfiguredForRequest(
+  provider: PrivateBlobProvider,
+): Promise<boolean> {
+  if (provider.isConfigured()) return true;
+  return Boolean(await provider.isConfiguredForRequest?.());
+}
+
+/**
+ * The provider that stores this put: the one config selects, for every put;
+ * else a provider that claims it through `handles` (such as one app's logo
+ * storage) when one is configured; else the general provider for this
+ * request.
+ */
+async function getPrivateBlobProviderForPut(
+  request: PrivateBlobPutRequest,
+): Promise<PrivateBlobProvider | null> {
+  if (getAppConfig().privateBlob.provider) {
+    return getActivePrivateBlobProviderForRequest();
+  }
+  for (const provider of providers.values()) {
+    if (!provider.handles?.(request)) continue;
+    if (await isProviderConfiguredForRequest(provider)) return provider;
+  }
+  return getActivePrivateBlobProviderForRequest();
+}
+
+/**
+ * The general provider for this request. Providers that only claim some puts
+ * (`handles`) are never returned here, unless config selects one by id.
+ */
+export async function getActivePrivateBlobProviderForRequest(): Promise<PrivateBlobProvider | null> {
+  const selectedId = getAppConfig().privateBlob.provider;
+  if (selectedId) {
+    const selected = providers.get(selectedId);
+    if (!selected) {
+      throw new PrivateBlobError(
+        `Private blob config selects '${selectedId}', but no provider with that id is registered`,
+        "not_configured",
+      );
+    }
+    if (
+      !selected.isConfigured() &&
+      !(await selected.isConfiguredForRequest?.())
+    ) {
+      throw new PrivateBlobError(
+        `Private blob provider '${selectedId}' is selected but not configured`,
+        "not_configured",
+      );
+    }
+    return selected;
+  }
+  for (const provider of providers.values()) {
+    if (provider.handles) continue;
+    if (await isProviderConfiguredForRequest(provider)) return provider;
+  }
+  return null;
+}
+
+export async function isPrivateBlobConfiguredForRequest(): Promise<boolean> {
+  return (await getPrivateBlobStorageReadinessForRequest()).configured;
+}
+
+export interface PrivateBlobStorageReadiness {
+  configured: boolean;
+  providerId: string | null;
+}
+
+export async function getPrivateBlobStorageReadinessForRequest(): Promise<PrivateBlobStorageReadiness> {
+  let privateProvider: PrivateBlobProvider | null;
+  try {
+    privateProvider = await getActivePrivateBlobProviderForRequest();
+  } catch (error) {
+    // Settings that are saved but can't be used mean storage isn't ready.
+    // Puts still fail with the reason instead of using other storage.
+    if (isPrivateBlobError(error) && error.kind === "not_configured") {
+      return { configured: false, providerId: null };
+    }
+    throw error;
+  }
+  if (privateProvider) {
+    return { configured: true, providerId: privateProvider.id };
+  }
+  if (
+    !publicUploadFallbackRef.enabled ||
+    !getAppConfig().privateBlob.publicUploadFallback
+  ) {
+    return { configured: false, providerId: null };
+  }
+  const uploadProvider = await getActiveFileUploadProviderForRequest();
+  return {
+    configured: Boolean(uploadProvider),
+    providerId: uploadProvider?.id ?? null,
+  };
 }
 
 export function setPrivateBlobPublicUploadFallbackEnabled(
@@ -307,7 +415,7 @@ export function setPrivateBlobPublicUploadFallbackEnabled(
 export async function putPrivateBlob(
   input: PrivateBlobPutInput,
 ): Promise<PrivateBlobHandle | null> {
-  const provider = getActivePrivateBlobProvider();
+  const provider = await getPrivateBlobProviderForPut(input);
   if (provider) return provider.put(input);
   if (!publicUploadFallbackRef.enabled) return null;
   if (!getAppConfig().privateBlob.publicUploadFallback) return null;
@@ -322,7 +430,64 @@ export async function readPrivateBlob(
   if (isPublicUploadFallbackHandle(handle)) {
     return readViaEncryptedPublicUpload(handle);
   }
-  throw new Error(`No private blob provider registered for ${handle.provider}`);
+  throw new PrivateBlobError(
+    `No private blob provider registered for ${handle.provider}`,
+    "not_configured",
+  );
+}
+
+function assertValidRange(range: PrivateBlobByteRange): void {
+  if (
+    !Number.isSafeInteger(range.start) ||
+    range.start < 0 ||
+    (range.end !== undefined &&
+      (!Number.isSafeInteger(range.end) || range.end < range.start))
+  ) {
+    throw new PrivateBlobRangeError("Private blob byte range is invalid");
+  }
+}
+
+/**
+ * Reads part of a blob. Providers that can't read a range natively, encrypted
+ * blobs, and the encrypted public-upload fallback load the whole blob and
+ * slice it. Throws `PrivateBlobRangeError` when the range is malformed or
+ * starts past the end.
+ */
+export async function readPrivateBlobRange(
+  handle: PrivateBlobHandle,
+  range: PrivateBlobByteRange,
+): Promise<PrivateBlobRangeReadResult> {
+  assertValidRange(range);
+  const provider = providers.get(handle.provider);
+  if (provider?.readRange) return provider.readRange(handle, range);
+  const full = await readPrivateBlob(handle);
+  const size = full.data.byteLength;
+  if (range.start >= size) {
+    throw new PrivateBlobRangeError(
+      "Private blob byte range starts past the end",
+      size,
+    );
+  }
+  const end = Math.min(range.end ?? size - 1, size - 1);
+  return {
+    ...full,
+    data: full.data.subarray(range.start, end + 1),
+    range: { start: range.start, end, size },
+  };
+}
+
+/**
+ * A link that reads the blob straight from storage until it expires, or null
+ * when the blob's provider can't hand one out (the encrypted public-upload
+ * fallback never can). Only call after proving the caller may read the blob.
+ */
+export async function getPrivateBlobReadUrl(
+  handle: PrivateBlobHandle,
+  options: PrivateBlobReadUrlOptions,
+): Promise<PrivateBlobReadUrl | null> {
+  const provider = providers.get(handle.provider);
+  if (!provider?.getReadUrl) return null;
+  return provider.getReadUrl(handle, options);
 }
 
 export async function deletePrivateBlob(
@@ -344,5 +509,8 @@ export async function deletePrivateBlob(
         : { reason: "backing upload provider could not delete the asset" }),
     };
   }
-  throw new Error(`No private blob provider registered for ${handle.provider}`);
+  throw new PrivateBlobError(
+    `No private blob provider registered for ${handle.provider}`,
+    "not_configured",
+  );
 }

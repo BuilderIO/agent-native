@@ -1,20 +1,36 @@
 import { collectFinalResponseTextFromAgentEvents } from "../a2a/response-text.js";
-import type { ActionAutomationContext, ActionCaller } from "../action.js";
+import { type ActionAutomationContext, type ActionCaller } from "../action.js";
+import {
+  CREDENTIAL_STORE_UNAVAILABLE_ERROR_CODE,
+  LLM_MISSING_CREDENTIALS_ERROR_CODE,
+  LLM_MISSING_CREDENTIALS_MESSAGE,
+} from "../agent/engine/credential-errors.js";
 import {
   getStoredModelForEngine,
+  isResolvedEngineUsableForRequest,
   normalizeModelForEngine,
   resolveEngine,
 } from "../agent/engine/index.js";
 import { resolveMainChatMaxOutputTokens } from "../agent/engine/output-tokens.js";
-import type { AgentEngine } from "../agent/engine/types.js";
+import { overlayCompletedExecutionStepOutcomes } from "../agent/engine/tool-call-journal-seed.js";
+import type { AgentEngine, EngineMessage } from "../agent/engine/types.js";
+import {
+  currentExecutionFence,
+  StaleExecutionFenceError,
+} from "../agent/execution-fence.js";
 import {
   actionsToEngineTools,
   filterInitialEngineTools,
-  getOwnerActiveApiKey,
+  resolveOwnerEngineApiKey,
   runAgentLoop,
+  appendAgentLoopContinuation,
   type ActionEntry,
 } from "../agent/production-agent.js";
-import { runAgentLoopDirectWithSoftTimeout } from "../agent/run-loop-with-resume.js";
+import { foldReapedRunIntoThread } from "../agent/reaped-run-thread.js";
+import {
+  AgentLoopAbortedError,
+  runAgentLoopDirectWithSoftTimeout,
+} from "../agent/run-loop-with-resume.js";
 import {
   abortRun,
   resolveBackgroundAutomationSoftTimeoutMs,
@@ -22,16 +38,41 @@ import {
   startRun,
   type ActiveRun,
 } from "../agent/run-manager.js";
-import { claimBackgroundRun, insertRun } from "../agent/run-store.js";
+import {
+  claimBackgroundRun,
+  beginAgentExecutionStep,
+  completeAgentExecutionStep,
+  markAgentExecutionStepDispatched,
+  insertRun,
+  tryClaimRunSlot,
+  retryRunThreadProjection,
+  releaseBackgroundRunBeforeStart,
+  type AgentExecutionStepIntent,
+} from "../agent/run-store.js";
+import { buildAssistantMessageFromRunJournal } from "../agent/run-thread-projector.js";
+import {
+  buildCurrentTimeUserContext,
+  buildRuntimeContextPrompt,
+} from "../agent/runtime-context.js";
 import {
   buildAssistantMessage,
   buildUserMessage,
   extractThreadMeta,
   foldAssistantTurn,
   upsertUserMessage,
+  threadDataToEngineMessages,
+  threadMessageTextForEngine,
 } from "../agent/thread-data-builder.js";
-import { attachToolSearch } from "../agent/tool-search.js";
 import {
+  classifyToolCallJournal,
+  buildResumeJournalNote,
+  toolCallInputFingerprint,
+} from "../agent/tool-call-journal.js";
+import { attachToolSearch } from "../agent/tool-search.js";
+import type { AgentChatEvent } from "../agent/types.js";
+import { BACKGROUND_AUTOMATION_SOFT_TIMEOUT_HEADROOM_MS } from "../app-config/run-lifecycle-invariants.js";
+import {
+  lookupOwnerAccount,
   resolveAutomationExecutionIdentity,
   type AutomationExecutionIdentity,
 } from "../automations/service.js";
@@ -41,48 +82,86 @@ import {
   updateThreadData,
   withThreadDataLock,
 } from "../chat-threads/store.js";
+import { withDbExec, type DbExec } from "../db/client.js";
+import { automationOutcomeMessagesForUser } from "../localization/automation-outcome-messages.js";
+import { automationRecoveryMessagesForLocale } from "../localization/automation-recovery-messages.js";
+import { isFrameworkRuntimeAction } from "../mcp/action-eligibility.js";
 import { queryOrgMembers } from "../org/context.js";
 import {
   organizationIdFromResourceOwner,
-  organizationResourceOwner,
+  SHARED_OWNER,
   type Resource,
 } from "../resources/store.js";
 import { captureError } from "../server/capture-error.js";
+import {
+  BuilderCredentialLookupError,
+  CredentialStoreUnavailableError,
+} from "../server/credential-provider.js";
 import {
   runWithRequestContext,
   type RequestContext,
 } from "../server/request-context.js";
 import { normalizeReasoningEffortForRequest } from "../shared/reasoning-effort.js";
+import automationNoOpAction, {
+  AUTOMATION_NO_OP_TOOL,
+  automationNoOpSchema,
+} from "./actions/automation-no-op.js";
+import {
+  applyAutomationFailure,
+  automationOwnerKind,
+  classifyAutomationFailure,
+  CONFIG_INVALID_ERROR_CODE,
+  CONNECTION_REQUIRED_ERROR_CODE,
+  MISSING_TOOLS_ERROR_CODE,
+  OWNER_MISSING_ERROR_CODE,
+  pausedMessage,
+  withDeliveryNote,
+  type AutomationFailure,
+} from "./automation-outcome.js";
+import {
+  AutomationRecoveryProjectionDeferredError,
+  AutomationRecoveryStorageError,
+  deliveryNoteForEvents,
+  readAutomationRecoveryEvents,
+  readAutomationRunDeliveryNote,
+  withAutomationRecoveryStorage,
+  type AutomationResume,
+} from "./automation-recovery.js";
+import {
+  automationRunTerminalError,
+  type AutomationTerminalEvent,
+} from "./automation-terminal-error.js";
+import { inspectAutomationWork } from "./automation-work-evidence.js";
+import { effectiveTimezone } from "./cron.js";
 import {
   recoveredFactoryOwnerOrgId,
   type JobFrontmatter,
 } from "./frontmatter.js";
 import {
+  getJobRunner,
+  type JobRunnerContext,
+  type JobRunnerResult,
+} from "./job-runner.js";
+import { automationRunOwnership } from "./run-history-ownership.js";
+import {
   attachAutomationRunThread,
+  AutomationRunHistoryClaimLostError,
   finishAutomationRun,
   startAutomationRun,
+  type StartAutomationRunOptions,
 } from "./run-history.js";
+import { AutomationSchedulerLeaseLostError } from "./scheduler-health.js";
 
-/**
- * Default hard abort for one in-process automation run. Read through
- * `resolveBackgroundRunHardTimeoutMs()` at the use site — this is the host's
- * real function budget for scheduled work, and it differs by deployment.
- */
 export const BACKGROUND_RUN_HARD_TIMEOUT_MS = 10 * 60_000;
 
-/**
- * Terminal failure of a background automation, carrying the machine-readable
- * code the failure taxonomy already computes.
- *
- * The code used to be produced and then dropped, so "how often are runs cut
- * off?" was a `LIKE '%no_progress%'` over an English sentence.
- */
 export class BackgroundAutomationRunError extends Error {
   readonly errorCode: string;
-  constructor(message: string, errorCode: string) {
+  readonly deliveryNote?: string;
+  constructor(message: string, errorCode: string, deliveryNote?: string) {
     super(message);
     this.name = "BackgroundAutomationRunError";
     this.errorCode = errorCode;
+    this.deliveryNote = deliveryNote;
   }
 }
 
@@ -98,6 +177,13 @@ export interface BackgroundAutomationDeps {
     automation?: BackgroundAutomationContext,
   ) => Record<string, ActionEntry> | Promise<Record<string, ActionEntry>>;
   getSystemPrompt: (owner: string) => Promise<string>;
+  getWorkspaceAppContext?: (input: {
+    request: string;
+    ownerEmail: string;
+    orgId?: string;
+    appId?: string;
+    workspaceAppsEnabled: boolean;
+  }) => Promise<string>;
   getInitialToolNames?: (
     automation?: BackgroundAutomationContext,
   ) => string[] | undefined;
@@ -107,7 +193,15 @@ export interface BackgroundAutomationDeps {
   appId?: string;
 }
 
+/** The run an automation started, filled in as soon as it has one. */
+interface AutomationRunRef {
+  current: string | null;
+  threadId?: string;
+  completionCallbackStarted?: boolean;
+}
+
 export interface BackgroundAutomationRunOptions {
+  resume?: AutomationResume;
   automation: BackgroundAutomationContext;
   ownerEmail: string;
   orgId?: string;
@@ -119,38 +213,44 @@ export interface BackgroundAutomationRunOptions {
   requestContext?: Omit<RequestContext, "userEmail" | "orgId">;
   actionCaller?: ActionCaller;
   actionAutomation?: ActionAutomationContext;
-  /** Reuse a history row created by a durable run-now enqueue. */
   historyId?: string;
-  /**
-   * Per-run overrides for the run-manager no-progress backstop. `startRun` has
-   * always accepted these; the automation path had no way to reach them, and
-   * the one indirect route (zeroing `agent.runSoftTimeoutMs`) is global and
-   * would strip foreground chat of its chunk boundary. Additive: unset means
-   * the configured/default behaviour, unchanged.
-   */
+  assertCanStart?: () => Promise<void>;
+  hardTimeoutMs?: number;
+  hardDeadlineAt?: number;
   noProgressTimeoutMs?: number;
   backgroundNoProgressTimeoutMs?: number;
+  /** A run the owner asked for: it records its cause but never pauses the automation. */
+  manual?: boolean;
+  /** The event this run handles; retries of one event move the streak once. */
+  eventId?: string;
 }
 
-export interface BackgroundAutomationRunResult {
+interface BackgroundAutomationRunOutput {
   responseText: string;
   runId: string;
 }
 
+export type BackgroundAutomationRunResult = BackgroundAutomationRunOutput &
+  ({ status: "success" } | { status: "skipped"; reason: string });
+
+/**
+ * `owner_missing` is permanent (the user or membership is gone);
+ * `owner_unverifiable` means the lookup itself failed and must be retried, not
+ * recorded as the owner being gone.
+ */
+export type AutomationIdentityFailureCode =
+  | typeof OWNER_MISSING_ERROR_CODE
+  | "owner_unverifiable"
+  | typeof CONFIG_INVALID_ERROR_CODE;
+
 export type AutomationIdentityValidation =
   | { ok: true }
-  | { ok: false; reason: string };
+  | { ok: false; reason: string; code: AutomationIdentityFailureCode };
 
 export type BackgroundAutomationIdentityResult =
   | { ok: true; identity: AutomationExecutionIdentity }
-  | { ok: false; reason: string };
+  | { ok: false; reason: string; code?: AutomationIdentityFailureCode };
 
-/**
- * A persisted background run must not outlive its execution identity.
- * Organization runs fail closed when membership state cannot be read. A
- * brand-new personal install without auth tables remains a distinct
- * not-applicable case so local/CLI jobs keep working before auth is configured.
- */
 export async function validateAutomationRunIdentity(
   ownerEmail: string,
   orgId?: string,
@@ -163,13 +263,22 @@ export async function validateAutomationRunIdentity(
   }
 
   try {
-    const { getDbExec } = await import("../db/client.js");
-    const userResult = await getDbExec().execute({
-      sql: `SELECT 1 FROM "user" WHERE email = ? LIMIT 1`,
-      args: [ownerEmail],
-    });
-    if (!userResult.rows || userResult.rows.length === 0) {
-      return { ok: false, reason: `user "${ownerEmail}" no longer exists` };
+    const account = await lookupOwnerAccount(ownerEmail);
+    if (account === "missing") {
+      return {
+        ok: false,
+        reason: `user "${ownerEmail}" no longer exists`,
+        code: OWNER_MISSING_ERROR_CODE,
+      };
+    }
+    // No built-in accounts: like unconfigured auth tables, a personal owner
+    // cannot be checked here; an org member's standing cannot be proven.
+    if (account === "untracked" && orgId) {
+      return {
+        ok: false,
+        reason: `could not verify user "${ownerEmail}": this deployment keeps no built-in user accounts`,
+        code: "owner_unverifiable",
+      };
     }
   } catch (error) {
     const message =
@@ -182,6 +291,7 @@ export async function validateAutomationRunIdentity(
     return {
       ok: false,
       reason: `could not verify user "${ownerEmail}" for this run`,
+      code: "owner_unverifiable",
     };
   }
 
@@ -199,19 +309,23 @@ export async function validateAutomationRunIdentity(
       return {
         ok: false,
         reason: `could not verify membership in org "${orgId}"`,
+        code: "owner_unverifiable",
       };
     }
     if (memberRows.length === 0) {
       return {
         ok: false,
         reason: `user "${ownerEmail}" is no longer a member of org "${orgId}"`,
+        code: OWNER_MISSING_ERROR_CODE,
       };
     }
     return { ok: true };
   } catch {
+    // coercion-ok: reported as `owner_unverifiable`, which the scheduler retries instead of treating the owner as gone.
     return {
       ok: false,
       reason: `could not verify membership in org "${orgId}"`,
+      code: "owner_unverifiable",
     };
   }
 }
@@ -220,17 +334,32 @@ export async function resolveBackgroundAutomationIdentity(
   automation: BackgroundAutomationContext,
 ): Promise<BackgroundAutomationIdentityResult> {
   if (automation.meta.triggerType) {
+    let resolved: Awaited<
+      ReturnType<typeof resolveAutomationExecutionIdentity>
+    >;
     try {
-      return await resolveAutomationExecutionIdentity(
+      resolved = await resolveAutomationExecutionIdentity(
         automation.resource.owner,
         automation.meta,
       );
     } catch {
+      // coercion-ok: reported as `owner_unverifiable`, which the scheduler retries instead of treating the owner as gone.
       return {
         ok: false,
         reason: "Could not verify the automation execution identity.",
+        code: "owner_unverifiable",
       };
     }
+    if (!resolved.ok) return resolved;
+    // The service verifies an organization creator exists; a personal
+    // automation's owner was never looked up, so a deleted user kept running.
+    if (!organizationIdFromResourceOwner(automation.resource.owner)) {
+      const exists = await validateAutomationRunIdentity(
+        resolved.identity.userEmail,
+      );
+      if (!exists.ok) return exists;
+    }
+    return resolved;
   }
 
   const effectiveRunAs = automation.meta.runAs ?? "creator";
@@ -246,6 +375,22 @@ export async function resolveBackgroundAutomationIdentity(
     ) ??
     automation.meta.orgId ??
     undefined;
+  if (
+    !orgId &&
+    automation.resource.owner !== "__shared__" &&
+    !organizationIdFromResourceOwner(automation.resource.owner)
+  ) {
+    const resolved = await resolveAutomationExecutionIdentity(
+      automation.resource.owner,
+      automation.meta,
+    );
+    if (!resolved.ok) return resolved;
+    const validity = await validateAutomationRunIdentity(
+      resolved.identity.userEmail,
+    );
+    if (!validity.ok) return validity;
+    return resolved;
+  }
   const validity = await validateAutomationRunIdentity(userEmail, orgId);
   return validity.ok
     ? {
@@ -253,6 +398,9 @@ export async function resolveBackgroundAutomationIdentity(
         identity: {
           userEmail,
           orgId,
+          ...(!orgId && automation.resource.owner === SHARED_OWNER
+            ? { defaultAgentEngineScope: "deployment" as const }
+            : {}),
           eventOwner: userEmail.toLowerCase(),
         },
       }
@@ -260,26 +408,20 @@ export async function resolveBackgroundAutomationIdentity(
 }
 
 export function isBackgroundAutomationRunActive(
-  meta: Pick<JobFrontmatter, "lastRun" | "lastStatus">,
+  meta: Pick<JobFrontmatter, "lastRun" | "lastStatus" | "lastHistoryId">,
   now = new Date(),
 ): boolean {
   if (meta.lastStatus !== "running") return false;
+  // Exact firing markers remain owned until the scheduler reconciles history.
+  if (meta.lastHistoryId) return true;
   if (!meta.lastRun) return false;
   const startedAt = new Date(meta.lastRun).getTime();
-  // Tracks the hard abort: past it no run of this automation is still alive, so
-  // a deployment that raises the abort must not have its live runs treated as
-  // stuck and re-dispatched underneath themselves.
   return (
     Number.isFinite(startedAt) &&
     now.getTime() - startedAt < resolveBackgroundRunHardTimeoutMs()
   );
 }
 
-/**
- * A soft-timeout/no-progress checkpoint is a continuation boundary, not a
- * successful finish. Only the last terminal event decides whether an
- * in-invocation resume recovered from the boundary.
- */
 export function backgroundRunCutOffReason(run: {
   events?: readonly { event: { type: string; reason?: string } }[];
 }): string | null {
@@ -300,6 +442,15 @@ function uniqueToolNames(names: readonly string[]): string[] {
   return [...new Set(names)];
 }
 
+function assertHardDeadline(deadlineAt?: number): void {
+  if (deadlineAt !== undefined && Date.now() >= deadlineAt) {
+    throw new BackgroundAutomationRunError(
+      "Background automation time budget expired during setup.",
+      "background_automation_hard_timeout",
+    );
+  }
+}
+
 function assertRequestedMcpToolsAvailable(
   automation: BackgroundAutomationContext,
   actions: Record<string, ActionEntry>,
@@ -307,10 +458,126 @@ function assertRequestedMcpToolsAvailable(
   const requested = automation.meta.mcpTools ?? [];
   const missing = requested.filter((toolName) => !actions[toolName]);
   if (missing.length > 0) {
-    throw new Error(
+    throw new BackgroundAutomationRunError(
       `Configured MCP tools are unavailable in this run: ${missing.join(", ")}. Reconnect the MCP server or update the automation's capability list.`,
+      MISSING_TOOLS_ERROR_CODE,
     );
   }
+}
+
+function missingCredentialsMessage(ownerEmail: string, orgId?: string): string {
+  const kind = automationOwnerKind(ownerEmail);
+  if (kind === "user") return LLM_MISSING_CREDENTIALS_MESSAGE;
+  // A shared or organization automation never borrows its creator's personal
+  // connection, so only someone who administers that scope can fix this.
+  const scope =
+    kind === "organization"
+      ? `organization "${orgId ?? organizationIdFromResourceOwner(ownerEmail)}"`
+      : "the shared workspace";
+  return `${LLM_MISSING_CREDENTIALS_MESSAGE} This automation runs as ${scope}, so an admin of ${kind === "organization" ? "that organization" : "the workspace"} must connect the provider; the creator's personal connection is not used.`;
+}
+
+async function assertLlmCredentialsUsable(input: {
+  engine: AgentEngine;
+  apiKey: string | undefined;
+  ownerEmail: string;
+  orgId?: string;
+}): Promise<void> {
+  let usable: boolean;
+  try {
+    usable = await isResolvedEngineUsableForRequest(input.engine, {
+      apiKey: input.apiKey,
+      credentialIdentity: { userEmail: input.ownerEmail, orgId: input.orgId },
+    });
+  } catch (error) {
+    if (
+      error instanceof CredentialStoreUnavailableError ||
+      error instanceof BuilderCredentialLookupError
+    ) {
+      // An unreadable credential store is not an absent credential: this is
+      // retried, never recorded as missing_credentials.
+      throw new BackgroundAutomationRunError(
+        "The credential store could not be read, so the LLM credential could not be checked.",
+        CREDENTIAL_STORE_UNAVAILABLE_ERROR_CODE,
+      );
+    }
+    throw error;
+  }
+  if (!usable) {
+    throw new BackgroundAutomationRunError(
+      missingCredentialsMessage(input.ownerEmail, input.orgId),
+      LLM_MISSING_CREDENTIALS_ERROR_CODE,
+    );
+  }
+}
+
+/**
+ * The cause a failed run recorded for itself. Without this, a run that ended
+ * on `missing_credentials` surfaced as the generic "ended with status:
+ * errored" and the owner never learned why.
+ *
+ * A run that yielded to a connection request is a failed run even though it
+ * ended on a clean `done`: nobody is there to answer the request.
+ */
+export function backgroundRunTerminalError(run: {
+  events?: readonly {
+    event: AutomationTerminalEvent;
+  }[];
+}): { message: string; errorCode?: string } | null {
+  return automationRunTerminalError(
+    (run.events ?? []).map(({ event }) => event),
+  );
+}
+
+/**
+ * Organization and shared jobs run as a scope, which has no inbox. Their
+ * creator is told only while still a member of that scope (the alert carries
+ * the automation's real error text); otherwise an org owner or admin is.
+ */
+async function notificationEmailFor(
+  automationName: string,
+  ownerEmail: string,
+  createdBy: string | undefined,
+  orgId: string | undefined,
+): Promise<string | undefined> {
+  const owner = ownerEmail.trim();
+  if (owner.includes("@") && automationOwnerKind(owner) === "user") {
+    return owner;
+  }
+  const creator = createdBy?.trim();
+  if (
+    creator?.includes("@") &&
+    automationOwnerKind(creator) === "user" &&
+    (await validateAutomationRunIdentity(creator, orgId)).ok
+  ) {
+    return creator;
+  }
+  const admin = orgId ? await orgAdminEmail(orgId) : undefined;
+  if (!admin) {
+    console.error(
+      `[automations] automation_alert_no_recipient: "${automationName}" runs as ${owner} and has no member to alert (creator "${creator ?? "none"}" is not a current member${orgId ? `, org "${orgId}" has no owner or admin` : ""}).`,
+    );
+  }
+  return admin;
+}
+
+async function orgAdminEmail(orgId: string): Promise<string | undefined> {
+  const rows = await queryOrgMembers({
+    sql: `SELECT email FROM org_members
+          WHERE org_id = ? AND role IN ('owner', 'admin')
+            AND federation_removal_pending_at IS NULL
+          ORDER BY CASE role WHEN 'owner' THEN 0 ELSE 1 END, email
+          LIMIT 1`,
+    args: [orgId],
+  });
+  if (rows === null) {
+    console.error(
+      `[automations] automation_alert_no_recipient: could not read the owners of org "${orgId}".`,
+    );
+    return undefined;
+  }
+  const email = rows[0]?.email;
+  return typeof email === "string" && email ? email : undefined;
 }
 
 function createRunId(prefix: string): string {
@@ -318,32 +585,46 @@ function createRunId(prefix: string): string {
   return `${safePrefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
+export async function startBackgroundAutomationHistory(
+  automation: BackgroundAutomationContext,
+  ownerEmail: string,
+  orgId?: string,
+  appId?: string,
+  options?: StartAutomationRunOptions,
+): Promise<string> {
+  return startAutomationRun(
+    {
+      ...automationRunOwnership(automation.resource.owner, ownerEmail, orgId),
+      automation: automation.name,
+      path: automation.resource.path,
+      appId,
+      notificationEmail: await notificationEmailFor(
+        automation.name,
+        ownerEmail,
+        automation.meta.createdBy,
+        orgId,
+      ),
+    },
+    options,
+  );
+}
+
 export async function runBackgroundAutomation(
   options: BackgroundAutomationRunOptions,
   deps: BackgroundAutomationDeps,
 ): Promise<BackgroundAutomationRunResult> {
   const { automation } = options;
-  // Bookkeeping, so it must not gate the work it describes: a history table
-  // that cannot be written should cost us the record, not the automation.
-  // Everything downstream tolerates a null id by skipping its own write.
   let historyId: string | null = null;
   if (options.historyId) {
     historyId = options.historyId;
   } else {
     try {
-      const historyOwner = options.orgId
-        ? organizationResourceOwner(options.orgId)
-        : automation.resource.owner === "__shared__"
-          ? options.ownerEmail
-          : automation.resource.owner;
-      historyId = await startAutomationRun({
-        owner: historyOwner,
-        automation: automation.name,
-        path: automation.resource.path,
-        scope: options.orgId ? "organization" : "personal",
-        orgId: options.orgId ?? null,
-        appId: deps.appId,
-      });
+      historyId = await startBackgroundAutomationHistory(
+        automation,
+        options.ownerEmail,
+        options.orgId,
+        deps.appId,
+      );
     } catch (err) {
       console.error(
         `[automations] Could not open a history record for "${automation.name}"; running anyway:`,
@@ -353,9 +634,10 @@ export async function runBackgroundAutomation(
   }
 
   let result: BackgroundAutomationRunResult;
-  // Populated as soon as the run id exists, so a failure that never returns a
-  // result can still be joined to its LLM trace (`aiTraceId` -> $ai_trace_id).
-  const runIdRef: { current: string | null } = { current: null };
+  const runIdRef: AutomationRunRef = {
+    current: options.resume?.previousRunId ?? null,
+    threadId: options.resume?.threadId,
+  };
   try {
     result = await executeBackgroundAutomation(
       options,
@@ -364,57 +646,327 @@ export async function runBackgroundAutomation(
       runIdRef,
     );
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    const errorCode =
-      err instanceof BackgroundAutomationRunError
-        ? err.errorCode
-        : "background_automation_failed";
-    // Both callers (recurring-jobs scheduler, trigger dispatcher) record this
-    // onto the automation's own metadata and console.error it, and neither
-    // reports it. A failure visible only in a resource field and stdout is not
-    // a failure anyone sees: the run-level no-progress cutoff killed
-    // automations across two releases without ever raising an issue.
+    if (
+      err instanceof StaleExecutionFenceError ||
+      err instanceof AutomationSchedulerLeaseLostError ||
+      err instanceof AutomationRecoveryProjectionDeferredError ||
+      err instanceof AutomationRecoveryStorageError ||
+      (err instanceof BackgroundAutomationRunError &&
+        (err.errorCode === "background_automation_claim_lost" ||
+          err.errorCode === "background_automation_history_write_failed"))
+    )
+      throw err;
+    const { failure, transition } = await automationFailureDetails(
+      automation,
+      options,
+      runIdRef,
+      err,
+    );
     captureError(err, {
       tags: {
         area: "background-automation",
         automation: automation.name,
         scope: options.orgId ? "organization" : "personal",
+        errorCode: failure.code,
+        failureKind: failure.precondition ? "precondition" : "runtime",
+        ownerKind: automationOwnerKind(options.ownerEmail),
       },
       extra: {
         automationPath: automation.resource.path,
+        automationName: automation.name,
         appId: deps.appId,
         historyId,
+        errorCode: failure.code,
+        consecutiveFailures: transition.consecutiveFailures,
+        paused: transition.pause,
       },
       ...(runIdRef.current ? { aiTraceId: runIdRef.current } : {}),
+      failure: {
+        automationName: automation.name,
+        // Outside any request, so the boundary cannot read the scope itself.
+        userScope: options.orgId ? "org" : "personal",
+        ...(runIdRef.threadId ? { threadId: runIdRef.threadId } : {}),
+      },
     });
-    await recordRunOutcome(
-      historyId,
-      "error",
-      `${message}. No delivery was confirmed.`,
-      errorCode,
+    if (!runIdRef.completionCallbackStarted) {
+      await recordAutomationFailureOutcome(
+        historyId,
+        automation,
+        options,
+        runIdRef,
+        err,
+        { details: { failure, transition } },
+      );
+    }
+    throw new BackgroundAutomationRunError(
+      failure.message,
+      failure.code,
+      failure.deliveryNote,
     );
-    throw err;
   }
-  // Outside the try: history is bookkeeping about the run, so a failure to
-  // write it must not turn a completed automation into a reported failure.
-  await recordRunOutcome(historyId, "success");
   return result;
 }
 
+async function automationFailureDetails(
+  automation: BackgroundAutomationContext,
+  options: BackgroundAutomationRunOptions,
+  runIdRef: AutomationRunRef,
+  error: unknown,
+): Promise<{
+  failure: AutomationFailure;
+  transition: ReturnType<typeof applyAutomationFailure>;
+}> {
+  const failure = classifyAutomationFailure(error);
+  if (runIdRef.current) {
+    failure.deliveryNote = await readAutomationRunDeliveryNote(
+      runIdRef.current,
+    );
+  }
+  const transition = applyAutomationFailure(
+    automation.meta,
+    failure,
+    new Date(),
+    { countTowardPause: !options.manual, eventId: options.eventId },
+  );
+  return { failure, transition };
+}
+
+async function recordAutomationFailureOutcome(
+  historyId: string | null,
+  automation: BackgroundAutomationContext,
+  options: BackgroundAutomationRunOptions,
+  runIdRef: AutomationRunRef,
+  error: unknown,
+  input?: {
+    details?: Awaited<ReturnType<typeof automationFailureDetails>>;
+  },
+): Promise<void> {
+  const { failure, transition } =
+    input?.details ??
+    (await automationFailureDetails(automation, options, runIdRef, error));
+  await recordRunOutcome(
+    historyId,
+    runIdRef.current,
+    "error",
+    transition.pause
+      ? pausedMessage(
+          failure.code,
+          transition.consecutiveFailures,
+          failure.message,
+          failure.deliveryNote,
+        )
+      : withDeliveryNote(failure.message, failure.deliveryNote),
+    failure.code,
+    // A precondition failure repeats identically until fixed, so only the
+    // run that pauses the automation emails its owner.
+    !(failure.precondition && !transition.pause),
+    Boolean(options.historyId),
+  );
+}
+
+interface JobRunnerRunOptions {
+  runnerId: string;
+  automation: BackgroundAutomationContext;
+  ownerEmail: string;
+  orgId?: string;
+  historyId?: string;
+  requestContext?: Omit<RequestContext, "userEmail" | "orgId">;
+  assertCanStart?: () => Promise<void>;
+  resume?: AutomationResume;
+  manual?: boolean;
+}
+
 /**
- * Link the run to its agent thread. Bookkeeping again: the automation is
- * already executing by this point, so a failed write costs the cross-reference
- * in the history view, not the run.
+ * Runs a job's registered runner in place of the agent loop and settles its
+ * history row exactly once, with the same failure alert and pause message an
+ * agent run gets.
  */
+export async function runJobRunner(
+  options: JobRunnerRunOptions,
+): Promise<BackgroundAutomationRunResult> {
+  const { automation, historyId, runnerId } = options;
+  if (!historyId)
+    throw new BackgroundAutomationRunError(
+      `Job runner "${runnerId}" has no run history row.`,
+      "background_automation_history_write_failed",
+    );
+  // A runner's row never gets a run id; a resumed row is the one case that has one.
+  const expectedRunId = options.resume?.previousRunId ?? null;
+  const startedAt = Date.now();
+  const hardMs = resolveBackgroundRunHardTimeoutMs();
+  // The resolver is 0 outside a hosted function, which would leave no soft budget.
+  const softMs =
+    resolveBackgroundAutomationSoftTimeoutMs() ||
+    Math.max(1_000, hardMs - BACKGROUND_AUTOMATION_SOFT_TIMEOUT_HEADROOM_MS);
+  const controller = new AbortController();
+  let hardTimer: ReturnType<typeof setTimeout> | undefined;
+  let result: JobRunnerResult;
+  try {
+    if (automation.meta.mcpManaged) {
+      const messages = await automationOutcomeMessagesForUser(
+        options.ownerEmail,
+      );
+      throw new BackgroundAutomationRunError(
+        messages.mcpApprovalUnavailable,
+        CONFIG_INVALID_ERROR_CODE,
+      );
+    }
+    const runner = getJobRunner(runnerId);
+    if (!runner)
+      throw new BackgroundAutomationRunError(
+        `No job runner named "${runnerId}" is registered in this app.`,
+        "job_runner_unavailable",
+      );
+    if (automation.meta.executionHostId)
+      throw new BackgroundAutomationRunError(
+        `Job runner "${runnerId}" cannot run on an execution host.`,
+        CONFIG_INVALID_ERROR_CODE,
+      );
+    if (options.resume)
+      throw new BackgroundAutomationRunError(
+        `Job runner "${runnerId}" cannot resume an agent run.`,
+        CONFIG_INVALID_ERROR_CODE,
+      );
+    const hardTimeout = new Promise<never>((_, reject) => {
+      hardTimer = setTimeout(() => {
+        controller.abort();
+        reject(
+          new BackgroundAutomationRunError(
+            `Background automation timed out after ${Math.round(hardMs / 60_000)} minutes`,
+            "background_automation_hard_timeout",
+          ),
+        );
+      }, hardMs);
+    });
+    const context: JobRunnerContext = {
+      name: automation.name,
+      path: automation.resource.path,
+      meta: automation.meta,
+      ownerEmail: options.ownerEmail,
+      ...(options.orgId ? { orgId: options.orgId } : {}),
+      historyId,
+      manual: options.manual === true,
+      scheduledFor: options.manual ? null : (automation.meta.nextRun ?? null),
+      deadlineAt: startedAt + softMs,
+      hardDeadlineAt: startedAt + hardMs,
+      signal: controller.signal,
+      assertCanContinue: options.assertCanStart ?? (async () => {}),
+      actionAutomation: {
+        triggerId: automation.resource.id,
+        triggerName: automation.name,
+        ...(automation.meta.delegatedPolicyId
+          ? { policyId: automation.meta.delegatedPolicyId }
+          : {}),
+      },
+    };
+    result = await Promise.race([
+      runWithRequestContext(
+        {
+          ...options.requestContext,
+          userEmail: options.ownerEmail,
+          orgId: options.orgId,
+        },
+        () => runner(context),
+      ),
+      hardTimeout,
+    ]);
+  } catch (err) {
+    if (
+      err instanceof AutomationSchedulerLeaseLostError ||
+      err instanceof AutomationRecoveryProjectionDeferredError ||
+      err instanceof AutomationRecoveryStorageError ||
+      (err instanceof BackgroundAutomationRunError &&
+        err.errorCode === "background_automation_history_write_failed")
+    )
+      throw err;
+    const failure = classifyAutomationFailure(err);
+    const transition = applyAutomationFailure(
+      automation.meta,
+      failure,
+      new Date(),
+      { countTowardPause: !options.manual },
+    );
+    captureError(err, {
+      tags: {
+        area: "job-runner",
+        automation: automation.name,
+        runner: runnerId,
+        scope: options.orgId ? "organization" : "personal",
+        errorCode: failure.code,
+        failureKind: failure.precondition ? "precondition" : "runtime",
+        ownerKind: automationOwnerKind(options.ownerEmail),
+      },
+      extra: {
+        automationPath: automation.resource.path,
+        historyId,
+        errorCode: failure.code,
+        consecutiveFailures: transition.consecutiveFailures,
+        paused: transition.pause,
+      },
+    });
+    await recordRunOutcome(
+      historyId,
+      expectedRunId,
+      "error",
+      transition.pause
+        ? pausedMessage(
+            failure.code,
+            transition.consecutiveFailures,
+            failure.message,
+            failure.deliveryNote,
+          )
+        : withDeliveryNote(failure.message, failure.deliveryNote),
+      failure.code,
+      !(failure.precondition && !transition.pause),
+      true,
+    );
+    throw new BackgroundAutomationRunError(
+      failure.message,
+      failure.code,
+      failure.deliveryNote,
+    );
+  } finally {
+    if (hardTimer) clearTimeout(hardTimer);
+  }
+  await recordRunOutcome(
+    historyId,
+    expectedRunId,
+    result.status,
+    result.status === "skipped" ? result.reason : undefined,
+    undefined,
+    true,
+    true,
+  );
+  const runId = result.runId ?? historyId;
+  return result.status === "skipped"
+    ? { status: "skipped", reason: result.reason, responseText: "", runId }
+    : { status: "success", responseText: "", runId };
+}
+
 async function recordRunThread(
   historyId: string | null,
   threadId: string,
   runId: string,
+  strict: boolean,
+  expectedRunId?: string,
 ): Promise<void> {
   if (!historyId) return;
   try {
-    await attachAutomationRunThread(historyId, threadId, runId);
+    await attachAutomationRunThread(historyId, threadId, runId, {
+      requirePersisted: strict,
+      ...(expectedRunId !== undefined ? { expectedRunId } : {}),
+    });
   } catch (err) {
+    if (err instanceof AutomationRunHistoryClaimLostError)
+      throw new BackgroundAutomationRunError(
+        deliveryNoteForEvents(null),
+        err.errorCode,
+      );
+    if (strict)
+      throw new BackgroundAutomationRunError(
+        deliveryNoteForEvents(null),
+        "background_automation_history_write_failed",
+      );
     console.error(
       `[automations] Could not attach thread ${threadId} to run ${historyId}:`,
       err,
@@ -437,32 +989,38 @@ function backgroundAutomationPersistFailure(input: {
     };
   }
   const cutOffReason = backgroundRunCutOffReason(input.run);
-  if (!cutOffReason) return undefined;
-  return {
-    message: `Background automation was cut off before finishing (${cutOffReason})`,
-    errorCode: "background_automation_cut_off",
-  };
+  if (cutOffReason) {
+    return {
+      message: `Background automation was cut off before finishing (${cutOffReason})`,
+      errorCode: "background_automation_cut_off",
+    };
+  }
+  // Decided here, ahead of work confirmation: the failed tool that preceded the
+  // request would otherwise type the run `automation_no_confirmed_work`.
+  const cause = backgroundRunTerminalError(input.run);
+  if (cause?.errorCode === CONNECTION_REQUIRED_ERROR_CODE) {
+    return { message: cause.message, errorCode: cause.errorCode };
+  }
+  return undefined;
 }
 
-/**
- * Chat opens `/chat/:threadId` from `thread_data`, not `agent_run_events`.
- * Persist before the cut-off/status reject so a failed run still has a
- * visible trace. Keep the scheduler title — `extractThreadMeta` would
- * otherwise replace `Job: …` with the prompt excerpt.
- *
- * Cut-off and hard-abort turns have no terminal error event of their own.
- * `suppressInternalContinuation` also drops `auto_continue`, so persist
- * would otherwise store a completed assistant message. Append a
- * non-recoverable error and skip that suppress so Open thread shows the
- * incomplete state.
- */
 async function persistBackgroundAutomationTurn(input: {
   threadId: string;
   threadTitle: string;
   prompt: string;
-  run: ActiveRun;
+  run: Pick<ActiveRun, "runId" | "turnId" | "startedAt" | "events">;
+  persistAssistant?: boolean;
   persistFailure?: { message: string; errorCode: string };
 }): Promise<void> {
+  const fence = currentExecutionFence();
+  if (
+    fence &&
+    (fence.threadId !== input.threadId ||
+      fence.runId !== input.run.runId ||
+      fence.turnId !== input.run.turnId)
+  ) {
+    throw new StaleExecutionFenceError(fence);
+  }
   await withThreadDataLock(input.threadId, async () => {
     const row = await getThread(input.threadId);
     if (!row) {
@@ -487,7 +1045,11 @@ async function persistBackgroundAutomationTurn(input: {
 
     repo = upsertUserMessage(
       repo,
-      buildUserMessage({ text: input.prompt, runId: input.run.runId }),
+      buildUserMessage({
+        text: input.prompt,
+        runId: input.run.turnId,
+        turnId: input.run.turnId,
+      }),
     );
     const events = [...(input.run.events ?? [])];
     if (input.persistFailure) {
@@ -501,13 +1063,21 @@ async function persistBackgroundAutomationTurn(input: {
         },
       });
     }
-    const assistantMsg = buildAssistantMessage(events, input.run.runId, {
-      suppressInternalContinuation: !input.persistFailure,
-      turnId: input.run.turnId,
-      runDurationMs: Number.isFinite(input.run.startedAt)
-        ? Math.max(0, Date.now() - input.run.startedAt)
-        : undefined,
-    });
+    const assistantMsg =
+      input.persistAssistant === false
+        ? null
+        : await buildAssistantMessageFromRunJournal({
+            threadId: input.threadId,
+            turnId: input.run.turnId,
+            runId: input.run.runId,
+            runEvents: events,
+            options: {
+              suppressInternalContinuation: !input.persistFailure,
+              runDurationMs: Number.isFinite(input.run.startedAt)
+                ? Math.max(0, Date.now() - input.run.startedAt)
+                : undefined,
+            },
+          });
     if (assistantMsg) {
       repo = foldAssistantTurn(repo, assistantMsg, {
         runId: input.run.runId,
@@ -517,30 +1087,304 @@ async function persistBackgroundAutomationTurn(input: {
 
     const meta = extractThreadMeta(repo);
     const messages = (repo as { messages?: unknown[] }).messages;
-    await updateThreadData(
+    const updated = await updateThreadData(
       input.threadId,
       JSON.stringify(repo),
       input.threadTitle || row.title,
       meta.preview || row.preview,
       Array.isArray(messages) ? messages.length : 0,
     );
+    if (!updated) {
+      throw new Error(
+        `Background automation thread ${input.threadId} was not updated while saving run ${input.run.runId}.`,
+      );
+    }
   });
 }
 
 async function recordRunOutcome(
   historyId: string | null,
-  status: "success" | "error",
+  expectedRunId: string | null,
+  status: "success" | "error" | "skipped",
   error?: string,
   errorCode?: string,
+  notify = true,
+  strict = false,
 ): Promise<void> {
   if (!historyId) return;
   try {
-    await finishAutomationRun(historyId, status, error, errorCode);
+    const writeOptions =
+      notify && !strict
+        ? undefined
+        : {
+            notify,
+            ...(strict ? { requirePersisted: true, expectedRunId } : {}),
+          };
+    await finishAutomationRun(
+      historyId,
+      status,
+      error,
+      errorCode,
+      writeOptions,
+    );
   } catch (err) {
+    if (err instanceof StaleExecutionFenceError) throw err;
     console.error(
       `[automations] Could not record run ${historyId} as ${status}:`,
       err,
     );
+    if (strict)
+      throw new BackgroundAutomationRunError(
+        deliveryNoteForEvents(null),
+        "background_automation_history_write_failed",
+      );
+  }
+}
+
+async function confirmAutomationWork(
+  automation: BackgroundAutomationContext,
+  ownerEmail: string,
+  run: ActiveRun,
+  responseText: string,
+  actions: Record<string, ActionEntry>,
+  noOpReason: string | undefined,
+  priorEvents: readonly AgentChatEvent[],
+): Promise<{ status: "success" } | { status: "skipped"; reason: string }> {
+  const evidence = inspectAutomationWork(
+    [...priorEvents, ...(run.events ?? []).map(({ event }) => event)],
+    {
+      noOpReason,
+      confirmsWork: (tool) => actions[tool]?.confirmsAutomationWork !== false,
+    },
+  );
+  if (evidence.status === "skipped") return evidence;
+  const { deliveryPlatform, deliveryDestination } = automation.meta;
+  const deliveryResponseText =
+    responseText.trim() ||
+    collectFinalResponseTextFromAgentEvents(priorEvents, {
+      fallbackToPreToolText: false,
+    });
+  if (
+    (evidence.status === "success" || !evidence.noOpDeclared) &&
+    deliveryPlatform &&
+    deliveryDestination &&
+    deliveryResponseText.trim()
+  ) {
+    const { getDefaultAdapter } =
+      await import("../integrations/adapters/index.js");
+    const adapter = getDefaultAdapter(deliveryPlatform);
+    if (!adapter?.sendMessageToTarget) {
+      throw new BackgroundAutomationRunError(
+        `Automation delivery is not supported for ${deliveryPlatform}`,
+        CONFIG_INVALID_ERROR_CODE,
+      );
+    }
+    const outgoing = adapter.formatAgentResponse(deliveryResponseText);
+    const target = {
+      destination: deliveryDestination,
+      threadRef: automation.meta.deliveryThreadRef ?? null,
+      tenantId: automation.meta.deliveryTenantId,
+    };
+    const fence = currentExecutionFence();
+    if (
+      !fence ||
+      fence.threadId !== run.threadId ||
+      fence.turnId !== run.turnId ||
+      fence.runId !== run.runId
+    ) {
+      throw new BackgroundAutomationRunError(
+        automationRecoveryMessagesForLocale().unreadable,
+        "background_automation_delivery_journal_unavailable",
+      );
+    }
+    const deliveryIntent: AgentExecutionStepIntent = {
+      ...fence,
+      stepId: "background-automation-delivery",
+      operationId: "background-automation-delivery",
+      toolName: "background-automation-delivery",
+      inputJson: JSON.stringify({
+        platform: deliveryPlatform,
+        target,
+        outgoingFingerprint: toolCallInputFingerprint(outgoing),
+      }),
+      replayPolicy: "never",
+    };
+    const admission = await beginAgentExecutionStep(deliveryIntent);
+    if (admission.status === "completed") {
+      let receipt: unknown;
+      try {
+        receipt = admission.resultJson
+          ? JSON.parse(admission.resultJson)
+          : undefined;
+      } catch {
+        receipt = undefined;
+      }
+      if (
+        !receipt ||
+        typeof receipt !== "object" ||
+        (receipt as { receipt?: { accepted?: unknown } }).receipt?.accepted !==
+          true
+      ) {
+        throw new BackgroundAutomationRunError(
+          automationRecoveryMessagesForLocale().unreadable,
+          "background_automation_delivery_journal_unreadable",
+        );
+      }
+      return { status: "success" };
+    }
+    if (admission.status === "unknown") {
+      throw new BackgroundAutomationRunError(
+        automationRecoveryMessagesForLocale().deliveryUnknown,
+        "background_automation_delivery_unknown",
+      );
+    }
+
+    await assertConfiguredDeliveryAllowed(automation, ownerEmail);
+    await markAgentExecutionStepDispatched(deliveryIntent);
+    await adapter.sendMessageToTarget(outgoing, target);
+    await completeAgentExecutionStep(
+      deliveryIntent,
+      JSON.stringify({
+        result: "Automation response delivered.",
+        isError: false,
+        completedSideEffect: true,
+        receipt: { accepted: true },
+      }),
+    );
+    return { status: "success" };
+  }
+  if (evidence.status === "success") return evidence;
+
+  const messages = await automationOutcomeMessagesForUser(ownerEmail);
+  const detail = evidence.failedTool?.result;
+  throw new BackgroundAutomationRunError(
+    `${deliveryPlatform && deliveryDestination ? messages.emptyDelivery : messages.noWork}${detail ? ` ${detail}` : ""}`,
+    evidence.failedTool?.errorCode ?? "automation_no_confirmed_work",
+  );
+}
+
+/**
+ * Everything below runs before any thread or `agent_runs` row exists, so an
+ * automation that cannot run fails here, once, instead of leaving a "Job:"
+ * chat thread per scheduler tick.
+ */
+async function assertDeliveryTargetSupported(
+  automation: BackgroundAutomationContext,
+  ownerEmail: string,
+): Promise<void> {
+  const { deliveryPlatform, deliveryDestination } = automation.meta;
+  if (!deliveryPlatform || !deliveryDestination) return;
+  await assertConfiguredDeliveryAllowed(automation, ownerEmail);
+  const { getDefaultAdapter } =
+    await import("../integrations/adapters/index.js");
+  if (!getDefaultAdapter(deliveryPlatform)?.sendMessageToTarget) {
+    throw new BackgroundAutomationRunError(
+      `Automation delivery is not supported for ${deliveryPlatform}`,
+      CONFIG_INVALID_ERROR_CODE,
+    );
+  }
+}
+
+async function assertConfiguredDeliveryAllowed(
+  automation: BackgroundAutomationContext,
+  ownerEmail: string,
+): Promise<void> {
+  if (!automation.meta.mcpManaged) return;
+  const messages = await automationOutcomeMessagesForUser(ownerEmail);
+  throw new BackgroundAutomationRunError(
+    messages.mcpApprovalUnavailable,
+    CONFIG_INVALID_ERROR_CODE,
+  );
+}
+
+async function resolveUsableBackgroundEngine(
+  identity: { ownerEmail: string; orgId?: string },
+  deps: BackgroundAutomationDeps,
+  assertDeadline: () => void,
+): Promise<AgentEngine> {
+  const { ownerEmail, orgId } = identity;
+  assertDeadline();
+  const ownerApiKey = await resolveOwnerEngineApiKey({ ownerEmail });
+  assertDeadline();
+  const apiKey = ownerApiKey.apiKey ?? deps.apiKey;
+  const apiKeyProvenance = ownerApiKey.apiKey
+    ? ownerApiKey.credentialProvenance
+    : deps.apiKey
+      ? { scope: "deployment" as const }
+      : undefined;
+  const engine =
+    deps.engine ??
+    (await resolveEngine({
+      apiKey,
+      apiKeyEnvVar: ownerApiKey.apiKey ? ownerApiKey.apiKeyEnvVar : undefined,
+      apiKeyProvenance,
+      appId: deps.appId,
+      credentialIdentity: { userEmail: ownerEmail, orgId },
+    }));
+  await assertLlmCredentialsUsable({ engine, apiKey, ownerEmail, orgId });
+  return engine;
+}
+
+async function resolveBackgroundAutomationModel(
+  engine: AgentEngine,
+  automationModel: string | undefined,
+  deps: BackgroundAutomationDeps,
+): Promise<string> {
+  const modelCandidate =
+    automationModel ??
+    deps.model ??
+    (await getStoredModelForEngine(engine, { appId: deps.appId })) ??
+    engine.defaultModel;
+  return normalizeModelForEngine(engine, modelCandidate);
+}
+
+/**
+ * Whether the automation's run identity has a usable LLM credential right now,
+ * without starting a run. The scheduler asks this to resume an automation it
+ * paused for `missing_credentials` as soon as the credential exists.
+ */
+export async function checkBackgroundAutomationCredentials(
+  identity: {
+    ownerEmail: string;
+    orgId?: string;
+    orgScope?: "personal";
+    defaultAgentEngineScope?: "deployment";
+  },
+  deps: BackgroundAutomationDeps,
+  automationModel?: string,
+): Promise<
+  | { ok: true; engine: AgentEngine; model: string }
+  | { ok: false; failure: AutomationFailure }
+> {
+  try {
+    const { engine, model } = await runWithRequestContext(
+      {
+        userEmail: identity.ownerEmail,
+        orgId: identity.orgId,
+        ...(identity.orgScope === "personal"
+          ? { orgScope: "personal" as const }
+          : {}),
+        ...(identity.defaultAgentEngineScope === "deployment"
+          ? { defaultAgentEngineScope: "deployment" as const }
+          : {}),
+      },
+      async () => {
+        const engine = await resolveUsableBackgroundEngine(
+          identity,
+          deps,
+          () => undefined,
+        );
+        const model = await resolveBackgroundAutomationModel(
+          engine,
+          automationModel,
+          deps,
+        );
+        return { engine, model };
+      },
+    );
+    return { ok: true, engine, model };
+  } catch (error) {
+    return { ok: false, failure: classifyAutomationFailure(error) };
   }
 }
 
@@ -548,7 +1392,7 @@ async function executeBackgroundAutomation(
   options: BackgroundAutomationRunOptions,
   deps: BackgroundAutomationDeps,
   historyId: string | null,
-  runIdRef?: { current: string | null },
+  runIdRef?: AutomationRunRef,
 ): Promise<BackgroundAutomationRunResult> {
   const { automation, ownerEmail, orgId, prompt, threadTitle, usageLabel } =
     options;
@@ -560,7 +1404,58 @@ async function executeBackgroundAutomation(
       orgId,
     },
     async () => {
-      const baseActions = await deps.getActions(automation);
+      assertHardDeadline(options.hardDeadlineAt);
+      let noOpReason: string | undefined;
+      const messages = await automationOutcomeMessagesForUser(ownerEmail);
+      const registeredActions = await deps.getActions(automation);
+      const baseActions: Record<string, ActionEntry> = {
+        ...(automation.meta.mcpManaged
+          ? Object.fromEntries(
+              Object.entries(registeredActions)
+                .filter(
+                  ([name, entry]) =>
+                    entry.agentTool !== false &&
+                    entry.uiOnly !== true &&
+                    !isFrameworkRuntimeAction(name, entry),
+                )
+                .map(([name, entry]) => [
+                  name,
+                  { ...entry, allowPersistentApproval: false },
+                ]),
+            )
+          : registeredActions),
+        [AUTOMATION_NO_OP_TOOL]: {
+          ...automationNoOpAction,
+          agentTool: true,
+          confirmsAutomationWork: false,
+          tool: {
+            ...automationNoOpAction.tool,
+            description: messages.noOpInstruction,
+            parameters: {
+              ...automationNoOpAction.tool.parameters,
+              type: "object",
+              properties: {
+                ...automationNoOpAction.tool.parameters?.properties,
+                reason: {
+                  ...(automationNoOpAction.tool.parameters?.properties
+                    ?.reason as Record<string, unknown>),
+                  type: "string",
+                  description: messages.noOpReason,
+                },
+              },
+            },
+          },
+          run: async (args, ctx) => {
+            const result = await automationNoOpAction.run(
+              automationNoOpSchema.parse(args),
+              ctx,
+            );
+            noOpReason = result.reason;
+            return result;
+          },
+        },
+      };
+      assertHardDeadline(options.hardDeadlineAt);
       assertRequestedMcpToolsAvailable(automation, baseActions);
 
       const configuredInitialTools = deps.getInitialToolNames?.(automation);
@@ -570,92 +1465,302 @@ async function executeBackgroundAutomation(
             ...(automation.meta.mcpTools ?? []),
           ])
         : undefined;
-      const actions = initialToolNames
-        ? attachToolSearch({ ...baseActions })
-        : baseActions;
+      if (
+        initialToolNames &&
+        !initialToolNames.includes(AUTOMATION_NO_OP_TOOL)
+      ) {
+        initialToolNames.push(AUTOMATION_NO_OP_TOOL);
+      }
+      const actions =
+        initialToolNames || automation.meta.mcpManaged
+          ? attachToolSearch({ ...baseActions })
+          : baseActions;
       const availableTools = actionsToEngineTools(actions);
       const tools = filterInitialEngineTools(availableTools, initialToolNames);
 
-      const userApiKey = await getOwnerActiveApiKey(ownerEmail);
-      // The run manager invokes its detached callback after the scheduler's
-      // setup stack has yielded, so the engine's credentials must be captured
-      // now, while the owner/org identity is explicit. Passing
-      // `credentialIdentity` is what makes resolveEngine capture them, on the
-      // same gateway lane the interactive path uses — a Builder-credits site has
-      // no per-user connection to find, so resolving that lane by hand here once
-      // left every scheduled automation dead while chat still worked.
-      const engine =
-        deps.engine ??
-        (await resolveEngine({
-          apiKey: userApiKey ?? deps.apiKey,
-          appId: deps.appId,
-          credentialIdentity: { userEmail: ownerEmail, orgId },
-        }));
-      const modelCandidate =
-        automation.meta.model ??
-        deps.model ??
-        (await getStoredModelForEngine(engine, { appId: deps.appId })) ??
-        engine.defaultModel;
-      const model = normalizeModelForEngine(engine, modelCandidate);
-      const systemPrompt = await deps.getSystemPrompt(ownerEmail);
-      const thread = await createThread(ownerEmail, {
-        title: threadTitle,
-        orgId: orgId ?? null,
-      });
+      assertHardDeadline(options.hardDeadlineAt);
+      await assertDeliveryTargetSupported(automation, ownerEmail);
+      const engine = await resolveUsableBackgroundEngine(
+        { ownerEmail, orgId },
+        deps,
+        () => assertHardDeadline(options.hardDeadlineAt),
+      );
+      assertHardDeadline(options.hardDeadlineAt);
+      const model = await resolveBackgroundAutomationModel(
+        engine,
+        automation.meta.model,
+        deps,
+      );
+      assertHardDeadline(options.hardDeadlineAt);
+      const [baseSystemPrompt, workspaceAppContext] = await Promise.all([
+        deps.getSystemPrompt(ownerEmail),
+        baseActions["call-agent"] && deps.getWorkspaceAppContext
+          ? deps.getWorkspaceAppContext({
+              request: prompt,
+              ownerEmail,
+              orgId,
+              appId: deps.appId,
+              workspaceAppsEnabled: true,
+            })
+          : Promise.resolve(""),
+      ]);
+      const systemPrompt = `${baseSystemPrompt}${workspaceAppContext ? `\n\n${workspaceAppContext}` : ""}\n\n${messages.noOpInstruction}`;
+      assertHardDeadline(options.hardDeadlineAt);
+      const resume = options.resume;
+      if (resume) {
+        const projection = await withAutomationRecoveryStorage(() =>
+          retryRunThreadProjection(resume.previousRunId),
+        );
+        switch (projection.state) {
+          case "deferred":
+            throw new AutomationRecoveryProjectionDeferredError(
+              resume.previousRunId,
+            );
+          case "untracked":
+            // Inspection found this run before retention pruned its cleared
+            // projection marker; a pending marker prevents that pruning.
+            break;
+          case "projected":
+          case "already_projected":
+            break;
+        }
+      }
+      const thread = resume
+        ? await withAutomationRecoveryStorage(() => getThread(resume.threadId))
+        : await createThread(ownerEmail, {
+            title: threadTitle,
+            orgId: orgId ?? null,
+            ...(deps.appId ? { source: { appId: deps.appId } } : {}),
+          });
+      if (!thread)
+        throw new Error(
+          `Automation recovery thread ${options.resume?.threadId} was not found`,
+        );
+      assertHardDeadline(options.hardDeadlineAt);
       const runId = createRunId(options.runIdPrefix);
-      if (runIdRef) runIdRef.current = runId;
-      await recordRunThread(historyId, thread.id, runId);
+      const turnId = options.resume?.turnId ?? runId;
+      const runtimeContext = {
+        now: new Date(),
+        timezone: effectiveTimezone(automation.meta.timezone),
+      };
+      let executionPrompt =
+        prompt + buildCurrentTimeUserContext(runtimeContext);
+      let engineMessages: EngineMessage[] = [
+        { role: "user", content: [{ type: "text", text: executionPrompt }] },
+      ];
+      let priorEvents: AgentChatEvent[] = [];
+      if (options.resume) {
+        const saved = JSON.parse(
+          "threadData" in thread ? thread.threadData || "{}" : "{}",
+        );
+        const original = Array.isArray(saved.messages)
+          ? saved.messages
+              .map((entry: any) => entry.message ?? entry)
+              .find(
+                (message: any) =>
+                  message.role === "user" &&
+                  (message.metadata?.custom?.submittedTurnId === turnId ||
+                    message.metadata?.custom?.submittedRunId === turnId),
+              )
+          : undefined;
+        const originalPrompt = original
+          ? threadMessageTextForEngine(original)
+          : "";
+        if (!originalPrompt.trim())
+          throw new BackgroundAutomationRunError(
+            automationRecoveryMessagesForLocale().missingPrompt,
+            "background_automation_resume_context_missing",
+          );
+        executionPrompt = originalPrompt;
+        const persistedEvents = await readAutomationRecoveryEvents(
+          thread.id,
+          turnId,
+        );
+        const events = await withAutomationRecoveryStorage(() =>
+          overlayCompletedExecutionStepOutcomes(
+            thread.id,
+            turnId,
+            persistedEvents.map(({ event }) => event),
+          ),
+        );
+        priorEvents = events;
+        const partial = buildAssistantMessage(
+          events.map((event, seq) => ({ event, seq })),
+          options.resume.previousRunId,
+          { turnId, suppressInternalContinuation: true },
+        );
+        const resumed = threadDataToEngineMessages(
+          {
+            messages: [
+              buildUserMessage({
+                text: originalPrompt,
+                runId: turnId,
+                turnId,
+              }),
+              ...(partial ? [partial] : []),
+            ],
+          },
+          { includeToolCalls: true },
+        );
+        const journalNote = buildResumeJournalNote(
+          classifyToolCallJournal(events),
+        );
+        appendAgentLoopContinuation(
+          resumed,
+          "run_timeout",
+          journalNote ? { journalNote } : {},
+        );
+        engineMessages = resumed;
+      }
+      assertHardDeadline(options.hardDeadlineAt);
 
-      // Scheduled work is background work: it has no synchronous serverless
-      // caller waiting on it, so it must not inherit the interactive clamp
-      // (40s soft timeout, a 30s no-progress backstop at 0.75x that, and 6
-      // continuations). A dashboard render or digest legitimately spends
-      // minutes across many tool calls, and dies the first time any gap
-      // between two of them exceeds 30s — recorded as `no_progress` after
-      // several minutes of real work, because the backstop is suspended
-      // while a tool is in flight but not between tools.
-      //
-      // Hardcoded rather than `isInBackgroundFunctionRuntime()` (what
-      // webhook-handler.ts uses): a webhook can arrive on either runtime, but
-      // a scheduler tick never serves a synchronous request, so the
-      // interactive clamp never applies to it.
-      //
-      // Derived from this runner's OWN hard abort, not from the durable-chat
-      // background ceiling: that ceiling is 13 minutes and this process is
-      // killed at 10, so taking it left the recoverable soft-timeout boundary
-      // as dead code and the terminal no-progress backstop as the only
-      // boundary an automation could reach.
-      const hardTimeoutMs = resolveBackgroundRunHardTimeoutMs();
+      const maxHardTimeoutMs = Math.min(
+        options.hardTimeoutMs ?? Number.POSITIVE_INFINITY,
+        resolveBackgroundRunHardTimeoutMs(),
+      );
       const softTimeoutMs = resolveBackgroundAutomationSoftTimeoutMs();
 
       const usageRef: {
         current: Awaited<ReturnType<typeof runAgentLoop>> | null;
       } = { current: null };
+      const persistUsage = async () => {
+        const usage = usageRef.current;
+        if (
+          !usage ||
+          (usage.inputTokens <= 0 &&
+            usage.outputTokens <= 0 &&
+            usage.cacheReadTokens <= 0 &&
+            usage.cacheWriteTokens <= 0 &&
+            usage.builderCreditsUsed == null)
+        ) {
+          return;
+        }
+        try {
+          const { recordUsage } = await import("../usage/store.js");
+          await recordUsage({
+            ownerEmail,
+            inputTokens: usage.inputTokens,
+            outputTokens: usage.outputTokens,
+            cacheReadTokens: usage.cacheReadTokens,
+            cacheWriteTokens: usage.cacheWriteTokens,
+            ...(usage.builderCreditsUsed == null
+              ? {}
+              : { builderCreditsUsed: usage.builderCreditsUsed }),
+            engineName: usage.engineName ?? engine.name,
+            model: usage.model,
+            label: usageLabel,
+            app: deps.appId,
+            refId: options.usageRefId
+              ? `${options.usageRefId}:${runId}`
+              : runId,
+          });
+        } catch (error) {
+          console.error("[automations] Failed to persist run usage:", error);
+        }
+      };
       let responseText = "";
+      let outcome:
+        | Awaited<ReturnType<typeof confirmAutomationWork>>
+        | undefined;
       let hardAbortTimer: ReturnType<typeof setTimeout> | null = null;
       let hardTimedOut = false;
+      let hardTimeoutProjectionRequired = false;
+      let hardTimeoutThreadProjectionSaved = false;
+      const completionRunRef: AutomationRunRef = runIdRef ?? {
+        current: runId,
+        threadId: thread.id,
+      };
+      completionRunRef.current = runId;
+      completionRunRef.threadId = thread.id;
 
-      // This runner executes in-process, synchronously — there is no HTTP
-      // self-dispatch to a separate worker. Self-claim the row into
-      // 'background-processing' right away, exactly like a genuine HTTP
-      // background worker does immediately after its own insert (see
-      // production-agent.ts's `claimBackgroundWorkerRunEarly`). Without this,
-      // the row sits at dispatch_mode='background' for its whole life with no
-      // worker ever claiming it, which is indistinguishable from a lost HTTP
-      // handoff to the unclaimed-background-run sweep — it gets reaped as
-      // "background_worker_never_started" out from under a still-executing
-      // job the moment any single tool call runs past the 25s grace window.
-      await insertRun(runId, thread.id, undefined, {
-        dispatchMode: "background",
-      });
-      const claimedOwnRun = await claimBackgroundRun(runId);
-      if (!claimedOwnRun) {
-        throw new Error(
-          `Background automation "${automation.name}" (run "${runId}") could not claim its own freshly-inserted run row`,
-        );
+      assertHardDeadline(options.hardDeadlineAt);
+      try {
+        await persistBackgroundAutomationTurn({
+          threadId: thread.id,
+          threadTitle,
+          prompt: executionPrompt,
+          run: { runId, turnId, startedAt: Date.now(), events: [] },
+          persistAssistant: false,
+        });
+        const afterInsert = (tx: DbExec) =>
+          withDbExec(tx, async () => {
+            await recordRunThread(
+              historyId,
+              thread.id,
+              runId,
+              Boolean(options.historyId),
+              options.resume?.previousRunId,
+            );
+            if (!(await claimBackgroundRun(runId)))
+              throw new Error(
+                `Background automation "${automation.name}" (run "${runId}") could not claim its own freshly-inserted run row`,
+              );
+          });
+        if (options.resume) {
+          const claim = await tryClaimRunSlot(thread.id, runId, undefined, {
+            turnId,
+            dispatchMode: "background",
+            afterInsert,
+          });
+          if (!claim.claimed)
+            throw new BackgroundAutomationRunError(
+              `Automation recovery could not claim turn ${turnId}`,
+              "background_automation_claim_lost",
+            );
+        } else {
+          await insertRun(runId, thread.id, turnId, {
+            dispatchMode: "background",
+            afterInsert,
+          });
+        }
+      } catch (error) {
+        if (error instanceof BackgroundAutomationRunError) throw error;
+        if (options.resume) throw new AutomationRecoveryStorageError(error);
+        throw error;
       }
+      if (runIdRef) {
+        runIdRef.current = runId;
+        runIdRef.threadId = thread.id;
+      }
+      try {
+        await options.assertCanStart?.();
+      } catch (error) {
+        if (error instanceof AutomationSchedulerLeaseLostError) {
+          try {
+            await releaseBackgroundRunBeforeStart(
+              runId,
+              error.errorCode,
+              error.message,
+            );
+          } catch (cleanupError) {
+            console.error(
+              "[automations] Could not release the unstarted worker; heartbeat recovery will retry:",
+              cleanupError,
+            );
+          }
+        }
+        throw error;
+      }
+      const hardTimeoutMs = Math.min(
+        maxHardTimeoutMs,
+        options.hardDeadlineAt === undefined
+          ? Number.POSITIVE_INFINITY
+          : Math.max(1, options.hardDeadlineAt - Date.now()),
+      );
 
       await new Promise<void>((resolve, reject) => {
+        const persistOutcome = async (write: () => Promise<void>) => {
+          try {
+            await write();
+          } catch (error) {
+            if (error instanceof StaleExecutionFenceError && hardTimedOut) {
+              hardTimeoutProjectionRequired = true;
+              return;
+            }
+            reject(error instanceof Error ? error : new Error(String(error)));
+            throw error;
+          }
+        };
         const activeRun = startRun(
           runId,
           thread.id,
@@ -663,51 +1768,55 @@ async function executeBackgroundAutomation(
             const loopOpts = {
               engine,
               model,
-              systemPrompt,
+              systemPrompt:
+                systemPrompt + buildRuntimeContextPrompt(runtimeContext),
               tools,
               availableTools,
-              messages: [
-                {
-                  role: "user" as const,
-                  content: [{ type: "text" as const, text: prompt }],
-                },
-              ],
+              messages: engineMessages,
               actions,
               send,
+              beforeWrite: control.flushEvents,
               signal,
               threadId: thread.id,
               ownerEmail,
               orgId,
               appId: deps.appId,
-              actionCaller: options.actionCaller,
+              actionCaller: automation.meta.mcpManaged
+                ? "mcp"
+                : options.actionCaller,
+              requireWriteApproval: automation.meta.mcpManaged === true,
               automation: options.actionAutomation,
+              ...(options.resume
+                ? { recoverCompletedExecutionSteps: true }
+                : {}),
               runId,
+              turnId,
               maxIterations: automation.meta.maxIterations,
               maxRunInputTokens: automation.meta.maxRunInputTokens,
               reasoningEffort: normalizeReasoningEffortForRequest(
                 model,
                 automation.meta.reasoningEffort,
               ),
-              // Same model-aware ceiling the interactive paths pass (see
-              // agent-teams.ts and webhook-handler.ts). Without it a scheduled
-              // run silently inherits the flat per-engine default — a LOWER
-              // budget than chat, on exactly the runs that produce the largest
-              // single tool call (a digest, a dashboard, a batch insert), and
-              // the truncation surfaces as an unexplained invalid-arguments
-              // retry loop rather than as a budget problem.
               maxOutputTokens: resolveMainChatMaxOutputTokens(model),
             };
-            // Same adapter A2A uses: bridge this runner's multi-argument shape
-            // to the single-argument `runAgentLoop` `instrumentAgentLoop`
-            // expects. `control` is what lets a chunk boundary be recovered
-            // here instead of ending the turn.
-            const execute = (o: typeof loopOpts = loopOpts) =>
-              runAgentLoopDirectWithSoftTimeout(
-                o,
-                softTimeoutMs,
-                { backgroundFunction: true },
-                control,
-              );
+            const execute = async (o: typeof loopOpts = loopOpts) => {
+              try {
+                return await runAgentLoopDirectWithSoftTimeout(
+                  o,
+                  softTimeoutMs,
+                  { backgroundFunction: true },
+                  control,
+                  (usage) => {
+                    usageRef.current = usage;
+                  },
+                );
+              } catch (error) {
+                if (error instanceof AgentLoopAbortedError) {
+                  usageRef.current = error.usage;
+                }
+                throw error;
+              }
+            };
 
             let instrumented = false;
             try {
@@ -721,20 +1830,13 @@ async function executeBackgroundAutomation(
                   loopOpts,
                   runId,
                   threadId: thread.id,
-                  // A scheduled run is NOT anonymous. Passing the owner is what
-                  // makes it visible to per-user observability reads.
                   userId: ownerEmail,
                   config,
-                  // The trace list column is a name, so it has to say WHICH
-                  // automation ran; a constant here made every scheduled run
-                  // in LLM analytics indistinguishable from every other one.
                   spanName: `background_automation_run:${automation.name}`,
                   metadata: {
                     automation: automation.name,
+                    automationId: automation.resource.id,
                     trigger: "background_automation",
-                    // `recurring-job:` / `manual-automation:` / `automation:`
-                    // — what actually started this run, which the span name
-                    // alone does not say.
                     label: usageLabel,
                     scope: orgId ? "organization" : "personal",
                   },
@@ -742,72 +1844,158 @@ async function executeBackgroundAutomation(
                 return;
               }
             } catch (error) {
-              // Match A2A and interactive chat: a setup failure falls through
-              // to an uninstrumented run, but a failure from INSIDE the
-              // instrumented loop is the real run failure and must rethrow.
               if (instrumented) throw error;
             }
             usageRef.current = await execute();
           },
           async (run) => {
+            completionRunRef.completionCallbackStarted = true;
             if (hardAbortTimer) {
               clearTimeout(hardAbortTimer);
               hardAbortTimer = null;
             }
-            const persistFailure = backgroundAutomationPersistFailure({
+            let persistFailure = backgroundAutomationPersistFailure({
               run,
               hardTimedOut,
               hardTimeoutMs,
             });
             try {
+              responseText = collectFinalResponseTextFromAgentEvents(
+                (run.events ?? []).map((entry) => entry.event),
+                { fallbackToPreToolText: false },
+              );
+              if (!persistFailure && run.status === "completed") {
+                try {
+                  outcome = await confirmAutomationWork(
+                    automation,
+                    ownerEmail,
+                    run,
+                    responseText,
+                    actions,
+                    noOpReason,
+                    priorEvents,
+                  );
+                } catch (error) {
+                  const failure = classifyAutomationFailure(error);
+                  persistFailure = {
+                    message: failure.message,
+                    errorCode: failure.code,
+                  };
+                }
+              }
               await persistBackgroundAutomationTurn({
                 threadId: thread.id,
                 threadTitle,
-                prompt,
+                prompt: executionPrompt,
                 run,
                 persistFailure,
               });
+              hardTimeoutThreadProjectionSaved = true;
             } catch (err) {
+              if (err instanceof StaleExecutionFenceError && hardTimedOut) {
+                hardTimeoutProjectionRequired = true;
+                return;
+              }
+              if (!(err instanceof StaleExecutionFenceError)) {
+                try {
+                  await recordAutomationFailureOutcome(
+                    historyId,
+                    automation,
+                    options,
+                    completionRunRef,
+                    err,
+                  );
+                } catch (historyError) {
+                  reject(
+                    historyError instanceof Error
+                      ? historyError
+                      : new Error(String(historyError)),
+                  );
+                  throw historyError;
+                }
+              }
               reject(err instanceof Error ? err : new Error(String(err)));
               throw err;
             }
-            // Hard timeout owns the runner reject so a serverless return
-            // waits for this persist via `activeRun.finalized`.
-            if (hardTimedOut) return;
             if (persistFailure) {
-              reject(
-                new BackgroundAutomationRunError(
-                  persistFailure.message,
-                  persistFailure.errorCode,
+              run.continuationTerminalEvent = {
+                type: "error",
+                error: persistFailure.message,
+                errorCode: persistFailure.errorCode,
+              };
+              const failureError = new BackgroundAutomationRunError(
+                persistFailure.message,
+                persistFailure.errorCode,
+              );
+              await persistOutcome(() =>
+                recordAutomationFailureOutcome(
+                  historyId,
+                  automation,
+                  options,
+                  completionRunRef,
+                  failureError,
                 ),
               );
+              if (!hardTimedOut) reject(failureError);
               return;
             }
             if (run.status !== "completed") {
-              reject(
-                new BackgroundAutomationRunError(
-                  `Background automation ended with status: ${run.status}`,
-                  `background_automation_${run.status}`,
+              const cause = backgroundRunTerminalError(run);
+              const failureError = new BackgroundAutomationRunError(
+                cause?.message ??
+                  `Background automation ended with status: ${run.status} and recorded no error detail`,
+                cause?.errorCode ?? `background_automation_${run.status}`,
+              );
+              await persistOutcome(() =>
+                recordAutomationFailureOutcome(
+                  historyId,
+                  automation,
+                  options,
+                  completionRunRef,
+                  failureError,
                 ),
               );
+              reject(failureError);
               return;
             }
-            responseText = collectFinalResponseTextFromAgentEvents(
-              (run.events ?? []).map((entry) => entry.event),
+            if (!outcome) {
+              const failureError = new BackgroundAutomationRunError(
+                messages.noWork,
+                "automation_no_confirmed_work",
+              );
+              await persistOutcome(() =>
+                recordAutomationFailureOutcome(
+                  historyId,
+                  automation,
+                  options,
+                  completionRunRef,
+                  failureError,
+                ),
+              );
+              reject(failureError);
+              return;
+            }
+            await persistOutcome(() =>
+              recordRunOutcome(
+                historyId,
+                completionRunRef.current,
+                outcome!.status,
+                outcome!.status === "skipped" ? outcome!.reason : undefined,
+                undefined,
+                true,
+                Boolean(options.historyId),
+              ),
             );
             resolve();
           },
           {
             softTimeoutMs,
             backgroundFunction: true,
-            // This runner owns continuation in-process: there is no HTTP body
-            // to re-POST and no `chainServerDrivenContinuation` behind it, so a
-            // checkpoint must end the CHUNK and let the loop above recover it.
             recoverChunkBoundaries: true,
-            // Matches the `dispatch_mode` this runner already writes onto the
-            // run row at insert. Without it the terminal and boundary analytics
-            // events reported every scheduled run as foreground.
             dispatchMode: "background",
+            turnId,
+            runRowAlreadyInserted: true,
+            executionLease: true,
             noProgressTimeoutMs: options.noProgressTimeoutMs,
             backgroundNoProgressTimeoutMs:
               options.backgroundNoProgressTimeoutMs,
@@ -817,14 +2005,27 @@ async function executeBackgroundAutomation(
           },
         );
 
+        void activeRun.finalized.then(
+          () => {
+            if (completionRunRef.completionCallbackStarted) return;
+            const failure = backgroundRunTerminalError(activeRun);
+            reject(
+              new BackgroundAutomationRunError(
+                failure?.message ??
+                  `Background automation ended with status: ${activeRun.status} and recorded no error detail`,
+                failure?.errorCode ??
+                  `background_automation_${activeRun.status}`,
+              ),
+            );
+          },
+          (error) =>
+            reject(error instanceof Error ? error : new Error(String(error))),
+        );
+
         hardAbortTimer = setTimeout(() => {
           hardAbortTimer = null;
           if (activeRun.status !== "running") return;
           hardTimedOut = true;
-          // `abortRun`, not `activeRun.abort.abort`: the controller alone
-          // carries no reason the run manager can see, so finalization fell
-          // through to `aborted:user` and a hard timeout was recorded as a
-          // person pressing Stop.
           abortRun(runId, "background_automation_hard_timeout");
           const timeoutError = new BackgroundAutomationRunError(
             `Background automation timed out after ${Math.round(hardTimeoutMs / 60_000)} minutes`,
@@ -832,67 +2033,50 @@ async function executeBackgroundAutomation(
           );
           void activeRun.finalized
             .catch(() => {})
-            .then(() => {
+            .then(async () => {
+              if (
+                hardTimeoutProjectionRequired ||
+                !completionRunRef.completionCallbackStarted
+              ) {
+                try {
+                  if (!hardTimeoutThreadProjectionSaved) {
+                    await foldReapedRunIntoThread(runId, {
+                      error: timeoutError.message,
+                      errorCode: timeoutError.errorCode,
+                    });
+                  }
+                  await recordAutomationFailureOutcome(
+                    historyId,
+                    automation,
+                    options,
+                    completionRunRef,
+                    timeoutError,
+                  );
+                } catch (error) {
+                  reject(
+                    error instanceof Error ? error : new Error(String(error)),
+                  );
+                  return;
+                }
+              }
               reject(timeoutError);
             });
         }, hardTimeoutMs);
-      }).finally(() => {
+      }).finally(async () => {
         if (hardAbortTimer) {
           clearTimeout(hardAbortTimer);
           hardAbortTimer = null;
         }
+        await persistUsage();
       });
 
-      const usage = usageRef.current;
-      if (
-        usage &&
-        (usage.inputTokens > 0 ||
-          usage.outputTokens > 0 ||
-          usage.cacheReadTokens > 0 ||
-          usage.cacheWriteTokens > 0)
-      ) {
-        try {
-          const { recordUsage } = await import("../usage/store.js");
-          await recordUsage({
-            ownerEmail,
-            inputTokens: usage.inputTokens,
-            outputTokens: usage.outputTokens,
-            cacheReadTokens: usage.cacheReadTokens,
-            cacheWriteTokens: usage.cacheWriteTokens,
-            model: usage.model,
-            label: usageLabel,
-            app: deps.appId,
-            refId: options.usageRefId ?? runId,
-          });
-        } catch {
-          // Usage attribution must not break an otherwise successful run.
-        }
-      }
-
-      if (
-        responseText.trim() &&
-        automation.meta.deliveryPlatform &&
-        automation.meta.deliveryDestination
-      ) {
-        const { getDefaultAdapter } =
-          await import("../integrations/adapters/index.js");
-        const adapter = getDefaultAdapter(automation.meta.deliveryPlatform);
-        if (!adapter?.sendMessageToTarget) {
-          throw new Error(
-            `Automation delivery is not supported for ${automation.meta.deliveryPlatform}`,
-          );
-        }
-        await adapter.sendMessageToTarget(
-          adapter.formatAgentResponse(responseText),
-          {
-            destination: automation.meta.deliveryDestination,
-            threadRef: automation.meta.deliveryThreadRef ?? null,
-            tenantId: automation.meta.deliveryTenantId,
-          },
+      if (!outcome) {
+        throw new BackgroundAutomationRunError(
+          messages.noWork,
+          "automation_no_confirmed_work",
         );
       }
-
-      return { responseText, runId };
+      return { ...outcome, responseText, runId };
     },
   );
 }

@@ -1,9 +1,7 @@
 export type AgentExecutionMode = "plan" | "act";
 
 export interface ComputerScope {
-  /** macOS application bundle identifiers that this task may control. */
   bundleIds: readonly string[];
-  /** Exact web origins. Paths, query strings, and wildcards are intentionally unsupported. */
   origins: readonly string[];
 }
 

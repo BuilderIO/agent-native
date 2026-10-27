@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { getSsrAuthRedirectScript } from "./ssr-auth-redirect.js";
+import { SESSION_NAVIGATION_FLAG } from "./ssr-session-bootstrap.js";
 
 function scriptBody(
   sessionHintCookieName?: string,
@@ -21,7 +22,9 @@ function runScript({
   responseOk = true,
   homeStatus = 200,
   homeFollowedStatus,
+  navigationStarted,
 }: {
+  navigationStarted?: string;
   session: Record<string, unknown> | null;
   cookie?: string;
   sessionHintCookieName?: string;
@@ -44,7 +47,11 @@ function runScript({
         result.redirectedTo = value;
       },
     },
+    ...(navigationStarted
+      ? { [SESSION_NAVIGATION_FLAG]: navigationStarted }
+      : {}),
   } as unknown as {
+    [SESSION_NAVIGATION_FLAG]?: string;
     __agentNativeAuthRedirectStarted?: boolean;
     location: {
       pathname: string;
@@ -169,6 +176,33 @@ describe("getSsrAuthRedirectScript", () => {
     await new Promise<void>((resolve) => setTimeout(resolve, 25));
 
     expect(result.redirectedTo).toBe("/home");
+  });
+
+  it("claims the page load's one navigation when it leaves for the app home", () => {
+    const result = runScript({
+      session: null,
+      cookie: "an_session_hint=1",
+    });
+
+    expect(result.redirectedTo).toBe("/home");
+    expect(result.window[SESSION_NAVIGATION_FLAG]).toBe("/home");
+  });
+
+  it("stands down when this page load already started another navigation", async () => {
+    const hinted = runScript({
+      session: null,
+      cookie: "an_session_hint=1",
+      navigationStarted: "https://beta.example.test/",
+    });
+    const probed = runScript({
+      session: { email: "person@example.test" },
+      navigationStarted: "https://beta.example.test/",
+    });
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 25));
+
+    expect(hinted.redirectedTo).toBeNull();
+    expect(probed.redirectedTo).toBeNull();
   });
 
   it("emits an inline head-safe script marker", () => {

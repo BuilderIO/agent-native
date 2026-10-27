@@ -320,7 +320,6 @@ function parseToolResultJson(result: string): ParsedToolResult {
     const value = asRecord(JSON.parse(trimmed));
     return value ? { status: "parsed", value } : { status: "not-json" };
   } catch {
-    // Dev shell wrappers may include console output before the returned JSON.
     const firstBrace = trimmed.indexOf("{");
     const lastBrace = trimmed.lastIndexOf("}");
     if (firstBrace >= 0 && lastBrace > firstBrace) {
@@ -531,8 +530,6 @@ function addContentDatabaseReadArtifacts(
       additionalUrlCandidates: resultUrls,
     });
   } else {
-    // Unavailable database reads still return a documentId, but they do not
-    // prove that the page exists and must not authorize an artifact URL.
     if (parsed.available !== false) {
       addDocumentReadArtifact(documents, parsed, {
         allowWithoutUrl: true,
@@ -566,9 +563,6 @@ function addGenericDocumentReadArtifact(
   documents: Map<string, CreatedDocumentArtifact>,
   parsed: Record<string, unknown>,
 ): void {
-  // Unknown read actions are accepted only when their result pairs a document
-  // ID with a canonical page URL containing that exact ID. An ID by itself is
-  // insufficient, preserving the fabrication guard for unrelated actions.
   addDocumentReadArtifact(documents, parsed, {
     allowWithoutUrl: false,
     requireContentOrigin: true,
@@ -599,11 +593,6 @@ function addDeckArtifact(
   });
 }
 
-// Deck writes are spread across a dozen actions (create-deck, add-slide,
-// patch-deck, save-deck, update-slide, import-*, restore-deck-version), so a
-// per-tool allow-list refuses a real deck URL every time an action is added.
-// Trust any successful result that names a deck the way the deck routes do: an
-// explicit deckId, or a canonical /deck/<id> URL the action itself returned.
 function addDeckArtifactFromAnyResult(
   decks: Map<string, CreatedDeckArtifact>,
   parsed: Record<string, unknown>,
@@ -1154,11 +1143,6 @@ function collectArtifacts(
   };
 }
 
-/**
- * Extract a compact, verified identity ledger from successful artifact tools.
- * The ledger deliberately excludes raw tool results so it is safe to retain in
- * long-lived thread context and stable even when a resource is later renamed.
- */
 export function extractA2AArtifactIdentities(
   results: A2AToolResultSummary[],
   options: A2AArtifactIdentityOptions = {},
@@ -1451,10 +1435,6 @@ function parsePersistedMutationReceipt(
   };
 }
 
-/**
- * Extract bounded, read-back-verified mutation receipts. Nested agent results
- * are accepted only through the signed persisted ledger.
- */
 export function extractA2APersistedMutationReceipts(
   results: A2AToolResultSummary[],
   options: A2AArtifactIdentityOptions = {},
@@ -2177,12 +2157,6 @@ function mutationReceiptUrl(
   return path ? artifactUrl(baseUrl, path) : undefined;
 }
 
-/**
- * Build a bounded participant-facing receipt from authenticated artifact writes.
- * Unlike generic artifact recovery, this only trusts identities extracted from
- * successful write actions (or a signed downstream write ledger), so a read or
- * an unverified URL cannot be rounded up to a successful mutation.
- */
 export function buildA2AVerifiedMutationReceipt(
   toolResults: A2AToolResultSummary[],
   options: A2AArtifactResponseOptions = {},

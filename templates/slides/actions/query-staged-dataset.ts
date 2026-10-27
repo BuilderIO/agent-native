@@ -1,6 +1,3 @@
-/**
- * Thin slides re-export of the staged dataset query helper, pre-bound to appId="slides".
- */
 import { createQueryStagedDatasetAction } from "@agent-native/core/provider-api/actions/staged-datasets";
 import { getCredentialContext } from "@agent-native/core/server/request-context";
 import { z } from "zod";

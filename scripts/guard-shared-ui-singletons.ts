@@ -72,6 +72,20 @@ export function checkSharedDependencyCatalogUsage(
   for (const dependency of dependencies) {
     const coreSpecifier = coreDependencies[dependency];
     const toolkitSpecifier = toolkitDependencies[dependency];
+    if (
+      coreSpecifier?.startsWith("workspace:") ||
+      toolkitSpecifier?.startsWith("workspace:")
+    ) {
+      if (
+        coreSpecifier !== toolkitSpecifier ||
+        !coreSpecifier?.startsWith("workspace:")
+      ) {
+        errors.push(
+          `${dependency} is a workspace dependency shared by ${CORE_IMPORTER} and ${TOOLKIT_IMPORTER}; both manifests must use the same workspace: specifier; found ${coreSpecifier} and ${toolkitSpecifier}.`,
+        );
+      }
+      continue;
+    }
     if (coreSpecifier !== "catalog:" || toolkitSpecifier !== "catalog:") {
       errors.push(
         `${dependency} is shared by ${CORE_IMPORTER} and ${TOOLKIT_IMPORTER} and must use catalog: in both manifests; found ${coreSpecifier} and ${toolkitSpecifier}.`,
@@ -92,11 +106,6 @@ function dependencyName(line: string): string | null {
   return match ? unquote(match[1] ?? "") : null;
 }
 
-/**
- * Reads the importer locators from pnpm-lock.yaml instead of comparing declared
- * semver ranges. A locator includes peer suffixes, so two separately resolved
- * instances with the same published version still fail this check.
- */
 export function parsePnpmLockImporterResolutions(
   lockfile: string,
 ): Map<string, ImporterResolutions> {

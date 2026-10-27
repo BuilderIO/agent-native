@@ -69,16 +69,6 @@ export function documentBodyHydrationIsPending(
   return builderBodyHydrationIsPending(hydration);
 }
 
-export function newDocumentPageChoiceIsDisabled(args: {
-  canEdit: boolean;
-  bodyHydrationPending: boolean;
-  databaseCreationPending: boolean;
-}) {
-  return (
-    !args.canEdit || args.bodyHydrationPending || args.databaseCreationPending
-  );
-}
-
 export function previewBodyHydrationIsPending(args: {
   item: Pick<ContentDatabaseItem, "bodyHydration" | "document">;
   document:
@@ -102,11 +92,6 @@ export function previewBodyHydrationIsPending(args: {
   );
 }
 
-/**
- * A draft that began from an empty source snapshot must not automatically
- * replace a non-empty Builder body that arrived while hydration was running.
- * Keep the draft dirty/recoverable and let the user decide which body to keep.
- */
 export function previewDraftConflictsWithHydratedBody(args: {
   loadedContent: string | null | undefined;
   loadedUpdatedAt: string | null | undefined;
@@ -162,7 +147,13 @@ export function isEffectivelyEmptyDocumentContent(
   content: string | null | undefined,
 ) {
   const normalized = (content ?? "").trim();
-  return normalized === "" || normalized === "<empty-block/>";
+  return (
+    normalized === "" ||
+    normalized.split(/\r?\n/).every((line) => {
+      const trimmed = line.trim();
+      return trimmed === "" || /^<empty-block\b[^>]*\/>$/.test(trimmed);
+    })
+  );
 }
 
 function sourceBackedEmptyBodyNeedsHydration(args: {

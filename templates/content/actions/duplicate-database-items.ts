@@ -9,6 +9,11 @@ import {
   requireDocumentRequestActor,
 } from "../server/lib/document-attribution.js";
 import {
+  syncPrivateCalloutReferences,
+  syncPrivateIconReference,
+  verifyPrivateIconCopiedFromDocument,
+} from "../server/lib/private-icon-references.js";
+import {
   lockContentDatabaseMutation,
   touchContentDatabase,
 } from "./_content-database-mutation-lock.js";
@@ -18,7 +23,11 @@ import {
   databaseRowBatchSchema,
   resolveDatabaseRowsForBatch,
 } from "./_database-row-batch.js";
-import { getContentDatabaseResponse } from "./_database-utils.js";
+import {
+  contentDatabaseResponseForCaller,
+  getContentDatabaseResponse,
+} from "./_database-utils.js";
+import { assertCollectionAcceptsNewRows } from "./_document-source.js";
 import { nanoid } from "./_property-utils.js";
 
 export default defineAction({
@@ -46,6 +55,7 @@ export default defineAction({
       sourceDocumentIds,
       "duplicated",
     );
+    await assertCollectionAcceptsNewRows(database.id, db);
     const sourceItemIds = rows.map((row) => row.item.id);
     const now = new Date().toISOString();
     const currentUserEmail = requireDocumentRequestActor(ctx);
@@ -189,6 +199,17 @@ export default defineAction({
           ),
         );
 
+      for (const duplicate of lockedDuplicates) {
+        await verifyPrivateIconCopiedFromDocument(
+          tx as unknown as ReturnType<typeof getDb>,
+          {
+            sourceDocumentId: duplicate.row.document.id,
+            icon: duplicate.row.document.icon,
+            ownerEmail: duplicate.row.document.ownerEmail,
+            orgId: duplicate.row.document.orgId,
+          },
+        );
+      }
       await tx.insert(schema.documents).values(
         lockedDuplicates.map((duplicate) => ({
           id: duplicate.duplicatedDocumentId,
@@ -208,6 +229,34 @@ export default defineAction({
           updatedAt: now,
         })),
       );
+      for (const duplicate of lockedDuplicates) {
+        await syncPrivateIconReference(
+          tx as unknown as ReturnType<typeof getDb>,
+          {
+            elementType: "document",
+            elementId: duplicate.duplicatedDocumentId,
+            documentId: duplicate.duplicatedDocumentId,
+            icon: duplicate.row.document.icon,
+            ownerEmail: duplicate.row.document.ownerEmail,
+            orgId: duplicate.row.document.orgId,
+          },
+        );
+        await syncPrivateCalloutReferences(
+          tx as unknown as ReturnType<typeof getDb>,
+          {
+            documentId: duplicate.duplicatedDocumentId,
+            before: "",
+            after: duplicate.row.document.content,
+            userEmail: currentUserEmail,
+            ownerEmail: duplicate.row.document.ownerEmail,
+            orgId: duplicate.row.document.orgId,
+            source: {
+              kind: "document",
+              documentId: duplicate.row.document.id,
+            },
+          },
+        );
+      }
 
       await tx.insert(schema.contentDatabaseItems).values(
         lockedDuplicates.map((duplicate) => ({
@@ -280,26 +329,29 @@ export default defineAction({
     const duplicatedItems = duplicatedPage.items.filter((item) =>
       duplicatedItemIds.has(item.id),
     );
-    return {
-      ...response,
-      duplicatedItems,
-      duplicatedItemId: duplicates[0]?.duplicatedItemId,
-      duplicatedDocumentId: duplicates[0]?.duplicatedDocumentId,
-      duplicatedItemIds: duplicates.map(
-        (duplicate) => duplicate.duplicatedItemId,
-      ),
-      duplicatedDocumentIds: duplicates.map(
-        (duplicate) => duplicate.duplicatedDocumentId,
-      ),
-      sourceItemIds,
-      sourceDocumentIds,
-      sourceToDuplicate: duplicates.map((duplicate) => ({
-        sourceItemId: duplicate.sourceItemId,
-        sourceDocumentId: duplicate.sourceDocumentId,
-        duplicatedItemId: duplicate.duplicatedItemId,
-        duplicatedDocumentId: duplicate.duplicatedDocumentId,
-      })),
-      duplicatedCount: duplicates.length,
-    };
+    return contentDatabaseResponseForCaller(
+      {
+        ...response,
+        duplicatedItems,
+        duplicatedItemId: duplicates[0]?.duplicatedItemId,
+        duplicatedDocumentId: duplicates[0]?.duplicatedDocumentId,
+        duplicatedItemIds: duplicates.map(
+          (duplicate) => duplicate.duplicatedItemId,
+        ),
+        duplicatedDocumentIds: duplicates.map(
+          (duplicate) => duplicate.duplicatedDocumentId,
+        ),
+        sourceItemIds,
+        sourceDocumentIds,
+        sourceToDuplicate: duplicates.map((duplicate) => ({
+          sourceItemId: duplicate.sourceItemId,
+          sourceDocumentId: duplicate.sourceDocumentId,
+          duplicatedItemId: duplicate.duplicatedItemId,
+          duplicatedDocumentId: duplicate.duplicatedDocumentId,
+        })),
+        duplicatedCount: duplicates.length,
+      },
+      ctx,
+    );
   },
 });

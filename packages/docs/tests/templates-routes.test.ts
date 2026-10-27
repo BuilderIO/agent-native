@@ -201,8 +201,6 @@ describe("template routes", () => {
     );
     expect(navTemplateSection).toBeDefined();
 
-    // Flatten group children (e.g. the Plans chevron group) so paths nested
-    // under a group header are collected too.
     const collectPaths = (items: NavItem[]): string[] =>
       items.flatMap((item) => [
         ...(item.to ? [item.to] : []),
@@ -211,17 +209,10 @@ describe("template routes", () => {
     const sidebarDocPaths = collectPaths(navTemplateSection!.items);
     const catalogTemplatePaths = featuredTemplates.map(getTemplateDocsPath);
 
-    // Every featured catalog template must be reachable from the sidebar,
-    // whether linked at the top level or nested under a group (e.g. Plans).
-    // Non-featured templates may still keep direct docs pages without being
-    // promoted in the main navigation.
     for (const catalogPath of catalogTemplatePaths) {
       expect(sidebarDocPaths).toContain(catalogPath);
     }
 
-    // Every sidebar link in the Apps section must resolve to a real docs
-    // page (never an /apps/ marketing route). Group children may be plain
-    // docs pages (e.g. pr-visual-recap), so don't require the template- prefix.
     const docsDir = path.resolve(docsRoot, "../core/docs/content");
     for (const sidebarPath of sidebarDocPaths) {
       expect(sidebarPath).toMatch(/^\/docs\/[a-z0-9-]+\/$/);

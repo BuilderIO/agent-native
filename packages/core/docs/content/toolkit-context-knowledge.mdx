@@ -32,13 +32,14 @@ on the Core/action surface.
 
 ## Pieces {#pieces}
 
-| Piece                                                        | Purpose                                                                 |
-| ------------------------------------------------------------ | ----------------------------------------------------------------------- |
-| `<ContextXRayPanelView>`                                     | Complete panel: grouped segments, budget meter, pin/evict/restore rows. |
-| `<ContextMeterView>`                                         | Compact token-budget donut with a popover breakdown.                    |
-| `<ContextTreemapView>`                                       | Treemap of context usage by segment group and size.                     |
-| `<ContextSegmentRowView>` / `<SegmentProvenancePopoverView>` | One segment row and its provenance popover (source, tokens, status).    |
-| `formatContextTokens()`                                      | Shared token-count formatting (for example `24.6K`).                    |
+| Piece                                                              | Purpose                                                               |
+| ------------------------------------------------------------------ | --------------------------------------------------------------------- |
+| `<ContextXRayPanel>` from `@agent-native/toolkit/app/context-xray` | Framework-styled panel; the app supplies manifest data and callbacks. |
+| `<ContextXRayPanelView>`                                           | Lower-level panel for custom layouts.                                 |
+| `<ContextMeterView>`                                               | Compact token-budget donut with a popover breakdown.                  |
+| `<ContextTreemapView>`                                             | Treemap of context usage by segment group and size.                   |
+| `<ContextSegmentRowView>` / `<SegmentProvenancePopoverView>`       | One segment row and its provenance popover (source, tokens, status).  |
+| `formatContextTokens()`                                            | Shared token-count formatting (for example `24.6K`).                  |
 
 ## Usage {#usage}
 
@@ -53,15 +54,12 @@ import {
 } from "@agent-native/toolkit/context-ui";
 ```
 
-Core wraps `ContextXRayPanelView` in its own `ContextXRayPanel`
-(`packages/core/src/client/context-xray/ContextXRayPanel.tsx`), which resolves
-the context window for the active model and wires pin/evict/restore to the
-`context-manifest-get`, `context-pin`, `context-evict`, and `context-restore`
-agent actions. That wrapper is not a published standalone import today — it
-renders only inside the built-in agent chat (`AssistantChat`). Build a custom
-context surface by composing the `context-ui` views directly against your own
-app-state reads and the same agent actions, rather than expecting a public
-Core adapter entry point.
+For a framework-styled panel, import `ContextXRayPanel` from
+`@agent-native/toolkit/app/context-xray`. It receives the context manifest,
+optimistic pin/evict state, and pin/evict/restore callbacks from the app; it
+does not fetch the manifest or call actions itself. The lower-level views remain
+available from `@agent-native/toolkit/context-ui` when an app needs a custom
+layout. Core owns the context engine, manifest actions, and access decisions.
 
 ## Build a useful context surface
 

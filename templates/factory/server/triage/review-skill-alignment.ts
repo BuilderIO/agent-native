@@ -1,57 +1,7 @@
-export const FACTORY_ALIGNMENT_REVISION = 2;
+export const FACTORY_ALIGNMENT_REVISION = 3;
 
 const ALIGNMENT_START = "<!-- factory-skill-alignment:start -->";
 const ALIGNMENT_END = "<!-- factory-skill-alignment:end -->";
-
-const FEEDBACK_ALIGNMENT = `## Current review-latest-feedback contract
-
-The repository's \`.agents/skills/review-latest-feedback/SKILL.md\` is
-authoritative. Re-read it in the Builder worktree before acting. Its current
-contract is evidence-first and reply-producing:
-
-- Recheck answered clarifications and open In progress ownership before newer
-  work. Keep the newest unhandled item as the cursor, read older duplicates
-  into one verified cluster, and leave an auditable disposition for every
-  inspected Slack, GitHub issue, and Sentry item.
-- Read the complete parent/thread, reactions, attachments, linked artifacts,
-  and newer follow-ups before asking anything or dispatching. An unavailable
-  source is unavailable evidence, never a no-results result.
-- Keep one specific unanswered clarification per thread. Re-read the whole
-  thread when the requested detail is answered, try the fix first, and use the
-  task-scoped clarification ledger with a stable scheduler identity for
-  recurring rechecks. Do not claim scheduled coverage without stable durable
-  state.
-- Check the existing Slack reaction marker before any write. Preserve an
-  existing marker; if reactions cannot be read, do not guess or add one. If
-  the parent already has eyes 👀, call \`dispatch-factory-item\` with
-  \`alreadyClaimed: true\` (\`clearBug\` may be omitted or \`false\`), omit
-  reaction, and do not start Builder work.
-- Classify \`risk\` and \`confidence\` on every item, including skips.
-  \`dispatch-factory-item\` only tags Builder when \`clearBug\` is true,
-  \`risk\` is low, and \`confidence\` is high; everything else is a skip
-  regardless of how clear the bug looks.
-- For a dispatch-eligible repo-owned Slack item (\`clearBug\` true, \`risk\`
-  low, \`confidence\` high) with no existing eyes 👀, you MUST pass
-  \`reaction: eyes\` 👀 on \`dispatch-factory-item\` — never dispatch without
-  it. Every parent this run marks must later
-  receive a verified @agent-native Fixed, In progress, or Clarification needed
-  reply; a reaction, forward, generic acknowledgement, or another person's
-  reply is not a disposition. Group only genuinely repeated symptoms and
-  dispatch one Builder thread for the cluster.
-- Choose the smallest owning seam: local regression for one symptom, shared
-  contract for repeated cross-surface evidence, discovery/action wiring for a
-  missing capability, and release/deployment diagnosis for source-versus-live
-  mismatches. Do not turn one report into a global prompt rule.
-- Keep source-tested, built, published/deployed, and observed-live evidence
-  separate. Do not claim a fix, PR, reply, or deployment without confirmation
-  from the relevant action or runtime evidence.
-
-After classifying every processed item, call \`dispatch-factory-item\` so every
-skip or dispatch is recorded: \`alreadyClaimed: true\` (\`clearBug\` may be
-omitted or \`false\`) when the parent already has eyes 👀, otherwise
-\`clearBug: true\` or \`false\`, \`risk\`, \`confidence\`, and a concise
-evidence-grounded reason. Pass \`reaction: eyes\` only when \`clearBug\` is
-true, \`risk\` is low, and \`confidence\` is high.`;
 
 const PR_ALIGNMENT = `## Current review-prs contract
 
@@ -72,9 +22,10 @@ allows ordinary failed, pending, skipped, or unknown checks and ordinary
 unresolved feedback for a verified BuilderIO member; record those exact states
 and never call them clean. The ultra-scary gate always remains manual for auth,
 permissions, tenant isolation, secrets, destructive data loss or migrations,
-remote code execution, SSRF, payments, deployment, or unexplained dependency
-and infrastructure risk. Active credible safety findings in fresh review
-evidence remain blocking for every author, including Liam.
+remote code execution, MCP iframe sandboxing, CSP, HTML sanitization, SSRF,
+payments, deployment, or unexplained dependency and infrastructure risk. Active
+credible safety findings in fresh review evidence remain blocking for every
+author, including Liam.
 
 For the exact \`liamdebeasi\` login and immutable GitHub user ID \`2721089\`, a
 current BuilderIO membership check is still required. When the current,
@@ -89,7 +40,14 @@ The verified owner exceptions are current and must be applied only after
 membership and the ultra-scary assessment: Alice (\`3mdistal\`) for Content,
 Nick (\`NKoech123\`) for Slides, Enzo (\`enzoames\`) for Factory-specific PRs,
 and Sid (\`sidmohanty11\`) for Design. Alice and Nick may include supporting
-shared framework/Desktop plumbing required by their app feature. The docs-only
+shared framework/Desktop plumbing required by their app feature. For
+BuilderIO/agent-native PRs, Shomix (shomix, GitHub user ID 100691266) may be
+auto-approved across app and framework areas, including UX changes, refactors,
+ordinary unresolved feedback, and failed or pending checks. Match both the login
+and immutable GitHub author ID; do not rely on login alone. This exception never
+applies to review/approval policy, agent-safety instructions, membership
+verification, or CI/deployment security changes;
+those require independent human review. The docs-only
 exception applies to \`kapunahelewong\` and Wes (\`bwreid\`) only when every
 changed file is documentation, localization, docs navigation/redirect, or a
 docs-specific test. These exceptions cover ordinary UX/refactor/check/review
@@ -101,42 +59,12 @@ trust decision only - never auto-merge. Never claim ignored checks or feedback
 are resolved, and record one concise disposition for every PR that entered the
 evidence sweep.`;
 
-const BABYSIT_ALIGNMENT = `## PR babysit contract
-
-Follow the fixed poll → list → propose → babysit path only. Read
-\`recommendation\` and \`because\` from propose-pr-babysit-status and match
-the babysit decision unless the briefing clearly contradicts them.
-
-Allowed decisions: ping, defer, already_asked, stuck. Unresolved bot review
-threads count as work unless closed by reply, GitHub resolve, outdated status,
-or a structured coverage comment. Factory-only duplicate detection ignores human
-copies of the template comment. Defer while Builder is active within the 20-minute
-quiet window. Mark stuck when bot errors after a ping, or Required — not fixing
-on a thread, make another ask useless.
-
-Do not review diffs, call govern-factory-pull-request, or use ad-hoc GitHub
-tools. Never approve or merge.`;
-
-export type FactoryAutomationName =
-  | "factory-slack-feedback"
-  | "factory-sentry-errors"
-  | "factory-github-issues"
-  | "factory-pr-governance"
-  | "factory-pr-babysit";
+export type FactoryAutomationName = "factory-pr-governance";
 
 export function managedReviewSkillAlignment(
   name: FactoryAutomationName,
 ): string | undefined {
-  if (
-    name === "factory-slack-feedback" ||
-    name === "factory-sentry-errors" ||
-    name === "factory-github-issues"
-  ) {
-    return FEEDBACK_ALIGNMENT;
-  }
-  if (name === "factory-pr-governance") return PR_ALIGNMENT;
-  if (name === "factory-pr-babysit") return BABYSIT_ALIGNMENT;
-  return undefined;
+  return name === "factory-pr-governance" ? PR_ALIGNMENT : undefined;
 }
 
 export function syncManagedReviewSkillAlignment(

@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
@@ -55,8 +55,9 @@ export default defineAction({
   },
   run: async (args) => {
     if (!isLocalPlanRuntime()) {
-      throw new Error(
+      fail(
         "Local plan folder promotion is only available in local Plan runtime.",
+        { errorCode: "local_plan_runtime_required", statusCode: 412 },
       );
     }
 

@@ -1,6 +1,3 @@
-// Exports an existing local deck through the real browser exporter for a given
-// target and writes <out>/deck.pptx.
-//   pnpm exec tsx google-export.ts --deck <id> --out <dir> [--target google-slides|powerpoint]
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -19,8 +16,6 @@ async function main() {
   let deckId = process.argv.includes("--fixture") ? "" : arg("--deck");
   const outDir = path.resolve(arg("--out"));
   const target = arg("--target", "google-slides");
-  // The Google behaviour is keyed on this exact string, so a typo would export
-  // a PowerPoint-targeted deck and report it under the name that was asked for.
   if (target !== "google-slides" && target !== "powerpoint") {
     throw new Error(
       `--target must be google-slides or powerpoint, got ${target}`,
@@ -97,9 +92,6 @@ async function main() {
     await page.evaluate(() => (document as any).fonts?.ready);
     const result = await page.evaluate(
       async ({ title, slides, aspectRatio, target }: any) => {
-        // Split so tsc treats this as a computed expression instead of a
-        // resolvable module specifier (a literal path string here fails with
-        // TS2307) — this only ever runs inside the browser page via page.evaluate.
         const mod: any = await import("/app/" + "lib/export-pptx-client.ts");
         const { blob, blankShapes } = await mod.buildDeckPptxBlob(
           title,
@@ -128,8 +120,6 @@ async function main() {
     console.log(
       `[google-export] ${target} → ${out} (${result.byteLength} bytes, blankShapes=${result.blankShapes})`,
     );
-    // Same policy as export.ts: a shape that rasterized empty is content the
-    // deck lost, and no layout comparison downstream can notice it.
     if (result.blankShapes > 0) {
       console.error(
         `[google-export] FAILED: ${result.blankShapes} shape(s) rasterized empty and are missing from ${out}`,

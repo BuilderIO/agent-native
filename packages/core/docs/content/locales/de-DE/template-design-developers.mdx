@@ -117,6 +117,7 @@ Jeder design-spezifische Vorgang ist eine TypeScript-Datei in
 | `list-figma-library-assets`   | Einfügbare Komponenten aus einer Figma-verbundenen Bibliothek auflisten                                                                           |
 | `insert-figma-library-asset`  | Eine veröffentlichte Figma-Komponente in das Design einfügen                                                                                      |
 | `hydrate-figma-paste-images`  | Bildreferenzen aus einem Figma-Zwischenablage-Paste auflösen                                                                                      |
+| `fill-figma-paste-image`      | Ein fehlendes Bild aus einem Figma-Paste mit einem hochgeladenen Bild füllen                                                                      |
 
 ### Breakpoints und Bildschirmzustände
 
@@ -152,10 +153,10 @@ Jeder design-spezifische Vorgang ist eine TypeScript-Datei in
 | `get-motion-timeline`    | Die Bewegungs-Timeline eines Elements lesen                          |
 | `apply-motion-edit`      | Ein Keyframe auf einer Bewegungs-Timeline hinzufügen oder bearbeiten |
 | `remove-motion-timeline` | Eine Bewegungs-Timeline entfernen                                    |
-| `apply-shader`           | Einen Shader-Effekt anwenden                                         |
-| `apply-shader-fill`      | Einen Shader als Füllung anwenden                                    |
-| `preview-shader-fill`    | Eine Shader-Füllung vor der Anwendung als Vorschau anzeigen          |
-| `get-shader`             | Die aktuellen Parameter eines Shaders lesen                          |
+| `get-shader`             | Native Definitionen und gespeicherte Effektmanifeste prüfen          |
+| `edit-native-shader`     | Native Effekte anwenden, bearbeiten, genehmigen oder entfernen       |
+
+Native WebGPU-Effekte verwenden WGSL. Eigene Effekte werden mit `edit-native-shader` und `define-definition` gespeichert. Danach liest `get-shader` den gespeicherten `executionHash`, `approve-definition` genehmigt diesen `expectedExecutionHash`, und `apply` verwendet die genaue Definitions-ID und Version. Jede Änderung benötigt `designId`, `fileId` und den aktuellen `expectedVersionHash`. Nach jedem Schreibvorgang muss der Dateihash neu gelesen werden. Die CPU-Schemaprüfung kompiliert keinen GPU-Code, daher muss die Design-Vorschau geprüft werden. Bereits gespeicherte GLSL-Effekte lassen sich weiterhin rendern und entfernen.
 
 ### Qualität {#quality}
 
@@ -202,16 +203,16 @@ App-Erstellung](#full-app-building) unten.
 
 | Aktion                         | Was sie tut                                                                                         |
 | ------------------------------ | --------------------------------------------------------------------------------------------------- |
-| `create-fusion-app`            | Einen Builder-Fusion-Branch bereitstellen und aus einer Eingabeaufforderung eine echte App aufbauen |
-| `sync-fusion-app`              | Den Container eines Fusion-Branches nach seiner Vorschau-URL abfragen                               |
-| `add-fusion-screens`           | Bildschirme zu einem Fusion-gestützten Design hinzufügen                                            |
-| `queue-fusion-edit`            | Eine Bearbeitung für den eigenen Coding-Agenten der App einreihen                                   |
-| `list-fusion-edits`            | Eingereihte und angewendete Fusion-Bearbeitungen auflisten                                          |
-| `apply-fusion-edits`           | Eingereihte Bearbeitungen an den Coding-Agenten der App weiterleiten                                |
-| `send-fusion-message`          | Eine Nachricht an den Coding-Agenten der Fusion-App senden                                          |
-| `push-fusion-app`              | Einen Fusion-Branch pushen                                                                          |
-| `deploy-fusion-app`            | Einen Fusion-Branch auf eine echte URL deployen                                                     |
-| `get-fusion-deploy-status`     | Den Status eines Deploys prüfen                                                                     |
+| `create-builder-app`           | Einen Builder-Fusion-Branch bereitstellen und aus einer Eingabeaufforderung eine echte App aufbauen |
+| `sync-builder-app`             | Den Container eines Fusion-Branches nach seiner Vorschau-URL abfragen                               |
+| `add-builder-screens`          | Bildschirme zu einem Fusion-gestützten Design hinzufügen                                            |
+| `queue-builder-edit`           | Eine Bearbeitung für den eigenen Coding-Agenten der App einreihen                                   |
+| `list-builder-edits`           | Eingereihte und angewendete Fusion-Bearbeitungen auflisten                                          |
+| `apply-builder-edits`          | Eingereihte Bearbeitungen an den Coding-Agenten der App weiterleiten                                |
+| `send-builder-message`         | Eine Nachricht an den Coding-Agenten der Fusion-App senden                                          |
+| `push-builder-app`             | Einen Fusion-Branch pushen                                                                          |
+| `deploy-builder-app`           | Einen Fusion-Branch auf eine echte URL deployen                                                     |
+| `get-builder-deploy-status`    | Den Status eines Deploys prüfen                                                                     |
 | `create-design-branch`         | Einen neuen Branch für ein Fusion-gestütztes Design erstellen                                       |
 | `get-design-branch-diff`       | Einen Fusion-Branch mit einer früheren Version vergleichen                                          |
 | `deploy-design-preview`        | Eine Vorschau eines Fusion-gestützten Designs deployen                                              |

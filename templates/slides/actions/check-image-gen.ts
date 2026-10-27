@@ -1,15 +1,15 @@
 import { defineAction } from "@agent-native/core/action";
-import { resolveSecret } from "@agent-native/core/server";
+import { resolveGeminiApiKey, resolveSecret } from "@agent-native/core/server";
 import { z } from "zod";
 
 export default defineAction({
   description:
-    "Check which local image generation fallback providers are configured (Gemini/OpenAI API key status). Primary generation is delegated to the Assets app.",
+    "Check which local image providers are configured (Gemini/OpenAI). Slides uses local generation by default; Assets is reserved for a requested brand library or an Assets-exclusive capability.",
   schema: z.object({}),
   http: { method: "GET" },
   run: async () => {
     return {
-      gemini: !!(await resolveSecret("GEMINI_API_KEY")),
+      gemini: !!(await resolveGeminiApiKey()),
       openai: !!(await resolveSecret("OPENAI_API_KEY")),
     };
   },

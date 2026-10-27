@@ -13,6 +13,20 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import type { SlideStyleSnapshot } from "./slide-style";
 import { SlideContextToolbar } from "./SlideContextToolbar";
 
+const originalPointerCaptureMethods = [
+  [
+    "setPointerCapture",
+    Object.getOwnPropertyDescriptor(HTMLElement.prototype, "setPointerCapture"),
+  ],
+  [
+    "releasePointerCapture",
+    Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "releasePointerCapture",
+    ),
+  ],
+] as const;
+
 function objectSnapshot(
   overrides: Partial<SlideStyleSnapshot> = {},
 ): SlideStyleSnapshot {
@@ -80,7 +94,16 @@ function openMenu(name: string | RegExp) {
 }
 
 describe("contextual toolbar object layout", () => {
-  afterEach(cleanup);
+  afterEach(() => {
+    cleanup();
+    for (const [property, descriptor] of originalPointerCaptureMethods) {
+      if (descriptor) {
+        Object.defineProperty(HTMLElement.prototype, property, descriptor);
+      } else {
+        Reflect.deleteProperty(HTMLElement.prototype, property);
+      }
+    }
+  });
 
   it("starts a component comment from the selected-object toolbar", () => {
     const onComment = vi.fn();
@@ -100,6 +123,47 @@ describe("contextual toolbar object layout", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add comment" }));
 
     expect(onComment).toHaveBeenCalledOnce();
+  });
+
+  it("opens Position for a selected flow object", () => {
+    const onEnablePositioning = vi.fn();
+    render(
+      <TooltipProvider>
+        <SlideContextToolbar
+          snapshot={objectSnapshot({ isAbsolute: false })}
+          background="#000000"
+          objectSelectionCount={1}
+          onEnablePositioning={onEnablePositioning}
+          onChange={vi.fn()}
+          onBackgroundChange={vi.fn()}
+        />
+      </TooltipProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Position" }));
+
+    expect(onEnablePositioning).toHaveBeenCalledOnce();
+  });
+
+  it("keeps Position available while a selected flow object has no style snapshot", () => {
+    const onEnablePositioning = vi.fn();
+    render(
+      <TooltipProvider>
+        <SlideContextToolbar
+          snapshot={null}
+          background="#000000"
+          hasSelectedElement
+          objectSelectionCount={0}
+          onEnablePositioning={onEnablePositioning}
+          onChange={vi.fn()}
+          onBackgroundChange={vi.fn()}
+        />
+      </TooltipProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Position" }));
+
+    expect(onEnablePositioning).toHaveBeenCalledOnce();
   });
 
   it("offers alignment actions for a multi-selection", () => {
@@ -158,7 +222,8 @@ describe("contextual toolbar object layout", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Group" }));
-    fireEvent.click(screen.getByRole("button", { name: "Bring forward" }));
+    openMenu("Order");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Bring forward" }));
 
     expect(onGroup).toHaveBeenCalledOnce();
     expect(onArrange).toHaveBeenCalledWith("forward");
@@ -185,9 +250,53 @@ describe("contextual toolbar object layout", () => {
     expect(onUngroup).toHaveBeenCalledOnce();
   });
 
-  it("keeps zoom controls inside the style toolbar", () => {
-    const onZoomOut = vi.fn();
-    const onZoomIn = vi.fn();
+  it("keeps a refused rotation scrub mounted through previews", () => {
+    Object.defineProperty(HTMLElement.prototype, "setPointerCapture", {
+      configurable: true,
+      value: () => {},
+    });
+    Object.defineProperty(HTMLElement.prototype, "releasePointerCapture", {
+      configurable: true,
+      value: () => {},
+    });
+    const onChange = vi.fn(() => false);
+    render(
+      <TooltipProvider>
+        <SlideContextToolbar
+          snapshot={objectSnapshot()}
+          background="#000000"
+          onChange={onChange}
+          onBackgroundChange={vi.fn()}
+        />
+      </TooltipProvider>,
+    );
+
+    const input = screen.getByRole("textbox", {
+      name: "Rotation",
+    }) as HTMLInputElement;
+    const scrub = input.parentElement!;
+    const label = document.querySelector<HTMLElement>(
+      `label[for="${input.id}"]`,
+    )!;
+    fireEvent.pointerDown(label, {
+      button: 0,
+      pointerId: 7,
+      clientX: 0,
+    });
+    fireEvent.pointerMove(scrub, { pointerId: 7, clientX: 10 });
+    fireEvent.pointerMove(scrub, { pointerId: 7, clientX: 20 });
+
+    expect(onChange).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("textbox", { name: "Rotation" })).toBe(input);
+
+    fireEvent.pointerUp(scrub, { pointerId: 7, clientX: 20 });
+
+    expect(onChange).toHaveBeenCalledTimes(3);
+    expect(screen.getByRole("textbox", { name: "Rotation" })).not.toBe(input);
+  });
+
+  it("picks a zoom level from the style toolbar", () => {
+    const onSelect = vi.fn();
 
     render(
       <TooltipProvider>
@@ -196,26 +305,16 @@ describe("contextual toolbar object layout", () => {
           background="#000000"
           onChange={vi.fn()}
           onBackgroundChange={vi.fn()}
-          zoomControls={{
-            value: 100,
-            onZoomOut,
-            onZoomIn,
-            canZoomOut: true,
-            canZoomIn: true,
-          }}
+          zoomControls={{ value: 100, presets: [50, 100, 200], onSelect }}
         />
       </TooltipProvider>,
     );
 
     const toolbar = screen.getByRole("toolbar");
     expect(within(toolbar).getByText("100%")).toBeTruthy();
-    fireEvent.click(within(toolbar).getByRole("button", { name: "Zoom out" }));
-    fireEvent.click(within(toolbar).getByRole("button", { name: "Zoom in" }));
+    openMenu("Zoom");
+    fireEvent.click(screen.getByRole("menuitem", { name: "200%" }));
 
-    expect(onZoomOut).toHaveBeenCalledOnce();
-    expect(onZoomIn).toHaveBeenCalledOnce();
-    expect(
-      within(toolbar).queryByRole("button", { name: "Fit slide to screen" }),
-    ).toBeNull();
+    expect(onSelect).toHaveBeenCalledWith(200);
   });
 });

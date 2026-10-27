@@ -1,12 +1,3 @@
-/**
- * See what the user is currently looking at on screen.
- *
- * Reads navigation state and design context from application state.
- *
- * Usage:
- *   pnpm action view-screen
- */
-
 import { defineAction } from "@agent-native/core/action";
 import {
   listAppState,
@@ -34,6 +25,7 @@ import { parseCanvasFrameGeometryById } from "../shared/canvas-frames.js";
 import { isOverviewScreenFile } from "../shared/design-files.js";
 import { getDesignTemplatePreset } from "../shared/design-template-presets.js";
 import { designGenerationSessionKey } from "../shared/generation-session.js";
+import { isHubSpotEmailHtml } from "../shared/hubspot-email.js";
 import {
   DESIGN_REPROMPT_PENDING_STATE_PREFIX,
   DESIGN_REPROMPT_PROPOSAL_STATE_PREFIX,
@@ -86,6 +78,24 @@ function objectProp(value: unknown, key: string): Record<string, unknown> {
   return candidate && typeof candidate === "object" && !Array.isArray(candidate)
     ? (candidate as Record<string, unknown>)
     : {};
+}
+
+/**
+ * The inspector has no tabs. A selection record written by an editor tab that
+ * predates that still carries one, and reporting it would tell the agent the
+ * user is somewhere they cannot be.
+ */
+function withoutInspectorTab(designSelection: unknown): unknown {
+  if (
+    !designSelection ||
+    typeof designSelection !== "object" ||
+    !("inspectorTab" in designSelection)
+  ) {
+    return designSelection;
+  }
+  const { inspectorTab: _staleInspectorTab, ...selection } =
+    designSelection as Record<string, unknown>;
+  return selection;
 }
 
 function resolveActiveScreen(
@@ -221,7 +231,7 @@ function buildReviewSummary(
 
 export default defineAction({
   description:
-    "See what the user is currently looking at on screen. Returns the current navigation state including which design or template is open, which view they are on (list, templates, editor, design-systems, present, settings), active/focused design screen, selected element, active inspector tab (design, comments, or tweaks), active left rail panel (file, agent, assets, import, tools, tokens, or code), active code file metadata, overview canvas state, review status and feedback queue summary, plus any pending question overlay. Always call this first before taking any action.",
+    "See what the user is currently looking at on screen. Returns the current navigation state including which design or template is open, which view they are on (list, templates, editor, design-systems, present, settings), active/focused design screen, selected element, the Interact preview's device and theme, light, dark or system (system, the default, shows the design as authored; designSelection.interact, null outside Interact), active left rail panel (file, agent, assets, import, tools, tokens, or code; file is the panel labeled Layers), active code file metadata, overview canvas state, live Motion timeline id, playhead/duration in milliseconds, playback mode, auto-keyframe and selected track/keyframe keys, live-collaboration opt-in, review status and feedback queue summary, plus any pending question overlay. Basic route context is included in <current-screen>; call this for a fresh or fuller snapshot when visible design details matter.",
   schema: z.object({}),
   http: false,
   readOnly: true,
@@ -246,7 +256,9 @@ export default defineAction({
 
     const screen: Record<string, unknown> = {};
     if (navigation) screen.navigation = navigation;
-    if (designSelection) screen.designSelection = designSelection;
+    if (designSelection) {
+      screen.designSelection = withoutInspectorTab(designSelection);
+    }
     const templateId = stringProp(navigation, "templateId");
     if (templateId) {
       const preset = getDesignTemplatePreset(templateId);
@@ -329,6 +341,18 @@ export default defineAction({
           navigation,
           designSelection,
         );
+        let activeFrameType: "hubspot-email" | null = null;
+        if (activeScreen) {
+          const [activeFile] = await db
+            .select({ content: schema.designFiles.content })
+            .from(schema.designFiles)
+            .where(eq(schema.designFiles.id, activeScreen.id))
+            .limit(1);
+          activeFrameType =
+            activeFile && isHubSpotEmailHtml(activeFile.content)
+              ? "hubspot-email"
+              : null;
+        }
         const linkedDesignSystem = await loadAgentDesignSystemContext(
           typeof (access.resource as { designSystemId?: unknown })
             .designSystemId === "string"
@@ -339,9 +363,9 @@ export default defineAction({
         screen.design = {
           id: designId,
           title: (access.resource as { title?: unknown }).title ?? null,
-          // The design's own linked system, not the template's. Picking one on
-          // an empty design writes it here and nowhere else, so leaving it out
-          // meant the first read after the choice could not see it.
+          liveCollaborationEnabled:
+            (access.resource as { liveCollaborationEnabled?: unknown })
+              .liveCollaborationEnabled === true,
           designSystemId:
             typeof (access.resource as { designSystemId?: unknown })
               .designSystemId === "string"
@@ -349,7 +373,9 @@ export default defineAction({
               : null,
           designSystem: linkedDesignSystem,
           screens: overviewScreens,
-          activeScreen,
+          activeScreen: activeScreen
+            ? { ...activeScreen, frameType: activeFrameType }
+            : null,
           activeCodeFile: resolveActiveCodeFile(files, designSelection),
           canvasFrames: parseCanvasFrameGeometryById(data.canvasFrames),
         };
@@ -516,7 +542,7 @@ export default defineAction({
         "Questions are visible to the user as a full-canvas overlay. Wait for their answers (they'll come back as a chat message) before generating.";
     }
     if (generationSession) {
-      const GENERATION_SESSION_TTL_MS = 10 * 60 * 1000; // 10 minutes
+      const GENERATION_SESSION_TTL_MS = 10 * 60 * 1000;
       const startedAt =
         typeof (generationSession as { startedAt?: unknown }).startedAt ===
         "string"

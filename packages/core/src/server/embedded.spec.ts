@@ -55,6 +55,10 @@ describe("embedded Agent-Native helpers", () => {
   afterEach(() => {
     vi.clearAllMocks();
     restoreEnv();
+    Reflect.deleteProperty(
+      globalThis as Record<string, unknown>,
+      "__AGENT_NATIVE_EMBEDDED_RUNTIME__",
+    );
   });
 
   it("mounts auth and core liveness before host bootstrap", async () => {
@@ -177,7 +181,7 @@ describe("embedded Agent-Native helpers", () => {
     expect(auth?.mountGoogleOAuthRoutes).toBe(false);
   });
 
-  it("applies explicit embedded database environment", () => {
+  it("applies explicit embedded database environment", async () => {
     configureAgentNativeEmbeddedEnvironment({
       appName: "builder",
       databaseUrl: "postgres://example/db",
@@ -185,5 +189,29 @@ describe("embedded Agent-Native helpers", () => {
 
     expect(process.env.APP_NAME).toBe("builder");
     expect(process.env.DATABASE_URL).toBe("postgres://example/db");
+    const { isEmbeddedRuntimeAuthorized } =
+      await import("../db/embedded-runtime.js");
+    expect(isEmbeddedRuntimeAuthorized()).toBe(true);
+  });
+
+  it("preserves a production embedded host with an explicit pglite databaseUrl", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+
+    configureAgentNativeEmbeddedEnvironment({
+      databaseUrl: "pglite:./data/embedded-desktop",
+    });
+
+    const { assertHostedRuntimeDatabase } = await import("../db/client.js");
+    const { markServerRuntimeStarted } =
+      await import("../db/server-runtime.js");
+    markServerRuntimeStarted();
+
+    expect(() => assertHostedRuntimeDatabase()).not.toThrow();
+
+    vi.unstubAllEnvs();
+    Reflect.deleteProperty(
+      globalThis as Record<string, unknown>,
+      "__AGENT_NATIVE_SERVER_RUNTIME__",
+    );
   });
 });

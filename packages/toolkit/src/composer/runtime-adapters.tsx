@@ -10,6 +10,19 @@ import {
 
 import type { MentionItemMedia } from "./types.js";
 
+const referenceEventTargets = new WeakMap<Event, HTMLElement>();
+
+export function setComposerReferenceEventTarget(
+  event: Event,
+  target: HTMLElement,
+) {
+  referenceEventTargets.set(event, target);
+}
+
+export function getComposerReferenceEventTarget(event: Event) {
+  return referenceEventTargets.get(event);
+}
+
 export type ComposerTranslate = (
   key: string,
   options?: Record<string, unknown>,
@@ -25,15 +38,58 @@ export type ReasoningEffort =
   | "xhigh"
   | "max";
 
+export type ComposerAgentEngineState =
+  | "unknown"
+  | "unavailable"
+  | "missing"
+  | "configured";
+
 export interface EngineModelGroup {
   engine: string;
   label: string;
   models: string[];
+  modelDisplayNames?: Readonly<Record<string, string>>;
   configured: boolean;
-  /** Provider-owned connection state shown at the far edge of the row. */
   statusLabel?: string;
-  /** Marks a configured local subscription so setup CTAs can stay hidden. */
   isSubscription?: boolean;
+}
+
+/** How the active engine pays for a request. */
+export type ComposerModelBilling =
+  | { kind: "builder-credits" }
+  | { kind: "provider-key"; provider: string }
+  | { kind: "subscription"; plan: string };
+
+/**
+ * What the host knows about one model on one engine. `known: false` is a model
+ * with no catalog entry (a custom id, a newly listed plan model): it carries
+ * engine facts only, never a guessed name, rating, or description.
+ */
+export interface ComposerModelDescription {
+  modelId: string;
+  engine?: string;
+  known: boolean;
+  /** Catalog id, which keys per-model copy such as the description. */
+  catalogId?: string;
+  name?: string;
+  shortName?: string;
+  /** Stable id for the descriptor's translation. */
+  descriptorId?: string;
+  descriptor?: string;
+  description?: string;
+  provider?: string;
+  ratings?: { cost: number; reasoning: number; speed: number };
+  recommended: boolean;
+  recommendedRank?: number;
+  /** Position in the picker's root list; undefined for the rest. */
+  rootRank?: number;
+  contextWindow?: number;
+  efforts: ReasoningEffort[];
+  billing?: ComposerModelBilling;
+  /** The level the provider applies when no effort is sent, when documented. */
+  providerDefaultEffort?: ReasoningEffort;
+  /** Whether efforts and the window came from the provider's own model list. */
+  source?: "provider" | "catalog";
 }
 
 export interface ComposerModelState {
@@ -57,11 +113,6 @@ export interface ComposerBuilderConnectFlow {
   agentNativeProvisioningEnabled?: boolean;
   accountExists?: boolean;
   start: (options?: { provisionAccount?: boolean }) => void;
-  /**
-   * Re-read status. Returns true when a read actually started, which is what
-   * lets a Connect click arriving before the first read resolves be held
-   * rather than dropped. A runtime that omits it keeps the old behavior.
-   */
   retry?: () => boolean | void;
 }
 
@@ -78,11 +129,16 @@ export interface AgentChatContextItem {
   key: string;
   title: string;
   context: string;
+  status?: "ready" | "pending" | "error";
+  statusMessage?: string;
+  removable?: boolean;
+  blocksSubmission?: boolean;
 }
 
 export interface ComposerAgentChatMessage {
   message: string;
   context?: string;
+  contextItems?: readonly Readonly<AgentChatContextItem>[];
   mode?: "plan" | "act";
   submit?: boolean;
 }
@@ -139,14 +195,25 @@ export interface ComposerRuntimeAdapters {
     useChatModels?: (options: { enabled: boolean }) => ComposerModelState;
     useAgentEngineConfigured?: (enabled: boolean) => {
       missing: boolean;
-      state: string;
+      state: ComposerAgentEngineState;
     };
     fetchAgentEngineConfiguredState?: (
       enabled: boolean,
-      options: { timeoutMs: number },
-    ) => Promise<"missing" | "configured" | (string & {})>;
+      options: { fresh?: boolean; timeoutMs?: number },
+    ) => Promise<ComposerAgentEngineState>;
     BuilderSetupCard?: ComponentType<any>;
     BuilderSetupContent?: ComponentType<any>;
+    /** Catalog facts for the picker rows, hover card, and effort control. */
+    describe?: (model: string, engine?: string) => ComposerModelDescription;
+    /**
+     * `describe` with live provider facts merged in for the listed engines.
+     * A hook, so a host can read a provider's model list for the open picker.
+     */
+    useDescribeModel?: (
+      engines: readonly string[],
+    ) =>
+      | ((model: string, engine?: string) => ComposerModelDescription)
+      | undefined;
     reasoning?: {
       defaultEffort?: ReasoningEffort;
       getOptionsForModel?: (model?: string) => ReasoningEffort[];
@@ -231,8 +298,11 @@ const fallbackModels = {
     onModelChange: () => {},
     onEffortChange: () => {},
   }),
-  useAgentEngineConfigured: () => ({ missing: false, state: "configured" }),
-  fetchAgentEngineConfiguredState: async () => "configured",
+  useAgentEngineConfigured: () => ({
+    missing: false,
+    state: "unknown" as const,
+  }),
+  fetchAgentEngineConfiguredState: async () => "unavailable" as const,
 };
 const FragmentBoundary: ComponentType<{ children?: ReactNode }> = ({
   children,
@@ -251,8 +321,42 @@ const fallbackBuilderFlow = {
   retry: () => false,
 };
 
-const fallbackAdapters: Required<Pick<ComposerRuntimeAdapters, "resolvePath">> &
-  ComposerRuntimeAdapters = {
+type AdapterGroup<K extends keyof ComposerRuntimeAdapters> = NonNullable<
+  ComposerRuntimeAdapters[K]
+>;
+
+/** What the context always carries: the fallbacks fill these in. */
+type ResolvedComposerRuntimeAdapters = ComposerRuntimeAdapters &
+  Required<
+    Pick<ComposerRuntimeAdapters, "resolvePath" | "translate" | "formatNumber">
+  > & {
+    agentChat: AdapterGroup<"agentChat"> & // i18n-ignore -- type intersection, not UI text
+      Required<
+        Pick<
+          AdapterGroup<"agentChat">,
+          | "sendToAgentChat"
+          | "setContextItem"
+          | "requestThreadOpen"
+          | "formatContextItems"
+          | "normalizeReference"
+          | "StaleIndexBoundary"
+        >
+      >;
+    voice: AdapterGroup<"voice"> & // i18n-ignore -- type intersection, not UI text
+      Required<
+        Pick<
+          AdapterGroup<"voice">,
+          | "useProviderStatus"
+          | "getBrowserTabId"
+          | "readAppState"
+          | "setAppState"
+          | "subscribeSidebarState"
+          | "applyContextReplacements"
+        >
+      >;
+  };
+
+const fallbackAdapters: ResolvedComposerRuntimeAdapters = {
   resolvePath: identityPath,
   translate: fallbackTranslate,
   formatNumber: (value, options) =>
@@ -294,7 +398,7 @@ const fallbackAdapters: Required<Pick<ComposerRuntimeAdapters, "resolvePath">> &
 };
 
 const ComposerRuntimeAdaptersContext =
-  createContext<ComposerRuntimeAdapters>(fallbackAdapters);
+  createContext<ResolvedComposerRuntimeAdapters>(fallbackAdapters);
 
 export function ComposerRuntimeAdaptersProvider({
   adapters,
@@ -303,8 +407,6 @@ export function ComposerRuntimeAdaptersProvider({
   adapters: ComposerRuntimeAdapters;
   children: ReactNode;
 }) {
-  // Consumers key effects off this value; a fresh identity per render re-runs
-  // every one of them (app-state reads, event subscriptions) on each render.
   const value = useMemo(
     () => ({
       ...fallbackAdapters,
@@ -328,7 +430,8 @@ export function useComposerRuntimeAdapters() {
   return useContext(ComposerRuntimeAdaptersContext);
 }
 
-export const DEFAULT_REASONING_EFFORT: ReasoningEffort = "high";
+/** Unset: requests carry no effort and the provider's default applies. */
+export const DEFAULT_REASONING_EFFORT: ReasoningEffort = "auto";
 export function getReasoningEffortOptionsForModel(
   _model?: string,
 ): ReasoningEffort[] {
@@ -347,12 +450,12 @@ export function resolveReasoningEffortSelection(
 }
 
 export const AGENT_CHAT_INSERT_REFERENCE_EVENT =
-  "agent-native:insert-composer-reference";
+  "agentNative:insert-composer-reference";
 export const AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE =
-  "agent-native:insert-composer-reference";
+  "agentNative.insertComposerReference";
 
 export function formatPromptContextItems(
-  items: AgentChatContextItem[] | undefined,
+  items: readonly AgentChatContextItem[] | undefined,
 ): string {
   return (
     items

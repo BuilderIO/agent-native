@@ -13,7 +13,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getCredentialContext: vi.fn(),
-  execute: vi.fn(),
+  readOrgMemberRole: vi.fn(),
   upsertCustomProvider: vi.fn(),
   deleteCustomProvider: vi.fn(),
   listCustomProviders: vi.fn(),
@@ -22,16 +22,9 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/server", () => ({
   getCredentialContext: mocks.getCredentialContext,
+  readOrgMemberRole: mocks.readOrgMemberRole,
 }));
 
-vi.mock("@agent-native/core/db", () => ({
-  getDbExec: () => ({ execute: mocks.execute }),
-}));
-
-// Keep the real `assertCanMutateCustomProviderScope` (it's the guard under
-// test's downstream enforcement point) and only mock the DB-backed CRUD
-// functions, mirroring the `importOriginal` partial-mock pattern used in
-// packages/dispatch/src/server/lib/vault-store.spec.ts.
 vi.mock("@agent-native/core/provider-api", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@agent-native/core/provider-api")>();
@@ -47,7 +40,7 @@ vi.mock("@agent-native/core/provider-api", async (importOriginal) => {
 const action = (await import("./provider-api-register.js")).default;
 
 function mockOrgRole(role: string | null): void {
-  mocks.execute.mockResolvedValue({ rows: role ? [{ role }] : [] });
+  mocks.readOrgMemberRole.mockResolvedValue(role);
 }
 
 const baseUpsertInput = {
@@ -140,8 +133,7 @@ describe("provider-api-register org-scope authorization", () => {
       "my-api",
       null,
     );
-    // No membership lookup should even happen for user-scope calls.
-    expect(mocks.execute).not.toHaveBeenCalled();
+    expect(mocks.readOrgMemberRole).not.toHaveBeenCalled();
   });
 
   it("allows an org-scope upsert/delete when the caller has no active org", async () => {
@@ -170,8 +162,7 @@ describe("provider-api-register org-scope authorization", () => {
       "my-api",
       "owner",
     );
-    // No org, so no membership lookup should happen either.
-    expect(mocks.execute).not.toHaveBeenCalled();
+    expect(mocks.readOrgMemberRole).not.toHaveBeenCalled();
   });
 
   it("does not gate org-scope list/get reads on org role", async () => {
@@ -187,7 +178,15 @@ describe("provider-api-register org-scope authorization", () => {
       "org-a",
       "my-api",
     );
-    // Reads are intentionally out of scope for the role gate (plan 014).
-    expect(mocks.execute).not.toHaveBeenCalled();
+    expect(mocks.readOrgMemberRole).not.toHaveBeenCalled();
+  });
+
+  it("rejects owner/admin writes when the shared resolver caps a delegated role", async () => {
+    mockOrgRole("member");
+
+    await expect(
+      action.run({ ...baseUpsertInput, scope: "org" }),
+    ).rejects.toThrow(/owners and admins/i);
+    expect(mocks.upsertCustomProvider).not.toHaveBeenCalled();
   });
 });

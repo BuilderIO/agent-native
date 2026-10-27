@@ -21,6 +21,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   run: async ({ recordId }, ctx?: ActionRunContext) => {
     const context = await getCrmRecordReadContext(recordId);
     if (!context) {

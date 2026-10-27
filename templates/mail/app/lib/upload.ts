@@ -61,7 +61,6 @@ export function openFilePicker(accept: string): Promise<File | null> {
     input.onchange = () => {
       resolve(input.files?.[0] ?? null);
     };
-    // Handle cancel
     input.addEventListener("cancel", () => resolve(null));
     input.click();
   });

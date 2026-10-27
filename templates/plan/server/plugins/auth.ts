@@ -1,12 +1,9 @@
-import { createAuthPlugin } from "@agent-native/core/server";
+import { createToolkitAuthPlugin } from "@agent-native/toolkit/app/auth/server";
 
 import { PLAN_AGENT_CONTEXT_ENDPOINT } from "../../shared/agent-readable.js";
 import { isLocalPlanRuntime } from "../lib/local-identity.js";
 import { PUBLIC_PLAN_ACTION_PATHS } from "../lib/public-action-paths.js";
 
-// In local dev mode, all plan action paths are open. The action handlers gate
-// ownership via requirePlanOwnerEmailForWrite (returns the local identity) so
-// there is no security gap; isLocalPlanRuntime() is always false in production.
 const LOCAL_MODE_ACTION_PATHS: string[] = isLocalPlanRuntime()
   ? [
       "/_agent-native/actions/create-visual-plan",
@@ -32,21 +29,10 @@ const LOCAL_MODE_ACTION_PATHS: string[] = isLocalPlanRuntime()
     ]
   : [];
 
-// The agent chat surface is reachable without an app session so a signed-out
-// visitor can use the agent on a PUBLIC plan, the same way the docs site lets
-// anyone chat without logging in. This only lets the request past the auth
-// middleware — the real gate stays inside the agent-chat plugin's
-// resolveOwnerContext, which resolves the stable anonymous public-plan viewer
-// via resolvePlanAnonymousOwner (read-only by default) and still returns 401
-// for any request that is not scoped to a public plan. The single base path
-// prefix-matches every /_agent-native/agent-chat/* sub-route (threads, runs,
-// mode, files, skills, …).
 const PUBLIC_AGENT_CHAT_PATHS = ["/_agent-native/agent-chat"];
 
-export default createAuthPlugin({
+export default createToolkitAuthPlugin({
   workspaceAppAudience: "internal",
-  // Public review links can load without a session. Plan creation stays behind
-  // auth so the UI does not create placeholder plans for signed-out visitors.
   workspaceAppPublicPaths: [
     "/",
     "/chat",
@@ -65,10 +51,8 @@ export default createAuthPlugin({
   ],
   marketing: {
     appName: "Plan",
-    screenshotPath: "/auth-marketing/plan.webp",
-    screenshotWidth: 914,
-    screenshotHeight: 818,
-    learnMoreUrl: "https://agent-native.com/apps/plan",
+    learnMoreUrl:
+      "https://agent-native.com/apps/plan?utm_source=app&utm_medium=product&utm_content=onboarding-learn-more",
     tagline:
       "Turn coding-agent plans into visual, annotatable HTML before code changes happen.",
     features: [

@@ -39,16 +39,12 @@ export default defineAction({
       title: proposal.title,
       body: proposal.body,
       evidence: [],
-      proposalMode: "never",
     });
     const nextPayload: WriteKnowledgeInput = {
       ...payload,
       publishCanonical: publishCanonical ?? payload.publishCanonical,
-      proposalMode: "never",
     };
-    const result = await writeKnowledgeRecord(nextPayload, {
-      bypassProposal: true,
-    });
+    const result = await writeKnowledgeRecord(nextPayload);
     await getDb()
       .update(schema.brainProposals)
       .set({

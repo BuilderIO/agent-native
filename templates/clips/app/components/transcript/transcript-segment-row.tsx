@@ -6,8 +6,6 @@ export interface TranscriptSegmentRowProps {
   startMs: number;
   children: ReactNode;
   active?: boolean;
-  /** Momentary jump-to-segment flash, rendered as its own overlay layer so
-   * its fade-out is never racing the row's own hover/active transition. */
   highlighted?: boolean;
   onClick?: (event: MouseEvent<HTMLDivElement>) => void;
   onKeyDown?: (event: KeyboardEvent<HTMLDivElement>) => void;
@@ -54,14 +52,6 @@ export function TranscriptSegmentRow({
       onKeyDown={onKeyDown}
       className={cn(
         "group/segment relative flex items-baseline gap-4 rounded-md py-1.5 text-left text-sm leading-normal transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-        // The meeting notes view puts the AI summary front and center and the
-        // transcript is reference material you dip into as needed, so it
-        // carries less visual weight there. Faded foreground, not
-        // text-muted-foreground — that token sits at 45% lightness (same as
-        // disabled/placeholder text elsewhere), which reads as inactive
-        // rather than merely secondary. The player's transcript panel has no
-        // competing summary — it's the primary content, so it stays full
-        // strength.
         gutter === "panel" ? "text-foreground" : "text-foreground/70",
         gutter === "content" ? "-mx-2 px-2" : "w-full px-3",
         interactive && "cursor-pointer",
@@ -83,9 +73,6 @@ export function TranscriptSegmentRow({
       <span
         className={cn(
           "pointer-events-none w-12 shrink-0 text-right font-mono text-[10px] tabular-nums text-muted-foreground/80 transition-opacity",
-          // The player's transcript list is scanned by timestamp to find a
-          // moment — it's primary information there, not hover-reveal
-          // supplementary detail like it is in the summary bullets.
           gutter === "panel"
             ? "opacity-100"
             : "opacity-0 group-hover/segment:opacity-100 group-focus-visible/segment:opacity-100 [@media(hover:none)]:opacity-100",

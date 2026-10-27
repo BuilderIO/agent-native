@@ -2,7 +2,7 @@ import type {
   CanvasFrameGeometry,
   CanvasFrameGeometryById,
 } from "@shared/canvas-frames";
-import type { CodeLayerNode, CodeLayerSource } from "@shared/code-layer";
+import type { CodeLayerNode } from "@shared/code-layer";
 import { buildCodeLayerProjection } from "@shared/code-layer";
 import type { RefObject } from "react";
 
@@ -17,16 +17,18 @@ import type { AlignableRect } from "@/pages/design-editor/layout-operations";
 import { computeTidyPositions } from "@/pages/design-editor/layout-operations";
 import type { DesignFile } from "@/pages/design-editor/types";
 
+import {
+  type CommitNodeStylePatches,
+  type MeasureAlignSelection,
+  runSharedLayoutMove,
+} from "./align-selection";
+
 export interface TidyUpArgs {
   activeFile: DesignFile;
   boardFileId: string | undefined;
   boardFrameGeometry: FrameGeometry | undefined;
   canEditDesign: boolean;
-  commitNodePositions: (
-    baseContent: string,
-    positions: ReadonlyMap<string, { x: number; y: number }>,
-    source?: CodeLayerSource,
-  ) => boolean;
+  commitNodePositions: CommitNodeStylePatches;
   designDataJsonRef: RefObject<Record<string, unknown>>;
   getActiveFileSelectedNodeIds: (content: string) => string[];
   getFreshActiveContent: () => string;
@@ -40,9 +42,10 @@ export interface TidyUpArgs {
     after: CanvasFrameGeometryById,
     options?: { source?: "pointer" | "keyboard" },
   ) => void;
+  measureSelection: MeasureAlignSelection;
   overviewScreens: OverviewScreen[];
   overviewSelectedScreenIds: string[];
-  rectFromCodeLayerNode: (node: CodeLayerNode) => AlignableRect;
+  t: (key: string) => string;
   viewModeRef: RefObject<"single" | "overview">;
 }
 
@@ -57,9 +60,10 @@ export function runTidyUp({
   getFreshActiveContent,
   getScreenGroupFootprint,
   handleGeometryCommit,
+  measureSelection,
   overviewScreens,
   overviewSelectedScreenIds,
-  rectFromCodeLayerNode,
+  t,
   viewModeRef,
 }: TidyUpArgs) {
   if (!canEditDesign) return;
@@ -85,9 +89,6 @@ export function runTidyUp({
             : undefined;
       if (!fallbackGeometry) return;
       const geometry = { ...fallbackGeometry, ...before[screenId] };
-      // Pack against the breakpoint group's footprint, not just the base
-      // frame — otherwise tidy leaves every breakpoint row overlapping the
-      // neighbouring screen.
       const footprint = getScreenGroupFootprint(screenId, geometry);
       screenRects.push({
         id: screenId,
@@ -119,7 +120,14 @@ export function runTidyUp({
     .map((nodeId) => nodesById.get(nodeId))
     .filter((node): node is CodeLayerNode => Boolean(node));
   if (selectedNodes.length === 0) return;
-  const selectedRects = selectedNodes.map(rectFromCodeLayerNode);
-  const positions = computeTidyPositions(selectedRects);
-  commitNodePositions(baseContent, positions, source);
+  runSharedLayoutMove({
+    baseContent,
+    commitNodePositions,
+    measureSelection,
+    nodes: selectedNodes,
+    source,
+    t,
+    traceName: "tidy",
+    targets: computeTidyPositions,
+  });
 }

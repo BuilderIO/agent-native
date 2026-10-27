@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import type { ResourceSuggestion } from "@agent-native/core/review";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, useState, type ComponentProps, type ReactNode } from "react";
 import { createRoot as createReactRoot } from "react-dom/client";
 
@@ -8,18 +9,35 @@ import { CommentDraftProvider } from "./comment-drafts";
 
 function createRoot(container: Parameters<typeof createReactRoot>[0]) {
   const root = createReactRoot(container);
+  // The sidebar refetches the Page after an AI undo, so it needs a client.
+  const queryClient = new QueryClient();
   const render = root.render.bind(root);
   root.render = (children) =>
     render(
-      <CommentDraftProvider documentId="test-page">
-        {children}
-      </CommentDraftProvider>,
+      <QueryClientProvider client={queryClient}>
+        <CommentDraftProvider documentId="test-page">
+          {children}
+        </CommentDraftProvider>
+      </QueryClientProvider>,
     );
   return root;
+}
+
+/** Reply composers; the Discussion panel's composer for the page is not one. */
+function replyEditors(root: ParentNode) {
+  return [...root.querySelectorAll<HTMLElement>(".ProseMirror")].filter(
+    (editor) => !editor.closest("[data-discussion-composer]"),
+  );
 }
 import { expect, it, vi } from "vitest";
 
 import {
+  richEditorValue,
+  selectedRichText,
+  setRichEditorSelection,
+} from "./comment-composer-test-utils";
+import {
+  commentAiModelStorageKey,
   CommentsSidebar,
   suggestionTextForDisplay,
   useCommentReplyDrafts,
@@ -27,6 +45,22 @@ import {
 import type { DraftSuggestion } from "./suggestions/draft-session";
 
 const { replyMutate } = vi.hoisted(() => ({ replyMutate: vi.fn() }));
+
+it("isolates comment AI model selection by organization and user", () => {
+  expect(
+    commentAiModelStorageKey(" Reviewer@Example.test ", "workspace-a"),
+  ).toBe("model:content-comment-ai:org:workspace-a:reviewer@example.test");
+  expect(
+    commentAiModelStorageKey("reviewer@example.test", "workspace-b"),
+  ).not.toBe(commentAiModelStorageKey("reviewer@example.test", "workspace-a"));
+  expect(
+    commentAiModelStorageKey("other@example.test", "workspace-a"),
+  ).not.toBe(commentAiModelStorageKey("reviewer@example.test", "workspace-a"));
+  expect(commentAiModelStorageKey("reviewer@example.test")).toBe(
+    "model:content-comment-ai:personal:reviewer@example.test",
+  );
+  expect(commentAiModelStorageKey()).toBeUndefined();
+});
 
 it("remembers status across pages and remounts without sharing accounts or persisting reveals", async () => {
   const container = document.createElement("div");
@@ -166,7 +200,14 @@ it("interleaves ordinary, saved, and draft discussions by creation time", async 
   }
   try {
     await act(async () => root.render(<Harness />));
-    const text = container.textContent!;
+    // Page order puts comments on the whole page before suggested edits.
+    let text = container.textContent!;
+    expect(text.indexOf("Ordinary 2")).toBeLessThan(
+      text.indexOf("Saved middle"),
+    );
+    expect(text.indexOf("Ordinary 2")).toBeLessThan(text.indexOf("Draft last"));
+    await act(async () => controller.setHistoryFilters({ sort: "oldest" }));
+    text = container.textContent!;
     expect(text.indexOf("Ordinary 0")).toBeLessThan(
       text.indexOf("Saved middle"),
     );
@@ -180,6 +221,10 @@ it("interleaves ordinary, saved, and draft discussions by creation time", async 
     expect(container.textContent).toContain("Ordinary 0");
   } finally {
     await act(async () => root.unmount());
+    localStorage.removeItem(`content-discussion-sort:${JSON.stringify("")}`);
+    localStorage.removeItem(
+      `content-discussion-filters:${JSON.stringify(["", "chronology"])}`,
+    );
   }
 });
 
@@ -187,10 +232,24 @@ it("interleaves ordinary, saved, and draft discussions by creation time", async 
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
+  chatModelSelectionStorageKey: (scope: string) => `model:${scope}`,
+  useChatModels: () => ({
+    configuredModels: [],
+    selectionReady: false,
+    selectedModel: "",
+    selectedEngine: "",
+    selectedEffort: undefined,
+    unavailableSelection: null,
+    onModelChange: vi.fn(),
+  }),
   sendToAgentChat: vi.fn(),
 }));
-vi.mock("@agent-native/core/client/hooks", () => ({
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   useAvatarUrl: () => null,
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -206,7 +265,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "editor.sourceComponent.previewUnavailable": "Preview unavailable",
     })[key] ?? key,
 }));
-vi.mock("@agent-native/core/client/markdown", () => ({
+vi.mock("@agent-native/toolkit/app/review", () => ({
   InlineMarkdown: ({ content }: { content: string }) => (
     <>{content.trimEnd()}</>
   ),
@@ -279,7 +338,9 @@ vi.mock("@agent-native/core/client/review", () => ({
 }));
 vi.mock("@/hooks/use-comments", () => ({
   useEditComment: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useReactToComment: () => ({ mutate: vi.fn(), isPending: false }),
   useCreateComment: () => ({ mutate: vi.fn(), isPending: false }),
+  useDeleteComment: () => ({ mutateAsync: vi.fn() }),
   useResolveComment: () => ({ mutate: vi.fn() }),
 }));
 vi.mock("@/hooks/use-mention-members", () => ({
@@ -332,18 +393,6 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
     onCheckedChange?: (checked: boolean) => void;
   }) => <button onClick={() => onCheckedChange?.(true)}>{children}</button>,
 }));
-vi.mock("./CommentComposer", async () => {
-  const { forwardRef } = await import("react");
-  return {
-    CommentComposer: forwardRef<
-      HTMLTextAreaElement,
-      { value: string; placeholder?: string }
-    >(({ value, placeholder }, ref) => (
-      <textarea ref={ref} value={value} placeholder={placeholder} readOnly />
-    )),
-  };
-});
-
 it("shows semantic markers for whitespace-only saved and draft changes", () => {
   expect(suggestionTextForDisplay("  ")).toBe("··");
   expect(suggestionTextForDisplay("\t")).toBe("⇥");
@@ -509,16 +558,23 @@ it("renders exact marked hard-break replacement summaries without delimiter leak
   }
   try {
     await act(async () => root.render(<Harness />));
-    expect(container.querySelector("strong")?.textContent).toBe("Across");
+    // Replacing a line break keeps what it replaces in view while collapsed.
+    expect(
+      [...container.querySelectorAll("strong")]
+        .map((element) => element.textContent)
+        .join(""),
+    ).toBe("AcrossUpperLower");
     await act(async () =>
       controller.setOpenReply(suggestion.threadId, suggestion.id, false),
     );
     expect(
-      [...container.querySelectorAll("strong")].map(
-        (element) => element.textContent,
-      ),
-    ).toEqual(["Across", "Upper", "Lower"]);
-    expect(container.textContent).toContain("Upper↵Lower");
+      [...container.querySelectorAll("strong")]
+        .map((element) => element.textContent)
+        .join(""),
+    ).toBe("AcrossUpperLower");
+    expect(container.innerHTML).toContain(
+      "<strong>Upper</strong><br><strong>Lower</strong>",
+    );
     expect(container.textContent).not.toContain("**");
     expect(container.textContent).not.toContain("<br>");
   } finally {
@@ -526,7 +582,7 @@ it("renders exact marked hard-break replacement summaries without delimiter leak
   }
 });
 
-it("preserves all history filters across rail and Sheet remounts, resetting only for a new document or reveal intent", async () => {
+it("preserves all history filters across rail and Sheet remounts, keeping them per document and resetting only for a reveal intent", async () => {
   const container = document.createElement("div");
   const root = createRoot(container);
   let controller!: ReturnType<typeof useCommentReplyDrafts>;
@@ -552,6 +608,20 @@ it("preserves all history filters across rail and Sheet remounts, resetting only
     status: "open" as const,
     kind: "suggestions" as const,
     author: "reviewer@example.test",
+    tab: "notes",
+    target: "all" as const,
+    mentionsMe: false,
+    query: "",
+    sort: "page" as const,
+  };
+  const unfiltered = {
+    kind: "all",
+    author: null,
+    tab: null,
+    target: "all",
+    mentionsMe: false,
+    query: "",
+    sort: "page",
   };
   try {
     await act(async () =>
@@ -567,11 +637,7 @@ it("preserves all history filters across rail and Sheet remounts, resetting only
     );
     expect(controller.historyFilters).toEqual(filters);
     await act(async () => controller.revealHistory("conflict", null));
-    expect(controller.historyFilters).toEqual({
-      status: "all",
-      kind: "all",
-      author: null,
-    });
+    expect(controller.historyFilters).toEqual({ status: "all", ...unfiltered });
     await act(async () => controller.setHistoryFilters(filters));
     await act(async () => controller.revealHistory("conflict", null));
     expect(controller.historyFilters).toEqual(filters);
@@ -583,15 +649,20 @@ it("preserves all history filters across rail and Sheet remounts, resetting only
     );
     expect(controller.historyFilters).toEqual({
       status: "open",
-      kind: "all",
-      author: null,
+      ...unfiltered,
     });
+    // Each Page keeps the filters someone chose on it.
     await act(async () =>
       root.render(<Harness documentId="one" layout="rail" />),
     );
-    expect(controller.historyFilters.status).toBe("open");
+    expect(controller.historyFilters).toEqual(filters);
   } finally {
     await act(async () => root.unmount());
+    for (const documentId of ["one", "two"])
+      localStorage.removeItem(
+        `content-discussion-filters:${JSON.stringify(["", documentId])}`,
+      );
+    localStorage.removeItem(`content-discussion-sort:${JSON.stringify("")}`);
   }
 });
 
@@ -710,13 +781,11 @@ it.each([
       await act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 70));
       });
-      const composer = card.querySelector<HTMLTextAreaElement>("textarea")!;
+      const composer = card.querySelector<HTMLElement>(".ProseMirror")!;
       expect(document.activeElement).toBe(composer);
-      const commentHeader = card.querySelector<HTMLElement>(
-        ".group\\/comment > div",
-      )!;
-      expect(commentHeader.className).toContain("pr-16");
-      expect(commentHeader.className).not.toContain("pe-16");
+      // Thread actions sit inline in the first row, so no header space is
+      // reserved for an overlay.
+      expect(card.querySelector("[data-comment-row-actions]")).not.toBeNull();
       let moreActions = card.querySelector<HTMLButtonElement>(
         'button[aria-label="comments.moreActions"]',
       )!;
@@ -763,10 +832,6 @@ it.each([
       expect(moreActions.className).not.toContain("md:opacity-0");
       moreActions.focus();
       expect(document.activeElement).toBe(moreActions);
-      expect(
-        container.querySelector<HTMLElement>(".group\\/comment > div")!
-          .className,
-      ).toContain("pr-16");
     } finally {
       await act(async () => root.unmount());
       container.remove();
@@ -795,10 +860,12 @@ it.each(["ordinary", "suggestion"] as const)(
         },
       ],
     });
+    // On text, so the margin rail shows it too; a page comment stays in the
+    // Discussion panel.
     const thread = {
       threadId: "ordinary-responsive",
       resolved: false,
-      quotedText: null,
+      quotedText: "Quoted line",
       prefix: null,
       suffix: null,
       startOffset: null,
@@ -809,7 +876,7 @@ it.each(["ordinary", "suggestion"] as const)(
           thread_id: "ordinary-responsive",
           parent_id: null,
           content: "Review this",
-          quoted_text: null,
+          quoted_text: "Quoted line",
           anchor_prefix: null,
           anchor_suffix: null,
           anchor_start_offset: null,
@@ -857,31 +924,24 @@ it.each(["ordinary", "suggestion"] as const)(
         drafts.setText(threadId, "First line\nSecond line"),
       );
       await settle();
-      let input = container.querySelector("textarea")!;
-      input.setSelectionRange(3, 15, "backward");
-      input.dispatchEvent(new Event("select"));
+      let input = replyEditors(container)[0];
+      await setRichEditorSelection(input, 3, 15, "backward");
       for (const surface of ["sheet", "rail"]) {
         await act(async () => root.render(<Harness surface={surface} />));
         await settle();
-        expect(container.querySelectorAll("textarea")).toHaveLength(1);
-        input = container.querySelector("textarea")!;
-        expect(input.value).toBe("First line\nSecond line");
+        expect(replyEditors(container)).toHaveLength(1);
+        input = replyEditors(container)[0];
+        expect(richEditorValue(input)).toBe("First line\nSecond line");
         expect(document.activeElement).toBe(input);
-        expect([
-          input.selectionStart,
-          input.selectionEnd,
-          input.selectionDirection,
-        ]).toEqual([3, 15, "backward"]);
+        expect(selectedRichText(input)).toBe("st lineSec");
       }
       input.blur();
       await act(async () => root.render(<Harness surface="sheet" />));
       await settle();
-      expect(document.activeElement).not.toBe(
-        container.querySelector("textarea"),
-      );
+      expect(document.activeElement).not.toBe(replyEditors(container)[0]);
       await act(async () => drafts.setOpenReply(null));
       await act(async () => root.render(<Harness surface="rail" />));
-      expect(container.querySelector("textarea")).toBeNull();
+      expect(replyEditors(container)).toEqual([]);
       expect(drafts.get(threadId).text).toBe("First line\nSecond line");
     } finally {
       await act(async () => root.unmount());
@@ -954,29 +1014,19 @@ it("hands focus from a retained inert history rail to the sheet without clearing
       drafts.setText(saved.threadId, "First line\nSecond line"),
     );
     await settle();
-    const oldInput = container.querySelector("textarea")!;
-    oldInput.setSelectionRange(3, 15, "backward");
-    oldInput.dispatchEvent(new Event("select"));
+    const oldInput = replyEditors(container)[0];
+    await setRichEditorSelection(oldInput, 3, 15, "backward");
     await act(async () => root.render(<Harness compact />));
     expect(oldInput.isConnected).toBe(true);
     expect(oldInput.closest("[inert]")).not.toBeNull();
-    // happy-dom does not dispatch the browser's blur when an ancestor becomes inert.
     oldInput.blur();
     await settle();
-    const input = container.querySelector<HTMLTextAreaElement>(
-      "[data-sheet] textarea",
-    )!;
+    const input = replyEditors(container.querySelector("[data-sheet]")!)[0];
     expect(document.activeElement).toBe(input);
-    expect(input.value).toBe("First line\nSecond line");
-    expect([
-      input.selectionStart,
-      input.selectionEnd,
-      input.selectionDirection,
-    ]).toEqual([3, 15, "backward"]);
+    expect(richEditorValue(input)).toBe("First line\nSecond line");
+    expect(selectedRichText(input)).toBe("st lineSec");
     expect(
-      [...container.querySelectorAll("textarea")].filter(
-        (element) => !element.closest("[inert]"),
-      ),
+      replyEditors(container).filter((element) => !element.closest("[inert]")),
     ).toEqual([input]);
     await act(async () => root.render(<Harness compact retained={false} />));
     expect(document.activeElement).toBe(input);
@@ -985,9 +1035,7 @@ it("hands focus from a retained inert history rail to the sheet without clearing
     expect(drafts.focus.current).toBeNull();
     await act(async () => root.render(<Harness />));
     await settle();
-    expect(document.activeElement).not.toBe(
-      container.querySelector("textarea"),
-    );
+    expect(document.activeElement).not.toBe(replyEditors(container)[0]);
   } finally {
     await act(async () => root.unmount());
     container.remove();
@@ -1072,7 +1120,9 @@ it("matches Notion operation order, disclosure, and full-line colors for draft a
         lines.some(
           (line) =>
             line.textContent === "with: “workflows”" &&
-            line.className.includes("text-[hsl(var(--suggestion))]"),
+            [...line.querySelectorAll("span")].some((span) =>
+              span.className.includes("text-[hsl(var(--suggestion))]"),
+            ),
         ),
       ).toBe(true);
     }
@@ -1080,11 +1130,9 @@ it("matches Notion operation order, disclosure, and full-line colors for draft a
     const savedCard = container.querySelector(
       `[data-suggestion-id="${saved.id}"] [data-thread-card]`,
     );
-    expect(savedCard?.className).toContain(
-      "bg-[color-mix(in_srgb,hsl(var(--accent))_60%,hsl(var(--popover)))]",
-    );
+    expect(savedCard?.className).toContain("ring-foreground/15");
     expect(
-      savedCard?.querySelector('textarea[placeholder="comments.reply"]'),
+      savedCard?.querySelector('.ProseMirror[aria-label="comments.reply"]'),
     ).toBeNull();
 
     const replyButton = [...savedCard!.querySelectorAll("button")].find(
@@ -1101,6 +1149,222 @@ it("matches Notion operation order, disclosure, and full-line colors for draft a
         (line) => line.textContent === "Replace: “workflow”",
       )?.className,
     ).toContain("text-muted-foreground");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+it.each([
+  ["joining paragraphs with a space", "\n", " ", "with: “·”", "Replace: “↵”"],
+  ["splitting a paragraph", " ", "\n", "with: “↵”", "Replace: “·”"],
+  ["swapping whitespace", "  ", "\t", "with: “⇥”", "Replace: “··”"],
+  [
+    "joining paragraphs inside a rewrite",
+    "first\nsecond",
+    "first second",
+    "with: “first·second”",
+    "Replace: “first↵second”",
+  ],
+])(
+  "shows what %s replaces on collapsed draft and saved cards",
+  async (_label, before, after, primary, replaced) => {
+    const operations = [
+      {
+        ordinal: 0,
+        kind: "replace_text",
+        before: { changedText: before },
+        after: { changedText: after },
+        schemaVersion: 1,
+      },
+    ];
+    const saved = suggestionFixture({
+      id: "saved-join",
+      revision: 1,
+      threadId: "thread-saved-join",
+      authorEmail: "reviewer@example.test",
+      actorKind: "human",
+      createdAt: "2026-09-06T12:00:00.000Z",
+      status: "pending",
+      operations,
+    });
+    const draft: DraftSuggestion = {
+      durability: "draft",
+      id: "draft-join",
+      threadId: "draft-join",
+      authorEmail: "reviewer@example.test",
+      createdAt: "2026-09-06T12:01:00.000Z",
+      operations,
+      anchor: { from: 0, to: 1, prefix: "", suffix: "" },
+    };
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    function Harness() {
+      const replyDrafts = useCommentReplyDrafts("document-join");
+      return (
+        <CommentsSidebar
+          replyDrafts={replyDrafts}
+          documentId="document-join"
+          suggestions={[saved]}
+          draftSuggestions={[draft]}
+          canComment
+          forceVisible
+        />
+      );
+    }
+    try {
+      await act(async () => root.render(<Harness />));
+      for (const id of [saved.id, draft.id]) {
+        const card = container.querySelector(`[data-suggestion-id="${id}"]`);
+        expect(card?.textContent).toContain(primary);
+        expect(card?.textContent).toContain(replaced);
+      }
+    } finally {
+      await act(async () => root.unmount());
+    }
+  },
+);
+
+it("names suggestion authors by display name before their email", async () => {
+  const ownEmail = "an-e2e-probe-agent@agents.example.test";
+  const operations = [
+    {
+      ordinal: 0,
+      kind: "insert_text",
+      before: { changedText: "" },
+      after: { changedText: "Added" },
+      schemaVersion: 1,
+    },
+  ];
+  const saved = (id: string, authorEmail: string) =>
+    suggestionFixture({
+      id,
+      revision: 1,
+      threadId: `thread-${id}`,
+      authorEmail,
+      actorKind: "human",
+      createdAt: "2026-09-06T12:00:00.000Z",
+      status: "pending",
+      operations,
+    });
+  const ownSaved = saved("own-saved", ownEmail);
+  const recordNamed = saved("pending-named", "reviewer@example.test");
+  const unnamed = saved("other-unnamed", "someone.else@example.test");
+  const draft: DraftSuggestion = {
+    durability: "draft",
+    id: "own-draft",
+    threadId: "own-draft",
+    authorEmail: ownEmail,
+    createdAt: "2026-09-06T12:01:00.000Z",
+    operations,
+    anchor: { from: 0, to: 5, prefix: "", suffix: "" },
+  };
+  const container = document.createElement("div");
+  // Attached, so the Filter menu can open inside the panel.
+  document.body.append(container);
+  const root = createRoot(container);
+  function Harness({ presentation }: { presentation: "inline" | "history" }) {
+    const replyDrafts = useCommentReplyDrafts("document-authors");
+    return (
+      <CommentsSidebar
+        replyDrafts={replyDrafts}
+        documentId="document-authors"
+        suggestions={[ownSaved, recordNamed, unnamed]}
+        draftSuggestions={[draft]}
+        currentUserEmail={ownEmail}
+        currentUserName="Probe Agent"
+        presentation={presentation}
+        forceVisible
+      />
+    );
+  }
+  const cardText = (id: string) =>
+    container.querySelector(`[data-suggestion-id="${id}"]`)?.textContent ?? "";
+  try {
+    await act(async () => root.render(<Harness presentation="inline" />));
+    expect(cardText(draft.id)).toContain("Probe Agent");
+    expect(cardText(ownSaved.id)).toContain("Probe Agent");
+    expect(cardText(recordNamed.id)).toContain("Reviewer");
+    expect(cardText(unnamed.id)).toContain("someone.else");
+    expect(container.textContent).not.toContain("an-e2e-probe-agent");
+
+    await act(async () => root.render(<Harness presentation="history" />));
+    // The people to filter by are in the Filter menu.
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>("[data-discussion-filter-trigger]")!
+        .click(),
+    );
+    const authorFilters = [
+      ...document.querySelectorAll(
+        '[data-discussion-filter-group="person"] [data-discussion-filter-option]',
+      ),
+    ].map((option) => option.textContent);
+    expect(authorFilters).toContain("Probe Agent");
+    expect(container.textContent).not.toContain("an-e2e-probe-agent");
+    expect(document.body.textContent).not.toContain("an-e2e-probe-agent");
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+});
+
+it("highlights only changed text beside unchanged markdown formatting", async () => {
+  const saved = suggestionFixture({
+    id: "formatted-replacement",
+    revision: 1,
+    threadId: "thread-formatted-replacement",
+    authorEmail: "reviewer@example.test",
+    actorKind: "human",
+    createdAt: "2026-09-06T12:00:00.000Z",
+    status: "pending",
+    operations: [
+      {
+        ordinal: 0,
+        kind: "replace_text",
+        before: { markdown: "**bold** cat!", changedText: "**bold** cat!" },
+        after: { markdown: "**bold** dog!", changedText: "**bold** dog!" },
+        anchor: { from: 0, to: 13, prefix: "", suffix: "" },
+        schemaVersion: 1,
+      },
+    ],
+  });
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  function Harness() {
+    const replyDrafts = useCommentReplyDrafts("document-formatted-replacement");
+    return (
+      <CommentsSidebar
+        replyDrafts={replyDrafts}
+        documentId="document-formatted-replacement"
+        suggestions={[saved]}
+        canComment
+        forceVisible
+      />
+    );
+  }
+  try {
+    await act(async () => root.render(<Harness />));
+    const card = container.querySelector(
+      '[data-suggestion-id="formatted-replacement"]',
+    );
+    expect(card?.querySelector("strong")?.textContent).toBe("bold");
+    const changed = [...(card?.querySelectorAll("span") ?? [])].find((span) =>
+      span.className.includes("decoration-[hsl(var(--suggestion))]"),
+    );
+    expect(changed?.textContent).toBe("dog");
+    expect(card?.textContent).toContain("with: “bold dog!”");
+    expect(card?.textContent).not.toContain("Preview unavailable");
+    const detailsButton = [...(card?.querySelectorAll("button") ?? [])].find(
+      (button) => button.textContent === "comments.suggestionDetails",
+    );
+    await act(async () => detailsButton?.click());
+    expect(card?.textContent).toContain("Replace: “bold cat!”");
+    expect(card?.textContent).not.toContain("Preview unavailable");
+    expect(
+      [...(card?.querySelectorAll("strong") ?? [])].filter(
+        (element) => element.textContent === "bold",
+      ),
+    ).toHaveLength(2);
   } finally {
     await act(async () => root.unmount());
   }
@@ -1155,9 +1419,10 @@ it("shows an explicit unavailable label for invalid provided suggestion context"
 });
 
 it("shares hover, focus, and reduced-motion behavior across comment and suggestion cards", async () => {
+  // On text: the rail leaves a comment on the whole page to the panel.
   const thread = {
     threadId: "ordinary-thread",
-    quotedText: null,
+    quotedText: "Quoted line",
     prefix: null,
     suffix: null,
     startOffset: null,
@@ -1169,7 +1434,7 @@ it("shares hover, focus, and reduced-motion behavior across comment and suggesti
         thread_id: "ordinary-thread",
         parent_id: null,
         content: "A focused comment",
-        quoted_text: null,
+        quoted_text: "Quoted line",
         anchor_prefix: null,
         anchor_suffix: null,
         anchor_start_offset: null,
@@ -1233,9 +1498,7 @@ it("shares hover, focus, and reduced-motion behavior across comment and suggesti
     expect(cards.every(Boolean)).toBe(true);
     expect(new Set(cards.map((card) => card?.className)).size).toBe(1);
     expect(cards[0]?.className).toContain("hover:-translate-x-2");
-    expect(cards[0]?.className).toContain(
-      "hover:bg-[color-mix(in_srgb,hsl(var(--accent))_60%,hsl(var(--popover)))]",
-    );
+    expect(cards[0]?.className).toContain("hover:shadow-comment-emphasis");
     expect(cards[0]?.className).toContain("focus-within:-translate-x-2");
     expect(cards[0]?.className).toContain("motion-reduce:hover:translate-x-0");
 
@@ -1243,9 +1506,7 @@ it("shares hover, focus, and reduced-motion behavior across comment and suggesti
     expect(
       container.querySelector(`[data-thread-card="${thread.threadId}"]`)
         ?.className,
-    ).toContain(
-      "bg-[color-mix(in_srgb,hsl(var(--accent))_60%,hsl(var(--popover)))]",
-    );
+    ).toContain("ring-foreground/15");
   } finally {
     await act(async () => root.unmount());
   }
@@ -1280,10 +1541,9 @@ it("keeps replies and mentions across composer remounts and isolates documents a
     await show("document-one", "ordinary-thread");
     await act(async () => {
       drafts.setText("ordinary-thread", "Unsent @Example reply");
-      drafts.addMention("ordinary-thread", {
-        email: "example@example.test",
-        name: "Example",
-      });
+      drafts.setMentions("ordinary-thread", [
+        { email: "example@example.test", name: "Example" },
+      ]);
       drafts.setText("suggestion-thread", "Unsent suggestion reply");
     });
     await show("document-one", "ordinary-thread", false);
@@ -1458,11 +1718,77 @@ it("materializes a draft Reply from history and focuses the durable thread compo
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 70));
     });
-    const composer = container.querySelector<HTMLTextAreaElement>(
-      'textarea[placeholder="comments.reply"]',
+    const composer = container.querySelector<HTMLElement>(
+      '.ProseMirror[aria-label="comments.reply"]',
     );
     expect(composer).not.toBeNull();
     expect(document.activeElement).toBe(composer);
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+});
+
+it("opens an unanchored history thread so its recovery actions remain reachable", async () => {
+  const thread = {
+    threadId: "stale-anchor-thread",
+    quotedText: "Text changed by the partial operation",
+    prefix: null,
+    suffix: null,
+    startOffset: null,
+    resolved: false,
+    comments: [
+      {
+        id: "stale-anchor-root",
+        document_id: "document-recovery",
+        thread_id: "stale-anchor-thread",
+        parent_id: null,
+        content: "Recover the unfinished operation",
+        quoted_text: "Text changed by the partial operation",
+        anchor_prefix: null,
+        anchor_suffix: null,
+        anchor_start_offset: null,
+        mentions: [],
+        author_email: "reviewer@example.test",
+        author_name: "Reviewer",
+        resolved: 0,
+        created_at: "2026-09-17T12:00:00.000Z",
+        updated_at: "2026-09-17T12:00:00.000Z",
+        notion_comment_id: null,
+      },
+    ],
+  };
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  function Harness() {
+    const replyDrafts = useCommentReplyDrafts("document-recovery");
+    return (
+      <CommentsSidebar
+        documentId="document-recovery"
+        replyDrafts={replyDrafts}
+        threads={[thread]}
+        presentation="history"
+        canComment
+        forceVisible
+      />
+    );
+  }
+  try {
+    await act(async () => root.render(<Harness />));
+    // The feed shows the anchored text and an inline Reply action.
+    expect(container.querySelector("[data-comment-quote]")?.textContent).toBe(
+      "Text changed by the partial operation",
+    );
+    const reply = container.querySelector<HTMLButtonElement>(
+      "[data-comment-reply-action]",
+    );
+    await act(async () => reply?.click());
+    expect(
+      container.querySelector<HTMLElement>(
+        '.ProseMirror[aria-label="comments.reply"]',
+      ),
+    ).not.toBeNull();
   } finally {
     await act(async () => root.unmount());
     container.remove();
@@ -1540,7 +1866,11 @@ it("keeps decided suggestion history readable and replies only to pending thread
       (button) => button.getAttribute("aria-label") === "comments.submit",
     );
     expect(submit).toBeDefined();
-    await act(async () => submit?.click());
+    await act(async () => {
+      submit?.click();
+      submit?.click();
+    });
+    expect(replyMutate).toHaveBeenCalledTimes(1);
     expect(replyMutate).toHaveBeenCalledWith(
       expect.objectContaining({
         commentId: "root-pending-suggestion",
@@ -1548,8 +1878,247 @@ it("keeps decided suggestion history readable and replies only to pending thread
       }),
       expect.any(Object),
     );
+    const firstOperationId = replyMutate.mock.calls[0][0].clientOperationId;
+    const timeout = Object.assign(new Error("Request timed out"), {
+      timedOut: true,
+    });
+    await act(async () => {
+      replyMutate.mock.calls[0][1].onError(timeout);
+      replyMutate.mock.calls[0][1].onSettled();
+    });
+    expect(drafts.get("thread-pending-suggestion").text).toBe("Pending reply");
+    await act(async () => submit?.click());
+    expect(replyMutate.mock.calls[1][0].clientOperationId).toBe(
+      firstOperationId,
+    );
   } finally {
     await act(async () => root.unmount());
     container.remove();
+  }
+});
+
+it("mentions only the people a suggestion reply names as a whole @name", async () => {
+  replyMutate.mockClear();
+  const suggestions = [
+    suggestionFixture({
+      id: "pending-suggestion",
+      revision: 1,
+      threadId: "thread-pending-suggestion",
+      authorEmail: "reviewer@example.test",
+      actorKind: "human",
+      createdAt: "2026-09-06T12:00:00.000Z",
+      status: "pending",
+      operations: [
+        {
+          ordinal: 0,
+          kind: "replace_text",
+          before: { changedText: "original" },
+          after: { changedText: "proposal" },
+          schemaVersion: 1,
+        },
+      ],
+    }),
+  ];
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  let drafts!: ReturnType<typeof useCommentReplyDrafts>;
+  function Harness() {
+    drafts = useCommentReplyDrafts("document-reply-mentions");
+    return (
+      <CommentsSidebar
+        replyDrafts={drafts}
+        documentId="document-reply-mentions"
+        suggestions={suggestions}
+        presentation="history"
+        canComment
+        forceVisible
+      />
+    );
+  }
+  try {
+    await act(async () => root.render(<Harness />));
+    const replyButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "comments.reply",
+    );
+    await act(async () => replyButton?.click());
+    await act(async () => {
+      drafts.setText(
+        "thread-pending-suggestion",
+        "Ask @Samantha, not `@Sam`, and @Samantha again",
+      );
+      drafts.setMentions("thread-pending-suggestion", [
+        { email: "sam@example.test", name: "Sam" },
+        { email: "samantha@example.test", name: "Samantha" },
+      ]);
+    });
+    const submit = [...container.querySelectorAll("button")].find(
+      (button) => button.getAttribute("aria-label") === "comments.submit",
+    );
+    await act(async () => submit?.click());
+
+    expect(replyMutate).toHaveBeenCalledTimes(1);
+    expect(replyMutate.mock.calls[0][0].mentions).toEqual([
+      { email: "samantha@example.test", label: "Samantha" },
+    ]);
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+});
+
+it("labels an open comment whose quoted text is no longer in the page", async () => {
+  const commentThread = (threadId: string, quotedText: string) => ({
+    threadId,
+    quotedText,
+    prefix: null,
+    suffix: null,
+    startOffset: null,
+    resolved: false,
+    comments: [
+      {
+        id: `${threadId}-root`,
+        document_id: "document-orphan",
+        thread_id: threadId,
+        parent_id: null,
+        content: "Should this stay?",
+        quoted_text: quotedText,
+        anchor_prefix: null,
+        anchor_suffix: null,
+        anchor_start_offset: null,
+        mentions: [],
+        author_email: "reviewer@example.test",
+        author_name: "Reviewer",
+        resolved: 0,
+        created_at: "2026-10-05T11:24:43.172Z",
+        updated_at: "2026-10-05T11:24:43.172Z",
+        notion_comment_id: null,
+      },
+    ],
+  });
+  // Minimized from a page where a comment quoted a suggested sentence that
+  // was never saved, so the quote exists nowhere in the page.
+  const orphan = commentThread(
+    "orphan-thread",
+    "Encoding our newfound knowledge into skills is how we keep raising the bar.",
+  );
+  const anchored = commentThread("anchored-thread", "Hand edits are gold");
+  const scroll = document.createElement("div");
+  scroll.innerHTML =
+    '<div class="ProseMirror"><p>I have already promised Apoorva my next one.</p><h2>Hand edits are gold</h2></div>';
+  document.body.append(scroll);
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  function Harness() {
+    const replyDrafts = useCommentReplyDrafts("document-orphan");
+    return (
+      <CommentsSidebar
+        documentId="document-orphan"
+        replyDrafts={replyDrafts}
+        threads={[orphan, anchored]}
+        scrollContainerRef={{ current: scroll }}
+        surface="panel"
+        canComment
+        forceVisible
+      />
+    );
+  }
+  try {
+    await act(async () => root.render(<Harness />));
+    await act(
+      () =>
+        new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+    );
+    const labelFor = (threadId: string) =>
+      container.querySelector(
+        `[data-thread-card="${threadId}"] [data-comment-anchor-unavailable]`,
+      );
+    expect(labelFor("orphan-thread")?.textContent).toBe("comments.unanchored");
+    expect(labelFor("anchored-thread")).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+    scroll.remove();
+  }
+});
+
+it("does not label a thread before its new id is measured", async () => {
+  const commentThread = (threadId: string) => ({
+    threadId,
+    quotedText: "Hand edits are gold",
+    prefix: null,
+    suffix: null,
+    startOffset: null,
+    resolved: false,
+    comments: [
+      {
+        id: `${threadId}-root`,
+        document_id: "document-renamed",
+        thread_id: threadId,
+        parent_id: null,
+        content: "Make this specific",
+        quoted_text: "Hand edits are gold",
+        anchor_prefix: null,
+        anchor_suffix: null,
+        anchor_start_offset: null,
+        mentions: [],
+        author_email: "reviewer@example.test",
+        author_name: "Reviewer",
+        resolved: 0,
+        created_at: "2026-10-05T11:24:43.172Z",
+        updated_at: "2026-10-05T11:24:43.172Z",
+        notion_comment_id: null,
+      },
+    ],
+  });
+  const scroll = document.createElement("div");
+  scroll.innerHTML =
+    '<div class="ProseMirror"><h2>Hand edits are gold</h2></div>';
+  document.body.append(scroll);
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  function Harness({ threadId }: { threadId: string }) {
+    const replyDrafts = useCommentReplyDrafts("document-renamed");
+    return (
+      <CommentsSidebar
+        documentId="document-renamed"
+        replyDrafts={replyDrafts}
+        threads={[commentThread(threadId)]}
+        scrollContainerRef={{ current: scroll }}
+        surface="panel"
+        canComment
+        forceVisible
+      />
+    );
+  }
+  const nextFrame = () =>
+    act(
+      () =>
+        new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+    );
+  const labelFor = (threadId: string) =>
+    container.querySelector(
+      `[data-thread-card="${threadId}"] [data-comment-anchor-unavailable]`,
+    );
+  try {
+    await act(async () => root.render(<Harness threadId="optimistic-1" />));
+    await nextFrame();
+    expect(labelFor("optimistic-1")).toBeNull();
+
+    // The saved thread replaces its optimistic copy under a new id.
+    act(() => root.render(<Harness threadId="saved-1" />));
+    expect(container.querySelector('[data-thread-card="saved-1"]')).not.toBe(
+      null,
+    );
+    expect(labelFor("saved-1")).toBeNull();
+
+    await nextFrame();
+    expect(labelFor("saved-1")).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+    scroll.remove();
   }
 });

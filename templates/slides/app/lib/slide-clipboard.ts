@@ -1,3 +1,10 @@
+import { isAnimationTrigger } from "@shared/api";
+import {
+  clampTransitionSpeed,
+  normalizeSlideTransition,
+  SLIDE_TRANSITION_INPUTS,
+} from "@shared/slide-transitions";
+
 import type {
   AnimationType,
   Slide,
@@ -6,6 +13,151 @@ import type {
 } from "@/context/DeckContext";
 
 export const SLIDE_CLIPBOARD_STORAGE_PREFIX = "slides:slide-clipboard";
+const SLIDE_CLIPBOARD_NATIVE_MARKER_PREFIX = "agent-native-slide-clipboard:";
+
+export function shouldHandleSlideClipboardShortcut(
+  key: string,
+  hasFocusedThumbnail: boolean,
+): boolean {
+  return key !== "v" && hasFocusedThumbnail;
+}
+
+export function shouldHandleSlideClipboardPaste({
+  hasMatchingSlideClipboardMarker,
+  hasImage,
+  hasNonMarkerPayload,
+  isTextEntrySurface,
+  hasSelectedCanvasElement,
+  hasBlockingOverlay,
+  isSlideToolActive,
+}: {
+  hasMatchingSlideClipboardMarker: boolean;
+  hasImage: boolean;
+  hasNonMarkerPayload: boolean;
+  isTextEntrySurface: boolean;
+  hasSelectedCanvasElement: boolean;
+  hasBlockingOverlay: boolean;
+  isSlideToolActive: boolean;
+}): boolean {
+  return (
+    hasMatchingSlideClipboardMarker &&
+    !hasImage &&
+    !hasNonMarkerPayload &&
+    !isTextEntrySurface &&
+    !hasSelectedCanvasElement &&
+    !hasBlockingOverlay &&
+    !isSlideToolActive
+  );
+}
+
+export function getSlideClipboardNativeMarker(
+  slides: readonly Pick<Slide, "id">[],
+  copiedAt: number,
+): string {
+  const slideIds = slides
+    .map(({ id }) => encodeURIComponent(id).replaceAll("-", "%2D"))
+    .join(",");
+  return `${SLIDE_CLIPBOARD_NATIVE_MARKER_PREFIX}${copiedAt}:${slideIds}`;
+}
+
+export function getSlideClipboardNativeMarkerHtml(marker: string): string {
+  return `<!--${marker}-->`;
+}
+
+export function writeSlideClipboardMarkerToEvent(
+  event: ClipboardEvent,
+  marker: string,
+): boolean {
+  if (!event.clipboardData) return false;
+  try {
+    event.clipboardData.setData(
+      "text/html",
+      getSlideClipboardNativeMarkerHtml(marker),
+    );
+  } catch (error) {
+    console.warn("Unable to write Slides clipboard marker", error);
+    return false;
+  }
+  try {
+    event.clipboardData.setData("text/plain", "");
+  } catch (error) {
+    // The HTML marker is enough to identify this clipboard as a slide copy.
+    console.warn("Unable to clear Slides clipboard plain text", error);
+    return true;
+  }
+  return true;
+}
+
+export function readSlideClipboardNativeMarker(html: string): string | null {
+  const prefix = `<!--${SLIDE_CLIPBOARD_NATIVE_MARKER_PREFIX}`;
+  const start = html.indexOf(prefix);
+  if (start < 0) return null;
+  const valueStart = start + 4;
+  const end = html.indexOf("-->", valueStart);
+  if (end < 0) return null;
+  const marker = html.slice(valueStart, end).trim();
+  return marker.startsWith(SLIDE_CLIPBOARD_NATIVE_MARKER_PREFIX)
+    ? marker
+    : null;
+}
+
+export function hasImageClipboardPayload({
+  types,
+  itemTypes,
+  fileTypes,
+  html,
+}: {
+  types: readonly string[];
+  itemTypes: readonly string[];
+  fileTypes: readonly string[];
+  html: string;
+}): boolean {
+  return (
+    [...types, ...itemTypes, ...fileTypes].some((type) =>
+      type.toLowerCase().startsWith("image/"),
+    ) || /<(?:img|picture|svg|image)\b|data:image\//i.test(html)
+  );
+}
+
+export function hasClipboardPayloadBeyondSlideMarker({
+  types,
+  itemTypes,
+  fileTypes,
+  html,
+  plainText,
+  marker,
+}: {
+  types: readonly string[];
+  itemTypes: readonly string[];
+  fileTypes: readonly string[];
+  html: string;
+  plainText: string;
+  marker: string;
+}): boolean {
+  const htmlWithoutMarker = html
+    .replace(getSlideClipboardNativeMarkerHtml(marker), "")
+    .replace(/<!--(?:StartFragment|EndFragment)-->/gi, "")
+    .replace(/<\/?(?:html|body)\b[^>]*>/gi, "")
+    .trim();
+  const hasOtherDataType = [...types, ...itemTypes, ...fileTypes].some(
+    (type) =>
+      !["text/plain", "text/html", "files"].includes(type.toLowerCase()),
+  );
+  return (
+    plainText.length > 0 || htmlWithoutMarker.length > 0 || hasOtherDataType
+  );
+}
+
+export function isSlideClipboardPasteSurface(
+  eventTarget: Element | null,
+  activeElement: Element | null,
+): boolean {
+  const selector =
+    "[data-slide-thumbnail-id], [data-slide-canvas-focus='true']";
+  return Boolean(
+    eventTarget?.closest(selector) || activeElement?.closest(selector),
+  );
+}
 
 export function getSlideClipboardStorageKey(email: string): string {
   return `${SLIDE_CLIPBOARD_STORAGE_PREFIX}:${encodeURIComponent(email)}`;
@@ -166,16 +318,31 @@ export function normalizeSlideClipboard(value: unknown): Slide | null {
     if (field !== undefined) normalized[key] = field;
   }
 
-  if (candidate.transition !== undefined) {
+  if (candidate.transition !== undefined && candidate.transition !== null) {
     if (
-      typeof candidate.transition !== "string" ||
-      !["instant", "none", "fade", "slide", "zoom"].includes(
+      !(SLIDE_TRANSITION_INPUTS as readonly unknown[]).includes(
         candidate.transition,
       )
     ) {
       return null;
     }
-    normalized.transition = candidate.transition as Slide["transition"];
+    normalized.transition = normalizeSlideTransition(candidate.transition);
+  }
+
+  // null means "use the default speed", so it is dropped rather than stored.
+  if (
+    candidate.transitionSpeed !== undefined &&
+    candidate.transitionSpeed !== null
+  ) {
+    if (
+      typeof candidate.transitionSpeed !== "number" ||
+      !Number.isFinite(candidate.transitionSpeed)
+    ) {
+      return null;
+    }
+    normalized.transitionSpeed = clampTransitionSpeed(
+      candidate.transitionSpeed,
+    );
   }
 
   for (const key of [
@@ -223,6 +390,12 @@ export function normalizeSlideClipboard(value: unknown): Slide | null {
       ) {
         return null;
       }
+      if (
+        animation.trigger !== undefined &&
+        !isAnimationTrigger(animation.trigger)
+      ) {
+        return null;
+      }
       animations.push({
         id: animation.id,
         elementIndex: animation.elementIndex,
@@ -231,6 +404,9 @@ export function normalizeSlideClipboard(value: unknown): Slide | null {
           : {}),
         ...(animation.byParagraph !== undefined
           ? { byParagraph: animation.byParagraph }
+          : {}),
+        ...(animation.trigger !== undefined
+          ? { trigger: animation.trigger }
           : {}),
         type: animation.type as AnimationType,
       });

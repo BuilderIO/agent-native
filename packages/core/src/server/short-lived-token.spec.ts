@@ -1,10 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import {
+  signCompactShortLivedToken,
   signGatewayAccessToken,
   signRealtimeSubscribeToken,
   signRealtimeVoiceCapability,
   signShortLivedToken,
+  verifyCompactShortLivedToken,
   verifyGatewayAccessToken,
   verifyRealtimeSubscribeToken,
   verifyRealtimeVoiceCapability,
@@ -62,7 +64,6 @@ describe("short-lived-token", () => {
   it("rejects a tampered payload (signature no longer matches)", () => {
     const token = signShortLivedToken({ resourceId: "rec_abc" });
     const [, sig] = token.split(".");
-    // Forge a payload claiming a different resource — old sig won't match.
     const forged =
       Buffer.from(JSON.stringify({ resourceId: "rec_xyz", exp: 9e12 }))
         .toString("base64")
@@ -82,7 +83,6 @@ describe("short-lived-token", () => {
       resourceId: "rec_abc",
       ttlSeconds: 60,
     });
-    // Advance past expiry.
     vi.setSystemTime(new Date("2026-04-30T12:02:00Z"));
     const result = verifyShortLivedToken(token, "rec_abc");
     expect(result).toEqual({ ok: false, reason: "expired" });
@@ -109,6 +109,135 @@ describe("short-lived-token", () => {
     expect(verifyShortLivedToken(token, "rec_abc")).toEqual({
       ok: false,
       reason: "bad_signature",
+    });
+  });
+
+  describe("compact tokens", () => {
+    it("round-trips identity claims", () => {
+      const token = signCompactShortLivedToken({
+        resourceId: "rec_abc",
+        viewerEmail: "alice@example.com",
+        agentLabel: "Fusion",
+      });
+
+      expect(verifyCompactShortLivedToken(token, "rec_abc")).toEqual({
+        ok: true,
+        viewerEmail: "alice@example.com",
+        agentLabel: "Fusion",
+      });
+    });
+
+    it("bounds the display-only agent label by its JSON-encoded byte length", () => {
+      const token = signCompactShortLivedToken({
+        resourceId: "rec_abc",
+        agentLabel: "a".repeat(60),
+      });
+
+      expect(verifyCompactShortLivedToken(token, "rec_abc")).toEqual({
+        ok: true,
+        viewerEmail: undefined,
+        agentLabel: "a".repeat(16),
+      });
+    });
+
+    it("bounds agent labels whose control characters expand during JSON encoding", () => {
+      const token = signCompactShortLivedToken({
+        resourceId: "rec_abc",
+        agentLabel: "\0".repeat(16),
+      });
+
+      expect(verifyCompactShortLivedToken(token, "rec_abc")).toEqual({
+        ok: true,
+        viewerEmail: undefined,
+        agentLabel: "\0".repeat(2),
+      });
+    });
+
+    it("omits absent claims", () => {
+      const token = signCompactShortLivedToken({ resourceId: "rec_abc" });
+
+      expect(verifyCompactShortLivedToken(token, "rec_abc")).toEqual({
+        ok: true,
+        viewerEmail: undefined,
+        agentLabel: undefined,
+      });
+    });
+
+    it("rejects a payload swapped under an existing signature", () => {
+      const token = signCompactShortLivedToken({
+        resourceId: "rec_abc",
+        ttlSeconds: 60,
+      });
+      const [, sig] = token.split(".");
+      const forged = `${Buffer.from(
+        JSON.stringify({ e: 9e12, v: "attacker@example.com" }),
+      ).toString("base64url")}.${sig}`;
+
+      expect(verifyCompactShortLivedToken(forged, "rec_abc")).toEqual({
+        ok: false,
+        reason: "bad_signature",
+      });
+    });
+
+    it("rejects a tampered signature", () => {
+      const token = signCompactShortLivedToken({ resourceId: "rec_abc" });
+      const [payload] = token.split(".");
+
+      expect(
+        verifyCompactShortLivedToken(`${payload}.AAAAAAAA`, "rec_abc").ok,
+      ).toBe(false);
+    });
+
+    it("rejects a token signed for a different resource", () => {
+      const token = signCompactShortLivedToken({ resourceId: "rec_abc" });
+
+      expect(verifyCompactShortLivedToken(token, "rec_xyz")).toEqual({
+        ok: false,
+        reason: "bad_signature",
+      });
+    });
+
+    it("rejects an expired token", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-04-30T12:00:00Z"));
+      const token = signCompactShortLivedToken({
+        resourceId: "rec_abc",
+        ttlSeconds: 60,
+      });
+      vi.setSystemTime(new Date("2026-04-30T12:02:00Z"));
+
+      expect(verifyCompactShortLivedToken(token, "rec_abc")).toEqual({
+        ok: false,
+        reason: "expired",
+      });
+    });
+
+    it("rejects malformed tokens", () => {
+      expect(verifyCompactShortLivedToken("", "rec_abc").ok).toBe(false);
+      expect(verifyCompactShortLivedToken("nodot", "rec_abc").ok).toBe(false);
+      expect(verifyCompactShortLivedToken("a.", "rec_abc").ok).toBe(false);
+      expect(verifyCompactShortLivedToken(".b", "rec_abc").ok).toBe(false);
+    });
+
+    it("is not interchangeable with the legacy format", () => {
+      const compact = signCompactShortLivedToken({ resourceId: "rec_abc" });
+      const legacy = signShortLivedToken({ resourceId: "rec_abc" });
+
+      expect(verifyShortLivedToken(compact, "rec_abc").ok).toBe(false);
+      expect(verifyCompactShortLivedToken(legacy, "rec_abc")).toEqual({
+        ok: false,
+        reason: "bad_signature",
+      });
+    });
+
+    it("rejects a token once the signing secret changes", () => {
+      const token = signCompactShortLivedToken({ resourceId: "rec_abc" });
+      process.env.OAUTH_STATE_SECRET = "a-different-secret";
+
+      expect(verifyCompactShortLivedToken(token, "rec_abc")).toEqual({
+        ok: false,
+        reason: "bad_signature",
+      });
     });
   });
 });
@@ -276,7 +405,6 @@ describe("realtime subscribe token", () => {
     expect(() =>
       signRealtimeSubscribeToken({ projectId: "proj_a" }, KEY_A),
     ).toThrow(/owner or orgId/);
-    // orgId alone is sufficient.
     expect(() =>
       signRealtimeSubscribeToken(
         { projectId: "proj_a", orgId: "org-1" },
@@ -288,7 +416,6 @@ describe("realtime subscribe token", () => {
   it("rejects a token past its absolute ceiling even when exp is live", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
-    // exp deliberately outlives the ceiling: the ceiling must be what stops it.
     const absExp = Math.floor(Date.now() / 1000) + 60;
     const token = signRealtimeSubscribeToken(
       {
@@ -412,7 +539,7 @@ describe("gateway access-check token", () => {
   });
 
   it("binds the projectId channel when an expected value is provided", () => {
-    const token = signGatewayAccessToken(claims, KEY_A); // projectId proj_a
+    const token = signGatewayAccessToken(claims, KEY_A);
     expect(verifyGatewayAccessToken(token, KEY_A, "proj_a")).toMatchObject({
       ok: true,
       projectId: "proj_a",

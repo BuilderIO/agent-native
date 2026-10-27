@@ -2,8 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { builderFileUploadProvider } from "./builder.js";
 import {
+  findFileUploadProviderOwningUrl,
   getActiveFileUploadProvider,
   getActiveFileUploadProviderForRequest,
+  listFileUploadProviderStatusesForRequest,
   listFileUploadProviders,
   registerFileUploadProvider,
   unregisterFileUploadProvider,
@@ -36,8 +38,6 @@ describe("file-upload registry", () => {
   const originalEnv = { ...process.env };
 
   beforeEach(() => {
-    // Drop any providers a prior test (or import side effect) left on the
-    // globalThis-pinned map so each case starts clean.
     for (const p of listFileUploadProviders()) {
       unregisterFileUploadProvider(p.id);
     }
@@ -73,6 +73,89 @@ describe("file-upload registry", () => {
       const matches = listFileUploadProviders().filter((p) => p.id === "dup");
       expect(matches).toHaveLength(1);
       expect(matches[0]).toBe(second);
+    });
+
+    it("continues ownership checks after one provider fails", async () => {
+      const failure = new Error("credential store unavailable");
+      registerFileUploadProvider({
+        ...makeProvider("s3", true),
+        isOwnedUrl: vi.fn(async () => {
+          throw failure;
+        }),
+      });
+
+      await expect(
+        findFileUploadProviderOwningUrl("https://cdn.builder.io/image.png"),
+      ).resolves.toBe(builderFileUploadProvider);
+    });
+
+    it("preserves an ownership check failure when no provider can verify the URL", async () => {
+      const failure = new Error("credential store unavailable");
+      registerFileUploadProvider({
+        ...makeProvider("s3", true),
+        isOwnedUrl: vi.fn(async () => {
+          throw failure;
+        }),
+      });
+
+      await expect(
+        findFileUploadProviderOwningUrl(
+          "https://storage.example.test/image.png",
+        ),
+      ).rejects.toMatchObject({
+        name: "AggregateError",
+        errors: [failure],
+      });
+    });
+  });
+
+  describe("findFileUploadProviderOwningUrl", () => {
+    const throwingOwner = () => ({
+      ...makeProvider("s3", true),
+      isOwnedUrl: vi.fn(async () => {
+        throw new Error("secrets unavailable");
+      }),
+    });
+
+    it("claims a Builder CDN URL without consulting a failing provider", async () => {
+      const s3 = throwingOwner();
+      registerFileUploadProvider(s3);
+
+      await expect(
+        findFileUploadProviderOwningUrl(
+          "https://cdn.builder.io/api/v1/image/assets%2Fspace%2Fasset-id",
+        ),
+      ).resolves.toBe(builderFileUploadProvider);
+      expect(s3.isOwnedUrl).not.toHaveBeenCalled();
+    });
+
+    it("returns a later provider's claim when an earlier provider throws", async () => {
+      registerFileUploadProvider(throwingOwner());
+      const r2 = { ...makeProvider("r2", true), isOwnedUrl: () => true };
+      registerFileUploadProvider(r2);
+
+      await expect(
+        findFileUploadProviderOwningUrl("https://files.example.com/a.png"),
+      ).resolves.toBe(r2);
+    });
+
+    it("throws unverifiable, not unowned, when nobody claims and a provider threw", async () => {
+      registerFileUploadProvider(throwingOwner());
+
+      await expect(
+        findFileUploadProviderOwningUrl("https://files.example.com/a.png"),
+      ).rejects.toThrow(/unverifiable: s3/);
+    });
+
+    it("returns null when every provider answers not-owned", async () => {
+      registerFileUploadProvider({
+        ...makeProvider("s3", true),
+        isOwnedUrl: async () => false,
+      });
+
+      await expect(
+        findFileUploadProviderOwningUrl("https://files.example.com/a.png"),
+      ).resolves.toBeNull();
     });
   });
 
@@ -138,6 +221,37 @@ describe("file-upload registry", () => {
         builderFileUploadProvider,
       );
       expect(canAuthorizeBuilderApiRequestMock).toHaveBeenCalled();
+    });
+  });
+
+  describe("listFileUploadProviderStatusesForRequest", () => {
+    it("detects each provider once, in the order the active lookup walks", async () => {
+      const envBacked = {
+        ...makeProvider("env-backed", true),
+        isConfiguredForRequest: vi.fn(async () => false),
+      };
+      const s3 = {
+        ...makeProvider("s3", false),
+        isConfiguredForRequest: vi.fn(async () => true),
+      };
+      registerFileUploadProvider(makeProvider("unconfigured", false));
+      registerFileUploadProvider(envBacked);
+      registerFileUploadProvider(s3);
+
+      const statuses = await listFileUploadProviderStatusesForRequest();
+
+      expect(
+        statuses.map(({ provider, configured }) => [provider.id, configured]),
+      ).toEqual([
+        ["unconfigured", false],
+        ["env-backed", true],
+        ["s3", true],
+      ]);
+      expect(envBacked.isConfiguredForRequest).not.toHaveBeenCalled();
+      expect(s3.isConfiguredForRequest).toHaveBeenCalledTimes(1);
+      expect(statuses.find((status) => status.configured)?.provider).toBe(
+        await getActiveFileUploadProviderForRequest(),
+      );
     });
   });
 
@@ -207,23 +321,15 @@ describe("file-upload registry", () => {
       expect(result).toBeNull();
     });
 
-    it("falls back to null when credential resolution throws (DB unavailable)", async () => {
-      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    it("propagates credential lookup failures instead of treating them as missing storage", async () => {
       canAuthorizeBuilderApiRequestMock.mockRejectedValue(new Error("db down"));
 
-      const result = await uploadFile({ data: new Uint8Array([1]) });
-
-      expect(result).toBeNull();
-      expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining("Builder credential check failed"),
-        expect.stringContaining("db down"),
+      await expect(uploadFile({ data: new Uint8Array([1]) })).rejects.toThrow(
+        "db down",
       );
-      warn.mockRestore();
     });
 
     it("does NOT swallow a real upload failure as a fallback", async () => {
-      // Creds resolve fine, so an upload error must propagate to the caller
-      // rather than being treated as a missing-provider null.
       canAuthorizeBuilderApiRequestMock.mockResolvedValue(true);
       const uploadSpy = vi
         .spyOn(builderFileUploadProvider, "upload")

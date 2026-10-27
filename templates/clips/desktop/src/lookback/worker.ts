@@ -1,0 +1,515 @@
+import { ClipsActionError } from "../lib/clips-action";
+import type { createPrivateAgentRewindRecording } from "../lib/recorder";
+import {
+  RECORDING_SERVER_UNAVAILABLE,
+  RECORDING_SESSION_EXPIRED,
+} from "../lib/recording-request";
+import type {
+  RecordingContextItem,
+  RecordingContextUpdate,
+} from "./context-api";
+
+type UploadMode = Awaited<
+  ReturnType<typeof createPrivateAgentRewindRecording>
+>["uploadMode"];
+
+export interface LookbackOrigin {
+  includeMicrophone: boolean;
+  includeSystemAudio: boolean;
+}
+
+// The caller wires these to createPrivateAgentRewindRecording and the
+// rewind_agent_handoff_upload command.
+export interface LookbackWorkerDeps {
+  // Null when this device cannot prove it owns the capture's local footage.
+  deviceId: string;
+  originFor(
+    recordingId: string,
+    item: RecordingContextItem,
+  ): LookbackOrigin | null;
+  forgetOrigin?(recordingId: string): void;
+  update(input: RecordingContextUpdate): Promise<unknown>;
+  // Null means the server reports the item absent, removed, or its Clip gone. A failed read must throw.
+  currentItem(
+    recordingId: string,
+    itemId: string,
+  ): Promise<RecordingContextItem | null>;
+  createRecording(input: {
+    hasAudio: boolean;
+    startedAt: string;
+    signal: AbortSignal;
+  }): Promise<{ id: string; uploadMode: UploadMode }>;
+  uploadWindow(input: {
+    requestId: string;
+    startedAt: string;
+    endedAt: string;
+    recordingId: string;
+    uploadMode: UploadMode;
+    includeMic: boolean;
+    includeSystemAudio: boolean;
+    signal: AbortSignal;
+  }): Promise<{
+    durationMs: number;
+    width?: number | null;
+    height?: number | null;
+  }>;
+  cancelUpload(recordingId: string): Promise<void>;
+  trashRecording(id: string): Promise<unknown>;
+}
+
+export const LOOKBACK_RECORDING_CREATE_TIMEOUT_MS = 30_000;
+export const LOOKBACK_NATIVE_UPLOAD_TIMEOUT_MS = 15 * 60_000;
+const LOOKBACK_UPLOAD_CANCEL_TIMEOUT_MS = 5_000;
+
+export function lookbackOriginForItem(
+  item: RecordingContextItem,
+  deviceId: string,
+  originFor: LookbackWorkerDeps["originFor"],
+): LookbackOrigin | null {
+  if (item.capturedDeviceId != null && item.capturedDeviceId !== deviceId) {
+    return null;
+  }
+  const persistedOrigin =
+    item.capturedDeviceId === deviceId &&
+    typeof item.includeMicrophone === "boolean" &&
+    typeof item.includeSystemAudio === "boolean"
+      ? {
+          includeMicrophone: item.includeMicrophone,
+          includeSystemAudio: item.includeSystemAudio,
+        }
+      : null;
+  let localOrigin: LookbackOrigin | null;
+  try {
+    localOrigin = originFor(item.recordingId, item);
+  } catch (error) {
+    if (!persistedOrigin) throw error;
+    console.warn(
+      "[lookback] local capture details are unreadable; using the saved same-device request settings:",
+      error,
+    );
+    return persistedOrigin;
+  }
+  if (localOrigin) return localOrigin;
+  // The device id keeps saved request settings reusable for trims; audio flags
+  // alone never prove which device owns the local screen-history buffer.
+  return persistedOrigin;
+}
+
+export type LookbackWorkerOutcome = "skipped" | "ready" | "failed";
+
+const FALLBACK_ERROR = "Earlier screen time couldn't be saved.";
+
+function runLookbackOperation<T>(
+  description: string,
+  timeoutMs: number,
+  operation: (signal: AbortSignal) => Promise<T>,
+  onTimeout?: () => Promise<void>,
+): Promise<T> {
+  const controller = new AbortController();
+  const timeoutError = new Error(
+    `${description} timed out after ${Math.ceil(timeoutMs / 1000)} seconds.`,
+  );
+  timeoutError.name = "TimeoutError";
+
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    let timedOut = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      timer = null;
+      callback();
+    };
+
+    const timeout = async () => {
+      timedOut = true;
+      controller.abort(timeoutError);
+      if (onTimeout) {
+        let cancelTimer: ReturnType<typeof setTimeout> | null = null;
+        try {
+          await Promise.race([
+            onTimeout(),
+            new Promise<void>((_, rejectCancel) => {
+              cancelTimer = setTimeout(
+                () => rejectCancel(new Error("native upload cancel timed out")),
+                LOOKBACK_UPLOAD_CANCEL_TIMEOUT_MS,
+              );
+            }),
+          ]);
+        } catch (error) {
+          console.error(
+            "[lookback] cancelling a timed out native upload failed:",
+            error,
+          );
+        } finally {
+          if (cancelTimer) clearTimeout(cancelTimer);
+        }
+      }
+      finish(() => reject(timeoutError));
+    };
+
+    timer = setTimeout(() => void timeout(), timeoutMs);
+    void Promise.resolve()
+      .then(() => operation(controller.signal))
+      .then(
+        (value) => {
+          if (timedOut) return;
+          finish(() => resolve(value));
+        },
+        (error: unknown) => {
+          if (timedOut) return;
+          finish(() => reject(error));
+        },
+      );
+  });
+}
+
+export async function processRecordingContextItem(
+  item: RecordingContextItem,
+  deps: LookbackWorkerDeps,
+): Promise<LookbackWorkerOutcome> {
+  const outcome = await processRecordingContextItemWithOrigin(item, deps);
+  if (!deps.forgetOrigin) return outcome;
+
+  try {
+    const current = await deps.currentItem(item.recordingId, item.id);
+    // Legacy rows need their local origin for later trims; newer rows can
+    // recover it only when device ownership and audio settings are persisted.
+    if (
+      !current ||
+      current.status === "removed" ||
+      ((current.status === "ready" || current.status === "failed") &&
+        hasPersistedCaptureOrigin(item, deps.deviceId))
+    ) {
+      deps.forgetOrigin(item.recordingId);
+    }
+  } catch (error) {
+    // Keep the origin while a failed read leaves the item's state unknown.
+    console.warn(
+      "[lookback] could not confirm whether capture details can be cleared; keeping them for a later retry:",
+      error,
+    );
+  }
+  return outcome;
+}
+
+async function processRecordingContextItemWithOrigin(
+  item: RecordingContextItem,
+  deps: LookbackWorkerDeps,
+): Promise<LookbackWorkerOutcome> {
+  const origin = lookbackOriginForItem(item, deps.deviceId, deps.originFor);
+  // Footage only leaves the device that captured it. Another device's item
+  // stays pending for that device's worker.
+  if (!origin) return "skipped";
+
+  // The footage recording exists before the claim so the claim can name it.
+  // The server keeps that id as the reservation and rejects a ready write for
+  // any other recording, which binds the result to this claim.
+  let recording: { id: string; uploadMode: UploadMode };
+  try {
+    recording = await runLookbackOperation(
+      "Creating the earlier screen time recording",
+      LOOKBACK_RECORDING_CREATE_TIMEOUT_MS,
+      (signal) =>
+        deps.createRecording({
+          hasAudio: origin.includeMicrophone || origin.includeSystemAudio,
+          startedAt: item.startedAt,
+          signal,
+        }),
+    );
+  } catch (error) {
+    if (isRetryableRecordingCreateFailure(error)) {
+      console.warn(
+        "[lookback] recording creation failed temporarily; leaving the item pending for retry:",
+        error,
+      );
+      return "failed";
+    }
+    return failWithoutFootage(item, error, deps);
+  }
+
+  try {
+    await deps.update({
+      id: item.id,
+      status: "processing",
+      mediaRecordingId: recording.id,
+    });
+  } catch (error) {
+    if (isConflict(error)) {
+      // Another claim or a trim owns the item. Our footage was never linked.
+      await trashUnusedRecording(recording.id, deps);
+      return "skipped";
+    }
+    if (isNonRetryable(error)) {
+      // Rejected before the item changed, so this footage was never reserved.
+      await trashUnusedRecording(recording.id, deps);
+      return failWithoutFootage(item, error, deps);
+    }
+    // The claim may have landed before its response was lost.
+    return failAfterClaim(item, recording.id, error, deps);
+  }
+
+  let upload: Awaited<ReturnType<LookbackWorkerDeps["uploadWindow"]>>;
+  try {
+    upload = await runLookbackOperation(
+      "Uploading the earlier screen time recording",
+      LOOKBACK_NATIVE_UPLOAD_TIMEOUT_MS,
+      (signal) =>
+        deps.uploadWindow({
+          requestId: `handoff-lookback-${recording.id}`,
+          startedAt: item.startedAt,
+          endedAt: item.endedAt,
+          recordingId: recording.id,
+          uploadMode: recording.uploadMode,
+          includeMic: origin.includeMicrophone,
+          includeSystemAudio: origin.includeSystemAudio,
+          signal,
+        }),
+      () => deps.cancelUpload(recording.id),
+    );
+  } catch (error) {
+    if (isNonRetryable(error))
+      return failHeldClaim(item, recording.id, error, deps);
+    return failAfterClaim(item, recording.id, error, deps);
+  }
+
+  try {
+    await deps.update({
+      id: item.id,
+      status: "ready",
+      mediaRecordingId: recording.id,
+      durationMs: Math.round(upload.durationMs),
+      ...(upload.width && upload.width > 0 ? { width: upload.width } : {}),
+      ...(upload.height && upload.height > 0 ? { height: upload.height } : {}),
+    });
+  } catch (error) {
+    // The server rejected this write, so its footage is unlinked. The item now
+    // belongs to a newer reservation or a moved state, so nothing is marked failed.
+    if (isConflict(error)) {
+      await trashUnusedRecording(recording.id, deps);
+      return "skipped";
+    }
+    if (isNonRetryable(error))
+      return failHeldClaim(item, recording.id, error, deps);
+    return failAfterClaim(item, recording.id, error, deps);
+  }
+
+  await trashReplacedFootage(item, recording.id, deps);
+  return "ready";
+}
+
+function hasPersistedCaptureOrigin(
+  item: RecordingContextItem,
+  deviceId: string,
+): boolean {
+  return (
+    item.capturedDeviceId === deviceId &&
+    typeof item.includeMicrophone === "boolean" &&
+    typeof item.includeSystemAudio === "boolean"
+  );
+}
+
+// failed is reachable only from processing, so the item is claimed without
+// footage first. That claim releases any reservation. A 409 means another claim
+// owns the item, so this export records nothing.
+async function failWithoutFootage(
+  item: RecordingContextItem,
+  error: unknown,
+  deps: LookbackWorkerDeps,
+): Promise<LookbackWorkerOutcome> {
+  try {
+    await deps.update({ id: item.id, status: "processing" });
+  } catch (claimError) {
+    if (isConflict(claimError)) {
+      console.warn(
+        "[lookback] another claim owns the item; not recording its failure:",
+        error,
+      );
+      return "skipped";
+    }
+    console.error(
+      "[lookback] claiming the item to record its failure failed:",
+      claimError,
+    );
+    return "failed";
+  }
+  await markFailed(item, error, deps);
+  return "failed";
+}
+
+// Used when this export's claim is the one that landed, so the item is already
+// processing. A footage-less claim would be refused there: a processing item is
+// claimable again only once its claim is stale. Failing it directly is allowed.
+async function failHeldClaim(
+  item: RecordingContextItem,
+  recordingId: string,
+  error: unknown,
+  deps: LookbackWorkerDeps,
+): Promise<LookbackWorkerOutcome> {
+  await trashUnusedRecording(recordingId, deps);
+  await markFailed(item, error, deps);
+  return "failed";
+}
+
+// Runs when a step after the claim fails. The failed step may have committed on
+// the server before its response was lost, so the item's current state decides
+// what happens to the footage. Footage the item links is never trashed.
+async function failAfterClaim(
+  item: RecordingContextItem,
+  recordingId: string,
+  error: unknown,
+  deps: LookbackWorkerDeps,
+): Promise<LookbackWorkerOutcome> {
+  let current: RecordingContextItem | null;
+  try {
+    current = await deps.currentItem(item.recordingId, item.id);
+  } catch (readError) {
+    // The state is unknown, so the footage may be linked. Keep it and write
+    // nothing. A processing item whose claim goes stale is picked up again.
+    console.error(
+      "[lookback] reading the item after a failed export failed; keeping its footage:",
+      error,
+      readError,
+    );
+    return "failed";
+  }
+
+  // The item is gone, so no item links this footage and nothing is left to
+  // mark failed. Nothing later will clean it up, so it is trashed here.
+  if (current === null) {
+    console.warn(
+      "[lookback] the item is gone after a failed export; trashing its footage:",
+      error,
+    );
+    await trashUnusedRecording(recordingId, deps);
+    return "skipped";
+  }
+
+  if (current.mediaRecordingId === recordingId) {
+    console.warn(
+      "[lookback] the export committed before its error; keeping its footage:",
+      error,
+    );
+    if (current.status !== "ready") return "skipped";
+    await trashReplacedFootage(item, recordingId, deps);
+    return "ready";
+  }
+
+  if (
+    current.status === "processing" &&
+    current.pendingMediaRecordingId === recordingId
+  ) {
+    // Keep the reservation until a later stale-claim retry replaces it. The
+    // processing transition trashes the old reservation after the new one lands.
+    console.warn(
+      "[lookback] keeping the reserved footage for a later export retry:",
+      error,
+    );
+    return "failed";
+  }
+  await trashUnusedRecording(recordingId, deps);
+  return "failed";
+}
+
+// Writes the failure only while the item is still processing. A 409 means the
+// item moved past this claim, so there is nothing left for this export to record.
+async function markFailed(
+  item: RecordingContextItem,
+  error: unknown,
+  deps: LookbackWorkerDeps,
+): Promise<void> {
+  const message =
+    error instanceof Error && error.message ? error.message : FALLBACK_ERROR;
+  console.error("[lookback] earlier screen time export failed:", {
+    itemId: item.id,
+    recordingId: item.recordingId,
+    message,
+  });
+  try {
+    await deps.update({ id: item.id, status: "failed", error: message });
+  } catch (writeError) {
+    if (isConflict(writeError)) return;
+    console.error(
+      "[lookback] recording the export failure failed:",
+      writeError,
+    );
+  }
+}
+
+// A re-export replaces the footage, so the previous private recording is no
+// longer linked from the item and can be removed.
+async function trashReplacedFootage(
+  item: RecordingContextItem,
+  recordingId: string,
+  deps: LookbackWorkerDeps,
+): Promise<void> {
+  if (!item.mediaRecordingId || item.mediaRecordingId === recordingId) return;
+  await deps.trashRecording(item.mediaRecordingId).catch((cleanupError) => {
+    console.warn(
+      "[lookback] trashing the replaced window recording failed:",
+      cleanupError,
+    );
+  });
+}
+
+async function trashUnusedRecording(
+  id: string,
+  deps: LookbackWorkerDeps,
+): Promise<void> {
+  await deps.trashRecording(id).catch((cleanupError) => {
+    console.warn(
+      "[lookback] trashing the unused window recording failed:",
+      cleanupError,
+    );
+  });
+}
+
+function isConflict(error: unknown): boolean {
+  return error instanceof ClipsActionError && error.status === 409;
+}
+
+// A 400 or 422 repeats on every poll, so the item fails instead of retrying.
+const NON_RETRYABLE_STATUSES = new Set([400, 422]);
+
+// The native upload command rejects with a message, not an ActionError. The
+// status is read from the text it builds from the server's response.
+const NATIVE_UPLOAD_REJECTED =
+  /^native recording (?:upload|retry setup) returned (400|422)\b/;
+const CREATE_RECORDING_RESPONSE = /^create-recording (\d{3})\b/;
+
+function isRetryableRecordingCreateFailure(error: unknown): boolean {
+  if (error instanceof Error && error.name === "TimeoutError") return true;
+  if (error instanceof TypeError) return true;
+  if (error instanceof ClipsActionError) {
+    return isRetryableStatus(error.status);
+  }
+  if (!(error instanceof Error)) return false;
+  if (
+    error.message === RECORDING_SERVER_UNAVAILABLE ||
+    error.message === RECORDING_SESSION_EXPIRED
+  ) {
+    return true;
+  }
+  const response = CREATE_RECORDING_RESPONSE.exec(error.message);
+  return response ? isRetryableStatus(Number(response[1])) : false;
+}
+
+function isRetryableStatus(status: number): boolean {
+  return (
+    status === 408 ||
+    status === 425 ||
+    status === 429 ||
+    (status >= 500 && status < 600)
+  );
+}
+
+function isNonRetryable(error: unknown): boolean {
+  if (error instanceof ClipsActionError) {
+    return NON_RETRYABLE_STATUSES.has(error.status);
+  }
+  const message = error instanceof Error ? error.message : error;
+  return typeof message === "string" && NATIVE_UPLOAD_REJECTED.test(message);
+}

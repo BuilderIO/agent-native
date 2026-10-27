@@ -1,24 +1,10 @@
-/**
- * List individual view records for a recording — who viewed it and when,
- * most recent first. Owner-only. This is the per-viewer timeline that backs
- * the "Viewed by" popover on the aggregate view count shown in the library
- * and clip detail insights panel.
- *
- * Distinct from `list-viewers` (aggregate per-viewer watch stats, one row per
- * viewer) — `list-clip-views` is an append-only log of counted-view moments,
- * so a returning viewer's second visit shows up as its own row with its own
- * timestamp.
- *
- * Usage:
- *   pnpm action list-clip-views --recordingId=<id> [--limit=50]
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import { hydrateViewerNames } from "../server/lib/user-identities.js";
 
 export default defineAction({
@@ -36,7 +22,9 @@ export default defineAction({
   }),
   http: { method: "GET" },
   run: async (args) => {
-    await assertAccess("recording", args.recordingId, "editor");
+    assertRecordingNotExpired(
+      await assertAccess("recording", args.recordingId, "editor"),
+    );
 
     const db = getDb();
     const rows = await db

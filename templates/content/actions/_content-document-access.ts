@@ -1,3 +1,4 @@
+import { getDbExec } from "@agent-native/core/db";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
 
@@ -9,7 +10,10 @@ export async function resolveContentDocumentAccess(documentId: string) {
 
   const userEmail = getRequestUserEmail();
   if (!userEmail) return null;
-  const memberships = await listContentOrganizationMemberships(userEmail);
+  const memberships = await listContentOrganizationMemberships(
+    userEmail,
+    getDbExec(),
+  );
   for (const membership of memberships) {
     const access = await resolveAccess("document", documentId, {
       userEmail,

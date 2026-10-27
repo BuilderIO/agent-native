@@ -1,0 +1,196 @@
+{
+ "app": "Design",
+ "icon": "palette",
+ "pages": [
+  {
+   "id": "app",
+   "g": "app",
+   "l": "General",
+   "icon": "palette",
+   "sections": [
+    {
+     "h": "Agent",
+     "rows": [
+      {
+       "l": "Default model",
+       "d": "Used for new agent chats in Design. The default is Claude Sonnet 5.5.",
+       "c": {
+        "sel": "Use the default",
+        "opts": [
+         "Use the default",
+         "Claude Opus 5.5",
+         "Claude Sonnet 5.5",
+         "Claude Haiku 4.5"
+        ]
+       }
+      }
+     ]
+    },
+    {
+     "h": "This browser",
+     "rows": [
+      {
+       "l": "Demo mode",
+       "d": "Use sample data in this browser for presentations.",
+       "c": {
+        "sw": false
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "creative-context",
+   "g": "app",
+   "l": "Creative context",
+   "icon": "library",
+   "badge": "Labs",
+   "lab": "creative",
+   "sections": [
+    {
+     "h": "Library",
+     "rows": [
+      {
+       "l": "Use creative context",
+       "d": null,
+       "c": {
+        "sel": "Automatic",
+        "opts": [
+         "Automatic",
+         "Off"
+        ]
+       }
+      },
+      {
+       "l": "Current context pack",
+       "d": "No context pack has been used in this session yet.",
+       "c": {
+        "text": ""
+       }
+      }
+     ]
+    },
+    {
+     "h": "Sources",
+     "empty": {
+      "t": "No creative context yet",
+      "d": "Connect a source or ask the agent to capture reusable context for future work.",
+      "btn": "Add a source"
+     }
+    },
+    {
+     "h": "Context packs",
+     "intro": "No context packs have been assembled yet."
+    }
+   ]
+  },
+  {
+   "id": "labs",
+   "g": "app",
+   "l": "Labs",
+   "icon": "flask",
+   "sections": [
+    {
+     "h": "Design",
+     "rows": [
+      {
+       "l": "Design tweaks",
+       "d": "Try AI-powered design tweaks.",
+       "c": {
+        "sw": false
+       }
+      },
+      {
+       "l": "Full app building",
+       "d": "Try building working apps from your designs with Builder.",
+       "c": {
+        "sw": false
+       }
+      },
+      {
+       "l": "Design review tools",
+       "d": "Check your designs for accessibility issues and compare visual changes.",
+       "c": {
+        "sw": false
+       }
+      },
+      {
+       "l": "Creative context",
+       "d": "Reusable creative context that helps agents stay consistent across work.",
+       "c": {
+        "sw": false,
+        "lab": "creative"
+       }
+      },
+      {
+       "l": "Tokens",
+       "d": "Edit and import design tokens from the editor's rail.",
+       "c": {
+        "sw": true,
+        "lab": "tokens",
+        "new": true
+       }
+      },
+      {
+       "l": "Code",
+       "d": "Open the design's files and your app's code in a Code mode.",
+       "c": {
+        "sw": true,
+        "lab": "code",
+        "new": true
+       }
+      },
+      {
+       "l": "Annotate",
+       "d": "Mark up the canvas for the agent in an Annotate mode.",
+       "c": {
+        "sw": false,
+        "lab": "annotate",
+        "new": true
+       }
+      }
+     ]
+    },
+    {
+     "h": null,
+     "foot": "These new, unstable features may have bugs."
+    }
+   ]
+  },
+  {
+   "id": "whats-new",
+   "g": "app",
+   "l": "What's new",
+   "icon": "news",
+   "badge": "Design",
+   "dot": true,
+   "sections": [
+    {
+     "h": null,
+     "changelog": [
+      [
+       "2026-09-30",
+       "Improved",
+       [
+        "Add references through compact dropdown menus and find designs with the centered home search.",
+        "Visual edit handoffs copy complete source instructions by default, and editors can update screen URLs.",
+        "Design remembers your home library tab, so returning users can open straight to Recent."
+       ]
+      ],
+      [
+       "2026-09-30",
+       "Fixed",
+       [
+        "Applied visual edits clear from the canvas after your agent acknowledges them",
+        "Holding Space while dragging a layer keeps it in its current auto-layout parent.",
+        "Outline-only vector polygons no longer show corner-radius handles",
+        "Selected screens duplicate with copy and paste."
+       ]
+      ]
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -15,9 +15,6 @@ export const Switch = React.forwardRef<
   React.ElementRef<typeof UiSwitch>,
   SwitchProps
 >(({ checked, onCheckedChange, label, className, ...props }, ref) => {
-  // TooltipTrigger and Switch both expose `data-state` when composed with
-  // `asChild`. The switch owns this attribute; forwarding the tooltip value
-  // would replace `checked` with `instant-open` and erase its active styling.
   const switchProps = { ...props } as typeof props & { "data-state"?: string };
   delete switchProps["data-state"];
 

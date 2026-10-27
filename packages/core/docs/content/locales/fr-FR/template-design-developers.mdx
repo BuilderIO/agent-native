@@ -113,6 +113,7 @@ action <name>`.
 | `list-figma-library-assets`   | Lister les composants insérables d'une bibliothèque connectée à Figma                                                                               |
 | `insert-figma-library-asset`  | Insérer un composant Figma publié dans le design                                                                                                    |
 | `hydrate-figma-paste-images`  | Résoudre les références d'image d'un collage du presse-papiers Figma                                                                                |
+| `fill-figma-paste-image`      | Remplir une image Figma manquante après un collage avec une image importée                                                                          |
 
 ### Points de rupture et états d'écran
 
@@ -143,15 +144,15 @@ action <name>`.
 
 ### Mouvement et shaders
 
-| Action                   | Ce qu'elle fait                                                    |
-| ------------------------ | ------------------------------------------------------------------ |
-| `get-motion-timeline`    | Lire la chronologie de mouvement d'un élément                      |
-| `apply-motion-edit`      | Ajouter ou modifier une image clé sur une chronologie de mouvement |
-| `remove-motion-timeline` | Supprimer une chronologie de mouvement                             |
-| `apply-shader`           | Appliquer un effet de shader                                       |
-| `apply-shader-fill`      | Appliquer un shader comme remplissage                              |
-| `preview-shader-fill`    | Prévisualiser un remplissage shader avant de l'appliquer           |
-| `get-shader`             | Lire les paramètres actuels d'un shader                            |
+| Action                   | Ce qu'elle fait                                                            |
+| ------------------------ | -------------------------------------------------------------------------- |
+| `get-motion-timeline`    | Lire la chronologie de mouvement d'un élément                              |
+| `apply-motion-edit`      | Ajouter ou modifier une image clé sur une chronologie de mouvement         |
+| `remove-motion-timeline` | Supprimer une chronologie de mouvement                                     |
+| `get-shader`             | Consulter les définitions natives et les manifestes des effets sauvegardés |
+| `edit-native-shader`     | Appliquer, modifier, approuver ou supprimer des effets natifs              |
+
+Les effets natifs WebGPU utilisent WGSL. La création personnalisée utilise `edit-native-shader` avec `define-definition`, puis `get-shader` pour lire le `executionHash` sauvegardé, `approve-definition` avec ce `expectedExecutionHash`, et `apply` avec l’identifiant et la version exacts de la définition. Chaque modification nécessite `designId`, `fileId` et le `expectedVersionHash` actuel. Il faut relire le hachage après chaque écriture. La validation du schéma sur CPU ne compile pas le code GPU, il faut donc vérifier l’aperçu Design. Les effets GLSL déjà sauvegardés restent affichables et supprimables.
 
 ### Qualité {#quality}
 
@@ -199,16 +200,16 @@ d'application complète](#full-app-building) ci-dessous.
 
 | Action                         | Ce qu'elle fait                                                                                       |
 | ------------------------------ | ----------------------------------------------------------------------------------------------------- |
-| `create-fusion-app`            | Provisionner une branche Builder Fusion et échafauder une véritable application à partir d'une invite |
-| `sync-fusion-app`              | Interroger le conteneur d'une branche fusion pour son URL d'aperçu                                    |
-| `add-fusion-screens`           | Ajouter des écrans à un design adossé à fusion                                                        |
-| `queue-fusion-edit`            | Mettre en file d'attente une modification pour l'agent de codage propre à l'application               |
-| `list-fusion-edits`            | Lister les modifications fusion en file d'attente et appliquées                                       |
-| `apply-fusion-edits`           | Distribuer les modifications en file d'attente à l'agent de codage de l'application                   |
-| `send-fusion-message`          | Envoyer un message à l'agent de codage de l'application fusion                                        |
-| `push-fusion-app`              | Pousser une branche fusion                                                                            |
-| `deploy-fusion-app`            | Déployer une branche fusion vers une véritable URL                                                    |
-| `get-fusion-deploy-status`     | Vérifier le statut d'un déploiement                                                                   |
+| `create-builder-app`           | Provisionner une branche Builder Fusion et échafauder une véritable application à partir d'une invite |
+| `sync-builder-app`             | Interroger le conteneur d'une branche fusion pour son URL d'aperçu                                    |
+| `add-builder-screens`          | Ajouter des écrans à un design adossé à fusion                                                        |
+| `queue-builder-edit`           | Mettre en file d'attente une modification pour l'agent de codage propre à l'application               |
+| `list-builder-edits`           | Lister les modifications fusion en file d'attente et appliquées                                       |
+| `apply-builder-edits`          | Distribuer les modifications en file d'attente à l'agent de codage de l'application                   |
+| `send-builder-message`         | Envoyer un message à l'agent de codage de l'application fusion                                        |
+| `push-builder-app`             | Pousser une branche fusion                                                                            |
+| `deploy-builder-app`           | Déployer une branche fusion vers une véritable URL                                                    |
+| `get-builder-deploy-status`    | Vérifier le statut d'un déploiement                                                                   |
 | `create-design-branch`         | Créer une nouvelle branche pour un design adossé à fusion                                             |
 | `get-design-branch-diff`       | Comparer une branche fusion à une version antérieure                                                  |
 | `deploy-design-preview`        | Déployer un aperçu d'un design adossé à fusion                                                        |

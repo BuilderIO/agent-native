@@ -2,10 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
 const mockRun = vi.hoisted(() => vi.fn());
+const mockReadBody = vi.hoisted(() =>
+  vi.fn(async (): Promise<unknown> => ({ deckId: "deck-1" })),
+);
 
 vi.mock("@agent-native/core", () => ({
-  // Mirrors the real duck-typed predicate so the route is exercised the way
-  // the action transport tags a `fail()`.
   isActionContractError: (error: unknown) =>
     !!error &&
     typeof error === "object" &&
@@ -15,13 +16,15 @@ vi.mock("@agent-native/core", () => ({
 
 vi.mock("@agent-native/core/server", () => ({
   runWithRequestContext: async (_ctx: unknown, fn: () => unknown) => fn(),
-  readBody: vi.fn(async () => ({ deckId: "deck-1" })),
+  readBody: () => mockReadBody(),
 }));
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
   setResponseStatus: (...args: unknown[]) => mockSetResponseStatus(...args),
 }));
+
+import { inGoogleSlidesBuildStep } from "../../../lib/deck-export-tracking.js";
 
 vi.mock("../../../../actions/export-pptx.js", () => ({
   default: { run: (...args: unknown[]) => mockRun(...args) },
@@ -72,10 +75,6 @@ describe("slides pptx export route", () => {
     });
   });
 
-  // 403 rather than 401 on purpose: the route's own auth gate returns 401
-  // before the action runs, so a 401 here would prove nothing about
-  // production. 403 also has no legacy message fallback, so passing this
-  // means the contract branch did the work, not the "Deck not found" prefix.
   it("preserves a contract status that has no legacy message fallback", async () => {
     mockRun.mockRejectedValue(
       contractError("Requires editor role on deck deck-1", "forbidden", 403),
@@ -121,6 +120,44 @@ describe("slides pptx export route", () => {
 
     expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 404);
     expect(result).toEqual({ error: "Deck not found" });
+  });
+
+  it("marks only a Google Slides build step, without passing it to the action", async () => {
+    const buildSteps: boolean[] = [];
+    mockRun.mockImplementation(async () => {
+      buildSteps.push(inGoogleSlidesBuildStep());
+      return { buffer: Buffer.from([1]), filename: "deck.pptx" };
+    });
+
+    mockReadBody.mockResolvedValueOnce({
+      deckId: "deck-1",
+      exportPurpose: "google_slides",
+    });
+    await handler();
+    mockReadBody.mockResolvedValueOnce({
+      deckId: "deck-1",
+      exportPurpose: "other",
+    });
+    await handler();
+
+    expect(buildSteps).toEqual([true, false]);
+    expect(mockRun.mock.calls[0][0]).toEqual({
+      deckId: "deck-1",
+      includeNotes: true,
+    });
+    expect(mockRun.mock.calls[0][1]).toMatchObject({
+      caller: "http",
+      userEmail: "user@example.com",
+      orgId: "org-1",
+      slidesPptxDownload: true,
+    });
+    expect(mockRun.mock.calls[0][1]).not.toHaveProperty(
+      "slidesPptxDownloadPersist",
+    );
+    expect(mockRun.mock.calls[1][0]).toEqual({
+      deckId: "deck-1",
+      includeNotes: true,
+    });
   });
 
   it("keeps an unexpected failure a generic 500 without an errorCode", async () => {

@@ -8,7 +8,13 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
+import { assertLocalFileLinkable } from "../server/lib/live-body-writer.js";
+import {
+  syncPrivateCalloutReferences,
+  syncPrivateIconReference,
+  verifyPrivateIconAssignment,
+} from "../server/lib/private-icon-references.js";
 import type { ContentDatabaseSourceTruthPolicy } from "../shared/api.js";
 import {
   isBuilderMdxSourcePath,
@@ -19,7 +25,10 @@ import { setFavoriteMembership } from "./_content-favorites.js";
 import { ensureDocumentsFilesMembership } from "./_content-files.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import { provisionContentSpaces } from "./_content-spaces.js";
-import { lockDatabaseMemberships } from "./_database-membership-lock.js";
+import {
+  lockDatabaseMemberships,
+  lockExistingDatabaseMemberships,
+} from "./_database-membership-lock.js";
 import {
   LOCAL_FOLDER_SOURCE_TYPE,
   localFolderObservedRevision,
@@ -27,6 +36,7 @@ import {
   localFolderSourceIdentityFromMetadata,
   normalizeLocalFolderSourceIdentity,
 } from "./_local-folder-source.js";
+import { lockDocumentRows } from "./_row-lock-order.js";
 
 const MAX_SOURCE_FILES = 500;
 const MAX_SOURCE_FILE_BYTES = 2 * 1024 * 1024;
@@ -247,6 +257,19 @@ export default defineAction({
     const explicitIds = valid.flatMap((file) => (file.id ? [file.id] : []));
     type SourceRow = typeof schema.contentDatabaseSourceRows.$inferSelect;
     type Document = typeof schema.documents.$inferSelect;
+    const deletedFilePath = (row: SourceRow) => {
+      const values = parseJson(row.sourceValuesJson);
+      return typeof values.relativePath === "string"
+        ? values.relativePath
+        : typeof row.sourceDisplayKey === "string"
+          ? row.sourceDisplayKey
+          : row.sourceRowId;
+    };
+    const deletionChangeSetId = (row: SourceRow) =>
+      opaqueId(
+        "content_source_change",
+        `${sourceId}:${row.documentId}:source-delete:${deletedFilePath(row)}`,
+      );
     const loadSnapshot = async (queryDb: any) => {
       const storedRows = (await queryDb
         .select()
@@ -305,14 +328,22 @@ export default defineAction({
 
     await validateDocumentIds(initialSnapshot);
 
-    const metadata = parseJson(target.source.metadataJson);
-    const policy = truthPolicy(metadata.truthPolicy);
-    const localIdentity =
-      localFolderSourceIdentityFromMetadata(metadata.localIdentity) ??
-      normalizeLocalFolderSourceIdentity({
-        connectionId: target.source.sourceTable,
-        label: target.source.sourceName,
-      });
+    const sourceSettings = (source: {
+      metadataJson: string;
+      sourceName: string;
+    }) => {
+      const metadata = parseJson(source.metadataJson);
+      return {
+        policy: truthPolicy(metadata.truthPolicy),
+        localIdentity:
+          localFolderSourceIdentityFromMetadata(metadata.localIdentity) ??
+          normalizeLocalFolderSourceIdentity({
+            connectionId: target.source.sourceTable,
+            label: source.sourceName,
+          }),
+      };
+    };
+    let { policy, localIdentity } = sourceSettings(target.source);
     const now = new Date().toISOString();
     const created: Array<{ id: string; path: string; title: string }> = [];
     const updated: Array<{ id: string; path: string; title: string }> = [];
@@ -483,7 +514,21 @@ export default defineAction({
     };
     classifyPlans(initialSnapshot);
 
-    if (!dryRun) {
+    const rebindsExistingPage = (plan: (typeof plans)[number]) =>
+      !!plan.existing &&
+      !plan.conflict &&
+      !plan.keepContent &&
+      (plan.applyIncoming ||
+        plan.existing.sourcePath !== plan.file.path ||
+        plan.existing.sourceRootPath !== target.source.sourceTable);
+
+    if (dryRun) {
+      // The sync refuses as a whole when it would link a page switched to its
+      // live copy, so its preview does too.
+      for (const plan of plans) {
+        if (rebindsExistingPage(plan)) await assertLocalFileLinkable(plan.id);
+      }
+    } else {
       await db.transaction(async (tx: any) => {
         const claimedSources = await tx
           .update(schema.contentDatabaseSources)
@@ -498,12 +543,19 @@ export default defineAction({
               ),
             ),
           )
-          .returning({ id: schema.contentDatabaseSources.id });
+          .returning({
+            id: schema.contentDatabaseSources.id,
+            metadataJson: schema.contentDatabaseSources.metadataJson,
+            sourceName: schema.contentDatabaseSources.sourceName,
+          });
         if (claimedSources.length !== 1) {
           throw new Error(
             `Local folder source "${sourceId}" was disconnected before sync`,
           );
         }
+        // A reconnect rewrites the policy in place, so the one read before
+        // the claim may no longer be the folder's.
+        ({ policy, localIdentity } = sourceSettings(claimedSources[0]));
         const transactionSnapshot = await loadSnapshot(tx);
         await validateDocumentIds(transactionSnapshot);
         plans = buildPlans(transactionSnapshot);
@@ -512,6 +564,55 @@ export default defineAction({
           (row) => !currentDocumentIds.has(row.documentId),
         );
         classifyPlans(transactionSnapshot);
+        // The pages' Files memberships, then the pages, each by id, as a save
+        // takes them: the writes below update pages before the memberships.
+        // A conflict page is locked too, since its plan can change below.
+        const existingPageIds = plans
+          .filter((plan) => plan.existing)
+          .map((plan) => plan.id);
+        const lockedPageIds = [
+          ...existingPageIds,
+          ...missingRows.map((row) => row.documentId),
+        ];
+        // Add a missing Files membership before locking any page. A page has
+        // one per Files database, so once this transaction holds or inserts
+        // it, a concurrent insert waits on this one; if it were added after
+        // the pages, the later membership lock would wait on its writer.
+        await ensureDocumentsFilesMembership(tx, existingPageIds, now);
+        if (lockedPageIds.length > 0) {
+          const memberships = await tx
+            .select({ id: schema.contentDatabaseItems.id })
+            .from(schema.contentDatabaseItems)
+            .where(
+              and(
+                eq(schema.contentDatabaseItems.databaseId, target.database.id),
+                inArray(schema.contentDatabaseItems.documentId, lockedPageIds),
+              ),
+            );
+          await lockExistingDatabaseMemberships(tx, [
+            ...memberships.map((membership: { id: string }) => membership.id),
+            ...missingRows.map((row) => row.databaseItemId),
+          ]);
+          await lockDocumentRows(tx, lockedPageIds);
+        }
+        // The snapshot read these pages before their locks. A save that
+        // committed in between would be written over without a conflict, or
+        // leave a conflict proposal for Content as it was before the save,
+        // which can't be accepted. Planning them again from the pages as
+        // locked records the save.
+        if (existingPageIds.length > 0) {
+          const lockedPages = (await tx
+            .select()
+            .from(schema.documents)
+            .where(
+              inArray(schema.documents.id, existingPageIds),
+            )) as Document[];
+          for (const page of lockedPages) {
+            transactionSnapshot.documentById.set(page.id, page);
+          }
+          plans = buildPlans(transactionSnapshot);
+          classifyPlans(transactionSnapshot);
+        }
         for (const plan of plans) {
           if (plan.conflict) {
             const changeSetId = opaqueId(
@@ -585,6 +686,11 @@ export default defineAction({
           }
 
           if (!plan.existing) {
+            await verifyPrivateIconAssignment({
+              icon: plan.file.icon === undefined ? null : plan.file.icon,
+              userEmail,
+              orgId: target.database.orgId,
+            });
             await tx.insert(schema.documents).values({
               id: plan.id,
               spaceId: target.database.spaceId,
@@ -607,11 +713,24 @@ export default defineAction({
               createdAt: now,
               updatedAt: now,
             });
-          } else if (
-            plan.applyIncoming ||
-            plan.existing.sourcePath !== plan.file.path ||
-            plan.existing.sourceRootPath !== target.source.sourceTable
-          ) {
+            await syncPrivateIconReference(tx as ReturnType<typeof getDb>, {
+              elementType: "document",
+              elementId: plan.id,
+              documentId: plan.id,
+              icon: plan.file.icon === undefined ? null : plan.file.icon,
+              ownerEmail: userEmail,
+              orgId: target.database.orgId,
+            });
+            await syncPrivateCalloutReferences(tx as ReturnType<typeof getDb>, {
+              documentId: plan.id,
+              before: "",
+              after: plan.file.content,
+              userEmail,
+              ownerEmail: userEmail,
+              orgId: target.database.orgId,
+            });
+          } else if (rebindsExistingPage(plan)) {
+            await assertLocalFileLinkable(plan.id, { transaction: tx });
             const versionId = opaqueId(
               "content_document_version",
               `${plan.id}:${plan.existing.updatedAt}:${plan.incomingHash}`,
@@ -634,14 +753,20 @@ export default defineAction({
                 updatedAt: now,
               })
               .onConflictDoNothing();
+            const legacy = plan.applyIncoming
+              ? await lockLegacyBodyWrites(tx, [plan.id], {
+                  operation: "sync-local-folder-source",
+                  content: plan.file.content,
+                })
+              : undefined;
             const reboundDocuments = await tx
               .update(schema.documents)
               .set({
-                ...(plan.applyIncoming
+                ...(legacy
                   ? {
                       title: plan.file.title,
                       content: plan.file.content,
-                      bodyRevision: bodyRevisionForContent(plan.file.content),
+                      bodyRevision: legacy.bodyRevision(plan.file.content),
                       description:
                         plan.file.description ?? plan.existing.description,
                       icon: plan.file.icon ?? plan.existing.icon,
@@ -664,6 +789,38 @@ export default defineAction({
             if (reboundDocuments.length !== 1) {
               throw new Error(
                 `Document "${plan.id}" left this Content space during local-folder sync`,
+              );
+            }
+            if (plan.applyIncoming) {
+              const nextIcon =
+                plan.file.icon === undefined || plan.file.icon === null
+                  ? plan.existing.icon
+                  : plan.file.icon;
+              if (nextIcon !== plan.existing.icon) {
+                await verifyPrivateIconAssignment({
+                  icon: nextIcon,
+                  userEmail,
+                  orgId: target.database.orgId,
+                });
+                await syncPrivateIconReference(tx as ReturnType<typeof getDb>, {
+                  elementType: "document",
+                  elementId: plan.id,
+                  documentId: plan.id,
+                  icon: nextIcon,
+                  ownerEmail: plan.existing.ownerEmail,
+                  orgId: target.database.orgId,
+                });
+              }
+              await syncPrivateCalloutReferences(
+                tx as ReturnType<typeof getDb>,
+                {
+                  documentId: plan.id,
+                  before: plan.existing.content,
+                  after: plan.file.content,
+                  userEmail,
+                  ownerEmail: plan.existing.ownerEmail,
+                  orgId: target.database.orgId,
+                },
               );
             }
           }
@@ -764,6 +921,25 @@ export default defineAction({
             .set(rowValues)
             .where(eq(schema.contentDatabaseSourceRows.id, rowId));
         }
+        // A file back in the folder makes its open deletion proposal untrue,
+        // and accepting it would unlink the page from a file that exists.
+        const missingRowIds = new Set(missingRows.map((row) => row.id));
+        const retiredDeletionIds = transactionSnapshot.storedRows
+          .filter((row) => !missingRowIds.has(row.id))
+          .map((row) => deletionChangeSetId(row));
+        if (retiredDeletionIds.length > 0) {
+          await tx
+            .delete(schema.contentDatabaseSourceChangeSets)
+            .where(
+              and(
+                inArray(
+                  schema.contentDatabaseSourceChangeSets.id,
+                  retiredDeletionIds,
+                ),
+                eq(schema.contentDatabaseSourceChangeSets.state, "proposed"),
+              ),
+            );
+        }
         for (const row of missingRows) {
           if (policy === "source_primary") {
             await tx
@@ -807,16 +983,8 @@ export default defineAction({
             continue;
           }
           const values = parseJson(row.sourceValuesJson);
-          const path =
-            typeof values.relativePath === "string"
-              ? values.relativePath
-              : typeof row.sourceDisplayKey === "string"
-                ? row.sourceDisplayKey
-                : row.sourceRowId;
-          const changeSetId = opaqueId(
-            "content_source_change",
-            `${sourceId}:${row.documentId}:source-delete:${path}`,
-          );
+          const path = deletedFilePath(row);
+          const changeSetId = deletionChangeSetId(row);
           await tx
             .insert(schema.contentDatabaseSourceChangeSets)
             .values({

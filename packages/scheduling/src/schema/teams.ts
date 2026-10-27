@@ -1,10 +1,3 @@
-/**
- * Teams — groupings of users who share event types, round-robin across hosts,
- * and present a team booking page at `/team/:slug`.
- *
- * Framework `org` provides heavier identity (for full multi-tenant orgs);
- * teams here are lighter-weight and may be scoped to a single org.
- */
 import {
   table,
   text,

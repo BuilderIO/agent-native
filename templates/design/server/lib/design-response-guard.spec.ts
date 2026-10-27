@@ -422,6 +422,31 @@ describe("Design final response guard", () => {
     ).toBe(true);
   });
 
+  it.each([
+    "Please finish checking the existing welcome-email.html for HubSpot, including missing, normal and long first names and the button's fallback and populated destination. Check desktop and phone previews, including a narrow phone, then give me a concise, accurate handoff. Keep the real personalization tokens and Brand reference unchanged, and keep working on this email rather than creating another one.",
+    "Review this card; do not create another design.",
+    "Check the screen without changing its layout.",
+    "Inspect this email instead of editing the design.",
+    "Review the layout and fix it only if needed.",
+    "If the preview reveals an issue, fix the layout.",
+    "Check the screen and adjust its layout as needed.",
+    "Make sure this email aligns with HubSpot email requirements.",
+  ])("allows verification without an unconditional mutation: %s", (request) => {
+    expect(designFinalResponseGuard(guardContext(request))).toBeNull();
+  });
+
+  it.each([
+    "Do not create another frame; edit the existing screen.",
+    "Never remove the footer, but update the button.",
+    "Check this screen, then fix the footer.",
+    "If needed, fix the footer; create a new design.",
+    "Make sure to add the required tokens to this design.",
+  ])("still requires independent affirmative mutations: %s", (request) => {
+    expect(designFinalResponseGuard(guardContext(request))).toMatchObject({
+      expandToolSurface: true,
+    });
+  });
+
   it("retries prose-only completion for a design mutation", () => {
     const result = designFinalResponseGuard(
       guardContext("can you create another version of this"),
@@ -529,6 +554,26 @@ describe("Design final response guard", () => {
         ),
       ).toBeNull();
     }
+  });
+
+  it("counts a Builder delegation only once Builder finished it", () => {
+    const delegated = (value: Record<string, unknown>) =>
+      designFinalResponseGuard(
+        guardContext("make the header sticky", {
+          toolResults: [toolResult("send-builder-message", value)],
+        }),
+      );
+
+    expect(delegated({ sent: true, completed: true })).toBeNull();
+    expect(
+      delegated({
+        sent: true,
+        completed: false,
+        unconfirmed: true,
+        error: "Timed out waiting for the app agent to finish",
+      }),
+    ).not.toBeNull();
+    expect(delegated({ sent: true, completed: false })).not.toBeNull();
   });
 
   it("does not accept a partial generation", () => {
@@ -677,8 +722,6 @@ describe("Design final response guard", () => {
   });
 
   it("does not read a bare mention of a design as a request to change one", () => {
-    // `design` is the only token in both the verb and the object pattern, so
-    // testing them independently let one word stand in for both halves.
     expect(looksLikeDesignMutationRequest("nice design")).toBe(false);
     expect(looksLikeDesignMutationRequest("I love design")).toBe(false);
     expect(
@@ -697,8 +740,6 @@ describe("Design final response guard", () => {
   });
 
   it("lets `design` supply the verb only where a verb can stand", () => {
-    // The noun is the common use in this app, so a mention must not supply
-    // the verb even when some other word supplies the object.
     expect(looksLikeDesignMutationRequest("I love this design")).toBe(false);
     expect(looksLikeDesignMutationRequest("this design looks good")).toBe(
       false,
@@ -764,10 +805,6 @@ describe("Design final response guard", () => {
   });
 
   it("labels an unproven draft instead of replacing it with a save failure", () => {
-    // Intent is read from prose, so it misfires on text that only describes
-    // design work — the app's own action guide says "create a new design".
-    // No pattern separates that from a request, so a miss must stay
-    // recoverable: the user keeps the answer and is told nothing was saved.
     const selfReferential = [
       "# Design — Agent Guide",
       "",

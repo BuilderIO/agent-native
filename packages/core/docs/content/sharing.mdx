@@ -86,6 +86,13 @@ When you share with a specific user or org, you pick a role:
 
 `admin` does NOT change ownership — there's still exactly one owner per resource, distinct from the share grants.
 
+### Group grants {#group-grants}
+
+Some resources opt in to group sharing. A group must belong to the resource's
+organization, and each current group member gets the selected share role on
+that resource. See [Organizations, Teams & Permissions → User groups](/docs/organizations-teams-permissions#user-groups)
+for what groups do and do not scope.
+
 ## What's covered {#covered}
 
 Every template that stores user-authored work uses this model. Concretely:
@@ -128,6 +135,8 @@ Every shareable resource gets a share button in its header. Clicking it opens a 
 - General access: visibility selector (`Private` / `Organization` / `Public link`).
 - A copy-link button that respects the current visibility.
 
+Moving a resource from `Private` to `Organization` asks for confirmation first. Nothing changes until the user confirms. Cancel or Escape keeps the current access. If saving fails, the dialog shows the error and the user can try again. Other visibility changes save at once. The confirmation lives in the share UI only. `set-resource-visibility` is unchanged, so the agent and any other caller still change visibility directly and the resource's sharing policy still decides what is allowed.
+
 <WireframeBlock id="doc-block-sharing2">
   <Screen
     surface="popover"
@@ -141,7 +150,7 @@ Every shareable resource gets a share button in its header. Clicking it opens a 
 The share button is a single import:
 
 ```tsx
-import { ShareButton } from "@agent-native/core/client/sharing";
+import { ShareButton } from "@agent-native/toolkit/app/sharing";
 <ShareButton
   resourceType="deck"
   resourceId={deck.id}
@@ -150,6 +159,45 @@ import { ShareButton } from "@agent-native/core/client/sharing";
 ```
 
 For lists, drop a `<VisibilityBadge visibility={row.visibility} />` next to each row so users can see at a glance what's private vs. shared.
+
+## Shared chats {#shared-chats}
+
+Agent chat threads use the same model. A new or forked chat is private to its owner, and sharing a chat follows the rules above.
+
+Each chat in a history list carries two fields so a row can say whose chat it is and why you can see it:
+
+| Field         | Value                                                                                                             |
+| ------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `ownerEmail`  | The chat's owner.                                                                                                 |
+| `accessBasis` | `owner`, `direct` (a grant to you by name), or `organization`. `direct` wins over `organization` when both apply. |
+
+History lists and search take an `ownership` filter:
+
+- `all` (default) lists every chat you can access.
+- `mine` lists chats you own, even when they are shared with the organization.
+- `shared` lists chats you can access that someone else owns.
+
+The server applies `ownership` before pagination, so `limit`, `offset`, and `hasMore` describe the filtered list. Search takes the same filter. An unknown value is rejected with a 400 instead of falling back to `all`. Access rules do not change, and listing never loads transcripts.
+
+Migration: custom history list and search callers must send a positive integer `limit` and a non-negative integer `offset`, or omit them to use the defaults. Malformed values now return HTTP 400 instead of being coerced. Valid limits above 200 are capped at 200.
+
+In client code, `useChatThreadList()` from `@agent-native/core/client` pages one list at a time:
+
+```tsx
+import { useChatThreadList } from "@agent-native/core/client";
+
+const shared = useChatThreadList({ ownership: "shared", pageSize: 50 });
+// shared.threads, shared.hasMore, shared.loadMore(), shared.error
+```
+
+`refreshOnThreadUpdates` defaults to `true`. Set it to `false` to skip refreshes triggered by `notifyChatThreadsUpdated()`. Initial loading, manual `refresh()`, paging, and reloading after an Activity resumes still work. Changing this option preserves loaded rows and does not fetch by itself.
+
+A failed request sets `error` and keeps the rows already loaded. It never looks like an empty list. `<ShareButton>` and `<ShareDialog>` refresh mounted chat lists after they save. If you change a chat's sharing some other way, call `notifyChatThreadsUpdated()` so mounted lists refetch.
+
+For a ready-made sidebar that combines owned chats, shared chats, and eligible started drafts, import `useOwnershipChatHistory()` and `OwnershipChatHistoryRail` from `@agent-native/toolkit/app/chat/ownership-history`. The adapter keeps owner and access-basis details on shared rows, pages each section independently, and retains rows and local optimistic changes when a refresh fails. Its mutation callbacks return `Promise<boolean>`, allowing the app to navigate only after a write succeeds. See [Sharing Kit](/docs/toolkit-sharing#shared-chat-history) for an example.
+
+An active empty draft remains selectable and runnable while its first save is pending. Until persistence is confirmed, hide pin, rename, and archive actions, and the adapter rejects calls to those callbacks. `ownDraftRows` supplies persistence provenance for owned drafts, while confirmed owned rows from the server list keep their normal actions. For custom `OwnDraftRow` values, set optional `persisted?: boolean` to `true` only for a confirmed persisted server row owned by the current user. Do not infer persistence from message count or active ID. Role, privacy, and whether the active draft is empty remain separate facts.
+Pins are personal: `pinnedAt` is the caller's pin, including on shared chats; list and search sort by it. `useChatThreads().pinThread(id, pinned)` keeps its existing signature. Both `useChatThreads()` and `useChatThreadList()` provide `hideThread(id, hidden)` for shared chats. Hidden chats are excluded from list and search unless `includeHidden: true` is set; their rows and single-thread reads include the caller's `hiddenAt`. Opening a hidden chat by id or link still works. Owners cannot hide their own chats; they archive instead. Rename and archive remain owner-only. Hide throws `ChatThreadMutationError` on HTTP refusals (`status` 403 for owners, 404 without access); successful calls return `true`. The HTTP contract is `POST /_agent-native/agent-chat/threads/:id/hide` with `{ hidden: boolean }`; list/search use `includeHidden=1`. The `chat-history` tool supports `pin`, `unpin`, `hide`, `unhide`, and search with `includeHidden: true`. Revoking access hides prior viewer state; deleting a thread deletes that state.
 
 ## Same model, agent and UI {#agent-and-ui}
 

@@ -66,15 +66,6 @@ export interface UseTweaksResult {
   tweaks: TweakDefinition[];
 }
 
-/**
- * Owns the tweak (visual-knob) domain: the parsed definitions, the reconciled
- * selection state, the CSS-var projection for the canvas iframe, and the
- * debounced save queue that persists selections into designs.data.
- *
- * Every dependency array below is byte-identical to the inline version this
- * replaced. The keepalive/unload effect must stay in this hook so the 600 ms
- * debounce is flushed before the keyed editor instance unmounts.
- */
 export function useTweaks({
   acknowledgeOutboxEntry,
   applyTweaksAsync,
@@ -204,9 +195,6 @@ export function useTweaks({
       const pending = pendingTweakSaveRef.current;
       if (!id || !pending || !canEditDesignRef.current) return;
       if (tweakSaveInFlightRef.current) return;
-      // Keep the normal timer/pending entry intact for bfcache restores. The
-      // keepalive is the unload safety net; if the page survives, the regular
-      // mutation still settles state and confirms persistence.
       const entry = createTweakSaveOutboxEntry(pending);
       if (!entry) return;
       void sendJournaledTweakSaveKeepalive({
@@ -226,9 +214,6 @@ export function useTweaks({
     return () => {
       window.removeEventListener("pagehide", handlePageHide);
       window.removeEventListener("online", handleOnline);
-      // Client-side navigation used to cancel the 600 ms debounce and drop
-      // the user's final knob position. Flush it synchronously into the
-      // mutation pipeline before this keyed editor instance unmounts.
       flushPendingTweakSave();
     };
   }, [
@@ -239,9 +224,6 @@ export function useTweaks({
     journalTweakOutboxEntry,
   ]);
 
-  // Parse design.data for agent-supplied tweaks. The agent writes a JSON blob
-  // to designs.data containing { tweaks: TweakDefinition[], ... }; we surface
-  // the tweaks as live controls bound to the design's CSS custom properties.
   const tweaks: TweakDefinition[] = useMemo(() => {
     if (!design?.data) return [];
     try {
@@ -254,9 +236,6 @@ export function useTweaks({
     }
   }, [design?.data]);
 
-  // Persisted user knob values live in designs.data.tweakSelections (written by
-  // the apply-tweaks action). Restoring them on load is what makes the
-  // visual-tune round-trip survive a refresh and feed the snapshot/handoff.
   const persistedSelections: TweakSelections = useMemo(() => {
     if (!design?.data) return {};
     try {
@@ -279,10 +258,6 @@ export function useTweaks({
     }
   }, [persistedSelections, tweakSaveActive]);
 
-  // Tweak values are keyed by tweak id while in the panel, then mapped to
-  // CSS-var -> value for the iframe so the design's :root block picks them up.
-  // Persisted selections are authoritative for agent edits; a local queued
-  // save temporarily pauses adoption so stale refetches don't clobber a drag.
   const authoritativeTweakSelections = useMemo(
     () => buildAuthoritativeTweakSelections(tweaks, persistedSelections),
     [tweaks, persistedSelections],
@@ -295,9 +270,6 @@ export function useTweaks({
     },
   );
 
-  // Map tweak selections (id -> value) to CSS-var assignments (--var -> value)
-  // for the iframe bridge. Shared with the snapshot/handoff actions via
-  // `@shared/resolve-tweaks` so the UI and external agents resolve identically.
   const cssVarValues = useMemo(
     () => resolveTweaksToCssVars(tweaks, tweakSelections),
     [tweaks, tweakSelections],

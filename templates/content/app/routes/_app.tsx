@@ -15,8 +15,6 @@ export function meta() {
   ];
 }
 
-// Pathless layout route — wraps all protected routes with Layout so the
-// agent sidebar and document tree persist across client-side navigations.
 export default function AppLayoutRoute() {
   return (
     <Layout>

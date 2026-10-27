@@ -1,44 +1,16 @@
-/**
- * Surgical reconcile — apply an authoritative external document into the live
- * editor by replacing only the changed top-level node run, instead of a
- * whole-document `setContent`.
- *
- * Why: under the Collaboration extension, `setContent` routes through
- * y-prosemirror and rewrites the ENTIRE `Y.XmlFragment`. Every block-level
- * NodeView is torn down and recreated (each `ReactRenderer` constructor calls
- * `flushSync`, firing inside a React lifecycle), remote carets jump, and the
- * CRDT sees a delete-all + insert-all instead of a small edit. Diffing the
- * top-level children and dispatching one `tr.replaceWith(from, to, changed)`
- * leaves unchanged NodeViews untouched and produces minimal Yjs ops.
- *
- * This is the core mechanism behind re-enabling single-doc collab in the plan
- * editor (see templates/plan/shared/plan-doc.collab-stability.spec.ts, "Option
- * B") and removing agent-edit NodeView churn in content.
- */
-
 import { createNodeFromContent } from "@tiptap/core";
 import type { Fragment, Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Transform, type Step } from "@tiptap/pm/transform";
 import type { Editor } from "@tiptap/react";
 
-/**
- * Transaction meta marking programmatic (non-user) rich-markdown transactions.
- * Declared here (not in useCollabReconcile) so the module dependency stays
- * one-directional; useCollabReconcile re-exports it for consumers.
- */
 export const RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION =
   "an-rich-md-programmatic-transaction";
 
 export interface TopLevelDiff {
-  /** Index of the first differing top-level child. */
   fromIndex: number;
-  /** Exclusive end index of the differing run in the OLD doc. */
   oldToIndex: number;
-  /** Exclusive end index of the differing run in the NEW doc. */
   newToIndex: number;
-  /** Document position where the differing run starts. */
   fromPos: number;
-  /** Document position where the differing run ends in the OLD doc. */
   toPos: number;
 }
 
@@ -49,25 +21,42 @@ export interface TopLevelHunk {
   changedToIndex: number;
 }
 
+/**
+ * `setAside` counts the server's hunks left out because they overlapped a
+ * local edit. A hunk is one run of adjacent top-level blocks the server
+ * changed, except that a run replacing as many blocks as it removes is split
+ * into one hunk per block when every block's position is unambiguous. Only
+ * the `prefer-live` overlap policy sets hunks aside.
+ */
 export type BaseAwareReconcileResult =
-  | { status: "noop" }
-  | { status: "applied"; mergedDoc: ProseMirrorNode }
+  | { status: "noop"; setAside: number }
+  | { status: "applied"; mergedDoc: ProseMirrorNode; setAside: number }
   | { status: "conflict"; localDraft: ProseMirrorNode }
   | { status: "failed"; reason: "schema" | "ambiguous" | "transaction" };
 
 export type BaseAwareReconcilePlan =
   | Exclude<BaseAwareReconcileResult, { status: "applied" }>
-  | { status: "applied"; mergedDoc: ProseMirrorNode; steps: readonly Step[] };
+  | {
+      status: "applied";
+      mergedDoc: ProseMirrorNode;
+      steps: readonly Step[];
+      setAside: number;
+    };
+
+export interface BaseAwareReconcileOptions {
+  overlapPolicy?: "conflict" | "prefer-live";
+  /**
+   * The live editor's selection while it has focus. A filler line holding the
+   * cursor, or the end of a selection, stays, so the next keystroke lands
+   * where the cursor was.
+   */
+  liveSelection?: { from: number; to: number };
+}
 
 function nodesEqual(left: ProseMirrorNode, right: ProseMirrorNode): boolean {
   return left.eq(right);
 }
 
-/**
- * Return every changed top-level run in base coordinates. The bounded LCS is
- * intentionally conservative: large or duplicate-heavy ambiguous documents
- * fail closed instead of guessing which identical block an edit targeted.
- */
 export function diffTopLevelHunks(
   baseDoc: ProseMirrorNode,
   changedDoc: ProseMirrorNode,
@@ -110,9 +99,6 @@ export function diffTopLevelHunks(
         else i++;
         continue;
       }
-      // A plain substitution leaves the same suffix LCS after advancing both
-      // sides. Treat that as one changed run; only competing cross-matches are
-      // ambiguous enough to fail closed.
       const skipBoth = lcs[(i + 1) * width + j + 1];
       if (skipBoth === skipBase) {
         i++;
@@ -146,37 +132,50 @@ export function diffTopLevelHunks(
   return hunks;
 }
 
-function hunksOverlap(left: TopLevelHunk, right: TopLevelHunk): boolean {
-  const leftInsert = left.baseFromIndex === left.baseToIndex;
-  const rightInsert = right.baseFromIndex === right.baseToIndex;
-  if (leftInsert && rightInsert) {
-    return left.baseFromIndex === right.baseFromIndex;
+// `local` is the live doc's change, `server` the snapshot's. An insertion
+// beside the other side's change, rather than inside it, has one place to go:
+// next to that change, on the side it was inserted. For a local insertion at
+// a server replacement's edge, `mappedLocalIndex` keeps it out of the
+// replaced range. Two insertions at the same index have no order, so they
+// overlap.
+function hunksOverlap(local: TopLevelHunk, server: TopLevelHunk): boolean {
+  const localInsert = local.baseFromIndex === local.baseToIndex;
+  const serverInsert = server.baseFromIndex === server.baseToIndex;
+  if (localInsert && serverInsert) {
+    return local.baseFromIndex === server.baseFromIndex;
   }
-  if (leftInsert) {
+  if (localInsert) {
     return (
-      left.baseFromIndex >= right.baseFromIndex &&
-      left.baseFromIndex <= right.baseToIndex
+      local.baseFromIndex > server.baseFromIndex &&
+      local.baseFromIndex < server.baseToIndex
     );
   }
-  if (rightInsert) {
+  if (serverInsert) {
     return (
-      right.baseFromIndex >= left.baseFromIndex &&
-      right.baseFromIndex <= left.baseToIndex
+      server.baseFromIndex > local.baseFromIndex &&
+      server.baseFromIndex < local.baseToIndex
     );
   }
   return (
-    left.baseFromIndex < right.baseToIndex &&
-    right.baseFromIndex < left.baseToIndex
+    local.baseFromIndex < server.baseToIndex &&
+    server.baseFromIndex < local.baseToIndex
   );
 }
 
+/**
+ * Where a base index falls in the live doc. A local insertion exactly at the
+ * index stays before a `"start"` and after an `"end"`, so a server replacement
+ * that starts or ends there doesn't take the inserted blocks with it.
+ */
 function mappedLocalIndex(
   baseIndex: number,
   localHunks: readonly TopLevelHunk[],
+  side: "start" | "end" = "start",
 ): number {
   let mapped = baseIndex;
   for (const hunk of localHunks) {
     if (hunk.baseToIndex > baseIndex) break;
+    if (side === "end" && hunk.baseFromIndex === baseIndex) break;
     mapped +=
       hunk.changedToIndex -
       hunk.changedFromIndex -
@@ -220,11 +219,11 @@ function splitReplacementHunks(hunks: TopLevelHunk[]): TopLevelHunk[] {
   });
 }
 
-/** Plan authoritative server changes without mutating a live editor or Y.Doc. */
 export function planDocReconcile(
   liveDoc: ProseMirrorNode,
   baseDoc: ProseMirrorNode,
   serverDoc: ProseMirrorNode,
+  options: BaseAwareReconcileOptions = {},
 ): BaseAwareReconcilePlan {
   if (
     baseDoc.type.schema !== liveDoc.type.schema ||
@@ -234,56 +233,75 @@ export function planDocReconcile(
   ) {
     return { status: "failed", reason: "schema" };
   }
-  const localDiff = diffTopLevelHunks(baseDoc, liveDoc);
+  // An empty closing line holds nothing to protect: comparing it would make it
+  // overlap every server change to the base's last block, or after it. That
+  // covers the editor's filler, and a filler kept under the cursor that now
+  // follows a paragraph.
+  const liveHasBlankEnd =
+    endsInBlankLine(liveDoc) && !isEmptyParagraph(baseDoc.lastChild);
+  const liveHasFiller = liveHasBlankEnd && endsInEditorFiller(liveDoc);
+  const comparedLive = liveHasBlankEnd ? withoutLastChild(liveDoc) : liveDoc;
+  const localDiff = diffTopLevelHunks(baseDoc, comparedLive);
   const serverDiff = diffTopLevelHunks(baseDoc, serverDoc);
   if (!localDiff || !serverDiff) {
     return { status: "failed", reason: "ambiguous" };
   }
   let localHunks = localDiff;
   let serverHunks = serverDiff;
-  if (serverHunks.length === 0) return { status: "noop" };
-  // A peer can deliver an accepted replacement before its SQL revision arrives.
-  // Split adjacent substitutions only when exact identities rule out moves and
-  // repeated-block alignment; equal block counts alone do not prove positions.
+  if (serverHunks.length === 0) return { status: "noop", setAside: 0 };
   if (
-    hasUnambiguousReplacementPositions(baseDoc, liveDoc) &&
+    hasUnambiguousReplacementPositions(baseDoc, comparedLive) &&
     hasUnambiguousReplacementPositions(baseDoc, serverDoc)
   ) {
     localHunks = splitReplacementHunks(localHunks);
-    serverHunks = splitReplacementHunks(serverHunks).filter(
-      (server) =>
-        !localHunks.some(
-          (local) =>
-            local.baseFromIndex === server.baseFromIndex &&
-            local.baseToIndex === server.baseToIndex &&
-            liveDoc.content
-              .cut(
-                positionOfChild(liveDoc, local.changedFromIndex),
-                positionOfChild(liveDoc, local.changedToIndex),
-              )
-              .eq(
-                serverDoc.content.cut(
-                  positionOfChild(serverDoc, server.changedFromIndex),
-                  positionOfChild(serverDoc, server.changedToIndex),
-                ),
-              ),
-        ),
-    );
+    serverHunks = splitReplacementHunks(serverHunks);
   }
-  if (serverHunks.length === 0) return { status: "noop" };
+  // A change both sides made is already in the tab. Repeated blocks only stop
+  // the split above: the same base range given the same blocks is still the
+  // same change.
+  serverHunks = serverHunks.filter(
+    (server) =>
+      !localHunks.some(
+        (local) =>
+          local.baseFromIndex === server.baseFromIndex &&
+          local.baseToIndex === server.baseToIndex &&
+          comparedLive.content
+            .cut(
+              positionOfChild(comparedLive, local.changedFromIndex),
+              positionOfChild(comparedLive, local.changedToIndex),
+            )
+            .eq(
+              serverDoc.content.cut(
+                positionOfChild(serverDoc, server.changedFromIndex),
+                positionOfChild(serverDoc, server.changedToIndex),
+              ),
+            ),
+      ),
+  );
+  if (serverHunks.length === 0) return { status: "noop", setAside: 0 };
+  const overlapsLocal = (server: TopLevelHunk) =>
+    localHunks.some((local) => hunksOverlap(local, server));
   if (
-    localHunks.some((local) =>
-      serverHunks.some((server) => hunksOverlap(local, server)),
-    )
+    options.overlapPolicy !== "prefer-live" &&
+    serverHunks.some(overlapsLocal)
   ) {
     return { status: "conflict", localDraft: liveDoc };
   }
+  let setAside = 0;
+  if (options.overlapPolicy === "prefer-live") {
+    const kept = serverHunks.filter((server) => !overlapsLocal(server));
+    setAside = serverHunks.length - kept.length;
+    serverHunks = kept;
+    if (serverHunks.length === 0) return { status: "noop", setAside };
+  }
 
   try {
+    // Hunks index the compared doc, which matches the live doc up to the
+    // filler, so a change at the base's end lands before the filler.
     const tr = new Transform(liveDoc);
     for (const hunk of [...serverHunks].reverse()) {
       const fromIndex = mappedLocalIndex(hunk.baseFromIndex, localHunks);
-      const toIndex = mappedLocalIndex(hunk.baseToIndex, localHunks);
+      const toIndex = mappedLocalIndex(hunk.baseToIndex, localHunks, "end");
       tr.replaceWith(
         positionOfChild(tr.doc, fromIndex),
         positionOfChild(tr.doc, toIndex),
@@ -293,19 +311,40 @@ export function planDocReconcile(
         ),
       );
     }
-    return { status: "applied", mergedDoc: tr.doc, steps: tr.steps };
+    // Once a paragraph closes the page, the filler is a stray empty line the
+    // next save would keep. The editor adds it back when it is needed again.
+    // A selection's `to` is its later end, so a range reaching in counts too.
+    const liveLast = liveDoc.lastChild;
+    const selectionOnFiller =
+      !!liveLast &&
+      !!options.liveSelection &&
+      options.liveSelection.to > liveDoc.content.size - liveLast.nodeSize;
+    const mergedLast = tr.doc.lastChild;
+    if (
+      liveHasFiller &&
+      !selectionOnFiller &&
+      !endsInEditorFiller(tr.doc) &&
+      isEditorFiller(mergedLast)
+    ) {
+      const end = tr.doc.content.size;
+      tr.delete(end - mergedLast.nodeSize, end);
+    }
+    return { status: "applied", mergedDoc: tr.doc, steps: tr.steps, setAside };
   } catch {
     return { status: "failed", reason: "transaction" };
   }
 }
 
-/** Apply authoritative server changes onto a locally edited document. */
 export function reconcileDocAgainstBase(
   editor: Editor,
   baseDoc: ProseMirrorNode,
   serverDoc: ProseMirrorNode,
+  options: BaseAwareReconcileOptions = {},
 ): BaseAwareReconcileResult {
-  const plan = planDocReconcile(editor.state.doc, baseDoc, serverDoc);
+  const plan = planDocReconcile(editor.state.doc, baseDoc, serverDoc, {
+    ...options,
+    ...(editor.isFocused ? { liveSelection: editor.state.selection } : {}),
+  });
   if (plan.status !== "applied") return plan;
   try {
     const tr = editor.state.tr;
@@ -313,17 +352,16 @@ export function reconcileDocAgainstBase(
     tr.setMeta("addToHistory", false);
     tr.setMeta(RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION, true);
     editor.view.dispatch(tr);
-    return { status: "applied", mergedDoc: editor.state.doc };
+    return {
+      status: "applied",
+      mergedDoc: editor.state.doc,
+      setAside: plan.setAside,
+    };
   } catch {
     return { status: "failed", reason: "transaction" };
   }
 }
 
-/**
- * Diff two documents at top-level-node granularity: trim the common prefix and
- * suffix (node equality via ProseMirror's `Node.eq`, which is deep) and return
- * the remaining changed run. Returns null when the documents are equal.
- */
 export function diffTopLevel(
   oldDoc: ProseMirrorNode,
   newDoc: ProseMirrorNode,
@@ -337,7 +375,7 @@ export function diffTopLevel(
     prefix++;
   }
 
-  if (prefix === oldCount && prefix === newCount) return null; // identical
+  if (prefix === oldCount && prefix === newCount) return null;
 
   let suffix = 0;
   const maxSuffix = Math.min(oldCount, newCount) - prefix;
@@ -352,7 +390,6 @@ export function diffTopLevel(
   const oldToIndex = oldCount - suffix;
   const newToIndex = newCount - suffix;
 
-  // Positions: sum nodeSize of the preserved prefix, then of the changed run.
   let fromPos = 0;
   for (let i = 0; i < fromIndex; i++) fromPos += oldDoc.child(i).nodeSize;
   let toPos = fromPos;
@@ -384,12 +421,36 @@ function isEmptyParagraph(node: ProseMirrorNode | null): boolean {
 }
 
 /**
- * Markdown can't represent a trailing empty paragraph (the cursor line users
- * keep below a list/code block), so a parsed authoritative value never has
- * one — but the live doc often does, and the legacy `setContent` path
- * preserves it. Without this, every surgical reconcile whose old doc ends
- * with an empty paragraph would DELETE the user's trailing cursor line.
+ * Tiptap's TrailingNode keeps an empty paragraph after a last block that is
+ * not a paragraph, so there is a line to type on. Saved bodies leave it out.
+ * An empty line someone styled, by indenting or coloring it, is content.
  */
+function endsInEditorFiller(doc: ProseMirrorNode): boolean {
+  return (
+    endsInBlankLine(doc) &&
+    doc.child(doc.childCount - 2).type.name !== "paragraph"
+  );
+}
+
+/** An unstyled empty line after the page's last block, filler or typed. */
+function endsInBlankLine(doc: ProseMirrorNode): boolean {
+  return doc.childCount > 1 && isEditorFiller(doc.lastChild);
+}
+
+function isEditorFiller(node: ProseMirrorNode | null): node is ProseMirrorNode {
+  return (
+    node !== null &&
+    isEmptyParagraph(node) &&
+    node.sameMarkup(node.type.create())
+  );
+}
+
+function withoutLastChild(doc: ProseMirrorNode): ProseMirrorNode {
+  const last = doc.lastChild;
+  if (!last) return doc;
+  return doc.copy(doc.content.cut(0, doc.content.size - last.nodeSize));
+}
+
 function withPreservedTrailingParagraph(
   oldDoc: ProseMirrorNode,
   newDoc: ProseMirrorNode,
@@ -403,23 +464,27 @@ function withPreservedTrailingParagraph(
   return newDoc.copy(newDoc.content.addToEnd(oldLast!.type.create()));
 }
 
-/**
- * Replace only the changed top-level run of the live document with the
- * corresponding run from `newDoc`, in one programmatic, history-free
- * transaction. Returns:
- *  - "applied"   — a targeted replacement was dispatched
- *  - "noop"      — the documents were already equal (nothing dispatched)
- *  - "failed"    — the diff/transaction could not be applied (schema mismatch,
- *                  invalid content, …); caller should fall back to setContent.
- */
+/** The doc `applyDocSurgically` would leave, or why it would not change one. */
+export function surgicalApplyTarget(
+  oldDoc: ProseMirrorNode,
+  newDoc: ProseMirrorNode,
+): ProseMirrorNode | "noop" | "failed" {
+  if (
+    newDoc.type.schema !== oldDoc.type.schema ||
+    newDoc.type !== oldDoc.type
+  ) {
+    return "failed";
+  }
+  const target = withPreservedTrailingParagraph(oldDoc, newDoc);
+  return diffTopLevel(oldDoc, target) ? target : "noop";
+}
+
 export function applyDocSurgically(
   editor: Editor,
   newDoc: ProseMirrorNode,
 ): "applied" | "noop" | "failed" {
   try {
     const oldDoc = editor.state.doc;
-    // The parsed doc MUST come from this editor's schema — NodeType identity
-    // is per-Schema-instance, so a foreign-schema doc can never diff or apply.
     if (newDoc.type.schema !== editor.schema || newDoc.type !== oldDoc.type) {
       return "failed";
     }
@@ -440,17 +505,6 @@ export function applyDocSurgically(
   }
 }
 
-/**
- * Best-effort default parser for the surgical path: use the tiptap-markdown
- * storage parser (present when the shared editor's `features.markdown` is on)
- * to turn the authoritative markdown into a ProseMirror document. Returns null
- * when unavailable or when parsing fails — the caller falls back to the full
- * `setContent` path.
- *
- * Apps with their own serializers (Content's NFM, Plan's blocks[] doc) should
- * pass an explicit `parseValue` producing the exact doc their `setContent`
- * would have written.
- */
 export function defaultParseValue(
   editor: Editor,
   value: string,
@@ -462,7 +516,6 @@ export function defaultParseValue(
     const node = createNodeFromContent(parsed, editor.schema, {
       slice: false,
     });
-    // createNodeFromContent with slice:false returns a Node (the doc).
     return (node as ProseMirrorNode) ?? null;
   } catch {
     return null;

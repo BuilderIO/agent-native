@@ -1,3 +1,4 @@
+import { z } from "zod";
 /**
  * Actions exposed for the data-programs primitive: save/preview/run/list/get/
  * delete. Mirrors the repo's `defineAction` conventions (see
@@ -11,11 +12,10 @@
  * access-scoped through the sharing helpers.
  */
 
-import { z } from "zod";
-
 import { defineAction } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { SandboxCodeEvaluator } from "../coding-tools/run-code.js";
+import { frameworkMcpTools } from "../mcp/framework-tools.js";
 import { hashDataProgramParams, runDataProgram } from "./execute.js";
 import {
   archiveDataProgram,
@@ -256,7 +256,10 @@ export function createDataProgramActions(
     http: { method: "GET" },
     readOnly: true,
     run: async (args, ctx) => {
-      const program = await getDataProgram(args.programId, appId);
+      const program = await getDataProgram(args.programId, appId, {
+        userEmail: ctx?.userEmail,
+        orgId: ctx?.orgId ?? undefined,
+      });
       if (!program) throw new Error("Data program not found.");
 
       const { resolveAccess } = await import("../sharing/access.js");
@@ -269,9 +272,6 @@ export function createDataProgramActions(
       const defaultParams = program.defaultParams
         ? (JSON.parse(program.defaultParams) as Record<string, unknown>)
         : {};
-      // Viewer/org-scoped hash: the cached run for these params was produced
-      // under SOME caller's credentials and org grants, so only show it back
-      // to that same scope (see hashDataProgramParams doc).
       const hash = hashDataProgramParams(
         defaultParams,
         ctx?.userEmail,
@@ -324,17 +324,20 @@ export function createDataProgramActions(
         userEmail: ctx?.userEmail,
         orgId: ctx?.orgId ?? undefined,
       });
-      const archived = await archiveDataProgram(args.programId, appId);
+      const archived = await archiveDataProgram(args.programId, appId, {
+        userEmail: ctx?.userEmail,
+        orgId: ctx?.orgId ?? undefined,
+      });
       return { archived };
     },
   });
 
-  return {
+  return frameworkMcpTools({
     "save-data-program": saveDataProgram as unknown as ActionEntry,
     "preview-data-program": previewDataProgram as unknown as ActionEntry,
     "run-data-program": runDataProgramAction as unknown as ActionEntry,
     "list-data-programs": listDataProgramsAction as unknown as ActionEntry,
     "get-data-program": getDataProgramAction as unknown as ActionEntry,
     "delete-data-program": deleteDataProgramAction as unknown as ActionEntry,
-  };
+  });
 }

@@ -1,38 +1,5 @@
-/**
- * Schema factories for sharing/ownership.
- *
- * Templates make a resource table "ownable" by spreading `ownableColumns()` into
- * the table definition and declaring a companion shares table via
- * `createSharesTable()`. The shares table carries per-principal grants; the
- * parent table's `visibility` column is the coarse default (private / org /
- * public).
- *
- *   import { table, text, ownableColumns, createSharesTable } from
- *     "@agent-native/core/db/schema";
- *
- *   export const decks = table("decks", {
- *     id: text("id").primaryKey(),
- *     title: text("title").notNull(),
- *     data: text("data").notNull(),
- *     ...ownableColumns(),
- *   });
- *
- *   export const deckShares = createSharesTable("deck_shares");
- *
- * The share row `role` supports `viewer | commenter | editor | admin`. `admin` is a
- * share-level capability — it lets non-owners manage shares. The single
- * `owner_email` column on the resource remains the ground truth for ownership.
- */
-
 import { table, text, now } from "../db/schema.js";
 
-/**
- * Columns any ownable resource should include. Spread into the table definition.
- *
- * - `ownerEmail` — the creator. Auto-filled by write actions from the request context.
- * - `orgId`     — owner's active org at creation time. Used for `visibility = 'org'` checks.
- * - `visibility`— coarse default: `'private' | 'org' | 'public'`. Default `'private'`.
- */
 export function ownableColumns() {
   return {
     ownerEmail: text("owner_email").notNull().default("local@localhost"),
@@ -76,15 +43,8 @@ export function createSharesTable(tableName: string) {
     })
       .notNull()
       .default("viewer"),
-    // Older app databases may already contain share rows from before this
-    // audit field existed. A literal default lets additive schema repair add
-    // the column without inventing an actor for those historical rows.
     createdBy: text("created_by").notNull().default(""),
     createdAt: text("created_at").notNull().default(now()),
-    // Null means nobody was ever told about this row: an implicit access
-    // grant, a suppressed address, or a send that failed. Follow-up email
-    // that claims "X shared this with you" must require a timestamp here,
-    // or it announces a share that never happened.
     notifiedAt: text("notified_at"),
   });
 }
@@ -93,7 +53,6 @@ export type Visibility = "private" | "org" | "public";
 export type ShareRole = "viewer" | "commenter" | "editor" | "admin";
 export type PrincipalType = "user" | "group" | "org";
 
-/** Role precedence — higher number = stronger capability. */
 export const ROLE_RANK: Record<ShareRole | "owner", number> = {
   viewer: 1,
   commenter: 2,

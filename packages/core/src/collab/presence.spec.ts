@@ -1,9 +1,6 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { AGENT_CLIENT_ID } from "./agent-identity.js";
-// ---------------------------------------------------------------------------
-// Pure logic tests — no React rendering needed
-// ---------------------------------------------------------------------------
 import {
   deriveCollabUser,
   shallowEqualOthers,
@@ -76,14 +73,8 @@ describe("fromNormalized", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// usePresence derivation logic — tested by exercising the derive function
-// directly through a minimal EventEmitter-based Awareness mock.
-// ---------------------------------------------------------------------------
-
 import { EventEmitter } from "events";
 
-/** Minimal Awareness mock: just getStates(), setLocalStateField(), on(), off() */
 function makeAwareness(
   initial: Map<number, Record<string, unknown>> = new Map(),
 ) {
@@ -105,10 +96,6 @@ function makeAwareness(
   };
 }
 
-/**
- * Synchronously derive OtherPresence entries from an awareness mock.
- * This mirrors the core logic of usePresence without React rendering.
- */
 function deriveOthers(
   awareness: ReturnType<typeof makeAwareness>,
   localClientId: number,
@@ -196,7 +183,7 @@ describe("usePresence — derivation logic", () => {
         [2, { user: { name: "Bob", email: "bob@ex.com", color: "#0f0" } }],
       ]),
     );
-    const others = deriveOthers(awareness, 1 /* local */);
+    const others = deriveOthers(awareness, 1);
     expect(others).toHaveLength(1);
     expect(others[0].clientId).toBe(2);
   });
@@ -254,81 +241,5 @@ describe("usePresence — derivation logic", () => {
     expect(other.user.name).toBe("AI Assistant");
     expect(other.user.email).toBe("agent@system");
     expect(other.user.color).toBe("#00B5FF");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Fast-awareness throttle helper — unit test scheduleAwarenessPush behavior.
-// We can't import the private function directly, so we test the exported
-// public behavior via scheduleAwarenessPush being exercised in client.ts.
-// Instead, test the throttle mechanics directly with a spy on fetch.
-// ---------------------------------------------------------------------------
-
-describe("awareness fast-path throttle", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-  afterEach(() => {
-    vi.useRealTimers();
-    vi.restoreAllMocks();
-  });
-
-  it("coalesces multiple calls within 150ms into a single POST", async () => {
-    // Import the internal helper via dynamic import of the module (test-only).
-    // We replicate the throttle logic here to avoid coupling to private internals.
-    const fetchSpy = vi.fn().mockResolvedValue({ ok: true } as Response);
-    vi.stubGlobal("fetch", fetchSpy);
-
-    // Simulate: 3 rapid state changes within 150ms should produce 1 fetch.
-    const timers = new Map<string, ReturnType<typeof setTimeout>>();
-    const throttledPush = (key: string, run: () => void) => {
-      if (timers.has(key)) return;
-      const t = setTimeout(() => {
-        timers.delete(key);
-        run();
-      }, 150);
-      timers.set(key, t);
-    };
-
-    let callCount = 0;
-    throttledPush("doc1::42", () => {
-      callCount++;
-    });
-    throttledPush("doc1::42", () => {
-      callCount++;
-    });
-    throttledPush("doc1::42", () => {
-      callCount++;
-    });
-
-    expect(callCount).toBe(0); // Not fired yet.
-
-    vi.advanceTimersByTime(200);
-    expect(callCount).toBe(1); // Only one fire after 150ms.
-  });
-
-  it("fires separate calls for different doc/client keys", async () => {
-    const timers = new Map<string, ReturnType<typeof setTimeout>>();
-    const throttledPush = (key: string, run: () => void) => {
-      if (timers.has(key)) return;
-      const t = setTimeout(() => {
-        timers.delete(key);
-        run();
-      }, 150);
-      timers.set(key, t);
-    };
-
-    let count1 = 0;
-    let count2 = 0;
-    throttledPush("doc1::1", () => {
-      count1++;
-    });
-    throttledPush("doc1::2", () => {
-      count2++;
-    });
-
-    vi.advanceTimersByTime(200);
-    expect(count1).toBe(1);
-    expect(count2).toBe(1);
   });
 });

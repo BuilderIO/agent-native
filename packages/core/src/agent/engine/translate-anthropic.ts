@@ -1,20 +1,7 @@
-/**
- * Translation helpers between the AgentEngine normalized types and
- * @anthropic-ai/sdk's wire types.
- *
- * AnthropicEngine does very little translation because the framework's
- * EngineMessage / EngineTool shapes were modeled on Anthropic's types.
- * The main differences are: camelCase vs snake_case, and that
- * Anthropic uses `input_schema` while we use `inputSchema`.
- *
- * Builder's Gemini-backed gateway requires `tool_name` and `tool_input` on
- * every `tool_result` block. Use `engineMessagesToBuilderGatewayAnthropic` for
- * that path. The native Anthropic API keeps the strict `tool_result` shape
- * (`engineMessagesToAnthropic`).
- */
-
 import type Anthropic from "@anthropic-ai/sdk";
 
+import { toolCallInputSignature } from "../tool-call-input-signature.js";
+import { flattenComposedRootSchema } from "./flatten-composed-root-schema.js";
 import {
   createProviderToolNameMap,
   toEngineToolName,
@@ -27,16 +14,6 @@ import type {
   EngineContentPart,
   EngineEvent,
 } from "./types.js";
-
-// ---------------------------------------------------------------------------
-// EngineTool → Anthropic.Tool
-// ---------------------------------------------------------------------------
-
-const ANTHROPIC_UNSUPPORTED_TOP_LEVEL_SCHEMA_KEYS = [
-  "oneOf",
-  "anyOf",
-  "allOf",
-] as const;
 
 type JsonSchemaRecord = Record<string, unknown>;
 
@@ -82,18 +59,7 @@ function normalizeAnthropicInputSchema(
     return normalizeDbExecAnthropicInputSchema(schema);
   }
 
-  if (
-    !ANTHROPIC_UNSUPPORTED_TOP_LEVEL_SCHEMA_KEYS.some((key) => key in schema)
-  ) {
-    return schema as Anthropic.Tool["input_schema"];
-  }
-
-  const normalized: Record<string, unknown> = { ...schema };
-  for (const key of ANTHROPIC_UNSUPPORTED_TOP_LEVEL_SCHEMA_KEYS) {
-    delete normalized[key];
-  }
-  normalized.type = "object";
-  return normalized as Anthropic.Tool["input_schema"];
+  return flattenComposedRootSchema(schema) as Anthropic.Tool["input_schema"];
 }
 
 export function engineToolToAnthropic(
@@ -115,11 +81,6 @@ export function engineToolsToAnthropic(
   return tools.map((tool) => engineToolToAnthropic(tool, toolNameMap));
 }
 
-// ---------------------------------------------------------------------------
-// Tool result backfill (Gemini / Builder gateway)
-// ---------------------------------------------------------------------------
-
-/** JSON.stringify for tool_use inputs; never throws. */
 export function stringifyToolUseInputForGateway(input: unknown): string {
   try {
     if (input === undefined || input === null) return "{}";
@@ -129,15 +90,9 @@ export function stringifyToolUseInputForGateway(input: unknown): string {
   }
 }
 
-/** Same lead-in as structured-history replay when a tool_result cannot be paired. */
 export const UNMATCHED_TOOL_RESULT_REPLAY_PREFIX =
   "(Omitted unmatched tool results from replayed history.)";
 
-/**
- * Human/LLM-visible note when a tool_result cannot be matched to a tool_use
- * (replay from DB, or malformed engine history). Preserves tool_use_id and
- * a truncated payload instead of silently dropping the turn.
- */
 export function unmatchedToolResultReplayText(part: {
   toolCallId: string;
   content: unknown;
@@ -161,6 +116,24 @@ export function unmatchedToolResultReplayText(part: {
   return `${UNMATCHED_TOOL_RESULT_REPLAY_PREFIX} [tool_use_id=${part.toolCallId}${err}] ${body}`;
 }
 
+/**
+ * Identity of a synthetic interrupted tool result in engine messages, thread
+ * data, and the client (`client/sse-event-processor.ts` matches it verbatim).
+ * The model never sees it bare: replay rewrites it to an error whose outcome
+ * is unknown, or the model treats it as "did not run" and repeats a write that
+ * may have landed.
+ */
+export const INTERRUPTED_TOOL_RESULT_MARKER =
+  "Interrupted before this tool returned a result.";
+const INTERRUPTED_TOOL_RESULT_FOR_MODEL = `${INTERRUPTED_TOOL_RESULT_MARKER} Its outcome is UNKNOWN: the tool may have run. Verify the current state before repeating any write.`;
+
+export function isInterruptedToolResult(content: unknown): boolean {
+  return (
+    typeof content === "string" &&
+    content.startsWith(INTERRUPTED_TOOL_RESULT_MARKER)
+  );
+}
+
 function interruptedToolResultPart(part: {
   id: string;
   name: string;
@@ -171,29 +144,54 @@ function interruptedToolResultPart(part: {
     toolCallId: part.id,
     toolName: part.name,
     toolInput: stringifyToolUseInputForGateway(part.input),
-    content: "Interrupted before this tool returned a result.",
+    content: INTERRUPTED_TOOL_RESULT_FOR_MODEL,
+    isError: true,
   };
 }
 
-/**
- * Ensure every `tool-result` has a non-empty `toolName` and `toolInput` string,
- * using the matching assistant `tool-call` in the same conversation.
- * Assistant `tool-call` blocks without an immediately following result get a
- * synthetic interrupted result so replayed history stays provider-protocol safe.
- * Orphan tool-results (no resolvable tool name) become `text` notes so nothing
- * is silently dropped from replayed history.
- */
 export function backfillEngineMessagesToolResults(
   messages: EngineMessage[],
 ): EngineMessage[] {
-  // Walk messages in order. User tool-result blocks are valid only when they
-  // answer the immediately preceding assistant tool-call turn. This prevents
-  // older tool-results from being backfilled with later, unrelated tool-calls
-  // when ids are reused (e.g. `continuation_tc_1` reset across adapter
-  // recreations).
   const toolUseById = new Map<string, { name: string; input: unknown }>();
+  const usedToolUseIds = new Set<string>();
+  const originalToolUseIds = new Set(
+    messages.flatMap((message) =>
+      message.role === "assistant"
+        ? message.content.flatMap((part) =>
+            part.type === "tool-call" ? [part.id] : [],
+          )
+        : [],
+    ),
+  );
   const out: EngineMessage[] = [];
-  let pendingToolUses: Array<{ id: string; name: string; input: unknown }> = [];
+  type PendingToolUse = {
+    id: string;
+    originalId: string;
+    name: string;
+    input: unknown;
+    executionStepId?: string;
+  };
+
+  type ParsedToolInput =
+    | { status: "absent" }
+    | { status: "unreadable" }
+    | { status: "parsed"; value: unknown };
+  let pendingToolUses: PendingToolUse[] = [];
+
+  const uniqueToolUseId = (id: string) => {
+    if (!usedToolUseIds.has(id)) {
+      usedToolUseIds.add(id);
+      return id;
+    }
+    let suffix = 2;
+    let candidate = `${id}-${suffix}`;
+    while (usedToolUseIds.has(candidate) || originalToolUseIds.has(candidate)) {
+      suffix += 1;
+      candidate = `${id}-${suffix}`;
+    }
+    usedToolUseIds.add(candidate);
+    return candidate;
+  };
 
   const flushInterruptedToolResults = () => {
     if (pendingToolUses.length === 0) return;
@@ -204,25 +202,38 @@ export function backfillEngineMessagesToolResults(
     pendingToolUses = [];
   };
 
+  const parseToolInput = (value: unknown): ParsedToolInput => {
+    if (typeof value !== "string" || value.length === 0) {
+      return { status: "absent" };
+    }
+    try {
+      return { status: "parsed", value: JSON.parse(value) as unknown };
+    } catch (error) {
+      if (error instanceof SyntaxError) return { status: "unreadable" };
+      throw error;
+    }
+  };
+
   for (const msg of messages) {
     if (msg.role === "assistant") {
       flushInterruptedToolResults();
-      for (const part of msg.content) {
-        if (part.type === "tool-call") {
-          toolUseById.set(part.id, { name: part.name, input: part.input });
-        }
-      }
-      out.push(msg);
-      pendingToolUses = msg.content
-        .filter(
-          (part): part is Extract<EngineContentPart, { type: "tool-call" }> =>
-            part.type === "tool-call",
-        )
-        .map((part) => ({
-          id: part.id,
+      const content = msg.content.map((part) => {
+        if (part.type !== "tool-call") return part;
+        const id = uniqueToolUseId(part.id);
+        const pending = {
+          id,
+          originalId: part.id,
           name: part.name,
           input: part.input,
-        }));
+          ...(part.executionStepId
+            ? { executionStepId: part.executionStepId }
+            : {}),
+        };
+        pendingToolUses.push(pending);
+        toolUseById.set(id, { name: part.name, input: part.input });
+        return id === part.id ? part : { ...part, id };
+      });
+      out.push({ ...msg, content });
       continue;
     }
     if (msg.role !== "user") {
@@ -231,9 +242,31 @@ export function backfillEngineMessagesToolResults(
       continue;
     }
     const newContent: EngineContentPart[] = [];
-    const pendingById = new Map(
-      pendingToolUses.map((part) => [part.id, part] as const),
-    );
+    const pendingById = new Map<string, PendingToolUse[]>();
+    for (const pending of pendingToolUses) {
+      for (const id of new Set([pending.originalId, pending.id])) {
+        const matches = pendingById.get(id);
+        if (matches) matches.push(pending);
+        else pendingById.set(id, [pending]);
+      }
+    }
+    const legacyResultCounts = new Map<string, number>();
+    for (const part of msg.content) {
+      if (part.type !== "tool-result" || part.executionStepId) continue;
+      const parsedToolInput = parseToolInput(part.toolInput);
+      if (parsedToolInput.status !== "parsed") continue;
+      const toolName =
+        typeof part.toolName === "string" && part.toolName.trim().length > 0
+          ? part.toolName.trim()
+          : undefined;
+      const key = JSON.stringify([
+        part.toolCallId,
+        toolName ?? null,
+        toolCallInputSignature(parsedToolInput.value),
+      ]);
+      legacyResultCounts.set(key, (legacyResultCounts.get(key) ?? 0) + 1);
+    }
+    const matchedPendingToolIds = new Set<string>();
     const matchedPendingToolResults = new Map<string, EngineContentPart>();
     for (const part of msg.content) {
       if (part.type !== "tool-result") {
@@ -241,7 +274,62 @@ export function backfillEngineMessagesToolResults(
         continue;
       }
       const lookup = toolUseById.get(part.toolCallId);
-      const pendingLookup = pendingById.get(part.toolCallId);
+      const pendingCandidates = (pendingById.get(part.toolCallId) ?? []).filter(
+        (pending) => !matchedPendingToolIds.has(pending.id),
+      );
+      const requestedToolName =
+        typeof part.toolName === "string" && part.toolName.trim().length > 0
+          ? part.toolName.trim()
+          : undefined;
+      const namedPendingCandidates = requestedToolName
+        ? pendingCandidates.filter(
+            (pending) => pending.name === requestedToolName,
+          )
+        : pendingCandidates;
+      const legacyPendingCandidates = part.executionStepId
+        ? namedPendingCandidates.filter(
+            (pending) => pending.executionStepId === undefined,
+          )
+        : namedPendingCandidates;
+      const parsedToolInput = parseToolInput(part.toolInput);
+      const fingerprintMatches =
+        parsedToolInput.status === "parsed"
+          ? legacyPendingCandidates.filter(
+              (pending) =>
+                toolCallInputSignature(pending.input) ===
+                toolCallInputSignature(parsedToolInput.value),
+            )
+          : [];
+      const legacyResultKey =
+        part.executionStepId || parsedToolInput.status !== "parsed"
+          ? undefined
+          : JSON.stringify([
+              part.toolCallId,
+              requestedToolName ?? null,
+              toolCallInputSignature(parsedToolInput.value),
+            ]);
+      const canPairIdenticalLegacyCalls =
+        fingerprintMatches.length > 1 &&
+        legacyResultKey !== undefined &&
+        legacyResultCounts.get(legacyResultKey) === fingerprintMatches.length &&
+        new Set(fingerprintMatches.map((pending) => pending.name)).size === 1;
+      const stepMatches = part.executionStepId
+        ? namedPendingCandidates.filter(
+            (pending) => pending.executionStepId === part.executionStepId,
+          )
+        : [];
+      const pendingLookup = part.executionStepId
+        ? stepMatches.length === 1
+          ? stepMatches[0]
+          : undefined
+        : legacyPendingCandidates.length === 1
+          ? legacyPendingCandidates[0]
+          : fingerprintMatches.length === 1
+            ? fingerprintMatches[0]
+            : canPairIdenticalLegacyCalls
+              ? fingerprintMatches[0]
+              : undefined;
+      if (pendingLookup) matchedPendingToolIds.add(pendingLookup.id);
       const toolName =
         typeof part.toolName === "string" && part.toolName.trim().length > 0
           ? part.toolName
@@ -286,19 +374,24 @@ export function backfillEngineMessagesToolResults(
           : stringifyToolUseInputForGateway(
               pendingLookup?.input ?? lookup?.input,
             );
+      const interrupted = part.content === INTERRUPTED_TOOL_RESULT_MARKER;
       const filled: EngineContentPart = {
         type: "tool-result",
-        toolCallId: part.toolCallId,
+        toolCallId: pendingLookup?.id ?? part.toolCallId,
         toolName,
         toolInput,
-        content: part.content,
-        ...(part.isError ? { isError: true } : {}),
+        content: interrupted ? INTERRUPTED_TOOL_RESULT_FOR_MODEL : part.content,
+        ...(part.isError || interrupted ? { isError: true } : {}),
+        ...(part.approvalPause === undefined
+          ? {}
+          : { approvalPause: part.approvalPause }),
+        ...(part.approvalAskId ? { approvalAskId: part.approvalAskId } : {}),
         ...(part.images && part.images.length > 0
           ? { images: part.images }
           : {}),
       };
       if (pendingLookup) {
-        matchedPendingToolResults.set(part.toolCallId, filled);
+        matchedPendingToolResults.set(pendingLookup.id, filled);
       } else {
         newContent.push(filled);
       }
@@ -332,21 +425,6 @@ export function backfillEngineMessagesToolResults(
   return out;
 }
 
-// ---------------------------------------------------------------------------
-// EngineMessage → Anthropic.MessageParam
-// ---------------------------------------------------------------------------
-
-/**
- * A thinking block replays only with the signature Anthropic issued for it, or
- * (redacted) with its encrypted payload. An empty signature is not a fallback:
- * the native API rejects the whole request, so a turn that streamed fine dies
- * with a provider error pointing nowhere near the cause. Drop the unsendable
- * block and say so instead of coercing it into a guaranteed 400.
- *
- * Not applied to the Builder gateway: its tolerance for an unsigned thinking
- * block is unverified, so that path keeps its existing behavior rather than
- * trading a working request for an untested one.
- */
 function replayableAnthropicPart(part: EngineContentPart): boolean {
   if (part.type !== "thinking") return true;
   if (part.redactedData || part.signature) return true;
@@ -375,7 +453,6 @@ export function engineMessageToAnthropic(
   };
 }
 
-/** Messages for the Anthropic HTTP API (strict schema — no extra tool_result fields). */
 export function engineMessagesToAnthropic(
   messages: EngineMessage[],
   toolNameMap = createProviderToolNameMap([], messages),
@@ -387,10 +464,6 @@ export function engineMessagesToAnthropic(
   });
 }
 
-/**
- * Messages for the Builder LLM gateway (Gemini-backed). Same Anthropic-shaped
- * envelope, but every `tool_result` includes `tool_name` and `tool_input`.
- */
 export function engineMessagesToBuilderGatewayAnthropic(
   messages: EngineMessage[],
   toolNameMap = createProviderToolNameMap([], messages),
@@ -443,7 +516,7 @@ function enginePartToAnthropic(
         id: part.id,
         name: toProviderToolName(part.name, toolNameMap),
         input: part.input as Record<string, unknown>,
-      } as any; // tool_use is a ContentBlockParam in Anthropic SDK
+      } as any;
 
     case "tool-result": {
       if (builderGateway) {
@@ -467,12 +540,9 @@ function enginePartToAnthropic(
     }
 
     case "thinking":
-      // A redacted block has no readable thinking or signature — only its
-      // encrypted payload, which Anthropic requires back unmodified.
       if (part.redactedData) {
         return { type: "redacted_thinking", data: part.redactedData } as any;
       }
-      // Anthropic thinking blocks — pass through with signature for context window continuity
       return {
         type: "thinking",
         thinking: part.text,
@@ -481,12 +551,6 @@ function enginePartToAnthropic(
   }
 }
 
-/**
- * tool_result `content` for the native Anthropic API: a plain string normally,
- * or a text + image block array when the result carries vision images
- * (https://platform.claude.com/docs — "Example of tool result with images").
- * Error results stay string-only; malformed image entries are skipped.
- */
 function toolResultContentToAnthropic(
   part: Extract<EngineContentPart, { type: "tool-result" }>,
 ): string | Anthropic.ContentBlockParam[] {
@@ -515,10 +579,6 @@ function toolResultContentToAnthropic(
   return [{ type: "text", text: part.content }, ...imageBlocks];
 }
 
-// ---------------------------------------------------------------------------
-// Anthropic.ContentBlock → EngineContentPart (from final message)
-// ---------------------------------------------------------------------------
-
 export function anthropicContentToEngine(
   content: Anthropic.ContentBlock[],
   toolNameMap?: ProviderToolNameMap,
@@ -545,18 +605,12 @@ export function anthropicContentToEngine(
         };
       }
       if ((block as any).type === "redacted_thinking") {
-        // Dropping this looked like "skip an unreadable block", but Anthropic
-        // requires the whole thinking sequence back verbatim within a tool-use
-        // turn: losing it makes the very next loop iteration send an assistant
-        // turn the API refuses, from a turn that streamed perfectly.
         return {
           type: "thinking" as const,
           text: "",
           redactedData: (block as any).data ?? "",
         };
       }
-      // Unknown block type. Skipping is the only safe replay, but a silent skip
-      // is how redacted_thinking went missing — say which type was dropped.
       console.warn(
         `[anthropic-engine] dropping unrecognized content block type "${(block as any).type}" from the assistant turn; it will not be replayed`,
       );
@@ -565,18 +619,6 @@ export function anthropicContentToEngine(
     .filter((p) => !(p.type === "text" && p.text === ""));
 }
 
-// ---------------------------------------------------------------------------
-// Anthropic stream chunk → EngineEvent
-// ---------------------------------------------------------------------------
-
-/**
- * Mutable state threaded across `anthropicChunkToEngineEvents` calls within a
- * single stream. Anthropic's `content_block_delta` chunks carry only the block
- * `index`, not the tool-call id/name — those arrive once on the matching
- * `content_block_start`. We remember `index → { id, name }` here so each
- * `input_json_delta` can be surfaced as a `tool-input-delta` carrying the same
- * id/name the consumer expects (mirroring the Builder gateway shape).
- */
 export interface AnthropicChunkStreamState {
   toolUseByIndex: Map<number, { id: string; name: string }>;
 }
@@ -585,17 +627,6 @@ export function createAnthropicChunkStreamState(): AnthropicChunkStreamState {
   return { toolUseByIndex: new Map() };
 }
 
-/**
- * Translate an Anthropic stream chunk into zero or more EngineEvents.
- * Called in a loop as chunks arrive from client.messages.stream().
- *
- * Pass a per-stream `state` (from `createAnthropicChunkStreamState`) to also
- * emit `tool-input-start` / `tool-input-delta` progress events while a tool
- * call's JSON input streams in. These are progress-only signals: the
- * authoritative `tool-call` blocks are still emitted from `finalMessage()` by
- * the engine, so omitting `state` simply drops the progress events without
- * changing tool dispatch.
- */
 export function anthropicChunkToEngineEvents(
   chunk: any,
   state?: AnthropicChunkStreamState,
@@ -626,17 +657,12 @@ export function anthropicChunkToEngineEvents(
     } else if (chunk.delta?.type === "thinking_delta") {
       events.push({ type: "thinking-delta", text: chunk.delta.thinking ?? "" });
     } else if (chunk.delta?.type === "signature_delta") {
-      // Signature arrives after thinking — emit as a thinking-delta with empty text
-      // but carry the signature for the caller to store
       events.push({
         type: "thinking-delta",
         text: "",
         signature: chunk.delta.signature,
       });
     } else if (chunk.delta?.type === "input_json_delta") {
-      // Partial JSON for a streaming tool-call input. Surface as countable
-      // progress so long tool inputs (e.g. large extension HTML) don't look
-      // hung to the agent loop's tool-input activity heartbeat.
       const active =
         state && typeof chunk.index === "number"
           ? state.toolUseByIndex.get(chunk.index)
@@ -656,17 +682,6 @@ export function anthropicChunkToEngineEvents(
   return events;
 }
 
-// ---------------------------------------------------------------------------
-// Streamed tool-input reconciliation (shared by every engine adapter)
-// ---------------------------------------------------------------------------
-
-/**
- * Tool arguments arrive split across an arbitrary number of deltas. Every
- * engine announces a tool call the moment the first delta lands, so a stream
- * that dies mid-arguments leaves the turn advertising a call it never
- * delivered. Accumulating the delta text is the only way to tell "assembled
- * fine" from "cut off", instead of dropping the call and reporting success.
- */
 export interface StreamedToolInputState {
   byId: Map<string, { name: string; text: string; delivered: boolean }>;
 }
@@ -675,10 +690,6 @@ export function createStreamedToolInputState(): StreamedToolInputState {
   return { byId: new Map() };
 }
 
-/**
- * Feed an engine's own outgoing event into the accumulator. Works for every
- * adapter because they all emit the same normalized progress events.
- */
 export function observeStreamedToolInput(
   state: StreamedToolInputState,
   event: EngineEvent,
@@ -697,9 +708,6 @@ export function observeStreamedToolInput(
     return;
   }
   if (event.type === "tool-call") {
-    // Non-empty terminal input remains authoritative. Some gateways emit the
-    // complete argument JSON as deltas but follow it with an empty terminal
-    // input, so recover the already-complete stream in that case.
     if (isEmptyToolInput(event.input)) {
       const streamedInput = parseStreamedToolInput(
         state.byId.get(event.id)?.text ?? "",
@@ -726,12 +734,6 @@ export function markStreamedToolInputDelivered(
 const TRUNCATED_TOOL_INPUT_ERROR =
   "The arguments never finished streaming, so this call was not executed and nothing changed. Call the tool again with complete arguments.";
 
-/**
- * Reconcile what the stream announced against what it actually delivered.
- * Announced calls whose accumulated arguments parse are handed back as real
- * tool calls; the rest become in-band tool-call errors the model can read and
- * retry from. Nothing is dropped.
- */
 export function finalizeStreamedToolInputs(
   state: StreamedToolInputState,
   deliveredIds: Iterable<string> = [],
@@ -771,10 +773,6 @@ function parseStreamedToolInput(
 function isEmptyToolInput(input: unknown): boolean {
   return input == null || (isRecord(input) && Object.keys(input).length === 0);
 }
-
-// ---------------------------------------------------------------------------
-// Build tool_result blocks to append to messages after tool dispatch
-// ---------------------------------------------------------------------------
 
 export function buildToolResultPart(
   toolCallId: string,

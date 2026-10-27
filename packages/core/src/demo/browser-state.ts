@@ -1,8 +1,3 @@
-/** Browser-local Demo mode state.
- *
- * Demo mode is a presentation preference for this browser only. It must not
- * be persisted in application state or consulted by backend actions.
- */
 export const DEMO_MODE_STORAGE_KEY = "agent-native:demo-mode";
 
 const DEMO_MODE_CHANGE_EVENT = "agent-native:demo-mode-change";

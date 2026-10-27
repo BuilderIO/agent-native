@@ -4,6 +4,7 @@ import type {
   DashboardFilter,
   SqlPanel,
 } from "../../app/pages/adhoc/sql-dashboard/types";
+import { SETUP_INCIDENT } from "../../shared/annotation-fixtures";
 import type {
   RenderedReportEmail,
   ReportPanelData,
@@ -18,6 +19,7 @@ type ReportDashboardRecord = {
   id: string;
   title: string;
   config: Record<string, unknown>;
+  annotationScope: AccessCtx;
 };
 
 type PanelDataMap = Map<string, ReportPanelData>;
@@ -44,7 +46,12 @@ type EmailPayload = {
 
 const mocks = vi.hoisted(() => ({
   sendEmail: vi.fn(async (_payload: unknown) => {}),
+  notifyWithDelivery: vi.fn(async (_input: unknown, _meta: unknown) => ({
+    deliveredChannels: ["slack"],
+  })),
   getAppProductionUrl: vi.fn(() => "https://analytics.example.test"),
+  listKeyDateSets: vi.fn(async (_scope: AccessCtx): Promise<unknown[]> => []),
+  listDataNotes: vi.fn(async (_scope: AccessCtx): Promise<unknown[]> => []),
   getReportDashboard: vi.fn(
     async (
       _dashboardId: string,
@@ -68,24 +75,40 @@ vi.mock("@agent-native/core/server", () => ({
   getAppProductionUrl: mocks.getAppProductionUrl,
   sendEmail: mocks.sendEmail,
 }));
+vi.mock("@agent-native/core/notifications", () => ({
+  notifyWithDelivery: mocks.notifyWithDelivery,
+}));
 vi.mock("./dashboard-report-render", () => ({
   fetchReportPanelData: mocks.fetchReportPanelData,
   renderReportEmail: mocks.renderReportEmail,
 }));
+vi.mock("./key-dates-store", () => ({
+  listKeyDateSets: mocks.listKeyDateSets,
+}));
+vi.mock("./data-notes-store", () => ({
+  listDataNotes: mocks.listDataNotes,
+}));
 vi.mock("./dashboard-report-subscriptions", () => ({
   getReportDashboard: mocks.getReportDashboard,
   MAX_DASHBOARD_REPORT_RECIPIENTS: 5,
-  normalizeDashboardReportRecipients: (recipients: string[]) => {
-    const normalized = [
+  normalizeDashboardReportDestinations: (sub: {
+    recipients: string[];
+    slackWebhookUrl?: string | null;
+  }) => {
+    const recipients = [
       ...new Set(
-        recipients.map((email) => email.trim().toLowerCase()).filter(Boolean),
+        sub.recipients
+          .map((email) => email.trim().toLowerCase())
+          .filter(Boolean),
       ),
     ];
-    if (normalized.length === 0)
-      throw new Error("At least one recipient is required");
-    if (normalized.length > 5)
+    if (recipients.length > 5)
       throw new Error("Dashboard reports support at most 5 recipients");
-    return normalized;
+    if (recipients.length === 0 && !sub.slackWebhookUrl)
+      throw new Error(
+        "Add at least one email recipient or a Slack webhook URL",
+      );
+    return { recipients, slackWebhookUrl: sub.slackWebhookUrl ?? null };
   },
 }));
 
@@ -109,6 +132,7 @@ function subscription(): DashboardReportSubscription {
     dashboardId: "dash_1",
     name: "Growth daily email",
     recipients: ["steve@builder.io"],
+    slackWebhookUrl: null,
     filters: { f_timeRange: "30d" },
     frequency: "daily",
     timeOfDay: "03:00",
@@ -153,16 +177,12 @@ function dashboardWith(
       filters,
       panels,
     },
+    annotationScope: { email: "steve@builder.io", orgId: "org_1" },
   };
 }
 
-/** Per-panel statuses the fake `fetchReportPanelData` should report. */
 let panelStatuses: Record<string, ReportPanelData> = {};
 
-/**
- * Mirrors the real fetcher's panel classification: sections are never queried,
- * extension panels are reported as not-emailable rather than failed.
- */
 function fakePanelData(snapshot: ReportSnapshot): PanelDataMap {
   const data: PanelDataMap = new Map();
   for (const p of (snapshot.panels ?? []) as SqlPanel[]) {
@@ -254,7 +274,7 @@ describe("dashboard report email", () => {
       recipientCount: 1,
       reportMode: "complete",
       degradedPanelIds: [],
-      emailsSent: true,
+      delivered: true,
     });
     expect(result.reportError).toBeUndefined();
     expect(onCaptureOutcome).toHaveBeenCalledWith({ mode: "full" });
@@ -308,7 +328,7 @@ describe("dashboard report email", () => {
     expect(result.degradedPanelIds).toEqual(["broken", "nokey"]);
     expect(result.reportError).toContain("2 of 3");
     expect(result.reportError).toContain("broken, nokey");
-    expect(result.emailsSent).toBe(true);
+    expect(result.delivered).toBe(true);
     expect(onCaptureOutcome).toHaveBeenCalledWith({
       mode: "partial",
       error: result.reportError,
@@ -332,7 +352,7 @@ describe("dashboard report email", () => {
 
     expect(mocks.sendEmail).not.toHaveBeenCalled();
     expect(result).toMatchObject({
-      emailsSent: false,
+      delivered: false,
       reportMode: "degraded",
       degradedPanelIds: ["broken"],
       recipientCount: 1,
@@ -349,7 +369,7 @@ describe("dashboard report email", () => {
       skipEmailWhenDegraded: true,
     });
 
-    expect(result).toMatchObject({ reportMode: "complete", emailsSent: true });
+    expect(result).toMatchObject({ reportMode: "complete", delivered: true });
     expect(mocks.sendEmail).toHaveBeenCalledOnce();
   });
 
@@ -396,7 +416,7 @@ describe("dashboard report email", () => {
     expect(result).toMatchObject({
       reportMode: "complete",
       degradedPanelIds: [],
-      emailsSent: true,
+      delivered: true,
     });
     expect(onCaptureOutcome).toHaveBeenCalledWith({ mode: "full" });
     expect(mocks.sendEmail).toHaveBeenCalledOnce();
@@ -416,9 +436,6 @@ describe("dashboard report email", () => {
       onCaptureOutcome,
     });
 
-    // Nothing failed, so degradedPanelIds is empty — but no panel is backed by
-    // data, so the report is a page of "open the dashboard" links and must not
-    // claim to be complete.
     expect(result.reportMode).toBe("degraded");
     expect(result.reportError).toBeDefined();
     expect(onCaptureOutcome).toHaveBeenCalledWith(
@@ -462,8 +479,6 @@ describe("dashboard report email", () => {
         return fakePanelData(args.snapshot);
       });
 
-      // Whichever bounded step notices first, the invariant is that it rejects
-      // and nothing is delivered.
       await expect(
         sendDashboardReportSubscription(subscription(), { deadlineAt }),
       ).rejects.toThrow("exceeded the report delivery deadline");
@@ -471,6 +486,71 @@ describe("dashboard report email", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("posts a Slack-only report to its webhook without emailing", async () => {
+    const webhook = "https://hooks.slack.com/services/T000/B000/XXXX";
+
+    const result = await sendDashboardReportSubscription({
+      ...subscription(),
+      recipients: [],
+      slackWebhookUrl: webhook,
+    });
+
+    expect(mocks.sendEmail).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ delivered: true, recipientCount: 0 });
+    expect(mocks.notifyWithDelivery).toHaveBeenCalledOnce();
+    const [input, meta] = mocks.notifyWithDelivery.mock.calls[0] as unknown as [
+      { channels: string[]; body: string; metadata: any },
+      { owner: string },
+    ];
+    expect(input.channels).toEqual(["slack"]);
+    expect(input.metadata.delivery).toEqual({ slackWebhookUrl: webhook });
+    expect(input.body).toContain("https://analytics.example.test/dashboards/");
+    expect(meta.owner).toBe("steve@builder.io");
+  });
+
+  it("fails loudly when Slack does not confirm a Slack-only post", async () => {
+    mocks.notifyWithDelivery.mockResolvedValueOnce({ deliveredChannels: [] });
+
+    await expect(
+      sendDashboardReportSubscription({
+        ...subscription(),
+        recipients: [],
+        slackWebhookUrl: "https://hooks.slack.com/services/T000/B000/XXXX",
+      }),
+    ).rejects.toThrow("Slack delivery of the dashboard report failed");
+  });
+
+  it("reports a Slack failure without throwing once email was sent", async () => {
+    mocks.notifyWithDelivery.mockResolvedValueOnce({ deliveredChannels: [] });
+
+    const result = await sendDashboardReportSubscription({
+      ...subscription(),
+      slackWebhookUrl: "https://hooks.slack.com/services/T000/B000/XXXX",
+    });
+
+    expect(sentEmails().length).toBeGreaterThan(0);
+    expect(result).toMatchObject({
+      delivered: true,
+      slackError: "Slack delivery of the dashboard report failed",
+    });
+  });
+
+  it("keeps the dashboard link ahead of a truncated report summary", async () => {
+    await sendDashboardReportSubscription({
+      ...subscription(),
+      recipients: [],
+      slackWebhookUrl: "https://hooks.slack.com/services/T000/B000/XXXX",
+    });
+
+    const [input] = mocks.notifyWithDelivery.mock.calls[0] as unknown as [
+      { body: string },
+    ];
+    expect(input.body.length).toBeLessThanOrEqual(2_000);
+    expect(input.body.indexOf("Dashboard: ")).toBeLessThan(
+      input.body.length / 2,
+    );
   });
 
   it("delivers once to each normalized recipient", async () => {
@@ -550,12 +630,123 @@ describe("dashboard report email", () => {
     expect(snapshot.panelIds).toEqual(["p1"]);
   });
 
+  it("reads multi-select filters the way the page does, so a cleared selection stays cleared", async () => {
+    mocks.getReportDashboard.mockResolvedValue(
+      dashboardWith(
+        [panel("p1")],
+        [
+          {
+            id: "plan",
+            label: "Plan",
+            type: "multi-select",
+            default: "free",
+            options: [{ value: "free", label: "Free" }],
+          },
+          {
+            id: "tier",
+            label: "Tier",
+            type: "multi-select",
+            options: [{ value: "pro", label: "Pro" }],
+          },
+        ],
+      ),
+    );
+
+    const snapshot = await collectReportSnapshot({
+      ...subscription(),
+      filters: { f_plan: "__empty__", f_tier: "pro,," },
+    });
+
+    // A cleared selection stays an empty override, so a dashboard variable cannot fill it.
+    expect(snapshot.filters).toEqual({ f_plan: "", f_tier: "pro" });
+    // The link must reopen with the selection cleared, not with the default.
+    expect(snapshot.dashboardUrl).toContain("f_plan=__empty__");
+  });
+
   it("reads the dashboard under the subscription owner's access scope", async () => {
     await collectReportSnapshot(subscription());
 
     expect(mocks.getReportDashboard).toHaveBeenCalledWith("dash_1", {
       email: "steve@builder.io",
       orgId: "org_1",
+    });
+  });
+
+  it("adds the owner's key dates, minus the sets the dashboard hides", async () => {
+    const keyDate = (setId: string, label: string) => ({
+      id: `${setId}-1`,
+      setId,
+      date: "2026-10-14",
+      label,
+      addedBy: "steve@builder.io",
+      updatedAt: "2026-10-14T00:00:00.000Z",
+    });
+    mocks.listKeyDateSets.mockResolvedValueOnce([
+      { id: "launches", dates: [keyDate("launches", "Product Hunt live")] },
+      { id: "changes", dates: [keyDate("changes", "Role step first")] },
+    ]);
+    const dashboard = dashboardWith([panel("p1")]);
+    mocks.getReportDashboard.mockResolvedValue({
+      ...dashboard,
+      config: {
+        ...dashboard.config,
+        annotations: { hiddenKeyDateSets: ["changes"] },
+      },
+    });
+
+    const snapshot = await collectReportSnapshot(subscription());
+
+    expect(mocks.listKeyDateSets).toHaveBeenCalledWith({
+      email: "steve@builder.io",
+      orgId: "org_1",
+    });
+    expect(snapshot.keyDates).toEqual([
+      { date: "2026-10-14", label: "Product Hunt live" },
+    ]);
+  });
+
+  it("adds the owner's data notes to the charts they apply to, minus the ones a chart hides", async () => {
+    mocks.listDataNotes.mockResolvedValueOnce([SETUP_INCIDENT]);
+    const counts = "where event = 'builder_connect_failed'";
+    const dashboard = dashboardWith([
+      panel("p1", { sql: counts }),
+      panel("p2", { sql: counts }),
+      panel("p3"),
+    ]);
+    mocks.getReportDashboard.mockResolvedValue({
+      ...dashboard,
+      config: {
+        ...dashboard.config,
+        annotations: {
+          hiddenDataNotes: [{ noteId: SETUP_INCIDENT.id, panelId: "p2" }],
+        },
+      },
+    });
+
+    const snapshot = await collectReportSnapshot(subscription());
+
+    expect(mocks.listDataNotes).toHaveBeenCalledWith({
+      email: "steve@builder.io",
+      orgId: "org_1",
+    });
+    expect(snapshot.dataNotesByPanel).toEqual({ p1: [SETUP_INCIDENT] });
+  });
+
+  it("draws a shared dashboard's key dates and data notes from its owner's organization, as its page does", async () => {
+    mocks.getReportDashboard.mockResolvedValue({
+      ...dashboardWith([panel("p1")]),
+      annotationScope: { email: "owner@example.test", orgId: "org_owner" },
+    });
+
+    await collectReportSnapshot(subscription());
+
+    expect(mocks.listKeyDateSets).toHaveBeenCalledWith({
+      email: "owner@example.test",
+      orgId: "org_owner",
+    });
+    expect(mocks.listDataNotes).toHaveBeenCalledWith({
+      email: "owner@example.test",
+      orgId: "org_owner",
     });
   });
 

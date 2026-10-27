@@ -27,6 +27,7 @@ describe("useDesignSystems", () => {
       },
       error: null,
       isLoading: false,
+      isFetching: false,
       refetch: vi.fn(),
     });
 
@@ -45,11 +46,26 @@ describe("useDesignSystems", () => {
       },
       error: null,
       isLoading: false,
+      isFetching: false,
       refetch: vi.fn(),
     });
 
     const { result } = renderHook(() => useDesignSystems());
 
     expect(result.current.defaultSystem).toBeUndefined();
+  });
+
+  it("exposes background refetch state", () => {
+    mocks.useActionQuery.mockReturnValue({
+      data: { designSystems: [] },
+      error: null,
+      isLoading: false,
+      isFetching: true,
+      refetch: vi.fn(),
+    });
+
+    const { result } = renderHook(() => useDesignSystems());
+
+    expect(result.current.isFetching).toBe(true);
   });
 });

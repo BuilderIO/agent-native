@@ -1,78 +1,246 @@
+import { JEV_TIMEOUT_MS, requestJev } from "../decisions/providers/jev.js";
 import type { BuilderGatewayAuth } from "../server/credential-provider.js";
-import { getBuilderGatewayRequestHeaders } from "./engine/builder-gateway-headers.js";
+import { OptionalPeerDependencyError } from "../shared/optional-peer.js";
+export { JEV_TIMEOUT_MS };
+export {
+  isBuilderJevEnabled,
+  isJevEnabled,
+  requestJevThroughBuilder,
+  type JevResponse,
+} from "../decisions/providers/jev.js";
 import type { EngineTool } from "./engine/types.js";
 import type { ActionEntry } from "./production-agent.js";
-import { searchToolRegistry, TOOL_SEARCH_ACTION_NAME } from "./tool-search.js";
+import { TOOL_SEARCH_ACTION_NAME } from "./tool-search.js";
+import type {
+  AgentChatStructuredContentPart,
+  AgentChatStructuredMessage,
+  AgentMessage,
+} from "./types.js";
 
 const MAX_JEV_CANDIDATES = 128;
+const MAX_JEV_CANDIDATE_DESCRIPTION_CHARS = 140;
 const DEFAULT_PREFETCH_LIMIT = 3;
 const MAX_PREFETCH_LIMIT = 5;
-const JEV_TIMEOUT_MS = 750;
 const JEV_MODEL = "jev-latest";
-
-export const BUILDER_JEV_PROXY_ENABLED = true;
-
-type JevChoiceAnswer = {
-  choice?: unknown;
-  probabilities?: unknown;
-};
-
-type JevResponse = {
-  answers?: Record<string, JevChoiceAnswer>;
-};
+const MAX_JEV_THREAD_CONTEXT_CHARS = 6_000;
+const MAX_JEV_PRIOR_USER_MESSAGES = 4;
+const MAX_JEV_PRIOR_MESSAGE_CHARS = 1_100;
+const MAX_JEV_CURRENT_MESSAGE_CHARS = 3_600;
+const MAX_RETRIEVAL_CONTEXT_CHARS = 3_600;
+const MAX_RETRIEVAL_PRIOR_USER_MESSAGES = 2;
+const MAX_RETRIEVAL_PRIOR_MESSAGE_CHARS = 900;
 
 export interface JevCandidate {
   id: string;
   description: string;
-  /** Metadata sent to Jev; callers must not put private content here. */
   metadata?: Record<string, string>;
 }
 
 export interface JevRankCandidatesOptions {
   request: string;
   apiKey?: string;
+  personalApiKey?: string;
+  directApiKey?: string;
   builderAuth?: BuilderGatewayAuth | null;
   candidates: readonly JevCandidate[];
   candidateStateKey: string;
   answerKey: string;
   question: string;
   limit?: number;
+  signal?: AbortSignal;
+  timeoutMs?: number;
 }
 
-/**
- * Rank a bounded metadata-only catalog with Jev. A missing key, malformed
- * response, timeout, or provider failure returns no ranking so callers keep
- * their existing deterministic fallback.
- */
+export interface JevCandidateRanking {
+  /**
+   * `unavailable` means there was nothing to rank against (no key, no
+   * candidates); `failed` and `timed_out` mean a ranking was attempted and lost.
+   */
+  status: "selected" | "no-match" | "unavailable" | "failed" | "timed_out";
+  ids: string[];
+}
+
+function compactJevText(value: string, maxChars: number): string {
+  const text = value.replace(/\s+/g, " ").trim();
+  if (text.length <= maxChars) return text;
+  const ellipsis = " … ";
+  const startChars = Math.ceil((maxChars - ellipsis.length) * 0.75);
+  return `${text.slice(0, startChars)}${ellipsis}${text.slice(
+    -(maxChars - startChars - ellipsis.length),
+  )}`;
+}
+
+type VisiblePriorMessage = { role: "user" | "assistant"; content: string };
+
+function visiblePriorMessages(input: {
+  request: string;
+  history?: readonly AgentMessage[];
+  structuredHistory?: readonly AgentChatStructuredMessage[];
+}): VisiblePriorMessage[] {
+  const structured = Array.isArray(input.structuredHistory)
+    ? input.structuredHistory.flatMap((message) => {
+        if (
+          !message ||
+          (message.role !== "user" && message.role !== "assistant") ||
+          !Array.isArray(message.content)
+        ) {
+          return [];
+        }
+        const text = message.content
+          .flatMap((part: AgentChatStructuredContentPart) =>
+            part?.type === "text" && typeof part.text === "string"
+              ? [part.text]
+              : [],
+          )
+          .join(" ")
+          .trim();
+        return text ? [{ role: message.role, content: text }] : [];
+      })
+    : [];
+  return Array.isArray(input.structuredHistory)
+    ? structured
+    : (Array.isArray(input.history) ? input.history : []).flatMap((message) =>
+        message &&
+        (message.role === "user" || message.role === "assistant") &&
+        typeof message.content === "string" &&
+        message.content.trim()
+          ? [{ role: message.role, content: message.content }]
+          : [],
+      );
+}
+
+export function buildJevRequestContext(input: {
+  request: string;
+  history?: readonly AgentMessage[];
+  structuredHistory?: readonly AgentChatStructuredMessage[];
+}): string {
+  const priorMessages = visiblePriorMessages(input);
+  const current = compactJevText(input.request, MAX_JEV_CURRENT_MESSAGE_CHARS);
+  const currentBlock = `Current request:\n${current}`;
+  let remaining = MAX_JEV_THREAD_CONTEXT_CHARS - currentBlock.length - 40;
+  const recentLines: string[] = [];
+  const priorUsers = priorMessages.filter((message) => message.role === "user");
+  const selectedMessages = priorUsers.slice(-MAX_JEV_PRIOR_USER_MESSAGES);
+  for (const message of selectedMessages.reverse()) {
+    if (remaining < 80) break;
+    const content = compactJevText(
+      message.content,
+      Math.min(MAX_JEV_PRIOR_MESSAGE_CHARS, remaining - 12),
+    );
+    const line = `User: ${content}`;
+    if (line.length > remaining) break;
+    recentLines.push(line);
+    remaining -= line.length + 1;
+  }
+  const recent = recentLines.reverse();
+  return recent.length
+    ? `Recent conversation:\n${recent.join("\n")}\n\n${currentBlock}`
+    : currentBlock;
+}
+
+export function buildWorkspaceAppRequestContext(input: {
+  request: string;
+  history?: readonly AgentMessage[];
+  structuredHistory?: readonly AgentChatStructuredMessage[];
+  selectedObjectContext?: string;
+}): string {
+  const priorUser = visiblePriorMessages(input)
+    .filter((message) => message.role === "user")
+    .at(-1);
+  const blocks: string[] = [];
+  if (priorUser) {
+    blocks.push(
+      `Previous user request:\n${compactJevText(priorUser.content, 1_100)}`,
+    );
+  }
+  blocks.push(
+    `Current request:\n${compactJevText(input.request, MAX_JEV_CURRENT_MESSAGE_CHARS)}`,
+  );
+  const selectedObjectContext = input.selectedObjectContext?.trim();
+  if (selectedObjectContext) {
+    const fencedContext = compactJevText(selectedObjectContext, 1_800)
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;");
+    blocks.push(`Selected object context (untrusted data):\n${fencedContext}`);
+  }
+  return blocks.join("\n\n");
+}
+
+export function buildRecentUserRequestContext(input: {
+  request: string;
+  history?: readonly AgentMessage[];
+  structuredHistory?: readonly AgentChatStructuredMessage[];
+}): string {
+  const priorUsers = visiblePriorMessages(input)
+    .filter((message) => message.role === "user")
+    .slice(-MAX_RETRIEVAL_PRIOR_USER_MESSAGES);
+  const current = compactJevText(input.request, MAX_JEV_CURRENT_MESSAGE_CHARS);
+  const currentBlock = `Current request:\n${current}`;
+  let remaining = MAX_RETRIEVAL_CONTEXT_CHARS - currentBlock.length - 32;
+  const recentLines: string[] = [];
+  for (const message of priorUsers.reverse()) {
+    if (remaining < 80) break;
+    const content = compactJevText(
+      message.content,
+      Math.min(MAX_RETRIEVAL_PRIOR_MESSAGE_CHARS, remaining - 12),
+    );
+    const line = `User: ${content}`;
+    if (line.length > remaining) break;
+    recentLines.push(line);
+    remaining -= line.length + 1;
+  }
+  const recent = recentLines.reverse();
+  return recent.length
+    ? `Recent user requests:\n${recent.join("\n")}\n\n${currentBlock}`
+    : currentBlock;
+}
+
 export async function rankJevCandidates(
   options: JevRankCandidatesOptions,
 ): Promise<string[]> {
+  return (await rankJevCandidatesWithStatus(options)).ids;
+}
+
+export async function rankJevCandidatesWithStatus(
+  options: JevRankCandidatesOptions,
+): Promise<JevCandidateRanking> {
   const request = options.request.trim();
-  const apiKey = options.apiKey?.trim();
-  const builderAuth = BUILDER_JEV_PROXY_ENABLED ? options.builderAuth : null;
+  const personalApiKey = options.personalApiKey?.trim();
+  const directApiKey = options.directApiKey?.trim();
+  const builderAuth = options.builderAuth;
   if (
     !request ||
-    (!apiKey && !builderAuth) ||
+    (!personalApiKey && !directApiKey && !builderAuth) ||
     options.candidates.length === 0
   ) {
-    return [];
+    return { status: "unavailable", ids: [] };
+  }
+  if (
+    options.signal?.aborted ||
+    (options.timeoutMs !== undefined && options.timeoutMs <= 0)
+  ) {
+    return { status: "timed_out", ids: [] };
   }
 
   const candidates = shortlistJevCandidates(request, options.candidates);
-  if (candidates.length === 0) return [];
+  if (candidates.length === 0) return { status: "unavailable", ids: [] };
   const limit = Math.max(
     1,
     Math.min(options.limit ?? DEFAULT_PREFETCH_LIMIT, MAX_PREFETCH_LIMIT),
   );
-  if (candidates.length === 1) return [candidates[0]!.id];
 
   try {
+    let noMatchId = "__no_match__";
+    while (candidates.some((candidate) => candidate.id === noMatchId)) {
+      noMatchId += "_";
+    }
     const criteria = Object.fromEntries(
       candidates.map((candidate) => [
         candidate.id,
         candidate.description || candidate.id,
       ]),
     );
+    criteria[noMatchId] = "None of these candidates is relevant to the task.";
     const jevRequest = {
       model: JEV_MODEL,
       state: {
@@ -86,28 +254,56 @@ export async function rankJevCandidates(
       questions: {
         [options.answerKey]: {
           type: "choice" as const,
-          instructions: options.question,
+          instructions: `${options.question} Choose ${noMatchId} when no candidate is relevant.`,
           criteria,
         },
       },
     };
 
     const response = await requestJev({
-      apiKey,
+      apiKey: options.apiKey,
+      personalApiKey,
+      directApiKey,
       builderAuth,
       request: jevRequest,
+      signal: options.signal,
+      timeoutMs: options.timeoutMs,
     });
 
     const answer = response.answers?.[options.answerKey];
+    if (answer?.choice === noMatchId) {
+      return { status: "no-match", ids: [] };
+    }
     const probabilities =
       answer?.probabilities && typeof answer.probabilities === "object"
         ? (answer.probabilities as Record<string, unknown>)
         : {};
-    const rankedNames = candidates
+    const noMatchProbability = probabilities[noMatchId];
+    if (
+      typeof noMatchProbability !== "number" ||
+      !Number.isFinite(noMatchProbability) ||
+      noMatchProbability < 0 ||
+      noMatchProbability > 1
+    ) {
+      return { status: "failed", ids: [] };
+    }
+    for (const candidate of candidates) {
+      const probability = probabilities[candidate.id];
+      if (
+        probability !== undefined &&
+        (typeof probability !== "number" ||
+          !Number.isFinite(probability) ||
+          probability < 0 ||
+          probability > 1)
+      ) {
+        return { status: "failed", ids: [] };
+      }
+    }
+    const ids = candidates
       .filter(
         (candidate) =>
           typeof probabilities[candidate.id] === "number" &&
-          Number.isFinite(probabilities[candidate.id]),
+          (probabilities[candidate.id] as number) > noMatchProbability,
       )
       .map((candidate) => ({
         name: candidate.id,
@@ -116,29 +312,32 @@ export async function rankJevCandidates(
       .sort(
         (a, b) => b.probability - a.probability || a.name.localeCompare(b.name),
       )
-      .map((candidate) => candidate.name);
-    const chosenName =
-      typeof answer?.choice === "string" &&
-      candidates.some((candidate) => candidate.id === answer.choice)
-        ? answer.choice
-        : undefined;
-    const hasProbabilities = candidates.some(
-      (candidate) =>
-        typeof probabilities[candidate.id] === "number" &&
-        Number.isFinite(probabilities[candidate.id]),
-    );
-    if (!chosenName && !hasProbabilities) return [];
-    return [chosenName, ...rankedNames]
-      .filter((name): name is string => Boolean(name))
-      .filter((name, index, names) => names.indexOf(name) === index)
+      .map((candidate) => candidate.name)
       .slice(0, limit);
+    return ids.length > 0
+      ? { status: "selected", ids }
+      : { status: "no-match", ids: [] };
   } catch (error) {
+    if (error instanceof OptionalPeerDependencyError) throw error;
     console.warn(
       "[agent] Jev context prefetch unavailable; continuing with the existing context.",
       error instanceof Error ? error.message : "unknown error",
     );
-    return [];
+    return {
+      status: isJevTimeout(error, options.signal) ? "timed_out" : "failed",
+      ids: [],
+    };
   }
+}
+
+function isJevTimeout(error: unknown, signal?: AbortSignal): boolean {
+  if (signal?.aborted) return true;
+  return (
+    error instanceof Error &&
+    (error.name === "AbortError" ||
+      error.name === "TimeoutError" ||
+      /\btime(?:d)?[ -]?out\b/i.test(error.message))
+  );
 }
 
 export function shortlistJevCandidates<T extends JevCandidate>(
@@ -170,7 +369,11 @@ export function shortlistJevCandidates<T extends JevCandidate>(
 
 export interface JevToolPrefetchOptions {
   request: string;
+  skip?: boolean;
+  deadlineAt?: number;
   apiKey?: string;
+  personalApiKey?: string;
+  directApiKey?: string;
   builderAuth?: BuilderGatewayAuth | null;
   registry: Record<string, ActionEntry>;
   initialTools: EngineTool[];
@@ -179,182 +382,82 @@ export interface JevToolPrefetchOptions {
   limit?: number;
 }
 
-/**
- * Ask Jev which deferred tools deserve first-request schemas.
- *
- * A missing key and a Jev failure both preserve the existing curated surface;
- * Jev is an accelerator, not a dependency of agent execution.
- */
 export async function preloadJevTools(
   options: JevToolPrefetchOptions,
 ): Promise<EngineTool[]> {
+  if (options.skip) return options.initialTools;
   const request = options.request.trim();
-  const apiKey = options.apiKey?.trim();
-  const builderAuth = BUILDER_JEV_PROXY_ENABLED ? options.builderAuth : null;
-  if (!request || (!apiKey && !builderAuth)) {
+  const personalApiKey = options.personalApiKey?.trim();
+  const directApiKey = options.directApiKey?.trim();
+  const builderAuth = options.builderAuth;
+  if (!request || (!personalApiKey && !directApiKey && !builderAuth)) {
     return options.initialTools;
   }
 
   const activeNames = new Set(options.initialTools.map((tool) => tool.name));
-  const availableByName = new Map(
-    options.availableTools.map((tool) => [tool.name, tool]),
-  );
-  const menu = searchToolRegistry(options.registry, {
-    readOnlyOnly: options.readOnlyOnly,
-  });
-  const eligible = menu.results.filter(
-    (result) =>
-      result.name !== TOOL_SEARCH_ACTION_NAME &&
-      !activeNames.has(result.name) &&
-      availableByName.has(result.name) &&
-      (!options.readOnlyOnly || result.callable),
-  );
-
-  let candidates = eligible;
-  if (candidates.length > MAX_JEV_CANDIDATES) {
-    // ponytail: cap Jev's choice catalog at 128; larger registries use a lexical shortlist until chunked selection exists.
-    const lexical = searchToolRegistry(
-      options.registry,
+  const candidates = options.availableTools.flatMap((tool) => {
+    const entry = options.registry[tool.name];
+    if (
+      tool.name === TOOL_SEARCH_ACTION_NAME ||
+      activeNames.has(tool.name) ||
+      !entry?.tool ||
+      (options.readOnlyOnly && entry.allowInPlanMode === false)
+    ) {
+      return [];
+    }
+    return [
       {
-        query: request,
-        limit: MAX_JEV_CANDIDATES,
-        readOnlyOnly: options.readOnlyOnly,
+        id: tool.name,
+        description: compactJevText(
+          entry.tool.description || tool.description || tool.name,
+          MAX_JEV_CANDIDATE_DESCRIPTION_CHARS,
+        ),
+        metadata: { kind: "tool" },
       },
-      { defaultLimit: MAX_JEV_CANDIDATES, maxLimit: MAX_JEV_CANDIDATES },
-    );
-    const eligibleNames = new Set(eligible.map((result) => result.name));
-    candidates = lexical.results.filter((result) =>
-      eligibleNames.has(result.name),
-    );
-  }
+    ];
+  });
   if (candidates.length === 0) return options.initialTools;
 
   const prefetchLimit = Math.max(
     1,
     Math.min(options.limit ?? DEFAULT_PREFETCH_LIMIT, MAX_PREFETCH_LIMIT),
   );
-  const selectedNames = await rankJevCandidates({
-    request,
-    apiKey,
-    candidates: candidates.map((candidate) => ({
-      id: candidate.name,
-      description: candidate.description,
-      metadata: { kind: "tool" },
-    })),
-    candidateStateKey: "candidate_tools",
-    answerKey: "best_tool",
-    builderAuth,
-    question:
-      "Which tools should be loaded into the agent context first for this task? Pick the most useful tool; probabilities may be used to keep a small ranked shortlist.",
-    limit: prefetchLimit,
-  });
+  const remaining = Math.min(
+    JEV_TIMEOUT_MS,
+    options.deadlineAt === undefined
+      ? JEV_TIMEOUT_MS
+      : options.deadlineAt - Date.now(),
+  );
+  if (remaining <= 0) return options.initialTools;
+  const controller = new AbortController();
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const selectedNames = await Promise.race([
+    rankJevCandidates({
+      request,
+      apiKey: options.apiKey,
+      personalApiKey,
+      directApiKey,
+      candidates,
+      candidateStateKey: "candidate_tools",
+      answerKey: "best_tool",
+      builderAuth,
+      question:
+        "Which tools should be loaded into the agent context first for this task? Pick the most useful tool; probabilities may be used to keep a small ranked shortlist.",
+      limit: prefetchLimit,
+      signal: controller.signal,
+      timeoutMs: remaining,
+    }),
+    new Promise<string[]>((resolve) => {
+      timeout = setTimeout(() => {
+        controller.abort();
+        resolve([]);
+      }, remaining);
+    }),
+  ]);
+  if (timeout) clearTimeout(timeout);
   return selectedNames.length > 0
     ? prependSelectedTools(options, selectedNames)
     : options.initialTools;
-}
-
-type JevRequest = {
-  model: string;
-  state: Record<string, unknown>;
-  questions: Record<
-    string,
-    {
-      type: "choice";
-      instructions: string;
-      criteria: Record<string, string>;
-    }
-  >;
-};
-
-async function requestJev(options: {
-  apiKey?: string;
-  builderAuth?: BuilderGatewayAuth | null;
-  request: JevRequest;
-}): Promise<JevResponse> {
-  if (BUILDER_JEV_PROXY_ENABLED && options.builderAuth) {
-    try {
-      return await requestJevThroughBuilder(
-        options.builderAuth,
-        options.request,
-      );
-    } catch (error) {
-      if (!options.apiKey) throw error;
-      console.warn(
-        "[agent] Builder Jev proxy unavailable; falling back to the direct Jev API.",
-        error instanceof Error ? error.message : "unknown error",
-      );
-    }
-  }
-
-  if (!options.apiKey) {
-    throw new Error("Builder Jev proxy is unavailable.");
-  }
-
-  const { choice, TypeSafeClient } = await import("@typesafe-ai/sdk");
-  const client = new TypeSafeClient({
-    apiKey: options.apiKey,
-    timeout: JEV_TIMEOUT_MS,
-    retry: { maxRetries: 0 },
-  });
-  const systemOne = client.systemOne as unknown as (
-    request: unknown,
-  ) => Promise<unknown>;
-  return (await systemOne({
-    ...options.request,
-    questions: {
-      [Object.keys(options.request.questions)[0]!]: choice(
-        Object.values(options.request.questions)[0]!.instructions,
-        Object.values(options.request.questions)[0]!.criteria,
-      ),
-    },
-  })) as JevResponse;
-}
-
-async function requestJevThroughBuilder(
-  auth: BuilderGatewayAuth,
-  request: JevRequest,
-): Promise<JevResponse> {
-  const { getBuilderProxyOrigin } =
-    await import("../server/credential-provider.js");
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), JEV_TIMEOUT_MS);
-  try {
-    const response = await fetch(
-      `${getBuilderProxyOrigin().replace(/\/+$/, "")}/agent-native/jev/v1/system-one`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: auth.authorization,
-          ...(auth.spaceId ? { "x-builder-api-key": auth.spaceId } : {}),
-          ...(auth.userId ? { "x-builder-user-id": auth.userId } : {}),
-          ...getBuilderGatewayRequestHeaders(),
-        },
-        body: JSON.stringify(request),
-        signal: controller.signal,
-      },
-    );
-    if (!response.ok) {
-      throw new Error(`Builder Jev proxy returned HTTP ${response.status}.`);
-    }
-    const result = (await response.json()) as unknown;
-    if (!isJevResponse(result)) {
-      throw new Error("Builder Jev proxy returned an invalid response.");
-    }
-    return result;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-function isJevResponse(value: unknown): value is JevResponse {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "answers" in value &&
-    typeof value.answers === "object" &&
-    value.answers !== null
-  );
 }
 
 function prependSelectedTools(

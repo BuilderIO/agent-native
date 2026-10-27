@@ -9,10 +9,20 @@ const mocks = vi.hoisted(() => ({
   addImage: vi.fn(),
   addMetadata: vi.fn(),
   addPage: vi.fn(),
-  domToJpeg: vi.fn(async () => "data:image/jpeg;base64,AA=="),
+  domToJpeg: vi.fn(
+    async (
+      _node?: unknown,
+      _options?: { onCloneNode?: (cloned: Node) => void | Promise<void> },
+    ) => "data:image/jpeg;base64,AA==",
+  ),
   link: vi.fn(),
   setFontSize: vi.fn(),
   text: vi.fn(),
+  track: vi.fn(async () => undefined),
+}));
+
+vi.mock("@agent-native/core/client/analytics", () => ({
+  track: mocks.track,
 }));
 
 vi.mock("jspdf", () => ({
@@ -21,7 +31,6 @@ vi.mock("jspdf", () => ({
     addMetadata = mocks.addMetadata;
     addPage = mocks.addPage;
     link = mocks.link;
-    // jsPDF's px unit: coordinates are scaled by 96/72, font sizes are not.
     internal = { scaleFactor: 96 / 72 };
     output = () => new Blob();
     setFontSize = mocks.setFontSize;
@@ -38,14 +47,6 @@ import {
   imageProxyUrl,
 } from "./export-pdf-client.js";
 
-/**
- * A slide renders twice — sidebar thumbnail and editor canvas — with the same
- * layout width, distinguished only by a CSS `scale()`. `offsetWidth` does not
- * see transforms, so both read the same number and a strict `>` tiebreak
- * silently returned the document-order-first thumbnail, exporting the
- * low-fidelity copy. happy-dom reports 0 for every layout metric, so the
- * widths are stubbed per element to model the real DOM.
- */
 function addSlideCopy(
   slideId: string,
   {
@@ -70,7 +71,6 @@ describe("findSlideExportSource", () => {
   });
 
   it("prefers the visually larger copy when both report the same offsetWidth", () => {
-    // Thumbnail is first in document order — the order the old tiebreak kept.
     const thumbnail = addSlideCopy("s1", {
       offsetWidth: 960,
       renderedWidth: 192,
@@ -124,14 +124,66 @@ describe("findSlideExportSource", () => {
   });
 });
 
-/**
- * The export writes three things per deck and each one is load-bearing: the
- * page raster (what the PDF looks like), an invisible text layer (what a
- * reader, a search box, or a foreign PDF parser can recover), and the deck
- * sidecar (what makes re-importing this PDF give back the original editable
- * slides instead of a picture of them).
- */
 describe("exportDeckAsPdf", () => {
+  it("reports a completed export for the deck it was given", async () => {
+    mocks.track.mockClear();
+    renderSlide("s1");
+
+    await exportDeckAsPdf(
+      "Q3 review",
+      [{ id: "s1", content: "<div></div>" }],
+      undefined,
+      { analytics: { deckId: "deck-1", generationAttemptId: "attempt-1" } },
+    );
+
+    expect(mocks.track).toHaveBeenCalledTimes(1);
+    expect(mocks.track).toHaveBeenCalledWith("deck_exported", {
+      output_id: "deck-1",
+      output_type: "deck",
+      export_format: "pdf",
+      render_location: "browser",
+      status: "completed",
+      slide_count: 1,
+      generation_attempt_id: "attempt-1",
+      app_name: "slides",
+      template_name: "slides",
+    });
+  });
+
+  it("reports a cancelled export as failed and rethrows", async () => {
+    mocks.track.mockClear();
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      exportDeckAsPdf(
+        "Q3 review",
+        [{ id: "s1", content: "<div></div>" }],
+        undefined,
+        { signal: controller.signal, analytics: { deckId: "deck-1" } },
+      ),
+    ).rejects.toThrow();
+
+    expect(mocks.track).toHaveBeenCalledTimes(1);
+    expect(mocks.track.mock.calls[0]).toEqual([
+      "deck_exported",
+      expect.objectContaining({
+        export_format: "pdf",
+        status: "failed",
+        error_type: "cancelled",
+      }),
+    ]);
+  });
+
+  it("reports nothing when the caller gives no deck analytics", async () => {
+    mocks.track.mockClear();
+    renderSlide("s1");
+
+    await exportDeckAsPdf("Q3 review", [{ id: "s1", content: "<div></div>" }]);
+
+    expect(mocks.track).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => {
     document.body.innerHTML = "";
     mocks.addImage.mockClear();
@@ -142,8 +194,6 @@ describe("exportDeckAsPdf", () => {
     mocks.domToJpeg.mockClear();
   });
 
-  // stubRangeLayout spies on document.createRange and calls through; without a
-  // restore, the next test's spy wraps the previous one and recurses forever.
   afterEach(() => {
     document.head
       .querySelectorAll<HTMLStyleElement>("[data-pdf-export-font-faces]")
@@ -155,29 +205,18 @@ describe("exportDeckAsPdf", () => {
     vi.restoreAllMocks();
   });
 
-  /**
-   * happy-dom has no layout engine, so a Range measures 0x0 and every text run
-   * would be skipped as unrendered. Stub the one measurement the text layer
-   * takes, the way the sibling tests above stub element widths.
-   */
   function stubRangeLayout() {
     const create = document.createRange.bind(document);
     const rect = { width: 400, height: 40, left: 60, top: 80 } as DOMRect;
     vi.spyOn(document, "createRange").mockImplementation(() => {
       const range = create();
       range.getBoundingClientRect = () => rect;
-      // One rect = one rendered line, the shape the text layer measures.
       range.getClientRects = () =>
         Object.assign([rect], { item: () => rect }) as unknown as DOMRectList;
       return range;
     });
   }
 
-  /**
-   * `renderedScale` models the `scale(var(--slide-scale))` wrapper every slide
-   * canvas renders inside: `getBoundingClientRect` sees through it, `clientWidth`
-   * and `getComputedStyle().fontSize` do not.
-   */
   function renderSlide(slideId: string, renderedScale = 1) {
     const canvas = document.createElement("div");
     canvas.setAttribute("data-slide-canvas", slideId);
@@ -268,6 +307,28 @@ describe("exportDeckAsPdf", () => {
       expect.objectContaining({ credentials: "omit", mode: "cors" }),
     );
     expect(document.querySelector("[data-pdf-export-font-faces]")).toBeNull();
+  });
+
+  it("writes slide-number digits into the capture clone only", async () => {
+    const canvas = renderSlide("s1");
+    canvas.setAttribute("data-slide-index", "1");
+    canvas.setAttribute("data-slide-count", "3");
+    canvas.insertAdjacentHTML(
+      "beforeend",
+      '<footer><span data-slide-number="pad"></span> / <span data-slide-total="pad"></span></footer>',
+    );
+    let cloneText = "";
+    mocks.domToJpeg.mockImplementationOnce(async (node, options) => {
+      const clone = (node as HTMLElement).cloneNode(true) as HTMLElement;
+      await options?.onCloneNode?.(clone);
+      cloneText = clone.querySelector("footer")!.textContent ?? "";
+      return "data:image/jpeg;base64,AA==";
+    });
+
+    await exportDeckAsPdf("Q3 review", [{ id: "s1", content: "<div></div>" }]);
+
+    expect(cloneText).toBe("01 / 03");
+    expect(canvas.querySelector("footer")!.textContent).toBe(" / ");
   });
 
   it("cleans up temporary font styles when stylesheet loading is cancelled", async () => {
@@ -384,10 +445,6 @@ describe("exportDeckAsPdf", () => {
   });
 
   it("still writes a text layer for a slide measured from a sidebar thumbnail", async () => {
-    // Inside the scaled, contained thumbnail subtree Chrome measures every
-    // Range as 0x0 while element boxes still measure. Every slide but the one
-    // open in the editor exports from a thumbnail, so a Range-only measurement
-    // silently limited the text layer to page 1.
     const canvas = renderSlide("s1");
     const create = document.createRange.bind(document);
     vi.spyOn(document, "createRange").mockImplementation(() => {
@@ -464,8 +521,6 @@ describe("exportDeckAsPdf", () => {
   });
 
   it("leaves speaker notes out of the PDF", async () => {
-    // A PDF is the artifact people forward. Notes are private commentary the
-    // page never shows, and every other share surface blanks them.
     renderSlide("s1");
     await exportDeckAsPdf("Q3 review", [
       { id: "s1", content: "<div></div>", notes: "Don't mention the layoffs." },
@@ -483,15 +538,10 @@ describe("exportDeckAsPdf", () => {
     const drawn = mocks.text.mock.calls.map(([value]) => value);
     expect(drawn).toContain("Growth & margin");
     expect(drawn).toContain("Revenue grew 42%");
-    // Curly quotes and dashes are CP1252, so a heading full of real typography
-    // must not be dropped — that is most headings this app writes.
     expect(drawn).toContain("We’re up — a lot");
     for (const [, , , options] of mocks.text.mock.calls) {
       expect(options.renderingMode).toBe("invisible");
     }
-    // jsPDF's built-in fonts are WinAnsi — a CJK run would be written as
-    // replacement bytes, and text that extracts as mojibake is worse than text
-    // that is absent. The sidecar carries it either way.
     expect(drawn).not.toContain("売上高");
   });
 
@@ -534,11 +584,6 @@ describe("exportDeckAsPdf", () => {
   });
 
   it("sizes the text layer from the slide's own layout, not its on-screen scale", async () => {
-    // Every slide canvas renders inside a `scale(var(--slide-scale))` wrapper,
-    // so the same deck exports from a quarter-scale thumbnail and a full-size
-    // canvas. The PDF page is the same size either way, so the type must be
-    // too — sizing off the transform-inclusive rect wrote headings four times
-    // too large from the sidebar.
     async function headingFontSize(renderedScale: number) {
       document.body.innerHTML = "";
       mocks.setFontSize.mockClear();
@@ -558,8 +603,6 @@ describe("exportDeckAsPdf", () => {
 
     const full = await headingFontSize(1);
     expect(await headingFontSize(0.25)).toBeCloseTo(full, 3);
-    // jsPDF passes setFontSize straight through as points while scaling
-    // coordinates by the px unit factor, so the size has to carry it by hand.
     expect(full).toBeCloseTo(64 * (96 / 72), 3);
   });
 

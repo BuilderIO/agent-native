@@ -1,10 +1,11 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
-import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { useT } from "@agent-native/core/client/i18n";
+import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import {
   EmbeddedApp,
   type EmbeddedAppRef,
 } from "@agent-native/core/embedding/react";
+import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
   IconArrowsMaximize,
@@ -31,6 +32,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 
+import { FileStorageStatusGate } from "@/components/editor/FileStorageStatusGate";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -52,7 +54,9 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+import { deleteNodeFromMenu } from "../editor-transaction-meta";
 import { createImagePickerId } from "../image-upload";
+import { storedBodyImageFailed } from "../stored-body-images";
 import type { ContentImageOptions } from "./ImageNode";
 
 type ImageSourceTab = "upload" | "assets" | "link";
@@ -492,16 +496,19 @@ function buildAltTextArticleContext({
 export function ImageBlock({
   node,
   editor,
-  deleteNode,
   selected,
   updateAttributes,
   extension,
   getPos,
 }: NodeViewProps) {
   const t = useT();
+  const fileUploadStatus = useFileUploadStatus();
+  const fileStorageConfigured =
+    fileUploadStatus.isSuccess && fileUploadStatus.data?.configured === true;
   const [isHovered, setIsHovered] = useState(false);
   const [sourcePanelOpen, setSourcePanelOpen] = useState(false);
   const [sourcePanelDismissed, setSourcePanelDismissed] = useState(false);
+  const [storageSetupOpen, setStorageSetupOpen] = useState(false);
   const [sourceTab, setSourceTab] = useState<ImageSourceTab>("upload");
   const [assetsPickerOpen, setAssetsPickerOpen] = useState(false);
   const [imageUrl, setImageUrl] = useState("");
@@ -512,7 +519,6 @@ export function ImageBlock({
   const [lightboxZoomed, setLightboxZoomed] = useState(false);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [isGeneratingAlt, setIsGeneratingAlt] = useState(false);
-  const [imageLoadFailed, setImageLoadFailed] = useState(false);
   const altInputRef = useRef<HTMLInputElement>(null);
   const emptyBlockRef = useRef<HTMLDivElement>(null);
   const lightboxImageRef = useRef<HTMLImageElement>(null);
@@ -521,6 +527,7 @@ export function ImageBlock({
   const options = extension.options as ContentImageOptions;
   const canMutateMediaNow = () =>
     editor.isEditable && (options.canMutateMedia?.() ?? true);
+  const deleteNode = () => deleteNodeFromMenu({ editor, getPos, node });
   const isEditable = canMutateMediaNow();
   const src = node.attrs.src as string;
   const alt = (node.attrs.alt as string) || "";
@@ -530,10 +537,30 @@ export function ImageBlock({
   const width = normalizedImageWidth(node.attrs.width);
   const activeWidth = dragWidth ?? width;
   const controlsVisible = isEditable && (isHovered || selected);
+  // A source the stored body on screen failed to load starts failed, so the
+  // block keeps the stored body's height; it still loads the source itself,
+  // since that failure may belong to another block or have passed.
+  const [failure, setFailure] = useState<{
+    src: string;
+    ownLoad: boolean;
+  } | null>(() =>
+    storedBodyImageFailed(src) ? { src, ownLoad: false } : null,
+  );
+  if (failure && failure.src !== src) setFailure(null);
+  const imageLoadFailed = failure?.src === src;
+  const awaitingOwnLoad = failure?.src === src && !failure.ownLoad;
 
   useEffect(() => {
-    setImageLoadFailed(false);
-  }, [src]);
+    if (!awaitingOwnLoad) return;
+    const probe = new Image();
+    probe.onload = () => setFailure(null);
+    probe.onerror = () => setFailure({ src, ownLoad: true });
+    probe.src = src;
+    return () => {
+      probe.onload = null;
+      probe.onerror = null;
+    };
+  }, [awaitingOwnLoad, src]);
 
   useEffect(() => {
     if (!sourcePanelOpen && !selected) return;
@@ -706,7 +733,7 @@ export function ImageBlock({
   }, [alt, altPopoverOpen]);
 
   function imageResizeMaxWidth() {
-    const wrapper = mediaBlockRef.current?.closest(".notion-editor");
+    const wrapper = mediaBlockRef.current?.closest(".content-editor");
     const maxWidth =
       wrapper?.getBoundingClientRect().width ??
       mediaBlockRef.current?.parentElement?.getBoundingClientRect().width ??
@@ -785,6 +812,10 @@ export function ImageBlock({
   function handleImageFileSelectionStart() {
     if (!canMutateMediaNow()) return;
     if (isUploading) return;
+    if (!fileStorageConfigured) {
+      setStorageSetupOpen(true);
+      return;
+    }
     if (typeof getPos !== "function") return;
     const position = getPos();
     if (typeof position !== "number") return;
@@ -930,6 +961,11 @@ export function ImageBlock({
             >
               {t("editor.media.uploadFile")}
             </Button>
+            <FileStorageStatusGate
+              status={fileUploadStatus}
+              open={storageSetupOpen}
+              onOpenChange={setStorageSetupOpen}
+            />
           </div>
         ) : sourceTab === "assets" ? (
           <div className="media-source-panel__body">
@@ -962,6 +998,27 @@ export function ImageBlock({
           </form>
         )}
       </div>
+    );
+  }
+
+  if (!src && !isEditable) {
+    // A read-only page can't add an image, so say what's missing instead.
+    return (
+      <NodeViewWrapper className="media-block-wrapper" data-drag-handle>
+        <div
+          className="media-empty-block__trigger media-empty-block__trigger--static"
+          role="img"
+          aria-label={alt || t("editor.media.imageUnavailable")}
+        >
+          <IconPhoto size={20} />
+          <span>{alt || t("editor.media.imageUnavailable")}</span>
+          {alt ? (
+            <span className="media-empty-block__note">
+              {t("editor.media.imageUnavailable")}
+            </span>
+          ) : null}
+        </div>
+      </NodeViewWrapper>
     );
   }
 
@@ -1045,8 +1102,8 @@ export function ImageBlock({
             alt={alt || ""}
             className="media-block__content"
             draggable={false}
-            onLoad={() => setImageLoadFailed(false)}
-            onError={() => setImageLoadFailed(true)}
+            onLoad={() => setFailure(null)}
+            onError={() => setFailure({ src, ownLoad: true })}
             onDoubleClick={(event) => {
               event.preventDefault();
               event.stopPropagation();

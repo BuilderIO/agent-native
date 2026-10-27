@@ -1,24 +1,27 @@
-import type { InboxThreadItem } from "@shared/inbox-threads.js";
+import { getDbExec } from "@agent-native/core/db";
+import { AI_IMPORTANT_LABEL } from "@shared/ai-priority.js";
+import { mailLabelsInclude } from "@shared/gmail-labels.js";
+import { decodeGmailSnippet } from "@shared/gmail-snippet.js";
+import {
+  INBOX_MAX_PAGE_OFFSET,
+  isReadableInboxPageOffset,
+  type InboxThreadItem,
+} from "@shared/inbox-threads.js";
 import type { EmailMessage, Label } from "@shared/types.js";
-/**
- * Data access for the synced inbox store (`mail_inbox_threads` +
- * `mail_sync_accounts`). `inbox-sync.ts` is the only writer of thread rows
- * and sync-account progress; this file is where all of that SQL lives so
- * neither the sync engine nor callers hand-roll queries against the tables.
- *
- * The first five exports below (`InboxThreadRow`, `SyncAccountRow`,
- * `readInboxThreads`, `readSyncAccounts`, `readCachedLabels`,
- * `applyLocalLabelDelta`, `inboxRowToItem`) are the contracted surface for
- * the `list-inbox-threads` action. Everything else here is sync-engine
- * plumbing.
- */
-import { and, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNull,
+  lt,
+  lte,
+  or,
+  sql,
+} from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
-
-// ---------------------------------------------------------------------------
-// Row types
-// ---------------------------------------------------------------------------
 
 export type CachedGmailLabel = {
   id: string;
@@ -58,17 +61,123 @@ export type InboxThreadRow = {
   updatedAt: number;
 };
 
+/** Thread ids whose Gmail reads keep failing, and the latest failure kind. */
+export type SyncDegraded = {
+  hydrate: string[];
+  verify: string[];
+  kind: string | null;
+  /**
+   * Retry schedule per failing id, keyed `h:<id>` (hydrate) or `v:<id>`
+   * (verify): attempts so far and when the next one is due. An id with no entry
+   * is due now.
+   */
+  attempts?: Record<string, { count: number; nextAt: number }>;
+};
+
+// Sync-state columns that cannot be read are never "nothing pending": the
+// unreadable column is recorded here with its raw value so status can say
+// `corrupt_state` and the value stays available for inspection.
+export type SyncCorrupt = Record<string, string>;
+const CORRUPT_RAW_MAX = 2_048;
+
+function readStateJson<T>(
+  corrupt: SyncCorrupt,
+  column: string,
+  raw: string | null,
+  read: (parsed: unknown) => T | null,
+  empty: T,
+): T {
+  // Only SQL NULL means absent; '' or whitespace is a damaged value.
+  if (raw === null || raw === undefined) return empty;
+  const record = () => {
+    corrupt[column] = raw.slice(0, CORRUPT_RAW_MAX);
+    return empty;
+  };
+  try {
+    const value = read(JSON.parse(raw));
+    return value !== null ? value : record();
+  } catch {
+    return record();
+  }
+}
+
+const readIdList = (parsed: unknown): string[] | null =>
+  Array.isArray(parsed) && parsed.every((id) => typeof id === "string")
+    ? (parsed as string[])
+    : null;
+
+const readDegraded = (parsed: unknown): SyncDegraded | null => {
+  const value = parsed as Partial<SyncDegraded> | null;
+  const hydrate = readIdList(value?.hydrate);
+  const verify = readIdList(value?.verify);
+  if (!hydrate || !verify) return null;
+  const attempts: NonNullable<SyncDegraded["attempts"]> = {};
+  if (value?.attempts !== undefined) {
+    if (
+      typeof value.attempts !== "object" ||
+      value.attempts === null ||
+      Array.isArray(value.attempts)
+    ) {
+      return null;
+    }
+    for (const [key, entry] of Object.entries(value.attempts)) {
+      if (!Number.isFinite(entry?.count) || !Number.isFinite(entry?.nextAt)) {
+        return null;
+      }
+      attempts[key] = { count: entry.count, nextAt: entry.nextAt };
+    }
+  }
+  return {
+    hydrate,
+    verify,
+    kind: typeof value?.kind === "string" ? value.kind : null,
+    attempts,
+  };
+};
+
+const HISTORY_ID = /^\d+$/;
+
+// The stored corrupt record itself may be unreadable; that is recorded too.
+function readCorruptRecord(raw: string | null): SyncCorrupt {
+  if (raw === null || raw === undefined) return {};
+  const unreadable = { sync_corrupt_json: raw.slice(0, CORRUPT_RAW_MAX) };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return unreadable;
+  }
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? (parsed as SyncCorrupt)
+    : unreadable;
+}
+
 export type SyncAccountRow = {
   id: string;
   ownerEmail: string;
   accountEmail: string;
   historyId: string | null;
+  archiveHistoryId: string | null;
   fullSyncPageToken: string | null;
   fullSyncHistoryId: string | null;
   fullSyncStartedAt: number | null;
+  fullSyncPhase: "reconcile" | null;
+  fullSyncReconcilePageToken: string | null;
+  fullSyncReconcilePendingIds: string[] | null;
+  fullSyncReconcilePasses: number;
+  fullSyncListedCount: number;
+  archivePendingIds: string[];
+  hydratePendingIds: string[];
+  degraded: SyncDegraded;
+  corrupt: SyncCorrupt;
+  inboxCapped: boolean;
+  archiveHistoryPending: boolean;
   status: "idle" | "syncing" | "error" | "needs_reauth";
   lastError: string | null;
   lastSyncedAt: number | null;
+  lastPushGeneration: number;
+  lastWatchRenewedAt: number | null;
+  historyPending: boolean;
   syncClaimId: string | null;
   syncClaimedAt: number | null;
   labels: CachedGmailLabel[] | null;
@@ -133,31 +242,87 @@ function toInboxThreadRow(
 function toSyncAccountRow(
   row: typeof schema.mailSyncAccounts.$inferSelect,
 ): SyncAccountRow {
+  // Columns recorded as corrupt earlier stay recorded until a resync clears them.
+  const corrupt: SyncCorrupt = readCorruptRecord(row.syncCorruptJson);
+  for (const [column, value] of [
+    ["history_id", row.historyId],
+    ["archive_history_id", row.archiveHistoryId],
+  ] as const) {
+    if (value != null && !HISTORY_ID.test(value)) {
+      corrupt[column] = value.slice(0, CORRUPT_RAW_MAX);
+    }
+  }
+  const reconcilePending = readStateJson<string[] | null>(
+    corrupt,
+    "full_sync_reconcile_pending_ids_json",
+    row.fullSyncReconcilePendingIdsJson,
+    readIdList,
+    null,
+  );
+  const archivePendingIds = readStateJson<string[]>(
+    corrupt,
+    "archive_pending_ids_json",
+    row.archivePendingIdsJson,
+    readIdList,
+    [],
+  );
+  const hydratePendingIds = readStateJson<string[]>(
+    corrupt,
+    "hydrate_pending_ids_json",
+    row.hydratePendingIdsJson,
+    readIdList,
+    [],
+  );
+  const degraded = readStateJson<SyncDegraded>(
+    corrupt,
+    "sync_degraded_json",
+    row.syncDegradedJson,
+    readDegraded,
+    { hydrate: [], verify: [], kind: null },
+  );
   return {
     id: row.id,
     ownerEmail: row.ownerEmail,
     accountEmail: row.accountEmail,
     historyId: row.historyId,
+    archiveHistoryId: row.archiveHistoryId,
     fullSyncPageToken: row.fullSyncPageToken,
     fullSyncHistoryId: row.fullSyncHistoryId,
     fullSyncStartedAt: row.fullSyncStartedAt,
+    fullSyncPhase: row.fullSyncPhase,
+    fullSyncReconcilePageToken: row.fullSyncReconcilePageToken,
+    fullSyncReconcilePendingIds: reconcilePending,
+    fullSyncReconcilePasses: row.fullSyncReconcilePasses,
+    fullSyncListedCount: row.fullSyncListedCount,
+    archivePendingIds,
+    hydratePendingIds,
+    degraded,
+    corrupt,
+    inboxCapped: row.inboxCapped === 1,
+    archiveHistoryPending: row.archiveHistoryPending === 1,
     status: row.status as SyncAccountRow["status"],
     lastError: row.lastError,
     lastSyncedAt: row.lastSyncedAt,
+    lastPushGeneration: row.lastPushGeneration,
+    lastWatchRenewedAt: row.lastWatchRenewedAt,
+    historyPending: row.historyPending === 1,
     syncClaimId: row.syncClaimId,
     syncClaimedAt: row.syncClaimedAt,
-    labels: row.labelsJson
-      ? parseJsonArray<CachedGmailLabel>(row.labelsJson, [])
-      : null,
+    // Unreadable labels are recorded as corrupt and read as absent, so the next
+    // sync refetches them rather than showing an empty label list.
+    labels: readStateJson<CachedGmailLabel[] | null>(
+      corrupt,
+      "labels_json",
+      row.labelsJson,
+      (parsed) =>
+        Array.isArray(parsed) ? (parsed as CachedGmailLabel[]) : null,
+      null,
+    ),
     labelsUpdatedAt: row.labelsUpdatedAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
 }
-
-// ---------------------------------------------------------------------------
-// Reads
-// ---------------------------------------------------------------------------
 
 export async function readInboxThreads(
   ownerEmail: string,
@@ -187,6 +352,281 @@ export async function readInboxThreads(
   return rows.map(toInboxThreadRow);
 }
 
+/**
+ * Raw Gmail label ids that `inboxRowToItem` resolves to the AI-important
+ * label. Mirrors its name resolution exactly, so the SQL tab membership below
+ * agrees with the in-memory partition for the same rows.
+ */
+export function aiImportantLabelIds(
+  labelMap: Map<string, string> | undefined,
+): string[] {
+  const candidates = new Set([...(labelMap?.keys() ?? []), AI_IMPORTANT_LABEL]);
+  return [...candidates].filter((id) => {
+    if (id === "UNREAD" || id === "STARRED") return false;
+    const name =
+      CATEGORY_MAP[id] ||
+      (labelMap?.get(id) || id).replace(/_/g, " ").toLowerCase();
+    return mailLabelsInclude([name], AI_IMPORTANT_LABEL);
+  });
+}
+
+export type InboxTabWindowSpec = { id: string; kind: string };
+
+export type InboxTabWindows = {
+  counts: Map<string, { total: number; unread: number }>;
+  page: InboxThreadRow[];
+  previews: Map<string, InboxThreadRow[]>;
+};
+
+// Each synced row falls in one of eight groups by these bits. A group's tab
+// membership is fixed, so one ranked read serves every built-in tab.
+const AI_GROUP_BIT = 4;
+const AUTOMATED_GROUP_BIT = 2;
+const UNREAD_GROUP_BIT = 1;
+const GROUP_COUNT = 8;
+
+/**
+ * Membership of the built-in tabs as `inboxTabsForItem` resolves it when no
+ * pinned-label or saved-filter tab exists: Important is "AI-important or not
+ * automated", Other is "not AI-important and automated". Tabs with a query
+ * are not expressible here and must use `readInboxThreads` instead.
+ */
+function tabAcceptsGroup(kind: string, group: number): boolean {
+  const aiImportant = (group & AI_GROUP_BIT) !== 0;
+  const automated = (group & AUTOMATED_GROUP_BIT) !== 0;
+  switch (kind) {
+    case "all":
+    case "inbox":
+      return true;
+    case "important":
+      return aiImportant || !automated;
+    case "other":
+      return !aiImportant && automated;
+    default:
+      throw new Error(`inbox tab "${kind}" needs the in-memory partition`);
+  }
+}
+
+/**
+ * Per-tab counts and bounded row windows for the built-in tab set, from one
+ * statement. Every row is ranked in list order, then ranked again inside its
+ * group, and each group returns only its first `rankLimit` rows. Merging
+ * windows in JS compares those integer ranks, never SQL string collation.
+ */
+export async function readInboxTabWindows(params: {
+  ownerEmail: string;
+  accountEmails: readonly string[];
+  tabs: readonly InboxTabWindowSpec[];
+  aiLabelIdsByAccount: ReadonlyMap<string, readonly string[]>;
+  pageTabId: string;
+  pageOffset: number;
+  pageLimit: number;
+  pageUnreadOnly: boolean;
+  previewLimit: number;
+}): Promise<InboxTabWindows> {
+  const accounts = params.accountEmails.map((e) => e.toLowerCase());
+  if (accounts.length === 0) {
+    throw new Error("readInboxTabWindows needs at least one account");
+  }
+  if (!isReadableInboxPageOffset(params.pageOffset)) {
+    throw new Error(
+      `inbox page offset ${params.pageOffset} is past the readable range (below ${INBOX_MAX_PAGE_OFFSET})`,
+    );
+  }
+  const pageTab = params.tabs.find((tab) => tab.id === params.pageTabId);
+  if (!pageTab) throw new Error(`unknown inbox tab "${params.pageTabId}"`);
+
+  const args: unknown[] = [];
+  const bind = (value: unknown) => {
+    args.push(value);
+    return `$${args.length}`;
+  };
+  const ownerParam = bind(params.ownerEmail.toLowerCase());
+  const accountParams = accounts.map((account) => bind(account));
+  const mappedAiClauses = accounts.flatMap((account) => {
+    const ids = params.aiLabelIdsByAccount.get(account) ?? [];
+    if (ids.length === 0) return [];
+    const accountParam = bind(account);
+    // Whole array elements, not substrings: `Label_ai` must not match
+    // `Label_ai_extra`.
+    const idChecks = ids.map(
+      (id) =>
+        `EXISTS (SELECT 1 FROM jsonb_array_elements_text(t.label_ids_json::jsonb) AS label(value) WHERE label.value = ${bind(id)})`,
+    );
+    return [
+      `(t.account_email = ${accountParam} AND (${idChecks.join(" OR ")}))`,
+    ];
+  });
+  // `inboxRowToItem` reads a raw label id with no synced name as its own name:
+  // lowercased, `_` as a space, `-` equal to a space, and any `prefix/` before
+  // the last segment ignored. This pattern covers those spellings in one
+  // place. Mapped ids use the exact clauses above; a raw id that is mapped to
+  // another name but spelled like the AI label is not covered (Gmail ids are
+  // opaque, so this does not occur).
+  const unmappedAiClause = `t.label_ids_json ~* ${bind(
+    String.raw`"([^"]*/)?\s*agent[ _-]native[ _-]important\s*"`,
+  )}`;
+  const aiClauses = [...mappedAiClauses, unmappedAiClause];
+  const aiImportant = `(${aiClauses.join(" OR ")})`;
+  const rankLimit = Math.max(
+    params.previewLimit,
+    params.pageOffset + params.pageLimit,
+  );
+  const rankLimitParam = bind(rankLimit);
+
+  const { rows } = await getDbExec().execute({
+    // guard:allow-unbounded-read — the owner/account scope bounds the keys CTE, and only the top rows of each group (at most 8 × rankLimit) return to JS
+    sql: `
+      WITH keys AS (
+        SELECT t.id, t.latest_date, t.latest_message_id, t.is_automated, t.unread_count,
+          ${aiImportant} AS ai
+        FROM mail_inbox_threads t
+        WHERE t.owner_email = ${ownerParam} AND t.in_inbox = 1
+          AND t.account_email IN (${accountParams.join(", ")})
+      ),
+      ordered AS (
+        SELECT k.id,
+          row_number() OVER (ORDER BY k.latest_date DESC, k.latest_message_id DESC, k.id DESC) AS r,
+          (CASE WHEN k.ai THEN ${AI_GROUP_BIT} ELSE 0 END
+            + CASE WHEN coalesce(k.is_automated, 0) = 1 THEN ${AUTOMATED_GROUP_BIT} ELSE 0 END
+            + CASE WHEN coalesce(k.unread_count, 0) > 0 THEN ${UNREAD_GROUP_BIT} ELSE 0 END) AS grp
+        FROM keys k
+      ),
+      grouped AS (
+        SELECT o.id, o.r, o.grp,
+          row_number() OVER (PARTITION BY o.grp ORDER BY o.r) AS gr,
+          count(*) OVER (PARTITION BY o.grp) AS grp_total
+        FROM ordered o
+      )
+      SELECT t.*, g.grp, g.gr, g.grp_total
+      FROM grouped g
+      JOIN mail_inbox_threads t ON t.id = g.id
+      WHERE g.gr <= ${rankLimitParam}
+      ORDER BY g.r`,
+    args,
+  });
+
+  const windowRows = rows.map(windowRowFromSql);
+  const groupTotal = new Map<number, number>();
+  for (const row of windowRows) {
+    if (row.groupRank === 1) groupTotal.set(row.group, row.groupTotal);
+  }
+  const windowOf = (kind: string, unreadOnly: boolean) =>
+    windowRows.filter(
+      (row) =>
+        tabAcceptsGroup(kind, row.group) &&
+        (!unreadOnly || (row.group & UNREAD_GROUP_BIT) !== 0),
+    );
+
+  const counts = new Map<string, { total: number; unread: number }>();
+  const previews = new Map<string, InboxThreadRow[]>();
+  for (const tab of params.tabs) {
+    let total = 0;
+    let unread = 0;
+    for (let group = 0; group < GROUP_COUNT; group += 1) {
+      if (!tabAcceptsGroup(tab.kind, group)) continue;
+      const n = groupTotal.get(group) ?? 0;
+      total += n;
+      if ((group & UNREAD_GROUP_BIT) !== 0) unread += n;
+    }
+    counts.set(tab.id, { total, unread });
+    previews.set(
+      tab.id,
+      windowOf(tab.kind, false).slice(0, params.previewLimit),
+    );
+  }
+  return {
+    counts,
+    page: windowOf(pageTab.kind, params.pageUnreadOnly).slice(
+      params.pageOffset,
+      params.pageOffset + params.pageLimit,
+    ),
+    previews,
+  };
+}
+
+type WindowRow = InboxThreadRow & {
+  group: number;
+  groupRank: number;
+  groupTotal: number;
+};
+
+function windowRowFromSql(raw: Record<string, unknown>): WindowRow {
+  const nullableNumber = (value: unknown) =>
+    value == null ? null : Number(value);
+  const row = toInboxThreadRow({
+    id: String(raw.id),
+    ownerEmail: String(raw.owner_email),
+    accountEmail: String(raw.account_email),
+    threadId: String(raw.thread_id),
+    historyId: raw.history_id == null ? null : String(raw.history_id),
+    inInbox: Number(raw.in_inbox),
+    isUnread: nullableNumber(raw.is_unread),
+    isStarred: nullableNumber(raw.is_starred),
+    isImportant: nullableNumber(raw.is_important),
+    isAutomated: nullableNumber(raw.is_automated),
+    latestDate: Number(raw.latest_date),
+    latestMessageId:
+      raw.latest_message_id == null ? null : String(raw.latest_message_id),
+    subject: raw.subject == null ? null : String(raw.subject),
+    snippet: raw.snippet == null ? null : String(raw.snippet),
+    fromName: raw.from_name == null ? null : String(raw.from_name),
+    fromEmail: raw.from_email == null ? null : String(raw.from_email),
+    toJson: raw.to_json == null ? null : String(raw.to_json),
+    labelIdsJson: String(raw.label_ids_json),
+    messageIdsJson: String(raw.message_ids_json),
+    messageCount: nullableNumber(raw.message_count),
+    unreadCount: nullableNumber(raw.unread_count),
+    hasAttachments: nullableNumber(raw.has_attachments),
+    syncedAt: Number(raw.synced_at),
+    updatedAt: Number(raw.updated_at),
+  } as typeof schema.mailInboxThreads.$inferSelect);
+  return {
+    ...row,
+    group: Number(raw.grp),
+    groupRank: Number(raw.gr),
+    groupTotal: Number(raw.grp_total),
+  };
+}
+
+export async function countInboxThreads(
+  ownerEmail: string,
+  accountEmail: string,
+): Promise<number> {
+  const rows = await getDb()
+    .select({ count: sql<number>`count(*)` })
+    .from(schema.mailInboxThreads)
+    .where(
+      and(
+        eq(schema.mailInboxThreads.ownerEmail, ownerEmail.toLowerCase()),
+        eq(schema.mailInboxThreads.accountEmail, accountEmail.toLowerCase()),
+        eq(schema.mailInboxThreads.inInbox, 1),
+      ),
+    );
+  return Number(rows[0]?.count ?? 0);
+}
+
+export async function readInboxThreadIds(
+  ownerEmail: string,
+  accountEmail: string,
+  threadIds: readonly string[],
+): Promise<Set<string>> {
+  const ids = [...new Set(threadIds.filter(Boolean))];
+  if (ids.length === 0) return new Set();
+  const rows = await getDb()
+    .select({ threadId: schema.mailInboxThreads.threadId })
+    .from(schema.mailInboxThreads)
+    .where(
+      and(
+        eq(schema.mailInboxThreads.ownerEmail, ownerEmail.toLowerCase()),
+        eq(schema.mailInboxThreads.accountEmail, accountEmail.toLowerCase()),
+        eq(schema.mailInboxThreads.inInbox, 1),
+        inArray(schema.mailInboxThreads.threadId, ids),
+      ),
+    );
+  return new Set(rows.map((row) => row.threadId));
+}
+
 export async function readSyncAccounts(
   ownerEmail: string,
 ): Promise<SyncAccountRow[]> {
@@ -197,9 +637,6 @@ export async function readSyncAccounts(
   return rows.map(toSyncAccountRow);
 }
 
-// Mirrors actions/list-labels.ts's Gmail label normalization exactly (same
-// ids/names/system-vs-user split) so a label id computed from the live path
-// and one computed from the cache never disagree.
 const SYSTEM_LABELS: Record<string, { id: string; name: string }> = {
   INBOX: { id: "inbox", name: "Inbox" },
   STARRED: { id: "starred", name: "Starred" },
@@ -269,8 +706,6 @@ export async function readCachedLabels(
     }
   }
 
-  // Never throw on a missing cache — an account that hasn't synced labels
-  // yet (or isn't in `accounts` at all) just contributes an empty map.
   for (const email of requested ?? []) {
     if (!labelMapByAccount.has(email)) labelMapByAccount.set(email, new Map());
   }
@@ -291,25 +726,11 @@ export async function readCachedLabels(
   return { labels: [...labelsById.values()], labelMapByAccount };
 }
 
-// ---------------------------------------------------------------------------
-// Optimistic local mutation
-// ---------------------------------------------------------------------------
-
 export type LocalLabelDelta = {
   add?: string[];
   remove?: string[];
-  /** Gmail history id returned by the mutation, when the provider exposes it. */
   providerHistoryId?: string;
-  /**
-   * "thread" (default): the mutation applies to every message in the thread
-   * (archive, trash, mark-thread-read), so UNREAD/STARRED are derived from
-   * whether the unioned label set contains them, as before.
-   * "message": the mutation only touched `messageIds` (mark-read/star by
-   * message id) — UNREAD/STARRED must be derived from that subset instead,
-   * see below.
-   */
   scope?: "thread" | "message";
-  /** Message ids the delta actually targets; only meaningful for scope "message". */
   messageIds?: string[];
 };
 
@@ -350,9 +771,6 @@ export async function applyLocalLabelDelta(
   if (threadIds.length === 0) return;
   const ids = threadIds.map((t) => threadRowId(ownerEmail, accountEmail, t));
   await getDb().transaction(async (tx) => {
-    // Sync upserts and local deltas must observe and write one row in order.
-    // Without this lock, a read based on the pre-archive labels can restore
-    // INBOX after the archive commits.
     const rows = await tx
       .select({
         id: schema.mailInboxThreads.id,
@@ -440,10 +858,6 @@ export async function applyLocalLabelDelta(
           set.unreadCount = labels.has("UNREAD") ? messageCount : 0;
         }
       } else {
-        // The row stores only aggregate read state, not labels per message.
-        // A message-scoped read delta therefore cannot safely adjust the
-        // aggregate (marking an already-read message read would decrement it
-        // again). Leave it for the next exact thread sync.
         if (delta.add?.includes("STARRED")) {
           set.isStarred = 1;
           labels.add("STARRED");
@@ -465,13 +879,6 @@ export async function applyLocalLabelDelta(
   });
 }
 
-/**
- * Resolves Gmail message ids to their thread id via the store's
- * `messageIdsJson`, for callers (message-level mutations) that only have
- * message ids but need a threadId to patch a thread row. Ids the store
- * hasn't synced yet are simply absent from the result — best-effort, same as
- * {@link applyLocalLabelDelta}.
- */
 export async function findThreadIdsByMessageIds(
   ownerEmail: string,
   accountEmail: string,
@@ -525,9 +932,79 @@ export async function findAccountForThread(
 }
 
 /**
- * Same as {@link findAccountForThread} but resolves from a message id via
- * `messageIdsJson`, same scan approach as {@link findThreadIdsByMessageIds}.
+ * Maps many thread and message ids to their owning accounts in one query over
+ * the owner's rows, for bulk mutations. Ids the store has no row for are
+ * absent from the result; callers resolve those another way.
  */
+export async function findAccountsForTargets(
+  ownerEmail: string,
+  targets: { threadIds: readonly string[]; messageIds: readonly string[] },
+): Promise<{
+  byThread: Map<string, string>;
+  byMessage: Map<string, string>;
+}> {
+  const byThread = new Map<string, string>();
+  const byMessage = new Map<string, string>();
+  const threadIds = [...new Set(targets.threadIds.filter(Boolean))];
+  const messageIds = [...new Set(targets.messageIds.filter(Boolean))];
+  if (threadIds.length === 0 && messageIds.length === 0) {
+    return { byThread, byMessage };
+  }
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT t.account_email, t.thread_id, t.message_ids_json
+      FROM mail_inbox_threads t
+      WHERE t.owner_email = $1
+        AND (
+          EXISTS (
+            SELECT 1 FROM jsonb_array_elements_text($2::jsonb) w
+            WHERE w = t.thread_id
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements_text(COALESCE(t.message_ids_json, '[]')::jsonb) m
+            JOIN jsonb_array_elements_text($3::jsonb) w ON w = m
+          )
+        )`,
+    args: [
+      ownerEmail.toLowerCase(),
+      JSON.stringify(threadIds),
+      JSON.stringify(messageIds),
+    ],
+  });
+  const wantedThreads = new Set(threadIds);
+  const wantedMessages = new Set(messageIds);
+  for (const row of rows as any[]) {
+    const account = String(row.account_email);
+    const threadId = String(row.thread_id);
+    if (wantedThreads.has(threadId) && !byThread.has(threadId)) {
+      byThread.set(threadId, account);
+    }
+    for (const id of parseJsonArray<string>(row.message_ids_json ?? null, [])) {
+      if (wantedMessages.has(id) && !byMessage.has(id))
+        byMessage.set(id, account);
+    }
+  }
+  return { byThread, byMessage };
+}
+
+/**
+ * How many cached rows each of the owner's accounts has, so a lookup can try
+ * the account most likely to own an unknown thread first.
+ */
+export async function readAccountRowCounts(
+  ownerEmail: string,
+): Promise<Map<string, number>> {
+  const rows = await getDb()
+    .select({
+      accountEmail: schema.mailInboxThreads.accountEmail,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(schema.mailInboxThreads)
+    .where(eq(schema.mailInboxThreads.ownerEmail, ownerEmail.toLowerCase()))
+    .groupBy(schema.mailInboxThreads.accountEmail);
+  return new Map(rows.map((row) => [row.accountEmail, Number(row.count)]));
+}
+
 export async function findAccountForMessage(
   ownerEmail: string,
   messageId: string,
@@ -547,11 +1024,6 @@ export async function findAccountForMessage(
   return null;
 }
 
-// ---------------------------------------------------------------------------
-// Row -> API shape
-// ---------------------------------------------------------------------------
-
-// Same category-label remap as gmailToEmailMessage in google-auth.ts.
 const CATEGORY_MAP: Record<string, string> = {
   IMPORTANT: "important",
   CATEGORY_PERSONAL: "personal",
@@ -579,7 +1051,7 @@ export function inboxRowToItem(
     from: { name: row.fromName ?? "", email: row.fromEmail ?? "" },
     to: row.to,
     subject: row.subject ?? "",
-    snippet: row.snippet ?? "",
+    snippet: decodeGmailSnippet(row.snippet ?? ""),
     body: "",
     bodyHtml: undefined,
     date: new Date(row.latestDate).toISOString(),
@@ -599,10 +1071,6 @@ export function inboxRowToItem(
     isAutomated: row.isAutomated,
   };
 }
-
-// ---------------------------------------------------------------------------
-// Sync-engine writes (used only by inbox-sync.ts)
-// ---------------------------------------------------------------------------
 
 export type ThreadUpsertInput = {
   ownerEmail: string;
@@ -631,6 +1099,7 @@ export type ThreadUpsertInput = {
 
 export async function upsertInboxThreadRows(
   rows: ThreadUpsertInput[],
+  db: any = getDb(),
 ): Promise<void> {
   if (rows.length === 0) return;
   const now = Date.now();
@@ -670,7 +1139,7 @@ export async function upsertInboxThreadRows(
       localMutationFields: null,
     }));
 
-  await getDb()
+  await db
     .insert(schema.mailInboxThreads)
     .values(values)
     .onConflictDoUpdate({
@@ -700,11 +1169,6 @@ export async function upsertInboxThreadRows(
         localMutationHistoryId: sql`excluded.local_mutation_history_id`,
         localMutationFields: sql`excluded.local_mutation_fields`,
       },
-      // A Gmail read started before a local mutation may return the old
-      // labels after that mutation has already updated this row. Keep the
-      // newer local write until a later sync observation catches up. A
-      // history id alone is not evidence that this row observed this
-      // mutation: Gmail history advances for unrelated changes too.
       setWhere: sql`
         excluded.synced_at > ${schema.mailInboxThreads.updatedAt}
         AND (
@@ -742,36 +1206,78 @@ export async function upsertInboxThreadRows(
     });
 }
 
-export async function deleteInboxThreadRow(
+/**
+ * "removed": the row is gone (deleted now, or already absent).
+ * "skipped": a row written after `readStartedAt` survived the guard, so the
+ * caller must keep the thread queued; dropping it leaves the row cached.
+ */
+export type DeleteOutcome = "removed" | "skipped";
+
+export async function tryDeleteInboxThreadRow(
   ownerEmail: string,
   accountEmail: string,
   threadId: string,
   readStartedAt?: number,
-): Promise<void> {
-  const conditions = [
-    eq(
-      schema.mailInboxThreads.id,
-      threadRowId(ownerEmail, accountEmail, threadId),
-    ),
-  ];
+  db: any = getDb(),
+): Promise<DeleteOutcome> {
+  const id = threadRowId(ownerEmail, accountEmail, threadId);
+  const conditions = [eq(schema.mailInboxThreads.id, id)];
   if (readStartedAt !== undefined) {
     conditions.push(lt(schema.mailInboxThreads.updatedAt, readStartedAt));
   }
-  await getDb()
+  const deleted = await db
     .delete(schema.mailInboxThreads)
-    .where(and(...conditions));
+    .where(and(...conditions))
+    .returning({ id: schema.mailInboxThreads.id });
+  if (deleted.length > 0) return "removed";
+  const remaining = await db
+    .select({ id: schema.mailInboxThreads.id })
+    .from(schema.mailInboxThreads)
+    .where(eq(schema.mailInboxThreads.id, id))
+    .limit(1);
+  return remaining.length === 0 ? "removed" : "skipped";
 }
 
 /**
- * Threads that left the inbox mid full-sync: rows not touched since
- * `cutoffSyncedAt`.
+ * Queues thread ids for hydration on a later step, merged into the stored
+ * pending list under the sync claim fence.
  */
+export async function appendHydratePendingIds(
+  ownerEmail: string,
+  accountEmail: string,
+  claimId: string,
+  threadIds: readonly string[],
+): Promise<void> {
+  if (threadIds.length === 0) return;
+  await withSyncClaim(ownerEmail, accountEmail, claimId, async (tx) => {
+    const id = rowId(ownerEmail, accountEmail);
+    const [current] = await tx
+      .select({ json: schema.mailSyncAccounts.hydratePendingIdsJson })
+      .from(schema.mailSyncAccounts)
+      .where(eq(schema.mailSyncAccounts.id, id))
+      .limit(1);
+    // A damaged stored list starts the new one empty; applySyncPatch records
+    // its raw value before replacing it.
+    const stored = readStateJson<string[]>(
+      {},
+      "hydrate_pending_ids_json",
+      current?.json ?? null,
+      readIdList,
+      [],
+    );
+    await applySyncPatch(tx, [eq(schema.mailSyncAccounts.id, id)], {
+      hydratePendingIds: [...new Set([...stored, ...threadIds])],
+    });
+  });
+}
+
 export async function markThreadsOutOfInboxBeforeSync(
   ownerEmail: string,
   accountEmail: string,
   cutoffSyncedAt: number,
+  db: any = getDb(),
 ): Promise<void> {
-  await getDb()
+  await db
     .update(schema.mailInboxThreads)
     .set({ inInbox: 0, updatedAt: Date.now() })
     .where(
@@ -783,6 +1289,75 @@ export async function markThreadsOutOfInboxBeforeSync(
         lt(schema.mailInboxThreads.updatedAt, cutoffSyncedAt),
       ),
     );
+}
+
+// Cap on in-inbox threads per owner+account, newest by latest_date. A full or
+// reconcile listing stops at this count, and the trim deletes in-inbox rows past
+// it. Archived rows never count against it.
+export const INBOX_THREAD_CAP = 2_000;
+
+// How long an archived (in_inbox = 0) row may stay after its last write or
+// local mutation. Local-mutation fences only hold until a sync confirms the
+// change, and Gmail is the source of truth after this window.
+export const ARCHIVED_THREAD_GRACE_MS = 10 * 60_000;
+
+// Deletes archived rows whose last write and local mutation are both older
+// than the grace window. Returns the number deleted.
+export async function purgeArchivedInboxThreadRows(
+  ownerEmail: string,
+  accountEmail: string,
+  now: number = Date.now(),
+  db: any = getDb(),
+): Promise<number> {
+  const cutoff = now - ARCHIVED_THREAD_GRACE_MS;
+  const deleted = await db
+    .delete(schema.mailInboxThreads)
+    .where(
+      and(
+        eq(schema.mailInboxThreads.ownerEmail, ownerEmail.toLowerCase()),
+        eq(schema.mailInboxThreads.accountEmail, accountEmail.toLowerCase()),
+        eq(schema.mailInboxThreads.inInbox, 0),
+        lt(schema.mailInboxThreads.updatedAt, cutoff),
+        or(
+          isNull(schema.mailInboxThreads.localMutationAt),
+          lt(schema.mailInboxThreads.localMutationAt, cutoff),
+        ),
+      ),
+    )
+    .returning({ id: schema.mailInboxThreads.id });
+  return deleted.length;
+}
+
+// Keeps the INBOX_THREAD_CAP newest in-inbox rows for one owner+account and
+// returns how many were deleted: the in-inbox rows past the first `keep` under
+// (latest_date, id) descending.
+export async function trimInboxThreadRows(
+  ownerEmail: string,
+  accountEmail: string,
+  keep: number = INBOX_THREAD_CAP,
+  db: any = getDb(),
+): Promise<number> {
+  // One statement, so the overflow set and the delete see the same rows.
+  const overflow = db
+    .select({ id: schema.mailInboxThreads.id })
+    .from(schema.mailInboxThreads)
+    .where(
+      and(
+        eq(schema.mailInboxThreads.ownerEmail, ownerEmail.toLowerCase()),
+        eq(schema.mailInboxThreads.accountEmail, accountEmail.toLowerCase()),
+        eq(schema.mailInboxThreads.inInbox, 1),
+      ),
+    )
+    .orderBy(
+      desc(schema.mailInboxThreads.latestDate),
+      desc(schema.mailInboxThreads.id),
+    )
+    .offset(keep);
+  const deleted = await db
+    .delete(schema.mailInboxThreads)
+    .where(inArray(schema.mailInboxThreads.id, overflow))
+    .returning({ id: schema.mailInboxThreads.id });
+  return deleted.length;
 }
 
 export async function ensureSyncAccountRow(
@@ -814,12 +1389,262 @@ export async function ensureSyncAccountRow(
   return toSyncAccountRow(row);
 }
 
+export type GmailQuotaLane = "interactive" | "incremental" | "backfill";
+
+// ponytail: fixed windows can burst across boundaries; switch to a token bucket if that becomes observable.
+const GMAIL_QUOTA_WINDOW_MS = 60_000;
+const GMAIL_QUOTA_UNITS_PER_MINUTE = 6_000;
+const GMAIL_BACKGROUND_UNITS_PER_MINUTE = 3_000;
+const GMAIL_BACKFILL_UNITS_PER_MINUTE = 2_000;
+
+export async function reserveGmailQuota(
+  ownerEmail: string,
+  accountEmail: string,
+  units: number,
+  lane: GmailQuotaLane,
+  now = Date.now(),
+): Promise<{ retryAfterMs: number; quotaCooldownAttempts: number }> {
+  if (!Number.isSafeInteger(units) || units < 0) {
+    throw new Error(`Invalid Gmail quota cost: ${units}`);
+  }
+  if (units === 0) return { retryAfterMs: 0, quotaCooldownAttempts: 0 };
+  const laneLimit =
+    lane === "interactive"
+      ? GMAIL_QUOTA_UNITS_PER_MINUTE
+      : lane === "backfill"
+        ? GMAIL_BACKFILL_UNITS_PER_MINUTE
+        : GMAIL_BACKGROUND_UNITS_PER_MINUTE;
+  if (units > laneLimit) {
+    throw new Error(`Gmail quota request exceeds the ${lane} lane limit`);
+  }
+
+  const budgets = schema.mailGmailQuotaBudgets;
+  const owner = ownerEmail.toLowerCase();
+  const account = accountEmail.toLowerCase();
+  const id = account;
+  const expired = sql`(${budgets.quotaWindowStartedAt} = 0 OR ${budgets.quotaWindowStartedAt} <= ${now - GMAIL_QUOTA_WINDOW_MS})`;
+  const used = sql`CASE WHEN ${expired} THEN 0 ELSE ${budgets.quotaUnitsUsed} END`;
+  const backgroundUsed = sql`CASE WHEN ${expired} THEN 0 ELSE ${budgets.quotaBackgroundUnitsUsed} END`;
+  const backfillUsed = sql`CASE WHEN ${expired} THEN 0 ELSE ${budgets.quotaBackfillUnitsUsed} END`;
+  const backgroundLane = lane !== "interactive";
+  const backfillLane = lane === "backfill";
+  const rows = await getDb()
+    .insert(budgets)
+    .values({
+      id,
+      ownerEmail: owner,
+      accountEmail: account,
+      quotaWindowStartedAt: now,
+      quotaUnitsUsed: units,
+      quotaBackgroundUnitsUsed: backgroundLane ? units : 0,
+      quotaBackfillUnitsUsed: backfillLane ? units : 0,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: budgets.id,
+      set: {
+        ownerEmail: owner,
+        accountEmail: account,
+        quotaWindowStartedAt: sql`CASE WHEN ${expired} THEN ${now} ELSE ${budgets.quotaWindowStartedAt} END`,
+        quotaUnitsUsed: sql`CASE WHEN ${expired} THEN ${units} ELSE ${budgets.quotaUnitsUsed} + ${units} END`,
+        quotaBackgroundUnitsUsed: sql`CASE WHEN ${expired} THEN ${backgroundLane ? units : 0} ELSE ${budgets.quotaBackgroundUnitsUsed} + ${backgroundLane ? units : 0} END`,
+        quotaBackfillUnitsUsed: sql`CASE WHEN ${expired} THEN ${backfillLane ? units : 0} ELSE ${budgets.quotaBackfillUnitsUsed} + ${backfillLane ? units : 0} END`,
+        quotaCooldownUntil: sql`CASE WHEN ${budgets.quotaCooldownUntil} <= ${now} THEN NULL ELSE ${budgets.quotaCooldownUntil} END`,
+        updatedAt: now,
+      },
+      setWhere: and(
+        or(
+          isNull(budgets.quotaCooldownUntil),
+          lte(budgets.quotaCooldownUntil, now),
+        ),
+        sql`${used} + ${units} <= ${GMAIL_QUOTA_UNITS_PER_MINUTE}`,
+        ...(backgroundLane
+          ? [
+              sql`${backgroundUsed} + ${units} <= ${GMAIL_BACKGROUND_UNITS_PER_MINUTE}`,
+            ]
+          : []),
+        ...(backfillLane
+          ? [
+              sql`${backfillUsed} + ${units} <= ${GMAIL_BACKFILL_UNITS_PER_MINUTE}`,
+            ]
+          : []),
+      ),
+    })
+    .returning({ quotaCooldownAttempts: budgets.quotaCooldownAttempts });
+  if (rows.length > 0) {
+    return {
+      retryAfterMs: 0,
+      quotaCooldownAttempts: rows[0].quotaCooldownAttempts,
+    };
+  }
+
+  const current = await getDb()
+    .select({
+      quotaWindowStartedAt: budgets.quotaWindowStartedAt,
+      quotaCooldownUntil: budgets.quotaCooldownUntil,
+      quotaCooldownAttempts: budgets.quotaCooldownAttempts,
+    })
+    .from(budgets)
+    .where(eq(budgets.id, id))
+    .limit(1);
+  const row = current[0];
+  if (!row) throw new Error(`Missing Gmail quota budget row for ${id}`);
+  if (row.quotaCooldownUntil != null && row.quotaCooldownUntil > now) {
+    return {
+      retryAfterMs: row.quotaCooldownUntil - now,
+      quotaCooldownAttempts: row.quotaCooldownAttempts,
+    };
+  }
+  return {
+    retryAfterMs: Math.max(
+      1,
+      row.quotaWindowStartedAt + GMAIL_QUOTA_WINDOW_MS - now,
+    ),
+    quotaCooldownAttempts: row.quotaCooldownAttempts,
+  };
+}
+
+export async function recordGmailQuotaCooldown(
+  ownerEmail: string,
+  accountEmail: string,
+  retryAfterMs: number | undefined,
+  now = Date.now(),
+): Promise<number> {
+  const budgets = schema.mailGmailQuotaBudgets;
+  const owner = ownerEmail.toLowerCase();
+  const account = accountEmail.toLowerCase();
+  const id = account;
+  const retryAfter = Math.max(0, Math.ceil(retryAfterMs ?? 0));
+  const remainingWindow = sql`GREATEST(1, ${budgets.quotaWindowStartedAt} + ${GMAIL_QUOTA_WINDOW_MS} - ${now})`;
+  const exponentialDelay = sql`LEAST(60000, (1000 * POWER(2, LEAST(${budgets.quotaCooldownAttempts}, 6)))::bigint)`;
+  const cooldownDelay = sql`GREATEST(${retryAfter}, ${remainingWindow}) + ${exponentialDelay}`;
+  const rows = await getDb()
+    .insert(budgets)
+    .values({
+      id,
+      ownerEmail: owner,
+      accountEmail: account,
+      quotaWindowStartedAt: now,
+      quotaCooldownUntil: now + retryAfter + 1_000,
+      quotaCooldownAttempts: 1,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: budgets.id,
+      set: {
+        ownerEmail: owner,
+        accountEmail: account,
+        quotaCooldownUntil: sql`GREATEST(COALESCE(${budgets.quotaCooldownUntil}, 0), ${now} + (${cooldownDelay})::bigint)`,
+        quotaCooldownAttempts: sql`${budgets.quotaCooldownAttempts} + 1`,
+        updatedAt: now,
+      },
+    })
+    .returning({ quotaCooldownUntil: budgets.quotaCooldownUntil });
+  const until = rows[0]?.quotaCooldownUntil;
+  if (until == null)
+    throw new Error(`Failed to record Gmail cooldown for ${id}`);
+  return until - now;
+}
+
+export async function clearGmailQuotaCooldownAfterSuccess(
+  accountEmail: string,
+  now = Date.now(),
+): Promise<void> {
+  const budgets = schema.mailGmailQuotaBudgets;
+  await getDb()
+    .update(budgets)
+    .set({ quotaCooldownUntil: null, quotaCooldownAttempts: 0, updatedAt: now })
+    .where(
+      and(
+        eq(budgets.id, accountEmail.toLowerCase()),
+        sql`${budgets.quotaCooldownAttempts} > 0`,
+        or(
+          isNull(budgets.quotaCooldownUntil),
+          lte(budgets.quotaCooldownUntil, now),
+        ),
+      ),
+    );
+}
+
 /**
- * Thrown when a claimed sync step finds its claim no longer held — this
- * worker's TTL lapsed and a newer worker has already taken over the account.
- * The sync step must stop immediately rather than continue making Gmail
- * calls whose results it can no longer safely persist.
+ * Active cooldown deadline per account; accounts not cooling down are absent.
+ * Scope by account ids, or by owner for a single indexed read on a hot path.
  */
+export async function readGmailQuotaCooldowns(
+  scope: { accountEmails: readonly string[] } | { ownerEmail: string },
+  now = Date.now(),
+): Promise<Map<string, number>> {
+  const budgets = schema.mailGmailQuotaBudgets;
+  let target;
+  if ("ownerEmail" in scope) {
+    target = eq(budgets.ownerEmail, scope.ownerEmail.toLowerCase());
+  } else {
+    const ids = [
+      ...new Set(scope.accountEmails.map((email) => email.toLowerCase())),
+    ];
+    if (ids.length === 0) return new Map();
+    target = inArray(budgets.id, ids);
+  }
+  const rows = await getDb()
+    .select({
+      accountEmail: budgets.accountEmail,
+      quotaCooldownUntil: budgets.quotaCooldownUntil,
+    })
+    .from(budgets)
+    .where(and(target, gt(budgets.quotaCooldownUntil, now)));
+  const cooldowns = new Map<string, number>();
+  for (const row of rows) {
+    if (row.quotaCooldownUntil != null) {
+      cooldowns.set(row.accountEmail.toLowerCase(), row.quotaCooldownUntil);
+    }
+  }
+  return cooldowns;
+}
+
+export type GmailTokenAccount = {
+  ownerEmail: string;
+  accountEmail: string;
+  expiresAt: number;
+};
+
+export async function saveGmailTokenAccount(
+  tokenHash: string,
+  account: GmailTokenAccount,
+  now = Date.now(),
+): Promise<void> {
+  const tokens = schema.mailGmailTokenAccounts;
+  const values = {
+    ownerEmail: account.ownerEmail.toLowerCase(),
+    accountEmail: account.accountEmail.toLowerCase(),
+    expiresAt: account.expiresAt,
+  };
+  await getDb()
+    .insert(tokens)
+    .values({ tokenHash, ...values, createdAt: now })
+    .onConflictDoUpdate({ target: tokens.tokenHash, set: values });
+  // Rows only matter while their token is live; prune here, where they grow.
+  await getDb().delete(tokens).where(lt(tokens.expiresAt, now));
+}
+
+export async function readGmailTokenAccount(
+  tokenHash: string,
+  now = Date.now(),
+): Promise<GmailTokenAccount | undefined> {
+  const tokens = schema.mailGmailTokenAccounts;
+  const rows = await getDb()
+    .select({
+      ownerEmail: tokens.ownerEmail,
+      accountEmail: tokens.accountEmail,
+      expiresAt: tokens.expiresAt,
+    })
+    .from(tokens)
+    .where(and(eq(tokens.tokenHash, tokenHash), gt(tokens.expiresAt, now)))
+    .limit(1);
+  return rows[0];
+}
+
 export class SyncClaimLostError extends Error {
   constructor(accountEmail: string) {
     super(`Sync claim for ${accountEmail} was lost to another worker`);
@@ -827,34 +1652,26 @@ export class SyncClaimLostError extends Error {
   }
 }
 
-/**
- * Guards a batch of row writes (`upsertInboxThreadRows`,
- * `markThreadsOutOfInboxBeforeSync`, `deleteInboxThreadRow`) that have no
- * `sync_claim_id` column of their own to fence against, unlike
- * {@link patchSyncAccount}'s `opts.claimId`. One SELECT immediately before
- * the write; throws {@link SyncClaimLostError} when the claim no longer
- * matches instead of letting a lapsed worker overwrite a newer worker's rows.
- */
-export async function assertSyncClaimHeld(
+export async function withSyncClaim<T>(
   ownerEmail: string,
   accountEmail: string,
   claimId: string,
-): Promise<void> {
-  const rows = await getDb()
-    .select({ syncClaimId: schema.mailSyncAccounts.syncClaimId })
-    .from(schema.mailSyncAccounts)
-    .where(eq(schema.mailSyncAccounts.id, rowId(ownerEmail, accountEmail)))
-    .limit(1);
-  if (rows[0]?.syncClaimId !== claimId)
-    throw new SyncClaimLostError(accountEmail);
+  write: (tx: any) => Promise<T>,
+): Promise<T> {
+  return getDb().transaction(async (tx: any) => {
+    const rows = await tx
+      .select({ syncClaimId: schema.mailSyncAccounts.syncClaimId })
+      .from(schema.mailSyncAccounts)
+      .where(eq(schema.mailSyncAccounts.id, rowId(ownerEmail, accountEmail)))
+      .for("update")
+      .limit(1);
+    if (rows[0]?.syncClaimId !== claimId)
+      throw new SyncClaimLostError(accountEmail);
+
+    return write(tx);
+  });
 }
 
-/**
- * Atomic CAS claim, same pattern as inventory-cursor.ts's
- * claimInventoryCursor: one UPDATE guarded by a WHERE that only matches an
- * unclaimed or stale-claimed row, so two concurrent Lambdas can't both sync
- * the same account at once.
- */
 export async function claimSyncAccount(
   ownerEmail: string,
   accountEmail: string,
@@ -887,6 +1704,25 @@ export async function claimSyncAccount(
   return row ? { claimId, row: toSyncAccountRow(row) } : null;
 }
 
+/** Reconnecting hands the account a fresh credential: let sync try again. */
+export async function clearSyncAccountReauth(
+  ownerEmail: string,
+  accountEmail: string,
+): Promise<void> {
+  await getDb()
+    .update(schema.mailSyncAccounts)
+    .set({ status: "idle", lastError: null, updatedAt: Date.now() })
+    .where(
+      and(
+        eq(schema.mailSyncAccounts.id, rowId(ownerEmail, accountEmail)),
+        or(
+          eq(schema.mailSyncAccounts.status, "needs_reauth"),
+          eq(schema.mailSyncAccounts.status, "error"),
+        ),
+      ),
+    );
+}
+
 export async function releaseSyncAccount(
   ownerEmail: string,
   accountEmail: string,
@@ -911,42 +1747,236 @@ export async function releaseSyncAccount(
 
 export type SyncAccountPatch = Partial<{
   historyId: string | null;
+  archiveHistoryId: string | null;
+  historyPending: boolean;
   fullSyncPageToken: string | null;
   fullSyncHistoryId: string | null;
   fullSyncStartedAt: number | null;
+  fullSyncPhase: "reconcile" | null;
+  fullSyncReconcilePageToken: string | null;
+  fullSyncReconcilePendingIds: string[] | null;
+  fullSyncReconcilePasses: number;
+  fullSyncListedCount: number;
+  archivePendingIds: string[] | null;
+  hydratePendingIds: string[] | null;
+  degraded: SyncDegraded | null;
+  corrupt: SyncCorrupt | null;
+  inboxCapped: boolean | null;
+  archiveHistoryPending: boolean | null;
   status: SyncAccountRow["status"];
   lastError: string | null;
   lastSyncedAt: number | null;
+  lastPushGeneration: number;
   syncClaimId: string | null;
   syncClaimedAt: number | null;
   labels: CachedGmailLabel[];
   labelsUpdatedAt: number;
 }>;
 
-/**
- * Updates one sync-account row. When `opts.claimId` is given, the write is
- * fenced with `AND sync_claim_id = ?` and the return value says whether a row
- * actually matched — a worker whose 90s claim TTL lapsed mid-sync (another
- * worker has since claimed the row) gets `false` back instead of silently
- * overwriting the newer worker's progress. Omit `opts` for label-cache and
- * other non-claimed writes, which stay unconditioned as before.
- */
-export async function patchSyncAccount(
+export async function recordInboxPushInvalidation(
   ownerEmail: string,
   accountEmail: string,
-  patch: SyncAccountPatch,
-  opts?: { claimId?: string },
-): Promise<boolean> {
+): Promise<void> {
+  await getDb()
+    .insert(schema.mailInboxPushInvalidations)
+    .values({
+      id: rowId(ownerEmail, accountEmail),
+      ownerEmail: ownerEmail.toLowerCase(),
+      accountEmail: accountEmail.toLowerCase(),
+      generation: 1,
+    })
+    .onConflictDoUpdate({
+      target: schema.mailInboxPushInvalidations.id,
+      set: {
+        generation: sql`${schema.mailInboxPushInvalidations.generation} + 1`,
+      },
+    });
+}
+
+export async function readInboxPushGeneration(
+  ownerEmail: string,
+  accountEmail: string,
+): Promise<number> {
+  const rows = await getDb()
+    .select({ generation: schema.mailInboxPushInvalidations.generation })
+    .from(schema.mailInboxPushInvalidations)
+    .where(
+      and(
+        eq(
+          schema.mailInboxPushInvalidations.ownerEmail,
+          ownerEmail.toLowerCase(),
+        ),
+        eq(
+          schema.mailInboxPushInvalidations.accountEmail,
+          accountEmail.toLowerCase(),
+        ),
+      ),
+    );
+  return rows.reduce((total, row) => total + row.generation, 0);
+}
+
+// Sync-state columns a patch can overwrite, with how to tell a readable stored
+// value from a damaged one. Every write to them goes through applySyncPatch,
+// which records a damaged value in sync_corrupt_json before replacing it, so no
+// writer (full sync, reconcile, incremental, retention, append) can erase the
+// evidence.
+const GUARDED_STATE: ReadonlyArray<{
+  key: keyof SyncAccountPatch;
+  column: string;
+  field:
+    | "historyId"
+    | "archiveHistoryId"
+    | "labelsJson"
+    | "fullSyncReconcilePendingIdsJson"
+    | "archivePendingIdsJson"
+    | "hydratePendingIdsJson"
+    | "syncDegradedJson";
+  readable: (raw: string) => boolean;
+}> = [
+  {
+    key: "historyId",
+    column: "history_id",
+    field: "historyId",
+    readable: (raw) => HISTORY_ID.test(raw),
+  },
+  {
+    key: "archiveHistoryId",
+    column: "archive_history_id",
+    field: "archiveHistoryId",
+    readable: (raw) => HISTORY_ID.test(raw),
+  },
+  {
+    key: "labels",
+    column: "labels_json",
+    field: "labelsJson",
+    readable: (raw) => isReadableJson(raw, (v) => Array.isArray(v)),
+  },
+  {
+    key: "fullSyncReconcilePendingIds",
+    column: "full_sync_reconcile_pending_ids_json",
+    field: "fullSyncReconcilePendingIdsJson",
+    readable: (raw) => isReadableJson(raw, (v) => readIdList(v) !== null),
+  },
+  {
+    key: "archivePendingIds",
+    column: "archive_pending_ids_json",
+    field: "archivePendingIdsJson",
+    readable: (raw) => isReadableJson(raw, (v) => readIdList(v) !== null),
+  },
+  {
+    key: "hydratePendingIds",
+    column: "hydrate_pending_ids_json",
+    field: "hydratePendingIdsJson",
+    readable: (raw) => isReadableJson(raw, (v) => readIdList(v) !== null),
+  },
+  {
+    key: "degraded",
+    column: "sync_degraded_json",
+    field: "syncDegradedJson",
+    readable: (raw) => isReadableJson(raw, (v) => readDegraded(v) !== null),
+  },
+];
+
+function isReadableJson(raw: string, ok: (parsed: unknown) => boolean) {
+  try {
+    return ok(JSON.parse(raw));
+  } catch {
+    // coercion-ok: false marks the value damaged; applySyncPatch records it as corrupt evidence
+    return false;
+  }
+}
+
+function buildSyncSet(patch: SyncAccountPatch): Record<string, unknown> {
   const { labels, ...rest } = patch;
   const set: Record<string, unknown> = { ...rest, updatedAt: Date.now() };
   if (labels !== undefined) set.labelsJson = JSON.stringify(labels);
-  const conditions = [
-    eq(schema.mailSyncAccounts.id, rowId(ownerEmail, accountEmail)),
-  ];
-  if (opts?.claimId) {
-    conditions.push(eq(schema.mailSyncAccounts.syncClaimId, opts.claimId));
+  if (patch.historyPending !== undefined) {
+    set.historyPending = patch.historyPending ? 1 : 0;
   }
-  const rows = await getDb()
+  if (patch.inboxCapped !== undefined) {
+    set.inboxCapped = patch.inboxCapped ? 1 : null;
+  }
+  if (patch.fullSyncReconcilePendingIds !== undefined) {
+    set.fullSyncReconcilePendingIdsJson = patch.fullSyncReconcilePendingIds
+      ? JSON.stringify(patch.fullSyncReconcilePendingIds)
+      : null;
+    delete set.fullSyncReconcilePendingIds;
+  }
+  if (patch.archivePendingIds !== undefined) {
+    set.archivePendingIdsJson =
+      patch.archivePendingIds && patch.archivePendingIds.length > 0
+        ? JSON.stringify(patch.archivePendingIds)
+        : null;
+    delete set.archivePendingIds;
+  }
+  if (patch.corrupt !== undefined) {
+    // Only a resync passes this (null): it is the one thing allowed to drop
+    // the evidence.
+    set.syncCorruptJson =
+      patch.corrupt && Object.keys(patch.corrupt).length > 0
+        ? JSON.stringify(patch.corrupt)
+        : null;
+    delete set.corrupt;
+  }
+  if (patch.archiveHistoryPending !== undefined) {
+    set.archiveHistoryPending = patch.archiveHistoryPending ? 1 : null;
+  }
+  if (patch.degraded !== undefined) {
+    set.syncDegradedJson =
+      patch.degraded &&
+      (patch.degraded.hydrate.length > 0 || patch.degraded.verify.length > 0)
+        ? JSON.stringify(patch.degraded)
+        : null;
+    delete set.degraded;
+  }
+  if (patch.hydratePendingIds !== undefined) {
+    set.hydratePendingIdsJson =
+      patch.hydratePendingIds && patch.hydratePendingIds.length > 0
+        ? JSON.stringify(patch.hydratePendingIds)
+        : null;
+    delete set.hydratePendingIds;
+  }
+  return set;
+}
+
+// The one write path for mail_sync_accounts sync state. Inside the caller's
+// transaction it reads the columns the patch is about to overwrite and folds
+// any damaged value into sync_corrupt_json first.
+async function applySyncPatch(
+  db: any,
+  conditions: any[],
+  patch: SyncAccountPatch,
+): Promise<boolean> {
+  const set = buildSyncSet(patch);
+  const touched =
+    patch.corrupt === undefined
+      ? GUARDED_STATE.filter(({ key }) => patch[key] !== undefined)
+      : [];
+  if (touched.length > 0) {
+    const [current] = await db
+      .select({
+        syncCorruptJson: schema.mailSyncAccounts.syncCorruptJson,
+        ...Object.fromEntries(
+          touched.map(({ field }) => [field, schema.mailSyncAccounts[field]]),
+        ),
+      })
+      .from(schema.mailSyncAccounts)
+      .where(and(...conditions))
+      .for("update")
+      .limit(1);
+    if (!current) return false;
+    const corrupt = readCorruptRecord(current.syncCorruptJson ?? null);
+    for (const { field, column, readable } of touched) {
+      const raw = current[field];
+      if (raw !== null && raw !== undefined && !readable(raw)) {
+        corrupt[column] = raw.slice(0, CORRUPT_RAW_MAX);
+      }
+    }
+    if (Object.keys(corrupt).length > 0) {
+      set.syncCorruptJson = JSON.stringify(corrupt);
+    }
+  }
+  const rows = await db
     .update(schema.mailSyncAccounts)
     .set(set)
     .where(and(...conditions))
@@ -954,15 +1984,26 @@ export async function patchSyncAccount(
   return rows.length > 0;
 }
 
-/**
- * Clears the history watermark so the next sync step starts a fresh full
- * sync, and also releases the claim columns — otherwise a worker still
- * running against the reset row keeps its claim, and a later fenced write
- * from that same stale run would succeed and could restore the old
- * watermark. Clearing the claim here means that worker's next fenced write
- * (via `patchSyncAccount`'s `opts.claimId` or `assertSyncClaimHeld`) raises
- * {@link SyncClaimLostError} and stops it instead.
- */
+export async function patchSyncAccount(
+  ownerEmail: string,
+  accountEmail: string,
+  patch: SyncAccountPatch,
+  opts?: { claimId?: string },
+): Promise<boolean> {
+  const conditions = [
+    eq(schema.mailSyncAccounts.id, rowId(ownerEmail, accountEmail)),
+  ];
+  if (opts?.claimId) {
+    conditions.push(eq(schema.mailSyncAccounts.syncClaimId, opts.claimId));
+  }
+  const guarded =
+    patch.corrupt === undefined &&
+    GUARDED_STATE.some(({ key }) => patch[key] !== undefined);
+  return guarded
+    ? getDb().transaction((tx: any) => applySyncPatch(tx, conditions, patch))
+    : applySyncPatch(getDb(), conditions, patch);
+}
+
 export async function resetSyncAccountProgress(
   ownerEmail: string,
   accountEmail: string,
@@ -973,9 +2014,22 @@ export async function resetSyncAccountProgress(
     accountEmail,
     {
       historyId: null,
+      archiveHistoryId: null,
+      historyPending: false,
       fullSyncPageToken: null,
       fullSyncHistoryId: null,
       fullSyncStartedAt: null,
+      fullSyncPhase: null,
+      fullSyncReconcilePageToken: null,
+      fullSyncReconcilePendingIds: null,
+      fullSyncReconcilePasses: 0,
+      fullSyncListedCount: 0,
+      archivePendingIds: null,
+      hydratePendingIds: null,
+      degraded: null,
+      corrupt: null,
+      inboxCapped: null,
+      archiveHistoryPending: null,
       status: "idle",
       lastError: null,
       syncClaimId: null,

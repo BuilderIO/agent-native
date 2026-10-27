@@ -75,7 +75,7 @@ Agent-Native **Plan** 應用程式以單一可安裝套件的形式提供。一�
 
 </Diagram>
 
-在預設情況下，`/visual-plan` 與 `/visual-recap` 會發布到託管的 Plan 應用程式 — 它們會透過 MCP 連線器建立一份計畫，並把連結或行內計畫交給你審閱。它們絕不會把行內的 Markdown/ASCII 計畫當作最終產出丟進聊天中。如果 Plan 工具傳回 `needs auth`、`Unauthorized` 或 `Session terminated`，請重新驗證連線器，而不是退回到行內輸出。存取權杖的存活期很長（預設 30 天，並有 365 天的滑動式更新），所以這種情況應該很少見；一旦發生，簡便的修復方法是：
+在預設情況下，`/visual-plan` 與 `/visual-recap` 會發布到託管的 Plan 應用程式 — 它們會透過 MCP 連線器建立一份計畫，並把連結或行內計畫交給你審閱。它們絕不會把行內的 Markdown/ASCII 計畫當作最終產出丟進聊天中。如果 Plan 工具傳回 `needs auth`、`Unauthorized` 或 `Session terminated`，請重新驗證連線器，而不是退回到行內輸出。存取權杖的存活期很長（存取權杖預設 30 天，且重新整理授權沒有固定有效期限），所以這種情況應該很少見；一旦發生，簡便的修復方法是：
 
 ```bash
 npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex

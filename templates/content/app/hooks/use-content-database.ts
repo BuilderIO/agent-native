@@ -13,6 +13,7 @@ import type {
   CancelPreparedBuilderSourceUpdateResponse,
   ChangeContentDatabaseSourceRoleRequest,
   ContentDatabaseResponse,
+  ContentDatabaseResponsePayload,
   ContentDatabaseRowMutationResult,
   ContentDatabaseSourceAttachmentAck,
   ContentDatabaseSourceAttachmentResult,
@@ -53,13 +54,26 @@ import type {
   SubmitContentDatabaseFormRequest,
   SubmitContentDatabaseFormResponse,
   SuggestSourceJoinKeyResponse,
+  UpdateDatabaseItemRequest,
   UpdateContentDatabasePersonalViewRequest,
   ValidateBuilderSourceExecutionRequest,
+  DocumentPropertyRelationTarget,
 } from "@shared/api";
+import { contentDatabaseViewsShowPageText } from "@shared/database-item-layout";
+import { hydrateContentDatabaseResponse } from "@shared/database-row-properties";
 import type { Query, QueryClient } from "@tanstack/react-query";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { documentQueryFilter } from "../lib/document-query";
+import {
+  contentNavigationBranchFilter,
+  contentNavigationContextFilter,
+  contentPlacementTargets,
+  contentSpaceFilesDatabaseId,
+  invalidateContentQueries,
+  useContentActionMutation,
+  type ContentQueryTarget,
+} from "./use-content-action-mutation";
 
 export function contentDatabaseQueryKey(documentId: string) {
   return ["action", "get-content-database", { documentId }] as const;
@@ -72,7 +86,7 @@ export function contentDatabaseByIdQueryKey(
   return [
     "action",
     "get-content-database",
-    { databaseId, ...(limit ? { limit } : {}) },
+    { databaseId, ...(limit !== undefined ? { limit } : {}) },
   ] as const;
 }
 
@@ -208,13 +222,14 @@ export function contentDatabaseConstrainedQueryFilter(documentId?: string) {
     queryKey: ["action"],
     predicate: (query: Query) => {
       const params = query.queryKey[2] as
-        | { documentId?: unknown; tableQuery?: unknown }
+        | { documentId?: unknown; tableQuery?: unknown; navigation?: unknown }
         | undefined;
       if (documentId !== undefined && params?.documentId !== documentId) {
         return false;
       }
       return (
-        query.queryKey[1] === "query-content-database-items" ||
+        (query.queryKey[1] === "query-content-database-items" &&
+          params?.navigation === undefined) ||
         (query.queryKey[1] === "get-content-database" &&
           params?.tableQuery !== undefined)
       );
@@ -243,13 +258,44 @@ export function contentDatabaseItemsContainingDocumentFilter(
   };
 }
 
+/**
+ * Collection reads whose row for a page shows its page text. The server skips
+ * a first paragraph that repeats the title, so a rename can change that text.
+ */
+export function contentDatabaseExcerptContainingDocumentFilter(
+  documentId: string,
+) {
+  return {
+    queryKey: ["action", "get-content-database"],
+    predicate: (query: Query) => {
+      const data = query.state.data as
+        | Partial<ContentDatabaseResponse>
+        | undefined;
+      return (
+        data?.items?.some(
+          (item) =>
+            item.document.id === documentId && item.excerpt !== undefined,
+        ) === true
+      );
+    },
+  };
+}
+
 export function invalidateContentDatabaseNavigationQueries(
   queryClient: Pick<QueryClient, "invalidateQueries">,
   scope: { databaseId?: string; parentId?: string | null } = {},
 ) {
-  void queryClient.invalidateQueries({
+  void queryClient.invalidateQueries(
+    contentDatabaseNavigationQueryFilter(scope),
+  );
+}
+
+export function contentDatabaseNavigationQueryFilter(
+  scope: { databaseId?: string; parentId?: string | null } = {},
+) {
+  return {
     queryKey: contentDatabaseItemsPageQueryKey,
-    predicate: (query) => {
+    predicate: (query: Query) => {
       const params = query.queryKey[2];
       if (!params || typeof params !== "object") return false;
       const args = params as {
@@ -264,14 +310,15 @@ export function invalidateContentDatabaseNavigationQueries(
         args.navigation.parentId === scope.parentId
       );
     },
-  });
+  };
 }
 
 export function writeContentDatabaseResponseToCache(
   queryClient: Pick<QueryClient, "setQueryData" | "setQueriesData">,
   documentId: string,
-  data: ContentDatabaseResponse,
+  response: ContentDatabaseResponse | ContentDatabaseResponsePayload,
 ) {
+  const data = hydrateContentDatabaseResponse(response);
   if (!data.pagination) {
     queryClient.setQueryData<ContentDatabaseResponse>(
       contentDatabaseQueryKey(documentId),
@@ -366,6 +413,7 @@ export function applyDocumentPropertyValueToDatabaseResponse<
     documentId: string;
     propertyId: string;
     value: ContentDatabaseResponse["properties"][number]["value"];
+    relationTargets?: DocumentPropertyRelationTarget[];
   },
 ): T | undefined {
   if (!current) return current;
@@ -386,7 +434,13 @@ export function applyDocumentPropertyValueToDatabaseResponse<
     if (existingIndex >= 0) {
       const properties = item.properties.map((property, index) =>
         index === existingIndex
-          ? { ...property, value: patch.value }
+          ? {
+              ...property,
+              value: patch.value,
+              ...(patch.relationTargets
+                ? { relationTargets: patch.relationTargets }
+                : {}),
+            }
           : property,
       );
       changed = true;
@@ -400,7 +454,13 @@ export function applyDocumentPropertyValueToDatabaseResponse<
       ...item,
       properties: [
         ...item.properties,
-        { ...databaseProperty, value: patch.value },
+        {
+          ...databaseProperty,
+          value: patch.value,
+          ...(patch.relationTargets
+            ? { relationTargets: patch.relationTargets }
+            : {}),
+        },
       ]
         .slice()
         .sort((a, b) => a.definition.position - b.definition.position),
@@ -461,10 +521,6 @@ export function removeDocumentPropertyFromDatabaseResponse(
   };
 }
 
-// `get-content-database` returns a union at runtime: the full response, or an
-// unavailable payload (`{ available: false, reason: "deleted" | "not_found" }`)
-// with no `database` field. Consumers typed against ContentDatabaseResponse
-// must narrow with this guard before touching `data.database`.
 export function isContentDatabaseUnavailable(
   data: unknown,
 ): data is { available: false; reason: string } {
@@ -475,6 +531,20 @@ export function isContentDatabaseUnavailable(
   );
 }
 
+/**
+ * Unpaged reads (row menus, pickers) leave out page text, so one can't stand
+ * in for the List's read of a collection whose List view shows it.
+ */
+function canSeedContentDatabaseRead(
+  data: ContentDatabaseResponse | undefined,
+): data is ContentDatabaseResponse {
+  if (!data || isContentDatabaseUnavailable(data)) return false;
+  return (
+    !contentDatabaseViewsShowPageText(data.database?.viewConfig?.views ?? []) ||
+    data.items.every((item) => item.excerpt !== undefined)
+  );
+}
+
 export function readCachedContentDatabaseResponse(
   queryClient: Pick<QueryClient, "getQueryData" | "getQueriesData">,
   documentId: string,
@@ -482,13 +552,13 @@ export function readCachedContentDatabaseResponse(
   const exact = queryClient.getQueryData<ContentDatabaseResponse>(
     contentDatabaseQueryKey(documentId),
   );
-  if (exact && !isContentDatabaseUnavailable(exact)) return exact;
+  if (canSeedContentDatabaseRead(exact)) return exact;
 
   const cached = queryClient
     .getQueriesData<ContentDatabaseResponse>(
       contentDatabaseQueryFilter(documentId),
     )
-    .find(([, data]) => data && !isContentDatabaseUnavailable(data));
+    .find(([, data]) => canSeedContentDatabaseRead(data));
   return cached?.[1];
 }
 
@@ -726,8 +796,6 @@ export function useContentDatabase(
         documentId
           ? readCachedContentDatabaseResponse(queryClient, documentId)
           : undefined,
-      // Cross-key seeds (e.g. a differently-paginated cached response) render
-      // instantly but must refetch immediately, not sit fresh for staleTime.
       initialDataUpdatedAt: 0,
       refetchOnMount: options?.refetchOnMount,
       meta: { contentDatabaseSystemRole: options?.systemRole },
@@ -743,7 +811,16 @@ export function useContentDatabase(
       meta: { contentDatabaseSystemRole: options?.systemRole },
     },
   );
-  const page = tableQuery ? pageQuery.data : undefined;
+  const pageRead = tableQuery
+    ? contentDatabaseItemsPageReadState(
+        pageQuery.data,
+        pageQuery.isPlaceholderData,
+        pageQuery.isError,
+      )
+    : undefined;
+  const page = pageRead?.page;
+  const baseFailed = baseQuery.isError && baseQuery.data === undefined;
+  const pageFailed = Boolean(tableQuery) && pageRead?.failed === true;
   const data =
     page &&
     baseQuery.data &&
@@ -761,6 +838,24 @@ export function useContentDatabase(
   return {
     ...baseQuery,
     data,
+    // Whether `data` holds the requested rows or a read failed. A sorted or
+    // filtered view reads its own rows; until that read first answers, `data`
+    // holds the base read's rows in stored order.
+    itemsSettled:
+      baseQuery.isError ||
+      (tableQuery
+        ? pageRead?.settled === true || (page !== undefined && !!baseQuery.data)
+        : baseQuery.data !== undefined),
+    // No rows for the requested view could be read. After a failed sorted or
+    // filtered read, `data` still holds the base read's rows in stored order;
+    // they are not this view's rows and must not draw as them.
+    itemsFailed: baseFailed || pageFailed,
+    retryItems: () =>
+      Promise.all([
+        baseFailed ? baseQuery.refetch() : null,
+        pageFailed ? pageQuery.refetch() : null,
+      ]),
+    itemsRetrying: baseQuery.isFetching || pageQuery.isFetching,
     isLoading: tableQuery ? pageQuery.isLoading && !data : baseQuery.isLoading,
     isFetching: tableQuery ? pageQuery.isFetching : baseQuery.isFetching,
     isError: tableQuery ? pageQuery.isError : baseQuery.isError,
@@ -769,12 +864,19 @@ export function useContentDatabase(
   };
 }
 
-// `enabled` pauses fetching without touching the query key: a caller that
-// wants to briefly hold off refetching (e.g. to avoid competing with a
-// higher-priority read) can pass `databaseId` unchanged and flip `enabled` to
-// false instead of nulling `databaseId` out. Nulling it changes the query key
-// to its disabled `undefined`-params form, which has no cached data of its
-// own and drops the rows already on screen for as long as it stays disabled.
+export function contentDatabaseItemsPageReadState<T>(
+  data: T | undefined,
+  isPlaceholderData: boolean,
+  isError: boolean,
+) {
+  const page = isPlaceholderData ? undefined : data;
+  return {
+    page,
+    failed: isError && page === undefined,
+    settled: isError || page !== undefined,
+  };
+}
+
 export function isContentDatabaseByIdQueryEnabled(
   databaseId: string | null,
   options?: { enabled?: boolean },
@@ -796,7 +898,7 @@ export function useContentDatabaseById(
     databaseId
       ? {
           databaseId,
-          ...(options?.limit ? { limit: options.limit } : {}),
+          ...(options?.limit !== undefined ? { limit: options.limit } : {}),
           ...(options?.contentSpaceId
             ? { contentSpaceId: options.contentSpaceId }
             : {}),
@@ -820,29 +922,39 @@ export function useCreateContentDatabase(
   options?: { skipListDocumentsInvalidation?: boolean },
 ) {
   const queryClient = useQueryClient();
-  return useActionMutation<ContentDatabaseResponse, CreateDatabaseRequest>(
-    "create-content-database",
-    {
-      skipActionQueryInvalidation: true,
-      onSuccess: (data) => {
-        if (documentId) {
-          void queryClient.invalidateQueries(documentQueryFilter(documentId));
-          void queryClient.invalidateQueries({
-            queryKey: contentDatabaseQueryKey(documentId),
-          });
-        }
-        void queryClient.invalidateQueries(
-          documentQueryFilter(data.database.documentId),
-        );
-        if (!options?.skipListDocumentsInvalidation) {
-          void queryClient.invalidateQueries({
-            queryKey: ["action", "list-documents"],
-          });
-        }
-        invalidateContentDatabaseNavigationQueries(queryClient);
-      },
+  return useActionMutation<
+    ContentDatabaseResponsePayload,
+    CreateDatabaseRequest
+  >("create-content-database", {
+    skipActionQueryInvalidation: true,
+    onSuccess: (data, variables) => {
+      if (documentId) {
+        void queryClient.invalidateQueries(documentQueryFilter(documentId));
+        void queryClient.invalidateQueries({
+          queryKey: contentDatabaseQueryKey(documentId),
+        });
+      }
+      void queryClient.invalidateQueries(
+        documentQueryFilter(data.database.documentId),
+      );
+      if (!options?.skipListDocumentsInvalidation) {
+        void queryClient.invalidateQueries({
+          queryKey: ["action", "list-documents"],
+        });
+      }
+      const parentId = variables.parentId ?? null;
+      invalidateContentQueries(queryClient, [
+        ...contentPlacementTargets(queryClient, {
+          documentIds: [data.database.documentId],
+          parentIds: [parentId],
+          databaseId: parentId
+            ? undefined
+            : contentSpaceFilesDatabaseId(queryClient, variables.spaceId),
+        }),
+        ["action", "list-content-databases"],
+      ]);
     },
-  );
+  });
 }
 
 export function contentDatabaseCreationRequest(args: {
@@ -866,31 +978,27 @@ export function contentDatabaseCreationRequest(args: {
 
 export function useCreateInlineContentDatabase(hostDocumentId: string | null) {
   const queryClient = useQueryClient();
-  return useActionMutation<
+  return useContentActionMutation<
     CreateInlineDatabaseResponse,
     CreateInlineDatabaseRequest
   >("create-inline-content-database", {
-    onSuccess: (data) => {
-      if (hostDocumentId) {
-        void queryClient.invalidateQueries(documentQueryFilter(hostDocumentId));
-      }
-      void queryClient.invalidateQueries(
-        documentQueryFilter(data.block.databaseDocumentId),
-      );
-      void queryClient.invalidateQueries({
-        queryKey: contentDatabaseQueryKey(data.block.databaseDocumentId),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-documents"],
-      });
-      invalidateContentDatabaseNavigationQueries(queryClient);
-    },
+    invalidates: (data, variables) => [
+      ...(hostDocumentId ? [documentQueryFilter(hostDocumentId)] : []),
+      ...contentPlacementTargets(queryClient, {
+        documentIds: [data.block.databaseDocumentId],
+        parentIds: [variables.hostDocumentId],
+      }),
+      documentQueryFilter(data.block.databaseDocumentId),
+      contentDatabaseQueryKey(data.block.databaseDocumentId),
+      ["action", "list-documents"],
+      ["action", "list-content-databases"],
+    ],
   });
 }
 
 export function useDeleteContentDatabase() {
   const queryClient = useQueryClient();
-  return useActionMutation<
+  return useContentActionMutation<
     {
       success: boolean;
       databaseId: string;
@@ -901,21 +1009,22 @@ export function useDeleteContentDatabase() {
     },
     { databaseId: string; activeDocumentId?: string }
   >("delete-content-database", {
-    onSuccess: (data) => {
-      clearDeletedContentDatabaseFromCache(queryClient, data.documentId);
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-trashed-documents"],
-      });
-      invalidateContentDatabaseNavigationQueries(queryClient, {
-        databaseId: data.databaseId,
-      });
-    },
+    onSuccess: (data) =>
+      clearDeletedContentDatabaseFromCache(queryClient, data.documentId),
+    invalidates: (data) => [
+      ...contentPlacementTargets(queryClient, {
+        documentIds: [data.documentId],
+      }),
+      contentDatabaseNavigationQueryFilter({ databaseId: data.databaseId }),
+      ["action", "list-trashed-documents"],
+      ["action", "list-content-trash"],
+      ["action", "get-content-recent"],
+    ],
   });
 }
 
 export function useRestoreContentDatabase() {
-  const queryClient = useQueryClient();
-  return useActionMutation<
+  return useContentActionMutation<
     {
       success: boolean;
       databaseId: string;
@@ -924,37 +1033,27 @@ export function useRestoreContentDatabase() {
     },
     { databaseId: string }
   >("restore-content-database", {
-    onSuccess: (data) => {
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database"],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "get-document"],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-documents"],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-trashed-content-databases"],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-trashed-documents"],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-content-databases"],
-      });
-      invalidateContentDatabaseNavigationQueries(queryClient, {
-        databaseId: data.databaseId,
-      });
-    },
+    invalidates: (data) => [
+      ["action", "get-content-database"],
+      ["action", "get-document"],
+      ["action", "list-documents"],
+      ["action", "list-trashed-content-databases"],
+      ["action", "list-trashed-documents"],
+      ["action", "list-content-trash"],
+      ["action", "list-content-databases"],
+      ["action", "get-content-recent"],
+      contentDatabaseNavigationQueryFilter(),
+      contentNavigationContextFilter([data.documentId]),
+    ],
   });
 }
 
-export function useTrashedContentDatabases() {
+export function useTrashedContentDatabases(options?: { enabled?: boolean }) {
   return useActionQuery<ListTrashedContentDatabasesResponse>(
     "list-trashed-content-databases",
     {},
     {
+      enabled: options?.enabled !== false,
       retry: false,
       placeholderData: (previous) => previous,
     },
@@ -1005,163 +1104,172 @@ export function useAddDatabaseItem(documentId: string) {
   });
 }
 
-export function useSubmitContentDatabaseForm(documentId: string) {
+export function useUpdateDatabaseItem(documentId: string) {
   const queryClient = useQueryClient();
   return useActionMutation<
-    SubmitContentDatabaseFormResponse,
-    SubmitContentDatabaseFormRequest
-  >("submit-content-database-form", {
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database"],
-      });
+    ContentDatabaseRowMutationResult,
+    UpdateDatabaseItemRequest
+  >("update-database-item", {
+    skipActionQueryInvalidation: true,
+    onSuccess: (data) => {
       void queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(documentId),
       });
-      void queryClient.invalidateQueries({
-        queryKey: contentDatabaseItemsPageQueryKey,
-      });
+      void queryClient.invalidateQueries(
+        contentDatabaseConstrainedQueryFilter(documentId),
+      );
       void queryClient.invalidateQueries({
         queryKey: ["action", "list-documents"],
       });
+      invalidateContentDatabaseNavigationQueries(queryClient, {
+        databaseId: data.receipt.target.databaseId,
+      });
     },
+  });
+}
+
+/** Reads of one collection's rows: its responses, table pages, and sidebar branches. */
+function contentDatabaseRowTargets(
+  documentId: string,
+  databaseId?: string,
+): ContentQueryTarget[] {
+  return [
+    contentDatabaseQueryKey(documentId),
+    contentDatabaseConstrainedQueryFilter(documentId),
+    ...(databaseId
+      ? [contentDatabaseNavigationQueryFilter({ databaseId })]
+      : []),
+    ["action", "list-documents"],
+  ];
+}
+
+export function useSubmitContentDatabaseForm(documentId: string) {
+  return useContentActionMutation<
+    SubmitContentDatabaseFormResponse,
+    SubmitContentDatabaseFormRequest
+  >("submit-content-database-form", {
+    invalidates: contentDatabaseRowTargets(documentId),
   });
 }
 
 export function useDuplicateDatabaseItem(documentId: string) {
-  const queryClient = useQueryClient();
-  return useActionMutation<
-    ContentDatabaseResponse,
+  return useContentActionMutation<
+    ContentDatabaseResponsePayload,
     DuplicateDatabaseItemRequest
   >("duplicate-database-item", {
-    onSuccess: () => {
+    invalidates: (data) =>
+      contentDatabaseRowTargets(documentId, data.database.id),
+  });
+}
+
+export function useDuplicateDatabaseItems(documentId: string) {
+  return useContentActionMutation<
+    ContentDatabaseResponsePayload,
+    DatabaseItemsBatchRequest
+  >("duplicate-database-items", {
+    invalidates: (data) =>
+      contentDatabaseRowTargets(documentId, data.database.id),
+  });
+}
+
+export function useRemoveDatabaseItems(documentId: string) {
+  return useContentActionMutation<
+    ContentDatabaseResponsePayload,
+    DatabaseItemsBatchRequest
+  >("remove-database-items", {
+    invalidates: (data, variables) => {
+      const removed = data.removedDocumentIds ?? variables.documentIds ?? [];
+      return [
+        ...contentDatabaseRowTargets(documentId, data.database.id),
+        // The sidebar lists Favorites by collection id rather than page id.
+        ["action", "get-content-database", { databaseId: data.database.id }],
+        ...removed.flatMap((id) => [
+          documentQueryFilter(id),
+          ["action", "list-document-properties", { documentId: id }],
+        ]),
+        contentNavigationContextFilter(removed),
+        ...(data.database.systemRole === "favorites"
+          ? [contentNavigationBranchFilter({ documentIds: removed })]
+          : []),
+      ];
+    },
+  });
+}
+
+export function useMoveDatabaseItem(documentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    ContentDatabaseResponsePayload,
+    MoveDatabaseItemRequest
+  >("move-database-item", {
+    skipActionQueryInvalidation: true,
+    onMutate: async (variables) => {
+      await queryClient.cancelQueries({
+        queryKey: ["action", "get-content-database"],
+      });
+      const previous = queryClient.getQueriesData<ContentDatabaseResponse>({
+        queryKey: ["action", "get-content-database"],
+      });
+      if (variables.itemId) {
+        queryClient.setQueriesData<ContentDatabaseResponse>(
+          { queryKey: ["action", "get-content-database"] },
+          (current) => {
+            if (
+              variables.databaseId &&
+              current?.database.id !== variables.databaseId
+            ) {
+              return current;
+            }
+            return moveOptimisticContentDatabaseItem(
+              current,
+              variables.itemId!,
+              variables.position,
+            );
+          },
+        );
+      }
+      return { previous };
+    },
+    onError: (_error, _variables, context) => {
+      const rollback = context as
+        | {
+            previous?: Array<
+              [readonly unknown[], ContentDatabaseResponse | undefined]
+            >;
+          }
+        | undefined;
+      for (const [queryKey, data] of rollback?.previous ?? []) {
+        queryClient.setQueryData(queryKey, data);
+      }
+    },
+    onSuccess: (data) => {
+      writeContentDatabaseResponseToCache(queryClient, documentId, data);
+      queryClient.setQueryData(
+        contentDatabaseByIdQueryKey(data.database.id),
+        data,
+      );
+    },
+    onSettled: (_data, _error, variables) => {
       void queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(documentId),
       });
-      void queryClient.invalidateQueries({
-        queryKey: contentDatabaseItemsPageQueryKey,
-      });
+      if (variables.databaseId) {
+        void queryClient.invalidateQueries({
+          queryKey: contentDatabaseByIdQueryKey(variables.databaseId),
+        });
+      }
       void queryClient.invalidateQueries({
         queryKey: ["action", "list-documents"],
+      });
+      invalidateContentDatabaseNavigationQueries(queryClient, {
+        databaseId: variables.databaseId,
       });
     },
   });
 }
 
-export function useDuplicateDatabaseItems(documentId: string) {
-  const queryClient = useQueryClient();
-  return useActionMutation<ContentDatabaseResponse, DatabaseItemsBatchRequest>(
-    "duplicate-database-items",
-    {
-      onSuccess: (data) => {
-        void queryClient.invalidateQueries({
-          queryKey: contentDatabaseQueryKey(documentId),
-        });
-        void queryClient.invalidateQueries({
-          queryKey: ["action", "list-documents"],
-        });
-        invalidateContentDatabaseNavigationQueries(queryClient, {
-          databaseId: data.database.id,
-        });
-      },
-    },
-  );
-}
-
-export function useRemoveDatabaseItems(documentId: string) {
-  const queryClient = useQueryClient();
-  return useActionMutation<ContentDatabaseResponse, DatabaseItemsBatchRequest>(
-    "remove-database-items",
-    {
-      onSuccess: (data) => {
-        void queryClient.invalidateQueries({
-          queryKey: contentDatabaseQueryKey(documentId),
-        });
-        void queryClient.invalidateQueries({
-          queryKey: ["action", "list-documents"],
-        });
-        invalidateContentDatabaseNavigationQueries(queryClient, {
-          databaseId: data.database.id,
-        });
-      },
-    },
-  );
-}
-
-export function useMoveDatabaseItem(documentId: string) {
-  const queryClient = useQueryClient();
-  return useActionMutation<ContentDatabaseResponse, MoveDatabaseItemRequest>(
-    "move-database-item",
-    {
-      skipActionQueryInvalidation: true,
-      onMutate: async (variables) => {
-        await queryClient.cancelQueries({
-          queryKey: ["action", "get-content-database"],
-        });
-        const previous = queryClient.getQueriesData<ContentDatabaseResponse>({
-          queryKey: ["action", "get-content-database"],
-        });
-        if (variables.itemId) {
-          queryClient.setQueriesData<ContentDatabaseResponse>(
-            { queryKey: ["action", "get-content-database"] },
-            (current) => {
-              if (
-                variables.databaseId &&
-                current?.database.id !== variables.databaseId
-              ) {
-                return current;
-              }
-              return moveOptimisticContentDatabaseItem(
-                current,
-                variables.itemId!,
-                variables.position,
-              );
-            },
-          );
-        }
-        return { previous };
-      },
-      onError: (_error, _variables, context) => {
-        const rollback = context as
-          | {
-              previous?: Array<
-                [readonly unknown[], ContentDatabaseResponse | undefined]
-              >;
-            }
-          | undefined;
-        for (const [queryKey, data] of rollback?.previous ?? []) {
-          queryClient.setQueryData(queryKey, data);
-        }
-      },
-      onSuccess: (data) => {
-        writeContentDatabaseResponseToCache(queryClient, documentId, data);
-        queryClient.setQueryData(
-          contentDatabaseByIdQueryKey(data.database.id),
-          data,
-        );
-      },
-      onSettled: (_data, _error, variables) => {
-        void queryClient.invalidateQueries({
-          queryKey: contentDatabaseQueryKey(documentId),
-        });
-        if (variables.databaseId) {
-          void queryClient.invalidateQueries({
-            queryKey: contentDatabaseByIdQueryKey(variables.databaseId),
-          });
-        }
-        void queryClient.invalidateQueries({
-          queryKey: ["action", "list-documents"],
-        });
-        invalidateContentDatabaseNavigationQueries(queryClient, {
-          databaseId: variables.databaseId,
-        });
-      },
-    },
-  );
-}
-
 export type ContentDatabaseViewSaveResponse =
-  | ContentDatabaseResponse
+  | ContentDatabaseResponsePayload
   | {
       receipt: {
         revisions: {
@@ -1278,12 +1386,15 @@ function contentDatabaseViewMutationSequencesFor(queryClient: object) {
   return sequences;
 }
 
-export function useContentDatabasePersonalView(databaseId: string | null) {
+export function useContentDatabasePersonalView(
+  databaseId: string | null,
+  options?: { enabled?: boolean },
+) {
   return useActionQuery<ContentDatabasePersonalViewResponse>(
     "get-content-database-personal-view",
     databaseId ? { databaseId } : undefined,
     {
-      enabled: !!databaseId,
+      enabled: !!databaseId && options?.enabled !== false,
       retry: false,
       placeholderData: (previous, previousQuery) =>
         preserveScopedDatabasePlaceholder(previous, previousQuery, {
@@ -1291,6 +1402,35 @@ export function useContentDatabasePersonalView(databaseId: string | null) {
         }),
     },
   );
+}
+
+// Every save of one database's personal view is keyed under this prefix, so a
+// save that settles can tell whether another one is still in flight.
+export function contentPersonalViewSaveKey(databaseId: string | null) {
+  return ["content-personal-view-save", databaseId] as const;
+}
+
+/**
+ * Once the last in-flight save of a database's personal view settles, reads
+ * that view and the Files tree it orders again. The tree is not keyed by the
+ * view, and a read during a save can still see the view from before it.
+ */
+export function refreshAfterPersonalViewSave(
+  queryClient: QueryClient,
+  databaseId: string,
+) {
+  // The save calling this is still counted while it settles.
+  if (
+    queryClient.isMutating({
+      mutationKey: contentPersonalViewSaveKey(databaseId),
+    }) > 1
+  ) {
+    return;
+  }
+  void queryClient.invalidateQueries({
+    queryKey: ["action", "get-content-database-personal-view", { databaseId }],
+  });
+  invalidateContentDatabaseNavigationQueries(queryClient, { databaseId });
 }
 
 export function useUpdateContentDatabasePersonalView(
@@ -1301,6 +1441,7 @@ export function useUpdateContentDatabasePersonalView(
     ContentDatabasePersonalViewResponse,
     UpdateContentDatabasePersonalViewRequest
   >("update-content-database-personal-view", {
+    mutationKey: [...contentPersonalViewSaveKey(databaseId), "overrides"],
     skipActionQueryInvalidation: true,
     onMutate: async (variables) => {
       if (!databaseId) return undefined;
@@ -1334,14 +1475,7 @@ export function useUpdateContentDatabasePersonalView(
       );
     },
     onSettled: () => {
-      if (!databaseId) return;
-      void queryClient.invalidateQueries({
-        queryKey: [
-          "action",
-          "get-content-database-personal-view",
-          { databaseId },
-        ],
-      });
+      if (databaseId) refreshAfterPersonalViewSave(queryClient, databaseId);
     },
   });
 }
@@ -1479,7 +1613,8 @@ export function writeBuilderAttachPreviewToCache(
   queryClient.setQueriesData<ContentDatabaseResponse>(
     contentDatabaseQueryFilter(documentId),
     (current) => {
-      const base = current ?? fallbackData ?? preview.base;
+      const base =
+        current ?? fallbackData ?? hydrateContentDatabaseResponse(preview.base);
       return base
         ? {
             ...base,
@@ -1502,19 +1637,11 @@ export function writeBuilderAttachPreviewToCache(
 }
 
 export function useChangeContentDatabaseSourceRole(documentId: string) {
-  const queryClient = useQueryClient();
-  return useActionMutation<
-    ContentDatabaseResponse,
+  return useContentActionMutation<
+    ContentDatabaseResponsePayload,
     ChangeContentDatabaseSourceRoleRequest
   >("change-content-database-source-role", {
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: contentDatabaseQueryKey(documentId),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database-source", { documentId }],
-      });
-    },
+    invalidates: contentDatabaseSourceTargets(documentId),
   });
 }
 
@@ -1529,9 +1656,6 @@ export function useAddContentDatabaseSourceFieldProperty(documentId: string) {
       await queryClient.cancelQueries({
         queryKey: contentDatabaseQueryKey(documentId),
       });
-      // Patch every cached response for this document, not just the exact
-      // unpaginated key — the rendered table observes a `{documentId, limit}`
-      // key, and setQueryData does not partial-match the way invalidate does.
       const previous = queryClient.getQueriesData<ContentDatabaseResponse>(
         contentDatabaseQueryFilter(documentId),
       );
@@ -1588,26 +1712,13 @@ export function useAddContentDatabaseSourceFieldProperty(documentId: string) {
 
 export function useMaterializeBuilderRequiredFields(documentId: string) {
   const queryClient = useQueryClient();
-  return useActionMutation<
-    ContentDatabaseResponse,
+  return useContentActionMutation<
+    ContentDatabaseResponsePayload,
     { documentId: string; sourceId: string }
   >("materialize-builder-required-fields", {
-    onSuccess: (data) => {
-      writeContentDatabaseResponseToCache(queryClient, documentId, data);
-      void queryClient.invalidateQueries({
-        queryKey: contentDatabaseQueryKey(documentId),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database-source", { documentId }],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: [
-          "action",
-          "list-document-properties",
-          { documentId, databaseId: data.database.id },
-        ],
-      });
-    },
+    onSuccess: (data) =>
+      writeContentDatabaseResponseToCache(queryClient, documentId, data),
+    invalidates: contentDatabaseSourceTargets(documentId),
   });
 }
 
@@ -1768,10 +1879,29 @@ export function useRefreshContentDatabaseSource(documentId: string) {
     RefreshContentDatabaseSourceRequest
   >("refresh-content-database-source", {
     skipActionQueryInvalidation: true,
-    onSuccess: () => {
+    // A GitHub refresh that fails stores the problem on the source first, so
+    // the status line rereads after a failure too.
+    onSettled: () => {
       invalidateContentDatabaseSourceRefreshQueries(queryClient, documentId);
     },
   });
+}
+
+/**
+ * A source-connection write changes the collection's rows, source status, and
+ * which properties are editable, including on a row open in the page view.
+ */
+function contentDatabaseSourceTargets(
+  documentId: string,
+): ContentQueryTarget[] {
+  return [
+    contentDatabaseQueryKey(documentId),
+    contentDatabaseConstrainedQueryFilter(documentId),
+    ["action", "get-content-database-source", { documentId }],
+    ["action", "preview-builder-source-review", { documentId }],
+    ["action", "list-document-properties"],
+    ["action", "get-document"],
+  ];
 }
 
 export function invalidateContentDatabaseSourceRefreshQueries(
@@ -1831,173 +1961,95 @@ export function invalidateBuilderBodyHydrationQueries(
 }
 
 export function useDisconnectContentDatabaseSource(documentId: string) {
-  const queryClient = useQueryClient();
-  return useActionMutation<
-    ContentDatabaseResponse,
+  return useContentActionMutation<
+    ContentDatabaseResponsePayload,
     DisconnectContentDatabaseSourceRequest
   >("disconnect-content-database-source", {
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: contentDatabaseQueryKey(documentId),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database-source", { documentId }],
-      });
-    },
+    invalidates: contentDatabaseSourceTargets(documentId),
   });
 }
 
 export function useStageBuilderRevision(documentId: string) {
-  const queryClient = useQueryClient();
-  return useActionMutation<
-    ContentDatabaseResponse,
+  return useContentActionMutation<
+    ContentDatabaseResponsePayload,
     StageBuilderRevisionRequest
   >("stage-builder-revision", {
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: contentDatabaseQueryKey(documentId),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database-source", { documentId }],
-      });
-    },
+    invalidates: contentDatabaseSourceTargets(documentId),
   });
 }
 
 export function useReviewContentDatabaseSourceChangeSet(documentId: string) {
-  const queryClient = useQueryClient();
-  return useActionMutation<
-    ContentDatabaseResponse,
+  return useContentActionMutation<
+    ContentDatabaseResponsePayload,
     ReviewContentDatabaseSourceChangeSetRequest
   >("review-content-database-source-change-set", {
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: contentDatabaseQueryKey(documentId),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database-source", { documentId }],
-      });
-    },
+    invalidates: contentDatabaseSourceTargets(documentId),
   });
 }
 
 export function usePrepareBuilderSourceExecution(documentId: string) {
-  const queryClient = useQueryClient();
-  return useActionMutation<
-    ContentDatabaseResponse,
+  return useContentActionMutation<
+    ContentDatabaseResponsePayload,
     PrepareBuilderSourceExecutionRequest
   >("prepare-builder-source-execution", {
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: contentDatabaseQueryKey(documentId),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database-source", { documentId }],
-      });
-    },
+    invalidates: contentDatabaseSourceTargets(documentId),
   });
 }
 
 export function useCancelPreparedBuilderSourceUpdate(documentId: string) {
-  const queryClient = useQueryClient();
-  return useActionMutation<
+  return useContentActionMutation<
     CancelPreparedBuilderSourceUpdateResponse,
     CancelPreparedBuilderSourceUpdateRequest
   >("cancel-prepared-builder-source-update", {
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: contentDatabaseQueryKey(documentId),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database-source", { documentId }],
-      });
-    },
+    invalidates: contentDatabaseSourceTargets(documentId),
   });
 }
 
 export function useValidateBuilderSourceExecution(documentId: string) {
-  const queryClient = useQueryClient();
-  return useActionMutation<
-    ContentDatabaseResponse,
+  return useContentActionMutation<
+    ContentDatabaseResponsePayload,
     ValidateBuilderSourceExecutionRequest
   >("validate-builder-source-execution", {
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: contentDatabaseQueryKey(documentId),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database-source", { documentId }],
-      });
-    },
+    invalidates: contentDatabaseSourceTargets(documentId),
   });
 }
 
 export function useExecuteBuilderSourceExecution(documentId: string) {
-  const queryClient = useQueryClient();
-  return useActionMutation<
-    ContentDatabaseResponse,
+  return useContentActionMutation<
+    ContentDatabaseResponsePayload,
     ExecuteBuilderSourceExecutionRequest
   >("execute-builder-source-execution", {
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: contentDatabaseQueryKey(documentId),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database-source", { documentId }],
-      });
-    },
+    invalidates: contentDatabaseSourceTargets(documentId),
   });
 }
 
 export function useExecuteBuilderSourceBatch(documentId: string) {
-  const queryClient = useQueryClient();
-  return useActionMutation<
+  return useContentActionMutation<
     ExecuteBuilderSourceBatchResponse,
     ExecuteBuilderSourceBatchRequest
   >("execute-builder-source-batch", {
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: contentDatabaseQueryKey(documentId),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database-source", { documentId }],
-      });
-    },
+    invalidates: contentDatabaseSourceTargets(documentId),
   });
 }
 
 export function useSetContentDatabaseSourceWriteMode(documentId: string) {
   const queryClient = useQueryClient();
-  return useActionMutation<
-    ContentDatabaseResponse,
+  return useContentActionMutation<
+    ContentDatabaseResponsePayload,
     SetContentDatabaseSourceWriteModeRequest
   >("set-content-database-source-write-mode", {
-    onSuccess: (data) => {
-      writeContentDatabaseResponseToCache(queryClient, documentId, data);
-      void queryClient.invalidateQueries({
-        queryKey: contentDatabaseQueryKey(documentId),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database-source", { documentId }],
-      });
-    },
+    onSuccess: (data) =>
+      writeContentDatabaseResponseToCache(queryClient, documentId, data),
+    invalidates: contentDatabaseSourceTargets(documentId),
   });
 }
 
 export function usePrepareBuilderSourceReview(documentId: string) {
-  const queryClient = useQueryClient();
-  return useActionMutation<
+  return useContentActionMutation<
     PrepareBuilderSourceReviewResponse,
     PrepareBuilderSourceReviewRequest
   >("prepare-builder-source-review", {
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: contentDatabaseQueryKey(documentId),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database-source", { documentId }],
-      });
-    },
+    invalidates: contentDatabaseSourceTargets(documentId),
   });
 }
 
@@ -2029,18 +2081,10 @@ export function usePreviewBuilderSourceReview(args: {
 }
 
 export function useStageBuilderSourceBulkUpdate(documentId: string) {
-  const queryClient = useQueryClient();
-  return useActionMutation<
+  return useContentActionMutation<
     StageBuilderSourceBulkUpdateResponse,
     StageBuilderSourceBulkUpdateRequest
   >("stage-builder-source-bulk-update", {
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: contentDatabaseQueryKey(documentId),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database-source", { documentId }],
-      });
-    },
+    invalidates: contentDatabaseSourceTargets(documentId),
   });
 }

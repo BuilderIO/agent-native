@@ -14,8 +14,6 @@ import {
 } from "@/lib/integration-status";
 import { TAB_ID } from "@/lib/tab-id";
 
-// ─── Generic integration credentials (via application-state) ────────────────
-
 function useIntegrationStatuses() {
   return useQuery<MailIntegrationStatuses>({
     queryKey: MAIL_INTEGRATION_STATUS_QUERY_KEY,
@@ -49,9 +47,6 @@ function useIntegrationConnect(provider: MailIntegrationProvider) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (apiKey: string) => {
-      // Verify the key against the upstream provider before persisting it,
-      // so the user sees a real error instead of a key that silently fails
-      // the next time they open a contact.
       const validateRes = await fetch(appApiPath(`/api/${provider}/validate`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -109,8 +104,6 @@ function useIntegrationDisconnect(provider: MailIntegrationProvider) {
     },
   });
 }
-
-// ─── Provider-specific data fetching ────────────────────────────────────────
 
 export function useAllIntegrations() {
   const { data } = useIntegrationStatuses();
@@ -171,7 +164,6 @@ export function useGongCalls(email: string | undefined) {
   });
 }
 
-/** Check if a React Query error is an auth/key error */
 export function isAuthError(error: unknown): boolean {
   if (!error || !(error instanceof Error)) return false;
   return error.message === "unauthorized" || error.message === "401";

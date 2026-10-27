@@ -83,9 +83,6 @@ export function dispatchIntegrationRoutingHint(
   const normalized = text.replace(/\s+/g, " ").trim();
   if (!normalized) return undefined;
 
-  // Route by the requested artifact type, not organization-specific names.
-  // Exact destinations, schemas, and required fields come from workspace
-  // resources such as shared LEARNINGS.md rather than this classifier.
   if (
     hasAffirmativeMatch(
       normalized,

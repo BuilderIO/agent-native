@@ -7,9 +7,6 @@ import { useT } from "@agent-native/core/client/i18n";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-// The composer's model picker shows the chat LLM (Claude/OpenAI/Gemini). The
-// Assets app also drives a separate image model, so expose it as a secondary
-// menu wherever Assets chat is mounted.
 const IMAGE_MODEL_STATE_KEY = "imageGenerationModel";
 const DEFAULT_IMAGE_MODEL = "gemini-3.1-flash-image";
 const IMAGE_MODEL_OPTIONS = [
@@ -33,8 +30,6 @@ export function useImageModelMenu(threadId?: string | null) {
   const dismissFailed = useActionMutation("dismiss-variant-slots");
   const [imageModel, setImageModel] = useState<string>(DEFAULT_IMAGE_MODEL);
 
-  // Hydrate the saved image-model default so the picker reflects the user's
-  // last choice across sessions.
   useEffect(() => {
     let cancelled = false;
     void readClientAppState<{ model?: string }>(IMAGE_MODEL_STATE_KEY)

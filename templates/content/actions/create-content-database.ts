@@ -1,4 +1,8 @@
-import { defineAction, embedApp } from "@agent-native/core";
+import {
+  ActionContractError,
+  defineAction,
+  embedApp,
+} from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { buildDeepLink } from "@agent-native/core/server";
 import {
@@ -21,8 +25,13 @@ import {
   documentEditAttribution,
   requireDocumentRequestActor,
 } from "../server/lib/document-attribution.js";
+import {
+  lockDocumentMetadataDatabase,
+  nextDocumentMetadataUpdatedAt,
+} from "../server/lib/document-metadata-updated-at.js";
 import type {
   ContentDatabaseResponse,
+  ContentDatabaseResponsePayload,
   CreateDatabaseRequest,
 } from "../shared/api.js";
 import { ensureDocumentFilesMembership } from "./_content-files.js";
@@ -40,7 +49,10 @@ import {
   setupError,
   setupAuditSummary,
 } from "./_database-setup-mutation.js";
-import { getContentDatabaseResponse } from "./_database-utils.js";
+import {
+  contentDatabaseResponseForCaller,
+  getContentDatabaseResponse,
+} from "./_database-utils.js";
 import {
   documentsPositionScope,
   nextAppendPosition,
@@ -52,6 +64,7 @@ import {
   seedDefaultBlocksField,
   serializeDatabaseViewConfig,
 } from "./_property-utils.js";
+import { lockParentOfNewPage } from "./_row-lock-order.js";
 
 const createContentDatabaseSchema = z
   .object({
@@ -131,7 +144,7 @@ export default defineAction({
     recordInputs: false,
     target: (_args, result) => ({
       type: "content-database",
-      id: (result as ContentDatabaseResponse).database.id,
+      id: (result as ContentDatabaseResponsePayload).database.id,
       visibility: "private",
     }),
     summary: (_args, result) =>
@@ -149,13 +162,21 @@ export default defineAction({
       height: 900,
     }),
   },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async (args, context) => {
     if (context?.caller === "mcp") createDatabaseAgentSchema.parse(args);
     if (args.idempotencyKey !== undefined)
-      return createReliableDatabase(createDatabaseReliableSchema.parse(args));
+      return contentDatabaseResponseForCaller(
+        await createReliableDatabase(createDatabaseReliableSchema.parse(args)),
+        context,
+      );
     const result = await createContentDatabaseCore(args);
     await writeAppState("refresh-signal", { ts: Date.now() });
-    return result;
+    return contentDatabaseResponseForCaller(result, context);
   },
   link: ({ result }) => {
     const documentId = (result as { database?: { documentId?: string } } | null)
@@ -365,7 +386,7 @@ export async function createContentDatabaseRecord(
   } = {},
 ): Promise<string> {
   const db = options.db ?? getDb();
-  const now = new Date().toISOString();
+  let now = new Date().toISOString();
   const actor = requireDocumentRequestActor();
   let title = args.title?.trim() || "";
 
@@ -381,7 +402,39 @@ export async function createContentDatabaseRecord(
   }> = [];
 
   if (documentId) {
+    const preflight = await assertDocumentEditorAccess(db, documentId);
+    const lockedDatabaseId = await lockDocumentMetadataDatabase({
+      db,
+      documentId,
+      ownerEmail: preflight.ownerEmail,
+    });
+    await db
+      .select({ id: schema.documents.id })
+      .from(schema.documents)
+      .where(
+        and(
+          eq(schema.documents.id, documentId),
+          eq(schema.documents.ownerEmail, preflight.ownerEmail),
+        ),
+      )
+      .for("update");
     const document = await assertDocumentEditorAccess(db, documentId);
+    if (
+      document.ownerEmail !== preflight.ownerEmail ||
+      document.spaceId !== preflight.spaceId
+    ) {
+      throw new ActionContractError(
+        "The document's conversion scope changed. Read it again and retry.",
+        { errorCode: "DOCUMENT_CONVERSION_SCOPE_CHANGED", statusCode: 409 },
+      );
+    }
+    now = await nextDocumentMetadataUpdatedAt({
+      db,
+      documentId,
+      ownerEmail: document.ownerEmail,
+      currentUpdatedAt: document.updatedAt,
+      lockedDatabaseId,
+    });
     ownerEmail = document.ownerEmail as string;
     orgId = (document.orgId as string | null) ?? null;
     spaceId = (document.spaceId as string | null) ?? spaceId;
@@ -434,6 +487,7 @@ export async function createContentDatabaseRecord(
     const parentId = args.parentId || null;
     let visibility: "private" | "org" | "public" = "private";
     let hideFromSearch = 0;
+    let parentScope: Parameters<typeof lockParentOfNewPage>[2] | null = null;
 
     if (parentId) {
       const parent = await assertDocumentEditorAccess(db, parentId);
@@ -448,6 +502,12 @@ export async function createContentDatabaseRecord(
       }
       visibility = parent.visibility ?? "private";
       hideFromSearch = parent.hideFromSearch ?? 0;
+      parentScope = {
+        ownerEmail: parent.ownerEmail,
+        spaceId: parent.spaceId ?? null,
+        orgId,
+        visibility: parent.visibility,
+      };
       inheritedShares = await db
         .select({
           principalType: schema.documentShares.principalType,
@@ -474,9 +534,6 @@ export async function createContentDatabaseRecord(
     }
 
     documentId = args.newDocumentId ?? nanoid();
-    // Snapshot as a const so the closure below keeps TypeScript's
-    // non-undefined narrowing from the guard above (`let` bindings lose
-    // narrowing across a closure boundary).
     const resolvedOwnerEmail = ownerEmail;
     await withPositionLock(
       documentsPositionScope(resolvedOwnerEmail, parentId),
@@ -530,6 +587,9 @@ export async function createContentDatabaseRecord(
         })),
       );
     }
+    if (parentId && parentScope) {
+      await lockParentOfNewPage(db, parentId, parentScope);
+    }
   }
 
   const databaseId = nanoid();
@@ -544,8 +604,6 @@ export async function createContentDatabaseRecord(
     updatedAt: now,
   });
 
-  // Every database is seeded with one primary "Content" Blocks field, backed
-  // by `documents.content`, so each row's body is a first-class property.
   const primaryBlocksPropertyId = await seedDefaultBlocksField({
     databaseId,
     ownerEmail,

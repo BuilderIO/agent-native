@@ -2,7 +2,17 @@
 
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("@agent-native/core/client/uploads", () => ({
+  uploadEditorImage: vi.fn(),
+  useFileUploadStatus: () => ({
+    data: { configured: true },
+    isSuccess: true,
+    isError: false,
+    refetch: vi.fn(),
+  }),
+}));
 
 import { PlanMarkdownEditor } from "./PlanMarkdownEditor";
 
@@ -33,7 +43,6 @@ describe("PlanMarkdownEditor image node", () => {
       });
     }).not.toThrow();
 
-    // The editor should have mounted the image node's DOM.
     expect(container.querySelector(".ProseMirror")).toBeTruthy();
   });
 });

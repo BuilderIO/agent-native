@@ -1,12 +1,3 @@
-/**
- * The centre pane: Activity, Notes, Tasks, Related.
- *
- * Two of these are deliberately honest about not existing yet rather than
- * dressed up with a plausible-looking feed:
- *  - Activity reads `crm_interactions`, which nothing in this app writes today.
- *  - Notes has no table at all; inventing one here would be a schema change.
- */
-
 import { useT } from "@agent-native/core/client/i18n";
 import {
   IconChecklist,
@@ -48,7 +39,7 @@ export function RecordTabs({
       onValueChange={(next) => onTabChange(next as RecordTab)}
       className="flex flex-col p-5 sm:p-6"
     >
-      <TabsList className="h-9 self-start bg-muted/70">
+      <TabsList className="self-start bg-muted/70">
         <TabsTrigger value="activity" className="gap-1.5">
           <IconHistory className="size-3.5" />
           {t("record.tabActivity")}

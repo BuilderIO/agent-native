@@ -3,10 +3,6 @@ import { Platform } from "react-native";
 
 import { bootstrapNativeSession } from "@/lib/native-auth";
 
-/**
- * Re-checks the native parent at process start so a Keychain item left behind
- * by an iOS reinstall cannot silently masquerade as a live session.
- */
 export default function NativeSessionBootstrap() {
   useEffect(() => {
     if (Platform.OS === "web") return;

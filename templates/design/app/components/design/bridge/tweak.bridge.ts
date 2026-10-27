@@ -1,7 +1,7 @@
 /**
- * Tweak bridge — injected into every canvas iframe.
+ * Tweak bridge — injected into every Edit canvas iframe. Interact's document carries only the theme and links bridges.
  *
- * ALWAYS injected so the parent's postMessage (`tweak-values`) can update CSS
+ * Injected in every Edit mode so the parent's postMessage (`tweak-values`) can update CSS
  * custom properties on the iframe's :root regardless of which editor mode is
  * active. Without this the tweak panel silently no-ops in Comment mode.
  *

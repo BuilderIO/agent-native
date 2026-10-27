@@ -1,6 +1,7 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
-import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { useT } from "@agent-native/core/client/i18n";
+import { useFileUploadStatus } from "@agent-native/core/client/uploads";
+import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
   IconArrowsMaximize,
@@ -25,6 +26,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 
+import { FileStorageStatusGate } from "@/components/editor/FileStorageStatusGate";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -44,6 +46,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+import { deleteNodeFromMenu } from "../editor-transaction-meta";
 import { audioUploadErrorMessage, uploadAudioFile } from "../image-upload";
 import type { ContentAudioOptions } from "./AudioNode";
 
@@ -143,16 +146,19 @@ async function copyAudio(
 export function AudioBlock({
   node,
   editor,
-  deleteNode,
   selected,
   updateAttributes,
   extension,
   getPos,
 }: NodeViewProps) {
   const t = useT();
+  const fileUploadStatus = useFileUploadStatus();
+  const fileStorageConfigured =
+    fileUploadStatus.isSuccess && fileUploadStatus.data?.configured === true;
   const [isHovered, setIsHovered] = useState(false);
   const [sourcePanelOpen, setSourcePanelOpen] = useState(false);
   const [sourcePanelDismissed, setSourcePanelDismissed] = useState(false);
+  const [storageSetupOpen, setStorageSetupOpen] = useState(false);
   const [sourceTab, setSourceTab] = useState<AudioSourceTab>("upload");
   const [audioUrl, setAudioUrl] = useState("");
   const [dragWidth, setDragWidth] = useState<number | null>(null);
@@ -167,6 +173,7 @@ export function AudioBlock({
   const options = extension.options as ContentAudioOptions;
   const canMutateMediaNow = () =>
     editor.isEditable && (options.canMutateMedia?.() ?? true);
+  const deleteNode = () => deleteNodeFromMenu({ editor, getPos, node });
   const isEditable = canMutateMediaNow();
   const src = node.attrs.src as string;
   const isUploading = Boolean(node.attrs.uploadId);
@@ -329,7 +336,7 @@ export function AudioBlock({
   }
 
   function audioResizeMaxWidth() {
-    const wrapper = mediaBlockRef.current?.closest(".notion-editor");
+    const wrapper = mediaBlockRef.current?.closest(".content-editor");
     const maxWidth =
       wrapper?.getBoundingClientRect().width ??
       mediaBlockRef.current?.parentElement?.getBoundingClientRect().width ??
@@ -401,7 +408,7 @@ export function AudioBlock({
   async function handleAudioFilePicked(event: ChangeEvent<HTMLInputElement>) {
     const file = event.currentTarget.files?.[0];
     event.currentTarget.value = "";
-    if (!file || !canMutateMediaNow()) return;
+    if (!file || !fileStorageConfigured || !canMutateMediaNow()) return;
 
     const toastId = toast.loading(t("editor.media.uploadingAudio"));
     try {
@@ -416,6 +423,15 @@ export function AudioBlock({
     } catch (error) {
       toast.error(audioUploadErrorMessage(error), { id: toastId });
     }
+  }
+
+  function requestAudioFilePicker() {
+    if (!isEditable || isUploading) return;
+    if (!fileStorageConfigured) {
+      setStorageSetupOpen(true);
+      return;
+    }
+    fileInputRef.current?.click();
   }
 
   function handleEmbedLink(event: FormEvent<HTMLFormElement>) {
@@ -473,10 +489,15 @@ export function AudioBlock({
               type="button"
               variant="outline"
               className="w-full"
-              onClick={() => fileInputRef.current?.click()}
+              onClick={requestAudioFilePicker}
             >
               {t("editor.media.uploadFile")}
             </Button>
+            <FileStorageStatusGate
+              status={fileUploadStatus}
+              open={storageSetupOpen}
+              onOpenChange={setStorageSetupOpen}
+            />
           </div>
         ) : (
           <form className="media-source-panel__body" onSubmit={handleEmbedLink}>
@@ -539,6 +560,7 @@ export function AudioBlock({
             ref={fileInputRef}
             type="file"
             accept="audio/*"
+            disabled={!fileStorageConfigured}
             className="hidden"
             tabIndex={-1}
             aria-hidden="true"
@@ -581,6 +603,7 @@ export function AudioBlock({
           ref={fileInputRef}
           type="file"
           accept="audio/*"
+          disabled={!fileStorageConfigured}
           className="hidden"
           tabIndex={-1}
           aria-hidden="true"

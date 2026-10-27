@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetSession = vi.fn();
-const mockResolveHasCompleteBuilderConnection = vi.fn();
+const mockResolveBuilderGatewayAuth = vi.fn();
 const mockResolveSecret = vi.fn();
 const mockPrefetchSecrets = vi.fn();
 const mockGetOrgContext = vi.fn();
 const mockResolveGoogleRealtimeCredentials = vi.fn();
+const mockReadServiceProviderChoice = vi.fn();
 
 let lastStatus = 200;
 
@@ -23,9 +24,18 @@ vi.mock("./auth.js", () => ({
 
 vi.mock("./credential-provider.js", () => ({
   prefetchSecrets: (...args: any[]) => mockPrefetchSecrets(...args),
-  resolveHasCompleteBuilderConnection: (...args: any[]) =>
-    mockResolveHasCompleteBuilderConnection(...args),
+  resolveBuilderGatewayAuth: (...args: any[]) =>
+    mockResolveBuilderGatewayAuth(...args),
   resolveSecret: (...args: any[]) => mockResolveSecret(...args),
+  // The Gemini key resolves through the alias resolver, which reads each name
+  // in detail. Same answers as `resolveSecret`, so one mock drives both.
+  resolveSecretDetailed: async (key: string) => {
+    const value = await mockResolveSecret(key);
+    return value
+      ? { value, lookupFailed: false, source: "user", scopeId: "qa" }
+      : { value: null, lookupFailed: false };
+  },
+  assertCredentialStoreReadable: () => {},
 }));
 
 vi.mock("../org/context.js", () => ({
@@ -39,6 +49,12 @@ vi.mock("./request-context.js", () => ({
 vi.mock("./google-realtime-session.js", () => ({
   resolveGoogleRealtimeCredentials: (...args: any[]) =>
     mockResolveGoogleRealtimeCredentials(...args),
+}));
+
+vi.mock("./service-providers.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./service-providers.js")>()),
+  readServiceProviderChoice: (...args: any[]) =>
+    mockReadServiceProviderChoice(...args),
 }));
 
 import { createVoiceProvidersStatusHandler } from "./voice-providers-status.js";
@@ -57,9 +73,10 @@ describe("voice providers status route", () => {
     mockGetSession.mockResolvedValue({ email: "voice+qa@example.com" });
     mockResolveSecret.mockResolvedValue(null);
     mockPrefetchSecrets.mockResolvedValue(undefined);
-    mockResolveHasCompleteBuilderConnection.mockResolvedValue(false);
+    mockResolveBuilderGatewayAuth.mockResolvedValue(null);
     mockGetOrgContext.mockResolvedValue({ orgId: "org-123" });
     mockResolveGoogleRealtimeCredentials.mockResolvedValue(null);
+    mockReadServiceProviderChoice.mockResolvedValue(null);
   });
 
   afterEach(() => {
@@ -71,7 +88,11 @@ describe("voice providers status route", () => {
   });
 
   it("reports user secrets and fallback credentials without returning key material", async () => {
-    mockResolveHasCompleteBuilderConnection.mockResolvedValue(true);
+    mockResolveBuilderGatewayAuth.mockResolvedValue({
+      authorization: "Bearer bpk-secret",
+      spaceId: "space-1",
+      userId: null,
+    });
     mockResolveSecret.mockImplementation(async (key: string) =>
       key === "OPENAI_API_KEY"
         ? "sk-openai-secret"
@@ -94,6 +115,7 @@ describe("voice providers status route", () => {
       googleRealtime: true,
       browser: true,
       native: true,
+      orgProvider: null,
     });
     expect(JSON.stringify(result)).not.toContain("secret");
     expect(mockResolveSecret).toHaveBeenCalledWith("GROQ_API_KEY");
@@ -117,6 +139,26 @@ describe("voice providers status route", () => {
     expect(mockResolveSecret).toHaveBeenCalledWith("GEMINI_API_KEY");
   });
 
+  it.each(["GOOGLE_GENERATIVE_AI_API_KEY", "GEMINI_API_KEY"])(
+    "reports Gemini with the key saved as %s",
+    async (name) => {
+      mockResolveSecret.mockImplementation(async (key: string) =>
+        key === name ? "gemini-key" : null,
+      );
+
+      const handler = createVoiceProvidersStatusHandler();
+      const result = await handler(event());
+
+      expect(result).toMatchObject({ gemini: true, openai: false });
+      expect(mockPrefetchSecrets).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          "GOOGLE_GENERATIVE_AI_API_KEY",
+          "GEMINI_API_KEY",
+        ]),
+      );
+    },
+  );
+
   it("reports deploy-managed Google credentials only when they resolve cleanly", async () => {
     mockResolveGoogleRealtimeCredentials.mockResolvedValue(
       '{"type":"service_account"}',
@@ -132,7 +174,7 @@ describe("voice providers status route", () => {
     });
   });
 
-  it("suppresses Google realtime when the configured credential path is unreadable", async () => {
+  it("flags Google realtime as unread when the configured credential path is unreadable", async () => {
     mockResolveGoogleRealtimeCredentials.mockRejectedValue(
       new Error("unreadable"),
     );
@@ -142,6 +184,61 @@ describe("voice providers status route", () => {
 
     expect(result).toMatchObject({
       googleRealtime: false,
+      credentialLookupFailed: ["googleRealtime"],
+    });
+  });
+
+  it("counts a Builder OAuth sign-in the way the voice route does", async () => {
+    // An OAuth session has an access token and no stored key pair.
+    mockResolveBuilderGatewayAuth.mockResolvedValue({
+      authorization: "Bearer oauth-access-token",
+      spaceId: null,
+      userId: null,
+    });
+
+    const result = await createVoiceProvidersStatusHandler()(event());
+
+    expect(result).toMatchObject({ builder: true });
+    expect(result).not.toHaveProperty("credentialLookupFailed");
+    expect(JSON.stringify(result)).not.toContain("oauth-access-token");
+  });
+
+  it("flags an unreadable Builder credential instead of reporting it disconnected", async () => {
+    mockResolveBuilderGatewayAuth.mockRejectedValue(new Error("db timeout"));
+    mockResolveSecret.mockImplementation(async (key: string) => {
+      if (key === "OPENAI_API_KEY") throw new Error("vault down");
+      return null;
+    });
+
+    const result = await createVoiceProvidersStatusHandler()(event());
+
+    expect(result).toMatchObject({
+      builder: false,
+      openai: false,
+      credentialLookupFailed: expect.arrayContaining(["builder", "openai"]),
+    });
+  });
+
+  it("reports the organization's voice choice for the request's org", async () => {
+    mockReadServiceProviderChoice.mockResolvedValue("groq");
+
+    const result = await createVoiceProvidersStatusHandler()(event());
+
+    expect(result).toMatchObject({ orgProvider: "groq" });
+    expect(result).not.toHaveProperty("orgProviderLookupFailed");
+    expect(mockReadServiceProviderChoice).toHaveBeenCalledWith("voice", {
+      orgId: "org-123",
+    });
+  });
+
+  it("flags an unreadable organization choice instead of reporting it unset", async () => {
+    mockReadServiceProviderChoice.mockRejectedValue(new Error("db down"));
+
+    const result = await createVoiceProvidersStatusHandler()(event());
+
+    expect(result).toMatchObject({
+      orgProvider: null,
+      orgProviderLookupFailed: true,
     });
   });
 

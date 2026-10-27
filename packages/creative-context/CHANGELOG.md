@@ -1,5 +1,340 @@
 # @agent-native/creative-context
 
+## 0.8.58
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.57
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.56
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.55
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.54
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.53
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.52
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.51
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.50
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.49
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.48
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.47
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.46
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.45
+
+### Patch Changes
+
+- 1b84641: Scope creative-context state refreshes to its application-state key, so unrelated state changes do not rerender consumers.
+- Release all public npm packages with a patch version bump.
+
+## 0.8.44
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 0cfbd4d: Include the MIT license text in the published package.
+
+## 0.8.43
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.42
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.41
+
+### Patch Changes
+
+- 62cc000: Add the missing `notified_at` column to share tables created before it existed
+  (`tool_shares`, `data_program_shares`, and the creative-context share tables).
+  Share inserts name that column, so sharing an extension, data program, or
+  creative context with a user or org failed on those databases.
+- Release all public npm packages with a patch version bump.
+
+## 0.8.40
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.39
+
+### Patch Changes
+
+- 1c4a192: Use authored synthetic fixtures for imported creative context evaluation.
+- Release all public npm packages with a patch version bump.
+
+## 0.8.38
+
+### Patch Changes
+
+- 128f43e: Export a shared `AgentMark` icon for agent identity and use the same mark in the creative context panel.
+- Release all public npm packages with a patch version bump.
+
+## 0.8.37
+
+### Patch Changes
+
+- 853e988: Serialize create-provenance writes across instances to prevent duplicate context records.
+- Release all public npm packages with a patch version bump.
+- 72e4ca7: Use descriptive titles for the Figma connector visual fixture tests.
+
+## 0.8.36
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.35
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.34
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.33
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.32
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.31
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.30
+
+### Patch Changes
+
+- 263c8a9: Keep corrupt Lab choices isolated to their own state reads.
+- Release all public npm packages with a patch version bump.
+
+## 0.8.29
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.28
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.27
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.26
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.25
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.24
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.23
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.22
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.21
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.20
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.19
+
+### Patch Changes
+
+- d798d36: Stop running the creative-context due-job sweep and daily maintenance enqueue at serverless cold start. Production serverless runtimes now process queued imports and background jobs from the platform-scheduled recurring sweep, scan for daily maintenance hourly, and warn when no platform scheduler drives the sweep; local and long-running Node servers keep the in-process timers. The `@agent-native/core` peer range now requires `>=0.190.0`, the first release exporting every core API this package imports.
+- Release all public npm packages with a patch version bump.
+- 2f6f67d: Make Creative Context schema migrations safe to retry after partial application.
+
+## 0.8.18
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- d2ba564: Keep agents from repeating completed mutations, stale reads, disabled features, or oversized discovery searches, and let them summarize cleanly when a loop is stopped.
+- b8845eb: Scope ownable reads and writes to their authorized user, organization, or share.
+
+## 0.8.17
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- a20f0b4: `CreativeContextPanel` and `createCreativeContextAgentTab` accept `variant: "settings"`, which drops the panel's own title, description, and page padding when the redesigned Settings page already shows them.
+
+## 0.8.16
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.15
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- ed3801e: Remove nonessential source comments.
+
+## 0.8.14
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.13
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.12
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.11
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.10
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.9
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.8
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.7
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.6
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.8.5
 
 ### Patch Changes
@@ -323,66 +658,4 @@
 - 6acaad0: Extract reusable Postgres search and embedding primitives into Core while preserving Creative Context imports.
   The pgvector setup error now consistently says "Vector search" instead of the narrower "Visual search" wording.
 
-## 0.5.4
-
-### Patch Changes
-
-- 079e19a: Adopt focused Core client entrypoints and ship package migration metadata where applicable.
-
-## 0.5.3
-
-### Patch Changes
-
-- b6d7f87: Move portable rich-editor, context presentation, and visual design controls into Toolkit while preserving Core compatibility re-exports, and add accurate side-effect metadata to capability packages.
-
-## 0.5.2
-
-### Patch Changes
-
-- 915c940: Preserve stubbed optional package imports and package subpaths when bundling Cloudflare Pages workers.
-
-## 0.5.1
-
-### Patch Changes
-
-- 8e0afec: Improve Creative Context sharing and connection-chip interactions.
-
-## 0.5.0
-
-### Minor Changes
-
-- 149c0ee: Add bounded, app-owned native resource update checks and Library update submission controls.
-
-### Patch Changes
-
-- 149c0ee: Add governed creative-context sharing, host-backed native clone actions, and a reusable organization-admin permission helper.
-
-## 0.4.0
-
-### Minor Changes
-
-- a485fbe: Add the Creative Context package for importing, versioning, searching, and reusing workspace decks, designs, assets, websites, and content across creative apps.
-
-  Expose reusable ingestion, prompt-context provider, and search utility seams from core for package-driven creative context.
-
-  Includes bounded image-region cropping for durable localized creative-context fallbacks.
-
-## 0.3.0
-
-### Minor Changes
-
-- 9f2f7a7: Add the Creative Context package for importing, versioning, searching, and reusing workspace decks, designs, assets, websites, and content across creative apps.
-
-  Expose reusable ingestion, prompt-context provider, and search utility seams from core for package-driven creative context.
-
-  Includes bounded image-region cropping for durable localized creative-context fallbacks.
-
-## 0.2.0
-
-### Minor Changes
-
-- 2625de5: Add the Creative Context package for importing, versioning, searching, and reusing workspace decks, designs, assets, websites, and content across creative apps.
-
-  Expose reusable ingestion, prompt-context provider, and search utility seams from core for package-driven creative context.
-
-  Includes bounded image-region cropping for durable localized creative-context fallbacks.
+For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

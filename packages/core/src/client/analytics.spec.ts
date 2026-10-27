@@ -16,13 +16,16 @@ const sentryMock = vi.hoisted(() => ({
 
 const amplitudeMock = vi.hoisted(() => ({
   init: vi.fn(),
+  reset: vi.fn(),
   setOptOut: vi.fn(),
   track: vi.fn(),
 }));
 
 const replayMock = vi.hoisted(() => ({
   emitSessionReplayAgentChatEvent: vi.fn(),
+  emitSessionReplayAnalyticsEvent: vi.fn(),
   emitSessionReplayException: vi.fn(),
+  emitSessionReplaySlowRequest: vi.fn(),
   getSessionReplayId: vi.fn(() => undefined),
   getSessionReplayContext: vi.fn(() => null),
   getSessionReplayUrl: vi.fn(() => null),
@@ -42,8 +45,10 @@ vi.mock("../observability/tracing.js", () => tracingMock);
 const pageviewStateKey = Symbol.for("agent-native.client.pageviewTracking");
 const appEntryStateKey = Symbol.for("agent-native.client.appEntryTracking");
 const agentChatStateKey = Symbol.for("agent-native.client.agentChatTracking");
+const consentStateKey = Symbol.for("agent-native.client.consent");
 
 function resetPageviewState() {
+  delete (globalThis as any)[consentStateKey];
   delete (globalThis as any)[pageviewStateKey];
   delete (globalThis as any)[appEntryStateKey];
   delete (globalThis as any)[agentChatStateKey];
@@ -53,6 +58,7 @@ function setLocation(
   location: {
     href: string;
     origin: string;
+    host: string;
     hostname: string;
     pathname: string;
     search: string;
@@ -63,6 +69,7 @@ function setLocation(
   const url = new URL(next, location.href);
   location.href = url.href;
   location.origin = url.origin;
+  location.host = url.host;
   location.hostname = url.hostname;
   location.pathname = url.pathname;
   location.search = url.search;
@@ -106,6 +113,13 @@ function installFetch({
         headers: { "Content-Type": "application/json" },
       });
     }
+    if (String(url).includes("/_agent-native/auth/attribution")) {
+      return new Response(JSON.stringify({ stored: true }));
+    }
+    if (String(url).includes("/_agent-native/auth/consent-region")) {
+      // No geo header in tests, so the browser's time zone decides.
+      return new Response(JSON.stringify({ region: "unknown" }));
+    }
     analyticsCalls.push([url, init ?? {}]);
     return new Response("{}");
   });
@@ -114,10 +128,16 @@ function installFetch({
 }
 
 function installBrowser(url = "https://mail.agent-native.com/inbox") {
+  // Attribution storage depends on the visitor's time zone, so pin it.
+  const realOptions = new Intl.DateTimeFormat().resolvedOptions();
+  const resolvedOptions = vi
+    .spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions")
+    .mockReturnValue({ ...realOptions, timeZone: "America/Los_Angeles" });
   const parsed = new URL(url);
   const location = {
     href: parsed.href,
     origin: parsed.origin,
+    host: parsed.host,
     hostname: parsed.hostname,
     pathname: parsed.pathname,
     search: parsed.search,
@@ -145,38 +165,88 @@ function installBrowser(url = "https://mail.agent-native.com/inbox") {
       storage.delete(key);
     },
   };
-  let cookie = "";
+  // Last assignment per cookie name, so each cookie keeps its own value.
+  const cookieAssignments = new Map<string, string>();
+  const readCookies = () =>
+    [...cookieAssignments.values()]
+      .map((assignment) => assignment.split(";", 1)[0]!)
+      .join("; ");
+  // A visitor outside the consent region, already known this session.
+  const session = new Map<string, string>([["an_consent_region", "none"]]);
+  const sessionStorage = {
+    getItem: (key: string) => session.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      session.set(key, value);
+    },
+    removeItem: (key: string) => {
+      session.delete(key);
+    },
+  };
   const windowMock = {
     location,
     history,
     gtag,
     localStorage,
+    sessionStorage,
     addEventListener: vi.fn((event: string, listener: () => void) => {
       listeners[event] = [...(listeners[event] ?? []), listener];
+    }),
+    removeEventListener: vi.fn((event: string, listener: () => void) => {
+      listeners[event] = (listeners[event] ?? []).filter(
+        (existing) => existing !== listener,
+      );
     }),
     setTimeout,
   };
   vi.stubGlobal("window", windowMock);
-  vi.stubGlobal("document", {
+  const documentMock = {
     referrer: "https://builder.io/start?token=secret&utm=ok",
     title: "Inbox",
+    get baseURI() {
+      return location.href;
+    },
     get cookie() {
-      return cookie;
+      return readCookies();
     },
     set cookie(value: string) {
-      cookie = value;
+      const name = value.slice(0, value.indexOf("=")).trim();
+      cookieAssignments.set(name, value);
     },
-  });
+  };
+  vi.stubGlobal("document", documentMock);
   vi.stubGlobal("navigator", { sendBeacon: vi.fn(() => false) });
 
   return {
     fetchMock: vi.fn().mockResolvedValue(new Response("{}")),
+    setTimeZone: (timeZone: string) =>
+      resolvedOptions.mockReturnValue({ ...realOptions, timeZone }),
     gtag,
     history,
     localStorage,
+    session,
     listeners,
     location,
-    getCookie: () => cookie,
+    getCookie: readCookies,
+    cookieAssignment: (name: string) => cookieAssignments.get(name),
+    cookieJson: (name: string) => {
+      const assignment = cookieAssignments.get(name);
+      if (!assignment) return undefined;
+      const value = assignment.slice(name.length + 1).split(";", 1)[0]!;
+      return JSON.parse(decodeURIComponent(value)) as Record<string, string>;
+    },
+    /** Load the app again at `next` in the same browser, as a later visit. */
+    revisit: async (next: string, referrer = "") => {
+      setLocation(location, next);
+      documentMock.referrer = referrer;
+      resetPageviewState();
+      const analytics = await freshAnalytics();
+      analytics.configureTracking({
+        llmConnectionStatus: false,
+        authSessionRefresh: false,
+        pageviewTracking: false,
+      });
+      return analytics;
+    },
   };
 }
 
@@ -189,16 +259,106 @@ describe("browser analytics pageviews", () => {
     sentryMock.withScope.mockClear();
     sentryMock.captureException.mockClear();
     amplitudeMock.init.mockClear();
+    amplitudeMock.reset.mockClear();
     amplitudeMock.setOptOut.mockClear();
     amplitudeMock.track.mockClear();
     replayMock.maybeStartSessionReplay.mockClear();
     replayMock.startSessionReplay.mockClear();
     replayMock.stopSessionReplay.mockClear();
     replayMock.emitSessionReplayAgentChatEvent.mockClear();
+    replayMock.emitSessionReplayAnalyticsEvent.mockClear();
+    replayMock.emitSessionReplaySlowRequest.mockClear();
     tracingMock.recordTrackingEvent.mockClear();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+  });
+
+  it("waits for the auth session before resolving the analytics identity", async () => {
+    installBrowser();
+    let resolveSession!: (response: Response) => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: unknown) => {
+        if (String(url).includes("/_agent-native/auth/session")) {
+          return new Promise<Response>((resolve) => {
+            resolveSession = resolve;
+          });
+        }
+        return Promise.resolve(new Response("{}"));
+      }),
+    );
+    const {
+      configureTracking,
+      getAnalyticsAnonymousId,
+      resolveAnalyticsIdentityKey,
+    } = await freshAnalytics();
+    configureTracking({
+      authSessionRefresh: false,
+      errorCapture: false,
+      llmConnectionStatus: false,
+      pageviewTracking: false,
+    });
+
+    const identity = resolveAnalyticsIdentityKey();
+    await tick();
+    let resolved = false;
+    void identity.then(() => {
+      resolved = true;
+    });
+    expect(resolveSession).toBeTypeOf("function");
+    expect(resolved).toBe(false);
+
+    resolveSession(
+      new Response(
+        JSON.stringify({
+          userId: "auth-user-1",
+          email: "person@example.com",
+        }),
+        { headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    await expect(identity).resolves.toBe("person@example.com");
+    expect(await identity).not.toBe(getAnalyticsAnonymousId());
+  });
+
+  it("uses anonymous identity only for a resolved signed-out session", async () => {
+    installBrowser();
+    installFetch({ session: { error: "not authenticated" } });
+    const {
+      configureTracking,
+      getAnalyticsAnonymousId,
+      resolveAnalyticsIdentityKey,
+    } = await freshAnalytics();
+    configureTracking({
+      authSessionRefresh: false,
+      errorCapture: false,
+      llmConnectionStatus: false,
+      pageviewTracking: false,
+    });
+
+    await expect(resolveAnalyticsIdentityKey()).resolves.toBe(
+      getAnalyticsAnonymousId(),
+    );
+  });
+
+  it("does not resolve an anonymous identity when auth status is unavailable", async () => {
+    installBrowser();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("unavailable", { status: 503 })),
+    );
+    const { configureTracking, resolveAnalyticsIdentityKey } =
+      await freshAnalytics();
+    configureTracking({
+      authSessionRefresh: false,
+      errorCapture: false,
+      llmConnectionStatus: false,
+      pageviewTracking: false,
+    });
+
+    await expect(resolveAnalyticsIdentityKey()).resolves.toBeUndefined();
   });
 
   it("keeps the pageview enrichment window open until the deferred boot refresh starts", async () => {
@@ -223,6 +383,9 @@ describe("browser analytics pageviews", () => {
             headers: { "Content-Type": "application/json" },
           });
         }
+        if (String(url).includes("/_agent-native/auth/")) {
+          return new Response(JSON.stringify({ stored: true }));
+        }
         analyticsCalls.push([url, init ?? {}]);
         return new Response("{}");
       }),
@@ -236,8 +399,6 @@ describe("browser analytics pageviews", () => {
 
     configureTracking({});
     await tick();
-    // The enrichment budget starts when the deferred refresh actually
-    // begins, not when the pageview is scheduled.
     await new Promise((resolve) => setTimeout(resolve, 260));
     expect(analyticsCalls).toHaveLength(0);
 
@@ -246,6 +407,7 @@ describe("browser analytics pageviews", () => {
         new Response(
           JSON.stringify({
             configured: true,
+            chatEligible: false,
             engine: "builder",
             model: "claude-sonnet-4-6",
             source: "app_secrets",
@@ -264,6 +426,7 @@ describe("browser analytics pageviews", () => {
       properties: {
         llm_connection: "builder",
         llm_connection_configured: true,
+        llm_chat_eligible: false,
       },
     });
   });
@@ -285,9 +448,6 @@ describe("browser analytics pageviews", () => {
       }),
     });
     await tick();
-    // The boot LLM connection read is deferred past first paint; the pageview
-    // waits for the self-bounded boot refresh, so settle past
-    // the deferral before asserting the enriched properties.
     await new Promise((resolve) => setTimeout(resolve, 350));
 
     expect(analyticsCalls).toHaveLength(2);
@@ -309,6 +469,8 @@ describe("browser analytics pageviews", () => {
         referrer: "https://builder.io/start?token=%3Credacted%3E&utm=ok",
         title: "Inbox",
         navigation_type: "load",
+        agent_signals: 1,
+        page_load_id: expect.any(String),
         client_platform: "web",
         llm_connection: "builder",
         llm_connection_configured: true,
@@ -329,6 +491,699 @@ describe("browser analytics pageviews", () => {
     expect(body.anonymousId).toMatch(/^[A-Za-z0-9_-]+$/);
     const latestBody = JSON.parse(String(analyticsCalls[1][1].body));
     expect(getCookie()).toContain(`an_aid=${latestBody.anonymousId}`);
+  });
+
+  it("captures the source forwarded by the marketing site", async () => {
+    const params = new URLSearchParams({
+      site_referrer: "github.com",
+      site_landing_path: "/apps/design",
+    });
+    const { cookieJson } = installBrowser(
+      `https://design.agent-native.com/?${params}`,
+    );
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({
+      llmConnectionStatus: false,
+      authSessionRefresh: false,
+      pageviewTracking: false,
+    });
+
+    expect(cookieJson("an_ft")).toMatchObject({
+      site_referrer: "github.com",
+      site_landing_path: "/apps/design",
+      landing_path: "/",
+    });
+  });
+
+  it("replaces a first touch that had no source with the first visit that does", async () => {
+    const { cookieJson, revisit } = installBrowser();
+    await revisit("https://plan.agent-native.com/");
+    expect(cookieJson("an_ft")).not.toHaveProperty("ref");
+    expect(cookieJson("an_lt")).toBeUndefined();
+
+    const { getFirstTouchAttribution, getLastTouchAttribution } = await revisit(
+      "https://plan.agent-native.com/?ref=steve&utm_medium=video",
+    );
+
+    expect(getFirstTouchAttribution()).toMatchObject({
+      ref: "steve",
+      utm_medium: "video",
+    });
+    expect(cookieJson("an_ft")).toMatchObject({ ref: "steve" });
+    expect(getLastTouchAttribution()).toMatchObject({
+      ref: "steve",
+      utm_medium: "video",
+      landing_path: "/",
+      touched_at: expect.any(String),
+    });
+  });
+
+  it("keeps a first touch that survives only in its cookie", async () => {
+    const { cookieJson, localStorage, revisit } = installBrowser();
+    await revisit("https://plan.agent-native.com/?gclid=g-1&utm_source=google");
+    localStorage.removeItem("an_attribution");
+
+    const { getFirstTouchAttribution } = await revisit(
+      "https://plan.agent-native.com/?utm_source=newsletter",
+    );
+
+    expect(cookieJson("an_ft")).toMatchObject({
+      gclid: "g-1",
+      utm_source: "google",
+    });
+    expect(getFirstTouchAttribution()).toMatchObject({ gclid: "g-1" });
+  });
+
+  it("reads the cookie when the stored first touch is unreadable", async () => {
+    const { cookieJson, localStorage, revisit } = installBrowser();
+    await revisit("https://plan.agent-native.com/?gclid=g-1&utm_source=google");
+    localStorage.setItem("an_attribution", "{not json");
+
+    await revisit("https://plan.agent-native.com/?utm_source=newsletter");
+
+    expect(cookieJson("an_ft")).toMatchObject({
+      gclid: "g-1",
+      utm_source: "google",
+    });
+  });
+
+  it("ignores non-string fields in a stored first touch", async () => {
+    const { cookieJson, localStorage, revisit } = installBrowser();
+    await revisit("https://plan.agent-native.com/?gclid=g-1&utm_source=google");
+    localStorage.setItem("an_attribution", JSON.stringify({ utm_source: 123 }));
+
+    const { getFirstTouchAttribution } = await revisit(
+      "https://plan.agent-native.com/?utm_source=newsletter",
+    );
+
+    expect(getFirstTouchAttribution()).toMatchObject({ gclid: "g-1" });
+    expect(cookieJson("an_ft")).toMatchObject({
+      gclid: "g-1",
+      utm_source: "google",
+    });
+  });
+
+  it("reads the cookie when the stored first touch has no source", async () => {
+    const { cookieJson, localStorage, revisit } = installBrowser();
+    await revisit("https://plan.agent-native.com/?gclid=g-1&utm_source=google");
+    localStorage.setItem("an_attribution", "{}");
+
+    await revisit("https://plan.agent-native.com/?utm_source=newsletter");
+
+    expect(cookieJson("an_ft")).toMatchObject({
+      gclid: "g-1",
+      utm_source: "google",
+    });
+  });
+
+  it("keeps the first visit with a source and records later ones as last touch", async () => {
+    const { cookieJson, revisit } = installBrowser();
+    await revisit(
+      "https://plan.agent-native.com/?utm_source=youtube&utm_medium=video",
+    );
+    await revisit("https://plan.agent-native.com/p/abc?ref=steve");
+    const { getFirstTouchAttribution } = await revisit(
+      "https://plan.agent-native.com/",
+    );
+
+    expect(getFirstTouchAttribution()).toMatchObject({
+      utm_source: "youtube",
+      utm_medium: "video",
+    });
+    expect(cookieJson("an_ft")).toMatchObject({ utm_source: "youtube" });
+    expect(cookieJson("an_lt")).toEqual({
+      ref: "steve",
+      landing_path: "/p/abc",
+      touched_at: expect.any(String),
+    });
+  });
+
+  it("ignores referrers from our own apps and Google sign-in", async () => {
+    const { cookieJson, revisit } = installBrowser();
+    await revisit("https://plan.agent-native.com/");
+    await revisit(
+      "https://plan.agent-native.com/",
+      "https://mail.agent-native.com/inbox",
+    );
+    await revisit(
+      "https://plan.agent-native.com/",
+      "https://accounts.google.com/",
+    );
+    await revisit("https://plan.agent-native.com/", "http://localhost:8080/");
+
+    expect(cookieJson("an_ft")).not.toHaveProperty("landing_referrer");
+    expect(cookieJson("an_lt")).toBeUndefined();
+
+    await revisit(
+      "https://plan.agent-native.com/",
+      "https://news.ycombinator.com/item?id=1",
+    );
+    expect(cookieJson("an_ft")).toMatchObject({
+      landing_referrer: "news.ycombinator.com",
+    });
+    expect(cookieJson("an_lt")).toMatchObject({
+      landing_referrer: "news.ycombinator.com",
+    });
+  });
+
+  it("takes the marketing site's forwarded last touch over its first touch", async () => {
+    const params = new URLSearchParams({
+      utm_source: "google",
+      utm_medium: "cpc",
+      site_referrer: "www.google.com",
+      site_landing_path: "/",
+      last_ref: "steve",
+      last_utm_medium: "video",
+      last_referrer: "www.youtube.com",
+      last_landing_path: "/blog/launch",
+    });
+    const { cookieJson, revisit } = installBrowser();
+    await revisit(`https://plan.agent-native.com/?${params}`);
+
+    expect(cookieJson("an_ft")).toMatchObject({
+      utm_source: "google",
+      site_referrer: "www.google.com",
+    });
+    // The app page they entered on, and the site page the touch landed on.
+    expect(cookieJson("an_lt")).toEqual({
+      ref: "steve",
+      utm_medium: "video",
+      site_referrer: "www.youtube.com",
+      site_landing_path: "/blog/launch",
+      landing_path: "/",
+      touched_at: expect.any(String),
+    });
+  });
+
+  it("records an ad click as last touch with its click id", async () => {
+    const { cookieJson, localStorage, revisit } = installBrowser();
+    await revisit("https://plan.agent-native.com/?ref=steve");
+    await revisit(
+      "https://plan.agent-native.com/?gclid=click-new&utm_term=agents",
+    );
+
+    expect(cookieJson("an_lt")).toEqual({
+      gclid: "click-new",
+      utm_term: "agents",
+      landing_path: "/",
+      touched_at: expect.any(String),
+    });
+    expect(JSON.parse(localStorage.getItem("an_last_touch")!)).toMatchObject({
+      gclid: "click-new",
+      utm_term: "agents",
+    });
+  });
+
+  it("keeps a newer app visit over an older site visit", async () => {
+    vi.setSystemTime(Date.parse("2026-10-03T12:00:00.000Z"));
+    const { cookieJson, revisit } = installBrowser();
+    await revisit("https://plan.agent-native.com/?ref=latest");
+    const handoff = new URLSearchParams({
+      ref: "first",
+      site_landing_path: "/",
+      last_at: "2026-09-20T00:00:00.000Z",
+    });
+    await revisit(`https://plan.agent-native.com/?${handoff}`);
+
+    expect(cookieJson("an_lt")).toMatchObject({
+      ref: "latest",
+      touched_at: "2026-10-03T12:00:00.000Z",
+    });
+  });
+
+  it("dates a forwarded site visit by when it happened", async () => {
+    vi.setSystemTime(Date.parse("2026-10-03T12:00:00.000Z"));
+    const { cookieJson, revisit } = installBrowser();
+    await revisit("https://plan.agent-native.com/?ref=older");
+    vi.setSystemTime(Date.parse("2026-10-04T12:00:00.000Z"));
+    const handoff = new URLSearchParams({
+      site_landing_path: "/",
+      last_ref: "steve",
+      last_at: "2026-10-04T11:00:00.000Z",
+    });
+    await revisit(`https://plan.agent-native.com/?${handoff}`);
+    expect(cookieJson("an_lt")).toMatchObject({
+      ref: "steve",
+      touched_at: "2026-10-04T11:00:00.000Z",
+    });
+
+    const future = new URLSearchParams({
+      last_ref: "alice",
+      last_at: "2030-01-01T00:00:00.000Z",
+    });
+    await revisit(`https://plan.agent-native.com/?${future}`);
+    expect(cookieJson("an_lt")).toMatchObject({
+      ref: "alice",
+      touched_at: "2026-10-04T12:00:00.000Z",
+    });
+  });
+
+  it("captures attribution before tracking starts", async () => {
+    installBrowser(
+      "https://agent-native.com/templates/slides?utm_source=youtube&gclid=g-1",
+    );
+    const { captureAttribution, getFirstTouchAttribution } =
+      await freshAnalytics();
+
+    captureAttribution();
+
+    expect(getFirstTouchAttribution()).toMatchObject({
+      utm_source: "youtube",
+      gclid: "g-1",
+      landing_path: "/templates/slides",
+    });
+  });
+
+  it("leaves synthetic traffic uncaptured when capturing early", async () => {
+    const { localStorage } = installBrowser(
+      "https://agent-native.com/?utm_source=youtube",
+    );
+    Object.assign(window, { __AGENT_NATIVE_SYNTHETIC_TRAFFIC__: "beta-e2e" });
+    const { captureAttribution } = await freshAnalytics();
+
+    captureAttribution();
+
+    expect(localStorage.getItem("an_attribution")).toBeNull();
+  });
+
+  it("keeps high-value signup attribution when the cookie payload exceeds its budget", async () => {
+    const params = new URLSearchParams({
+      gclid: "click-id",
+      msclkid: "microsoft-click-id",
+      utm_source: "google",
+      utm_medium: "cpc",
+      utm_campaign: "launch",
+      utm_content: "💡".repeat(120),
+      utm_term: "💡".repeat(120),
+    });
+    const { cookieAssignment, cookieJson, localStorage } = installBrowser(
+      `https://slides.agent-native.com/?${params}`,
+    );
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({
+      llmConnectionStatus: false,
+      authSessionRefresh: false,
+      pageviewTracking: false,
+    });
+
+    const stored = JSON.parse(localStorage.getItem("an_attribution")!);
+
+    expect(cookieAssignment("an_ft")!.length).toBeLessThanOrEqual(1500);
+    expect(cookieAssignment("an_lt")!.length).toBeLessThanOrEqual(700);
+    expect(cookieJson("an_ft")).toMatchObject({
+      gclid: "click-id",
+      msclkid: "microsoft-click-id",
+      utm_source: "google",
+      capture_truncated: "1",
+    });
+    expect(stored.utm_term).toBe("💡".repeat(60));
+  });
+
+  it("stores no attribution in a consent-region time zone until the visitor accepts", async () => {
+    const { cookieAssignment, localStorage, session, setTimeZone } =
+      installBrowser("https://clips.agent-native.com/?utm_source=youtube");
+    session.clear();
+    setTimeZone("Europe/Berlin");
+    localStorage.setItem("an_attribution", JSON.stringify({ ref: "old" }));
+    localStorage.setItem("an_last_touch", JSON.stringify({ ref: "old" }));
+    document.cookie = `an_ft=${encodeURIComponent('{"ref":"old"}')}; path=/`;
+    const { fetchMock } = installFetch();
+    const { captureAttribution } = await freshAnalytics();
+
+    captureAttribution();
+    await tick();
+
+    expect(localStorage.getItem("an_attribution")).toBeNull();
+    expect(localStorage.getItem("an_last_touch")).toBeNull();
+    for (const name of ["an_ft", "an_lt", "an_fts"]) {
+      expect(cookieAssignment(name)).toMatch(
+        new RegExp(`^${name}=; .*max-age=0`),
+      );
+    }
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        String(url).includes("/_agent-native/auth/attribution"),
+      ),
+    ).toBe(false);
+
+    const { setConsentChoice } = await import("./consent.js");
+    setConsentChoice({ performance: false, targeting: true });
+    await tick();
+
+    expect(cookieAssignment("an_consent")).toMatch(
+      /^an_consent=1\.p0\.t1; path=\/; max-age=31536000; SameSite=Lax; domain=agent-native\.com$/,
+    );
+    expect(JSON.parse(localStorage.getItem("an_attribution")!)).toMatchObject({
+      utm_source: "youtube",
+    });
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        String(url).includes("/_agent-native/auth/attribution"),
+      ),
+    ).toBe(true);
+
+    setConsentChoice({ performance: false, targeting: false });
+    expect(localStorage.getItem("an_attribution")).toBeNull();
+  });
+
+  it("stores attribution for a visitor outside the consent region", async () => {
+    const { localStorage, setTimeZone } = installBrowser(
+      "https://clips.agent-native.com/?utm_source=youtube",
+    );
+    setTimeZone("Europe/London");
+    installFetch();
+    const { captureAttribution } = await freshAnalytics();
+
+    captureAttribution();
+    await tick();
+
+    expect(JSON.parse(localStorage.getItem("an_attribution")!)).toMatchObject({
+      utm_source: "youtube",
+    });
+  });
+
+  it("sends first touch to the server for its year-long cookie", async () => {
+    installBrowser("https://clips.agent-native.com/?utm_source=youtube");
+    const { fetchMock } = installFetch();
+    const { captureAttribution } = await freshAnalytics();
+
+    captureAttribution();
+    await tick();
+
+    const call = fetchMock.mock.calls.find(([url]) =>
+      String(url).includes("/_agent-native/auth/attribution"),
+    );
+    expect(call?.[1]).toMatchObject({
+      method: "POST",
+      credentials: "same-origin",
+    });
+    expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({
+      firstTouch: { utm_source: "youtube", landing_path: "/" },
+    });
+  });
+
+  it("keeps first touch in the browser alone when the app's API is disabled", async () => {
+    const { localStorage } = installBrowser(
+      "https://design.agent-native.com/?utm_source=youtube",
+    );
+    const { fetchMock } = installFetch();
+    vi.resetModules();
+    const { setAgentNativeApiDisabled } = await import("./api-surface.js");
+    setAgentNativeApiDisabled("builder shell canvas");
+    const { captureAttribution } = await import("./analytics.js");
+
+    captureAttribution();
+    await tick();
+
+    expect(JSON.parse(localStorage.getItem("an_attribution")!)).toMatchObject({
+      utm_source: "youtube",
+    });
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        String(url).includes("/_agent-native/auth/attribution"),
+      ),
+    ).toBe(false);
+    setAgentNativeApiDisabled(null);
+  });
+
+  it("restores first touch from the server's cookie when the browser's copies are gone", async () => {
+    const { cookieJson, localStorage } = installBrowser(
+      "https://clips.agent-native.com/",
+    );
+    const serverTouch = {
+      utm_source: "youtube",
+      landing_path: "/share/c",
+      landed_at: "2026-01-02T00:00:00.000Z",
+    };
+    document.cookie = `an_fts=${encodeURIComponent(
+      JSON.stringify({ v: "1", ...serverTouch }),
+    )}; path=/`;
+    const { fetchMock } = installFetch();
+    const { captureAttribution, getFirstTouchAttribution } =
+      await freshAnalytics();
+
+    captureAttribution();
+    await tick();
+
+    expect(getFirstTouchAttribution()).toEqual(serverTouch);
+    expect(JSON.parse(localStorage.getItem("an_attribution")!)).toEqual(
+      serverTouch,
+    );
+    expect(cookieJson("an_ft")).toMatchObject({ utm_source: "youtube" });
+    // The restored `an_ft` was written by page JavaScript, so the server
+    // writes it again to outlast Safari's seven-day cap.
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        String(url).includes("/_agent-native/auth/attribution"),
+      ),
+    ).toBe(true);
+  });
+
+  it("asks the server to rewrite a new last touch when first touch is already synced", async () => {
+    installBrowser("https://clips.agent-native.com/?utm_source=linkedin");
+    const synced = {
+      utm_source: "youtube",
+      landing_path: "/",
+      landed_at: "2026-01-02T00:00:00.000Z",
+    };
+    const encoded = encodeURIComponent(JSON.stringify(synced));
+    window.localStorage.setItem("an_attribution", JSON.stringify(synced));
+    document.cookie = `an_ft=${encoded}; path=/`;
+    document.cookie = `an_fts=${encodeURIComponent(
+      JSON.stringify({ v: "1", ...synced }),
+    )}; path=/`;
+    const { fetchMock } = installFetch();
+    const { captureAttribution } = await freshAnalytics();
+
+    captureAttribution();
+    await tick();
+
+    const posts = fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes("/_agent-native/auth/attribution"),
+    );
+    expect(posts).toHaveLength(1);
+    expect(JSON.parse(String(posts[0]![1]!.body))).toMatchObject({
+      firstTouch: { utm_source: "youtube" },
+    });
+  });
+
+  it("sends nothing when every copy is already in place", async () => {
+    installBrowser("https://clips.agent-native.com/");
+    // A direct visit: no new last touch to write.
+    (document as { referrer: string }).referrer = "";
+    const synced = {
+      utm_source: "youtube",
+      landing_path: "/",
+      landed_at: "2026-01-02T00:00:00.000Z",
+    };
+    window.localStorage.setItem("an_attribution", JSON.stringify(synced));
+    document.cookie = `an_ft=${encodeURIComponent(JSON.stringify(synced))}; path=/`;
+    document.cookie = `an_fts=${encodeURIComponent(
+      JSON.stringify({ v: "1", ...synced }),
+    )}; path=/`;
+    const { fetchMock } = installFetch();
+    const { captureAttribution } = await freshAnalytics();
+
+    captureAttribution();
+    await tick();
+
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        String(url).includes("/_agent-native/auth/attribution"),
+      ),
+    ).toBe(false);
+  });
+
+  it("ignores a server cookie from another format version", async () => {
+    installBrowser("https://clips.agent-native.com/");
+    document.cookie = `an_fts=${encodeURIComponent(
+      JSON.stringify({ v: "2", utm_source: "youtube", landed_at: "x" }),
+    )}; path=/`;
+    const { getFirstTouchAttribution } = await freshAnalytics();
+
+    expect(getFirstTouchAttribution()).toBeNull();
+  });
+
+  it("sends the better first touch again when another tab's response lands after ours", async () => {
+    installBrowser("https://clips.agent-native.com/?utm_source=youtube");
+    const staleDirect = encodeURIComponent(
+      JSON.stringify({
+        v: "1",
+        landing_path: "/",
+        landed_at: "2026-10-16T00:00:00.000Z",
+      }),
+    );
+    const bodies: Array<Record<string, any>> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: unknown, init?: RequestInit) => {
+        if (String(url).includes("/_agent-native/auth/attribution")) {
+          const body = JSON.parse(String(init?.body));
+          bodies.push(body);
+          // The first response is overtaken by another tab's, which leaves
+          // its direct visit in the cookie; the resend is stored.
+          document.cookie =
+            bodies.length === 1
+              ? `an_fts=${staleDirect}; path=/`
+              : `an_fts=${encodeURIComponent(
+                  JSON.stringify({ v: "1", ...body.firstTouch }),
+                )}; path=/`;
+          return new Response(JSON.stringify({ stored: true }));
+        }
+        return new Response("{}");
+      }),
+    );
+    const { captureAttribution } = await freshAnalytics();
+
+    captureAttribution();
+    await tick();
+    await tick();
+
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1]!.firstTouch).toMatchObject({ utm_source: "youtube" });
+  });
+
+  it("clears attribution when the server says the visitor needs consent", async () => {
+    const { localStorage } = installBrowser(
+      "https://clips.agent-native.com/?utm_source=youtube",
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ stored: false, reason: "consent_required" }),
+          ),
+      ),
+    );
+    const { captureAttribution } = await freshAnalytics();
+
+    captureAttribution();
+    expect(localStorage.getItem("an_attribution")).not.toBeNull();
+    await tick();
+
+    expect(localStorage.getItem("an_attribution")).toBeNull();
+    expect(localStorage.getItem("an_last_touch")).toBeNull();
+  });
+
+  it("clears attribution when the visitor rejects while the sync is out", async () => {
+    const { localStorage, getCookie } = installBrowser(
+      "https://clips.agent-native.com/?utm_source=youtube",
+    );
+    let respond!: (response: Response) => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: unknown) =>
+        String(url).includes("/_agent-native/auth/attribution")
+          ? new Promise<Response>((resolve) => (respond = resolve))
+          : Promise.resolve(new Response(JSON.stringify({ region: "none" }))),
+      ),
+    );
+    const { captureAttribution } = await freshAnalytics();
+
+    captureAttribution();
+    const { setConsentChoice } = await import("./consent.js");
+    setConsentChoice({ performance: false, targeting: false });
+    expect(localStorage.getItem("an_attribution")).toBeNull();
+
+    // The server stored the touch before it heard about the reject.
+    respond(new Response(JSON.stringify({ stored: true })));
+    await tick();
+
+    expect(localStorage.getItem("an_attribution")).toBeNull();
+    expect(getCookie()).not.toMatch(/an_(ft|fts|lt)=[^;]/);
+  });
+
+  it("puts back the newest last touch when a slow response rolls it back", async () => {
+    const { localStorage, cookieJson } = installBrowser(
+      "https://clips.agent-native.com/?utm_source=youtube",
+    );
+    let respond!: (response: Response) => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: unknown) =>
+        String(url).includes("/_agent-native/auth/attribution")
+          ? new Promise<Response>((resolve) => (respond = resolve))
+          : Promise.resolve(new Response(JSON.stringify({ region: "none" }))),
+      ),
+    );
+    const { captureAttribution } = await freshAnalytics();
+    captureAttribution();
+    const newest = cookieJson("an_lt");
+    expect(newest).toMatchObject({ utm_source: "youtube" });
+
+    // An older page's response re-sets an_lt to the touch it carried.
+    document.cookie = `an_lt=${encodeURIComponent(
+      JSON.stringify({
+        utm_source: "older",
+        touched_at: "2026-01-01T00:00:00.000Z",
+      }),
+    )}; path=/`;
+    respond(new Response(JSON.stringify({ stored: true })));
+    await tick();
+
+    expect(cookieJson("an_lt")).toEqual(newest);
+    expect(JSON.parse(localStorage.getItem("an_last_touch")!)).toEqual(newest);
+  });
+
+  it("asks the server to rewrite a last touch it had to put back", async () => {
+    const { cookieJson } = installBrowser(
+      "https://clips.agent-native.com/?utm_source=youtube",
+    );
+    const responses: Array<(response: Response) => void> = [];
+    const fetchMock = vi.fn((url: unknown) =>
+      String(url).includes("/_agent-native/auth/attribution")
+        ? new Promise<Response>((resolve) => responses.push(resolve))
+        : Promise.resolve(new Response(JSON.stringify({ region: "none" }))),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { captureAttribution } = await freshAnalytics();
+    captureAttribution();
+    const firstTouch = cookieJson("an_ft");
+
+    // An older page's response rolls an_lt back; the server already holds
+    // this first touch.
+    document.cookie = `an_lt=${encodeURIComponent(
+      JSON.stringify({
+        utm_source: "older",
+        touched_at: "2026-01-01T00:00:00.000Z",
+      }),
+    )}; path=/`;
+    document.cookie = `an_fts=${encodeURIComponent(
+      JSON.stringify({ v: "1", ...firstTouch }),
+    )}; path=/`;
+    responses[0]!(new Response(JSON.stringify({ stored: true })));
+    await tick();
+
+    const posts = fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes("/_agent-native/auth/attribution"),
+    );
+    expect(posts).toHaveLength(2);
+  });
+
+  it("ignores a stored first touch older than a year", async () => {
+    const { localStorage } = installBrowser(
+      "https://clips.agent-native.com/?utm_source=youtube",
+    );
+    installFetch();
+    localStorage.setItem(
+      "an_attribution",
+      JSON.stringify({
+        utm_source: "stale",
+        landing_path: "/",
+        landed_at: new Date(Date.now() - 400 * 86_400_000).toISOString(),
+      }),
+    );
+    const { captureAttribution, getFirstTouchAttribution } =
+      await freshAnalytics();
+
+    captureAttribution();
+
+    expect(getFirstTouchAttribution()).toMatchObject({
+      utm_source: "youtube",
+    });
   });
 
   it("emits return usage after a seven-day gap between app entries", async () => {
@@ -412,6 +1267,9 @@ describe("browser analytics pageviews", () => {
       if (String(url).includes("/_agent-native/auth/session")) {
         return pendingSession;
       }
+      if (String(url).includes("/_agent-native/auth/")) {
+        return Promise.resolve(new Response("{}"));
+      }
       analyticsCalls.push([url, init ?? {}]);
       return Promise.resolve(new Response("{}"));
     });
@@ -438,7 +1296,7 @@ describe("browser analytics pageviews", () => {
     resolveSession(
       new Response(
         JSON.stringify({
-          email: "owner@example.test",
+          email: "owner@example.com",
           userId: "auth-user-1",
           orgId: "org-1",
         }),
@@ -453,7 +1311,7 @@ describe("browser analytics pageviews", () => {
     expect(appEntries).toHaveLength(1);
     expect(appEntries[0].properties).toMatchObject({
       app_name: "mail",
-      user_email: "owner@example.test",
+      user_email: "owner@example.com",
       workspace_id: "org-1",
     });
   });
@@ -480,6 +1338,248 @@ describe("browser analytics pageviews", () => {
     expect(gtag).not.toHaveBeenCalled();
     expect(amplitudeMock.init).not.toHaveBeenCalled();
     expect(sentryMock.init).not.toHaveBeenCalled();
+  });
+
+  it("sends Amplitude nothing from before the visitor accepts", async () => {
+    const { session } = installBrowser();
+    session.set("an_consent_region", "consent");
+    installFetch();
+    vi.stubEnv("VITE_AMPLITUDE_API_KEY", "amp_test");
+    // An earlier page in this tab already knew the region.
+    await (await import("./consent.js")).resolveConsentRegion();
+    const { configureTracking, trackEvent } = await freshAnalytics();
+    configureTracking({
+      llmConnectionStatus: false,
+      authSessionRefresh: false,
+      pageviewTracking: false,
+    });
+    const { setConsentChoice } = await import("./consent.js");
+
+    trackEvent("before_consent", {});
+    setConsentChoice({ performance: true, targeting: false });
+    await tick();
+    trackEvent("after_consent", {});
+
+    expect(amplitudeMock.init).toHaveBeenCalledTimes(1);
+    expect(amplitudeMock.track.mock.calls.map(([name]) => name)).toEqual([
+      "after_consent",
+    ]);
+  });
+
+  it("leaves Amplitude off when a reject lands while it loads", async () => {
+    const { session } = installBrowser();
+    session.set("an_consent_region", "consent");
+    installFetch();
+    vi.stubEnv("VITE_AMPLITUDE_API_KEY", "amp_test");
+    const { configureTracking, trackEvent } = await freshAnalytics();
+    configureTracking({
+      llmConnectionStatus: false,
+      authSessionRefresh: false,
+      pageviewTracking: false,
+    });
+    trackEvent("before_consent", {});
+    const { setConsentChoice } = await import("./consent.js");
+
+    setConsentChoice({ performance: true, targeting: false });
+    setConsentChoice({ performance: false, targeting: false });
+    trackEvent("after_reject", {});
+    await tick();
+
+    expect(amplitudeMock.init).not.toHaveBeenCalled();
+    expect(amplitudeMock.track).not.toHaveBeenCalled();
+
+    setConsentChoice({ performance: true, targeting: false });
+    await tick();
+    expect(amplitudeMock.init).toHaveBeenCalledTimes(1);
+    expect(amplitudeMock.track).not.toHaveBeenCalledWith(
+      "after_reject",
+      expect.anything(),
+    );
+  });
+
+  it("starts Amplitude in the consent region only after analytics consent", async () => {
+    const { session, setTimeZone } = installBrowser();
+    session.clear();
+    setTimeZone("Europe/Berlin");
+    installFetch();
+    vi.stubEnv("VITE_AMPLITUDE_API_KEY", "amp_test");
+    const { configureTracking, trackEvent } = await freshAnalytics();
+
+    configureTracking({
+      llmConnectionStatus: false,
+      authSessionRefresh: false,
+      pageviewTracking: false,
+    });
+    trackEvent("before_consent", {});
+    await tick();
+    expect(amplitudeMock.init).not.toHaveBeenCalled();
+
+    const { setConsentChoice } = await import("./consent.js");
+    setConsentChoice({ performance: true, targeting: false });
+    await tick();
+
+    expect(amplitudeMock.init).toHaveBeenCalledWith("amp_test", {
+      autocapture: false,
+    });
+  });
+
+  it("clears Amplitude's stored device id when the visitor rejects after accepting", async () => {
+    const { session, setTimeZone, localStorage, cookieAssignment } =
+      installBrowser();
+    session.clear();
+    setTimeZone("Europe/Berlin");
+    installFetch();
+    vi.stubEnv("VITE_AMPLITUDE_API_KEY", "amp_test_key_123");
+    const { configureTracking, trackEvent } = await freshAnalytics();
+    configureTracking({
+      llmConnectionStatus: false,
+      authSessionRefresh: false,
+      pageviewTracking: false,
+    });
+    trackEvent("before_consent", {});
+    const { setConsentChoice } = await import("./consent.js");
+    setConsentChoice({ performance: true, targeting: false });
+    await tick();
+    expect(amplitudeMock.init).toHaveBeenCalled();
+    // Sent while the visitor hadn't chosen yet, so it stays unsent.
+    expect(amplitudeMock.track).not.toHaveBeenCalledWith(
+      "before_consent",
+      expect.anything(),
+    );
+    // What the SDK stored once it started.
+    document.cookie = "AMP_amp_test_k=device; path=/";
+    localStorage.setItem("AMP_unsent_amp_test_k", "[]");
+
+    setConsentChoice({ performance: false, targeting: false });
+
+    expect(amplitudeMock.setOptOut).toHaveBeenLastCalledWith(true);
+    expect(amplitudeMock.reset).toHaveBeenCalledOnce();
+    expect(cookieAssignment("AMP_amp_test_k")).toContain("max-age=0");
+    expect(localStorage.getItem("AMP_unsent_amp_test_k")).toBeNull();
+  });
+
+  it("sends first-party events without a visitor id until analytics consent", async () => {
+    const { session, localStorage, getCookie } = installBrowser();
+    session.set("an_consent_region", "consent");
+    const { analyticsCalls } = installFetch();
+    const lastEvent = () =>
+      JSON.parse(
+        String(
+          analyticsCalls
+            .filter(([url]) => String(url).endsWith("/track"))
+            .at(-1)![1].body,
+        ),
+      );
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    const { configureTracking, trackEvent } = await freshAnalytics();
+    configureTracking({ pageviewTracking: false });
+
+    trackEvent("before_consent", {});
+    await tick();
+    const before = lastEvent();
+    expect(before.anonymousId).toBeUndefined();
+    expect(before.properties.analytics_consent).toBe("withheld");
+    expect(localStorage.getItem("agent-native.anonymous_id")).toBeNull();
+    expect(getCookie()).not.toMatch(/an_aid=[^;]/);
+
+    const { setConsentChoice } = await import("./consent.js");
+    setConsentChoice({ performance: true, targeting: false });
+    trackEvent("after_consent", {});
+    await tick();
+    const after = lastEvent();
+    expect(after.anonymousId).toEqual(expect.any(String));
+    expect(after.properties.analytics_consent).toBeUndefined();
+    expect(getCookie()).toContain(`an_aid=${after.anonymousId}`);
+
+    setConsentChoice({ performance: false, targeting: false });
+    expect(localStorage.getItem("agent-native.anonymous_id")).toBeNull();
+    expect(getCookie()).not.toMatch(/an_aid=[^;]/);
+  });
+
+  it("clears a visitor id an earlier page stored when a reject is already known", async () => {
+    const { session, localStorage, getCookie } = installBrowser();
+    session.set("an_consent_region", "consent");
+    localStorage.setItem("agent-native.anonymous_id", "earlier-visitor");
+    document.cookie = "an_aid=earlier-visitor; path=/";
+    document.cookie = "an_consent=1.p0.t0; path=/";
+    const consent = await import("./consent.js");
+    consent.whenConsentAllows("performance", () => {});
+    await tick();
+    installFetch();
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    const { configureTracking, trackEvent } = await freshAnalytics();
+    configureTracking({ pageviewTracking: false });
+
+    trackEvent("after_reject", {});
+    await tick();
+
+    expect(localStorage.getItem("agent-native.anonymous_id")).toBeNull();
+    expect(getCookie()).not.toMatch(/an_aid=[^;]/);
+  });
+
+  it("holds events until the server's region decides the visitor id", async () => {
+    const { session, setTimeZone } = installBrowser();
+    session.clear();
+    // The time zone guesses outside the region; the server says inside.
+    setTimeZone("America/New_York");
+    const { fetchMock, analyticsCalls } = installFetch();
+    let answerRegion: (region: string) => void = () => {};
+    fetchMock.mockImplementation(async (url: unknown, init?: RequestInit) => {
+      if (String(url).includes("/_agent-native/auth/consent-region")) {
+        const region = await new Promise<string>((resolve) => {
+          answerRegion = resolve;
+        });
+        return new Response(JSON.stringify({ region }));
+      }
+      if (String(url).includes("/_agent-native/")) {
+        return new Response(JSON.stringify({ error: "not authenticated" }));
+      }
+      analyticsCalls.push([url, init ?? {}]);
+      return new Response("{}");
+    });
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    const { configureTracking, trackEvent } = await freshAnalytics();
+    configureTracking({ pageviewTracking: false });
+
+    trackEvent("before_region", {});
+    await tick();
+    expect(analyticsCalls).toEqual([]);
+
+    answerRegion("consent");
+    await vi.waitFor(() => expect(analyticsCalls).toHaveLength(1));
+    const held = JSON.parse(String(analyticsCalls[0]![1].body));
+    expect(held.event).toBe("before_region");
+    expect(held.anonymousId).toBeUndefined();
+    expect(held.properties.analytics_consent).toBe("withheld");
+  });
+
+  it("sends held events without a visitor id when the page closes first", async () => {
+    const { session, listeners } = installBrowser();
+    session.clear();
+    const { fetchMock, analyticsCalls } = installFetch();
+    fetchMock.mockImplementation(async (url: unknown, init?: RequestInit) => {
+      if (String(url).includes("/_agent-native/auth/consent-region")) {
+        return new Promise<Response>(() => {});
+      }
+      if (String(url).includes("/_agent-native/")) {
+        return new Response(JSON.stringify({ error: "not authenticated" }));
+      }
+      analyticsCalls.push([url, init ?? {}]);
+      return new Response("{}");
+    });
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    const { configureTracking, trackEvent } = await freshAnalytics();
+    configureTracking({ pageviewTracking: false });
+
+    trackEvent("before_leaving", {});
+    await tick();
+    expect(analyticsCalls).toEqual([]);
+
+    for (const listener of listeners.pagehide ?? []) listener();
+    const sent = JSON.parse(String(analyticsCalls[0]![1].body));
+    expect(sent.event).toBe("before_leaving");
+    expect(sent.anonymousId).toBeUndefined();
+    expect(sent.properties.analytics_consent).toBe("unknown");
   });
 
   it("mirrors timing browser events to the OTel bridge", async () => {
@@ -520,6 +1620,42 @@ describe("browser analytics pageviews", () => {
       expect.objectContaining({ value: "isolated" }),
     );
     expect(gtag).not.toHaveBeenCalled();
+  });
+
+  it("sends Google events held for the region once it allows them", async () => {
+    const { gtag, session } = installBrowser();
+    session.clear();
+    installFetch();
+    const { configureTracking, trackEvent } = await freshAnalytics();
+    configureTracking({ pageviewTracking: false });
+
+    trackEvent("custom_ga_event", { value: "held" });
+    expect(gtag).not.toHaveBeenCalled();
+
+    await vi.waitFor(() =>
+      expect(gtag).toHaveBeenCalledWith(
+        "event",
+        "custom_ga_event",
+        expect.objectContaining({ value: "held" }),
+      ),
+    );
+  });
+
+  it("asks for no consent region when the page has no Google tags", async () => {
+    const { session } = installBrowser();
+    delete (window as Window & { gtag?: unknown }).gtag;
+    session.clear();
+    const { fetchMock } = installFetch();
+    const { trackEvent } = await freshAnalytics();
+
+    trackEvent("custom_event", { value: "no tags" });
+    await tick();
+
+    expect(
+      fetchMock.mock.calls.filter(([url]) =>
+        String(url).includes("/consent-region"),
+      ),
+    ).toEqual([]);
   });
 
   it("uses the configured native client platform for every pageview", async () => {
@@ -659,6 +1795,126 @@ describe("browser analytics pageviews", () => {
     expect(amplitudeException?.[1]).not.toHaveProperty("exceptionExtra");
   });
 
+  it("sends web_vitals with its route and never the page's path", async () => {
+    const { gtag } = installBrowser(
+      "https://slides.agent-native.com/decks/jane@example.com?tab=1",
+    );
+    const { analyticsCalls } = installFetch();
+    vi.stubEnv("VITE_AMPLITUDE_API_KEY", "amplitude_test");
+    const { configureTracking, trackEvent } = await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/track",
+      pageviewTracking: false,
+      getDefaultProps: (_name, properties) => ({
+        ...properties,
+        path: "/decks/jane@example.com",
+      }),
+    });
+    await tick();
+    amplitudeMock.track.mockClear();
+    analyticsCalls.length = 0;
+
+    trackEvent("web_vitals", { route: "/decks/:id", lcp_ms: 1200 });
+    trackEvent("deck_opened", { deck_count: 1 });
+    await tick();
+
+    const bodies = analyticsCalls.map(([, init]) =>
+      JSON.parse(String(init.body)),
+    );
+    const vitals = bodies.find((body) => body.event === "web_vitals");
+    expect(vitals?.properties).toMatchObject({
+      route: "/decks/:id",
+      lcp_ms: 1200,
+    });
+    expect(JSON.stringify(vitals?.properties)).not.toContain("jane");
+    const amplitudeVitals = amplitudeMock.track.mock.calls.find(
+      ([name]) => name === "web_vitals",
+    );
+    expect(amplitudeVitals?.[1]).toMatchObject({ route: "/decks/:id" });
+    expect(JSON.stringify(amplitudeVitals?.[1])).not.toContain("jane");
+    const gtagVitals = gtag.mock.calls.find(
+      ([, name]) => name === "web_vitals",
+    );
+    expect(gtagVitals?.[2]).toMatchObject({ route: "/decks/:id" });
+    expect(JSON.stringify(gtagVitals?.[2])).not.toContain("jane");
+    // Every other event keeps the page it happened on.
+    expect(
+      bodies.find((body) => body.event === "deck_opened")?.properties,
+    ).toMatchObject({
+      url: "https://slides.agent-native.com/decks/jane@example.com",
+    });
+  });
+
+  it("links the open chat thread on a first-party exception, and leaves one outside a thread alone", async () => {
+    installBrowser("https://mail.agent-native.com/inbox?thread=thr_9&token=s");
+    const { analyticsCalls } = installFetch();
+    const { captureException, configureTracking } = await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/track",
+      errorCapture: {
+        captureGlobalErrors: false,
+        captureUnhandledRejections: false,
+      },
+    });
+    await tick();
+    analyticsCalls.length = 0;
+
+    captureException(new Error("Chat render failed"), {
+      extra: { phase: "render" },
+    });
+    captureException(new Error("Own packet"), {
+      extra: { failureContext: { runId: "run_own" } },
+    });
+    await tick();
+
+    const exceptions = analyticsCalls
+      .map(([, init]) => JSON.parse(String(init.body)))
+      .filter((body) => body.event === "$exception");
+    const byMessage = (message: string) =>
+      exceptions.find((body) => body.properties.exceptionMessage === message)
+        ?.properties.exceptionExtra;
+    expect(byMessage("Chat render failed")).toMatchObject({
+      phase: "render",
+      failureContext: {
+        threadId: "thr_9",
+        threadUrl: "https://mail.agent-native.com/?thread=thr_9",
+      },
+    });
+    expect(JSON.stringify(exceptions)).not.toContain("token=s");
+    expect(byMessage("Own packet").failureContext).toEqual({
+      runId: "run_own",
+    });
+  });
+
+  it("stamps first-party exception events with a real release", async () => {
+    installBrowser();
+    const { analyticsCalls } = installFetch();
+    const { captureException, configureTracking } = await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/track",
+      errorCapture: {
+        captureGlobalErrors: false,
+        captureUnhandledRejections: false,
+      },
+    });
+    await tick();
+    analyticsCalls.length = 0;
+
+    captureException(new Error("Renderer failed"));
+    await tick();
+
+    const exception = analyticsCalls
+      .map(([, init]) => JSON.parse(String(init.body)))
+      .find((body) => body.event === "$exception");
+    expect(exception?.properties.release).toMatch(/^agent-native-client@/);
+  });
+
   it("accepts the first-party public key and endpoint at configure time", async () => {
     installBrowser();
     const { analyticsCalls } = installFetch();
@@ -699,6 +1955,25 @@ describe("browser analytics pageviews", () => {
     });
   });
 
+  it("sends a beta app's events to beta Analytics", async () => {
+    installBrowser("https://beta.clips.agent-native.com/library");
+    const { analyticsCalls } = installFetch();
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      agentNativeAnalyticsPublicKey: "anpk_ssr_config",
+      agentNativeAnalyticsEndpoint:
+        "https://analytics.agent-native.com/api/analytics/track",
+    };
+    const { configureTracking, trackEvent } = await freshAnalytics();
+
+    configureTracking({ pageviewTracking: false });
+    trackEvent("beta_lane_event");
+
+    const [url] = analyticsCalls[0];
+    expect(url).toBe(
+      "https://beta.analytics.agent-native.com/api/analytics/track",
+    );
+  });
+
   it("emits canonical browser aliases while retaining legacy events", async () => {
     const { gtag } = installBrowser();
     const { analyticsCalls } = installFetch();
@@ -725,6 +2000,10 @@ describe("browser analytics pageviews", () => {
         legacy_event_name: legacyName,
       },
     });
+    expect(events[0]?.properties.event_alias_id).toEqual(
+      events[1]?.properties.event_alias_id,
+    );
+    expect(events[0]?.properties.event_alias_id).toEqual(expect.any(String));
     expect(gtag).toHaveBeenCalledWith(
       "event",
       "session_status",
@@ -737,16 +2016,17 @@ describe("browser analytics pageviews", () => {
   });
 
   it("attaches the signed-in session identity to first-party analytics", async () => {
-    installBrowser();
+    const { gtag } = installBrowser();
     const { analyticsCalls } = installFetch({
       session: {
         email: "dev@example.com",
         userId: "auth-user-1",
+        authUserId: "better-auth-user-1",
         name: "Dev User",
         orgId: "org_123",
       },
     });
-    const { configureTracking } = await freshAnalytics();
+    const { configureTracking, trackEvent } = await freshAnalytics();
 
     configureTracking({
       key: "anpk_configured",
@@ -775,6 +2055,318 @@ describe("browser analytics pageviews", () => {
       template_name: "clips",
       session_id: expect.any(String),
     });
+
+    trackEvent("authenticated_event", {
+      auth_user_id: "caller-spoof",
+      authUserId: "camel-case-spoof",
+    });
+    await tick();
+
+    const trackedEvent = analyticsCalls
+      .map(([, init]) => JSON.parse(String(init.body)))
+      .find((event) => event.event === "authenticated_event");
+    expect(trackedEvent?.properties.auth_user_id).toBe("better-auth-user-1");
+    expect(trackedEvent?.properties).not.toHaveProperty("authUserId");
+    const gtagEvent = gtag.mock.calls.find(
+      ([command, eventName]) =>
+        command === "event" && eventName === "authenticated_event",
+    );
+    expect(gtagEvent?.[2]).not.toHaveProperty("auth_user_id");
+  });
+
+  it("drops caller-supplied auth ids when no session identity is available", async () => {
+    const { gtag } = installBrowser();
+    const { analyticsCalls } = installFetch();
+    const { configureTracking, trackEvent } = await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      pageviewTracking: false,
+      authSessionRefresh: false,
+      llmConnectionStatus: false,
+      errorCapture: false,
+    });
+    trackEvent("anonymous_event", {
+      auth_user_id: "caller-spoof",
+      authUserId: "camel-case-spoof",
+    });
+    await tick();
+
+    const trackedEvent = analyticsCalls
+      .map(([, init]) => JSON.parse(String(init.body)))
+      .find((event) => event.event === "anonymous_event");
+    expect(trackedEvent?.properties).not.toHaveProperty("auth_user_id");
+    expect(trackedEvent?.properties).not.toHaveProperty("authUserId");
+    const gtagEvent = gtag.mock.calls.find(
+      ([command, eventName]) =>
+        command === "event" && eventName === "anonymous_event",
+    );
+    expect(gtagEvent?.[2]).not.toHaveProperty("auth_user_id");
+  });
+
+  it("preserves the validated canonical id when the session hook publishes identity", async () => {
+    installBrowser();
+    const { analyticsCalls } = installFetch();
+    const { configureTracking, setSentryUser, trackEvent } =
+      await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      pageviewTracking: false,
+      authSessionRefresh: false,
+      llmConnectionStatus: false,
+      errorCapture: false,
+    });
+    setSentryUser({
+      id: "provider-subject-1",
+      email: "person@example.com",
+      authUserId: "canonical-user-1",
+    });
+    trackEvent("recording_started");
+    await tick();
+
+    const event = analyticsCalls
+      .map(([, init]) => JSON.parse(String(init.body)))
+      .find((entry) => entry.event === "recording_started");
+    expect(event?.properties).toMatchObject({
+      user_id: "person@example.com",
+      auth_user_id: "canonical-user-1",
+    });
+  });
+
+  it("clears the canonical id when the current session no longer supplies one", async () => {
+    installBrowser();
+    const { analyticsCalls } = installFetch();
+    const { configureTracking, setSentryUser, trackEvent } =
+      await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      pageviewTracking: false,
+      authSessionRefresh: false,
+      llmConnectionStatus: false,
+      errorCapture: false,
+    });
+    setSentryUser({
+      id: "provider-subject-1",
+      email: "person@example.com",
+      authUserId: "canonical-user-1",
+    });
+    trackEvent("before_session_refresh");
+    setSentryUser({ id: "provider-subject-1", email: "person@example.com" });
+    trackEvent("after_session_refresh");
+    await tick();
+
+    const events = analyticsCalls.map(([, init]) =>
+      JSON.parse(String(init.body)),
+    );
+    expect(
+      events.find((entry) => entry.event === "before_session_refresh")
+        ?.properties.auth_user_id,
+    ).toBe("canonical-user-1");
+    expect(
+      events.find((entry) => entry.event === "after_session_refresh")
+        ?.properties,
+    ).not.toHaveProperty("auth_user_id");
+  });
+
+  it("sends explicitly anonymous events without resolved user identity", async () => {
+    installBrowser("https://app.agent-native.com/plans");
+    const { analyticsCalls } = installFetch();
+    const { configureTracking, setTrackingIdentity, trackAnonymousEvent } =
+      await freshAnalytics();
+    setTrackingIdentity({
+      email: "private@example.com",
+      userId: "auth-user-1",
+      authUserId: "canonical-auth-user-1",
+    });
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      authSessionRefresh: false,
+      errorCapture: false,
+    });
+
+    trackAnonymousEvent("plan_invite_suggestion_shown", {
+      trigger: "first_share",
+    });
+    await tick();
+
+    const event = analyticsCalls
+      .map(([, init]) => JSON.parse(String(init.body)))
+      .find((entry) => entry.event === "plan_invite_suggestion_shown");
+    expect(event?.properties).toEqual({ trigger: "first_share" });
+    expect(event?.userId).toBeUndefined();
+    expect(amplitudeMock.track).not.toHaveBeenCalled();
+  });
+
+  it("tracks replay attempts without email, URL, or replay content", async () => {
+    installBrowser("https://app.agent-native.com/private?token=private-url", {
+      email: "private@example.com",
+      userId: "auth-user-1",
+      authUserId: "canonical-auth-user-1",
+    });
+    const { analyticsCalls } = installFetch({
+      session: {
+        email: "private@example.com",
+        userId: "auth-user-1",
+        authUserId: "canonical-auth-user-1",
+      },
+    });
+    const { configureTracking, setTrackingIdentity } = await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      pageviewTracking: false,
+      llmConnectionStatus: false,
+      errorCapture: false,
+      getDefaultProps: (_name, properties) => ({
+        ...properties,
+        auth_user_id: "spoofed-auth-user",
+        user_email: "private@example.com",
+        url: "https://app.agent-native.com/private?token=private-url",
+        replay_content: "private-replay-content",
+      }),
+      sessionReplay: true,
+    });
+    await tick();
+
+    const replayOptions = replayMock.startSessionReplay.mock.calls[0][0];
+    replayOptions.onRecordingStarted("opaque-attempt-1");
+    replayOptions.onUploadRejectedWithAttemptId(
+      {
+        status: 409,
+        restartAttempted: true,
+        restartSucceeded: true,
+      },
+      "opaque-attempt-1",
+    );
+    await tick();
+
+    const events = analyticsCalls.map(([, init]) =>
+      JSON.parse(String(init.body)),
+    );
+    const started = events.find(
+      (event) => event.event === "session_replay_started",
+    );
+    const rejected = events.find(
+      (event) => event.event === "session replay upload rejected",
+    );
+    expect(started.properties).toEqual({
+      recording_attempt_id: "opaque-attempt-1",
+      auth_user_id: "canonical-auth-user-1",
+    });
+    expect(rejected.properties).toMatchObject({
+      recording_attempt_id: "opaque-attempt-1",
+      auth_user_id: "canonical-auth-user-1",
+      status: 409,
+    });
+    expect(JSON.stringify([started, rejected])).not.toMatch(
+      /private@example\.test|private-url|private-replay-content|spoofed-auth-user/,
+    );
+
+    setTrackingIdentity(null);
+    replayOptions.onRecordingStarted("opaque-attempt-anonymous");
+    await tick();
+    const anonymousStart = analyticsCalls
+      .map(([, init]) => JSON.parse(String(init.body)))
+      .find(
+        (event) =>
+          event.event === "session_replay_started" &&
+          event.properties.recording_attempt_id === "opaque-attempt-anonymous",
+      );
+    expect(anonymousStart.properties).not.toHaveProperty("auth_user_id");
+    expect(anonymousStart.properties).not.toHaveProperty("user_email");
+    expect(anonymousStart.properties).not.toHaveProperty("url");
+  });
+
+  it("tracks replay upload rejection when caller callbacks are configured", async () => {
+    installBrowser();
+    const { analyticsCalls } = installFetch({
+      session: {
+        email: "owner@example.com",
+        userId: "owner-id",
+        authUserId: "owner-id",
+      },
+    });
+    const onUploadRejected = vi.fn();
+    const onUploadRejectedWithAttemptId = vi.fn();
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      pageviewTracking: false,
+      llmConnectionStatus: false,
+      errorCapture: false,
+      sessionReplay: { onUploadRejected, onUploadRejectedWithAttemptId },
+    });
+    await tick();
+
+    const replayOptions = replayMock.startSessionReplay.mock.calls[0][0];
+    const details = {
+      status: 429,
+      restartAttempted: false,
+      restartSucceeded: false,
+      failureReason: "quota_pause",
+    };
+    replayOptions.onUploadRejected(details);
+    replayOptions.onUploadRejectedWithAttemptId(details, "opaque-attempt-2");
+    await tick();
+
+    expect(onUploadRejected).toHaveBeenCalledTimes(1);
+    expect(onUploadRejected).toHaveBeenCalledWith(details);
+    expect(onUploadRejectedWithAttemptId).toHaveBeenCalledTimes(1);
+    expect(onUploadRejectedWithAttemptId).toHaveBeenCalledWith(
+      details,
+      "opaque-attempt-2",
+    );
+    const rejection = analyticsCalls
+      .map(([, init]) => JSON.parse(String(init.body)))
+      .find((event) => event.event === "session replay upload rejected");
+    expect(rejection.properties).toMatchObject({
+      recording_attempt_id: "opaque-attempt-2",
+      status: 429,
+      failure_reason: "quota_pause",
+    });
+  });
+
+  it("preserves the caller replay-start hook when telemetry dispatch throws", async () => {
+    const { gtag } = installBrowser();
+    const { analyticsCalls } = installFetch({
+      session: {
+        email: "owner@example.com",
+        userId: "owner-id",
+        authUserId: "owner-id",
+      },
+    });
+    const onRecordingStarted = vi.fn();
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      pageviewTracking: false,
+      llmConnectionStatus: false,
+      errorCapture: false,
+      sessionReplay: { onRecordingStarted },
+    });
+    await tick();
+    analyticsCalls.length = 0;
+
+    const replayOptions = replayMock.startSessionReplay.mock.calls[0][0];
+    gtag.mockImplementation(() => {
+      throw new Error("analytics dispatch failed");
+    });
+
+    expect(() =>
+      replayOptions.onRecordingStarted("opaque-attempt-2"),
+    ).not.toThrow();
+    expect(onRecordingStarted).toHaveBeenCalledWith("opaque-attempt-2");
   });
 
   it("suppresses browser telemetry for QA signup identities", async () => {
@@ -789,6 +2381,7 @@ describe("browser analytics pageviews", () => {
       configureTracking,
       setTrackingIdentity,
       trackAgentChatLifecycle,
+      trackAnonymousEvent,
       trackEvent,
     } = await freshAnalytics();
 
@@ -814,6 +2407,9 @@ describe("browser analytics pageviews", () => {
       "org_qa",
     );
     trackEvent("signup completed");
+    trackAnonymousEvent("plan_invite_suggestion_shown", {
+      trigger: "first_share",
+    });
     trackAgentChatLifecycle({ phase: "surface-mounted", surface: "signup" });
     expect(
       captureClientException(new Error("QA canary failure")),
@@ -827,6 +2423,76 @@ describe("browser analytics pageviews", () => {
     expect(sentryMock.captureException).not.toHaveBeenCalled();
     expect(replayMock.startSessionReplay).not.toHaveBeenCalled();
     expect(replayMock.emitSessionReplayAgentChatEvent).not.toHaveBeenCalled();
+  });
+
+  it("keeps a session-flagged test identity out of every browser provider", async () => {
+    const { gtag } = installBrowser();
+    const { analyticsCalls } = installFetch({
+      session: {
+        email: "lead@qa.acme.co",
+        userId: "auth-user-qa",
+        orgId: "org_qa",
+        testIdentity: true,
+      },
+    });
+    vi.stubEnv("VITE_AMPLITUDE_API_KEY", "amplitude_test");
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      sentryDsn: "https://public@example/4511270423822336",
+    };
+    const { captureClientException, configureTracking, trackEvent } =
+      await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      sessionReplay: { requireSignedInUser: true },
+    });
+    await tick();
+    trackEvent("signup_completed");
+    expect(
+      captureClientException(new Error("configured QA failure")),
+    ).toBeUndefined();
+    await tick();
+
+    expect(analyticsCalls).toHaveLength(0);
+    expect(gtag).not.toHaveBeenCalledWith(
+      "event",
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(amplitudeMock.track).not.toHaveBeenCalled();
+    expect(sentryMock.captureException).not.toHaveBeenCalled();
+    expect(replayMock.startSessionReplay).not.toHaveBeenCalled();
+  });
+
+  it("suppresses a published identity on the session's test-identity flag", async () => {
+    installBrowser();
+    const { analyticsCalls } = installFetch();
+    const { configureTracking, setTrackingIdentity, trackEvent } =
+      await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      pageviewTracking: false,
+      authSessionRefresh: false,
+      llmConnectionStatus: false,
+      errorCapture: false,
+    });
+    setTrackingIdentity({ id: "auth-user-qa", email: "lead@qa.acme.co" });
+    trackEvent("tracked_before_flag");
+    setTrackingIdentity({
+      id: "auth-user-qa",
+      email: "lead@qa.acme.co",
+      testIdentity: true,
+    });
+    trackEvent("suppressed_after_flag");
+    await tick();
+
+    const events = analyticsCalls.map(
+      ([, init]) => JSON.parse(String(init.body)).event,
+    );
+    expect(events).toEqual(["tracked_before_flag"]);
   });
 
   it("tracks client-side URL changes once per URL", async () => {
@@ -851,6 +2517,9 @@ describe("browser analytics pageviews", () => {
       "/sent",
     ]);
     expect(events[1].properties.navigation_type).toBe("pushState");
+    expect(events[1].properties.page_load_id).toBe(
+      events[0].properties.page_load_id,
+    );
   });
 
   it("drops a queued pageview when the browser environment is gone", async () => {
@@ -956,6 +2625,88 @@ describe("browser analytics pageviews", () => {
     );
   });
 
+  it("marks named app events on the replay once, without telemetry events", async () => {
+    installBrowser("https://clips.agent-native.com/library");
+    installFetch({
+      session: { email: "dev@example.com", userId: "auth-user-1" },
+    });
+    replayMock.startSessionReplay.mockResolvedValue({
+      started: true,
+      replayId: "replay-1",
+      sessionId: "browser-session-1",
+    });
+    const { configureTracking, trackEvent } = await freshAnalytics();
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      sessionReplay: true,
+    });
+    await tick();
+
+    trackEvent("recording_started", { clip_id: "clip-1" });
+    trackEvent("share_link_copied", { clip_id: "clip-1" });
+    trackEvent("pageview");
+    trackEvent("action.response", { action: "list-clips" });
+    trackEvent("session_status", { signed_in: true });
+    const replayOptions = replayMock.startSessionReplay.mock.calls[0][0];
+    replayOptions.onUploadRejectedWithAttemptId(
+      { status: 409, restartAttempted: true, restartSucceeded: true },
+      "opaque-attempt-1",
+    );
+    await tick();
+
+    const marked = replayMock.emitSessionReplayAnalyticsEvent.mock.calls.map(
+      ([name]) => name,
+    );
+    expect(marked).toContain("recording_started");
+    // The lifecycle alias (output_shared) describes the same moment.
+    expect(marked.filter((name) => name !== "recording_started")).toHaveLength(
+      1,
+    );
+    expect(marked).not.toContain("output_shared");
+    expect(marked).not.toContain("pageview");
+    expect(marked).not.toContain("action.response");
+    expect(marked).not.toContain("session_status");
+    expect(marked).not.toContain("session_replay_upload_rejected");
+  });
+
+  it("marks a slow action response someone waited for on the replay with its own timing", async () => {
+    installBrowser("https://clips.agent-native.com/library");
+    installFetch({
+      session: { email: "dev@example.com", userId: "auth-user-1" },
+    });
+    replayMock.startSessionReplay.mockResolvedValue({
+      started: true,
+      replayId: "replay-1",
+      sessionId: "browser-session-1",
+    });
+    const { configureTracking, trackEvent } = await freshAnalytics();
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      sessionReplay: true,
+    });
+    await tick();
+
+    const slow = {
+      action: "save-clip",
+      method: "POST",
+      duration_ms: 1_000,
+      status_code: 500,
+      outcome: "error",
+    };
+    trackEvent("action.response", slow);
+    trackEvent("action.response", { ...slow, duration_ms: 999 });
+    trackEvent("action.response", { ...slow, page_hidden: true });
+    trackEvent("action.response", { ...slow, outcome: "cancelled" });
+    await tick();
+
+    expect(replayMock.emitSessionReplaySlowRequest).toHaveBeenCalledTimes(1);
+    expect(replayMock.emitSessionReplaySlowRequest).toHaveBeenCalledWith(
+      expect.objectContaining(slow),
+    );
+  });
+
   it("switches content capture before emitting client-side pageviews", async () => {
     const { history } = installBrowser("https://plan.agent-native.com/plans");
     const { analyticsCalls } = installFetch({
@@ -1042,6 +2793,110 @@ describe("browser analytics pageviews", () => {
     );
   });
 
+  it.each([
+    [
+      "Analytics track",
+      "https://analytics.example.test/api/analytics/track",
+      "https://analytics.example.test/api/analytics/replay",
+    ],
+    [
+      "SSR track",
+      "https://analytics.example.test/ssr-track",
+      "https://analytics.example.test/api/analytics/replay",
+    ],
+    [
+      "build track",
+      "https://analytics.example.test/build-track",
+      "https://analytics.example.test/api/analytics/replay",
+    ],
+    [
+      "config track",
+      "https://analytics.example.test/config-track",
+      "https://analytics.example.test/api/analytics/replay",
+    ],
+    [
+      "custom analytics path",
+      "https://analytics.example.test/v1/events",
+      "https://analytics.example.test/api/analytics/replay",
+    ],
+    ["relative SSR track", "/ssr-track", "/api/analytics/replay"],
+    ["relative build track", "/build-track", "/api/analytics/replay"],
+    ["relative config track", "/config-track", "/api/analytics/replay"],
+    ["relative custom analytics path", "/v1/events", "/api/analytics/replay"],
+    [
+      "path-relative analytics path",
+      "analytics/track",
+      "/workspace/analytics/api/analytics/replay",
+      "https://mail.agent-native.com/workspace/",
+      "/workspace/analytics/track",
+    ],
+  ])(
+    "starts replay from server-injected %s config and attaches active replay fields",
+    async (
+      _label,
+      trackingEndpoint,
+      replayEndpoint,
+      browserUrl,
+      expectedTrackingPath,
+    ) => {
+      installBrowser(browserUrl);
+      const { analyticsCalls } = installFetch({
+        session: {
+          email: "user@example.com",
+          userId: "user-1",
+          orgId: "org-1",
+        },
+      });
+      (window as any).__AGENT_NATIVE_CONFIG__ = {
+        agentNativeAnalyticsPublicKey: "anpk_runtime_test",
+        agentNativeAnalyticsEndpoint: trackingEndpoint,
+      };
+      const { configureTracking, setTrackingIdentity, trackEvent } =
+        await freshAnalytics();
+      setTrackingIdentity({ id: "user-1", email: "user@example.com" }, "org-1");
+
+      configureTracking({
+        authSessionRefresh: false,
+        pageviewTracking: false,
+        llmConnectionStatus: false,
+        errorCapture: false,
+      });
+      await tick();
+
+      expect(replayMock.startSessionReplay).toHaveBeenCalledWith(
+        expect.objectContaining({
+          publicKey: "anpk_runtime_test",
+          endpoint: replayEndpoint,
+        }),
+      );
+
+      replayMock.getSessionReplayContext.mockReturnValue({
+        active: true,
+        replayId: "replay-test",
+        startedAt: "2026-10-09T18:00:00.000Z",
+      });
+      trackEvent("setup_step_saved");
+      await tick();
+
+      const event = analyticsCalls
+        .map(([, init]) => JSON.parse(String(init.body)))
+        .find((body) => body.event === "setup_step_saved");
+      expect(event.properties).toMatchObject({
+        sessionReplayId: "replay-test",
+        sessionReplayStartedAt: "2026-10-09T18:00:00.000Z",
+      });
+      if (expectedTrackingPath) {
+        const eventUrl = analyticsCalls.find(
+          ([, init]) =>
+            JSON.parse(String(init.body)).event === "setup_step_saved",
+        )?.[0];
+        expect(new URL(String(eventUrl), document.baseURI).pathname).toBe(
+          expectedTrackingPath,
+        );
+      }
+    },
+  );
+
   it("normalizes AI SDK engine names into provider connection labels", async () => {
     installBrowser();
     const { analyticsCalls } = installFetch({
@@ -1058,9 +2913,6 @@ describe("browser analytics pageviews", () => {
 
     configureTracking({});
     await tick();
-    // The boot LLM connection read is deferred past first paint; the pageview
-    // waits for the self-bounded boot refresh, so settle past
-    // the deferral before asserting the normalized engine labels.
     await new Promise((resolve) => setTimeout(resolve, 350));
 
     const body = JSON.parse(String(analyticsCalls[0][1].body));
@@ -1070,6 +2922,99 @@ describe("browser analytics pageviews", () => {
       llm_model: "gpt-5.5",
       llm_connection_source: "env",
       llm_connection_env_var: "OPENAI_API_KEY",
+    });
+  });
+
+  it("keeps scheduled routes on pageviews while replay starts", async () => {
+    const { history } = installBrowser(
+      "https://design.agent-native.com/design/output-first?generation_attempt_id=attempt_1234567890abcdef",
+    );
+    const { analyticsCalls } = installFetch({
+      session: {
+        email: "user@example.com",
+        userId: "user-1",
+        orgId: "org-1",
+      },
+    });
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      agentNativeAnalyticsPublicKey: "anpk_runtime_test",
+      agentNativeAnalyticsEndpoint: "https://analytics.example.test/track",
+    };
+    let finishReplayStart: (() => void) | undefined;
+    replayMock.startSessionReplay.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishReplayStart = () => resolve({ started: true });
+        }),
+    );
+    const { configureTracking, setTrackingIdentity } = await freshAnalytics();
+    setTrackingIdentity({ id: "user-1", email: "user@example.com" }, "org-1");
+
+    configureTracking({
+      llmConnectionStatus: false,
+      authSessionRefresh: false,
+      errorCapture: false,
+      webVitals: false,
+      getDefaultProps: (name, properties) => ({
+        ...properties,
+        ...(name === "pageview"
+          ? {
+              observedRoute: properties.path,
+              observedSearch: properties.search,
+            }
+          : {}),
+      }),
+    });
+    await tick();
+    expect(replayMock.startSessionReplay).toHaveBeenCalled();
+
+    const readPageviews = () =>
+      analyticsCalls
+        .map(([, init]) => JSON.parse(String(init.body)))
+        .filter((body) => body.event === "pageview");
+    expect(readPageviews()).toHaveLength(0);
+
+    history.pushState(
+      {},
+      "",
+      "/design/output-second?generation_attempt_id=attempt_2234567890abcdef",
+    );
+    await tick();
+
+    replayMock.getSessionReplayContext.mockReturnValue({
+      active: true,
+      replayId: "replay-test",
+      startedAt: "2026-10-09T18:00:00.000Z",
+    });
+    finishReplayStart?.();
+    await tick();
+    expect(readPageviews()).toHaveLength(2);
+    expect(readPageviews().map((event) => event.properties)).toMatchObject([
+      {
+        path: "/design/output-first",
+        search: "?generation_attempt_id=attempt_1234567890abcdef",
+        observedRoute: "/design/output-first",
+        observedSearch: "?generation_attempt_id=attempt_1234567890abcdef",
+        navigation_type: "load",
+        sessionReplayId: "replay-test",
+        sessionReplayStartedAt: "2026-10-09T18:00:00.000Z",
+      },
+      {
+        path: "/design/output-second",
+        search: "?generation_attempt_id=attempt_2234567890abcdef",
+        observedRoute: "/design/output-second",
+        observedSearch: "?generation_attempt_id=attempt_2234567890abcdef",
+        navigation_type: "pushState",
+        sessionReplayId: "replay-test",
+        sessionReplayStartedAt: "2026-10-09T18:00:00.000Z",
+      },
+    ]);
+    expect(
+      analyticsCalls
+        .map(([, init]) => JSON.parse(String(init.body)))
+        .find((event) => event.event === "app_entered")?.properties,
+    ).toMatchObject({
+      entry_path: "/design/output-first",
     });
   });
 
@@ -1146,6 +3091,119 @@ describe("browser analytics pageviews", () => {
     );
   });
 
+  it("adds the recorder's recent events to browser Sentry errors as breadcrumbs and a recorder.json attachment", async () => {
+    installBrowser();
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      sentryDsn: "https://public@example/4511270423822336",
+      sentryEnvironment: "production",
+    };
+    const { configureTracking } = await freshAnalytics();
+    const { recordActionStart, recorder } = await import("./recorder.js");
+    configureTracking({});
+    await tick();
+    recorder.log("screen.restored", { from: "s1", to: "s7" });
+    recordActionStart(
+      "list-folders",
+      "GET",
+    )({
+      error: Object.assign(
+        new Error("Action list-folders failed: Missing scope"),
+        { status: 403, errorCode: "forbidden_scope" },
+      ),
+      response: undefined,
+      signal: undefined,
+    });
+    const options = sentryMock.init.mock.calls[0][0];
+    const hint: { attachments?: Array<Record<string, string>> } = {};
+
+    const result = options.beforeSend(
+      {
+        exception: { values: [{ type: "TypeError", value: "boom" }] },
+        breadcrumbs: [{ category: "ui.click", timestamp: 0 }],
+      },
+      hint,
+    );
+
+    expect(result.breadcrumbs[0]).toEqual({
+      category: "ui.click",
+      timestamp: 0,
+    });
+    expect(
+      result.breadcrumbs.filter(
+        (crumb: { category: string }) =>
+          crumb.category === "recorder.log" ||
+          crumb.category === "recorder.action",
+      ),
+    ).toEqual([
+      {
+        category: "recorder.log",
+        message: "screen.restored",
+        level: "info",
+        timestamp: expect.any(Number),
+        data: {},
+      },
+      {
+        category: "recorder.action",
+        message: expect.stringMatching(
+          /^list-folders failed 403 forbidden_scope \d+ms$/,
+        ),
+        level: "warning",
+        timestamp: expect.any(Number),
+        data: {
+          ok: false,
+          status: 403,
+          errorCode: "forbidden_scope",
+          ms: expect.any(Number),
+        },
+      },
+    ]);
+    expect(hint.attachments).toEqual([
+      {
+        filename: "recorder.json",
+        data: expect.any(String),
+        contentType: "application/json",
+      },
+    ]);
+    expect(JSON.parse(hint.attachments![0]!.data!)).toMatchObject({
+      app: "mail.agent-native.com",
+      url: "/inbox",
+      reason: "error",
+      events: expect.arrayContaining([
+        expect.objectContaining({ type: "log", name: "screen.restored" }),
+        expect.objectContaining({ type: "action", name: "list-folders" }),
+      ]),
+    });
+  });
+
+  it("leaves browser Sentry errors without recorder context when its Sentry destination is off", async () => {
+    installBrowser();
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      sentryDsn: "https://public@example/4511270423822336",
+      sentryEnvironment: "production",
+    };
+    const { configureTracking } = await freshAnalytics();
+    const { configureRecorder, recorder } = await import("./recorder.js");
+    configureTracking({});
+    await tick();
+    configureRecorder({ sentry: false });
+    recorder.log("screen.restored", { from: "s1", to: "s7" });
+    const options = sentryMock.init.mock.calls[0][0];
+    const hint: { attachments?: unknown[] } = {};
+
+    const result = options.beforeSend(
+      {
+        exception: { values: [{ type: "TypeError", value: "boom" }] },
+        breadcrumbs: [{ category: "ui.click", timestamp: 0 }],
+      },
+      hint,
+    );
+
+    expect(result.breadcrumbs).toEqual([
+      { category: "ui.click", timestamp: 0 },
+    ]);
+    expect(hint.attachments).toBeUndefined();
+  });
+
   it("drops blocked Amplitude fetch noise from browser Sentry", async () => {
     installBrowser();
     (window as any).__AGENT_NATIVE_CONFIG__ = {
@@ -1172,6 +3230,135 @@ describe("browser analytics pageviews", () => {
     });
 
     expect(result).toBeNull();
+  });
+
+  it("drops third-party vendor failures from browser Sentry through the shared rules", async () => {
+    installBrowser();
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      sentryDsn: "https://public@example/4511270423822336",
+      sentryEnvironment: "production",
+    };
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({});
+    await tick();
+    const options = sentryMock.init.mock.calls[0][0];
+    // Sentry orders frames oldest first: the vendor frame precedes our wrapper.
+    const vendorFetchFailure = {
+      exception: {
+        values: [
+          {
+            type: "TypeError",
+            value: "Failed to fetch (api.vector.co)",
+            stacktrace: {
+              frames: [
+                { filename: "https://cdn.vector.co/pixel.js", lineno: 2 },
+                {
+                  filename:
+                    "https://www.agent-native.com/assets/api-path-Bx1.js",
+                  function: "window.fetch",
+                  lineno: 1,
+                },
+              ],
+            },
+          },
+        ],
+      },
+      request: { url: "https://www.agent-native.com/templates/slides" },
+    };
+    expect(options.beforeSend(vendorFetchFailure)).toBeNull();
+
+    const staleChunk = {
+      exception: {
+        values: [
+          {
+            type: "TypeError",
+            value:
+              "Failed to fetch dynamically imported module: https://www.agent-native.com/assets/Panel-3f.js",
+          },
+        ],
+      },
+      request: { url: "https://www.agent-native.com/templates/slides" },
+    };
+    expect(options.beforeSend(staleChunk)).toBeNull();
+
+    const appFetchFailure = {
+      exception: {
+        values: [
+          {
+            type: "TypeError",
+            value: "Failed to fetch",
+            stacktrace: {
+              frames: [
+                {
+                  filename: "https://www.agent-native.com/assets/app.js",
+                  function: "loadDashboard",
+                  lineno: 10,
+                },
+              ],
+            },
+          },
+        ],
+      },
+      request: { url: "https://www.agent-native.com/templates/slides" },
+    };
+    expect(options.beforeSend(appFetchFailure)).toBe(appFetchFailure);
+  });
+
+  it("classifies a linked-error chain by the exception that was thrown, not by its causes", async () => {
+    installBrowser();
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      sentryDsn: "https://public@example/4511270423822336",
+      sentryEnvironment: "production",
+    };
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({});
+    await tick();
+    const options = sentryMock.init.mock.calls[0][0];
+    // Sentry's linkedErrors puts the cause first and the thrown error last.
+    const safariLoadFailedCause = {
+      type: "TypeError",
+      value: "Load failed",
+    };
+    const firstPartyOuter = {
+      type: "Error",
+      value:
+        "Agent chat request failed with 200, and its error body could not be read.",
+      stacktrace: {
+        frames: [
+          {
+            filename: "https://mail.agent-native.com/assets/chat.js",
+            function: "readChatResponse",
+            lineno: 733,
+          },
+        ],
+      },
+    };
+    const wrapped = {
+      exception: { values: [safariLoadFailedCause, firstPartyOuter] },
+      request: { url: "https://mail.agent-native.com/inbox" },
+    };
+    expect(options.beforeSend(wrapped)).toBe(wrapped);
+
+    // The same cause thrown on its own is still noise...
+    const bare = {
+      exception: { values: [safariLoadFailedCause] },
+      request: { url: "https://mail.agent-native.com/inbox" },
+    };
+    expect(options.beforeSend(bare)).toBeNull();
+
+    // ...and so is a noisy outer exception, whatever its cause.
+    const noisyOuter = {
+      exception: {
+        values: [
+          { type: "Error", value: "first-party cause" },
+          safariLoadFailedCause,
+        ],
+      },
+      request: { url: "https://mail.agent-native.com/inbox" },
+    };
+    expect(options.beforeSend(noisyOuter)).toBeNull();
   });
 
   it("drops rrweb autoplay-policy rejections only on session replay pages", async () => {
@@ -1547,5 +3734,28 @@ describe("browser analytics pageviews", () => {
 
     expect(result).toBeUndefined();
     expect(sentryMock.captureException).toHaveBeenCalledWith(err);
+  });
+
+  it("reports the Agent-Native analytics sink as configured only for a keyed, non-local host", async () => {
+    installBrowser("https://mail.agent-native.com/inbox");
+    const unkeyed = await freshAnalytics();
+    expect(unkeyed.isAgentNativeAnalyticsConfigured()).toBe(false);
+
+    const hosted = await freshAnalytics();
+    hosted.configureTracking({
+      publicKey: "anpk_configured",
+      authSessionRefresh: false,
+      pageviewTracking: false,
+    });
+    expect(hosted.isAgentNativeAnalyticsConfigured()).toBe(true);
+
+    installBrowser("http://localhost:3000/");
+    const local = await freshAnalytics();
+    local.configureTracking({
+      publicKey: "anpk_configured",
+      authSessionRefresh: false,
+      pageviewTracking: false,
+    });
+    expect(local.isAgentNativeAnalyticsConfigured()).toBe(false);
   });
 });

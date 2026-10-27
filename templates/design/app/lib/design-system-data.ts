@@ -5,6 +5,7 @@ export interface DesignSystemData {
   builderBranchName?: string;
   builderUrl?: string;
   builderStatus?: string;
+  docCount?: number;
   builderSyncedAt?: string;
   colors?: {
     primary?: unknown;
@@ -26,7 +27,6 @@ export interface DesignSystemData {
   logos?: Array<{ url?: string; name?: string; variant?: string }>;
   defaults?: Record<string, unknown>;
   notes?: unknown;
-  /** The source system's own named vocabulary; absent on kits predating it. */
   tokens?: unknown;
 }
 
@@ -45,6 +45,10 @@ export function parseDesignSystemData(
   }
 }
 
+function isBuilderKitIndexed(parsed: DesignSystemData): boolean {
+  return typeof parsed.docCount === "number" && parsed.docCount > 0;
+}
+
 export function shouldRefreshBuilderDesignSystem(
   system: Pick<{ accessRole?: string; data: string }, "accessRole" | "data">,
 ): boolean {
@@ -54,11 +58,7 @@ export function shouldRefreshBuilderDesignSystem(
       system.accessRole === "admin" ||
       system.accessRole === "editor") &&
     parsed?.source === "builder" &&
-    (parsed.builderStatus === "in-progress" ||
-      ((parsed.builderStatus === "ready" ||
-        parsed.builderStatus === "complete" ||
-        parsed.builderStatus === "completed") &&
-        typeof parsed.builderSyncedAt !== "string"))
+    (!isBuilderKitIndexed(parsed) || typeof parsed.builderSyncedAt !== "string")
   );
 }
 
@@ -66,11 +66,7 @@ export function isDesignSystemUsableForGeneration(data: string): boolean {
   const parsed = parseDesignSystemData(data);
   if (!parsed) return false;
   if (parsed.source !== "builder") return true;
-  return (
-    parsed.builderStatus === "ready" ||
-    parsed.builderStatus === "complete" ||
-    parsed.builderStatus === "completed"
-  );
+  return isBuilderKitIndexed(parsed);
 }
 
 export function builderRefreshKey(system: {
@@ -81,13 +77,6 @@ export function builderRefreshKey(system: {
   return `${system.id}:${parsed?.builderJobId ?? "unknown"}`;
 }
 
-/**
- * Persisted `builderUrl` values are treated as a trusted navigation target
- * (rendered as an "Open in Builder" anchor). Reject anything that is not an
- * absolute https URL on builder.io before it reaches the DOM, since the
- * field is stored data that could be stale, corrupted, or tampered with by a
- * collaborator on a shared design system.
- */
 export function isTrustedBuilderPreviewUrl(url: string): boolean {
   let parsed: URL;
   try {

@@ -20,13 +20,7 @@ export const FACTORY_INTERVAL_MINUTES = [5, 10, 15, 30, 60] as const;
 export type FactoryAutomationSource = "slack" | "github" | "sentry";
 export type FactoryAutomationAuthorMode = "include" | "exclude";
 export type FactoryAutomationScheduleMode = "interval" | "daily";
-export type FactoryAutomationTemplateId =
-  | "blank"
-  | "slack-feedback"
-  | "github-issues"
-  | "pr-governance"
-  | "pr-babysit"
-  | "sentry-errors";
+export type FactoryAutomationTemplateId = "blank" | "pr-governance";
 
 export const GUARDRAILS_START = "<!-- factory-guardrails:start -->";
 export const GUARDRAILS_END = "<!-- factory-guardrails:end -->";
@@ -55,21 +49,13 @@ export type FactoryAutomationConfig = {
 const SLACK_MEMBER_ID = /^[UW][A-Z0-9]+$/i;
 const GITHUB_USER_ID = /^[1-9][0-9]*$/;
 const LEAF_SOURCE: Record<string, FactoryAutomationSource> = {
-  "factory-slack-feedback": "slack",
-  "factory-sentry-errors": "sentry",
-  "factory-github-issues": "github",
   "factory-pr-governance": "github",
-  "factory-pr-babysit": "github",
 };
 const TEMPLATE_SOURCE: Record<
   Exclude<FactoryAutomationTemplateId, "blank">,
   FactoryAutomationSource
 > = {
-  "slack-feedback": "slack",
-  "github-issues": "github",
   "pr-governance": "github",
-  "pr-babysit": "github",
-  "sentry-errors": "sentry",
 };
 const NUMERIC_LEAF_SUFFIX = /-\d+$/;
 const SLUG_SOURCE_PREFIX = /^factory-(slack|github|sentry)-/;
@@ -83,7 +69,6 @@ function asAutomationSource(
   return null;
 }
 
-/** Seed leaf, including create copies like `factory-pr-babysit-2`. */
 export function canonicalSeedLeafName(nameOrPath: string): string | null {
   const leaf = factoryAutomationLeafName(nameOrPath);
   if (LEAF_SOURCE[leaf]) return leaf;
@@ -205,8 +190,6 @@ export function inferAutomationSource(
   nameOrPath: string,
   content?: string,
 ): FactoryAutomationSource | null {
-  // Template, seed leaf, and destination outrank YAML `source`. A Save that
-  // defaulted a GitHub copy to Slack must not keep winning on the next read.
   const templateRaw = content
     ? readFrontmatterValue(content, "template")
     : undefined;
@@ -235,14 +218,8 @@ export function defaultAutomationConfig(
   template: FactoryAutomationTemplateId = "blank",
 ): FactoryAutomationConfig {
   const schedule = parseScheduleFromCron(
-    template === "sentry-errors"
-      ? "0 9 * * *"
-      : template === "pr-governance"
-        ? "*/10 * * * *"
-        : template === "github-issues"
-          ? "0 * * * *"
-          : "*/5 * * * *",
-    template === "sentry-errors" ? "America/Los_Angeles" : null,
+    template === "pr-governance" ? "*/10 * * * *" : "*/5 * * * *",
+    null,
   );
   return {
     source,
@@ -408,16 +385,8 @@ export function readFactoryAutomationConfig(
 ): FactoryAutomationConfig {
   const source = inferAutomationSource(nameOrPath ?? "", content) ?? "slack";
   const templateRaw = readFrontmatterValue(content, "template");
-  const template = (
-    templateRaw === "slack-feedback" ||
-    templateRaw === "github-issues" ||
-    templateRaw === "pr-governance" ||
-    templateRaw === "pr-babysit" ||
-    templateRaw === "sentry-errors" ||
-    templateRaw === "blank"
-      ? templateRaw
-      : "blank"
-  ) as FactoryAutomationTemplateId;
+  const template: FactoryAutomationTemplateId =
+    templateRaw === "pr-governance" ? templateRaw : "blank";
   const defaults = defaultAutomationConfig(source, template);
   const schedule = parseScheduleFromCron(
     readFrontmatterValue(content, "schedule") ?? scheduleCron(defaults),
@@ -460,10 +429,6 @@ export const OPTIONAL_DESTINATION_FRONTMATTER_FIELDS = new Set([
   "sentryEnvironment",
 ]);
 
-/**
- * Seed/metadata repair must not drop editor-owned identity. Compare against the
- * resource as stored before repair, not the in-flight repaired draft.
- */
 export function restoreFactoryAutomationIdentityFields(
   originalContent: string,
   repairedContent: string,
@@ -497,6 +462,61 @@ export function restoreFactoryAutomationIdentityFields(
   return next;
 }
 
+export type AutomationTriggerStamp = {
+  content: string;
+  /** Why the file stays untagged; absent when it is tagged. */
+  skipped?: string;
+};
+
+/**
+ * Tags a job file with its trigger type so core treats it as an automation.
+ * The tag moves the scheduler from its legacy identity fallback to strict
+ * checks (`createdBy`, `runAs: creator`, and an `orgId` matching the owner),
+ * so a file is tagged only when it can pass them. Defaults the legacy path
+ * already assumes are written down; a creator is never invented.
+ */
+export function stampAutomationTriggerType(
+  content: string,
+  options: { orgId: string; triggerType?: string; identityFrom?: string },
+): AutomationTriggerStamp {
+  if (readFrontmatterValue(content, "triggerType") != null) return { content };
+  const read = (key: string) =>
+    readFrontmatterValue(content, key) ??
+    (options.identityFrom
+      ? readFrontmatterValue(options.identityFrom, key)
+      : undefined);
+  const createdBy = read("createdBy");
+  if (!createdBy) return { content, skipped: "it has no createdBy" };
+  const runAs = read("runAs") ?? "creator";
+  if (runAs !== "creator") {
+    return { content, skipped: `it runs as "${runAs}"` };
+  }
+  const orgId = read("orgId") ?? options.orgId;
+  if (orgId !== options.orgId) {
+    return {
+      content,
+      skipped: `its orgId is "${orgId}", not "${options.orgId}"`,
+    };
+  }
+  let next = content;
+  for (const [key, value] of [
+    ["createdBy", createdBy],
+    ["runAs", runAs],
+    ["orgId", orgId],
+  ] as const) {
+    if (readFrontmatterValue(next, key) == null) {
+      next = setAutomationFrontmatterField(next, key, value);
+    }
+  }
+  return {
+    content: setAutomationFrontmatterField(
+      next,
+      "triggerType",
+      options.triggerType ?? "schedule",
+    ),
+  };
+}
+
 export function applyAutomationConfigFrontmatter(
   content: string,
   config: FactoryAutomationConfig,
@@ -526,8 +546,6 @@ export function applyAutomationConfigFrontmatter(
     ["schedule", scheduleCron(config)],
   ];
   for (const [key, value] of fields) {
-    // null = omitted (repair/default): keep the existing YAML line.
-    // "" = explicit clear from save: delete the line.
     if (OPTIONAL_DESTINATION_FRONTMATTER_FIELDS.has(key) && value == null) {
       continue;
     }
@@ -564,15 +582,8 @@ export function buildGuardrailsText(
       "Call poll-sentry-errors before listing Sentry items. Never use the default page size.",
     );
   }
-  if (config.template !== "pr-governance" && config.template !== "pr-babysit") {
-    lines.push(
-      "After classifying each item this run works on, call dispatch-factory-item with clearBug true or false, risk, confidence, and a short reason so the skip or start is recorded; Builder is only tagged when clearBug is true, risk is low, and confidence is high.",
-    );
-  }
   if (config.source === "slack") {
-    lines.push(
-      "Never post Slack messages, reactions, or plaintext @handles. Pass reaction on dispatch-factory-item only when the prompt says to mark that item; omit it on skips. That action adds it on the source when possible.",
-    );
+    lines.push("Never post Slack messages, reactions, or plaintext @handles.");
   }
   const extraText = extra?.trim();
   if (extraText) lines.push(extraText);
@@ -658,25 +669,15 @@ export function needsAutomationBodyRepair(content: string): boolean {
   if (alignmentBlocks > 1) return true;
   const revision = readAlignmentRevision(content);
   if (revision >= FACTORY_ALIGNMENT_REVISION) return false;
-  // Missing revision on prompt-only bodies is upgraded through save, not cold start.
   return alignmentBlocks === 1;
 }
 
 function resolveManagedAutomationName(
   automationName: string,
 ): FactoryAutomationName | null {
-  const seed = canonicalSeedLeafName(automationName);
-  if (!seed) return null;
-  if (
-    seed === "factory-slack-feedback" ||
-    seed === "factory-sentry-errors" ||
-    seed === "factory-github-issues" ||
-    seed === "factory-pr-governance" ||
-    seed === "factory-pr-babysit"
-  ) {
-    return seed;
-  }
-  return null;
+  return canonicalSeedLeafName(automationName) === "factory-pr-governance"
+    ? "factory-pr-governance"
+    : null;
 }
 
 export function buildSkillAlignmentBlock(automationName: string): string {
@@ -745,65 +746,18 @@ export function replaceAutomationContentWithUserPrompt(
   return assembleAutomationContent(frontmatter, body);
 }
 
-function inferAutomationNameFromContent(content: string): string {
-  const templateRaw = readFrontmatterValue(content, "template");
-  if (
-    templateRaw === "slack-feedback" ||
-    templateRaw === "github-issues" ||
-    templateRaw === "pr-governance" ||
-    templateRaw === "pr-babysit" ||
-    templateRaw === "sentry-errors"
-  ) {
-    return seedNameForTemplate(templateRaw) ?? "factory-slack-feedback";
-  }
-  return "factory-slack-feedback";
-}
-
-/** @deprecated Use replaceAutomationContentWithUserPrompt */
-export function replaceUserPrompt(content: string, prompt: string): string {
-  return replaceAutomationContentWithUserPrompt(
-    content,
-    prompt,
-    inferAutomationNameFromContent(content),
-  );
-}
-
 export function templateIdForSeedName(
   name: string,
 ): FactoryAutomationTemplateId {
-  switch (canonicalSeedLeafName(name) ?? factoryAutomationLeafName(name)) {
-    case "factory-slack-feedback":
-      return "slack-feedback";
-    case "factory-github-issues":
-      return "github-issues";
-    case "factory-pr-governance":
-      return "pr-governance";
-    case "factory-pr-babysit":
-      return "pr-babysit";
-    case "factory-sentry-errors":
-      return "sentry-errors";
-    default:
-      return "blank";
-  }
+  return canonicalSeedLeafName(name) === "factory-pr-governance"
+    ? "pr-governance"
+    : "blank";
 }
 
 export function seedNameForTemplate(
   template: FactoryAutomationTemplateId,
 ): string | null {
-  switch (template) {
-    case "slack-feedback":
-      return "factory-slack-feedback";
-    case "github-issues":
-      return "factory-github-issues";
-    case "pr-governance":
-      return "factory-pr-governance";
-    case "pr-babysit":
-      return "factory-pr-babysit";
-    case "sentry-errors":
-      return "factory-sentry-errors";
-    default:
-      return null;
-  }
+  return template === "pr-governance" ? "factory-pr-governance" : null;
 }
 
 export function sourceForTemplate(

@@ -1,0 +1,972 @@
+import { rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { getDbExec } from "@agent-native/core/db";
+import { runWithRequestContext } from "@agent-native/core/server";
+import { and, eq, inArray } from "drizzle-orm";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+
+vi.mock("./_local-file-documents.js", async (importOriginal) => {
+  const original =
+    await importOriginal<typeof import("./_local-file-documents.js")>();
+  return { ...original, isContentLocalFileMode: async () => false };
+});
+// Runs after the open editors confirm their titles and before the move takes
+// its locks.
+const titleSave = vi.hoisted(() => ({
+  after: undefined as undefined | (() => Promise<void>),
+}));
+vi.mock("./_document-flush.js", async (importOriginal) => {
+  const original =
+    await importOriginal<typeof import("./_document-flush.js")>();
+  return {
+    ...original,
+    saveOpenEditorTitles: async (ids: readonly string[]) => {
+      const saved = await original.saveOpenEditorTitles(ids);
+      await titleSave.after?.();
+      return saved;
+    },
+  };
+});
+vi.mock("@agent-native/core/application-state", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/application-state")
+  >()),
+  writeAppState: vi.fn().mockResolvedValue(undefined),
+}));
+
+const TEST_DB_PATH = join(
+  tmpdir(),
+  `move-page-to-space-${process.pid}-${Date.now()}.pglite`,
+);
+
+type Schema = typeof import("../server/db/schema.js");
+let getDb: () => any;
+let schema: Schema;
+let createDocument: typeof import("./create-document.js").default;
+let createContentDatabase: typeof import("./create-content-database.js").default;
+let moveDocument: typeof import("./move-document.js").default;
+let duplicatePage: typeof import("./duplicate-page.js").default;
+let listComments: typeof import("./list-comments.js").default;
+let organizationContentSpaceId: typeof import("./_content-spaces.js").organizationContentSpaceId;
+let personalContentSpaceId: typeof import("./_content-spaces.js").personalContentSpaceId;
+let liveCopy: typeof import("../server/test-support/live-copy-page.js");
+let tabs: typeof import("../server/test-support/open-editor-tab.js");
+
+const OWNER = "owner@example.com";
+const EDITOR = "editor@example.com";
+const ORG_ID = "org-move-between-spaces";
+
+beforeAll(async () => {
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
+  const dbModule = await import("../server/db/index.js");
+  getDb = dbModule.getDb;
+  schema = dbModule.schema;
+  createDocument = (await import("./create-document.js")).default;
+  createContentDatabase = (await import("./create-content-database.js"))
+    .default;
+  moveDocument = (await import("./move-document.js")).default;
+  duplicatePage = (await import("./duplicate-page.js")).default;
+  listComments = (await import("./list-comments.js")).default;
+  ({ organizationContentSpaceId, personalContentSpaceId } =
+    await import("./_content-spaces.js"));
+  liveCopy = await import("../server/test-support/live-copy-page.js");
+  tabs = await import("../server/test-support/open-editor-tab.js");
+  const plugin = (await import("../server/plugins/db.js")).default;
+  await plugin(undefined as any);
+  await getDbExec().execute(`CREATE TABLE IF NOT EXISTS organizations (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, created_by TEXT NOT NULL, created_at BIGINT NOT NULL,
+    identity_authority TEXT, identity_id TEXT
+  )`);
+  await getDbExec().execute(`CREATE TABLE IF NOT EXISTS org_members (
+    id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL, joined_at BIGINT NOT NULL,
+    federation_removal_pending_at INTEGER
+  )`);
+  await getDbExec().execute({
+    sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES ($1, $2, $3, $4)",
+    args: [ORG_ID, "Team", OWNER, Date.now()],
+  });
+  for (const [email, role] of [
+    [OWNER, "owner"],
+    [EDITOR, "member"],
+  ]) {
+    await getDbExec().execute({
+      sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES ($1, $2, $3, $4, $5)",
+      args: [`${ORG_ID}:${email}`, ORG_ID, email, role, Date.now()],
+    });
+  }
+}, 60000);
+
+afterAll(() => {
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
+});
+
+const as = <T>(userEmail: string, run: () => Promise<T>) =>
+  runWithRequestContext({ userEmail, orgId: ORG_ID }, run);
+
+async function documentRows(ids: string[]) {
+  return getDb()
+    .select({
+      id: schema.documents.id,
+      spaceId: schema.documents.spaceId,
+      ownerEmail: schema.documents.ownerEmail,
+      orgId: schema.documents.orgId,
+      visibility: schema.documents.visibility,
+      parentId: schema.documents.parentId,
+    })
+    .from(schema.documents)
+    .where(inArray(schema.documents.id, ids));
+}
+
+async function filesSpaces(documentId: string) {
+  const rows = await getDb()
+    .select({ spaceId: schema.contentDatabases.spaceId })
+    .from(schema.contentDatabaseItems)
+    .innerJoin(
+      schema.contentDatabases,
+      eq(schema.contentDatabases.id, schema.contentDatabaseItems.databaseId),
+    )
+    .where(
+      and(
+        eq(schema.contentDatabaseItems.documentId, documentId),
+        eq(schema.contentDatabases.systemRole, "files"),
+      ),
+    );
+  return rows.map((row: { spaceId: string }) => row.spaceId);
+}
+
+async function share(resourceId: string, principalId: string, role: string) {
+  await getDb()
+    .insert(schema.documentShares)
+    .values({
+      id: `share-${resourceId}-${principalId}`,
+      resourceId,
+      principalType: "user",
+      principalId,
+      role,
+      createdBy: OWNER,
+      createdAt: new Date().toISOString(),
+    });
+}
+
+describe("moving a page between Content spaces", () => {
+  it("moves the page and its sub-pages with their comments and history, and resets access to the destination", async () => {
+    const orgSpaceId = organizationContentSpaceId(ORG_ID);
+    const page = await as(OWNER, () =>
+      createDocument.run({ title: "Plan", content: "# Plan" }),
+    );
+    const child = await as(OWNER, () =>
+      createDocument.run({ title: "Details", parentId: page.id }),
+    );
+    await share(page.id, EDITOR, "viewer");
+    await getDb().insert(schema.documentComments).values({
+      id: "comment-plan",
+      ownerEmail: OWNER,
+      documentId: child.id,
+      threadId: "thread-plan",
+      content: "Looks good",
+      authorEmail: OWNER,
+    });
+    await getDb().insert(schema.documentVersions).values({
+      id: "version-plan",
+      ownerEmail: OWNER,
+      documentId: page.id,
+      title: "Plan",
+      content: "# Draft",
+    });
+
+    const moved = await as(OWNER, () =>
+      moveDocument.run({ id: page.id, spaceId: orgSpaceId }),
+    );
+
+    expect(moved).toMatchObject({ spaceId: orgSpaceId, parentId: null });
+    expect(await documentRows([page.id, child.id])).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: page.id,
+          spaceId: orgSpaceId,
+          orgId: ORG_ID,
+          visibility: "org",
+          ownerEmail: OWNER,
+          parentId: null,
+        }),
+        expect.objectContaining({
+          id: child.id,
+          spaceId: orgSpaceId,
+          orgId: ORG_ID,
+          visibility: "org",
+          parentId: page.id,
+        }),
+      ]),
+    );
+    expect(await filesSpaces(page.id)).toEqual([orgSpaceId]);
+    expect(await filesSpaces(child.id)).toEqual([orgSpaceId]);
+    const shares = await getDb()
+      .select()
+      .from(schema.documentShares)
+      .where(eq(schema.documentShares.resourceId, page.id));
+    expect(shares).toEqual([]);
+    const comments = await as(EDITOR, () =>
+      listComments.run({ documentId: child.id }),
+    );
+    expect(JSON.stringify(comments)).toContain("Looks good");
+    const [version] = await getDb()
+      .select({ ownerEmail: schema.documentVersions.ownerEmail })
+      .from(schema.documentVersions)
+      .where(eq(schema.documentVersions.id, "version-plan"));
+    expect(version.ownerEmail).toBe(OWNER);
+  });
+
+  it("makes the person moving the owner of the page, its History, body steps and body intents, and closes it to everyone else in Personal", async () => {
+    const orgSpaceId = organizationContentSpaceId(ORG_ID);
+    const page = await as(OWNER, () =>
+      createDocument.run({ title: "Handoff", spaceId: orgSpaceId }),
+    );
+    const child = await as(OWNER, () =>
+      createDocument.run({ title: "Notes", parentId: page.id }),
+    );
+
+    await expect(
+      as(EDITOR, () =>
+        moveDocument.run({
+          id: page.id,
+          spaceId: personalContentSpaceId(EDITOR),
+        }),
+      ),
+    ).rejects.toThrow(/editor/i);
+
+    await share(page.id, EDITOR, "editor");
+    await share(child.id, EDITOR, "editor");
+    await getDb().insert(schema.documentComments).values({
+      id: "comment-handoff",
+      ownerEmail: OWNER,
+      documentId: page.id,
+      threadId: "thread-handoff",
+      content: "Over to you",
+      authorEmail: OWNER,
+    });
+    await getDb().insert(schema.documentVersions).values({
+      id: "version-handoff",
+      ownerEmail: OWNER,
+      documentId: page.id,
+      title: "Handoff",
+      content: "Draft",
+    });
+    await getDb()
+      .insert(schema.documentBodySteps)
+      .values({
+        id: `${page.id}:1`,
+        ownerEmail: OWNER,
+        documentId: page.id,
+        bodyRevision: 1,
+        startOffset: 0,
+        endOffset: 0,
+        text: "Draft",
+      });
+    await getDb().insert(schema.documentBodyIntents).values({
+      id: "intent-handoff",
+      ownerEmail: OWNER,
+      orgId: ORG_ID,
+      documentId: page.id,
+      writerId: "agent",
+      operationId: "op-handoff",
+      authoredBaseRevision: 0,
+      committedRevision: 1,
+    });
+    await as(EDITOR, () =>
+      moveDocument.run({
+        id: page.id,
+        spaceId: personalContentSpaceId(EDITOR),
+      }),
+    );
+
+    expect(await documentRows([page.id, child.id])).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: page.id,
+          ownerEmail: EDITOR,
+          orgId: null,
+          visibility: "private",
+          spaceId: personalContentSpaceId(EDITOR),
+        }),
+        expect.objectContaining({
+          id: child.id,
+          ownerEmail: EDITOR,
+          visibility: "private",
+        }),
+      ]),
+    );
+    const comments = await as(EDITOR, () =>
+      listComments.run({ documentId: page.id }),
+    );
+    expect(JSON.stringify(comments)).toContain("Over to you");
+    await expect(
+      as(OWNER, () => listComments.run({ documentId: page.id })),
+    ).rejects.toThrow();
+    // An edit rebuilds its base from the steps its page's owner holds, and
+    // merges a stale edit by the intents that owner holds; a permanent
+    // delete removes only the owner's steps.
+    const [version] = await getDb()
+      .select({ ownerEmail: schema.documentVersions.ownerEmail })
+      .from(schema.documentVersions)
+      .where(eq(schema.documentVersions.id, "version-handoff"));
+    expect(version.ownerEmail).toBe(EDITOR);
+    const [step] = await getDb()
+      .select({ ownerEmail: schema.documentBodySteps.ownerEmail })
+      .from(schema.documentBodySteps)
+      .where(eq(schema.documentBodySteps.documentId, page.id));
+    expect(step.ownerEmail).toBe(EDITOR);
+    const [intent] = await getDb()
+      .select({
+        ownerEmail: schema.documentBodyIntents.ownerEmail,
+        orgId: schema.documentBodyIntents.orgId,
+      })
+      .from(schema.documentBodyIntents)
+      .where(eq(schema.documentBodyIntents.id, "intent-handoff"));
+    expect(intent).toEqual({ ownerEmail: EDITOR, orgId: "" });
+  });
+
+  it("only nests under a page the mover owns in the destination", async () => {
+    const orgSpaceId = organizationContentSpaceId(ORG_ID);
+    const othersPage = await as(EDITOR, () =>
+      createDocument.run({ title: "Editor's page", spaceId: orgSpaceId }),
+    );
+    const ownPage = await as(OWNER, () =>
+      createDocument.run({ title: "Owner's page", spaceId: orgSpaceId }),
+    );
+    const page = await as(OWNER, () =>
+      createDocument.run({ title: "Nest me" }),
+    );
+    await share(othersPage.id, OWNER, "editor");
+
+    await expect(
+      as(OWNER, () =>
+        moveDocument.run({
+          id: page.id,
+          spaceId: orgSpaceId,
+          parentId: othersPage.id,
+        }),
+      ),
+    ).rejects.toThrow("page you own");
+    await as(OWNER, () =>
+      moveDocument.run({
+        id: page.id,
+        spaceId: orgSpaceId,
+        parentId: ownPage.id,
+      }),
+    );
+    expect(await documentRows([page.id])).toEqual([
+      expect.objectContaining({ parentId: ownPage.id, spaceId: orgSpaceId }),
+    ]);
+  });
+
+  it("refuses pages that contain a collection", async () => {
+    const page = await as(OWNER, () =>
+      createDocument.run({ title: "Tracker" }),
+    );
+    await as(OWNER, () =>
+      createContentDatabase.run({ title: "Tasks", parentId: page.id } as any),
+    );
+    await expect(
+      as(OWNER, () =>
+        moveDocument.run({
+          id: page.id,
+          spaceId: organizationContentSpaceId(ORG_ID),
+        }),
+      ),
+    ).rejects.toThrow("contain collections");
+    expect(await documentRows([page.id])).toEqual([
+      expect.objectContaining({ spaceId: personalContentSpaceId(OWNER) }),
+    ]);
+  });
+
+  it("refuses to move a subtree with a child the mover cannot read", async () => {
+    const page = await as(OWNER, () => createDocument.run({ title: "Parent" }));
+    const child = await as(OWNER, () =>
+      createDocument.run({ title: "Private child", parentId: page.id }),
+    );
+    await getDb()
+      .update(schema.documents)
+      .set({
+        ownerEmail: "hidden@example.com",
+        orgId: null,
+        visibility: "private",
+      })
+      .where(eq(schema.documents.id, child.id));
+
+    await expect(
+      as(OWNER, () =>
+        moveDocument.run({
+          id: page.id,
+          spaceId: organizationContentSpaceId(ORG_ID),
+        }),
+      ),
+    ).rejects.toThrow("sub-pages you can't open");
+
+    expect(await documentRows([page.id, child.id])).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: page.id,
+          spaceId: personalContentSpaceId(OWNER),
+        }),
+        expect.objectContaining({
+          id: child.id,
+          ownerEmail: "hidden@example.com",
+          spaceId: personalContentSpaceId(OWNER),
+          parentId: page.id,
+        }),
+      ]),
+    );
+  });
+});
+
+describe("moving a page that takes body writes through its live copy", () => {
+  afterEach(async () => {
+    titleSave.after = undefined;
+    await liveCopy.turnLiveCopyFlagsOff();
+  });
+
+  // The tabs below advertise the title save and never answer unless a test
+  // answers for them, so a request nobody expects refuses the move.
+
+  it("asks no open editor for anything on a move within its space", async () => {
+    const parent = await as(OWNER, () =>
+      createDocument.run({ title: "Parent" }),
+    );
+    const page = await as(OWNER, () => createDocument.run({ title: "Stay" }));
+    await liveCopy.putPageOnLiveCopy(page.id);
+    await tabs.openEditorTab(page.id, EDITOR, { canFlushTitle: true });
+
+    const moved = await as(OWNER, () =>
+      moveDocument.run({ id: page.id, parentId: parent.id }),
+    );
+
+    expect(moved).toMatchObject({ parentId: parent.id });
+    expect(moved).not.toHaveProperty("titleFlush");
+  });
+
+  it("has the open editors of the page and its sub-pages save their titles before it moves them to another space", async () => {
+    const orgSpaceId = organizationContentSpaceId(ORG_ID);
+    const page = await as(OWNER, () => createDocument.run({ title: "Plan" }));
+    const child = await as(OWNER, () =>
+      createDocument.run({ title: "Details", parentId: page.id }),
+    );
+    const legacy = await as(OWNER, () =>
+      createDocument.run({ title: "Notes", parentId: page.id }),
+    );
+    for (const id of [page.id, child.id, legacy.id])
+      await liveCopy.putPageOnLiveCopy(id);
+    await tabs.openEditorTab(page.id, EDITOR, { canFlushTitle: true });
+    await tabs.openEditorTab(child.id, EDITOR, { canFlushTitle: true });
+    await tabs.openEditorTab(legacy.id, EDITOR);
+    const answered = Promise.all([
+      tabs.answerTitleRequest(page.id, EDITOR),
+      tabs.answerTitleRequest(child.id, EDITOR),
+    ]);
+
+    const moved = await as(OWNER, () =>
+      moveDocument.run({ id: page.id, spaceId: orgSpaceId }),
+    );
+
+    const answeredBy = [
+      expect.objectContaining({ clientId: 7, flush: "answered" }),
+    ];
+    expect(moved).toMatchObject({ spaceId: orgSpaceId });
+    expect(moved.titleFlush.pages).toEqual(
+      expect.arrayContaining([
+        { documentId: page.id, confirmedTitle: "Plan", editors: answeredBy },
+        {
+          documentId: child.id,
+          confirmedTitle: "Details",
+          editors: answeredBy,
+        },
+        {
+          documentId: legacy.id,
+          editors: [
+            { clientId: 7, flush: "unconfirmed", reason: "legacy_editor" },
+          ],
+        },
+      ]),
+    );
+    expect(moved.titleFlush.pages).toHaveLength(3);
+    expect(await answered).toEqual([
+      expect.objectContaining({ id: page.id, scope: "title" }),
+      expect.objectContaining({ id: child.id, scope: "title" }),
+    ]);
+  });
+
+  it("moves a page to another space as main does when no open editor advertises the title save", async () => {
+    const orgSpaceId = organizationContentSpaceId(ORG_ID);
+    const page = await as(OWNER, () => createDocument.run({ title: "Alone" }));
+    const child = await as(OWNER, () =>
+      createDocument.run({ title: "Details", parentId: page.id }),
+    );
+    await liveCopy.putPageOnLiveCopy(page.id);
+    await liveCopy.putPageOnLiveCopy(child.id);
+    await tabs.openEditorTab(child.id, EDITOR);
+
+    const moved = await as(OWNER, () =>
+      moveDocument.run({ id: page.id, spaceId: orgSpaceId }),
+    );
+
+    expect(moved).toMatchObject({ spaceId: orgSpaceId });
+    expect(moved).not.toHaveProperty("titleFlush");
+  });
+
+  it("refuses the whole move when a sub-page's open editor couldn't save its title", async () => {
+    const page = await as(OWNER, () => createDocument.run({ title: "Plan" }));
+    const child = await as(OWNER, () =>
+      createDocument.run({ title: "Details", parentId: page.id }),
+    );
+    await liveCopy.putPageOnLiveCopy(page.id);
+    await liveCopy.putPageOnLiveCopy(child.id);
+    await tabs.openEditorTab(child.id, EDITOR, { canFlushTitle: true });
+    const answered = tabs.answerTitleRequest(child.id, EDITOR, {
+      errorCode: "title_conflict",
+    });
+
+    await expect(
+      as(OWNER, () =>
+        moveDocument.run({
+          id: page.id,
+          spaceId: organizationContentSpaceId(ORG_ID),
+        }),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
+      statusCode: 409,
+      details: {
+        documentId: child.id,
+        reason: "editor_error",
+        code: "title_conflict",
+        retryable: true,
+      },
+    });
+    await answered;
+    expect(await documentRows([page.id, child.id])).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: page.id,
+          spaceId: personalContentSpaceId(OWNER),
+        }),
+        expect.objectContaining({
+          id: child.id,
+          spaceId: personalContentSpaceId(OWNER),
+        }),
+      ]),
+    );
+  });
+
+  it("refuses a move to another space when a sub-page leaves the page while its editor saves the title", async () => {
+    const page = await as(OWNER, () => createDocument.run({ title: "Plan" }));
+    const child = await as(OWNER, () =>
+      createDocument.run({ title: "Details", parentId: page.id }),
+    );
+    await liveCopy.putPageOnLiveCopy(page.id);
+    await tabs.openEditorTab(page.id, EDITOR, { canFlushTitle: true });
+    const answered = tabs.answerTitleRequest(page.id, EDITOR, {
+      save: async () => {
+        await getDb()
+          .update(schema.documents)
+          .set({ parentId: null })
+          .where(eq(schema.documents.id, child.id));
+      },
+    });
+
+    await expect(
+      as(OWNER, () =>
+        moveDocument.run({
+          id: page.id,
+          spaceId: organizationContentSpaceId(ORG_ID),
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "PAGE_SUBTREE_CHANGED" });
+    await answered;
+    expect(await documentRows([page.id, child.id])).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: page.id,
+          spaceId: personalContentSpaceId(OWNER),
+        }),
+        expect.objectContaining({
+          id: child.id,
+          spaceId: personalContentSpaceId(OWNER),
+          parentId: null,
+        }),
+      ]),
+    );
+  });
+
+  it("checks the destination again after its editor saves the title, and refuses a parent gone to Trash meanwhile", async () => {
+    const orgSpaceId = organizationContentSpaceId(ORG_ID);
+    const parent = await as(OWNER, () =>
+      createDocument.run({ title: "Projects", spaceId: orgSpaceId }),
+    );
+    const page = await as(OWNER, () => createDocument.run({ title: "Plan" }));
+    await liveCopy.putPageOnLiveCopy(page.id);
+    await tabs.openEditorTab(page.id, EDITOR, { canFlushTitle: true });
+    const answered = tabs.answerTitleRequest(page.id, EDITOR, {
+      save: async () => {
+        await getDb()
+          .update(schema.documents)
+          .set({ trashedAt: new Date().toISOString() })
+          .where(eq(schema.documents.id, parent.id));
+      },
+    });
+
+    await expect(
+      as(OWNER, () =>
+        moveDocument.run({
+          id: page.id,
+          spaceId: orgSpaceId,
+          parentId: parent.id,
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "PARENT_TRASHED" });
+    await answered;
+    expect(await documentRows([page.id])).toEqual([
+      expect.objectContaining({
+        spaceId: personalContentSpaceId(OWNER),
+        parentId: null,
+      }),
+    ]);
+  });
+
+  it("refuses a move to another space when the page reaches the destination another way while its editor saves the title", async () => {
+    const orgSpaceId = organizationContentSpaceId(ORG_ID);
+    const page = await as(OWNER, () => createDocument.run({ title: "Plan" }));
+    await liveCopy.putPageOnLiveCopy(page.id);
+    await tabs.openEditorTab(page.id, EDITOR, { canFlushTitle: true });
+    const answered = tabs.answerTitleRequest(page.id, EDITOR, {
+      save: async () => {
+        await getDb()
+          .update(schema.documents)
+          .set({ spaceId: orgSpaceId })
+          .where(eq(schema.documents.id, page.id));
+      },
+    });
+
+    await expect(
+      as(OWNER, () => moveDocument.run({ id: page.id, spaceId: orgSpaceId })),
+    ).rejects.toMatchObject({ errorCode: "DOCUMENT_MOVE_SCOPE_CHANGED" });
+    await answered;
+    expect(await documentRows([page.id])).toEqual([
+      expect.objectContaining({
+        spaceId: orgSpaceId,
+        ownerEmail: OWNER,
+        visibility: "private",
+      }),
+    ]);
+  });
+
+  it("refuses a move to another space when the page's title changes after its editor saved it", async () => {
+    const page = await as(OWNER, () => createDocument.run({ title: "Plan" }));
+    await liveCopy.putPageOnLiveCopy(page.id);
+    await tabs.openEditorTab(page.id, EDITOR, { canFlushTitle: true });
+    const answered = tabs.answerTitleRequest(page.id, EDITOR);
+    titleSave.after = async () => {
+      await getDb()
+        .update(schema.documents)
+        .set({ title: "Plan, renamed" })
+        .where(eq(schema.documents.id, page.id));
+    };
+
+    await expect(
+      as(OWNER, () =>
+        moveDocument.run({
+          id: page.id,
+          spaceId: organizationContentSpaceId(ORG_ID),
+        }),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "PAGE_TITLE_CHANGED",
+      statusCode: 409,
+      details: { documentId: page.id, retryable: true },
+    });
+    await answered;
+    expect(await documentRows([page.id])).toEqual([
+      expect.objectContaining({
+        spaceId: personalContentSpaceId(OWNER),
+        ownerEmail: OWNER,
+      }),
+    ]);
+  });
+
+  it("refuses a move to another space when the destination is archived while the page's editor saves its title", async () => {
+    const orgSpaceId = organizationContentSpaceId(ORG_ID);
+    const page = await as(OWNER, () => createDocument.run({ title: "Plan" }));
+    await liveCopy.putPageOnLiveCopy(page.id);
+    await tabs.openEditorTab(page.id, EDITOR, { canFlushTitle: true });
+    const answered = tabs.answerTitleRequest(page.id, EDITOR);
+    const archive = (archivedAt: string | null) =>
+      getDb()
+        .update(schema.contentSpaces)
+        .set({ archivedAt })
+        .where(eq(schema.contentSpaces.id, orgSpaceId));
+    titleSave.after = () => archive(new Date().toISOString());
+
+    try {
+      await expect(
+        as(OWNER, () => moveDocument.run({ id: page.id, spaceId: orgSpaceId })),
+      ).rejects.toMatchObject({
+        errorCode: "SPACE_NOT_FOUND",
+        statusCode: 404,
+      });
+    } finally {
+      await archive(null);
+    }
+    await answered;
+    expect(await documentRows([page.id])).toEqual([
+      expect.objectContaining({
+        spaceId: personalContentSpaceId(OWNER),
+        ownerEmail: OWNER,
+      }),
+    ]);
+  });
+
+  it.each([
+    ["already existed", true],
+    ["is added while it waits", false],
+  ])(
+    "refuses a move to another space when a Files field that %s gets content while the page's editor saves its title",
+    async (_label, fieldFirst) => {
+      const orgSpaceId = organizationContentSpaceId(ORG_ID);
+      const page = await as(OWNER, () => createDocument.run({ title: "Plan" }));
+      await liveCopy.putPageOnLiveCopy(page.id);
+      await tabs.openEditorTab(page.id, EDITOR, { canFlushTitle: true });
+      const answered = tabs.answerTitleRequest(page.id, EDITOR);
+      const [files] = await getDb()
+        .select({ id: schema.contentDatabases.id })
+        .from(schema.contentDatabases)
+        .where(
+          and(
+            eq(schema.contentDatabases.systemRole, "files"),
+            eq(schema.contentDatabases.spaceId, personalContentSpaceId(OWNER)),
+          ),
+        );
+      const propertyId = `files-notes-${page.id}`;
+      const addField = () =>
+        getDb().insert(schema.documentPropertyDefinitions).values({
+          id: propertyId,
+          ownerEmail: OWNER,
+          databaseId: files.id,
+          name: "Notes",
+          type: "blocks",
+        });
+      if (fieldFirst) await addField();
+      titleSave.after = async () => {
+        if (!fieldFirst) await addField();
+        await getDb()
+          .insert(schema.documentBlockFieldContents)
+          .values({
+            id: `notes-${page.id}`,
+            ownerEmail: OWNER,
+            documentId: page.id,
+            propertyId,
+            content: "Draft notes",
+          });
+      };
+
+      try {
+        await expect(
+          as(OWNER, () =>
+            moveDocument.run({ id: page.id, spaceId: orgSpaceId }),
+          ),
+        ).rejects.toMatchObject({
+          errorCode: "PAGE_HAS_FILES_BLOCKS_FIELDS",
+          statusCode: 409,
+        });
+      } finally {
+        await getDb()
+          .delete(schema.documentBlockFieldContents)
+          .where(eq(schema.documentBlockFieldContents.propertyId, propertyId));
+        await getDb()
+          .delete(schema.documentPropertyDefinitions)
+          .where(eq(schema.documentPropertyDefinitions.id, propertyId));
+      }
+      await answered;
+      expect(await documentRows([page.id])).toEqual([
+        expect.objectContaining({
+          spaceId: personalContentSpaceId(OWNER),
+          ownerEmail: OWNER,
+        }),
+      ]);
+    },
+  );
+
+  it("moves to another space as main does once the page's flags are off (SF-11)", async () => {
+    const orgSpaceId = organizationContentSpaceId(ORG_ID);
+    const page = await as(OWNER, () => createDocument.run({ title: "Plan" }));
+    await liveCopy.putPageOnLiveCopy(page.id);
+    await tabs.openEditorTab(page.id, EDITOR, { canFlushTitle: true });
+    await liveCopy.turnLiveCopyFlagsOff();
+
+    const moved = await as(OWNER, () =>
+      moveDocument.run({ id: page.id, spaceId: orgSpaceId }),
+    );
+
+    expect(moved).toMatchObject({ spaceId: orgSpaceId });
+    expect(moved).not.toHaveProperty("titleFlush");
+  });
+});
+
+describe("duplicating a page", () => {
+  it("copies pages whose videos already share an id", async () => {
+    const video = (caption: string) =>
+      `<video src="https://example.com/a.mp4" id="video-original">${caption}</video>`;
+    const paired = `Intro\n${video("Demo")}\n${video("Copy")}`;
+    const page = await as(OWNER, () => createDocument.run({ title: "Clips" }));
+    const child = await as(OWNER, () =>
+      createDocument.run({ title: "More clips", parentId: page.id }),
+    );
+    await getDb()
+      .update(schema.documents)
+      .set({ content: paired })
+      .where(inArray(schema.documents.id, [page.id, child.id]));
+
+    const copy = await as(OWNER, () =>
+      duplicatePage.run({ documentId: page.id }),
+    );
+
+    expect(copy.copiedCount).toBe(2);
+    const copied = await getDb()
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, copy.id));
+    const copiedChild = await getDb()
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.parentId, copy.id));
+    expect([...copied, ...copiedChild]).toEqual([
+      { content: paired },
+      { content: paired },
+    ]);
+  });
+
+  it("copies a switched page from its last save when its open editor couldn't save the title, and says so", async () => {
+    const page = await as(OWNER, () =>
+      createDocument.run({ title: "Guide", content: "Body" }),
+    );
+    await liveCopy.putPageOnLiveCopy(page.id);
+    await tabs.openEditorTab(page.id, EDITOR, { canFlushTitle: true });
+    const answered = tabs.answerTitleRequest(page.id, EDITOR, {
+      errorCode: "title_conflict",
+    });
+    try {
+      const copy = await as(OWNER, () =>
+        duplicatePage.run({ documentId: page.id }),
+      );
+
+      expect(copy).toMatchObject({
+        title: "Copy of Guide",
+        copiedFromLastSave: [page.id],
+      });
+      await answered;
+    } finally {
+      await liveCopy.turnLiveCopyFlagsOff();
+    }
+  });
+
+  it("copies sub-pages beside the original in the same space", async () => {
+    const parent = await as(OWNER, () =>
+      createDocument.run({ title: "Parent" }),
+    );
+    const page = await as(OWNER, () =>
+      createDocument.run({ title: "Guide", parentId: parent.id }),
+    );
+    const child = await as(OWNER, () =>
+      createDocument.run({
+        title: "Chapter",
+        content: "Body",
+        parentId: page.id,
+      }),
+    );
+
+    const copy = await as(OWNER, () =>
+      duplicatePage.run({ documentId: page.id }),
+    );
+
+    expect(copy).toMatchObject({
+      title: "Copy of Guide",
+      parentId: parent.id,
+      copiedCount: 2,
+    });
+    const children = await getDb()
+      .select({
+        title: schema.documents.title,
+        content: schema.documents.content,
+      })
+      .from(schema.documents)
+      .where(eq(schema.documents.parentId, copy.id));
+    expect(children).toEqual([{ title: "Chapter", content: "Body" }]);
+    const siblings = await getDb()
+      .select({ id: schema.documents.id, position: schema.documents.position })
+      .from(schema.documents)
+      .where(eq(schema.documents.parentId, parent.id));
+    const order = siblings
+      .sort(
+        (a: { position: number }, b: { position: number }) =>
+          a.position - b.position,
+      )
+      .map((row: { id: string }) => row.id);
+    expect(order.indexOf(copy.id)).toBe(order.indexOf(page.id) + 1);
+    expect(await documentRows([child.id])).toEqual([
+      expect.objectContaining({ parentId: page.id }),
+    ]);
+  });
+
+  it("copies a page and its sub-pages into another space and leaves the original", async () => {
+    const orgSpaceId = organizationContentSpaceId(ORG_ID);
+    const page = await as(OWNER, () => createDocument.run({ title: "Recipe" }));
+    await as(OWNER, () =>
+      createDocument.run({ title: "Step one", parentId: page.id }),
+    );
+
+    const copy = await as(OWNER, () =>
+      duplicatePage.run({ documentId: page.id, spaceId: orgSpaceId }),
+    );
+
+    expect(copy).toMatchObject({
+      spaceId: orgSpaceId,
+      parentId: null,
+      copiedCount: 2,
+    });
+    const [copiedChild] = await getDb()
+      .select({ id: schema.documents.id })
+      .from(schema.documents)
+      .where(eq(schema.documents.parentId, copy.id));
+    expect(await documentRows([copy.id, copiedChild.id])).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ visibility: "org", orgId: ORG_ID }),
+      ]),
+    );
+    expect(await filesSpaces(copiedChild.id)).toEqual([orgSpaceId]);
+    expect(await documentRows([page.id])).toEqual([
+      expect.objectContaining({ spaceId: personalContentSpaceId(OWNER) }),
+    ]);
+  });
+
+  it("refuses a parent outside the destination space", async () => {
+    const page = await as(OWNER, () => createDocument.run({ title: "Memo" }));
+    const orgParent = await as(OWNER, () =>
+      createDocument.run({
+        title: "Team folder",
+        spaceId: organizationContentSpaceId(ORG_ID),
+      }),
+    );
+    await expect(
+      as(OWNER, () =>
+        duplicatePage.run({ documentId: page.id, parentId: orgParent.id }),
+      ),
+    ).rejects.toThrow("destination Content space");
+  });
+});

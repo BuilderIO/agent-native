@@ -9,7 +9,6 @@ export type RemoteCommandKind =
   | "status"
   | "computer-operation";
 
-/** Workloads a paired execution host may accept from the relay. */
 export type RemoteExecutionWorkload =
   | "code-agent"
   | "scheduled-code"
@@ -26,11 +25,6 @@ export type RemoteExecutionPersistence =
   | "persistent-volume"
   | "ephemeral";
 
-/**
- * Non-secret capabilities advertised by a host during its heartbeat. The
- * relay uses this to reject a requested workload before queueing it, while
- * leaving room for a future Kubernetes or external-agent adapter.
- */
 export interface RemoteExecutionCapabilities {
   backend?: RemoteExecutionBackend;
   workloads?: RemoteExecutionWorkload[];

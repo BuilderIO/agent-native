@@ -15,7 +15,6 @@ import {
   getNotionPage,
 } from "../lib/notion";
 
-// GET /api/notion/content-calendar — returns all content calendar entries
 export const handleContentCalendar = defineEventHandler(async (event) => {
   return runApiHandlerWithContext(event, async () => {
     const missing = await requireCredential(event, "NOTION_API_KEY", "Notion");
@@ -34,7 +33,6 @@ export const handleContentCalendar = defineEventHandler(async (event) => {
   });
 });
 
-// GET /api/notion/content-calendar/schema — returns the database schema
 export const handleContentCalendarSchema = defineEventHandler(async (event) => {
   return runApiHandlerWithContext(event, async () => {
     const missing = await requireCredential(event, "NOTION_API_KEY", "Notion");
@@ -53,7 +51,6 @@ export const handleContentCalendarSchema = defineEventHandler(async (event) => {
   });
 });
 
-// GET /api/notion/page/:pageId — returns page title and blocks for rendering
 export const handleNotionPage = defineEventHandler(async (event) => {
   return runApiHandlerWithContext(event, async () => {
     const missing = await requireCredential(event, "NOTION_API_KEY", "Notion");

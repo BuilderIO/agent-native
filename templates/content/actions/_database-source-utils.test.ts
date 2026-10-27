@@ -1,3 +1,4 @@
+import { ActionContractError } from "@agent-native/core/action";
 import { describe, expect, it } from "vitest";
 
 import type {
@@ -17,6 +18,7 @@ import {
 } from "./_builder-cms-source-adapter";
 import { resolveBuilderCmsWriteEffect } from "./_builder-cms-write-adapter";
 import {
+  assertBuilderCmsContinuationIdentity,
   buildBuilderLocalOutboundChangeSets,
   builderBodyChangeForLocalContent,
   builderBodyChangeForSourceSnapshotDocument,
@@ -24,6 +26,7 @@ import {
   builderBodyHydrationPriorityForRequest,
   builderBodyHydrationAttemptIsTerminal,
   builderBodyHydrationNextAttemptAt,
+  builderBodyHydrationFailureEvidence,
   builderBodyNeedsSourceComponentWrite,
   knownBuilderReviewDocumentIds,
   builderSourcePropertyAssignments,
@@ -38,6 +41,8 @@ import {
   builderCmsEntryAlreadyRepresented,
   builderCmsSourceContinuationIsCurrent,
   builderExecutionIsProvablyLocallyBlockedUnsent,
+  latestSnapshotExecutionIds,
+  hydrateSnapshotExecutionRows,
   canRefreshLocallyBlockedBuilderReview,
   buildMockBodyChange,
   buildMockFieldChange,
@@ -61,6 +66,99 @@ import {
   sortBuilderBodyHydrationQueueForProcessing,
 } from "./_database-source-utils";
 import { serializeBodyHydration } from "./_database-utils";
+
+describe("Builder body hydration failure evidence", () => {
+  it.each([
+    ["builder_source_binding_required", 409],
+    ["builder_connection_required", 412],
+    ["builder_oauth_reauthorization_required", 400],
+  ])("keeps %s retryable", (errorCode, statusCode) => {
+    const evidence = builderBodyHydrationFailureEvidence(
+      new ActionContractError("Builder source binding is unavailable.", {
+        errorCode,
+        statusCode,
+      }),
+    );
+
+    expect(evidence).toMatchObject({
+      retryable: true,
+      providerStatus: errorCode,
+    });
+  });
+
+  it("keeps unrelated conflicts terminal", () => {
+    const evidence = builderBodyHydrationFailureEvidence(
+      new ActionContractError("The read cursor is stale.", {
+        errorCode: "builder_source_continuation_mismatch",
+        statusCode: 409,
+      }),
+    );
+
+    expect(evidence.retryable).toBe(false);
+  });
+});
+
+describe("Builder execution snapshot payload hydration", () => {
+  it("selects only the latest execution row from each change set", () => {
+    const ids = latestSnapshotExecutionIds([
+      { id: "old-review", changeSetId: "review" },
+      { id: "old-history", changeSetId: "history" },
+      { id: "new-review", changeSetId: "review" },
+    ]);
+
+    expect(ids).toEqual(new Set(["old-history", "new-review"]));
+  });
+
+  it("bounds concurrent reads and isolates unavailable payloads", async () => {
+    const rows = Array.from({ length: 9 }, (_, index) => ({
+      id: `execution-${index}`,
+      payloadJson: `payload-${index}`,
+    })) as unknown as Parameters<typeof hydrateSnapshotExecutionRows>[0];
+    let inFlight = 0;
+    let maximumInFlight = 0;
+
+    const hydrated = await hydrateSnapshotExecutionRows(rows, async (row) => {
+      inFlight += 1;
+      maximumInFlight = Math.max(maximumInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      inFlight -= 1;
+      if (row.id === "execution-3") throw new Error("payload unavailable");
+      return row;
+    });
+
+    expect(maximumInFlight).toBe(4);
+    expect(hydrated).toHaveLength(rows.length);
+    expect(hydrated[3]).toMatchObject({
+      payloadJson: JSON.stringify({ unavailable: true }),
+      payloadUnavailable: true,
+    });
+    expect(hydrated.filter((row) => row.payloadUnavailable)).toHaveLength(1);
+  });
+
+  it("hydrates only executions needed by an unscoped review snapshot", async () => {
+    const rows = [
+      { id: "current", changeSetId: "reviewable" },
+      { id: "history", changeSetId: "succeeded-history" },
+    ] as unknown as Parameters<typeof hydrateSnapshotExecutionRows>[0];
+    const hydratedIds: string[] = [];
+
+    const hydrated = await hydrateSnapshotExecutionRows(
+      rows,
+      async (row) => {
+        hydratedIds.push(row.id);
+        return row;
+      },
+      (row) => row.changeSetId === "reviewable",
+    );
+
+    expect(hydratedIds).toEqual(["current"]);
+    expect(hydrated[0]?.payloadUnavailable).toBeUndefined();
+    expect(hydrated[1]).toMatchObject({
+      payloadUnavailable: true,
+      payloadJson: JSON.stringify({ unavailable: true }),
+    });
+  });
+});
 
 function property(
   type: DocumentProperty["definition"]["type"],
@@ -106,6 +204,31 @@ function item(id: string, title: string): ContentDatabaseItem {
 }
 
 describe("database source helpers", () => {
+  it("rejects saved continuation identity drift and cross-page overlap", () => {
+    expect(() =>
+      assertBuilderCmsContinuationIdentity({
+        continueOffset: 1,
+        activeReadSourceRowIds: ["entry-1", "entry-2"],
+      }),
+    ).toThrow(/exceeds its saved provider offset/);
+    expect(() =>
+      assertBuilderCmsContinuationIdentity({
+        continueOffset: 2,
+        activeReadSourceRowIds: ["entry-1", "entry-2"],
+        entries: [{ id: "entry-2" }, { id: "entry-3" }],
+      }),
+    ).toThrow(/repeated an entry from an earlier page/);
+  });
+
+  it("accepts a provider offset beyond the normalized source row count", () => {
+    expect(() =>
+      assertBuilderCmsContinuationIdentity({
+        continueOffset: 2,
+        activeReadSourceRowIds: ["entry-1"],
+      }),
+    ).not.toThrow();
+  });
+
   it("page-scopes primary Builder rows without truncating secondary federation", () => {
     expect(
       sourceSnapshotPageDocumentIds({
@@ -405,6 +528,9 @@ describe("database source helpers", () => {
             hasMore: true,
             partial: true,
             readMode: "builder-api",
+            sourceSpacePublicKey: "selected-space-key",
+            sourceConnectionId: "builder-oauth-connection-1",
+            observedCollectionCount: 580,
           },
           sourceFetchState: "fetching",
         }),
@@ -416,11 +542,38 @@ describe("database source helpers", () => {
       lastReadMatchedRowCount: 98,
       lastReadLimit: 500,
       lastReadFetchedEntryCount: 100,
+      lastReadCollectionCount: 580,
       lastReadPartial: true,
       lastReadHasMore: true,
       lastReadNextOffset: 100,
       sourceFetchState: "fetching",
+      builderSpacePublicKey: "selected-space-key",
+      connectionId: "builder-oauth-connection-1",
     });
+  });
+
+  it("clears an old collection count when a new read has no count evidence", () => {
+    const metadata = JSON.parse(
+      serializeBuilderCmsSourceReadMetadataRecord({
+        sourceTable: "blog-article",
+        readState: "live",
+        entryCount: 10,
+        matchedRowCount: 10,
+        existingMetadataJson: JSON.stringify({ lastReadCollectionCount: 580 }),
+        progress: {
+          requestedLimit: 500,
+          pageSize: 100,
+          startOffset: 0,
+          nextOffset: 10,
+          fetchedEntryCount: 10,
+          hasMore: false,
+          partial: false,
+          readMode: "builder-api",
+        },
+      }),
+    );
+
+    expect(metadata).not.toHaveProperty("lastReadCollectionCount");
   });
 
   it("records suspicious empty Builder reads without calling them healthy", () => {
@@ -1708,7 +1861,6 @@ describe("database source helpers", () => {
         },
       ],
     });
-    // The already-linked row with no title change yields nothing.
     expect(
       pending.find((cs) => cs.documentId === "doc-linked"),
     ).toBeUndefined();
@@ -2167,8 +2319,6 @@ describe("database source helpers", () => {
         { databaseItemId: "item-mine", documentId: "doc-mine" },
         { databaseItemId: "item-other", documentId: "doc-other" },
       ],
-      // doc-other is owned by a different source — it must not become a create
-      // candidate for this one, even though it isn't in this source's rowRows.
       otherSourceDocumentIds: new Set(["doc-other"]),
     } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0]);
 
@@ -2177,8 +2327,6 @@ describe("database source helpers", () => {
   });
 
   it("a non-primary source adopts a row tagged for it via the Source property", () => {
-    // A new, unlinked row tagged for "source-zz" must create against zz even
-    // though zz is not the primary (allowUnsourcedCreates: false).
     const pending = buildBuilderLocalOutboundChangeSets({
       source: { sourceType: "builder-cms", id: "source-zz" },
       rowRows: [],
@@ -2198,8 +2346,6 @@ describe("database source helpers", () => {
       ]),
     } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0]);
 
-    // zz adopts its own tagged row; the row tagged for another collection is
-    // left alone even though this is the non-primary source.
     expect(pending.find((cs) => cs.documentId === "doc-zz")).toBeDefined();
     expect(pending.find((cs) => cs.documentId === "doc-blog")).toBeUndefined();
   });
@@ -2215,14 +2361,12 @@ describe("database source helpers", () => {
       ],
     } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0];
 
-    // A non-primary source leaves an unsourced "Local" row alone.
     expect(
       buildBuilderLocalOutboundChangeSets({
         ...args,
         allowUnsourcedCreates: false,
       }),
     ).toHaveLength(0);
-    // The primary (default) adopts it as a create_draft.
     expect(
       buildBuilderLocalOutboundChangeSets({
         ...args,

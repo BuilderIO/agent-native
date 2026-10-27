@@ -1,10 +1,8 @@
 /**
- * Code-backed GLSL shader runtime — the self-contained engine behind shader
- * fills and shader effects.
+ * Saved GLSL shader runtime for existing fills and shader effects.
  *
  * This script is BOTH:
- *   1. injected into every editor canvas iframe (via
- *      SHADER_FILL_PREVIEW_BRIDGE_SCRIPT in DesignCanvas.tsx), and
+ *   1. injected into every editor canvas iframe by DesignCanvas.tsx, and
  *   2. embedded into persisted/exported screen HTML (via
  *      `ensureShaderRuntime()` in shared/shader-fills.ts) so standalone
  *      artifacts render their shaders without the editor.
@@ -13,7 +11,7 @@
  * rendered inside the editor (which injects it again) initializes only once.
  *
  * Persisted format it consumes (see shared/shader-fills.ts for the canonical
- * spec + serializers — keep the parsing here in sync):
+ * format — keep the parsing here in sync):
  *
  *   <script type="application/x-agent-native-shader"
  *           data-shader-id="an-shader-x" data-shader-name="Name"
@@ -52,7 +50,7 @@
  */
 (function () {
   interface AnUniformDef {
-    type?: string; // 'float' | 'vec2' | 'color'
+    type?: string;
     value?: unknown;
     min?: number;
     max?: number;
@@ -65,10 +63,7 @@
     mode: "fill" | "effect";
     glsl: string;
     uniforms: Record<string, AnUniformDef>;
-    /** Raw script-tag text at last collect, to detect DOM-side updates. */
     domText?: string;
-    /** True when updated at runtime (updateShader) and not yet persisted. */
-    volatile?: boolean;
   }
 
   interface AnShaderMount {
@@ -80,34 +75,12 @@
     defId: string;
     mode: "fill" | "effect";
     values: Record<string, unknown>;
-    preview: boolean;
     visible: boolean;
   }
 
   interface AnShadersApi {
     version: number;
     scan: () => void;
-    applyPreview: (
-      target: { nodeId?: string; selector?: string },
-      def: {
-        id?: string;
-        name?: string;
-        glsl: string;
-        uniforms?: Record<string, AnUniformDef>;
-        values?: Record<string, unknown>;
-      },
-      mode?: string,
-    ) => boolean;
-    clearPreview: () => void;
-    setUniform: (
-      filter: { shaderId?: string; nodeId?: string; preview?: boolean },
-      name: string,
-      value: unknown,
-    ) => void;
-    updateShader: (
-      id: string,
-      patch: { glsl?: string; uniforms?: Record<string, AnUniformDef> },
-    ) => void;
   }
 
   const W = window as unknown as {
@@ -116,7 +89,6 @@
     typeof globalThis;
 
   if (W.__anShaders && W.__anShaders.version >= 1) {
-    // Another copy (embedded + injected) already runs — just rescan.
     try {
       W.__anShaders.scan();
     } catch (_err) {
@@ -132,7 +104,6 @@
   const EFFECT_VALUES_ATTR = "data-an-shader-effect-uniforms";
   const ERROR_ATTR = "data-an-shader-error";
   const CANVAS_ATTR = "data-an-shader-canvas";
-  const PREVIEW_DEF_ID = "__an-shader-preview";
   const MAX_MOUNTS = 8;
   const VERT_SRC =
     "attribute vec2 a_pos;void main(){gl_Position=vec4(a_pos,0.0,1.0);}";
@@ -140,8 +111,12 @@
   const registry: Record<string, AnShaderDef> = {};
   const mounts: AnShaderMount[] = [];
   let rafId: number | null = null;
+  let lastFrameTs: number | null = null;
   let needsRender = false;
   let scanTimer: ReturnType<typeof setTimeout> | null = null;
+  // How large the editor shows this document, from its zoom. Outside the
+  // editor nothing sends one, so standalone pages keep full resolution.
+  let viewScale = 1;
 
   function nowMs(): number {
     return W.performance && W.performance.now
@@ -166,8 +141,6 @@
   } catch (_err) {
     /* noop */
   }
-
-  // ── Manifest parsing (keep in sync with shared/shader-fills.ts) ──────────
 
   function parseBlock(text: string): {
     uniforms: Record<string, AnUniformDef>;
@@ -202,8 +175,6 @@
     return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
   }
 
-  // ── Definition collection ─────────────────────────────────────────────────
-
   function invalidateMountsFor(defId: string): void {
     for (let i = mounts.length - 1; i >= 0; i--) {
       if (mounts[i].defId === defId) unmount(mounts[i]);
@@ -220,8 +191,7 @@
       if (!id) continue;
       const text = s.textContent || "";
       const prev = registry[id];
-      if (prev && prev.domText === text) continue; // unchanged in DOM
-      if (prev && prev.volatile && prev.domText === undefined) continue;
+      if (prev && prev.domText === text) continue;
       const parsed = parseBlock(text);
       registry[id] = {
         name: s.getAttribute("data-shader-name") || id,
@@ -234,8 +204,6 @@
       if (prev && prev.glsl !== parsed.glsl) invalidateMountsFor(id);
     }
   }
-
-  // ── WebGL plumbing ────────────────────────────────────────────────────────
 
   function compileProgram(
     gl: WebGLRenderingContext,
@@ -326,20 +294,12 @@
     defId: string,
     mode: "fill" | "effect",
     overrides: Record<string, unknown> | null | undefined,
-    preview: boolean,
   ): AnShaderMount | null {
     const def = registry[defId];
     if (!def || !def.glsl) return null;
-    // A fill and an effect may coexist on the same element — mount identity
-    // is (element, mode, preview), so replacing a fill never tears down the
-    // element's effect and vice versa.
     for (let i = 0; i < mounts.length; i++) {
       const existing = mounts[i];
-      if (
-        existing.el === el &&
-        existing.preview === preview &&
-        existing.mode === mode
-      ) {
+      if (existing.el === el && existing.mode === mode) {
         if (existing.defId === defId) {
           existing.values = resolveValues(def, overrides);
           requestRender();
@@ -413,7 +373,6 @@
     gl.useProgram(program);
     const buf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-    // One oversized triangle covering the viewport — cheaper than a quad.
     gl.bufferData(
       gl.ARRAY_BUFFER,
       new Float32Array([-1, -1, 3, -1, -1, 3]),
@@ -432,7 +391,6 @@
       defId: defId,
       mode: mode,
       values: resolveValues(def, overrides),
-      preview: preview,
       visible: true,
     };
     mounts.push(mount);
@@ -466,9 +424,13 @@
     const rect = el.getBoundingClientRect();
     const wCss = Math.max(1, Math.round(rect.width));
     const hCss = Math.max(1, Math.round(rect.height));
-    const dpr = Math.min(2, W.devicePixelRatio || 1);
-    const wPx = Math.max(1, Math.round(wCss * dpr));
-    const hPx = Math.max(1, Math.round(hCss * dpr));
+    // Zoomed out, render at the on-screen size, but never below one canvas
+    // pixel per CSS pixel: presets size grain and halftone dots in canvas
+    // pixels, so this keeps them no coarser than a standard display shows.
+    const deviceRatio = Math.min(2, W.devicePixelRatio || 1);
+    const ratio = Math.max(Math.min(1, deviceRatio), deviceRatio * viewScale);
+    const wPx = Math.max(1, Math.round(wCss * ratio));
+    const hPx = Math.max(1, Math.round(hCss * ratio));
     if (canvas.width !== wPx || canvas.height !== hPx) {
       canvas.width = wPx;
       canvas.height = hPx;
@@ -501,8 +463,18 @@
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
 
-  function frame(): void {
+  function frame(ts?: number): void {
     rafId = null;
+    // On a board of several screens, Chromium can run each screen's
+    // animation-frame callbacks once per screen per display frame, all with
+    // the same timestamp. Draw on the first; the rest would repeat its pixels.
+    if (typeof ts === "number") {
+      if (ts === lastFrameTs) {
+        startLoop();
+        return;
+      }
+      lastFrameTs = ts;
+    }
     const t = (nowMs() - t0) / 1000;
     const animate = !reducedMotion && !document.hidden;
     for (let i = mounts.length - 1; i >= 0; i--) {
@@ -532,8 +504,6 @@
     needsRender = true;
     startLoop();
   }
-
-  // ── Scanning ──────────────────────────────────────────────────────────────
 
   function parseOverrides(
     el: HTMLElement,
@@ -565,7 +535,6 @@
           fillId,
           "fill",
           parseOverrides(el, VALUES_ATTR),
-          false,
         );
         if (fillMount) seen.push(fillMount);
       }
@@ -575,14 +544,12 @@
           effectId,
           "effect",
           parseOverrides(el, EFFECT_VALUES_ATTR),
-          false,
         );
         if (effectMount) seen.push(effectMount);
       }
     }
     for (let k = mounts.length - 1; k >= 0; k--) {
       const mount = mounts[k];
-      if (mount.preview) continue;
       if (seen.indexOf(mount) === -1) unmount(mount);
     }
     startLoop();
@@ -596,122 +563,10 @@
     }, 100);
   }
 
-  // ── Public API (used by the shader-fill-preview bridge + inspector) ──────
-
-  function resolveTarget(target: {
-    nodeId?: string;
-    selector?: string;
-  }): HTMLElement | null {
-    if (target && target.selector) {
-      try {
-        const hit = document.querySelector(target.selector);
-        if (hit) return hit as HTMLElement;
-      } catch (_err) {
-        /* invalid selector */
-      }
-    }
-    if (target && target.nodeId) {
-      const byId = document.querySelector(
-        '[data-agent-native-node-id="' +
-          String(target.nodeId).replace(/"/g, '\\"') +
-          '"]',
-      );
-      if (byId) return byId as HTMLElement;
-    }
-    return null;
-  }
-
-  function applyPreview(
-    target: { nodeId?: string; selector?: string },
-    def: {
-      id?: string;
-      name?: string;
-      glsl: string;
-      uniforms?: Record<string, AnUniformDef>;
-      values?: Record<string, unknown>;
-    },
-    mode?: string,
-  ): boolean {
-    clearPreview();
-    const el = resolveTarget(target || {});
-    // No body fallback: in a multi-screen editor every screen iframe receives
-    // the same message — only the one containing the target should mount.
-    if (!el || !def || typeof def.glsl !== "string") return false;
-    const resolvedMode: "fill" | "effect" =
-      mode === "effect" ? "effect" : "fill";
-    registry[PREVIEW_DEF_ID] = {
-      name: (def.name || "Preview") + "",
-      mode: resolvedMode,
-      glsl: def.glsl,
-      uniforms: def.uniforms || {},
-      volatile: true,
-    };
-    const mount = ensureMount(
-      el,
-      PREVIEW_DEF_ID,
-      resolvedMode,
-      def.values || null,
-      true,
-    );
-    return !!mount;
-  }
-
-  function clearPreview(): void {
-    for (let i = mounts.length - 1; i >= 0; i--) {
-      if (mounts[i].preview) unmount(mounts[i]);
-    }
-    delete registry[PREVIEW_DEF_ID];
-  }
-
-  function setUniform(
-    filter: { shaderId?: string; nodeId?: string; preview?: boolean },
-    name: string,
-    value: unknown,
-  ): void {
-    const f = filter || {};
-    for (let i = 0; i < mounts.length; i++) {
-      const mount = mounts[i];
-      if (f.preview !== undefined && mount.preview !== !!f.preview) continue;
-      if (f.shaderId && mount.defId !== f.shaderId) continue;
-      if (f.nodeId) {
-        const nid = mount.el.getAttribute("data-agent-native-node-id");
-        if (nid !== f.nodeId) continue;
-      }
-      mount.values[name] = value;
-    }
-    requestRender();
-  }
-
-  function updateShader(
-    id: string,
-    patch: { glsl?: string; uniforms?: Record<string, AnUniformDef> },
-  ): void {
-    const def = registry[id];
-    if (!def || !patch) return;
-    let recompile = false;
-    if (typeof patch.glsl === "string" && patch.glsl !== def.glsl) {
-      def.glsl = patch.glsl;
-      recompile = true;
-    }
-    if (patch.uniforms && typeof patch.uniforms === "object") {
-      def.uniforms = patch.uniforms;
-    }
-    def.volatile = true;
-    if (recompile) invalidateMountsFor(id);
-    scan();
-    requestRender();
-  }
-
   W.__anShaders = {
     version: 1,
     scan: scan,
-    applyPreview: applyPreview,
-    clearPreview: clearPreview,
-    setUniform: setUniform,
-    updateShader: updateShader,
   };
-
-  // ── Boot ──────────────────────────────────────────────────────────────────
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", function () {
@@ -725,9 +580,27 @@
     if (!document.hidden) requestRender();
   });
 
+  // The editor posts its zoom to each screen. Zooming in keeps the
+  // document's own resolution; zoom steps round up to eighths so a pinch
+  // doesn't reallocate the canvases every frame.
+  W.addEventListener("message", function (event: MessageEvent) {
+    if (W.parent === W || event.source !== W.parent) return;
+    const data = event.data as {
+      type?: unknown;
+      scaleX?: unknown;
+      scaleY?: unknown;
+    } | null;
+    if (!data || data.type !== "set-editor-chrome-scale") return;
+    const scale = Math.max(Number(data.scaleX) || 0, Number(data.scaleY) || 0);
+    if (!(scale > 0)) return;
+    const next = Math.min(1, Math.ceil(scale * 8) / 8);
+    if (next === viewScale) return;
+    viewScale = next;
+    requestRender();
+  });
+
   try {
     new MutationObserver(function () {
-      // Debounced; scan() is idempotent so canvas-insert echoes converge.
       scheduleScan();
     }).observe(document.documentElement, {
       childList: true,

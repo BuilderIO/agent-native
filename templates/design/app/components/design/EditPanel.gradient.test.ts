@@ -45,11 +45,6 @@ describe("EditPanel gradient layer serialization", () => {
   });
 
   it("parses bare CSS named colors as gradient stops instead of dropping them", () => {
-    // Regression: readLeadingColor only recognized hex/transparent/function
-    // colors, so a plain named-color stop like "red" (extremely common in
-    // hand-authored or generated CSS) was misread as a gradient *prefix* —
-    // silently dropping that stop and corrupting an otherwise-valid 2-stop
-    // gradient into a broken 1-stop one with a garbage "red" prefix.
     const parsed = parseGradientLayer("linear-gradient(red, blue)");
 
     expect(parsed).not.toBeNull();

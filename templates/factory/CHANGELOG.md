@@ -3,6 +3,12 @@
 All notable user-facing changes to Chat are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-10
+
+### Improved
+
+- Factory automations can route grouped findings to a dedicated Slack channel.
+
 ## 2026-09-15
 
 ### Fixed
@@ -30,6 +36,10 @@ time from the command menu (Cmd+K → "What's new").
 - PR babysitting now follows unresolved bot review feedback, defers while Builder is active, and shows recommendation, decision, and because on the Audit tab.
 
 ## 2026-09-10
+
+### Added
+
+- Inbox items can now be marked resolved or sent back to automation by hand, from the row menu or the item detail view, independent of the automation pipeline.
 
 ### Improved
 

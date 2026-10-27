@@ -1,10 +1,3 @@
-/**
- * Move a recording to the trash by setting trashedAt.
- *
- * Usage:
- *   pnpm action trash-recording --id=<id>
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -12,6 +5,7 @@ import { and, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 
 export default defineAction({
   description:
@@ -26,7 +20,9 @@ export default defineAction({
       ),
   }),
   run: async (args) => {
-    await assertAccess("recording", args.id, "editor");
+    assertRecordingNotExpired(
+      await assertAccess("recording", args.id, "editor"),
+    );
 
     const db = getDb();
 
@@ -37,12 +33,7 @@ export default defineAction({
     if (!existing) throw new Error(`Recording not found: ${args.id}`);
 
     const now = new Date().toISOString();
-    // When `skipIfReady` is set, make the trash conditional on the row NOT
-    // already being 'ready' — this closes the TOCTOU race where finalize
-    // flips the row to 'ready' concurrently with a cancel. Without the WHERE
-    // guard, a finalize that lands between a caller's read and this write
-    // would get silently trashed even though the upload finished.
-    await db
+    const updated = await db
       .update(schema.recordings)
       .set({ trashedAt: now, updatedAt: now })
       .where(
@@ -52,20 +43,27 @@ export default defineAction({
               ne(schema.recordings.status, "ready"),
             )
           : eq(schema.recordings.id, args.id),
-      );
-
-    // Re-select to report the resulting row state instead of relying on
-    // mutation metadata.
-    const [after] = await db
-      .select({
+      )
+      .returning({
         status: schema.recordings.status,
         trashedAt: schema.recordings.trashedAt,
-      })
-      .from(schema.recordings)
-      .where(eq(schema.recordings.id, args.id));
+      });
+
+    const [after] = updated.length
+      ? updated
+      : await db
+          .select({
+            status: schema.recordings.status,
+            trashedAt: schema.recordings.trashedAt,
+          })
+          .from(schema.recordings)
+          .where(eq(schema.recordings.id, args.id));
 
     const trashedAt = after?.trashedAt ?? null;
-    const skipped = Boolean(args.skipIfReady) && !trashedAt;
+    const skipped =
+      Boolean(args.skipIfReady) &&
+      updated.length === 0 &&
+      after?.status === "ready";
 
     await writeAppState("refresh-signal", { ts: Date.now() });
     console.log(

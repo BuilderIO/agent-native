@@ -3,10 +3,6 @@ import { Spinner } from "@/components/ui/spinner";
 
 const panelGhost = "bg-[var(--design-editor-skeleton-panel-ghost-bg)]";
 
-/**
- * Loading placeholder for the design editor. Keeps the shell recognizable while
- * staying quiet enough that it does not read as mock content.
- */
 export function DesignEditorSkeleton({
   embedded = false,
   pendingGeneration = false,

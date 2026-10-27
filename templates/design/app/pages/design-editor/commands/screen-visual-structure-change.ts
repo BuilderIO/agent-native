@@ -1,3 +1,4 @@
+import { isRunningAppSourceType } from "@shared/source-mode";
 import type { Dispatch, SetStateAction } from "react";
 
 import type { ElementInfo } from "@/components/design/types";
@@ -152,8 +153,6 @@ export function runScreenVisualStructureChange(
         rowEnd: number;
       };
     }>;
-    /** Markup this change introduced; the subject does not exist in the
-     * screen's source yet, so it must be added rather than relocated. */
     insertedHtml?: string;
     replaced?: true;
     replacementSelector?: string;
@@ -171,7 +170,7 @@ export function runScreenVisualStructureChange(
   );
   const canEditScreen =
     canEditDesign ||
-    (screenSourceType === "localhost" && canEditLiveScreen?.(screenId));
+    (isRunningAppSourceType(screenSourceType) && canEditLiveScreen?.(screenId));
   if (screenId === activeFile?.id) {
     if (!canEditScreen) return false;
     return handleVisualStructureChange(

@@ -52,11 +52,6 @@ export default defineAction({
       .describe(
         "If set, only sync this calendar_accounts row. Otherwise sync every account visible to the current user.",
       ),
-    /**
-     * Internal flag used by the recurring `poll-calendars` job — when set,
-     * the action ignores the access filter and syncs every connected
-     * account on the system. Tokens are still scoped per-account-owner.
-     */
     allAccounts: z.boolean().default(false),
   }),
   run: async (args) => {
@@ -75,7 +70,6 @@ export default defineAction({
       .where(where.length ? and(...where) : undefined);
 
     const now = new Date();
-    // Sync window: 1h ago to 30 days out.
     const timeMin = new Date(now.getTime() - 60 * 60 * 1000).toISOString();
     const timeMax = new Date(
       now.getTime() + 30 * 24 * 60 * 60 * 1000,
@@ -86,18 +80,11 @@ export default defineAction({
     const errors: { accountId: string; error: string }[] = [];
 
     for (const account of accounts) {
-      if (account.provider !== "google") continue; // iCloud / Microsoft handled elsewhere.
+      if (account.provider !== "google") continue;
       if (!account.ownerEmail) continue;
-      // Track per-account event counts so we can emit a `calendar-synced`
-      // event with accurate numbers after each account finishes (Fix 7).
       let perAccountEvents = 0;
       let perAccountMeetings = 0;
       try {
-        // A permanent refresh failure (dead token / bad client) resolves to
-        // `null` here (handled below as needs-reauth). A transient failure
-        // (network error, 429, 5xx) is rethrown by resolveCalendarAccessToken
-        // and caught by this try's own catch, which records it as a soft
-        // sync error via shouldMarkNeedsReauth without flipping status.
         const accessToken = await resolveCalendarAccessToken(account);
         if (!accessToken) {
           await recordCalendarFetchError(
@@ -120,11 +107,9 @@ export default defineAction({
           maxResults: 250,
         });
 
-        // Upsert events.
         for (const ev of items) {
           if (!ev.id) continue;
           if (ev.status === "cancelled") {
-            // Delete cancelled events from our cache.
             await db
               .delete(schema.calendarEvents)
               .where(
@@ -195,8 +180,6 @@ export default defineAction({
           perAccountEvents += 1;
         }
 
-        // Keep the success write isolated and guarded so an in-flight sweep
-        // cannot overwrite a concurrent needs-reauth decision.
         try {
           await recordCalendarFetchSuccess(account);
         } catch (writeErr: any) {
@@ -206,10 +189,6 @@ export default defineAction({
           );
         }
 
-        // Fix 7: emit `calendar-synced` so the UI can show a fresh-sync toast
-        // (e.g. "Synced 12 events, 3 meetings just now"). Best-effort — the
-        // event bus is in-process so this almost never throws, but we don't
-        // want a subscriber crash to roll back the sync.
         try {
           emit("calendar-synced", {
             accountId: account.id,
@@ -228,7 +207,6 @@ export default defineAction({
         const message = err?.message ?? String(err);
         errors.push({ accountId: account.id, error: message });
         const needsReauth = shouldMarkNeedsReauth(message);
-        // Fix 10: even the error-path write is its own try/catch.
         try {
           await db
             .update(schema.calendarAccounts)

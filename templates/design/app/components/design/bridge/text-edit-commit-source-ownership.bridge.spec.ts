@@ -3,10 +3,6 @@ import { describe, expect, it } from "vitest";
 
 import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
 
-/**
- * Needs a real browser: the subject is DOM identity across a morph, and only a
- * real contenteditable produces the unmarked nodes that break it.
- */
 function hydratedEditorChromeBridgeScript(): string {
   return (
     editorChromeBridgeScript
@@ -16,7 +12,6 @@ function hydratedEditorChromeBridgeScript(): string {
       .replace("__EDITOR_CHROME_SCALE_Y__", "1")
       .replace("__DESIGN_CANVAS_SCREEN_ID__", JSON.stringify("text-commit"))
       // This suite exercises board-style click-through before text editing.
-      // Screen content intentionally uses direct single-click selection instead.
       .replace("__DESIGN_CANVAS_BOARD_SURFACE__", "true")
       .replace("__DESIGN_CANVAS_CONTENT_OFFSET_X__", "0")
       .replace("__DESIGN_CANVAS_CONTENT_OFFSET_Y__", "0")
@@ -30,7 +25,6 @@ function hydratedEditorChromeBridgeScript(): string {
 const NODE_ID = "draft-text-1";
 const SELECTOR = `[data-agent-native-node-id="${NODE_ID}"]`;
 
-/** The document as it is right after the text tool created an empty layer. */
 const documentHtml = (inner: string) =>
   `<!doctype html><html><head></head><body data-agent-native-node-id="an-body"><div data-agent-native-node-id="${NODE_ID}" data-an-primitive="text" style="position: absolute; left: 28px; top: 22px; display: inline-block; white-space: pre-wrap;">${inner}</div></body></html>`;
 
@@ -88,7 +82,6 @@ async function startMultilineSelectionSession(page: Page): Promise<void> {
   });
 }
 
-/** The host saving the commit and echoing the saved document back. */
 async function echoSavedDocument(page: Page, inner: string): Promise<void> {
   await page.evaluate(
     ([content, selector]) =>
@@ -120,7 +113,7 @@ function committedContent(page: Page) {
 
 describe("text-edit commit claims its content as source", () => {
   it(
-    "selects generated Text lines as the Text object and re-enters at the clicked line",
+    "selects generated Text lines as the Text object and enters editing with all its text selected",
     { timeout: 30_000 },
     async () => {
       const browser = await chromium.launch({ headless: true });
@@ -197,6 +190,16 @@ describe("text-edit commit claims its content as source", () => {
           `#${NODE_ID}[data-agent-native-text-editing="true"][contenteditable="true"]`,
         );
         expect(await editing.count()).toBe(1);
+        expect(
+          await page.evaluate(() =>
+            window.getSelection()?.toString().replace(/\s+/g, ""),
+          ),
+        ).toBe("HomeBrowseLibrary");
+
+        await page.mouse.click(
+          library.x + library.width - 1,
+          library.y + library.height / 2,
+        );
         const caretLineId = await page.evaluate(() => {
           const anchor = window.getSelection()?.anchorNode;
           const element =
@@ -346,7 +349,7 @@ describe("text-edit commit claims its content as source", () => {
             (window as Window & { __selectionPayloads?: unknown[] })
               .__selectionPayloads?.length === 2,
         );
-        const deepSelection = await page.evaluate(
+        const repeatedSelection = await page.evaluate(
           () =>
             (
               window as Window & {
@@ -354,7 +357,7 @@ describe("text-edit commit claims its content as source", () => {
               }
             ).__selectionPayloads?.[1],
         );
-        expect(deepSelection?.sourceId).toBe(NODE_ID);
+        expect(repeatedSelection?.sourceId).toBe("generated-group");
 
         await page.mouse.dblclick(
           line.x + line.width / 2,
@@ -417,7 +420,6 @@ describe("text-edit commit claims its content as source", () => {
         await startSession(page);
 
         await page.keyboard.type("my page");
-        // Identity probe: a reused text node keeps it, an imported copy cannot.
         await page.evaluate((selector) => {
           const typed = document.querySelector(selector)!.firstChild as Node & {
             __probe?: string;
@@ -502,8 +504,6 @@ describe("text-edit commit claims its content as source", () => {
         await startSession(page, "original");
 
         await page.keyboard.type("typed over");
-        // Cmd+Z inside a programmatic session discards the DOM edit and hands
-        // the chord to the host; the restored content is the saved content.
         await page.evaluate(
           (selector) =>
             document.querySelector(selector)!.dispatchEvent(
@@ -540,8 +540,6 @@ describe("text-edit buffered keystroke replay", () => {
         const page = await browser.newPage();
         await startSession(page);
 
-        // The host's flush is posted on activation but arrives a task later,
-        // by which time native typing has already put characters in.
         await page.keyboard.type("pa");
         await page.evaluate(() =>
           window.postMessage(

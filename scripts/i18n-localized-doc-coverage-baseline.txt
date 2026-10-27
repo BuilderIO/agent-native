@@ -26,7 +26,6 @@ ar-SA|template-brain-agent
 ar-SA|template-brain-developers
 ar-SA|template-brain-knowledge
 ar-SA|template-brain-sources
-ar-SA|template-chat-developers
 ar-SA|template-content-databases
 ar-SA|template-content-developers
 ar-SA|template-content-editing
@@ -40,7 +39,6 @@ ar-SA|template-forms-developers
 ar-SA|template-mail-agent
 ar-SA|template-mail-developers
 ar-SA|template-mail-drafts-and-queue
-ar-SA|template-mail-inbox
 ar-SA|template-plan-automations
 ar-SA|template-plan-developers
 ar-SA|template-plan-local-and-desktop
@@ -53,7 +51,6 @@ ar-SA|toolkit-history
 ar-SA|toolkit-observability
 ar-SA|toolkit-org-team
 ar-SA|toolkit-resources
-ar-SA|toolkit-settings
 ar-SA|toolkit-setup-connections
 ar-SA|toolkit-sharing
 ar-SA|toolkit-ui
@@ -82,7 +79,6 @@ de-DE|template-brain-agent
 de-DE|template-brain-developers
 de-DE|template-brain-knowledge
 de-DE|template-brain-sources
-de-DE|template-chat-developers
 de-DE|template-content-databases
 de-DE|template-content-developers
 de-DE|template-content-editing
@@ -96,7 +92,6 @@ de-DE|template-forms-developers
 de-DE|template-mail-agent
 de-DE|template-mail-developers
 de-DE|template-mail-drafts-and-queue
-de-DE|template-mail-inbox
 de-DE|template-plan-automations
 de-DE|template-plan-developers
 de-DE|template-plan-local-and-desktop
@@ -109,7 +104,6 @@ de-DE|toolkit-history
 de-DE|toolkit-observability
 de-DE|toolkit-org-team
 de-DE|toolkit-resources
-de-DE|toolkit-settings
 de-DE|toolkit-setup-connections
 de-DE|toolkit-sharing
 de-DE|toolkit-ui
@@ -138,7 +132,6 @@ es-ES|template-brain-agent
 es-ES|template-brain-developers
 es-ES|template-brain-knowledge
 es-ES|template-brain-sources
-es-ES|template-chat-developers
 es-ES|template-content-databases
 es-ES|template-content-developers
 es-ES|template-content-editing
@@ -152,7 +145,6 @@ es-ES|template-forms-developers
 es-ES|template-mail-agent
 es-ES|template-mail-developers
 es-ES|template-mail-drafts-and-queue
-es-ES|template-mail-inbox
 es-ES|template-plan-automations
 es-ES|template-plan-developers
 es-ES|template-plan-local-and-desktop
@@ -165,7 +157,6 @@ es-ES|toolkit-history
 es-ES|toolkit-observability
 es-ES|toolkit-org-team
 es-ES|toolkit-resources
-es-ES|toolkit-settings
 es-ES|toolkit-setup-connections
 es-ES|toolkit-sharing
 es-ES|toolkit-ui
@@ -194,7 +185,6 @@ fr-FR|template-brain-agent
 fr-FR|template-brain-developers
 fr-FR|template-brain-knowledge
 fr-FR|template-brain-sources
-fr-FR|template-chat-developers
 fr-FR|template-content-databases
 fr-FR|template-content-developers
 fr-FR|template-content-editing
@@ -208,7 +198,6 @@ fr-FR|template-forms-developers
 fr-FR|template-mail-agent
 fr-FR|template-mail-developers
 fr-FR|template-mail-drafts-and-queue
-fr-FR|template-mail-inbox
 fr-FR|template-plan-automations
 fr-FR|template-plan-developers
 fr-FR|template-plan-local-and-desktop
@@ -221,7 +210,6 @@ fr-FR|toolkit-history
 fr-FR|toolkit-observability
 fr-FR|toolkit-org-team
 fr-FR|toolkit-resources
-fr-FR|toolkit-settings
 fr-FR|toolkit-setup-connections
 fr-FR|toolkit-sharing
 fr-FR|toolkit-ui
@@ -250,7 +238,6 @@ hi-IN|template-brain-agent
 hi-IN|template-brain-developers
 hi-IN|template-brain-knowledge
 hi-IN|template-brain-sources
-hi-IN|template-chat-developers
 hi-IN|template-content-databases
 hi-IN|template-content-developers
 hi-IN|template-content-editing
@@ -264,7 +251,6 @@ hi-IN|template-forms-developers
 hi-IN|template-mail-agent
 hi-IN|template-mail-developers
 hi-IN|template-mail-drafts-and-queue
-hi-IN|template-mail-inbox
 hi-IN|template-plan-automations
 hi-IN|template-plan-developers
 hi-IN|template-plan-local-and-desktop
@@ -277,7 +263,6 @@ hi-IN|toolkit-history
 hi-IN|toolkit-observability
 hi-IN|toolkit-org-team
 hi-IN|toolkit-resources
-hi-IN|toolkit-settings
 hi-IN|toolkit-setup-connections
 hi-IN|toolkit-sharing
 hi-IN|toolkit-ui
@@ -306,7 +291,6 @@ ja-JP|template-brain-agent
 ja-JP|template-brain-developers
 ja-JP|template-brain-knowledge
 ja-JP|template-brain-sources
-ja-JP|template-chat-developers
 ja-JP|template-content-databases
 ja-JP|template-content-developers
 ja-JP|template-content-editing
@@ -320,7 +304,6 @@ ja-JP|template-forms-developers
 ja-JP|template-mail-agent
 ja-JP|template-mail-developers
 ja-JP|template-mail-drafts-and-queue
-ja-JP|template-mail-inbox
 ja-JP|template-plan-automations
 ja-JP|template-plan-developers
 ja-JP|template-plan-local-and-desktop
@@ -333,7 +316,6 @@ ja-JP|toolkit-history
 ja-JP|toolkit-observability
 ja-JP|toolkit-org-team
 ja-JP|toolkit-resources
-ja-JP|toolkit-settings
 ja-JP|toolkit-setup-connections
 ja-JP|toolkit-sharing
 ja-JP|toolkit-ui
@@ -362,7 +344,6 @@ ko-KR|template-brain-agent
 ko-KR|template-brain-developers
 ko-KR|template-brain-knowledge
 ko-KR|template-brain-sources
-ko-KR|template-chat-developers
 ko-KR|template-content-databases
 ko-KR|template-content-developers
 ko-KR|template-content-editing
@@ -376,7 +357,6 @@ ko-KR|template-forms-developers
 ko-KR|template-mail-agent
 ko-KR|template-mail-developers
 ko-KR|template-mail-drafts-and-queue
-ko-KR|template-mail-inbox
 ko-KR|template-plan-automations
 ko-KR|template-plan-developers
 ko-KR|template-plan-local-and-desktop
@@ -389,7 +369,6 @@ ko-KR|toolkit-history
 ko-KR|toolkit-observability
 ko-KR|toolkit-org-team
 ko-KR|toolkit-resources
-ko-KR|toolkit-settings
 ko-KR|toolkit-setup-connections
 ko-KR|toolkit-sharing
 ko-KR|toolkit-ui
@@ -418,7 +397,6 @@ pt-BR|template-brain-agent
 pt-BR|template-brain-developers
 pt-BR|template-brain-knowledge
 pt-BR|template-brain-sources
-pt-BR|template-chat-developers
 pt-BR|template-content-databases
 pt-BR|template-content-developers
 pt-BR|template-content-editing
@@ -432,7 +410,6 @@ pt-BR|template-forms-developers
 pt-BR|template-mail-agent
 pt-BR|template-mail-developers
 pt-BR|template-mail-drafts-and-queue
-pt-BR|template-mail-inbox
 pt-BR|template-plan-automations
 pt-BR|template-plan-developers
 pt-BR|template-plan-local-and-desktop
@@ -445,7 +422,6 @@ pt-BR|toolkit-history
 pt-BR|toolkit-observability
 pt-BR|toolkit-org-team
 pt-BR|toolkit-resources
-pt-BR|toolkit-settings
 pt-BR|toolkit-setup-connections
 pt-BR|toolkit-sharing
 pt-BR|toolkit-ui
@@ -474,7 +450,6 @@ zh-CN|template-brain-agent
 zh-CN|template-brain-developers
 zh-CN|template-brain-knowledge
 zh-CN|template-brain-sources
-zh-CN|template-chat-developers
 zh-CN|template-content-databases
 zh-CN|template-content-developers
 zh-CN|template-content-editing
@@ -488,7 +463,6 @@ zh-CN|template-forms-developers
 zh-CN|template-mail-agent
 zh-CN|template-mail-developers
 zh-CN|template-mail-drafts-and-queue
-zh-CN|template-mail-inbox
 zh-CN|template-plan-automations
 zh-CN|template-plan-developers
 zh-CN|template-plan-local-and-desktop
@@ -501,7 +475,6 @@ zh-CN|toolkit-history
 zh-CN|toolkit-observability
 zh-CN|toolkit-org-team
 zh-CN|toolkit-resources
-zh-CN|toolkit-settings
 zh-CN|toolkit-setup-connections
 zh-CN|toolkit-sharing
 zh-CN|toolkit-ui
@@ -529,7 +502,6 @@ zh-TW|template-brain-agent
 zh-TW|template-brain-developers
 zh-TW|template-brain-knowledge
 zh-TW|template-brain-sources
-zh-TW|template-chat-developers
 zh-TW|template-content-databases
 zh-TW|template-content-developers
 zh-TW|template-content-editing
@@ -543,7 +515,6 @@ zh-TW|template-forms-developers
 zh-TW|template-mail-agent
 zh-TW|template-mail-developers
 zh-TW|template-mail-drafts-and-queue
-zh-TW|template-mail-inbox
 zh-TW|template-plan-automations
 zh-TW|template-plan-developers
 zh-TW|template-plan-local-and-desktop
@@ -556,7 +527,6 @@ zh-TW|toolkit-history
 zh-TW|toolkit-observability
 zh-TW|toolkit-org-team
 zh-TW|toolkit-resources
-zh-TW|toolkit-settings
 zh-TW|toolkit-setup-connections
 zh-TW|toolkit-sharing
 zh-TW|toolkit-ui

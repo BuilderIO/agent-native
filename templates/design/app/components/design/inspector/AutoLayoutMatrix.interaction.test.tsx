@@ -1,8 +1,11 @@
 // @vitest-environment happy-dom
 
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
+
+vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 
 vi.mock("@/components/ui/tooltip", () => ({
   Tooltip: ({ children }: { children?: unknown }) => children as never,
@@ -28,6 +31,62 @@ const value: AutoLayoutMatrixValue = {
 };
 
 describe("AutoLayoutMatrix Flow interactions", () => {
+  it("exposes gap and padding keyframes through the layout fields", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const onToggleMotionKeyframe = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          catalog={{
+            messages: {
+              editPanel: {
+                motionKeyframe: {
+                  addTooltip: "Add keyframe",
+                  removeTooltip: "Remove keyframe",
+                },
+              },
+            },
+          }}
+        >
+          <AutoLayoutMatrix
+            value={{ ...value, display: "flex" }}
+            showMotionKeyframes
+            motionKeyframedProperties={["gap", "padding-left"]}
+            onToggleMotionKeyframe={onToggleMotionKeyframe}
+            onDirectionChange={vi.fn()}
+            onWrapChange={vi.fn()}
+            onAlignmentChange={vi.fn()}
+            onGapChange={vi.fn()}
+            onPaddingChange={vi.fn()}
+            onPaddingLinkedChange={vi.fn()}
+            onChildSizingChange={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const gapDiamond = container.querySelector<HTMLButtonElement>(
+      'button[data-motion-css-property="gap"]',
+    );
+    const horizontalPaddingDiamond = container.querySelector<HTMLButtonElement>(
+      'button[data-motion-css-properties="padding-left padding-right"]',
+    );
+    expect(gapDiamond?.getAttribute("aria-pressed")).toBe("true");
+    expect(horizontalPaddingDiamond?.getAttribute("aria-pressed")).toBe("true");
+
+    await act(async () => horizontalPaddingDiamond?.click());
+    expect(onToggleMotionKeyframe.mock.calls).toEqual([
+      ["padding-left"],
+      ["padding-right"],
+    ]);
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
   it("uses the atomic Flow callback without emitting three individual changes", async () => {
     const container = document.createElement("div");
     document.body.append(container);
@@ -194,6 +253,44 @@ describe("AutoLayoutMatrix Flow interactions", () => {
     container.remove();
   });
 
+  it("commits Resize to fit as one change instead of one per axis", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const onChildSizingChange = vi.fn();
+    const onResizeToFit = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <AutoLayoutMatrix
+          value={{ ...value, display: "flex" }}
+          onDirectionChange={vi.fn()}
+          onWrapChange={vi.fn()}
+          onAlignmentChange={vi.fn()}
+          onGapChange={vi.fn()}
+          onPaddingChange={vi.fn()}
+          onPaddingLinkedChange={vi.fn()}
+          onChildSizingChange={onChildSizingChange}
+          onResizeToFit={onResizeToFit}
+        />,
+      );
+    });
+
+    const resize = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Resize to fit"]',
+    );
+    expect(resize).not.toBeNull();
+    await act(async () => {
+      resize?.click();
+    });
+
+    expect(onResizeToFit).toHaveBeenCalledTimes(1);
+    expect(onChildSizingChange).not.toHaveBeenCalled();
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
   it("maps A to auto gap on the focused gap field", async () => {
     const container = document.createElement("div");
     document.body.append(container);
@@ -228,6 +325,128 @@ describe("AutoLayoutMatrix Flow interactions", () => {
 
     expect(onGapModeChange).toHaveBeenCalledTimes(1);
     expect(onGapModeChange).toHaveBeenCalledWith("auto", "horizontal");
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("writes linked pairs and Alt-mirrored margin sides", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const onMarginChange = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <AutoLayoutMatrix
+          value={{
+            ...value,
+            margin: { top: 4, right: 4, bottom: 4, left: 4 },
+          }}
+          showChildLayoutControls
+          onDirectionChange={vi.fn()}
+          onWrapChange={vi.fn()}
+          onAlignmentChange={vi.fn()}
+          onGapChange={vi.fn()}
+          onPaddingChange={vi.fn()}
+          onPaddingLinkedChange={vi.fn()}
+          onMarginChange={onMarginChange}
+          onChildSizingChange={vi.fn()}
+        />,
+      );
+    });
+
+    const horizontalMargin = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Left margin / Right margin"]',
+    );
+    expect(horizontalMargin).not.toBeNull();
+    await act(async () => {
+      horizontalMargin?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }),
+      );
+    });
+
+    expect(onMarginChange).toHaveBeenCalledWith(
+      { top: 4, right: 5, bottom: 4, left: 5 },
+      expect.objectContaining({ source: "keyboard", phase: "commit" }),
+      ["left", "right"],
+    );
+
+    const unlinkMargin = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Unlink margin sides"]',
+    );
+    expect(unlinkMargin).not.toBeNull();
+    await act(async () => unlinkMargin?.click());
+
+    const topMargin = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Top margin"]',
+    );
+    expect(topMargin).not.toBeNull();
+    await act(async () => {
+      topMargin?.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "ArrowUp",
+          altKey: true,
+          bubbles: true,
+        }),
+      );
+    });
+    expect(onMarginChange).toHaveBeenNthCalledWith(
+      2,
+      { top: 4.1, right: 4, bottom: 4.1, left: 4 },
+      expect.objectContaining({ altKey: true, phase: "commit" }),
+      ["top", "bottom"],
+    );
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("starts mixed margin selections unlinked", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const onMarginChange = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <AutoLayoutMatrix
+          value={{
+            ...value,
+            margin: { top: 0, right: 0, bottom: 0, left: 0 },
+            marginMixed: { top: true, right: true, bottom: true, left: true },
+          }}
+          showChildLayoutControls
+          onDirectionChange={vi.fn()}
+          onWrapChange={vi.fn()}
+          onAlignmentChange={vi.fn()}
+          onGapChange={vi.fn()}
+          onPaddingChange={vi.fn()}
+          onPaddingLinkedChange={vi.fn()}
+          onMarginChange={onMarginChange}
+          onChildSizingChange={vi.fn()}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector('button[aria-label="Link margin sides"]'),
+    ).not.toBeNull();
+    const topMargin = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Top margin"]',
+    );
+    expect(topMargin).not.toBeNull();
+    await act(async () => {
+      topMargin?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }),
+      );
+    });
+
+    expect(onMarginChange).toHaveBeenCalledWith(
+      { top: 1, right: 0, bottom: 0, left: 0 },
+      expect.objectContaining({ source: "keyboard", phase: "commit" }),
+      ["top"],
+    );
 
     await act(async () => root.unmount());
     container.remove();

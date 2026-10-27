@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { findRepeatItemFieldByKey } from "./repeat-data";
 
-/** A derived collection: the rows come from a getter, the items from `tasks`. */
 const APP = `<body><script>
 function todoApp() {
   return {

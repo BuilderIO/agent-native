@@ -1,22 +1,19 @@
 import type { ContentDatabaseResponse } from "../../../../shared/api.js";
 
-/**
- * How the table/board/gallery "New" controls must create an item for one
- * collection.
- *
- * The workspace Files collection has no row-mutation contract, because its rows
- * are the workspace's pages rather than collection-owned rows. It still accepts
- * creation - through the same document create the sidebar "+" uses - so the two
- * entry points must resolve to one target here instead of diverging.
- */
 export type DatabaseCreateTarget =
   | { kind: "row" }
   | { kind: "space-page"; spaceId: string }
-  | { kind: "unsupported"; reason: "loading" | "catalog" | "read-only" };
+  | {
+      kind: "unsupported";
+      reason: "loading" | "catalog" | "read-only" | "github";
+    };
 
 export function databaseCreateTarget(
   data:
-    | Pick<ContentDatabaseResponse, "database" | "mutationContract">
+    | Pick<
+        ContentDatabaseResponse,
+        "database" | "mutationContract" | "source" | "sources"
+      >
     | undefined,
 ): DatabaseCreateTarget {
   if (!data) return { kind: "unsupported", reason: "loading" };
@@ -32,6 +29,13 @@ export function databaseCreateTarget(
   }
   if (!data.mutationContract) {
     return { kind: "unsupported", reason: "read-only" };
+  }
+  // Rows in a collection linked to a GitHub folder come from its files.
+  if (
+    data.source?.sourceType === "github" ||
+    data.sources?.some((source) => source.sourceType === "github")
+  ) {
+    return { kind: "unsupported", reason: "github" };
   }
   return { kind: "row" };
 }

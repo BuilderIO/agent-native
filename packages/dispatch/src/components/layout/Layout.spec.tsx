@@ -1,82 +1,227 @@
+import { emitChatFirstOpenApp } from "@agent-native/core/client/agent-chat";
+import { isSettingsPathname } from "@agent-native/toolkit/app/settings";
 // @vitest-environment happy-dom
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter, useLocation } from "react-router";
+import { MemoryRouter, useLocation, useNavigate } from "react-router";
+import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { CHAT_FIRST_PANE_STATE_KEY } from "../../shared/chat-first-pane";
 import { AdminShell } from "../admin-navigation";
-import { TooltipProvider } from "../ui/tooltip";
+import { Tooltip, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
 import {
   buildChatFirstEmbedSessionInput,
   CHAT_FIRST_SURFACE_PANEL_TOGGLE_CLASS_NAME,
-  formatThreadAge,
+  dispatchNavLinkTarget,
   isElectronEmbeddedSearch,
+  isRedesignedSettingsPath,
+  Layout,
   NavContent,
   renderChatFirstAppSurfaceTab,
   shouldAutoCollapseDispatchSidebar,
+  shouldQueryChatFirstApps,
 } from "./Layout";
 
 const clientState = vi.hoisted(() => ({
   createThread: vi.fn<() => Promise<string | null>>(),
   switchThread: vi.fn(),
+  renameThread: vi.fn().mockResolvedValue(true),
+  pinThread: vi.fn().mockResolvedValue(true),
+  archiveThread: vi.fn().mockResolvedValue(true),
+  isNewThread: () => false,
+  mineThreads: null as Array<Record<string, unknown>> | null,
+  sharedThreads: [] as Array<Record<string, unknown>>,
+  sharedHasMore: false,
+  loadMore: vi.fn().mockResolvedValue(undefined),
+  listQueries: vi.fn(),
+  lifecycleOptions: vi.fn(),
   threads: [] as Array<Record<string, unknown>>,
   workspaceApps: [] as Array<Record<string, unknown>>,
-  // Stable identity: WorkspaceAppFrame's embed effect depends on this
-  // function, so a fresh mock per render would re-run the effect forever.
+  workspaceAppsError: null as Error | null,
+  workspaceAppsLoading: false,
+  connectedApps: [] as Array<Record<string, unknown>>,
+  connectedAppsError: null as Error | null,
+  connectedAppsLoading: false,
+  appState: {} as Record<string, unknown>,
+  appStatePromises: {} as Record<string, Promise<unknown>>,
+  basePath: "",
   createEmbedSessionMutateAsync: vi
     .fn()
     .mockResolvedValue({ startUrl: "about:blank" }),
 }));
+const workspaceAppNavigation = vi.hoisted(() => ({
+  navigateToWorkspaceApp: vi.fn((_href: string) => true),
+}));
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
-  AgentSidebar: ({ children }: { children: React.ReactNode }) => (
-    <div data-agent-sidebar>{children}</div>
-  ),
-  ExternalAgentNudge: () => null,
-  focusAgentChat: vi.fn(),
+vi.mock("../../lib/workspace-apps", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/workspace-apps")>()),
+  navigateToWorkspaceApp: workspaceAppNavigation.navigateToWorkspaceApp,
+}));
+
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
   navigateWithAgentChatViewTransition: (
     navigate: (path: string) => void,
     path: string,
   ) => navigate(path),
   useAgentChatHomeHandoff: () => false,
   useAgentChatHomeHandoffLinks: vi.fn(),
-  useChatThreads: () => ({
-    threads: clientState.threads,
-    activeThreadId: "active-thread",
+  useChatModels: () => ({
+    availableModels: [],
+    defaultModel: "auto",
+    selectedModel: "auto",
+    selectedEngine: "",
+    selectedEffort: "medium" as const,
     isLoading: false,
-    createThread: clientState.createThread,
-    switchThread: clientState.switchThread,
-    renameThread: vi.fn(),
-    refreshThreads: vi.fn(),
+    onModelChange: vi.fn(),
+    onEffortChange: vi.fn(),
+    refreshEngines: vi.fn(),
   }),
+  useChatThreadList: (options: {
+    ownership: string;
+    includeExternal?: boolean;
+  }) => {
+    clientState.listQueries(options);
+    return {
+      threads:
+        options.ownership === "shared"
+          ? clientState.sharedThreads
+          : (clientState.mineThreads ?? clientState.threads),
+      loading: false,
+      loadingMore: false,
+      error: null,
+      hasMore: options.ownership === "shared" && clientState.sharedHasMore,
+      loadMore: clientState.loadMore,
+      refresh: async () => {},
+      refreshWithResult: async () => "success",
+    };
+  },
+  useChatThreads: (...args: unknown[]) => {
+    clientState.lifecycleOptions(args[3]);
+    return {
+      threads: clientState.threads,
+      activeThreadId: "active-thread",
+      isLoading: false,
+      createThread: clientState.createThread,
+      switchThread: clientState.switchThread,
+      renameThread: clientState.renameThread,
+      pinThread: clientState.pinThread,
+      archiveThread: clientState.archiveThread,
+      isNewThread: clientState.isNewThread,
+      refreshThreads: vi.fn(),
+    };
+  },
+  useChatModels: () => ({
+    availableModels: [],
+    defaultModel: "auto",
+    selectedModel: "auto",
+    selectedEngine: "auto",
+    selectedEffort: "medium",
+    setSelectedModel: vi.fn(),
+  }),
+}));
+
+vi.mock(
+  "@agent-native/toolkit/app/chat/ownership-history",
+  async () =>
+    import("../../../../toolkit/src/app/chat/ownership-history/index.tsx"),
+);
+
+vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+
+vi.mock("@agent-native/toolkit/app/chat/AgentSidebar", () => ({
+  AgentToggleButton: () => null,
+  AgentSidebar: ({ children }: { children: React.ReactNode }) => (
+    <div data-agent-sidebar>{children}</div>
+  ),
+  focusAgentChat: vi.fn(),
+}));
+
+vi.mock("../deferred-chat-components.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../deferred-chat-components.js")>()),
+  AgentChatSurface: () => null,
+  ChatFirstChatHistory: (
+    await import("../../../../toolkit/src/app/chat/chat-first/chat-history.tsx")
+  ).ChatFirstChatHistory,
 }));
 
 vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => path,
-  appBasePath: () => "",
-  appPath: (path: string) => path,
+  appBasePath: () => clientState.basePath,
+  appMountPath: () => "",
+  appMountedPath: (path: string) => path,
+  appPath: (path: string) =>
+    clientState.basePath && path.startsWith("/")
+      ? `${clientState.basePath}${path}`
+      : path,
+  frameworkRoutePrefix: () => "",
 }));
 
-vi.mock("@agent-native/core/client/hooks", () => ({
-  useActionQuery: (action: string) => ({
-    data:
-      action === "list-workspace-apps" ? clientState.workspaceApps : undefined,
-    isLoading: false,
-  }),
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
+  useActionQuery: (action: string) => {
+    const workspaceAppsQuery = action === "list-workspace-apps";
+    const connectedAppsQuery = action === "list-connected-agents";
+    const error = workspaceAppsQuery
+      ? clientState.workspaceAppsError
+      : connectedAppsQuery
+        ? clientState.connectedAppsError
+        : null;
+    return {
+      data: workspaceAppsQuery
+        ? clientState.workspaceApps
+        : connectedAppsQuery
+          ? clientState.connectedApps
+          : undefined,
+      error,
+      isError: Boolean(error),
+      isLoading: workspaceAppsQuery
+        ? clientState.workspaceAppsLoading
+        : connectedAppsQuery
+          ? clientState.connectedAppsLoading
+          : false,
+    };
+  },
   useActionMutation: () => ({
     mutateAsync: clientState.createEmbedSessionMutateAsync,
   }),
 }));
 
+vi.mock(
+  "@agent-native/core/client/application-state",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@agent-native/core/client/application-state")
+    >()),
+    readClientAppState: async (key: string) =>
+      (await clientState.appStatePromises[key]) ??
+      clientState.appState[key] ??
+      null,
+    writeClientAppState: async (key: string, value: unknown) => {
+      clientState.appState[key] = value;
+      return value;
+    },
+  }),
+);
+
 vi.mock("@agent-native/core/client/feature-flags", () => ({
   useFeatureFlag: () => false,
+  useFeatureFlagState: () => ({ enabled: false, status: "ready" }),
 }));
+
+vi.mock("../../hooks/use-mobile", () => ({ useIsMobile: () => false }));
 
 vi.mock("next-themes", () => ({
   useTheme: () => ({ resolvedTheme: "light" }),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
+  DEFAULT_LOCALE: "en-US",
+  useOptionalLocale: () => ({ locale: "en-US" }),
+  useFormatters: () => ({ formatNumber: (value: number) => String(value) }),
   useT: () => (key: string, values?: Record<string, unknown>) => {
     const messages: Record<string, string> = {
       "dispatch.nav.chat": "Chat",
@@ -86,6 +231,26 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "dispatch.pages.workspaceApps": "Workspace apps",
       "dispatch.nav.operate": "Operate",
       "dispatch.nav.advanced": "Advanced",
+      "agentChat.history.mine": "My chats",
+      "agentChat.history.sharedWithYou": "Shared with you",
+      "agentChat.history.ownedBy": `Owner: ${values?.name ?? ""}`,
+      "agentChat.history.accessDirect": "Shared with you",
+      "agentChat.history.accessOrganization": "Shared with your organization",
+      "agentChat.history.copyLink": "Copy link",
+      "agentChat.history.onlyYou": "Only you",
+      "agentChat.history.hide": "Hide from my list",
+      "agentChat.history.showAll": "Show all",
+      "agentChat.history.showLess": "Show less",
+      "agentChat.history.loadMore": "Load more",
+      "agentChat.history.loadingMore": "Loading...",
+      "agentChat.history.emptyMine": "No chats yet",
+      "dispatch.sidebar.chats": "Chats",
+      "dispatch.sidebar.showLocalChats": "Show local chats",
+      "dispatch.sidebar.showAllChats": "Show all chats",
+      "agentChat.contextXray.pin": "Pin",
+      "agentChat.contextXray.unpin": "Unpin",
+      "extensions.delete": "Archive",
+      "dispatch.integrations.failedToSave": "Failed to save",
       "dispatch.sidebar.newChat": "New chat",
       "dispatch.sidebar.newDispatchChat": "New Dispatch chat",
       "dispatch.sidebar.renameChat": "Rename chat",
@@ -98,23 +263,22 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   },
 }));
 
-vi.mock("@agent-native/core/client/navigation", () => ({
+vi.mock("@agent-native/toolkit/app/shared", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/toolkit/app/shared")
+  >()),
   openCommandMenu: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/client/ui", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("@agent-native/core/client/ui")>();
-  return {
-    ...actual,
-    AgentNativeIcon: (props: React.SVGProps<SVGSVGElement>) => (
-      <svg data-agent-native-icon {...props} />
-    ),
-    FeedbackButton: () => <div>Feedback</div>,
-  };
-});
+vi.mock("../create-app-popover", () => ({
+  CreateAppPopover: () => null,
+}));
 
-vi.mock("@agent-native/core/client/org", () => ({
+vi.mock("@agent-native/toolkit/app/feedback", () => ({
+  FeedbackButton: () => <div>Feedback</div>,
+}));
+
+vi.mock("@agent-native/toolkit/app/org", () => ({
   InvitationBanner: () => null,
   OrgSwitcher: () => <div>Organization</div>,
 }));
@@ -127,17 +291,28 @@ function LocationProbe({ onChange }: { onChange: (path: string) => void }) {
   return null;
 }
 
-describe("formatThreadAge", () => {
-  const now = 2_000_000_000_000;
+function ChatRouteSwitcher({ target }: { target: string }) {
+  const navigate = useNavigate();
+  return (
+    <button type="button" onClick={() => navigate(target)}>
+      Switch chat
+    </button>
+  );
+}
 
-  it.each([
-    [0, "now"],
-    [2 * 60 * 60_000, "2h"],
-    [7 * 24 * 60 * 60_000, "7d"],
-    [21 * 24 * 60 * 60_000, "3w"],
-    [365 * 24 * 60 * 60_000, "1y"],
-  ])("formats %i milliseconds as %s", (elapsed, expected) => {
-    expect(formatThreadAge(now - elapsed, now)).toBe(expected);
+describe("Dispatch navigation paths", () => {
+  afterEach(() => {
+    clientState.basePath = "";
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps router-prefixed paths local and applies the mount prefix otherwise", () => {
+    clientState.basePath = "/dispatch";
+    vi.stubGlobal("window", { location: { pathname: "/dispatch/chat" } });
+    expect(dispatchNavLinkTarget("/apps")).toBe("/apps");
+
+    vi.stubGlobal("window", { location: { pathname: "/chat" } });
+    expect(dispatchNavLinkTarget("/apps")).toBe("/dispatch/apps");
   });
 });
 
@@ -166,6 +341,52 @@ describe("Dispatch workspace app sidebar", () => {
     expect(shouldAutoCollapseDispatchSidebar("/apps")).toBe(false);
     expect(shouldAutoCollapseDispatchSidebar("/chat")).toBe(false);
   });
+
+  it.each([
+    [false, false, false],
+    [false, true, true],
+    [true, false, true],
+  ])(
+    "queries app data for a chat route or visible chat-first rail",
+    (isChatRoute, chatFirstMode, expected) => {
+      expect(shouldQueryChatFirstApps(isChatRoute, chatFirstMode)).toBe(
+        expected,
+      );
+    },
+  );
+});
+
+describe("Dispatch Settings frame", () => {
+  it("drops the Dispatch chrome on Settings", () => {
+    const settingsEnabled = { enabled: true, status: "ready" } as const;
+    expect(isRedesignedSettingsPath("/settings", settingsEnabled)).toBe(true);
+    expect(isRedesignedSettingsPath("/settings/members", settingsEnabled)).toBe(
+      true,
+    );
+    expect(isRedesignedSettingsPath("/settings/app", settingsEnabled)).toBe(
+      true,
+    );
+    expect(
+      isRedesignedSettingsPath("/settings", {
+        enabled: false,
+        status: "loading",
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps the Dispatch chrome off Settings", () => {
+    const settingsEnabled = { enabled: true, status: "ready" } as const;
+    expect(isRedesignedSettingsPath("/admin", settingsEnabled)).toBe(false);
+    expect(
+      isRedesignedSettingsPath("/apps/mail/settings", settingsEnabled),
+    ).toBe(false);
+    expect(
+      isRedesignedSettingsPath("/settings", {
+        enabled: false,
+        status: "unavailable",
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("Dispatch NavContent", () => {
@@ -180,8 +401,26 @@ describe("Dispatch NavContent", () => {
     });
     clientState.createThread.mockResolvedValue("new-thread");
     clientState.switchThread.mockReset();
+    clientState.createThread.mockClear();
+    clientState.renameThread.mockReset().mockResolvedValue(true);
+    clientState.pinThread.mockReset().mockResolvedValue(true);
+    clientState.archiveThread.mockReset().mockResolvedValue(true);
+    clientState.sharedThreads = [];
+    clientState.mineThreads = null;
+    clientState.sharedHasMore = false;
+    clientState.loadMore.mockClear();
+    clientState.listQueries.mockClear();
+    clientState.lifecycleOptions.mockClear();
+    localStorage.clear();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("{}", { status: 200 })),
+    );
     clientState.threads = [
       {
+        ownerEmail: "probe@example.com",
+        accessBasis: "owner",
+        visibility: "private",
         id: "active-thread",
         title: "Current Dispatch work",
         messageCount: 2,
@@ -189,6 +428,9 @@ describe("Dispatch NavContent", () => {
         createdAt: Date.now(),
       },
       {
+        ownerEmail: "probe@example.com",
+        accessBasis: "owner",
+        visibility: "private",
         id: "older-thread",
         title: "Earlier Dispatch work",
         messageCount: 1,
@@ -198,6 +440,14 @@ describe("Dispatch NavContent", () => {
       },
     ];
     clientState.workspaceApps = [];
+    clientState.workspaceAppsError = null;
+    clientState.workspaceAppsLoading = false;
+    clientState.connectedApps = [];
+    clientState.connectedAppsError = null;
+    clientState.connectedAppsLoading = false;
+    clientState.appState = {};
+    clientState.appStatePromises = {};
+    workspaceAppNavigation.navigateToWorkspaceApp.mockClear();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -207,6 +457,372 @@ describe("Dispatch NavContent", () => {
     act(() => root.unmount());
     container.remove();
     vi.unstubAllGlobals();
+  });
+
+  it("provides tooltip context to chrome-less route content", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/approval"]}>
+          <Layout>
+            <Tooltip open>
+              <TooltipTrigger asChild>
+                <button type="button">Approval details</button>
+              </TooltipTrigger>
+            </Tooltip>
+          </Layout>
+        </MemoryRouter>,
+      );
+    });
+
+    expect(container.textContent).toContain("Approval details");
+  });
+
+  it("provides tooltip context to embedded workspace app content", async () => {
+    window.history.replaceState({}, "", "/apps/mail?embedded=1");
+    try {
+      await act(async () => {
+        root.render(
+          <MemoryRouter initialEntries={["/apps/mail"]}>
+            <Layout>
+              <Tooltip open>
+                <TooltipTrigger asChild>
+                  <button type="button">Embedded app details</button>
+                </TooltipTrigger>
+              </Tooltip>
+            </Layout>
+          </MemoryRouter>,
+        );
+      });
+
+      expect(
+        container.querySelector("[data-dispatch-workspace-app-chrome-less]"),
+      ).not.toBeNull();
+      expect(container.textContent).toContain("Embedded app details");
+    } finally {
+      window.history.replaceState({}, "", "/");
+    }
+  });
+
+  it("opens mounted apps when optional connected-app discovery fails", async () => {
+    clientState.workspaceApps = [
+      {
+        id: "mail",
+        name: "Mail",
+        path: "/mail",
+        url: "/mail",
+        status: "ready",
+      },
+    ];
+    clientState.connectedAppsError = new Error("Connected apps unavailable");
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat/mounted-optional-error"]}>
+          <Layout extensions={{ chatFirst: true }}>
+            <div />
+          </Layout>
+        </MemoryRouter>,
+      );
+    });
+
+    await act(async () => {
+      emitChatFirstOpenApp({ app: "mail" });
+    });
+
+    expect(
+      container.querySelector("[data-chat-first-app-pane]"),
+    ).not.toBeNull();
+  });
+
+  it("opens a loaded mounted app while optional built-in discovery is loading", async () => {
+    clientState.workspaceApps = [
+      {
+        id: "mail",
+        name: "Mail",
+        path: "/mail",
+        url: "/mail",
+        status: "ready",
+      },
+    ];
+    clientState.connectedAppsLoading = true;
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat/mounted-while-loading"]}>
+          <Layout extensions={{ chatFirst: true }}>
+            <div />
+          </Layout>
+        </MemoryRouter>,
+      );
+    });
+
+    await act(async () => {
+      emitChatFirstOpenApp({ app: "mail" });
+    });
+
+    expect(
+      container.querySelector("[data-chat-first-app-pane]"),
+    ).not.toBeNull();
+  });
+
+  it("opens a connected built-in when mounted workspace-app discovery fails", async () => {
+    clientState.workspaceAppsError = new Error("Workspace apps unavailable");
+    clientState.connectedApps = [
+      {
+        id: "clips",
+        name: "Clips",
+        url: "https://clips.agent-native.com",
+        source: "builtin",
+      },
+    ];
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat/builtin-mounted-error"]}>
+          <Layout extensions={{ chatFirst: true }}>
+            <div />
+          </Layout>
+        </MemoryRouter>,
+      );
+    });
+
+    await act(async () => {
+      emitChatFirstOpenApp({ app: "clips" });
+    });
+
+    expect(
+      container.querySelector("[data-chat-first-app-pane]"),
+    ).not.toBeNull();
+  });
+
+  it("retries an app open after connected built-in discovery recovers", async () => {
+    clientState.workspaceApps = [
+      {
+        id: "mail",
+        name: "Mail",
+        path: "/mail",
+        url: "/mail",
+        status: "ready",
+      },
+    ];
+    clientState.connectedAppsError = new Error("Connected apps unavailable");
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat/discovery-retry"]}>
+          <Layout extensions={{ chatFirst: true }}>
+            <div />
+          </Layout>
+        </MemoryRouter>,
+      );
+    });
+    await act(async () => {
+      emitChatFirstOpenApp({ app: "clips" });
+    });
+
+    expect(container.querySelector("[data-chat-first-app-pane]")).toBeNull();
+
+    clientState.connectedAppsError = null;
+    clientState.connectedApps = [
+      {
+        id: "clips",
+        name: "Clips",
+        url: "https://clips.agent-native.com",
+        source: "builtin",
+      },
+    ];
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat/review-fixture"]}>
+          <Layout extensions={{ chatFirst: true }}>
+            <div />
+          </Layout>
+        </MemoryRouter>,
+      );
+    });
+
+    expect(
+      container.querySelector("[data-chat-first-app-pane]"),
+    ).not.toBeNull();
+  });
+
+  it("keeps hidden Dispatch registered for agent app targets", async () => {
+    clientState.workspaceApps = [
+      {
+        id: "dispatch",
+        name: "Dispatch",
+        path: "/dispatch",
+        url: "https://dispatch.agent-native.com",
+        isDispatch: true,
+        status: "ready",
+      },
+    ];
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat/review-fixture"]}>
+          <Layout extensions={{ chatFirst: true }}>
+            <div />
+          </Layout>
+        </MemoryRouter>,
+      );
+    });
+    await act(async () => {
+      emitChatFirstOpenApp({ app: "dispatch" });
+    });
+
+    expect(container.querySelector(".dispatch-chat-first-notice")).toBeNull();
+  });
+
+  it("does not restore a deferred pane after switching chats", async () => {
+    clientState.connectedAppsLoading = true;
+    clientState.appState[CHAT_FIRST_PANE_STATE_KEY] = {
+      appId: "clips",
+      path: "/inbox",
+    };
+    const onPathChange = vi.fn();
+    const renderLayout = () => (
+      <MemoryRouter initialEntries={["/chat/pane-restore"]}>
+        <Layout extensions={{ chatFirst: true }}>
+          <ChatRouteSwitcher target="/chat/next-chat" />
+        </Layout>
+        <LocationProbe onChange={onPathChange} />
+      </MemoryRouter>
+    );
+
+    await act(async () => {
+      root.render(renderLayout());
+    });
+    expect(container.querySelector("[data-chat-first-app-pane]")).toBeNull();
+
+    await act(async () => {
+      [...container.querySelectorAll("button")]
+        .find((button) => button.textContent === "Switch chat")
+        ?.click();
+    });
+    expect(onPathChange).toHaveBeenLastCalledWith("/chat/next-chat");
+
+    clientState.connectedAppsLoading = false;
+    clientState.connectedApps = [
+      {
+        id: "clips",
+        name: "Clips",
+        url: "https://clips.agent-native.com",
+        source: "builtin",
+      },
+    ];
+    await act(async () => {
+      root.render(renderLayout());
+    });
+
+    expect(container.querySelector("[data-chat-first-app-pane]")).toBeNull();
+  });
+
+  it("ignores pane hydration that finishes after switching chats", async () => {
+    let resolvePaneState!: (value: unknown) => void;
+    clientState.appStatePromises[CHAT_FIRST_PANE_STATE_KEY] = new Promise(
+      (resolve) => {
+        resolvePaneState = resolve;
+      },
+    );
+    clientState.connectedApps = [
+      {
+        id: "clips",
+        name: "Clips",
+        url: "https://clips.agent-native.com",
+        source: "builtin",
+      },
+    ];
+    const onPathChange = vi.fn();
+    const renderLayout = () => (
+      <MemoryRouter initialEntries={["/chat/pane-read-hydration"]}>
+        <Layout extensions={{ chatFirst: true }}>
+          <ChatRouteSwitcher target="/chat/new-scope" />
+        </Layout>
+        <LocationProbe onChange={onPathChange} />
+      </MemoryRouter>
+    );
+
+    await act(async () => {
+      root.render(renderLayout());
+    });
+    await act(async () => {
+      [...container.querySelectorAll("button")]
+        .find((button) => button.textContent === "Switch chat")
+        ?.click();
+    });
+    expect(onPathChange).toHaveBeenLastCalledWith("/chat/new-scope");
+
+    await act(async () => {
+      resolvePaneState({ appId: "clips", path: "/inbox" });
+    });
+
+    expect(container.querySelector("[data-chat-first-app-pane]")).toBeNull();
+  });
+
+  it("opens connected built-ins from the chat-first app rail", async () => {
+    clientState.connectedApps = [
+      {
+        id: "clips",
+        name: "Clips",
+        url: "https://clips.agent-native.com",
+        source: "builtin",
+      },
+    ];
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat/rail-built-in"]}>
+          <Layout extensions={{ chatFirst: true }}>
+            <div />
+          </Layout>
+        </MemoryRouter>,
+      );
+    });
+    await act(async () => {
+      const clipsApp = container.querySelector<HTMLElement>(
+        '[data-chat-first-app][data-app-id="clips"]',
+      );
+      const openButton =
+        clipsApp?.querySelector<HTMLButtonElement>("button") ??
+        (clipsApp as HTMLButtonElement | null);
+      openButton?.click();
+    });
+
+    expect(workspaceAppNavigation.navigateToWorkspaceApp).toHaveBeenCalledWith(
+      "https://clips.agent-native.com/home",
+    );
+  });
+
+  it("restores a mounted pane without waiting for optional built-in discovery", async () => {
+    clientState.workspaceApps = [
+      {
+        id: "mail",
+        name: "Mail",
+        path: "/mail",
+        url: "/mail",
+        status: "ready",
+      },
+    ];
+    clientState.connectedAppsLoading = true;
+    clientState.appState[CHAT_FIRST_PANE_STATE_KEY] = {
+      appId: "mail",
+      path: "/inbox",
+    };
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat/review-fixture"]}>
+          <Layout extensions={{ chatFirst: true }}>
+            <div />
+          </Layout>
+        </MemoryRouter>,
+      );
+    });
+
+    expect(
+      container.querySelector("[data-chat-first-app-pane]"),
+    ).not.toBeNull();
   });
 
   it("puts Overview before Chat in the primary navigation", async () => {
@@ -461,6 +1077,51 @@ describe("Dispatch NavContent", () => {
     );
   });
 
+  it("accepts a custom workspace name and icon", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/overview"]}>
+          <TooltipProvider>
+            <NavContent
+              brandName="Acme Workspace"
+              brandIcon={<svg data-acme-mark aria-hidden="true" />}
+            />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    const brandLink = container.querySelector('a[href="/overview"]');
+    expect(brandLink?.getAttribute("aria-label")).toBe("Acme Workspace");
+    expect(brandLink?.textContent?.trim()).toBe("Acme Workspace");
+    expect(brandLink?.querySelector("[data-acme-mark]")).not.toBeNull();
+    expect(brandLink?.querySelector("[data-agent-native-icon]")).toBeNull();
+    expect(container.textContent).not.toContain("Dispatch");
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/overview"]}>
+          <TooltipProvider>
+            <NavContent
+              collapsed
+              brandName="Acme Workspace"
+              brandIcon={<svg data-acme-mark aria-hidden="true" />}
+            />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    const collapsedBrandLink = container.querySelector('a[href="/overview"]');
+    expect(collapsedBrandLink?.getAttribute("aria-label")).toBe(
+      "Acme Workspace",
+    );
+    expect(
+      collapsedBrandLink?.querySelector("[data-acme-mark]"),
+    ).not.toBeNull();
+    expect(collapsedBrandLink?.textContent?.trim()).toBe("");
+  });
+
   it("keeps Admin above Settings in the chat-first left sidebar", async () => {
     await act(async () => {
       root.render(
@@ -580,6 +1241,283 @@ describe("Dispatch NavContent", () => {
     expect(paths).toEqual(["/apps/mail"]);
   });
 
+  async function renderHistory(
+    chatFirstMode = false,
+    path = "/chat/active-thread",
+  ) {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={[path]}>
+          <TooltipProvider>
+            <NavContent chatFirstMode={chatFirstMode} />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+  }
+
+  async function clickText(scope: ParentNode, text: string) {
+    const button = [
+      ...scope.querySelectorAll<HTMLElement>('button, [role="menuitem"]'),
+    ].find((button) => button.textContent?.trim() === text);
+    expect(button, text).toBeDefined();
+    await act(async () => {
+      button!.click();
+    });
+  }
+
+  async function openThreadMenu(title: string) {
+    const row = [
+      ...container.querySelectorAll<HTMLElement>(".an-chat-history-row"),
+    ].find((row) => row.textContent?.includes(title));
+    expect(row).toBeDefined();
+    await act(async () => {
+      row!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
+    });
+  }
+
+  it.each([false, true])(
+    "keeps the proven-owned active empty chat and hides inactive blanks (chat-first %s)",
+    async (chatFirstMode) => {
+      clientState.mineThreads = [];
+      clientState.threads = clientState.threads.map((thread) => ({
+        ...thread,
+        messageCount: 0,
+      }));
+      await renderHistory(chatFirstMode, "/chat");
+
+      expect(container.textContent).toContain("Current Dispatch work");
+      expect(container.textContent).not.toContain("Earlier Dispatch work");
+      expect(container.querySelectorAll(".an-chat-history-row")).toHaveLength(
+        1,
+      );
+      expect(clientState.switchThread).not.toHaveBeenCalled();
+      expect(clientState.lifecycleOptions).toHaveBeenLastCalledWith({
+        autoCreate: false,
+        includeExternal: false,
+      });
+    },
+  );
+
+  it.each(
+    [false, true].flatMap((chatFirstMode) =>
+      ["direct", "organization", "unproven"].map(
+        (basis) => [chatFirstMode, basis] as const,
+      ),
+    ),
+  )(
+    "does not promote an active empty %s/%s lifecycle row into Mine",
+    async (chatFirstMode, basis) => {
+      clientState.mineThreads = [];
+      const active = clientState.threads[0];
+      clientState.threads = [
+        {
+          ...active,
+          messageCount: 0,
+          accessBasis: basis === "unproven" ? undefined : basis,
+          ownerEmail:
+            basis === "unproven" ? undefined : "colleague@example.com",
+          visibility: basis === "unproven" ? undefined : "organization",
+        },
+      ];
+      await renderHistory(chatFirstMode);
+
+      expect(container.textContent).not.toContain("Current Dispatch work");
+      expect(container.querySelector(".an-chat-history-row")).toBeNull();
+      expect(clientState.switchThread).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([false, true])(
+    "renders server Shared attribution, five-row disclosure and paging (chat-first %s)",
+    async (chatFirstMode) => {
+      clientState.sharedThreads = Array.from({ length: 6 }, (_, index) => ({
+        id: `shared-${index}`,
+        title: `Shared work ${index}`,
+        preview: "",
+        messageCount: 1,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        ownerEmail: "colleague@example.com",
+        accessBasis: index === 0 ? "direct" : "organization",
+        visibility: "organization",
+      }));
+      clientState.sharedHasMore = true;
+      await renderHistory(chatFirstMode, "/chat/shared-0");
+      const shared = container.querySelector(
+        '[data-section-id="shared"].an-chat-history__section',
+      )!;
+      expect(shared).not.toBeNull();
+      expect(shared.querySelectorAll(".an-chat-history-row")).toHaveLength(5);
+      expect(
+        shared.querySelector('[role="img"]')?.getAttribute("aria-label"),
+      ).toBe("Owner: colleague@example.com");
+      for (const basis of ["direct", "organization"]) {
+        expect(
+          shared.querySelector(
+            `.an-chat-history-row__owner-mark[data-access-basis="${basis}"]`,
+          ),
+        ).not.toBeNull();
+      }
+      expect(shared.querySelector(".an-chat-history-row--pinned")).toBeNull();
+      expect(
+        shared.querySelector(".an-chat-history-row--active")?.textContent,
+      ).toContain("Shared work 0");
+      await clickText(shared, "Show all");
+      expect(shared.querySelectorAll(".an-chat-history-row")).toHaveLength(6);
+      clientState.sharedThreads = clientState.sharedThreads.map((row) => ({
+        ...row,
+      }));
+      await renderHistory(chatFirstMode, "/chat/shared-0");
+      expect(shared.querySelectorAll(".an-chat-history-row")).toHaveLength(6);
+      expect(
+        shared.querySelector(".an-chat-history-row--active")?.textContent,
+      ).toContain("Shared work 0");
+      expect(clientState.switchThread).not.toHaveBeenCalled();
+      await clickText(shared, "Load more");
+      expect(clientState.loadMore).toHaveBeenCalledOnce();
+      await clickText(shared, "Show less");
+      expect(shared.querySelectorAll(".an-chat-history-row")).toHaveLength(5);
+      await act(async () => {
+        shared
+          .querySelector<HTMLButtonElement>(".an-chat-history-row__button")!
+          .click();
+      });
+      expect(clientState.switchThread).toHaveBeenCalledWith("shared-0");
+      expect(clientState.lifecycleOptions).toHaveBeenLastCalledWith({
+        autoCreate: false,
+        includeExternal: false,
+      });
+      await openThreadMenu("Shared work 0");
+      expect(
+        document.body.querySelector(".an-chat-history-row__menu-owner")
+          ?.textContent,
+      ).toContain("colleague@example.comShared with you");
+      const actions = [
+        ...document.body.querySelectorAll(".an-chat-history-row__menu-item"),
+      ].map((item) => item.textContent);
+      expect(actions).toEqual(
+        expect.arrayContaining([
+          "PinOnly you",
+          "Copy link",
+          "Hide from my list",
+        ]),
+      );
+      for (const ownerAction of ["Rename chat", "Archive"]) {
+        expect(actions).not.toContain(ownerAction);
+      }
+    },
+  );
+
+  it.each([false, true])(
+    "passes the persisted external source toggle to both ownership queries (chat-first %s)",
+    async (chatFirstMode) => {
+      await renderHistory(chatFirstMode);
+      const toggle = container.querySelector<HTMLButtonElement>(
+        "[data-dispatch-chat-source-toggle]",
+      )!;
+      expect(toggle.getAttribute("aria-pressed")).toBe("false");
+      await act(async () => toggle.click());
+      for (const ownership of ["mine", "shared"]) {
+        expect(clientState.listQueries).toHaveBeenCalledWith(
+          expect.objectContaining({ ownership, includeExternal: true }),
+        );
+      }
+      expect(localStorage.getItem("dispatch.chat-history.source")).toBe("all");
+    },
+  );
+
+  it.each([false, true])(
+    "archives the active owned chat before opening New chat (chat-first %s)",
+    async (chatFirstMode) => {
+      let settle!: (value: boolean) => void;
+      clientState.archiveThread.mockReturnValue(
+        new Promise<boolean>((resolve) => {
+          settle = resolve;
+        }),
+      );
+      await renderHistory(chatFirstMode);
+      await openThreadMenu("Current Dispatch work");
+      await clickText(document.body, "Archive");
+      expect(clientState.archiveThread).toHaveBeenCalledWith("active-thread");
+      expect(clientState.createThread).not.toHaveBeenCalled();
+      await act(async () => settle(true));
+      expect(clientState.createThread).toHaveBeenCalledOnce();
+      expect(clientState.switchThread).toHaveBeenCalledWith("new-thread");
+    },
+  );
+
+  it.each([false, true])(
+    "rolls back a failed archive, toasts once and keeps the active chat (chat-first %s)",
+    async (chatFirstMode) => {
+      vi.mocked(toast.error).mockClear();
+      clientState.archiveThread.mockResolvedValue(false);
+      await renderHistory(chatFirstMode);
+      await openThreadMenu("Current Dispatch work");
+      await clickText(document.body, "Archive");
+      expect(container.textContent).toContain("Current Dispatch work");
+      expect(clientState.createThread).not.toHaveBeenCalled();
+      expect(clientState.switchThread).not.toHaveBeenCalled();
+      expect(toast.error).toHaveBeenCalledExactlyOnceWith("Failed to save");
+    },
+  );
+
+  it.each([false, true])(
+    "pins and renames owned rows through the adapter (chat-first %s)",
+    async (chatFirstMode) => {
+      await renderHistory(chatFirstMode);
+      await openThreadMenu("Earlier Dispatch work");
+      await clickText(document.body, "Pin");
+      expect(clientState.pinThread).toHaveBeenCalledWith("older-thread", true);
+      await openThreadMenu("Earlier Dispatch work");
+      await clickText(document.body, "Rename chat");
+      const input = container.querySelector<HTMLInputElement>(
+        ".an-chat-history-row__rename-input",
+      )!;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          "value",
+        )!.set!.call(input, "Revised work");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      await act(async () => {
+        input.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+        );
+      });
+      expect(clientState.renameThread).toHaveBeenCalledWith(
+        "older-thread",
+        "Revised work",
+      );
+      expect(clientState.createThread).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([false, true])(
+    "renders app row actions as text-only menu items (chat-first %s)",
+    async (chatFirstMode) => {
+      await renderHistory(chatFirstMode);
+      await openThreadMenu("Earlier Dispatch work");
+      const items = [
+        ...document.body.querySelectorAll<HTMLElement>(
+          ".an-chat-history-row__menu-item",
+        ),
+      ];
+      const labels = items.map((item) => item.textContent?.trim());
+      expect(labels).toEqual(
+        expect.arrayContaining(["Rename chat", "Pin", "Archive"]),
+      );
+      expect(items.length).toBeGreaterThan(3);
+      for (const item of items) {
+        expect(item.tagName).not.toBe("BUTTON");
+        expect(item.getAttribute("role")).toBe("menuitem");
+        expect(item.querySelector("svg")).toBeNull();
+      }
+    },
+  );
+
   it("uses the shared chat history rail and retains thread actions", async () => {
     await act(async () => {
       root.render(
@@ -595,7 +1533,8 @@ describe("Dispatch NavContent", () => {
     expect(container.textContent).toContain("Current Dispatch work");
     expect(container.textContent).toContain("Earlier Dispatch work");
     expect(container.textContent).toContain("New chat");
-    expect(container.textContent).toContain("5m");
+    // Rail rows show no relative time; it stays in the popover list.
+    expect(container.textContent).not.toContain("5m ago");
     expect(container.querySelector('[aria-label="Slack"]')).not.toBeNull();
     const sourceToggle = container.querySelector(
       "[data-dispatch-chat-source-toggle]",
@@ -605,10 +1544,9 @@ describe("Dispatch NavContent", () => {
       sourceToggle.click();
     });
     expect(sourceToggle.getAttribute("aria-pressed")).toBe("true");
-    const age = [...container.querySelectorAll("span")].find(
-      (element) => element.textContent === "5m",
-    );
-    expect(age?.className).toContain("an-chat-history-row__timestamp");
+    expect(
+      container.querySelector(".an-chat-history-row__timestamp"),
+    ).toBeNull();
     const historyList = container.querySelector(
       '[data-agent-native="chat-history-list"]',
     );
@@ -656,10 +1594,10 @@ describe("chat-first surface panel toggle stacking", () => {
   it("keeps the toggle above the mobile full-screen surface panel overlay", async () => {
     const { ChatFirstSurfacePanelToggle: RealChatFirstSurfacePanelToggle } =
       await vi.importActual<
-        typeof import("@agent-native/core/client/agent-chat")
-      >("@agent-native/core/client/agent-chat");
+        typeof import("@agent-native/toolkit/app/chat/chat-first")
+      >("@agent-native/toolkit/app/chat/chat-first");
     const { ChatFirstSurfacePanel } =
-      await import("@agent-native/core/client/chat-first");
+      await import("@agent-native/toolkit/app/chat/chat-first");
 
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -687,9 +1625,6 @@ describe("chat-first surface panel toggle stacking", () => {
       container.querySelector("[data-chat-first-surface-toggle]")?.className ??
       "";
 
-    // Below 768px the panel becomes a full-screen absolute overlay at this
-    // z-index (surface-panel.tsx). The toggle is the only control that can
-    // dismiss it, so it must always paint above that overlay.
     const panelMobileZIndex = readMobileZIndexClass(panelClassName);
     const toggleZIndex = readUnprefixedZIndexClass(toggleClassName);
     expect(panelMobileZIndex).not.toBeNull();
@@ -714,7 +1649,7 @@ describe("chat-first app surface tab chat rail", () => {
 
   async function renderAppTab(isMobileSurface: boolean) {
     const { defaultChatFirstCopy } =
-      await import("@agent-native/core/client/chat-first");
+      await import("@agent-native/toolkit/app/chat/chat-first");
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(new Response("{}", { status: 200 })),
@@ -739,9 +1674,6 @@ describe("chat-first app surface tab chat rail", () => {
   it("does not mount a second full-screen chat rail while the mobile surface panel already covers the screen", async () => {
     const { container, root } = await renderAppTab(true);
 
-    // ChatFirstSurfacePanel is already a full-screen overlay below 768px
-    // (surface-panel.tsx). A nested AgentSidebar chat rail here would stack a
-    // second full-screen shell on top of it.
     expect(container.querySelector("[data-agent-sidebar]")).toBeNull();
     expect(
       container.querySelector("[data-chat-first-app-pane]"),

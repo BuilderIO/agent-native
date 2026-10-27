@@ -81,13 +81,6 @@ describe("stripNonStaticXmlAttributes", () => {
 });
 
 describe("exported SVG is well-formed XML", () => {
-  /**
-   * Alpine puts every `x-for` / `x-if` block behind a `<template>`, whose
-   * children live in a `content` DocumentFragment that `querySelectorAll`
-   * cannot see but `XMLSerializer` still writes out. That gap shipped
-   * `:class="..."` into downloaded SVGs, and browsers refused the file with
-   * "Failed to parse QName ':class'" at the first list or conditional.
-   */
   it("strips directives inside <template> content", () => {
     const root = document.createElement("div");
     root.innerHTML = `<nav x-data="{ open: false }">
@@ -169,7 +162,6 @@ describe("exported SVG is well-formed XML", () => {
   });
 });
 
-/** Attribute names in the serialized output that are not legal XML QNames. */
 function collectInvalidXmlAttributeNames(xml: string): string[] {
   const names = new Set<string>();
   for (const [, name] of xml.matchAll(/[\s"']([^\s"'<>/=]+)=["']/g)) {

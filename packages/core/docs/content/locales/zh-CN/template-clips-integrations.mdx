@@ -17,7 +17,7 @@ description: "剪辑如何与 Dispatch 及其他应用连接、代理可读的�
 
 ### 独立部署：需要一步手动操作
 
-如果剪辑和 Dispatch 是两个独立创建的 Agent-Native 项目，它们不会共享密钥，因此还无法互相调用。连接它们需要在双方各执行一步手动操作：添加一个带有共享密钥的 `remote-agents/<id>.json` 资源，可以从设置 → 已连接的代理、Agent 页面的连接标签页，或 Dispatch → 代理 → 添加外部代理来完成。完整的操作步骤请参阅 [A2A 协议](/docs/a2a-protocol)。
+如果剪辑和 Dispatch 是两个独立创建的 Agent-Native 项目，它们不会共享密钥，因此还无法互相调用。连接它们需要在双方各执行一步手动操作：添加一个带有共享密钥的 `remote-agents/<id>.json` 资源，可以从Settings → Agent → Sub-agents（Connect agent），或 Dispatch → 代理 → 添加外部代理来完成。完整的操作步骤请参阅 [A2A 协议](/docs/a2a-protocol)。
 
 要检查你属于哪种情况，可以问任意一个应用的代理“你能看到哪些应用？”。如果剪辑没有出现在 Dispatch 的回答中，那么你就属于第二种情况。
 
@@ -29,11 +29,12 @@ description: "剪辑如何与 Dispatch 及其他应用连接、代理可读的�
 
 大多数能查看图像的代理都可以自行处理这一点，包括 ChatGPT、Claude Code、Cursor 和 Codex。少数纯文本聊天可以读取转录文本但无法读取画面帧，对于这些情况，请在一个支持图像的代理中打开该剪辑。
 
-| 端点                                              | 代理可以获得什么                                                          |
-| ------------------------------------------------- | ------------------------------------------------------------------------- |
-| `/api/agent-context.json?id=<recordingId>`        | 剪辑元数据、转录状态、章节、CTA、推荐帧，以及指向转录/帧 API 的链接       |
-| `/api/agent-transcript.json?id=<recordingId>`     | 带有 `startMs`、`endMs`、可读时间戳、文本和可选来源标签的带时间戳转录片段 |
-| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | 在原始视频时间戳处从视频中提取的一帧 JPEG 图像                            |
+| 端点                                                                     | 代理可以获得什么                                                                 |
+| ------------------------------------------------------------------------ | -------------------------------------------------------------------------------- |
+| `/api/agent-context.json?id=<recordingId>`                               | 剪辑元数据、转录状态、章节、CTA、推荐帧，以及指向转录/帧 API 的链接              |
+| `/api/agent-transcript.json?id=<recordingId>`                            | 带有 `startMs`、`endMs`、可读时间戳、文本和可选来源标签的带时间戳转录片段        |
+| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>`                        | 在原始视频时间戳处从视频中提取的一帧 JPEG 图像                                   |
+| `/api/agent-frames.jpg?id=<recordingId>&startMs=<ms>&endMs=<ms>&fps=<n>` | 一张 JPEG 缩略图表，包含时间范围内最多 36 个连续帧，可在一张图片中查看动画或转场 |
 
 这些端点遵循与分享页面相同的公开/密码/过期规则，或者接受来自临时代理链接的、限定范围的 `agent_access` 令牌。受密码保护的剪辑需要输入一次密码；成功的响应会返回短期有效的令牌化链接，因此下游代理不需要明文密码。
 
@@ -104,6 +105,50 @@ description: "剪辑如何与 Dispatch 及其他应用连接、代理可读的�
 
 </Endpoint>
 
+<Endpoint id="doc-block-clips-agent-frames" title="时间范围的连续帧缩略图表" method="GET" path="/api/agent-frames.jpg" summary="将时间范围内的连续帧放进一张 JPEG 缩略图表" params={[
+  {
+    "name": "id",
+    "in": "query",
+    "type": "string",
+    "required": true,
+    "description": "Recording id"
+  },
+  {
+    "name": "startMs",
+    "in": "query",
+    "type": "integer",
+    "required": true,
+    "description": "Time of the first frame in milliseconds"
+  },
+  {
+    "name": "endMs",
+    "in": "query",
+    "type": "integer",
+    "required": false,
+    "description": "End of the range in milliseconds (exclusive); without it, the sheet holds up to 36 frames from startMs, stopping at 60 seconds or the end of the clip"
+  },
+  {
+    "name": "fps",
+    "in": "query",
+    "type": "number",
+    "required": false,
+    "description": "Frames per second, up to 60; without it, the video's own frame rate"
+  }
+]} responses={[
+  {
+    "status": "200",
+    "description": "image/jpeg sheet read left to right, then top to bottom; the X-Clips-Frame-Sheet-Times header lists each cell's time"
+  },
+  {
+    "status": "400",
+    "description": "failureKind=request when the range needs more than 36 frames or spans more than 60 seconds; nextStep names a request that fits"
+  }
+]}>
+
+第 _i_ 格显示 `startMs + i × 1000 / fps` 时画面上的帧。省略 `fps` 时，视频的每一帧都会出现。
+
+</Endpoint>
+
 如果转录文本还没有准备好，一个行为得当的代理会稍等一下再重试，而不是立刻放弃。较长的录制内容可能需要几分钟。如果转录因为 Builder 额度用尽而失败，代理应该说明这一点，并指向[转录和 AI 元数据](/docs/template-clips-features#transcription-and-ai-metadata)。
 
 ### 导出到 Brain
@@ -112,47 +157,9 @@ description: "剪辑如何与 Dispatch 及其他应用连接、代理可读的�
 
 ### CRM 通话证据
 
-CRM 工具有时需要证明一次通话确实发生过，而不需要完整的录制内容。剪辑只会交出一个不透明的剪辑 ID 和一个持久链接，绝不会交出视频或转录文本。这只对你已经能看到的一段录制内容有效，并且只在你主动要求，或一个已批准的自动化触发时才会发生。
+CRM 工具有时需要证明一次通话确实发生过，而不需要完整的录制内容。剪辑只会交出一个不透明的剪辑 ID 和一个持久链接，绝不会交出视频或转录文本。这只对你已经能看到的一段录制内容有效，并且只在你主动要求时才会发生。
 
-<Diagram id="doc-block-clips-crm" title="CRM 通话证据" summary={"一个 clip.created 自动化会把一个持久链接交给 CRM 工作流，绝不会交出媒体本身。"}>
-
-```html
-<div class="diagram-flow">
-  <div class="diagram-node">录制已就绪</div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box" data-rough>
-    clip.created<br /><small class="diagram-muted">已批准的自动化</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-panel center">
-    <span class="diagram-pill accent">证据链接</span
-    ><small class="diagram-muted">id + /r/&lt;id&gt;</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box">CRM 记录</div>
-</div>
-```
-
-```css
-.diagram-flow {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.diagram-flow .center {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
-.diagram-flow .diagram-arrow {
-  font-size: 18px;
-  line-height: 1;
-}
-```
-
-</Diagram>
+目前尚不支持设置从 CRM 到 Clips 的通话自动化。
 
 ### 通过 Dispatch 进行自然语言委托
 

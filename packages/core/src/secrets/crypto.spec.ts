@@ -30,8 +30,6 @@ describe("secret crypto", () => {
 
   it("recognises encrypted values strictly", () => {
     expect(isEncryptedSecretValue(encryptSecretValue("y"))).toBe(true);
-    // A legacy plaintext secret that merely starts with `v1:` is NOT treated
-    // as ciphertext, so the credential read-path falls back to plaintext.
     expect(isEncryptedSecretValue("v1:hello-world")).toBe(false);
     expect(isEncryptedSecretValue("sk-plaintext-key")).toBe(false);
     expect(isEncryptedSecretValue(undefined)).toBe(false);
@@ -53,8 +51,6 @@ describe("secret crypto", () => {
   });
 
   it("rejects payloads that are not v1-tagged ciphertext", () => {
-    // A legacy plaintext value (or any non-v1 string) is refused outright so
-    // the caller can fall back rather than mis-decrypt arbitrary bytes.
     expect(() => decryptSecretValue("sk-plaintext-key")).toThrow(
       /Unrecognised secret encoding/,
     );
@@ -155,15 +151,12 @@ describe("getSecretEncryptionKey", () => {
     const a = getSecretEncryptionKey();
     const b = getSecretEncryptionKey();
     expect(a).toHaveLength(32);
-    // Re-derived per call but deterministic for the same material.
     expect(a.equals(b)).toBe(true);
   });
 
   it("falls back to BETTER_AUTH_SECRET when SECRETS_ENCRYPTION_KEY is unset", () => {
     delete process.env.SECRETS_ENCRYPTION_KEY;
     process.env.BETTER_AUTH_SECRET = "auth-fallback-material";
-    // The derived key must match deriving directly from the same material via
-    // SECRETS_ENCRYPTION_KEY — i.e. the fallback source is honored.
     const viaAuth = getSecretEncryptionKey();
     process.env.SECRETS_ENCRYPTION_KEY = "auth-fallback-material";
     delete process.env.BETTER_AUTH_SECRET;
@@ -256,9 +249,6 @@ describe("hosted workspace shared secret material (derived from A2A_SECRET)", ()
     process.env.COACH_SECRETS_ENCRYPTION_KEY = "coach-only-material"; // guard:allow-env-credential — test configures deploy-level app encryption material.
     const coachShared = getSharedSecretEncryptionKey();
 
-    // The app-scoped *_SECRETS_ENCRYPTION_KEY vars differ per app, but neither
-    // is used for the shared key once A2A_SECRET-derived material is
-    // available — both apps must land on the identical workspace-shared key.
     expect(dispatchShared.equals(coachShared)).toBe(true);
   });
 

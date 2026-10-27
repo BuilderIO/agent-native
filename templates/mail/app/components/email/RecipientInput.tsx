@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { mailSettingsRoute } from "@shared/settings-navigation";
 import type { Alias } from "@shared/types";
 import {
   IconX,
@@ -43,10 +44,8 @@ import {
 import { getActiveDescendantId } from "@/lib/combobox-aria";
 import { cn } from "@/lib/utils";
 
-/** Which header field a RecipientInput represents — used for cross-field drag. */
 export type RecipientField = "to" | "cc" | "bcc";
 
-/** DataTransfer MIME used when dragging a recipient chip between To/Cc/Bcc. */
 const RECIPIENT_DRAG_MIME = "application/x-mail-recipient";
 
 interface RecipientInputProps {
@@ -55,9 +54,7 @@ interface RecipientInputProps {
   placeholder?: string;
   ariaLabel?: string;
   autoFocus?: boolean;
-  /** Field identity; enables dragging chips between To/Cc/Bcc when paired with onMoveRecipient. */
   field?: RecipientField;
-  /** Move a recipient token from one field to another (handled by the parent that owns all fields). */
   onMoveRecipient?: (
     value: string,
     from: RecipientField,
@@ -76,21 +73,12 @@ export function serializeRecipients(recipients: string[]): string {
   return recipients.join(", ");
 }
 
-// Permissive single-address check — good enough to decide whether a typed/pasted
-// token should auto-lock into a chip on blur. Send-time validation is authoritative.
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function isValidEmail(value: string): boolean {
   return EMAIL_RE.test(value.trim());
 }
 
-/**
- * Splits a pasted blob of recipients (comma/semicolon/newline separated) into the
- * valid emails to add (deduped, case-insensitively, against `existing` and each
- * other) plus any non-email leftover to keep in the input. Returns `null` when the
- * paste should not be intercepted (single token, or nothing email-like) so the
- * caller can fall through to normal paste behavior.
- */
 export function extractPastedRecipients(
   text: string,
   existing: string[],
@@ -135,8 +123,6 @@ export function computeRecipientMove(
   };
 }
 
-// ─── AliasPopover ─────────────────────────────────────────────────────────────
-
 interface AliasPopoverProps {
   alias: Alias;
   anchorEl: HTMLElement;
@@ -163,7 +149,6 @@ function AliasPopover({
     });
   }, [anchorEl]);
 
-  // Close on outside click
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
       if (
@@ -179,7 +164,9 @@ function AliasPopover({
   }, [anchorEl, onClose]);
 
   const handleEdit = () => {
-    void navigate(`/settings?alias=${alias.id}`);
+    void navigate(
+      `${mailSettingsRoute("aliases")}?alias=${encodeURIComponent(alias.id)}`,
+    );
     onClose();
   };
 
@@ -191,6 +178,7 @@ function AliasPopover({
   return createPortal(
     <div
       ref={panelRef}
+      data-an-block
       className="fixed z-[9999] w-72 rounded-xl border border-border bg-popover shadow-xl"
       style={{ top: pos.top, left: pos.left }}
     >
@@ -252,8 +240,6 @@ function AliasPopover({
     document.body,
   );
 }
-
-// ─── SaveAliasModal ───────────────────────────────────────────────────────────
 
 interface SaveAliasModalProps {
   emails: string[];
@@ -319,8 +305,6 @@ function SaveAliasModal({ emails, onClose }: SaveAliasModalProps) {
   );
 }
 
-// ─── RecipientInput ───────────────────────────────────────────────────────────
-
 export function RecipientInput({
   value,
   onChange,
@@ -366,7 +350,6 @@ export function RecipientInput({
     [query, aliases, value],
   );
 
-  // Contacts come pre-sorted by frequency from the server (SQL-tracked send counts)
   const filteredContacts = useMemo(
     () =>
       query
@@ -384,7 +367,6 @@ export function RecipientInput({
     [query, contacts, value],
   );
 
-  // Combined for keyboard nav — aliases first (sliced to match dropdown rendering)
   const allSuggestions = useMemo((): Array<
     { type: "alias"; item: Alias } | { type: "contact"; item: Contact }
   > => {
@@ -465,8 +447,6 @@ export function RecipientInput({
     [recipients, aliases, onChange],
   );
 
-  // Lock a pasted/typed-but-unconfirmed address into a chip when the field loses
-  // focus, so a bare paste (no Enter/Tab/comma) isn't silently dropped on send.
   const handleBlur = () => {
     const trimmed = inputValue.trim();
     if (trimmed && isValidEmail(trimmed)) {
@@ -474,25 +454,20 @@ export function RecipientInput({
     }
   };
 
-  // Pasting several addresses at once (comma/semicolon/newline separated) splits
-  // them into chips. A single token with no delimiter falls through to the normal
-  // paste so it lands in the input and locks in on blur.
   const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
     const result = extractPastedRecipients(
       e.clipboardData.getData("text"),
       recipients,
     );
-    if (!result) return; // single token / nothing email-like → normal paste
+    if (!result) return;
     e.preventDefault();
     if (result.added.length > 0) {
       onChange(serializeRecipients([...recipients, ...result.added]));
     }
-    // Preserve any non-email leftovers (e.g. a half-typed address) in the input.
     setInputValue(result.leftover);
     setShowSuggestions(false);
   };
 
-  // ── Cross-field drag (To ⇄ Cc ⇄ Bcc), Superhuman-style ──────────────────────
   const canDrag = !!field && !!onMoveRecipient;
 
   const handleChipDragStart = (
@@ -517,7 +492,6 @@ export function RecipientInput({
   };
 
   const handleContainerDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
-    // Ignore moves between the container's own children.
     if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
     setIsDropTarget(false);
   };
@@ -576,7 +550,6 @@ export function RecipientInput({
     }
   };
 
-  // Position dropdown relative to container, rendered via portal
   useLayoutEffect(() => {
     if (showSuggestions && hasSuggestions && containerRef.current) {
       const rect = containerRef.current.getBoundingClientRect();
@@ -588,7 +561,6 @@ export function RecipientInput({
     }
   }, [showSuggestions, hasSuggestions, inputValue]);
 
-  // Close suggestions on outside click
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
       if (
@@ -604,8 +576,6 @@ export function RecipientInput({
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
-  // Keep a visible suggestion active when results return, preserving its
-  // position when possible and clamping it to the new list.
   useLayoutEffect(() => {
     if (allSuggestions.length === 0) return;
     setSelectedIndex((prev) =>
@@ -638,6 +608,7 @@ export function RecipientInput({
               {filteredAliases.slice(0, 4).map((alias, i) => (
                 <button
                   key={`alias-${alias.id}`}
+                  data-an-mask
                   id={`${suggestionListId}-option-${i}`}
                   role="option"
                   aria-selected={i === selectedIndex}
@@ -672,6 +643,7 @@ export function RecipientInput({
                   return (
                     <button
                       key={contact.email}
+                      data-an-block
                       id={`${suggestionListId}-option-${globalIndex}`}
                       role="option"
                       aria-selected={globalIndex === selectedIndex}
@@ -688,11 +660,17 @@ export function RecipientInput({
                         addRecipient(contact);
                       }}
                     >
-                      <span className="truncate font-medium text-foreground">
+                      <span
+                        data-an-mask
+                        className="truncate font-medium text-foreground"
+                      >
                         {contact.name}
                       </span>
                       {contact.name !== contact.email && (
-                        <span className="truncate text-[12px] text-muted-foreground/60 shrink-0">
+                        <span
+                          data-an-mask
+                          className="truncate text-[12px] text-muted-foreground/60 shrink-0"
+                        >
                           {contact.email}
                         </span>
                       )}
@@ -705,7 +683,6 @@ export function RecipientInput({
         )
       : null;
 
-  // Non-alias recipients for save-as-alias
   const nonAliasRecipients = recipients.filter((r) => !isAliasToken(r));
   const canSaveAlias = nonAliasRecipients.length >= 2;
 
@@ -730,6 +707,7 @@ export function RecipientInput({
             return (
               <span
                 key={`${r}-${i}`}
+                data-an-block
                 draggable={canDrag}
                 onDragStart={
                   canDrag ? (e) => handleChipDragStart(e, r) : undefined
@@ -776,6 +754,7 @@ export function RecipientInput({
           return (
             <span
               key={`${r}-${i}`}
+              data-an-block
               draggable={canDrag}
               onDragStart={
                 canDrag ? (e) => handleChipDragStart(e, r) : undefined

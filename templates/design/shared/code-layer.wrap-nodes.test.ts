@@ -2,12 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { applyVisualEdit, buildCodeLayerProjection } from "./code-layer";
 
-/**
- * Three siblings stacked in DOM order back->front: red (bottom), green
- * (middle), blue (top) — later source position paints on top for plain
- * siblings with no z-index. Matches e2e/parity-group-frame.spec.ts's
- * "non-adjacent selection" fixture.
- */
 const THREE_SIBLINGS = `<body>
   <div data-agent-native-node-id="red" style="position:absolute;left:20px;top:20px;width:100px;height:80px"></div>
   <div data-agent-native-node-id="green" style="position:absolute;left:60px;top:60px;width:100px;height:80px"></div>
@@ -55,10 +49,19 @@ describe("applyWrapNodes (Cmd+G group)", () => {
     expect(ungrouped.content).toContain("left: 60px");
   });
 
+  it("sizes the group around children positioned with a unitless 0", () => {
+    const patch = applyVisualEdit(
+      `<body><div data-agent-native-node-id="image" style="position:absolute;left:0;top:0;width:320px;height:180px"></div><div data-agent-native-node-id="body" style="position:absolute;left:0;top:180px;width:320px;height:180px"></div></body>`,
+      { kind: "wrapNodes", targetIds: ["image", "body"] },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain(
+      'style="position: absolute; left: 0px; top: 0px; width: 320px; height: 360px;"',
+    );
+  });
+
   it("places the group at the TOPMOST selected child's z-position, not the bottommost, for a non-adjacent selection", () => {
-    // Select red (bottom) + blue (top), skipping green (middle). Figma
-    // places the resulting group at blue's stacking position, so green
-    // ends up BELOW the group, not above it.
     const patch = applyVisualEdit(THREE_SIBLINGS, {
       kind: "wrapNodes",
       targetIds: ["red", "blue"],
@@ -112,7 +115,7 @@ describe("applyWrapNodes (Cmd+G group)", () => {
     expect(wrapper?.style).toMatchObject({
       position: "relative",
       width: "25px",
-      height: "14.4px",
+      height: "14px",
     });
     expect(child?.style).toMatchObject({
       position: "absolute",
@@ -182,7 +185,7 @@ describe("applyWrapNodes (Cmd+G group)", () => {
 describe("applyWrapNodes (Shift+A selection background promotion)", () => {
   const OVERLAPPING_TEXT = `<body>
   <div data-agent-native-node-id="rectangle" data-agent-native-layer-name="Rectangle" data-an-primitive="rectangle" style="position:absolute;left:80px;top:80px;width:240px;height:140px;background-color:#D9D9D9"></div>
-  <div data-agent-native-node-id="text" data-agent-native-layer-name="Oracle Text" data-an-primitive="text" style="position:absolute;left:104px;top:132px;width:187px;height:38px">Oracle Text</div>
+  <div data-agent-native-node-id="text" data-agent-native-layer-name="Layer Text" data-an-primitive="text" style="position:absolute;left:104px;top:132px;width:187px;height:38px">Layer Text</div>
 </body>`;
 
   it("promotes a containing painted rectangle in place and preserves exact geometry", () => {
@@ -376,9 +379,6 @@ describe("applyWrapNodes (Shift+A selection background promotion)", () => {
 });
 
 describe("applyWrapNodes (Shift+A auto-layout wrap)", () => {
-  // A named leaf so the fixture's own fallback layer-naming (a plain,
-  // childless <div> defaults to "Frame") can't coincidentally satisfy this
-  // assertion regardless of what the wrap itself names its wrapper.
   const NAMED_LEAF = `<body>
   <div data-agent-native-node-id="label" data-agent-native-layer-name="Label" style="position:absolute;left:20px;top:20px;width:100px;height:80px"></div>
 </body>`;
@@ -404,15 +404,61 @@ describe("applyWrapNodes (Shift+A auto-layout wrap)", () => {
     expect(patch.result.status).toBe("applied");
     expect(patch.content).toContain('data-agent-native-layer-name="Group"');
   });
+
+  it("keeps intrinsic widths while preserving explicit fill and alignment", () => {
+    const content = `<body>
+  <div data-agent-native-node-id="title" style="position:absolute;left:20px;top:20px;width:max-content;height:auto">A longer title</div>
+  <div data-agent-native-node-id="creator" style="position:absolute;left:20px;top:48px;width:30px;height:20px;align-self:center">Ada</div>
+  <div data-agent-native-node-id="fill" style="position:absolute;left:20px;top:76px;width:100%;height:20px">Details</div>
+</body>`;
+    const patch = applyVisualEdit(content, {
+      kind: "wrapNodes",
+      targetIds: ["title", "creator", "fill"],
+      autoLayout: true,
+      sizeHints: {
+        title: { width: 117, height: 20, left: 20, top: 20 },
+        creator: { width: 30, height: 20, left: 20, top: 48 },
+        fill: { width: 240, height: 20, left: 20, top: 76 },
+      },
+    });
+
+    expect(patch.result.status).toBe("applied");
+    const projection = buildCodeLayerProjection(patch.content);
+    const wrapper = projection.nodes.find(
+      (node) =>
+        node.dataAttributes["data-agent-native-group-wrapper"] === "true",
+    );
+    const title = projection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "title",
+    );
+    const creator = projection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "creator",
+    );
+    const fill = projection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "fill",
+    );
+
+    expect(wrapper?.style).toMatchObject({
+      display: "flex",
+      "flex-direction": "column",
+      "align-items": "flex-start",
+      gap: "8px",
+    });
+    expect(title?.style).toMatchObject({
+      width: "max-content",
+      height: "auto",
+    });
+    expect(title?.style.width).not.toBe("117px");
+    expect(creator?.style).toMatchObject({
+      width: "30px",
+      height: "20px",
+      "align-self": "center",
+    });
+    expect(fill?.style).toMatchObject({ width: "100%", height: "20px" });
+  });
 });
 
 describe("applyWrapNodes (Cmd+Opt+G frame selection, sizeHints fallback)", () => {
-  // A Text-tool-created node has position/left/top but no explicit
-  // width/height (it's sized by its content, not an authored box) — the
-  // real shape that made computeAbsoluteUnionBounds return null and left the
-  // Frame with no geometry at all (a zero-area position:static div that
-  // doesn't enclose its own content, and whose selection chrome then can't
-  // be dragged — see the item-2 cross-screen investigation).
   const AUTO_SIZED_TEXT = `<body>
   <div data-agent-native-node-id="label" style="position:absolute;left:20px;top:40px;color:#fff">Save</div>
 </body>`;
@@ -432,7 +478,6 @@ describe("applyWrapNodes (Cmd+Opt+G frame selection, sizeHints fallback)", () =>
       0,
       patch.content.indexOf(`data-agent-native-node-id="${wrapperId}"`) + 1,
     );
-    // No style attribute at all — the degenerate case this fix targets.
     expect(wrapperOpenTag).not.toContain("position: absolute");
   });
 
@@ -570,7 +615,7 @@ describe("applyWrapNodes (Cmd+Opt+G frame selection, sizeHints fallback)", () =>
   });
 
   it.each(["group", "frame"] as const)(
-    "refuses to wrap an authored-stylesheet out-of-flow target as a %s",
+    "pins an authored-stylesheet out-of-flow target inside a measured %s",
     (wrapperKind) => {
       const content = `<body><style>.floating{position:absolute;left:20px;top:40px}</style><div class="floating" data-agent-native-node-id="label">Label</div></body>`;
       const patch = applyVisualEdit(content, {
@@ -588,8 +633,112 @@ describe("applyWrapNodes (Cmd+Opt+G frame selection, sizeHints fallback)", () =>
         },
       });
 
-      expect(patch.result.status).toBe("unsupported");
-      expect(patch.content).toBe(content);
+      expect(patch.result.status).toBe("applied");
+      const wrapperId = patch.result.wrapperNodeId;
+      const start = patch.content.indexOf(
+        `data-agent-native-node-id="${wrapperId}"`,
+      );
+      const wrapperTag = patch.content.slice(
+        start,
+        patch.content.indexOf(">", start),
+      );
+      expect(wrapperTag).toContain(
+        "position: absolute; left: 20px; top: 40px; width: 80px; height: 20px;",
+      );
+      // The stylesheet's left/top would otherwise apply again inside the wrapper.
+      const label = /class="floating"[^>]*style="([^"]*)"/.exec(
+        patch.content,
+      )?.[1];
+      expect(label).toMatch(/left:\s*0px/);
+      expect(label).toMatch(/top:\s*0px/);
     },
   );
+});
+
+describe("applyWrapNodes keeps a real, whole-pixel box around its children", () => {
+  const wrapperStyleOf = (content: string, wrapperId: string | undefined) => {
+    const start = content.indexOf(`data-agent-native-node-id="${wrapperId}"`);
+    expect(start).toBeGreaterThan(-1);
+    return content.slice(start, content.indexOf(">", start));
+  };
+  const childStyleOf = (content: string, id: string) =>
+    new RegExp(`data-agent-native-node-id="${id}"[^>]*style="([^"]*)"`).exec(
+      content,
+    )?.[1] ?? "";
+
+  it("pins a right/bottom-anchored child at its measured spot instead of leaving a 0x0 wrapper", () => {
+    const content = `<body><div data-agent-native-node-id="card" style="position:absolute;right:24px;bottom:32px;width:266px;height:96px"></div></body>`;
+    const patch = applyVisualEdit(content, {
+      kind: "wrapNodes",
+      targetIds: ["card"],
+      wrapperKind: "frame",
+      sizeHints: { card: { width: 266, height: 96, left: 110, top: 272 } },
+    });
+
+    expect(patch.result.status).toBe("applied");
+    const wrapper = wrapperStyleOf(patch.content, patch.result.wrapperNodeId);
+    expect(wrapper).toContain("position: absolute");
+    expect(wrapper).toContain("left: 110px");
+    expect(wrapper).toContain("top: 272px");
+    expect(wrapper).toContain("width: 266px");
+    expect(wrapper).toContain("height: 96px");
+    const child = childStyleOf(patch.content, "card");
+    expect(child).toMatch(/left:\s*0px/);
+    expect(child).toMatch(/top:\s*0px/);
+    expect(child).toMatch(/right:\s*auto/);
+    expect(child).toMatch(/bottom:\s*auto/);
+  });
+
+  it("frames a Tailwind-positioned child from its measured box", () => {
+    const content = `<body><div data-agent-native-node-id="badge" class="absolute top-4 right-4" style="width:40px;height:20px"></div></body>`;
+    const patch = applyVisualEdit(content, {
+      kind: "wrapNodes",
+      targetIds: ["badge"],
+      wrapperKind: "frame",
+      sizeHints: {
+        badge: { width: 40, height: 20, left: 336, top: 16, outOfFlow: true },
+      },
+    });
+
+    expect(patch.result.status).toBe("applied");
+    const wrapper = wrapperStyleOf(patch.content, patch.result.wrapperNodeId);
+    expect(wrapper).toContain("left: 336px");
+    expect(wrapper).toContain("top: 16px");
+    expect(wrapper).toContain("width: 40px");
+    expect(wrapper).toContain("height: 20px");
+  });
+
+  it("writes whole pixels when grouping fractional children", () => {
+    const content = `<body><div data-agent-native-node-id="a" style="position:absolute;left:20.4px;top:30.6px;width:100.3px;height:40px"></div><div data-agent-native-node-id="b" style="position:absolute;left:60.5px;top:90.2px;width:50px;height:20.7px"></div></body>`;
+    const patch = applyVisualEdit(content, {
+      kind: "wrapNodes",
+      targetIds: ["a", "b"],
+    });
+
+    expect(patch.result.status).toBe("applied");
+    const wrapper = wrapperStyleOf(patch.content, patch.result.wrapperNodeId);
+    expect(wrapper).not.toMatch(/\d\.\d+px/);
+    expect(childStyleOf(patch.content, "a")).not.toMatch(
+      /(?:left|top):\s*-?\d+\.\d+px/,
+    );
+    expect(childStyleOf(patch.content, "b")).not.toMatch(
+      /(?:left|top):\s*-?\d+\.\d+px/,
+    );
+  });
+
+  it("writes a whole-pixel measured origin for an in-flow group", () => {
+    const content = `<body><div data-agent-native-node-id="label">Save</div></body>`;
+    const patch = applyVisualEdit(content, {
+      kind: "wrapNodes",
+      targetIds: ["label"],
+      sizeHints: {
+        label: { width: 35.42, height: 19.2, left: 24.6, top: 48.33 },
+      },
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(
+      wrapperStyleOf(patch.content, patch.result.wrapperNodeId),
+    ).not.toMatch(/\d\.\d+px/);
+  });
 });

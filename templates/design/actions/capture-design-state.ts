@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -9,7 +9,8 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
+import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
 import {
   CAPTURE_DATA_MAX_BYTES,
   sanitizeMarkup,
@@ -22,10 +23,6 @@ import {
   type DesignSourceDescriptor,
 } from "../shared/source-mode.js";
 
-/**
- * Resolve the capabilities for the design's source type.
- * Falls back to inline capabilities when not present in stored data.
- */
 function resolveCapabilities(
   designData: string | null,
 ): DesignSourceCapabilities {
@@ -59,20 +56,10 @@ function resolveCapabilities(
   return resolveDescriptorCapabilities({ sourceType: "inline" });
 }
 
-/**
- * A string "looks like markup" — and is therefore worth sanitising — when it
- * contains an angle-bracket tag opener or an Alpine `x-`/`@`/`:` binding that
- * could carry script. Plain data strings (route names, ids) are left untouched.
- */
 function looksLikeMarkup(value: string): boolean {
   return /<[a-zA-Z!/]/.test(value) || value.includes("</");
 }
 
-/**
- * Recursively sanitise every string value inside a captured/replayed
- * `captureData` object (e.g. `domHtml`, `domSnapshot`, `x-data` markup) so no
- * untrusted DOM is persisted raw. Non-string leaves pass through unchanged.
- */
 function sanitizeCaptureData(value: unknown): unknown {
   if (typeof value === "string") {
     return looksLikeMarkup(value) ? sanitizeMarkup(value) : value;
@@ -151,7 +138,6 @@ export default defineAction({
 
     const db = getDb();
 
-    // Capability gate — captureState must be available for this design source.
     const [design] = await db
       .select({ data: schema.designs.data })
       .from(schema.designs)
@@ -164,9 +150,10 @@ export default defineAction({
 
     const caps = resolveCapabilities(design.data);
     if (!hasCapability(caps, "captureState")) {
-      throw new Error(
+      fail(
         "The design's source does not support captureState. " +
-          "Connect Builder (free tier available) or a localhost bridge to enable live captures.",
+          "Use Builder.io (free tier available) or a localhost bridge to enable live captures.",
+        { errorCode: "capture_state_not_supported", statusCode: 422 },
       );
     }
 
@@ -176,8 +163,6 @@ export default defineAction({
     if (!ownerEmail) throw new Error("no authenticated user");
     const orgId = getRequestOrgId();
 
-    // Sanitise captured DOM/markup (stored-XSS guard) and enforce a size cap so
-    // a single capture can't bloat the row / the shareable content it feeds.
     const sanitizedCaptureData = sanitizeCaptureData(captureData);
     const captureDataJson = JSON.stringify(sanitizedCaptureData);
     if (Buffer.byteLength(captureDataJson, "utf8") > CAPTURE_DATA_MAX_BYTES) {
@@ -188,21 +173,24 @@ export default defineAction({
       );
     }
 
-    await db.insert(schema.designState).values({
-      id,
-      designId,
-      sourceRef: sourceRef ?? null,
-      name,
-      kind: "capture",
-      breakpoint,
-      route: route ?? null,
-      fixtureData: null,
-      captureData: captureDataJson,
-      previewRef: previewRef ?? null,
-      createdAt: now,
-      updatedAt: now,
-      ownerEmail,
-      orgId,
+    await withDesignSourceMutationTransaction(designId, async (tx) => {
+      await assertAccess("design", designId, "editor");
+      await tx.insert(schema.designState).values({
+        id,
+        designId,
+        sourceRef: sourceRef ?? null,
+        name,
+        kind: "capture",
+        breakpoint,
+        route: route ?? null,
+        fixtureData: null,
+        captureData: captureDataJson,
+        previewRef: previewRef ?? null,
+        createdAt: now,
+        updatedAt: now,
+        ownerEmail,
+        orgId,
+      });
     });
 
     return {

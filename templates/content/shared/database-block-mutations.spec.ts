@@ -70,18 +70,58 @@ describe("individual Blocks-field document mutations", () => {
     expect(Object.keys(BLOCKS_FIELD_OPERATION_CAPABILITIES).sort()).toEqual(
       [...BLOCKS_FIELD_BLOCK_KINDS].sort(),
     );
-    expect(BLOCKS_FIELD_OPERATION_CAPABILITIES.paragraph).toEqual([
-      "insert",
-      "update",
-      "upsert",
-      "delete",
-      "reorder",
-    ]);
-    expect(BLOCKS_FIELD_OPERATION_CAPABILITIES.listItem).toEqual([
-      "delete",
-      "reorder",
-    ]);
-    expect(BLOCKS_FIELD_OPERATION_CAPABILITIES.tableCell).toEqual([]);
+
+    // The matrix only counts if mutateBlocksFieldDocument enforces it, so
+    // drive it through the mutation entry point. listItem is order-only:
+    // reorder and delete run, the rest are refused.
+    const listMarkdown = "- one\n- two";
+    const list = identity(listMarkdown);
+    const [one, two] = list.blocks.filter((block) => block.kind === "listItem");
+    const mutateList = (
+      mutation: Parameters<typeof mutateBlocksFieldDocument>[0]["mutation"],
+    ) =>
+      mutateBlocksFieldDocument({
+        markdown: listMarkdown,
+        identity: list,
+        mutation,
+      });
+    expect(
+      mutateList({
+        operation: "reorder",
+        blockId: one!.id,
+        position: { placement: "after", anchorBlockId: two!.id },
+      }).markdown,
+    ).toBe("- two\n- one");
+    expect(mutateList({ operation: "delete", blockId: one!.id }).markdown).toBe(
+      "- two",
+    );
+    expect(() =>
+      mutateList({
+        operation: "insert",
+        block: { kind: "listItem", nfm: "- three" },
+        position: { placement: "after", anchorBlockId: two!.id },
+      }),
+    ).toThrow('Block kind "listItem" does not support insert.');
+    expect(() =>
+      mutateList({
+        operation: "upsert",
+        blockId: one!.id,
+        block: { kind: "listItem", nfm: "- changed" },
+      }),
+    ).toThrow('Block kind "listItem" does not support upsert.');
+
+    // tableCell has an empty entry, so even delete is refused.
+    const tableMarkdown =
+      '<table header-row="true">\n<tr>\n<td>Header</td>\n</tr>\n<tr>\n<td>Cell</td>\n</tr>\n</table>';
+    const table = identity(tableMarkdown);
+    const cell = table.blocks.find((block) => block.kind === "tableCell")!;
+    expect(() =>
+      mutateBlocksFieldDocument({
+        markdown: tableMarkdown,
+        identity: table,
+        mutation: { operation: "delete", blockId: cell.id },
+      }),
+    ).toThrow('Block kind "tableCell" does not support delete.');
   });
 
   it("inserts one block without changing either sibling ID", () => {

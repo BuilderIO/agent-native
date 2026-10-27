@@ -17,9 +17,6 @@ function hydratedEditorChromeBridgeScript(readOnly = false): string {
     .replace(/__INITIAL_SOURCE_HEAD__/g, '""');
 }
 
-// Three non-overlapping elements each painted above the shield's z-index
-// (99990) — exactly the portal/toast/modal pattern real apps use that lets
-// app content win paint order over the shield.
 const raceContent = `<!doctype html><html><body>
   <a id="link" href="/escaped" style="position:fixed;top:0;left:0;z-index:2147483647;padding:8px;display:block">Navigate</a>
   <form id="form" action="/submitted" method="post" style="position:fixed;top:60px;left:0;z-index:2147483647">
@@ -52,10 +49,6 @@ describe("editor chrome edit-mode native-interaction net", () => {
         });
 
         const originalUrl = page.url();
-        // These targets paint above the shield, so the browser dispatches
-        // the click straight to them (this is the z-index race the net
-        // guards against) — clicking through the shield itself is already
-        // covered by the pre-existing shield listeners.
         await page.locator("#link").click({ force: true });
         await page.locator("#submitBtn").click({ force: true });
         await page.waitForTimeout(25);
@@ -124,8 +117,6 @@ describe("editor chrome edit-mode native-interaction net", () => {
             });
         });
 
-        // Same raced-above-the-shield target as the first test — only the
-        // readOnly flag differs, isolating the net's own mode gate.
         await page.mouse.move(12, 132);
         await page.locator("#plainBtn").click({ force: true });
         await page.waitForTimeout(25);

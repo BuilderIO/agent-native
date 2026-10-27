@@ -68,7 +68,6 @@ export function PeopleSearchDialog({
     [contacts.data?.results, directorySearch.data?.results, query],
   );
 
-  // Selectable results (exclude already-added)
   const selectableResults = results.filter(
     (r) => !overlayEmails.has(r.email.toLowerCase()),
   );
@@ -90,7 +89,6 @@ export function PeopleSearchDialog({
     return () => window.clearTimeout(timeout);
   }, [query]);
 
-  // Reset active index when results change
   useEffect(() => {
     setActiveIndex(results.length > 0 ? 0 : -1);
   }, [results]);
@@ -107,7 +105,6 @@ export function PeopleSearchDialog({
     addPerson.mutate({ email, name });
   }
 
-  // Scroll active item into view
   useEffect(() => {
     if (
       activeIndex < 0 ||
@@ -136,13 +133,11 @@ export function PeopleSearchDialog({
     }
     if (e.key === "Enter") {
       e.preventDefault();
-      // If an item is selected via arrow keys, add it
       if (activeIndex >= 0 && activeIndex < selectableResults.length) {
         const person = selectableResults[activeIndex];
         handleAdd(person.email, person.name);
         return;
       }
-      // Otherwise, try adding as a typed email
       const trimmed = query.trim();
       if (
         EMAIL_REGEX.test(trimmed) &&

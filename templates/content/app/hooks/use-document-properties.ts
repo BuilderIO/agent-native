@@ -1,12 +1,18 @@
 import {
+  callActionWithRetry,
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import type {
   ConfigureDocumentPropertyRequest,
+  ConfigureDocumentPropertyResponse,
+  ContentDatabaseMutationTarget,
   ContentDatabaseItemsPageResponse,
   ContentDatabaseResponse,
+  ContentDatabaseTableQuery,
+  DocumentDiscoveryPagination,
   DeleteDocumentPropertyRequest,
+  DocumentProperty,
   DocumentPropertyDefinition,
   DocumentPropertyOption,
   DocumentPropertiesResponse,
@@ -17,17 +23,23 @@ import type {
   UpdateDatabaseItemsRequest,
   UpdateDatabaseItemsResponse,
 } from "@shared/api";
-import { useQueryClient, type UseMutationResult } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useQueryClient,
+  type UseMutationResult,
+} from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import { dbText } from "../components/editor/database/text";
 import { trackDocumentPropertyWrite } from "./document-property-persistence";
+import { useContentActionMutation } from "./use-content-action-mutation";
 import {
   applyDocumentPropertiesToDatabaseResponse,
   applyDocumentPropertyValueToDatabaseResponse,
   contentDatabaseQueryFilter,
   contentDatabaseConstrainedQueryFilter,
   contentDatabaseQueryKey,
+  invalidateContentDatabaseNavigationQueries,
   removeDocumentPropertyFromDatabaseResponse,
 } from "./use-content-database";
 import {
@@ -95,6 +107,20 @@ const guardedOrdinaryPropertyTypes = new Set([
   "phone",
 ]);
 
+// A property read carries a Blocks field's `blocks` options, but the configure
+// action takes none: it decides which field is the page body itself. Sending
+// them back, as a rename from a property menu does, fails validation.
+function withoutBlocksOptions(
+  request: ConfigureDocumentPropertyRequest,
+): ConfigureDocumentPropertyRequest {
+  if (request.options?.blocks === undefined) return request;
+  const { blocks: _blocks, ...options } = request.options;
+  return {
+    ...request,
+    options: Object.keys(options).length > 0 ? options : undefined,
+  };
+}
+
 function guardedConfigurePropertyInput(
   request: ConfigureDocumentPropertyRequest,
   snapshot: ContentDatabaseResponse | undefined,
@@ -130,6 +156,7 @@ function guardedConfigurePropertyInput(
       definition: {
         name: request.name,
         type: request.type,
+        ...(request.icon === undefined ? {} : { icon: request.icon }),
         ...(request.description === undefined
           ? {}
           : { description: request.description }),
@@ -156,6 +183,7 @@ function guardedConfigurePropertyInput(
     );
   }
   const patch: Record<string, unknown> = {};
+  if (request.icon !== undefined) patch.icon = request.icon;
   if (request.name !== existing.name) patch.name = request.name;
   if (
     request.description !== undefined &&
@@ -282,9 +310,61 @@ function withDatabaseScope<
   } as UseMutationResult<TData, Error, ScopedVariables, TContext>;
 }
 
+export interface ContentDatabaseRowSearchResponse {
+  databaseId: string;
+  databaseDocumentId: string;
+  rows: Array<{ documentId: string; title: string; icon: string | null }>;
+  pagination: DocumentDiscoveryPagination;
+  /** Present when the viewer may add rows to the related database. */
+  rowCreation: {
+    target: ContentDatabaseMutationTarget;
+    schemaRevision: string;
+  } | null;
+}
+
+/** Search a collection's rows by title, for picking relation values. */
+export function useContentDatabaseRowSearch(
+  databaseId: string | null | undefined,
+  query: string,
+  enabled: boolean,
+) {
+  return useInfiniteQuery({
+    queryKey: [
+      "action",
+      "search-content-database-rows",
+      { databaseId, query: query.trim() ? query : undefined },
+    ],
+    initialPageParam: 0,
+    queryFn: ({ pageParam, signal }) => {
+      if (!databaseId) throw new Error("databaseId is required");
+      return callActionWithRetry<ContentDatabaseRowSearchResponse>(
+        "search-content-database-rows",
+        {
+          databaseId,
+          limit: 25,
+          offset: pageParam,
+          ...(query.trim() ? { query } : {}),
+        },
+        { signal },
+      );
+    },
+    getNextPageParam: (page) =>
+      page.pagination.hasMore
+        ? (page.pagination.nextOffset ?? undefined)
+        : undefined,
+    enabled: enabled && !!databaseId,
+    placeholderData: (prev) => prev,
+    staleTime: 10_000,
+  });
+}
+
 export function useDocumentProperties(
   documentId: string | null,
   databaseId: string | null,
+  options: {
+    enabled?: boolean;
+    placeholder?: DocumentPropertiesResponse;
+  } = {},
 ) {
   return useActionQuery<DocumentPropertiesResponse>(
     "list-document-properties",
@@ -292,10 +372,35 @@ export function useDocumentProperties(
       ? { documentId, ...(databaseId ? { databaseId } : {}) }
       : undefined,
     {
-      enabled: !!documentId,
-      placeholderData: (prev) => prev,
+      enabled: options.enabled !== false && !!documentId,
+      placeholderData: (prev) => options.placeholder ?? prev,
     },
   );
+}
+
+// The page read already carries the page's fields for the collection it was
+// read in, so the body need not wait on a second read to learn which field
+// owns it. It stands in only when every field belongs to this scope, and it
+// grants no edit rights until the property read answers.
+export function documentPropertiesPlaceholder(
+  documentId: string,
+  databaseId: string | null,
+  properties: DocumentProperty[] | undefined,
+): DocumentPropertiesResponse | undefined {
+  if (
+    !databaseId ||
+    !properties?.length ||
+    properties.some((property) => property.definition.databaseId !== databaseId)
+  ) {
+    return undefined;
+  }
+  return {
+    documentId,
+    databaseId,
+    canEditValues: false,
+    canManageSchema: false,
+    properties,
+  };
 }
 
 export function useConfigureDocumentProperty(
@@ -312,7 +417,7 @@ export function useConfigureDocumentProperty(
       .map(([, value]) => value)
       .find((value) => value?.database.id === databaseId);
   const mutation = useActionMutation<
-    DocumentPropertiesResponse | GuardedConfigurePropertyResult,
+    ConfigureDocumentPropertyResponse | GuardedConfigurePropertyResult,
     ConfigureDocumentPropertyRequest | GuardedConfigurePropertyInput
   >("configure-document-property", {
     skipActionQueryInvalidation: true,
@@ -382,7 +487,7 @@ export function useConfigureDocumentProperty(
     mutate: (variables: ScopedVariables, options?: unknown) =>
       mutation.mutate(
         guardedConfigurePropertyInput(
-          { ...variables, databaseId },
+          withoutBlocksOptions({ ...variables, databaseId }),
           getSetupSnapshot(),
         ),
         options as never,
@@ -390,13 +495,13 @@ export function useConfigureDocumentProperty(
     mutateAsync: (variables: ScopedVariables, options?: unknown) =>
       mutation.mutateAsync(
         guardedConfigurePropertyInput(
-          { ...variables, databaseId },
+          withoutBlocksOptions({ ...variables, databaseId }),
           getSetupSnapshot(),
         ),
         options as never,
       ),
   } as UseMutationResult<
-    DocumentPropertiesResponse | GuardedConfigurePropertyResult,
+    ConfigureDocumentPropertyResponse | GuardedConfigurePropertyResult,
     Error,
     ScopedVariables,
     unknown
@@ -447,6 +552,7 @@ export function useSetDocumentProperty(
             documentId: variables.documentId,
             propertyId: variables.propertyId,
             value: variables.value,
+            relationTargets: variables.relationTargets,
           }),
       );
       queryClient.setQueriesData<ContentDatabaseItemsPageResponse>(
@@ -456,6 +562,7 @@ export function useSetDocumentProperty(
             documentId: variables.documentId,
             propertyId: variables.propertyId,
             value: variables.value,
+            relationTargets: variables.relationTargets,
           }),
       );
       return { previous, ...sequence };
@@ -488,10 +595,11 @@ export function useSetDocumentProperty(
       if (!isLatestDocumentPropertyMutation(queryClient, mutationContext)) {
         return;
       }
-      const savedValue =
-        data.properties.find(
-          (property) => property.definition.id === variables.propertyId,
-        )?.value ?? variables.value;
+      const savedProperty = data.properties.find(
+        (property) => property.definition.id === variables.propertyId,
+      );
+      const savedValue = savedProperty?.value ?? variables.value;
+      const savedRelationTargets = savedProperty?.relationTargets;
       queryClient.setQueriesData<ContentDatabaseResponse>(
         contentDatabaseQueryFilter(databaseDocumentId),
         (current) =>
@@ -499,6 +607,7 @@ export function useSetDocumentProperty(
             documentId: variables.documentId,
             propertyId: variables.propertyId,
             value: savedValue as DocumentPropertyValue,
+            relationTargets: savedRelationTargets,
           }),
       );
       queryClient.setQueriesData<ContentDatabaseItemsPageResponse>(
@@ -508,6 +617,7 @@ export function useSetDocumentProperty(
             documentId: variables.documentId,
             propertyId: variables.propertyId,
             value: savedValue as DocumentPropertyValue,
+            relationTargets: savedRelationTargets,
           }),
       );
       void queryClient.invalidateQueries({
@@ -595,20 +705,16 @@ export function useReorderDocumentProperty(
   databaseId: string,
   databaseDocumentId = documentId,
 ) {
-  const queryClient = useQueryClient();
-  const mutation = useActionMutation<
+  const mutation = useContentActionMutation<
     DocumentPropertiesResponse,
     ReorderDocumentPropertyRequest
   >("reorder-document-property", {
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: documentPropertiesQueryKey(documentId, databaseId),
-      });
-      void queryClient.invalidateQueries(documentQueryFilter(documentId));
-      void queryClient.invalidateQueries({
-        queryKey: contentDatabaseQueryKey(databaseDocumentId),
-      });
-    },
+    invalidates: [
+      documentPropertiesQueryKey(documentId, databaseId),
+      documentQueryFilter(documentId),
+      contentDatabaseQueryKey(databaseDocumentId),
+      contentDatabaseConstrainedQueryFilter(databaseDocumentId),
+    ],
   });
   return withDatabaseScope(mutation, databaseId);
 }
@@ -651,7 +757,7 @@ export function useDeleteDocumentProperty(
         queryClient.setQueryData(queryKey, data);
       }
     },
-    onSuccess: (data) => {
+    onSuccess: (data, variables) => {
       queryClient.setQueriesData<ContentDatabaseResponse>(
         contentDatabaseQueryFilter(databaseDocumentId),
         (current) => applyDocumentPropertiesToDatabaseResponse(current, data),
@@ -660,9 +766,38 @@ export function useDeleteDocumentProperty(
         queryKey: documentPropertiesQueryKey(documentId, databaseId),
       });
       void queryClient.invalidateQueries(documentQueryFilter(documentId));
+      const databaseQueries = contentDatabaseQueryFilter(databaseDocumentId);
+      const constrainedQueries =
+        contentDatabaseConstrainedQueryFilter(databaseDocumentId);
       void queryClient.invalidateQueries({
-        ...contentDatabaseQueryFilter(databaseDocumentId),
+        queryKey: ["action"],
+        predicate: (query) => {
+          if (!constrainedQueries.predicate(query)) {
+            return databaseQueries.predicate(query);
+          }
+          // A table read that sorts or filters on the property reads again
+          // under a new key once the refetched view drops it. Refetching it
+          // first reruns a filter on a missing property, which matches no
+          // rows.
+          const { tableQuery } = (query.queryKey[2] ?? {}) as {
+            tableQuery?: ContentDatabaseTableQuery;
+          };
+          return ![
+            ...(tableQuery?.filters ?? []),
+            ...(tableQuery?.sorts ?? []),
+          ].some((constraint) => constraint.key === variables.propertyId);
+        },
       });
+      // The cached personal view, and the Files sidebar pages read through
+      // it, can still sort or filter on the property.
+      void queryClient.invalidateQueries({
+        queryKey: [
+          "action",
+          "get-content-database-personal-view",
+          { databaseId },
+        ],
+      });
+      invalidateContentDatabaseNavigationQueries(queryClient, { databaseId });
     },
   });
   return withDatabaseScope(mutation, databaseId);

@@ -1,12 +1,3 @@
-/**
- * Reproduces the reported chat session: two sequential, unrelated form-creation
- * prompts. The second must not consume the first form.
- *
- * The session ran `create-form` for "Customer Feedback", then — because
- * `<current-screen>` still named that draft — `update-form` for an unrelated
- * "Event Registration" request, which replaced the first form's schema in
- * place. Both forms were expected; one existed.
- */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { FormField } from "../shared/types.js";
@@ -68,8 +59,6 @@ vi.mock("../server/lib/public-form-ssr.js", () => ({
   invalidatePublicFormCache: () => {},
 }));
 
-// Column references are plain strings here, so `eq`/`and` can compile straight
-// into row predicates the in-memory table below can run.
 vi.mock("drizzle-orm", async (importOriginal) => ({
   ...(await importOriginal<typeof import("drizzle-orm")>()),
   eq:

@@ -17,7 +17,7 @@ Si Clips et Dispatch ont été générés ou ajoutés ensemble dans un seul espa
 
 ### Déploiements séparés : une étape manuelle
 
-Si Clips et Dispatch sont deux projets Agent-Native créés indépendamment, ils ne partagent pas de secret et ne peuvent pas encore s'appeler entre eux. Les connecter demande une étape manuelle de chaque côté : ajoutez une ressource `remote-agents/<id>.json` avec un secret partagé, depuis Paramètres → Agents connectés, l'onglet Connexions de la page Agent, ou Dispatch → Agents → Ajouter un agent externe. Consultez [Protocole A2A](/docs/a2a-protocol) pour le guide complet.
+Si Clips et Dispatch sont deux projets Agent-Native créés indépendamment, ils ne partagent pas de secret et ne peuvent pas encore s'appeler entre eux. Les connecter demande une étape manuelle de chaque côté : ajoutez une ressource `remote-agents/<id>.json` avec un secret partagé, depuis Settings → Agent → Sub-agents (Connect agent), ou Dispatch → Agents → Ajouter un agent externe. Consultez [Protocole A2A](/docs/a2a-protocol) pour le guide complet.
 
 Pour vérifier dans quelle situation vous êtes, demandez à l'agent de l'une des deux applications « quelles applications peux-tu voir ? » Si Clips est absent de la réponse de Dispatch, vous êtes dans le second cas.
 
@@ -29,11 +29,12 @@ Collez un lien de partage public de Clips dans un agent, ou utilisez **Partager 
 
 La plupart des agents capables de voir des images gèrent cela eux-mêmes, y compris ChatGPT, Claude Code, Cursor et Codex. Quelques chats en texte seul peuvent lire la transcription mais pas les images, alors ouvrez le clip dans un agent capable de voir des images pour ceux-là.
 
-| Point de terminaison                              | Ce que les agents obtiennent                                                                                                              |
-| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `/api/agent-context.json?id=<recordingId>`        | Métadonnées du clip, statut de la transcription, chapitres, CTA, images recommandées, et liens vers les API de transcription/image        |
-| `/api/agent-transcript.json?id=<recordingId>`     | Segments de transcription horodatés avec `startMs`, `endMs`, des horodatages lisibles, le texte, et des étiquettes de source facultatives |
-| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | Une image JPEG extraite de la vidéo à un horodatage de la vidéo d'origine                                                                 |
+| Point de terminaison                                                     | Ce que les agents obtiennent                                                                                                              |
+| ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `/api/agent-context.json?id=<recordingId>`                               | Métadonnées du clip, statut de la transcription, chapitres, CTA, images recommandées, et liens vers les API de transcription/image        |
+| `/api/agent-transcript.json?id=<recordingId>`                            | Segments de transcription horodatés avec `startMs`, `endMs`, des horodatages lisibles, le texte, et des étiquettes de source facultatives |
+| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>`                        | Une image JPEG extraite de la vidéo à un horodatage de la vidéo d'origine                                                                 |
+| `/api/agent-frames.jpg?id=<recordingId>&startMs=<ms>&endMs=<ms>&fps=<n>` | Une planche contact JPEG d'au plus 36 images consécutives d'un intervalle, pour voir une animation ou une transition en une seule image   |
 
 Les points de terminaison suivent les mêmes règles de public/mot de passe/expiration que la page de partage, ou acceptent le jeton `agent_access` limité provenant d'un lien d'agent temporaire. Les clips protégés par mot de passe demandent le mot de passe une fois ; les réponses réussies renvoient des liens tokenisés de courte durée pour que les agents en aval n'aient pas besoin du mot de passe en clair.
 
@@ -104,6 +105,50 @@ Renvoie les métadonnées du clip, le statut de la transcription, les chapitres,
 
 </Endpoint>
 
+<Endpoint id="doc-block-clips-agent-frames" title="Planche contact d'un intervalle" method="GET" path="/api/agent-frames.jpg" summary="Images consécutives d'un intervalle dans une seule planche contact JPEG" params={[
+  {
+    "name": "id",
+    "in": "query",
+    "type": "string",
+    "required": true,
+    "description": "Recording id"
+  },
+  {
+    "name": "startMs",
+    "in": "query",
+    "type": "integer",
+    "required": true,
+    "description": "Time of the first frame in milliseconds"
+  },
+  {
+    "name": "endMs",
+    "in": "query",
+    "type": "integer",
+    "required": false,
+    "description": "End of the range in milliseconds (exclusive); without it, the sheet holds up to 36 frames from startMs, stopping at 60 seconds or the end of the clip"
+  },
+  {
+    "name": "fps",
+    "in": "query",
+    "type": "number",
+    "required": false,
+    "description": "Frames per second, up to 60; without it, the video's own frame rate"
+  }
+]} responses={[
+  {
+    "status": "200",
+    "description": "image/jpeg sheet read left to right, then top to bottom; the X-Clips-Frame-Sheet-Times header lists each cell's time"
+  },
+  {
+    "status": "400",
+    "description": "failureKind=request when the range needs more than 36 frames or spans more than 60 seconds; nextStep names a request that fits"
+  }
+]}>
+
+La case _i_ montre l'image affichée à `startMs + i × 1000 / fps`. Sans `fps`, chaque image de la vidéo apparaît.
+
+</Endpoint>
+
 Si une transcription n'est pas encore prête, un agent bien conçu attend un peu et réessaie au lieu d'abandonner tout de suite. Les enregistrements longs peuvent prendre quelques minutes. Si la transcription échoue parce que les crédits Builder sont épuisés, l'agent doit le signaler et renvoyer vers [Transcription et métadonnées IA](/docs/template-clips-features#transcription-and-ai-metadata).
 
 ### Export vers Brain
@@ -112,49 +157,9 @@ Une fois que votre espace de travail connecte Brain, Clips envoie automatiquemen
 
 ### Preuve d'appel CRM
 
-Les outils CRM ont parfois besoin d'une preuve qu'un appel a eu lieu, sans l'enregistrement complet. Clips ne transmet qu'un ID de clip opaque et un lien durable, jamais la vidéo ni une transcription. Cela ne fonctionne que pour un enregistrement que vous pouvez déjà voir, et seulement quand vous le demandez ou qu'une automatisation approuvée le déclenche.
+Les outils CRM ont parfois besoin d'une preuve qu'un appel a eu lieu, sans l'enregistrement complet. Clips ne transmet qu'un ID de clip opaque et un lien durable, jamais la vidéo ni une transcription. Cela ne fonctionne que pour un enregistrement que vous pouvez déjà voir, et seulement quand vous le demandez.
 
-<Diagram id="doc-block-clips-crm" title="Preuve d'appel CRM" summary={"Une automatisation clip.created transmet à un flux de travail CRM un lien durable, jamais le média lui-même."}>
-
-```html
-<div class="diagram-flow">
-  <div class="diagram-node">Enregistrement prêt</div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box" data-rough>
-    clip.created<br /><small class="diagram-muted"
-      >automatisation approuvée</small
-    >
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-panel center">
-    <span class="diagram-pill accent">Lien de preuve</span
-    ><small class="diagram-muted">id + /r/&lt;id&gt;</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box">Enregistrement CRM</div>
-</div>
-```
-
-```css
-.diagram-flow {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.diagram-flow .center {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
-.diagram-flow .diagram-arrow {
-  font-size: 18px;
-  line-height: 1;
-}
-```
-
-</Diagram>
+La configuration des automatisations d’appels de CRM vers Clips n’est pas encore disponible.
 
 ### Délégation en langage naturel via Dispatch
 

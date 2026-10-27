@@ -36,12 +36,6 @@ function cookieMatchesUrl(cookie: Cookie, target: URL): boolean {
   );
 }
 
-/**
- * Build a Cookie header without Electron's URL-filtered cookie lookup.
- * Chromium can omit Partitioned cookies when that filter lacks the current
- * network partition, so read the store first and apply the request boundary
- * locally instead.
- */
 export function cookieHeaderForUrl(cookies: Cookie[], rawUrl: string): string {
   const target = new URL(rawUrl);
   if (target.protocol !== "http:" && target.protocol !== "https:") return "";

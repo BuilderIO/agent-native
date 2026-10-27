@@ -1,3 +1,4 @@
+import type { ContentDatabaseItemLayout } from "@shared/api";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -7,6 +8,14 @@ import {
 } from "./view-config";
 
 describe("database form view config", () => {
+  it("preserves view icons when normalizing and duplicating views", () => {
+    const icon = { version: 1, kind: "emoji", emoji: "🚀" } as const;
+    const view = createDatabaseView("Launch", "launch", { icon });
+    const config = normalizeClientDatabaseViewConfig({ views: [view] });
+    expect(config.views[0].icon).toEqual(icon);
+    expect(duplicateDatabaseView(config, view.id).views[1].icon).toEqual(icon);
+  });
+
   it("normalizes form questions, removes duplicate keys, and preserves order", () => {
     const config = normalizeClientDatabaseViewConfig({
       activeViewId: "form",
@@ -147,5 +156,66 @@ describe("database form view config", () => {
     });
     expect(normalized.views[0]?.columnWrapOverrides).toEqual({ name: true });
     expect(normalized.views[0]?.frozenThroughColumnId).toBeUndefined();
+  });
+});
+
+describe("list view item layouts", () => {
+  const itemLayout: ContentDatabaseItemLayout = {
+    leading: { kind: "checkbox", propertyId: "done" },
+    titleWeight: "bold",
+    line2: { propertyId: "pitch", lines: 2 },
+    line3: ["due"],
+    trailing: [],
+  };
+
+  it("keeps a row layout through normalization, type changes, and duplication", () => {
+    const config = normalizeClientDatabaseViewConfig({
+      activeViewId: "ideas",
+      views: [
+        {
+          id: "ideas",
+          name: "Ideas",
+          type: "list",
+          sorts: [],
+          filters: [],
+          columnWidths: {},
+          itemLayout,
+        },
+      ],
+      sorts: [],
+      filters: [],
+      columnWidths: {},
+    });
+    expect(config.views[0].itemLayout).toEqual(itemLayout);
+    expect(duplicateDatabaseView(config, "ideas").views[1].itemLayout).toEqual(
+      itemLayout,
+    );
+  });
+
+  it("keeps a cleared layout as null so the reset reaches the server", () => {
+    const config = normalizeClientDatabaseViewConfig({
+      activeViewId: "ideas",
+      views: [
+        {
+          id: "ideas",
+          name: "Ideas",
+          type: "list",
+          sorts: [],
+          filters: [],
+          columnWidths: {},
+          itemLayout: null,
+        },
+      ],
+      sorts: [],
+      filters: [],
+      columnWidths: {},
+    });
+    expect(config.views[0]).toHaveProperty("itemLayout", null);
+    expect(
+      normalizeClientDatabaseViewConfig({
+        ...config,
+        views: [{ ...config.views[0], itemLayout: undefined }],
+      }).views[0],
+    ).not.toHaveProperty("itemLayout");
   });
 });

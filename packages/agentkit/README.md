@@ -4,9 +4,9 @@ Agent-Native is the application framework and execution platform. It owns
 actions, SQL data, application state, agent execution, authentication, access
 control, and deployment. AgentKit is its agent interaction and experience layer:
 the portable conversation protocol, the deterministic headless client,
-transports, React bindings, and composable agent UI. Toolkit supplies the
-semantic design-system and workspace building blocks that AgentKit composes
-with.
+and transports. Toolkit owns React bindings and composable agent UI under
+`@agent-native/toolkit/app/agentkit`; its Core-aware app surfaces use Core's
+public runtime APIs through an optional peer.
 
 AgentKit stays provider-neutral. An Agent-Native app uses the first-party Core
 adapter. Another backend implements `AgentTransport` directly or exposes the
@@ -18,27 +18,48 @@ extension model.
 
 ## Package layout
 
-AgentKit ships as one package with explicit subpaths. Each subpath is a separate
-module graph, so a server, native client, or alternate renderer that imports the
-root or `/protocol` never loads React, Toolkit, or markdown code.
+AgentKit ships its headless protocol, client, transports, and conformance
+surface as explicit subpaths. A server, native client, or alternate renderer
+can import AgentKit without installing React, Toolkit, or markdown code.
 
-| Import                                                                                | Contents                                                                                                                         | Loads React |
-| ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ----------- |
-| `@agent-native/agentkit`                                                              | Headless client and protocol types: deterministic reduction, optimistic mutations, reconnect, replay, approvals, actions, queues | No          |
-| `@agent-native/agentkit/protocol`                                                     | Wire contract only: versioned types, runtime validators, lifecycle semantics                                                     | No          |
-| `@agent-native/agentkit/http`                                                         | Fetch-compatible HTTP transport and server handler with resumable server-sent events                                             | No          |
-| `@agent-native/agentkit/conformance`                                                  | Executable transport invariants for custom and remote transports                                                                 | No          |
-| `@agent-native/agentkit/react`                                                        | Provider, hooks, control API, slots, registries, composer integration, accessible defaults                                       | Yes         |
-| `@agent-native/agentkit/react/{root,chat,components,context,headless,streaming-text}` | Focused React entries                                                                                                            | Yes         |
-| `@agent-native/agentkit/react/styles.css`                                             | Standalone stylesheet                                                                                                            | No          |
+| Import                                                                                            | Contents                                                                                                                         | Loads React |
+| ------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ----------- |
+| `@agent-native/agentkit`                                                                          | Headless client and protocol types: deterministic reduction, optimistic mutations, reconnect, replay, approvals, actions, queues | No          |
+| `@agent-native/agentkit/protocol`                                                                 | Wire contract only: versioned types, runtime validators, lifecycle semantics                                                     | No          |
+| `@agent-native/agentkit/client`                                                                   | Headless client state and subscriptions                                                                                          | No          |
+| `@agent-native/agentkit/http`                                                                     | Fetch-compatible HTTP transport and server handler with resumable server-sent events                                             | No          |
+| `@agent-native/agentkit/conformance`                                                              | Executable transport invariants for custom and remote transports                                                                 | No          |
+| `@agent-native/toolkit/app/agentkit/react`                                                        | Provider, hooks, control API, slots, registries, composer integration, accessible defaults                                       | Yes         |
+| `@agent-native/toolkit/app/agentkit/react/{root,chat,components,context,headless,streaming-text}` | Focused React entries                                                                                                            | Yes         |
+| `@agent-native/toolkit/app/agentkit/react/styles.css`                                             | AgentKit React stylesheet                                                                                                        | No          |
+
+### Upgrade from AgentKit 0.x React subpaths
+
+AgentKit 1.0 removes its old React exports. Install Toolkit and update these
+imports:
+
+| Previous import                               | Toolkit import                                            |
+| --------------------------------------------- | --------------------------------------------------------- |
+| `@agent-native/agentkit/react`                | `@agent-native/toolkit/app/agentkit/react`                |
+| `@agent-native/agentkit/react/root`           | `@agent-native/toolkit/app/agentkit/react/root`           |
+| `@agent-native/agentkit/react/chat`           | `@agent-native/toolkit/app/agentkit/react/chat`           |
+| `@agent-native/agentkit/react/components`     | `@agent-native/toolkit/app/agentkit/react/components`     |
+| `@agent-native/agentkit/react/context`        | `@agent-native/toolkit/app/agentkit/react/context`        |
+| `@agent-native/agentkit/react/headless`       | `@agent-native/toolkit/app/agentkit/react/headless`       |
+| `@agent-native/agentkit/react/streaming-text` | `@agent-native/toolkit/app/agentkit/react/streaming-text` |
+| `@agent-native/agentkit/react/styles.css`     | `@agent-native/toolkit/app/agentkit/react/styles.css`     |
+
+For Core-managed apps, run `npx @agent-native/core@latest upgrade --codemods`
+to rewrite imports. Standalone AgentKit consumers should make these updates
+manually.
 
 AgentKit previously published six packages. Replace the old specifiers with
 these subpaths: `agentkit-protocol` becomes `agentkit/protocol`,
 `agentkit-adapters` becomes `agentkit/http`, `agentkit-conformance` becomes
-`agentkit/conformance`, `agentkit-react` becomes `agentkit/react`, and
-`agentkit-client` becomes the root `@agent-native/agentkit` import. The root
-also re-exports the protocol, so `/protocol` is reserved for code that must not
-pull in the client.
+`agentkit/conformance`, `agentkit-react` moves to
+`@agent-native/toolkit/app/agentkit/react`, and `agentkit-client` becomes the
+root `@agent-native/agentkit` import. The root also re-exports the protocol, so
+`/protocol` is reserved for code that must not pull in the client.
 
 ## Install
 
@@ -46,9 +67,9 @@ pull in the client.
 pnpm add @agent-native/agentkit @agent-native/core
 ```
 
-Generated Chat apps already include a compatible version. Core is needed only
-for the first-party Agent-Native transport. `react` and `react-dom` 19 are
-optional peer dependencies required only by the `/react` entries.
+Generated Chat apps already include compatible versions of AgentKit and
+Toolkit. Core is needed only for the first-party Agent-Native transport. React
+is provided by the app when it uses Toolkit's React surfaces.
 
 ## Minimal React integration
 
@@ -56,8 +77,8 @@ optional peer dependencies required only by the `/react` entries.
 and disposes the client when it unmounts.
 
 ```tsx
-import { AgentChat } from "@agent-native/agentkit/react";
-import "@agent-native/agentkit/react/styles.css";
+import { AgentChat } from "@agent-native/toolkit/app/agentkit/react";
+import "@agent-native/toolkit/app/agentkit/react/styles.css";
 import { createAgentNativeAgentKitTransport } from "@agent-native/core/client/agent-chat";
 import { useMemo } from "react";
 
@@ -206,6 +227,12 @@ SSE event envelopes for end-to-end tracing. Each non-stream operation also
 accepts a request context whose signal cancels that Fetch request independently
 of the transport lifecycle and whose correlation id overrides the factory.
 
+AgentKitClient requires an AI-readiness assertion before user-started sends,
+queueing, and continuation by default. Agent-Native transports provide this
+check. A custom transport without shared provider setup must opt out explicitly
+with `clientOptions={{ aiSetupReadiness: "not-applicable" }}`; use that only
+when the transport owns readiness elsewhere or does not use shared AI setup.
+
 ### Server handler
 
 ```ts
@@ -277,7 +304,7 @@ registries select renderers for domain-specific values.
 
 ```tsx
 import { createAgentKitClient } from "@agent-native/agentkit";
-import { AgentKitRoot } from "@agent-native/agentkit/react/headless";
+import { AgentKitRoot } from "@agent-native/toolkit/app/agentkit/react/headless";
 
 const controller = createAgentKitClient({ transport });
 
@@ -316,6 +343,14 @@ transport with optional `clientOptions`, and `controller` uses the host's
 existing `AgentKitController`. In controller mode `AgentKitRoot` opens and
 releases the active thread lease while the host eventually disposes the
 controller; with `load="manual"` the host owns both steps.
+
+`registry.toolSource(tool)` resolves an optional `{ id, icon }` for an
+`AgentToolCall`. The default transcript uses that badge in the current activity,
+expanded rows, and repeated-call groups. The stable source `id` keeps calls to
+different integrations in separate groups, even when they share a generic tool
+name. Core supplies this resolver from its integration catalog and logo library.
+Hosts can supply their own accessible badge node or return `undefined` to retain
+the default activity icon.
 
 The `react/headless` entry excludes the reference transcript and rich composer,
 so a custom client bundle loads only the regions it renders. `AgentKitProvider`
@@ -618,6 +653,21 @@ Before advancing a replay cursor, validate the entire received batch with
 `parseAgentEventSequence()`, which rejects the batch when the first event does
 not follow `afterSequence` or any later event leaves a sequence gap.
 
+`AgentKitController.persistThreadSnapshot()` resolves when persistence is
+unsupported or succeeds. It also resolves when a write is cancelled or deferred
+by the snapshot queue; that does not confirm the snapshot was saved. Unexpected
+transport failures reject. Use `persistThreadSnapshotWithResult()` when the
+caller needs to distinguish a saved snapshot: it returns `true` on success,
+`false` on failure, cancellation, or deferral, and `undefined` when the transport
+does not support snapshot writes.
+
+```ts
+const saved = await controller.persistThreadSnapshotWithResult(threadId);
+if (saved === false) {
+  // Keep the snapshot available for retry or report the save failure.
+}
+```
+
 ### Approval decisions
 
 Every `AgentApprovalResponse` carries an explicit provider-neutral `decision` of
@@ -644,15 +694,22 @@ The lifecycle is explicit and replayable. `connection.requested` moves through
 `requested` and `connecting`, then `connection.updated` settles as `connected`,
 `declined`, or `failed`. Clients answer with `resolveConnectionRequest`, and
 transports resume the exact blocked run only after a connected response. Failed
-requests remain visible and retryable.
+requests remain visible and retryable. A `requested` or `connecting` request is
+dropped when its run fails or is cancelled, and when a newer run starts in the
+thread (a reloaded snapshot applies the same rule by run start time). The
+request of a run that completed while waiting stays until a newer run starts.
 
 The request intentionally has no URL, credential, token, or scope fields. The
 host resolves `provider` through its authenticated connection catalog and owns
 OAuth, credential storage, grants, and scope policy, which keeps contextual
 cards demand-driven without letting agent-authored data define a setup endpoint
 or permission set. Agent-Native carries this provider-only shape through
-authenticated A2A task metadata too, so a delegated agent pauses the caller's
-visible run instead of degrading the dependency into an opaque remote failure.
+authenticated A2A task metadata too, so a delegated agent's connection need
+never degrades into an opaque remote failure. The model-driven agent call
+returns a tool result saying the peer needs the provider connected in its own
+app and must not be retried, and blocks that peer for the rest of the turn; an
+@-mention delegated before the agent loop reports it as an error-marked agent
+response. Neither pauses the caller's visible run.
 
 ### Errors, correlation, and metadata
 
@@ -811,7 +868,7 @@ Keep the Core runtime and replace the presentation boundary in one pass:
 
 1. Create `createAgentNativeAgentKitTransport()` for the default Agent-Native
    runtime. A custom `AgentChatRuntime` can use
-   `createAgentKitProtocolAdapter()` from `@agent-native/core/client/chat`.
+   `createAgentKitProtocolAdapter()` from `@agent-native/core/client/agent-chat`.
 2. Replace the existing Core transcript component with `AgentChat`, or with
    `AgentKitRoot` plus `AgentKitChat` for a composed surface.
 3. Move render overrides to `slots` and kind-specific `registry` entries. Move

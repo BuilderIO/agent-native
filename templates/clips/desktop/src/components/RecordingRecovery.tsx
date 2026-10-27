@@ -3,11 +3,13 @@ import {
   IconChevronRight,
   IconDots,
   IconRefresh,
+  IconUpload,
   IconX,
 } from "@tabler/icons-react";
 import { useLayoutEffect, useRef, type RefObject, type ReactNode } from "react";
 
 import { desktopRecoveryCopy as copy } from "../i18n/en-US";
+import type { VideoStorageStatus } from "../lib/record-first";
 import {
   classifyRecordingRecoveryError,
   recordingRecoveryKey,
@@ -39,6 +41,16 @@ import { Spinner } from "./ui/spinner";
 
 export interface RecordingRecoveryState {
   uploads: PendingDesktopUpload[];
+  localFiles: Array<{
+    path: string;
+    fileName: string;
+    savedAt: string;
+    error?: string;
+    missing?: boolean;
+  }>;
+  localFilesError: string | null;
+  localFilesUploading: boolean;
+  localFilesStorageStatus: VideoStorageStatus;
   lookupErrors: RecoveryLookupError[];
   actionErrors: Record<string, string>;
   refreshing: boolean;
@@ -48,6 +60,11 @@ export interface RecordingRecoveryState {
   authenticated: boolean;
   finalizing: boolean;
   finalizingRecordingId?: string | null;
+  /**
+   * The recording being captured right now. Its backup is live, so it is
+   * never listed as recoverable (a Retry would upload a truncated prefix).
+   */
+  activeRecordingId?: string | null;
   showFinalizing?: boolean;
 }
 
@@ -59,6 +76,10 @@ export interface RecordingRecoveryProps extends RecordingRecoveryState {
   onExport: (upload: PendingDesktopUpload) => void;
   onOpenFolder: (upload: PendingDesktopUpload) => void;
   onConnectStorage: (upload: PendingDesktopUpload) => void;
+  onRetryLocalFiles: () => void;
+  onRefreshStorage: () => void;
+  onConnectLocalStorage: () => void;
+  onForgetLocalFile: (path: string) => void;
   onReviewFiles: (key: string) => void;
   onOpenLogs: (key: string) => void;
 }
@@ -93,10 +114,11 @@ function lookupDiagnostic(errors: RecoveryLookupError[]) {
 function recoveryPresentation(props: RecordingRecoveryState) {
   const uploads = props.uploads.filter(
     (upload) =>
-      !props.finalizing ||
-      upload.recordingId !== props.finalizingRecordingId ||
-      !!upload.lastError ||
-      !!props.actionErrors["failure:" + upload.recordingId],
+      upload.recordingId !== props.activeRecordingId &&
+      (!props.finalizing ||
+        upload.recordingId !== props.finalizingRecordingId ||
+        !!upload.lastError ||
+        !!props.actionErrors["failure:" + upload.recordingId]),
   );
   const orphanErrors = new Map<
     string,
@@ -111,18 +133,27 @@ function recoveryPresentation(props: RecordingRecoveryState) {
         messages: [...(orphanErrors.get(id)?.messages || []), message],
       });
   }
-  const attentionCount = uploads.filter(
-    (upload) => uploadSeverity(upload, props) !== "neutral",
-  ).length;
+  const attentionCount =
+    uploads.filter((upload) => uploadSeverity(upload, props) !== "neutral")
+      .length + (props.localFilesUploading ? 0 : props.localFiles.length);
   const unknownFailures =
-    props.lookupErrors.length > 0 || orphanErrors.size > 0;
+    props.lookupErrors.length > 0 ||
+    orphanErrors.size > 0 ||
+    !!props.localFilesError;
+  const localFileSeverities = props.localFiles.map((file) =>
+    props.localFilesUploading ? "neutral" : file.missing ? "error" : "warning",
+  );
   const severities = [
     ...uploads.map((upload) => uploadSeverity(upload, props)),
+    ...localFileSeverities,
     ...[...orphanErrors.values()].map((error) =>
       recordingRecoverySeverity(error.messages),
     ),
     ...(props.lookupErrors.length
       ? [recordingRecoverySeverity([lookupDiagnostic(props.lookupErrors)])]
+      : []),
+    ...(props.localFilesError
+      ? [recordingRecoverySeverity([props.localFilesError])]
       : []),
   ];
   const severity = severities.includes("error")
@@ -132,6 +163,7 @@ function recoveryPresentation(props: RecordingRecoveryState) {
       : "neutral";
   return {
     uploads,
+    localFiles: props.localFiles,
     orphanErrors: [...orphanErrors.values()],
     attentionCount,
     unknownFailures,
@@ -145,21 +177,29 @@ export function RecordingRecovery(
     triggerRef?: RefObject<HTMLButtonElement | null>;
   },
 ) {
-  const { uploads, attentionCount, unknownFailures, severity } =
+  const { uploads, localFiles, attentionCount, unknownFailures, severity } =
     recoveryPresentation(props);
   const showFinalizing = props.finalizing && props.showFinalizing !== false;
-  if (uploads.length === 0 && !unknownFailures && !showFinalizing) return null;
+  if (
+    uploads.length === 0 &&
+    localFiles.length === 0 &&
+    !unknownFailures &&
+    !showFinalizing
+  )
+    return null;
   const label = unknownFailures
     ? copy.recordingsNeedAttention
-    : attentionCount === 1
-      ? copy.attentionOne
-      : attentionCount > 1
-        ? copy.attentionMany.replace("{count}", String(attentionCount))
-        : showFinalizing
-          ? copy.finishing
-          : props.exportingUploadId
-            ? copy.exporting
-            : copy.retrying;
+    : props.localFilesUploading
+      ? copy.retrying
+      : attentionCount === 1
+        ? copy.attentionOne
+        : attentionCount > 1
+          ? copy.attentionMany.replace("{count}", String(attentionCount))
+          : showFinalizing
+            ? copy.finishing
+            : props.exportingUploadId
+              ? copy.exporting
+              : copy.retrying;
   return (
     <div data-tw-surface className="recording-recovery-entry">
       <Button
@@ -287,7 +327,7 @@ export function RecordingRecoveryPage(
   useLayoutEffect(() => {
     backRef.current?.focus();
   }, []);
-  const { uploads, orphanErrors } = recoveryPresentation(props);
+  const { uploads, localFiles, orphanErrors } = recoveryPresentation(props);
   const busy = !!props.retryingUploadId || !!props.exportingUploadId;
   return (
     <section
@@ -338,6 +378,125 @@ export function RecordingRecoveryPage(
             </ItemActions>
           </Item>
         ) : null}
+        {props.localFilesError ? (
+          <Item size="recovery" role="listitem">
+            <ItemMedia data-recovery-tone="warning">
+              <IconAlertTriangle size={20} stroke={1.75} aria-hidden />
+            </ItemMedia>
+            <ItemContent>
+              <ItemTitle>{copy.localFiles}</ItemTitle>
+              <RecoveryDescription
+                text={copy.lookupFailed}
+                diagnostic={props.localFilesError}
+              />
+            </ItemContent>
+            <ItemActions>
+              <RecoveryMore
+                onOpenLogs={() => props.onOpenLogs("record-first-list")}
+              />
+            </ItemActions>
+          </Item>
+        ) : null}
+        {localFiles.map((file) => {
+          const failureKind = file.error
+            ? classifyRecordingRecoveryError(file.error, {
+                storageRequired: props.needsStorage(file.error),
+                incomplete: file.missing,
+                actionError: true,
+              })
+            : null;
+          const status = props.localFilesUploading
+            ? copy.retrying
+            : !props.authenticated
+              ? copy.signInToRetry
+              : file.error
+                ? copy[failureKind!]
+                : file.missing
+                  ? copy.localSaveFailed
+                  : props.localFilesStorageStatus === "missing"
+                    ? copy.storageRequired
+                    : props.localFilesStorageStatus === "unavailable"
+                      ? copy.storageStatusUnavailable
+                      : copy.uploadPending;
+          const severity = props.localFilesUploading
+            ? "neutral"
+            : file.missing
+              ? "error"
+              : "warning";
+          return (
+            <Item
+              key={`local:${file.path}`}
+              size="recovery"
+              role="listitem"
+              aria-label={file.fileName}
+            >
+              <ItemMedia data-recovery-tone={severity}>
+                {props.localFilesUploading ? (
+                  <Spinner />
+                ) : (
+                  <IconAlertTriangle size={16} stroke={1.75} aria-hidden />
+                )}
+              </ItemMedia>
+              <ItemContent>
+                <ItemTitle title={file.path}>{file.fileName}</ItemTitle>
+                <RecoveryDescription text={status} diagnostic={file.error} />
+              </ItemContent>
+              <ItemActions>
+                {!file.missing ? (
+                  <RecoveryAction
+                    label={
+                      !props.authenticated
+                        ? copy.signInToRetry
+                        : props.localFilesStorageStatus === "configured"
+                          ? copy.retry
+                          : props.localFilesStorageStatus === "missing"
+                            ? copy.connectStorage
+                            : copy.refresh
+                    }
+                    disabled={
+                      !props.authenticated ||
+                      props.localFilesUploading ||
+                      props.finalizing ||
+                      props.localFilesStorageStatus === "checking"
+                    }
+                    busy={
+                      props.localFilesUploading ||
+                      props.localFilesStorageStatus === "checking"
+                    }
+                    onClick={() => {
+                      if (props.localFilesStorageStatus === "configured") {
+                        props.onRetryLocalFiles();
+                      } else if (props.localFilesStorageStatus === "missing") {
+                        props.onConnectLocalStorage();
+                      } else {
+                        props.onRefreshStorage();
+                      }
+                    }}
+                  >
+                    {props.localFilesStorageStatus === "missing" ? (
+                      <IconUpload aria-hidden />
+                    ) : (
+                      <IconRefresh aria-hidden />
+                    )}
+                  </RecoveryAction>
+                ) : null}
+                <RecoveryMore
+                  localAction={
+                    file.missing
+                      ? {
+                          label: "Remove from list",
+                          onSelect: () => props.onForgetLocalFile(file.path),
+                        }
+                      : undefined
+                  }
+                  onOpenLogs={() =>
+                    props.onOpenLogs(`record-first:${file.path}`)
+                  }
+                />
+              </ItemActions>
+            </Item>
+          );
+        })}
         {uploads.map((upload) => {
           const key = recordingRecoveryKey(upload);
           const retrying = props.retryingUploadId === key;
@@ -480,6 +639,8 @@ export function RecordingRecoveryPage(
         })}
       </ItemGroup>
       {!uploads.length &&
+      !localFiles.length &&
+      !props.localFilesError &&
       !orphanErrors.length &&
       !props.lookupErrors.length &&
       !props.finalizing ? (

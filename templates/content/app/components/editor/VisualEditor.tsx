@@ -1,24 +1,30 @@
-import { RegistryBlockDataProvider } from "@agent-native/core/blocks";
 import {
   usePresence,
   useRecentEdits,
   type AttributedRecentEdit,
 } from "@agent-native/core/client/collab";
 import {
+  callAction,
   getBrowserTabId,
   setClientAppState,
 } from "@agent-native/core/client/hooks";
+import { isEmbedMcpChatBridgeActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
+import { useFileUploadStatus } from "@agent-native/core/client/uploads";
+import { RegistryBlockDataProvider } from "@agent-native/toolkit/app/blocks";
 import { RecentEditHighlights } from "@agent-native/toolkit/collab-ui";
 import { type RegistryBlockSideMapBlock } from "@agent-native/toolkit/editor";
 import {
   applyDocSurgically,
   createSharedEditorExtensions,
+  RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION,
   TaskListPasteNormalization,
   useCollabReconcile,
   type UseCollabReconcileResult,
 } from "@agent-native/toolkit/editor";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
+import type { EditorMountMode } from "@shared/editor-mount-outcomes";
+import { isMarkdownFilePath } from "@shared/import/paths";
 import { canonicalizeNfm, docToNfm, nfmToDoc } from "@shared/nfm";
 import {
   serializeRegistryBlockToMdx,
@@ -26,6 +32,7 @@ import {
   type ParsedRegistryBlock,
 } from "@shared/nfm-registry";
 import { suggestionFormattingSourceRange } from "@shared/suggestion-formatting";
+import type { SuggestionPlacement } from "@shared/suggestion-placement";
 import {
   suggestionAnchorText,
   suggestionTextPresentationForSource,
@@ -33,11 +40,13 @@ import {
 } from "@shared/suggestion-text";
 import { IconMusic, IconPhoto, IconVideo } from "@tabler/icons-react";
 import {
+  getSchema,
   isNodeEmpty,
   type Editor as CoreEditor,
   type Extensions,
 } from "@tiptap/core";
 import Blockquote from "@tiptap/extension-blockquote";
+import { isChangeOrigin } from "@tiptap/extension-collaboration";
 import Link from "@tiptap/extension-link";
 import { Table as BaseTable } from "@tiptap/extension-table";
 import { TableCell } from "@tiptap/extension-table-cell";
@@ -52,6 +61,7 @@ import {
   Slice,
   type Node as ProseMirrorNode,
   type ResolvedPos,
+  type Schema,
 } from "@tiptap/pm/model";
 import {
   Plugin,
@@ -62,6 +72,7 @@ import {
   TextSelection,
   type Transaction,
 } from "@tiptap/pm/state";
+import { CellSelection, cellAround } from "@tiptap/pm/tables";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import {
   useEditor,
@@ -70,33 +81,70 @@ import {
   Node as TiptapNode,
   mergeAttributes,
 } from "@tiptap/react";
-import { yUndoPluginKey } from "@tiptap/y-tiptap";
+import {
+  prosemirrorToYDoc,
+  ySyncPluginKey,
+  yUndoPluginKey,
+} from "@tiptap/y-tiptap";
 import { defaultMarkdownSerializer } from "prosemirror-markdown";
-import { useCallback, useEffect, useRef, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useMemo,
+  useState,
+} from "react";
 import { toast } from "sonner";
 import { Markdown } from "tiptap-markdown";
 import { Awareness } from "y-protocols/awareness";
-import type { Doc as YDoc } from "yjs";
+import {
+  encodeStateAsUpdate,
+  type Doc as YDoc,
+  type Transaction as YTransaction,
+} from "yjs";
 
 import { contentBlockRegistry } from "@/blocks/contentBlockRegistry";
+import { FileStorageStatusGate } from "@/components/editor/FileStorageStatusGate";
+import { Button } from "@/components/ui/button";
 import type { CommentThread } from "@/hooks/use-comments";
+import {
+  CONTENT_EDITABLE_MARK,
+  markStartupMilestone,
+} from "@/lib/startup-timing";
 
-import { BubbleToolbar } from "./BubbleToolbar";
+import { BlockActionsMenu } from "./BlockActionsMenu";
+import { BubbleToolbar, ReadOnlyCommentBubble } from "./BubbleToolbar";
 import {
   buildDocText,
   resolveAnchor,
   resolveAnchorPoint,
   type CommentTextAnchor,
 } from "./comment-anchors";
+import {
+  commentAnchorBlockAt,
+  commentThreadAt,
+  threadCommentBlock,
+  type CommentBlockTarget,
+} from "./comment-block-anchors";
 import { buildContentSelectionPayload } from "./content-selection";
 import {
   isEditorDraftSaveAccepted,
   type EditorDraftSaveResult,
 } from "./editor-draft-save";
+import { reportEditorMerge } from "./editor-merge-telemetry";
+import { observeEditorMount } from "./editor-mount-telemetry";
+import {
+  EDITOR_NON_EDIT_META,
+  isActiveSlashCommandDraft,
+  runPersistableHistoryCommand,
+} from "./editor-transaction-meta";
 import { AudioNode } from "./extensions/AudioNode";
+import { BodyElementTiming } from "./extensions/BodyElementTiming";
 import { CodeBlock } from "./extensions/CodeBlockNode";
 import {
   CommentHighlight,
+  type CommentHighlightOptions,
   setCommentHighlights,
   commentHighlightKey,
   type CommentHighlightSpec,
@@ -112,19 +160,26 @@ import {
   CompatibleCode,
   createNotionEditorExtensions,
   focusMostRecentEmptyToggleSummary,
-  type NotionPageLink,
 } from "./extensions/NotionExtensions";
 import { notionFidelityExtensions } from "./extensions/NotionFidelity";
 import {
+  createContentBlockId,
   LockedSourceComponentBlocks,
   RegistryBlockNode,
 } from "./extensions/registryBlocks";
 import {
   SuggestionHighlight,
+  acceptedSuggestionAtRange,
+  editorDocumentSource,
+  isProvisionalDraftSpec,
   setSuggestionHighlights,
+  suggestionDecisionHoldsHistory,
+  suggestionHighlightKey,
   type SuggestionHighlightSpec,
 } from "./extensions/SuggestionHighlight";
-import { VideoNode } from "./extensions/VideoNode";
+import { TablePresentation } from "./extensions/TablePresentation";
+import { VideoBlockIds } from "./extensions/VideoBlockIds";
+import { VideoNode, type ContentVideoOptions } from "./extensions/VideoNode";
 import {
   getImageFiles,
   getAudioFiles,
@@ -144,8 +199,22 @@ import {
   videoUploadErrorMessage,
 } from "./image-upload";
 import { LinkHoverPreview } from "./LinkHoverPreview";
+import {
+  LIVE_BODY_PARITY_QUIET_MS,
+  measureLiveBodyParity,
+  reportLiveBodyParity,
+} from "./live-body-parity";
 import { SlashCommandMenu } from "./SlashCommandMenu";
+import { StaticDocumentBody } from "./StaticDocumentBody";
+import { suggestionPlacements } from "./suggestion-placement";
+import {
+  resolveSuggestionPresentationRange,
+  type SuggestionPresentationTransition,
+} from "./suggestions/presentation-rebase";
+import { SuggestingReadOnlyBlocks } from "./suggestions/read-only-blocks";
+import { ContentTableView, contentTableColumnSizing } from "./table-view";
 import { TableHoverControls } from "./TableHoverControls";
+import { WidgetLoadDiagnostic } from "./WidgetLoadDiagnostic";
 
 function compareDocumentBodyRevisions(
   first: string,
@@ -157,24 +226,9 @@ function compareDocumentBodyRevisions(
   return Number(firstMatch[1]) - Number(secondMatch[1]);
 }
 
-/**
- * Override the paragraph node's markdown serialization so that empty
- * paragraphs survive round-trips. Without this, prosemirror-markdown
- * silently drops empty paragraphs and they disappear from the document.
- *
- * On the parse side, the updateDOM hook strips &nbsp; from paragraphs
- * so TipTap creates truly empty paragraph nodes (no visible space).
- *
- * This replaces StarterKit's paragraph node so tiptap-markdown reads the
- * serializer from the paragraph extension itself. A separate monkey-patch
- * extension was too timing-sensitive and could miss the serializer instance.
- */
 export const EmptyLineParagraph = TiptapNode.create({
   name: "paragraph",
 
-  // Match Tiptap's built-in paragraph priority so ProseMirror chooses a
-  // paragraph as the default filler for `block+` content. If recursive block
-  // containers come first, collaborative empty-doc creation can overflow.
   priority: 1000,
 
   group: "block",
@@ -218,13 +272,6 @@ export const EmptyLineParagraph = TiptapNode.create({
   },
 });
 
-/**
- * Detects whether plain text looks like markdown by checking for common
- * markdown patterns (headings, lists, bold/italic, links, code blocks, etc.).
- * When pasting, the clipboard often has both HTML and plain text — TipTap
- * prefers the HTML, which renders markdown syntax literally. This regex-based
- * heuristic lets us intercept and parse the plain text as markdown instead.
- */
 const MARKDOWN_PATTERNS = [
   /^#{1,6}\s+\S/m, // headings
   /^\s*[-*+]\s+\S/m, // unordered lists
@@ -300,7 +347,6 @@ function hasUnambiguousBlockMarkdown(text: string): boolean {
 }
 
 function looksLikeMarkdown(text: string): boolean {
-  // Need at least 2 matching patterns to avoid false positives
   let matches = 0;
   for (const pattern of MARKDOWN_PATTERNS) {
     if (pattern.test(text)) {
@@ -308,7 +354,6 @@ function looksLikeMarkdown(text: string): boolean {
       if (matches >= 2) return true;
     }
   }
-  // A heading or an unambiguous/repeated block construct is sufficient alone.
   if (
     matches === 1 &&
     (/^#{1,6}\s+\S/m.test(text) || hasUnambiguousBlockMarkdown(text))
@@ -368,10 +413,12 @@ function dispatchLiteralPaste(view: EditorView, slice: Slice): void {
     .setMeta("paste", true)
     .setMeta("uiEvent", "paste");
   const expected = insertion.doc;
+  const before = view.state.doc;
   view.dispatch(insertion);
+  // A filter refused the paste (for example into a block that is read-only
+  // while suggesting); retrying it as a raw range would insert it anyway.
+  if (view.state.doc === before) return;
 
-  // Tiptap keys generic paste rules off uiEvent and may append a transaction
-  // that reinterprets syntax inside content this path promises to keep literal.
   if (!view.state.doc.eq(expected)) {
     view.dispatch(
       view.state.tr
@@ -381,13 +428,6 @@ function dispatchLiteralPaste(view: EditorView, slice: Slice): void {
   }
 }
 
-/**
- * ProseMirror plugin that intercepts paste events and converts markdown
- * plain text into rich editor content, similar to Notion's paste behavior.
- * When the clipboard has HTML (e.g. from a code editor), TipTap normally
- * uses that HTML — which renders markdown syntax literally. This plugin
- * detects markdown in the plain text and parses it as rich content instead.
- */
 const MarkdownPasteDetection = Extension.create({
   name: "markdownPasteDetection",
   addProseMirrorPlugins() {
@@ -409,8 +449,6 @@ const MarkdownPasteDetection = Extension.create({
           },
           handlePaste(view, event) {
             const context = view.state.selection.$from;
-            // ProseMirror records the Shift-paste intent on its view input state,
-            // but does not expose that state in the public EditorView type.
             const input = (
               view as unknown as {
                 input?: { shiftKey: boolean; lastKeyCode: number | null };
@@ -426,8 +464,6 @@ const MarkdownPasteDetection = Extension.create({
             const html = clipboardData.getData("text/html");
             const plainText = clipboardData.getData("text/plain");
 
-            // Tiptap's generic paste rules would otherwise reinterpret literal
-            // asterisks even after the Markdown detector rejects the text.
             if (!html && plainText && !looksLikeMarkdown(plainText)) {
               const slice = parsePlainTextClipboardSlice(
                 editor,
@@ -439,21 +475,15 @@ const MarkdownPasteDetection = Extension.create({
               return true;
             }
 
-            // Text-only clipboard data is handled by clipboardTextParser above.
-            // This path handles code editors that also provide an HTML wrapper.
             if (!html || !plainText || !looksLikeMarkdown(plainText)) {
               return false;
             }
 
-            // Check if the HTML already has rich structure (from a rich text
-            // source like Google Docs) — if so, let TipTap handle it normally.
             const div = document.createElement("div");
             div.innerHTML = html;
             const hasRichStructure = div.querySelector(
               "h1, h2, h3, h4, h5, h6, p, ul, ol, blockquote, table, a, strong, b, em, i, u, s, code, img, picture, video, audio, iframe, object, embed, svg",
             );
-            // Code editors commonly wrap plain Markdown in exactly pre > code.
-            // Inline code is rich content and must stay on the native HTML path.
             const wrapper = div.firstElementChild;
             const isCodeWrapper =
               div.childElementCount === 1 &&
@@ -743,20 +773,29 @@ const NotionMarkdownShortcuts = Extension.create({
   },
 });
 
-/**
- * Tab / Shift-Tab indents any block (paragraph, heading, blockquote, etc.)
- * by wrapping it in a blockquote — which the NFM pipeline already serializes
- * as tab indentation while the editor renders it with quote styling.
- *
- * Runs at lower priority than ListItem/TaskItem (which bind Tab to sinkListItem),
- * so list sinking still works and we only kick in for non-list blocks.
- */
 const CustomTable = BaseTable.extend({
+  addKeyboardShortcuts() {
+    return {
+      ...this.parent?.(),
+      // Escape leaves the editor (`contentEditorEscape`), and Tab can't leave a
+      // table, so from a cell's text the first Escape only selects the cell.
+      Escape: ({ editor }) => {
+        const { selection } = editor.state;
+        if (selection instanceof CellSelection) return false;
+        const $cell = cellAround(selection.$from);
+        if (!$cell) return false;
+        editor.view.dispatch(
+          editor.state.tr.setSelection(
+            CellSelection.create(editor.state.doc, $cell.pos),
+          ),
+        );
+        return true;
+      },
+    };
+  },
   addAttributes() {
     return {
       ...this.parent?.(),
-      // Notion table structure attributes — preserved so the NFM converter can
-      // round-trip header rows/columns, full-width tables, and column colors.
       headerRow: {
         default: false,
         parseHTML: (element: HTMLElement) =>
@@ -845,17 +884,47 @@ const CustomTable = BaseTable.extend({
       },
     };
   },
+  addProseMirrorPlugins() {
+    // Ahead of Table's own `columnResizing`, whose mousedown starts a drag.
+    return [contentTableColumnSizing(), ...(this.parent?.() ?? [])];
+  },
 });
 
 const NotionTableHeader = TableHeader.extend({
+  addAttributes() {
+    return { ...this.parent?.(), ...tableAlignmentAttribute };
+  },
+  // Header cells rendered as <td> before they were <th>, and clipboards may
+  // still hold those. The higher priority puts this rule before tableCell's.
+  parseHTML() {
+    return [
+      { tag: "td.content-table-header-cell", priority: 60 },
+      ...(this.parent?.() ?? []),
+    ];
+  },
   renderHTML({ HTMLAttributes }) {
     return [
-      "td",
+      "th",
       mergeAttributes(this.options.HTMLAttributes, HTMLAttributes, {
-        class: "notion-table-header-cell",
+        class: "content-table-header-cell",
       }),
       0,
     ];
+  },
+});
+
+const tableAlignmentAttribute = {
+  textAlign: {
+    default: null,
+    parseHTML: (element: HTMLElement) => element.getAttribute("data-alignment"),
+    renderHTML: (attributes: Record<string, unknown>) =>
+      attributes.textAlign ? { "data-alignment": attributes.textAlign } : {},
+  },
+};
+
+const NotionTableCell = TableCell.extend({
+  addAttributes() {
+    return { ...this.parent?.(), ...tableAlignmentAttribute };
   },
 });
 
@@ -905,7 +974,39 @@ function normalizeTableHeaderCells(
     return rowChanged ? row.copy(Fragment.fromArray(normalizedCells)) : row;
   });
 
-  return changed ? table.copy(Fragment.fromArray(normalizedRows)) : table;
+  // Saved tables keep their headers only in these attributes, so update them
+  // whenever they no longer produce the header cells, e.g. after a header
+  // toggle or after deleting the header row.
+  const isHeaderAt = (
+    headerRow: boolean,
+    headerColumn: boolean,
+    rowIndex: number,
+    columnIndex: number,
+  ) => (headerRow && rowIndex === 0) || (headerColumn && columnIndex === 0);
+  const savedHeaderRow = table.attrs.headerRow === true;
+  const savedHeaderColumn = table.attrs.headerColumn === true;
+  const attrsMatchCells = rows.every((row, rowIndex) =>
+    getNodeChildren(row).every(
+      (_cell, columnIndex) =>
+        isHeaderAt(savedHeaderRow, savedHeaderColumn, rowIndex, columnIndex) ===
+        isHeaderAt(hasHeaderRow, hasHeaderColumn, rowIndex, columnIndex),
+    ),
+  );
+
+  if (!changed && attrsMatchCells) return table;
+
+  const content = changed ? Fragment.fromArray(normalizedRows) : table.content;
+  return attrsMatchCells
+    ? table.copy(content)
+    : table.type.create(
+        {
+          ...table.attrs,
+          headerRow: hasHeaderRow,
+          headerColumn: hasHeaderColumn,
+        },
+        content,
+        table.marks,
+      );
 }
 
 const normalizeTableHeadersPluginKey = new PluginKey("normalizeTableHeaders");
@@ -927,11 +1028,20 @@ function buildNormalizeTableHeadersTransaction(state: CoreEditor["state"]) {
       tableHeaderType,
     );
     if (normalizedTable !== node) {
-      transaction = transaction.replaceWith(
-        pos,
-        pos + node.nodeSize,
-        normalizedTable,
-      );
+      // When only the header attributes change, keep the cells, and the
+      // selection inside them, in place.
+      transaction =
+        normalizedTable.content === node.content
+          ? transaction.setNodeMarkup(
+              transaction.mapping.map(pos),
+              undefined,
+              normalizedTable.attrs,
+            )
+          : transaction.replaceWith(
+              transaction.mapping.map(pos),
+              transaction.mapping.map(pos + node.nodeSize),
+              normalizedTable,
+            );
       changed = true;
     }
 
@@ -939,7 +1049,9 @@ function buildNormalizeTableHeadersTransaction(state: CoreEditor["state"]) {
   });
 
   return changed
-    ? transaction.setMeta(normalizeTableHeadersPluginKey, true)
+    ? transaction
+        .setMeta(normalizeTableHeadersPluginKey, true)
+        .setMeta(EDITOR_NON_EDIT_META, true)
     : null;
 }
 
@@ -983,6 +1095,109 @@ const NormalizeTableHeaders = Extension.create({
               destroyed = true;
             },
           };
+        },
+      }),
+    ];
+  },
+});
+
+const normalizeTableAlignmentPluginKey = new PluginKey(
+  "normalizeTableAlignment",
+);
+
+const NormalizeTableAlignment = Extension.create({
+  name: "normalizeTableAlignment",
+
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: normalizeTableAlignmentPluginKey,
+        appendTransaction(transactions, oldState, newState) {
+          if (
+            transactions.some((transaction) =>
+              transaction.getMeta(normalizeTableAlignmentPluginKey),
+            ) ||
+            !transactions.some((transaction) => transaction.docChanged)
+          ) {
+            return null;
+          }
+
+          const previousTables = new Map<number, ProseMirrorNode>();
+          oldState.doc.descendants((node, position) => {
+            if (node.type.name !== "table") return true;
+            let mappedPosition = position;
+            for (const transaction of transactions) {
+              const mapped = transaction.mapping.mapResult(mappedPosition, 1);
+              if (mapped.deleted) return false;
+              mappedPosition = mapped.pos;
+            }
+            previousTables.set(mappedPosition, node);
+            return false;
+          });
+
+          let transaction = newState.tr;
+          let changed = false;
+          newState.doc.descendants((table, position) => {
+            if (table.type.name !== "table") return true;
+            const previous = previousTables.get(position);
+            if (!previous || table.childCount <= previous.childCount)
+              return false;
+
+            const previousRows = getNodeChildren(previous);
+            const previousRowSet = new Set(previousRows);
+            const alignments = getNodeChildren(previousRows[0]).map(
+              (_cell, columnIndex) => {
+                const alignment =
+                  previousRows[0].maybeChild(columnIndex)?.attrs.textAlign;
+                if (
+                  alignment !== "left" &&
+                  alignment !== "center" &&
+                  alignment !== "right"
+                )
+                  return null;
+                return previousRows.every(
+                  (row) =>
+                    row.maybeChild(columnIndex)?.attrs.textAlign === alignment,
+                )
+                  ? alignment
+                  : null;
+              },
+            );
+            if (alignments.every((alignment) => alignment === null))
+              return false;
+
+            let tableChanged = false;
+            const rows = getNodeChildren(table).map((row) => {
+              if (previousRowSet.has(row)) return row;
+              let rowChanged = false;
+              const cells = getNodeChildren(row).map((cell, columnIndex) => {
+                const alignment = alignments[columnIndex];
+                if (cell.attrs.textAlign || !alignment || cell.textContent)
+                  return cell;
+                rowChanged = true;
+                return cell.type.create(
+                  { ...cell.attrs, textAlign: alignment },
+                  cell.content,
+                  cell.marks,
+                );
+              });
+              if (!rowChanged) return row;
+              tableChanged = true;
+              return row.copy(Fragment.fromArray(cells));
+            });
+            if (!tableChanged) return false;
+            transaction = transaction.replaceWith(
+              position,
+              position + table.nodeSize,
+              table.copy(Fragment.fromArray(rows)),
+            );
+            changed = true;
+            return false;
+          });
+
+          return changed
+            ? transaction.setMeta(normalizeTableAlignmentPluginKey, true)
+            : null;
         },
       }),
     ];
@@ -1058,35 +1273,113 @@ export interface VisualEditorSuggestion {
   afterText: string;
   beforePresentation?: SuggestionPresentationContext;
   afterPresentation?: SuggestionPresentationContext;
+  canonicalOperation?: Parameters<typeof resolveSuggestionPresentationRange>[1];
+  canonicalTransition?: SuggestionPresentationTransition;
+  observedTransition?: SuggestionPresentationTransition;
   anchor: { from: number; prefix: string; suffix: string };
-  /** Draft documents already contain the proposed result; canonical ones do not. */
-  presentation: "draft" | "canonical";
+  settlementReadbackContent?: string | null;
+  presentation: "draft" | "canonical" | "settling";
+  /** Accepted but not saved yet: its words can't be edited until it is. */
+  frozen?: boolean;
+}
+
+export function acceptedSuggestionRendered(
+  actualMarkdown: string,
+  readbackMarkdown: string,
+  suggestion: VisualEditorSuggestion,
+) {
+  const afterSource = suggestion.afterPresentation?.source;
+  const beforeSource = suggestion.beforePresentation?.source;
+  if (afterSource === undefined || beforeSource === undefined) return false;
+  const actual = canonicalizeNfm(actualMarkdown);
+  const readback = canonicalizeNfm(readbackMarkdown);
+  const before = canonicalizeNfm(beforeSource);
+  return readback !== before && actual === readback;
+}
+
+export function acceptedSuggestionReadbackOutdated(
+  actualMarkdown: string,
+  readbackMarkdown: string,
+  suggestion: VisualEditorSuggestion,
+) {
+  const beforeSource = suggestion.beforePresentation?.source;
+  if (beforeSource === undefined) return false;
+  const actual = canonicalizeNfm(actualMarkdown);
+  return (
+    actual !== canonicalizeNfm(beforeSource) &&
+    actual !== canonicalizeNfm(readbackMarkdown)
+  );
+}
+
+export function canProjectAcceptedSuggestion(
+  suggestion: VisualEditorSuggestion,
+) {
+  return (
+    suggestion.kind !== "add_text_block" &&
+    !/[\r\n]/.test(suggestion.beforeText + suggestion.afterText) &&
+    !suggestion.beforeText.includes("<empty-block/>") &&
+    !suggestion.afterText.includes("<empty-block/>")
+  );
 }
 
 function suggestionAnchorRange(
   doc: ProseMirrorNode,
   suggestion: VisualEditorSuggestion,
 ): { from: number; to: number } | null {
-  const source = docToNfm(doc.toJSON());
+  const source = editorDocumentSource(doc);
   const rawQuote =
     suggestion.presentation === "draft"
       ? suggestion.afterText
       : suggestion.beforeText;
-  const sourceFrom = suggestion.anchor.from;
+  const canonicalRange =
+    suggestion.presentation === "canonical" && suggestion.canonicalOperation
+      ? resolveSuggestionPresentationRange(
+          source,
+          suggestion.canonicalOperation,
+          suggestion.canonicalTransition,
+          suggestion.observedTransition,
+        )
+      : undefined;
+  if (canonicalRange === null) return null;
+  const anchor = canonicalRange
+    ? {
+        from: canonicalRange.from,
+        prefix: source.slice(
+          Math.max(0, canonicalRange.from - 32),
+          canonicalRange.from,
+        ),
+        suffix: source.slice(canonicalRange.to, canonicalRange.to + 32),
+      }
+    : suggestion.anchor;
+  const sourceFrom = anchor.from;
   const sourceTo = sourceFrom + rawQuote.length;
   const sourceMatches =
     source.slice(sourceFrom, sourceTo) === rawQuote &&
-    source.slice(
-      Math.max(0, sourceFrom - suggestion.anchor.prefix.length),
-      sourceFrom,
-    ) === suggestion.anchor.prefix &&
-    source.slice(sourceTo, sourceTo + suggestion.anchor.suffix.length) ===
-      suggestion.anchor.suffix;
+    source.slice(Math.max(0, sourceFrom - anchor.prefix.length), sourceFrom) ===
+      anchor.prefix &&
+    source.slice(sourceTo, sourceTo + anchor.suffix.length) === anchor.suffix;
   const sourceRangeToPm = (from: number, to: number) => {
     const mapped = suggestionFormattingSourceRange(source, from, to);
     if (!mapped) return null;
     const plain = buildDocText(doc);
     if (plain.text !== mapped.text) return null;
+    if (mapped.emptyCell) {
+      const emptyCells: number[] = [];
+      doc.descendants((node, pos) => {
+        if (
+          (node.type.name === "tableCell" ||
+            node.type.name === "tableHeader") &&
+          node.childCount === 1 &&
+          node.firstChild!.type.name === "paragraph" &&
+          node.firstChild!.content.size === 0
+        )
+          emptyCells.push(pos + 2);
+      });
+      const at = emptyCells[mapped.emptyCell.index];
+      return emptyCells.length === mapped.emptyCell.count && at !== undefined
+        ? { from: at, to: at }
+        : null;
+    }
     const position = (offset: number, affinity: "left" | "right") => {
       let textOffset = 0;
       let result: number | null = null;
@@ -1172,18 +1465,36 @@ function suggestionAnchorRange(
   const collapsedRange = collapsedDeletionTextblock();
   if (collapsedRange) return collapsedRange;
   if (sourceMatches) {
-    const exactRange = sourceRangeToPm(sourceFrom, sourceTo);
+    // An empty paragraph has no text to map, so a span that opens or closes
+    // with one maps the text beside it, or the place it starts when that's
+    // all it holds.
+    const emptyLine = "<empty-block/>";
+    let mapFrom = sourceFrom;
+    let mapTo = sourceTo;
+    for (;;) {
+      if (
+        mapTo - mapFrom > emptyLine.length &&
+        source.slice(mapTo - emptyLine.length - 1, mapTo) === `\n${emptyLine}`
+      )
+        mapTo -= emptyLine.length + 1;
+      else if (
+        mapTo - mapFrom > emptyLine.length &&
+        source.startsWith(`${emptyLine}\n`, mapFrom)
+      )
+        mapFrom += emptyLine.length + 1;
+      else break;
+    }
+    const exactRange = sourceRangeToPm(mapFrom, mapTo);
     if (exactRange) return exactRange;
   }
   const mappedSource = suggestionAnchorText(source);
   if (suggestion.kind === "set_inline_mark") {
     let from = sourceFrom;
     if (!sourceMatches) {
-      const needle =
-        suggestion.anchor.prefix + rawQuote + suggestion.anchor.suffix;
+      const needle = anchor.prefix + rawQuote + anchor.suffix;
       const match = source.indexOf(needle);
       if (match < 0 || source.indexOf(needle, match + 1) >= 0) return null;
-      from = match + suggestion.anchor.prefix.length;
+      from = match + anchor.prefix.length;
     }
     const mappedRange = sourceRangeToPm(from, from + rawQuote.length);
     return mappedRange && mappedRange.to > mappedRange.from
@@ -1201,11 +1512,11 @@ function suggestionAnchorRange(
   );
   const prefix =
     startOffset === undefined
-      ? suggestionAnchorText(suggestion.anchor.prefix)
+      ? suggestionAnchorText(anchor.prefix)
       : mappedSource.slice(0, startOffset);
   const suffix =
     startOffset === undefined
-      ? suggestionAnchorText(suggestion.anchor.suffix)
+      ? suggestionAnchorText(anchor.suffix)
       : mappedSource.slice(startOffset + quote.length);
   const from = resolveAnchorPoint(
     doc,
@@ -1248,6 +1559,42 @@ export function suggestionHighlightSpec(
   if (beforePresentation === null || afterPresentation === null) return null;
   const range = suggestionAnchorRange(doc, suggestion);
   if (!range) return null;
+  if (
+    suggestion.presentation === "settling" &&
+    suggestion.beforePresentation &&
+    suggestion.afterPresentation &&
+    acceptedSuggestionAtRange(
+      doc,
+      range,
+      suggestion.beforePresentation,
+      suggestion.afterPresentation,
+    )
+  )
+    return null;
+  if (
+    suggestion.presentation === "settling" &&
+    canProjectAcceptedSuggestion(suggestion)
+  ) {
+    return {
+      suggestionId: suggestion.id,
+      kind:
+        suggestion.kind === "delete_text"
+          ? "delete"
+          : suggestion.kind === "insert_text"
+            ? "insert"
+            : suggestion.kind === "add_text_block"
+              ? "add_block"
+              : "replace",
+      from: range.from,
+      to: range.to,
+      insertedText: suggestion.afterText,
+      insertedPresentation: suggestion.afterPresentation,
+      settling: true,
+      settlingBeforePresentation: suggestion.beforePresentation,
+      settlingAfterSource: suggestion.afterPresentation?.source,
+      settlingReadbackContent: suggestion.settlementReadbackContent,
+    };
+  }
   if (suggestion.presentation === "draft") {
     if (
       /^\n+$/.test(suggestionAnchorText(suggestion.afterText)) ||
@@ -1273,6 +1620,7 @@ export function suggestionHighlightSpec(
         deletedText: suggestion.beforeText,
         deletedPresentation: suggestion.beforePresentation,
         editableBoundary: true,
+        draft: true,
       };
     }
     return {
@@ -1280,6 +1628,7 @@ export function suggestionHighlightSpec(
       kind: "mark",
       from: range.from,
       to: range.to,
+      draft: true,
       deletedText:
         suggestion.kind === "replace_text" ? suggestion.beforeText : undefined,
       deletedPresentation:
@@ -1290,11 +1639,18 @@ export function suggestionHighlightSpec(
       editableText: true,
     };
   }
+  // Removed syntax with no text, such as indentation, a list marker, or an
+  // empty paragraph, is not in the document text, so it is drawn instead.
   const structuralDeletion =
     /^\n+$/.test(suggestionAnchorText(suggestion.beforeText)) ||
     (beforePresentation &&
       beforePresentation.length > 0 &&
-      beforePresentation.every((node) => node.type === "indent"));
+      beforePresentation.every(
+        (node) =>
+          node.type === "indent" ||
+          node.type === "block" ||
+          (node.type === "text" && /^↵+$/.test(node.value)),
+      ));
   return {
     suggestionId: suggestion.id,
     kind:
@@ -1315,20 +1671,14 @@ export function suggestionHighlightSpec(
     deletedPresentation: structuralDeletion
       ? suggestion.beforePresentation
       : undefined,
+    ...(suggestion.frozen ? { frozen: true } : {}),
   };
 }
 
-// Selection context for the agent, mirroring Design's `design-selection` and
-// Slides' `slides-selection`: a tab-scoped key plus a non-tab-scoped fallback
-// of the same name, so `view-screen` can read the requesting tab's selection
-// (or fall back to the only tab that has one).
 const SELECTION_APP_STATE_KEY = "content-selection";
 const SELECTION_SYNC_DEBOUNCE_MS = 300;
 
 function writeContentSelectionState(value: unknown) {
-  // The same tab id the navigation writer and agent chat use
-  // (use-navigation-state.ts), so the tab-scoped key matches the one
-  // `readAppStateForCurrentTab` resolves for this tab.
   const tabId = getBrowserTabId();
   const keys = [
     appStateKeyForBrowserTab(SELECTION_APP_STATE_KEY, tabId),
@@ -1342,18 +1692,30 @@ function writeContentSelectionState(value: unknown) {
   }
 }
 
+/**
+ * Text saved elsewhere to merge into the live document, once per `key`.
+ * `merge` gets the text the user has in the editor (null when it isn't
+ * editable) and `canHold`, which says whether the editor can show a text. It
+ * returns the text to show, or null to leave the editor as is.
+ */
+export interface VisualEditorExternalContent {
+  key: string;
+  merge: (
+    live: string | null,
+    canHold: (text: string) => boolean,
+  ) => string | null;
+}
+
 interface VisualEditorProps {
+  visitKey?: string;
+  editorMountMode?: EditorMountMode;
   documentId?: string;
+  contentSpaceId?: string;
   content: string;
-  /**
-   * Server `updatedAt` for `content`. Used to tell a genuinely-newer external
-   * edit (agent / Notion / peer-via-SQL) apart from a stale autosave echo or a
-   * lagging poll — only newer content is reconciled into the live editor.
-   */
+  contentResetKey?: string | null;
+  externalContent?: VisualEditorExternalContent | null;
   contentUpdatedAt?: string | null;
-  /** Opaque body revision used for base-aware external-edit reconciliation. */
   contentRevision?: string | null;
-  /** Latest server-confirmed body snapshot written by this editor. */
   acknowledgedLocalSnapshot?: {
     value: string;
     revision: string;
@@ -1371,46 +1733,64 @@ interface VisualEditorProps {
     baseRevision: string;
     serverRevision: string;
   }) => void;
+  onRemoteSnapshotChange?: (markdown: string) => void;
+  isEditorClean?: (liveMarkdown: string) => boolean;
   onChange: (markdown: string) => void;
   onSaveContent?: (
     markdown: string,
   ) => EditorDraftSaveResult | Promise<EditorDraftSaveResult>;
   onEscape?: () => void;
-  /** Yjs document for collaborative editing. */
+  /** Opens the import dialog for a drop that carries Markdown files. */
+  onImportFiles?: (files: File[]) => void;
   ydoc?: YDoc | null;
-  /** True after the collab provider has loaded persisted Y.Doc state. */
+  /** Shadow mode: compare saves with the body built from the live copy. */
+  observeLiveBody?: boolean;
+  /**
+   * The stored body is on screen in this editor's place until it draws. Read
+   * when the editor mounts.
+   */
+  replacesStoredBody?: boolean;
   collabSynced?: boolean;
-  /** Shared awareness instance for collaborative cursors/presence. */
   awareness?: Awareness | null;
-  /** Current user info for cursor labels. */
   user?: { name: string; color: string; email?: string; avatarUrl?: string };
   editable?: boolean;
-  /** True while edits are captured as supported page-body suggestions. */
+  directoryWidgetEditing?: boolean;
   suggesting?: boolean;
-  /** Local-file docs should not persist mount-time/schema normalization echoes. */
+  widgetLoadDiagnosticsActive?: boolean;
   localFileMode?: boolean;
-  /** Workspace-relative local artifact path for resolving inline references. */
   localFilePath?: string | null;
-  /** Current nested local-file reference preview depth. */
   referenceDepth?: number;
-  /** Called when user selects text and clicks "Comment" in bubble toolbar. */
   onComment?: (
     quotedText: string,
     offsetTop: number,
     anchor?: CommentTextAnchor,
     range?: { from: number; to: number },
+    suggestionId?: string,
   ) => void;
-  /** Open comment threads, used to render inline highlights. */
+  /** Starts a comment on a whole block, such as a video. */
+  onBlockComment?: (target: CommentBlockTarget, offsetTop: number) => void;
   commentThreads?: CommentThread[];
-  /** Currently focused thread — its highlight is emphasized. */
   activeThreadId?: string | null;
-  /** Currently hovered thread — its highlight uses the lighter hover treatment. */
   hoveredThreadId?: string | null;
-  /** Selection range of the in-progress (not yet saved) comment, if any. */
-  pendingHighlight?: { from: number; to: number } | null;
-  /** Called when the user clicks an inline highlight in the document. */
+  pendingHighlight?: { from: number; to: number; blockId?: string } | null;
   onActivateThread?: (threadId: string) => void;
   suggestions?: VisualEditorSuggestion[];
+  acceptedDecisionReadback?: { id: string; content: string } | null;
+  onAcceptedDecisionRendered?: (id: string) => void;
+  onAcceptedDecisionReadbackOutdated?: (
+    id: string,
+    actualContent: string,
+  ) => void;
+  proposalDecisionReadback?: {
+    generation: number;
+    content: string;
+    beforeContent: string;
+  } | null;
+  onProposalDecisionRendered?: (generation: number) => void;
+  onProposalDecisionReadbackOutdated?: (
+    generation: number,
+    actualContent: string,
+  ) => void;
   activeSuggestionId?: string | null;
   onActivateSuggestion?: (suggestionId: string) => void;
   onHoverSuggestion?: (suggestionId: string | null) => void;
@@ -1420,21 +1800,12 @@ interface VisualEditorProps {
     startOffset: number;
     beforeMarkdown: string;
   }) => void;
-  initialSelection?:
-    | { from: number; prefix: string; suffix: string }
-    | VisualEditorSelectionSnapshot
-    | null;
+  initialSelection?: VisualEditorInitialSelection | null;
+  onInitialSelectionApplied?: (selection: VisualEditorInitialSelection) => void;
   onSuggestionAnchorsChange?: (suggestionIds: string[]) => void;
   showCommentIndicators?: boolean;
   onJoinTitle?: (text: string) => void;
-  notionPageLinks?: NotionPageLink[];
   onOpenNotionPageLink?: (documentId: string) => void;
-  /**
-   * The open document's linked Notion page id, when it has one. Drives Notion
-   * gating for the registry-block slash menu (offer only NFM-compatible blocks)
-   * and lights up the "Won't sync to Notion" badge on any already-present block
-   * whose type has no NFM analog (via the shared registry-block side-map).
-   */
   notionPageId?: string | null;
   onHistoryControllerChange?: (
     controller: VisualEditorHistoryController | null,
@@ -1446,7 +1817,15 @@ interface VisualEditorProps {
   onPersistenceControllerChange?: (
     controller: VisualEditorPersistenceController | null,
   ) => void;
+  /** Receives a reader for where the editor shows suggestions' words. */
+  onSuggestionPlacementsChange?: (
+    read: VisualEditorSuggestionPlacements | null,
+  ) => void;
 }
+
+export type VisualEditorSuggestionPlacements = (
+  suggestionIds: readonly string[],
+) => Record<string, SuggestionPlacement>;
 
 export interface VisualEditorHistoryState {
   canUndo: boolean;
@@ -1468,6 +1847,10 @@ export interface VisualEditorSelectionSnapshot {
   head: number;
   docJson: string;
 }
+
+export type VisualEditorInitialSelection =
+  | { from: number; prefix: string; suffix: string }
+  | VisualEditorSelectionSnapshot;
 
 export interface VisualEditorSelectionController {
   captureSelection: (options?: {
@@ -1521,16 +1904,15 @@ export function resolveVisualEditorSelection(
 
 export interface VisualEditorPersistenceController {
   flushLatest: () => Promise<boolean>;
+  readonly version: object;
 }
 
 export function shouldFlushVisualEditorDraft({
-  editable,
   hasUserEditIntent,
 }: {
-  editable: boolean;
   hasUserEditIntent: boolean;
 }) {
-  return editable && hasUserEditIntent;
+  return hasUserEditIntent;
 }
 
 export function suggestionReplacementIntentForTransaction(
@@ -1619,7 +2001,15 @@ export function suggestionReplacementIntentForTransaction(
   };
 }
 
-export type { NotionPageLink };
+function hasSemanticCollaborationContent(value: string): boolean {
+  return (
+    value
+      .split(/\r?\n/)
+      .filter((line) => !/^<empty-block\b[^>]*\/>$/.test(line.trim()))
+      .join("\n")
+      .trim().length > 0
+  );
+}
 
 export function shouldSeedCollaborativeContent({
   content,
@@ -1630,25 +2020,12 @@ export function shouldSeedCollaborativeContent({
   currentMarkdown: string;
   fragmentLength: number;
 }): boolean {
-  const semanticMarkdown = currentMarkdown
-    .split(/\r?\n/)
-    .filter((line) => !/^<empty-block\b[^>]*\/>$/.test(line.trim()))
-    .join("\n")
-    .trim();
-  return !!content.trim() && (fragmentLength === 0 || !semanticMarkdown);
+  return (
+    hasSemanticCollaborationContent(content) &&
+    (fragmentLength === 0 || !hasSemanticCollaborationContent(currentMarkdown))
+  );
 }
 
-/**
- * Parse authoritative Content NFM with Content's exact NFM parser before the
- * shared reconcile computes its top-level surgical diff.
- *
- * Falling back to the shared CommonMark parser is lossy here: canonical NFM
- * stores one Notion block per line without blank paragraph separators, while
- * CommonMark merges those consecutive lines into one paragraph. That made
- * external replacements such as Notion conflict resolution and version
- * restores look correct in the non-collaborative history preview, then collapse
- * into one wrapped paragraph when reconciled into the live Y.Doc.
- */
 export function parseNfmForCollabReconcile(
   editor: CoreEditor,
   value: string,
@@ -1678,87 +2055,58 @@ export function shouldApplyExternalContentSync({
   lastEmittedMarkdown: string;
   currentMarkdown: string;
   nextMarkdown: string;
-  /** Server updatedAt for the incoming `content`. */
   contentUpdatedAt?: string | null;
-  /** updatedAt of the content this editor currently reflects. */
   lastAppliedUpdatedAt?: string | null;
-  /** Whether this client is the elected applier (see isReconcileLeadClient). */
   isLeadClient: boolean;
   editorFocused: boolean;
   lastTypedAt: number;
   now: number;
 }): boolean {
-  // Editor already shows the incoming content — e.g. a peer's edit arrived via
-  // Yjs first, or this is our own state. Nothing to apply.
   if (currentMarkdown === nextMarkdown) return false;
 
-  // Our own save echoing back from the server.
   if (content === lastEmittedMarkdown) return false;
 
-  // Only adopt content that is genuinely NEWER than what this editor already
-  // reflects. An older-or-equal `updatedAt` is a lagging poll / stale snapshot
-  // and must never overwrite live edits — this is what stops the "agent edit
-  // reverts on next poll" whack-a-mole. A fresh mount / doc-switch has no
-  // baseline yet, so it always adopts the loaded content.
   const externalNewer =
     docChanged ||
     !lastAppliedUpdatedAt ||
     (!!contentUpdatedAt && contentUpdatedAt > lastAppliedUpdatedAt);
   if (!externalNewer) return false;
 
-  // Exactly one client (the lead) applies an authoritative snapshot into the
-  // shared Y.Doc; every other client receives it through Yjs. Without this, N
-  // clients would each diff the same snapshot into the CRDT and duplicate the
-  // changed region. Mount / doc-switch loads are local-only, so always allowed.
   if (!isLeadClient && !docChanged) return false;
 
-  // Don't yank text out from under someone typing this instant; the caller
-  // retries shortly so the edit still lands once they pause.
   const typingRightNow = editorFocused && now - lastTypedAt < 1500;
   if (typingRightNow && !docChanged) return false;
 
   return true;
 }
 
-export function shouldPersistLocalFileEditorUpdate({
-  docChanged,
-  editorFocused,
-  explicitLocalFileUserEdit,
-  recentUserEditIntent,
-  transactionUiEvent,
-}: {
-  docChanged: boolean;
-  editorFocused: boolean;
-  explicitLocalFileUserEdit?: boolean;
-  recentUserEditIntent: boolean;
-  transactionUiEvent: unknown;
-}): boolean {
-  if (!docChanged) return false;
-  if (explicitLocalFileUserEdit) return true;
-  if (editorFocused) return true;
-  if (recentUserEditIntent) return true;
-  return Boolean(transactionUiEvent);
+// Another tab's or an agent's change, arriving over the live copy. Undo
+// arrives the same way but is this tab's own.
+function isRemoteCollabChange(transaction: Transaction): boolean {
+  return (
+    isChangeOrigin(transaction) &&
+    !transaction.getMeta(ySyncPluginKey)?.isUndoRedoOperation
+  );
 }
 
-export function shouldPersistCollaborativeEditorUpdate({
-  collab,
-  editorFocused,
-  userInitiated,
-}: {
-  collab: boolean;
-  editorFocused: boolean;
-  userInitiated: boolean;
-}) {
-  // Collaborative mount/reconcile normalization can produce a local-looking
-  // transaction after the remote Y.Doc has loaded. If the editor is not
-  // focused and no human input event preceded the transaction, it has no
-  // authority to overwrite SQL. Focused commands and explicit user-intent
-  // transactions remain persistable; structural/media actions additionally
-  // use their immediate proof-of-save callbacks.
-  return !collab || editorFocused || userInitiated;
+// Every local change to the document saves, wherever focus is, unless it
+// came from another tab or an agent, or the editor made it itself. Tiptap
+// reports a batch under its root, so a click or focus whose appended fix-up
+// changes the document isn't an edit.
+export function isLocalEditorEdit(transaction: Transaction): boolean {
+  return (
+    transaction.docChanged &&
+    !isRemoteCollabChange(transaction) &&
+    !transaction.getMeta(RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION) &&
+    transaction.getMeta(EDITOR_NON_EDIT_META) !== true
+  );
 }
 
-export function isUserInitiatedCollaborativeEditorUpdate({
+// A load or reconcile can briefly look like a local change that empties the
+// editor, so a change that leaves the page empty saves only with this
+// evidence. Commands that can empty a page, such as undo and the table menus,
+// mark their transactions.
+export function hasDirectUserEditEvidence({
   editorFocused,
   explicitUserEdit,
   recentUserEditIntent,
@@ -1769,11 +2117,6 @@ export function isUserInitiatedCollaborativeEditorUpdate({
   recentUserEditIntent: boolean;
   transactionUiEvent: unknown;
 }) {
-  // A recent input event is useful for grouping the follow-up transactions
-  // produced while the editor still owns focus. Once focus has left, however,
-  // only provenance on this exact transaction may authorize persistence;
-  // otherwise mount/Yjs normalization could borrow a stale two-second intent
-  // window and overwrite canonical SQL.
   return (
     explicitUserEdit ||
     Boolean(transactionUiEvent) ||
@@ -1794,45 +2137,7 @@ export function shouldPersistEffectivelyEmptyEditorUpdate({
   userInitiated: boolean;
 }): boolean {
   if (!isEffectivelyEmptyEditorContent(nextContent)) return true;
-  // Empty editor state is never worth persisting without a user gesture. This
-  // also covers the preview remount window where `content` can briefly be an
-  // empty list snapshot even though its retained save controller still has a
-  // rich confirmed baseline. Comparing only to this render's prop would let
-  // that mount-time filler mark the retained controller dirty and its
-  // flush-on-release path would then overwrite SQL.
   return userInitiated;
-}
-
-function isActiveSlashCommandDraft(editor: CoreEditor): boolean {
-  const { state } = editor;
-  if (!state.selection.empty) return false;
-  const { from, $from } = state.selection;
-  if (!$from.parent.isTextblock) return false;
-
-  const blockStart = $from.start();
-  const textBefore = state.doc.textBetween(blockStart, from, "\n");
-  return /^\s*\/[a-zA-Z0-9]*$/.test(textBefore);
-}
-
-export function runPersistableHistoryCommand(
-  editor: CoreEditor,
-  command: "undo" | "redo",
-): boolean {
-  let applied = false;
-  for (let index = 0; index < 20; index += 1) {
-    const changed = editor
-      .chain()
-      .focus()
-      .command(({ tr }) => {
-        tr.setMeta(LOCAL_FILE_USER_EDIT_META, true);
-        return true;
-      })
-      [command]()
-      .run();
-    applied ||= changed;
-    if (!changed || !isActiveSlashCommandDraft(editor)) break;
-  }
-  return applied;
 }
 
 interface VisualEditorExtensionOptions {
@@ -1846,10 +2151,12 @@ interface VisualEditorExtensionOptions {
     avatarUrl?: string;
   } | null;
   onImageComment?: (quotedText: string, offsetTop: number) => void;
+  onVideoComment?: ContentVideoOptions["onVideoComment"];
+  canCommentOnVideo?: ContentVideoOptions["canCommentOnVideo"];
   onImageFilePickerRequest?: (request: PendingImagePicker) => void;
   canMutateMedia?: () => boolean;
+  isSuggesting?: () => boolean;
   onJoinTitle?: (text: string) => void;
-  resolveNotionPageLink?: (notionPageId: string) => NotionPageLink | null;
   onOpenNotionPageLink?: (documentId: string) => void;
   localFilePath?: string | null;
   referenceDepth?: number;
@@ -1858,6 +2165,7 @@ interface VisualEditorExtensionOptions {
     editor: CoreEditor,
     transaction: Transaction,
   ) => void;
+  findCommentQuote?: CommentHighlightOptions["findQuote"];
 }
 
 export function hasAncestorType(
@@ -1892,6 +2200,18 @@ export function runIfMediaCreationAllowed(
   if (suggesting) return false;
   action();
   return true;
+}
+
+// Everything that places a thread's highlight: a change to any of it resolves
+// the highlight again.
+function threadAnchor(thread: CommentThread) {
+  return {
+    quotedText: thread.quotedText,
+    prefix: thread.prefix ?? undefined,
+    suffix: thread.suffix ?? undefined,
+    startOffset: thread.startOffset ?? undefined,
+    blockId: thread.block?.blockId,
+  };
 }
 
 function mediaSourceCounts(doc: ProseMirrorNode) {
@@ -1931,15 +2251,6 @@ const MediaSourceCommit = Extension.create<{
   },
 });
 
-/**
- * Empty media nodes are transient editor UI, not durable document content.
- *
- * Persisting the placeholder before its async upload/link enrichment finishes
- * lets the SQL echo reconcile the empty `src` back into the live Y.Doc. That
- * can erase a successfully uploaded image or embedded video. Keep the local
- * draft out of autosave until it has a source; uploads inserted by drop/paste
- * are covered by their `uploadId` even when the selection is elsewhere.
- */
 export function shouldSkipMediaDraftPersistence(editor: CoreEditor): boolean {
   let hasPendingUpload = false;
   editor.state.doc.descendants((node) => {
@@ -1962,11 +2273,6 @@ export function shouldSkipMediaDraftPersistence(editor: CoreEditor): boolean {
   );
 }
 
-/**
- * Serialize only complete editor drafts. Structural slash commands explicitly
- * ask to persist after their transaction, so this guard must live in the shared
- * persistence path rather than only in `onUpdate`.
- */
 export function serializeEditorDraftForPersistence(
   editor: CoreEditor,
 ): string | null {
@@ -1989,6 +2295,15 @@ export interface PendingImagePicker {
   pickerId: string;
   position: number;
   attrs: Record<string, unknown>;
+}
+
+interface PendingMediaFiles {
+  view: EditorView;
+  documentId: string | null;
+  imageFiles: File[];
+  videoFiles: File[];
+  audioFiles: File[];
+  position: number;
 }
 
 function insertPendingMediaNodes(
@@ -2216,8 +2531,6 @@ function getVisualEditorPlaceholder({
     return hasAnchor ? "Empty quote" : "";
   }
 
-  // Skip the command hint inside table cells — it wraps
-  // awkwardly in narrow columns and the cell itself is already an affordance.
   if (
     node.type.name === "paragraph" &&
     (hasAncestorType(editor, pos, "tableCell") ||
@@ -2229,9 +2542,6 @@ function getVisualEditorPlaceholder({
   return hasAnchor && editor.isFocused ? emptyBlockPlaceholder : "";
 }
 
-// Tiptap's nested-placeholder cache can retain decorations when focus changes
-// or the selection crosses top-level block boundaries. Resolve only the current
-// deepest text block so old command hints cannot accumulate.
 const VisualEditorPlaceholder = Extension.create<{
   emptyBlockPlaceholder: string;
 }>({
@@ -2456,25 +2766,19 @@ export function createVisualEditorExtensions({
   localAwareness,
   user,
   onImageComment,
+  onVideoComment,
+  canCommentOnVideo,
   onImageFilePickerRequest,
   canMutateMedia,
+  isSuggesting,
   onJoinTitle,
-  resolveNotionPageLink,
   onOpenNotionPageLink,
   localFilePath,
   referenceDepth = 0,
   emptyBlockPlaceholder = DEFAULT_EMPTY_BLOCK_PLACEHOLDER,
   onMediaSourceCommitted,
+  findCommentQuote,
 }: VisualEditorExtensionOptions = {}): Extensions {
-  // Build on the SHARED editor core (StarterKit base + the Collaboration /
-  // CollaborationCaret wiring + collab undo/redo gating + ordering), then inject
-  // every Content-specific node/plugin as `extraExtensions`. Content owns its
-  // own NFM serializer, Placeholder resolver, link/task/table nodes, and Notion
-  // schema, so the shared factory's built-in Placeholder / Markdown / link /
-  // tasks / tables / code block are turned off — only the StarterKit base and
-  // the collab stack are reused. The NFM Markdown extension below stays
-  // byte-identical to Content's existing config (html:true) so the
-  // docToNfm/nfmToDoc round-trip is unchanged.
   return createSharedEditorExtensions({
     preset: "content",
     dialect: "nfm",
@@ -2492,7 +2796,7 @@ export function createVisualEditorExtensions({
       paragraph: false,
       heading: { levels: [1, 2, 3, 4, 5, 6] },
       horizontalRule: {},
-      dropcursor: { color: false, width: 3, class: "notion-dropcursor" },
+      dropcursor: { color: false, width: 3, class: "content-dropcursor" },
     },
     collab:
       ydoc || localAwareness ? { ydoc, awareness: localAwareness, user } : null,
@@ -2506,64 +2810,71 @@ export function createVisualEditorExtensions({
       }),
       Link.configure({
         openOnClick: false,
-        HTMLAttributes: { class: "notion-link" },
+        HTMLAttributes: { class: "content-link" },
       }),
       TaskList.configure({
-        HTMLAttributes: { class: "notion-task-list" },
+        HTMLAttributes: { class: "content-task-list" },
       }),
       TaskItem.configure({
         nested: true,
       }),
-      // Content disables the shared factory's `tasks` feature and ships its own
-      // TaskList/TaskItem, so it has to register the shared paste normalization
-      // that pairs with them.
       TaskListPasteNormalization,
+      ...(referenceDepth === 0
+        ? [BodyElementTiming.configure({ documentId })]
+        : []),
       ImageNode.configure({
-        HTMLAttributes: { class: "notion-image" },
+        HTMLAttributes: { class: "content-image" },
         documentId,
         onImageComment,
         onImageFilePickerRequest,
         canMutateMedia,
       }),
       VideoNode.configure({
-        HTMLAttributes: { class: "notion-video" },
+        HTMLAttributes: { class: "content-video" },
         documentId,
-        onVideoComment: onImageComment,
+        onVideoComment,
+        canCommentOnVideo,
         canMutateMedia,
       }),
+      VideoBlockIds.configure({
+        isEdit: isLocalEditorEdit,
+        canAssign: canMutateMedia,
+      }),
       AudioNode.configure({
-        HTMLAttributes: { class: "notion-audio" },
+        HTMLAttributes: { class: "content-audio" },
         documentId,
         onAudioComment: onImageComment,
         canMutateMedia,
       }),
       MediaSourceCommit.configure({ onMediaSourceCommitted }),
       CustomTable.configure({
-        resizable: false,
+        resizable: true,
+        View: ContentTableView,
         HTMLAttributes: { class: "notion-table" },
       }),
       TableRow,
       NotionTableHeader,
-      TableCell,
+      NotionTableCell,
       NormalizeTableHeaders,
+      NormalizeTableAlignment,
+      TablePresentation,
+      ...(isSuggesting
+        ? [SuggestingReadOnlyBlocks.configure({ isSuggesting })]
+        : []),
       ...createNotionEditorExtensions({
-        resolvePageLink: resolveNotionPageLink,
+        documentId,
         onOpenPageLink: onOpenNotionPageLink,
       }),
       ...notionFidelityExtensions,
-      // Core's generic registry-block atom node (`registryBlock`). Renders any
-      // registered content block spec via the shared NodeView + side-map; content
-      // sources block `data` lazily from the node's `__raw` NFM in
-      // `VisualEditor` below. Mounted after the Notion nodes and before the
-      // Markdown extension so the NFM <-> doc round-trip recognizes the node.
       RegistryBlockNode,
       LockedSourceComponentBlocks,
       ContentReferenceNode.configure({
         currentPath: localFilePath ?? null,
+        documentId: documentId ?? null,
         referenceDepth,
       }),
       LocalMdxComponentNode,
-      CommentHighlight,
+      CommentHighlight.configure({ findQuote: findCommentQuote }),
       SuggestionHighlight,
       DragHandle,
       TypographyReplacements,
@@ -2571,8 +2882,6 @@ export function createVisualEditorExtensions({
       MarkdownPasteDetection,
       SelectAllDocument,
       JoinFirstBodyBlockToTitle.configure({ onJoinTitle }),
-      // Content owns paste parsing above so multi-block documents never pass
-      // through tiptap-markdown's inline-only clipboard parser.
       Markdown.configure({
         html: true,
         transformPastedText: false,
@@ -2582,12 +2891,17 @@ export function createVisualEditorExtensions({
   });
 }
 
-/**
- * One cached registry block: its runtime `type` (resolved from the NFM source on
- * first parse) and its current typed `data`. `edited` marks blocks the author has
- * changed in this session, so the serializer re-emits them from `data` rather
- * than the node's stale `__raw`.
- */
+// Node views draw in the task that mounts the editor. The deadline is for one
+// that never draws, which would otherwise keep the editor hidden.
+const NODE_VIEW_DRAW_DEADLINE_MS = 1000;
+
+let contentEditorSchema: Schema | undefined;
+
+/** The editor's schema, for drawing a body before any editor exists. */
+export function getContentEditorSchema(): Schema {
+  return (contentEditorSchema ??= getSchema(createVisualEditorExtensions()));
+}
+
 interface RegistryBlockStoreEntry {
   type: string;
   rawSource: string;
@@ -2656,53 +2970,19 @@ function serializeRegistryBlockRaw(
   });
 }
 
-/**
- * A registry block is Notion-incompatible when its spec does NOT declare
- * `notionCompatible` — i.e. it is not in the registry's single
- * `notionCompatibleTypes()` allowlist (T3). The shared registry-block NodeView
- * consults this (only when the side-map's `notionSync` flag is on) to badge
- * blocks that won't survive a Notion push. Unknown types are treated as
- * incompatible so an unrecognized block is flagged rather than silently assumed
- * to sync.
- */
 const NOTION_COMPATIBLE_BLOCK_TYPES =
   contentBlockRegistry.notionCompatibleTypes();
 function isNotionIncompatibleBlockType(blockType: string): boolean {
   return !NOTION_COMPATIBLE_BLOCK_TYPES.has(blockType);
 }
 
-/**
- * Side-map store for the editor's `registryBlock` nodes.
- *
- * Content has NO sidecar block table — a registry block's authority is the inline
- * MDX in the single `documents.content` NFM string, preserved verbatim on each
- * node as `__raw`. The shared NodeView needs typed `data` to render, so this hook
- * lazily parses `__raw` (via the async `parseRegistryBlockData`) the first time a
- * block is rendered, caching the result keyed by blockId. An edit updates the
- * cache AND rewrites the node's `__raw` to the freshly serialized MDX, so the
- * existing NFM save path persists the change with no extra plumbing — `docToNfm`
- * emits `__raw` verbatim for every untouched-and-edited block alike, keeping the
- * single-string round-trip byte-exact.
- *
- * A document with no registry blocks never touches this store: `getBlock` is only
- * called from a mounted `registryBlock` NodeView, so the editor renders and
- * serializes identically to before.
- */
 function useRegistryBlockStore(editor: CoreEditor | null) {
   const t = useT();
   const cacheRef = useRef<Map<string, RegistryBlockStoreEntry>>(new Map());
   const pendingRef = useRef<Map<string, string>>(new Map());
-  // Bumping this state forces the NodeViews to re-read the cache once async
-  // hydration (or an edit) lands. The `version` is surfaced to the side-map
-  // value so the context reference changes on each bump — otherwise the Tiptap
-  // NodeView (a separate React subtree reading the side-map through context)
-  // never re-renders after the async `parseRegistryBlockData` resolves, leaving
-  // a freshly-opened block stuck on its "Loading…" placeholder until some other
-  // edit/HMR happens to re-render it.
   const [version, setVersion] = useState(0);
   const bump = useCallback(() => setVersion((v) => v + 1), []);
 
-  // Find the live `registryBlock` node (and its position) for a blockId.
   const findNode = useCallback(
     (blockId: string): { pos: number; node: ProseMirrorNode } | null => {
       if (!editor || editor.isDestroyed) return null;
@@ -2760,7 +3040,6 @@ function useRegistryBlockStore(editor: CoreEditor | null) {
       }
       if (cached) cacheRef.current.delete(blockId);
 
-      // Not hydrated yet: kick off a one-shot async parse of the verbatim MDX.
       if (pendingRef.current.get(blockId) !== raw) {
         pendingRef.current.set(blockId, raw);
         void hydrateRegistryBlockRaw(raw)
@@ -2786,8 +3065,6 @@ function useRegistryBlockStore(editor: CoreEditor | null) {
             if (result.status === "loaded") {
               const parsed = result.block;
               const existing = cacheRef.current.get(blockId);
-              // A concurrent edit may have populated the cache first — don't
-              // clobber it with the stale parse.
               if (!existing) {
                 cacheRef.current.set(blockId, {
                   type: parsed.type,
@@ -2797,12 +3074,6 @@ function useRegistryBlockStore(editor: CoreEditor | null) {
                   edited: false,
                 });
 
-                // The core duplicate-id pass remints the node attr when a block
-                // is pasted/duplicated, but content's persisted source is the
-                // inline MDX stored in `__raw`. If the raw MDX still carries the
-                // source id, refresh it now so the next normal editor update
-                // persists the duplicate with its fresh id instead of writing a
-                // second copy of the original id.
                 if (parsed.base.id && parsed.base.id !== blockId) {
                   const live = findNode(blockId);
                   if (
@@ -2829,6 +3100,12 @@ function useRegistryBlockStore(editor: CoreEditor | null) {
                           __raw: refreshedRaw,
                         },
                       );
+                      // The source still names the id the block was copied
+                      // from. Every tab holding the copy makes this rewrite,
+                      // so saving it would have a tab that only received the
+                      // copy save it again. It reaches the saved page with the
+                      // next edit.
+                      tr.setMeta(EDITOR_NON_EDIT_META, true);
                       editor.view.dispatch(tr);
                       const entry = cacheRef.current.get(blockId);
                       if (entry) entry.rawSource = refreshedRaw;
@@ -2887,14 +3164,10 @@ function useRegistryBlockStore(editor: CoreEditor | null) {
         edited: true,
       });
 
-      // Re-serialize the edited block to MDX and write it back onto the node's
-      // `__raw`, so the existing NFM save path emits the new source verbatim.
       let raw: string;
       try {
         raw = serializeRegistryBlockRaw(type, blockId, node, nextData, base);
       } catch {
-        // Unknown type or invalid data — keep the cache update so the UI reflects
-        // the edit, but don't corrupt `__raw`.
         bump();
         return;
       }
@@ -2905,7 +3178,6 @@ function useRegistryBlockStore(editor: CoreEditor | null) {
         ...node.attrs,
         __raw: raw,
       });
-      tr.setMeta(LOCAL_FILE_USER_EDIT_META, true);
       editor.view.dispatch(tr);
       bump();
     },
@@ -2919,62 +3191,143 @@ function useRegistryBlockStore(editor: CoreEditor | null) {
 }
 
 export function VisualEditor({
+  visitKey,
+  editorMountMode,
   documentId,
+  contentSpaceId,
   content,
+  contentResetKey = null,
+  externalContent = null,
   contentUpdatedAt,
   contentRevision,
   acknowledgedLocalSnapshot,
   collabContentRevision,
   requestCollabSync,
   onBaseAwareReconcile,
+  onRemoteSnapshotChange,
+  isEditorClean,
   onChange,
   onSaveContent,
   onEscape,
+  onImportFiles,
   ydoc,
+  observeLiveBody = false,
+  replacesStoredBody = false,
   collabSynced = true,
   awareness,
   user,
   editable = true,
+  directoryWidgetEditing = false,
   suggesting = false,
+  widgetLoadDiagnosticsActive = false,
   localFileMode = false,
   localFilePath,
   referenceDepth,
   onComment,
+  onBlockComment,
   commentThreads,
   activeThreadId,
   hoveredThreadId,
   pendingHighlight,
   onActivateThread,
   suggestions = [],
+  acceptedDecisionReadback = null,
+  onAcceptedDecisionRendered,
+  onAcceptedDecisionReadbackOutdated,
+  proposalDecisionReadback = null,
+  onProposalDecisionRendered,
+  onProposalDecisionReadbackOutdated,
   activeSuggestionId,
   onActivateSuggestion,
   onHoverSuggestion,
   onSuggestionReplacementIntent,
   initialSelection,
+  onInitialSelectionApplied,
   onSuggestionAnchorsChange,
   showCommentIndicators = true,
   onJoinTitle,
-  notionPageLinks = [],
   onOpenNotionPageLink,
   notionPageId,
   onHistoryControllerChange,
   onHistoryStateChange,
   onSelectionControllerChange,
   onPersistenceControllerChange,
+  onSuggestionPlacementsChange,
 }: VisualEditorProps) {
   const t = useT();
+  const widgetBridgeActive = isEmbedMcpChatBridgeActive();
+  const widgetDiagnosticsActive =
+    widgetBridgeActive || widgetLoadDiagnosticsActive;
+  const fileUploadStatus = useFileUploadStatus();
+  const fileStorageState: "configured" | "missing" | "unknown" =
+    fileUploadStatus.isError
+      ? "unknown"
+      : fileUploadStatus.isSuccess
+        ? fileUploadStatus.data?.configured === true
+          ? "configured"
+          : fileUploadStatus.data?.configured === false
+            ? "missing"
+            : "unknown"
+        : "unknown";
+  const fileStorageConfigured = fileStorageState === "configured";
+  const fileStorageStateRef = useRef(fileStorageState);
+  fileStorageStateRef.current = fileStorageState;
+  const [isFileStorageSetupOpen, setIsFileStorageSetupOpen] = useState(false);
   const [isDraggingMedia, setIsDraggingMedia] = useState(false);
   const suggestingRef = useRef(suggesting);
   suggestingRef.current = suggesting;
   const wrapperRef = useRef<HTMLDivElement>(null);
   const imageFileInputRef = useRef<HTMLInputElement>(null);
   const pendingImagePickerRef = useRef<PendingImagePicker | null>(null);
+  const pendingMediaFilesRef = useRef<PendingMediaFiles | null>(null);
+  const handleFileStorageSetupOpenChange = useCallback(
+    (open: boolean, reason?: "dismiss" | "setup" | "connected") => {
+      setIsFileStorageSetupOpen(open);
+      if (!open && reason === "dismiss") pendingMediaFilesRef.current = null;
+    },
+    [],
+  );
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const liveBodyObserverRef = useRef<{ documentId: string; ydoc: YDoc } | null>(
+    null,
+  );
+  liveBodyObserverRef.current =
+    observeLiveBody && ydoc && documentId ? { documentId, ydoc } : null;
+  const liveBodyParityTimerRef = useRef<
+    ReturnType<typeof setTimeout> | undefined
+  >(undefined);
+  const scheduleLiveBodyParity = useCallback((editorToMeasure: CoreEditor) => {
+    const observer = liveBodyObserverRef.current;
+    if (!observer) return;
+    clearTimeout(liveBodyParityTimerRef.current);
+    liveBodyParityTimerRef.current = setTimeout(() => {
+      // Serialize and read the live copy in the same tick: anything later
+      // compares two different states.
+      let saved: string | null;
+      try {
+        saved = serializeEditorDraftForPersistence(editorToMeasure);
+      } catch (error) {
+        console.warn(
+          "[content] could not serialize the body to compare",
+          error,
+        );
+        return;
+      }
+      if (saved === null) return;
+      reportLiveBodyParity(
+        observer.documentId,
+        measureLiveBodyParity(observer.ydoc, saved),
+      );
+    }, LIVE_BODY_PARITY_QUIET_MS);
+  }, []);
+  useEffect(() => () => clearTimeout(liveBodyParityTimerRef.current), []);
   const onSaveContentRef = useRef(onSaveContent);
   onSaveContentRef.current = onSaveContent;
   const onActivateThreadRef = useRef(onActivateThread);
   onActivateThreadRef.current = onActivateThread;
+  const activeThreadIdRef = useRef(activeThreadId);
+  activeThreadIdRef.current = activeThreadId;
   const onActivateSuggestionRef = useRef(onActivateSuggestion);
   onActivateSuggestionRef.current = onActivateSuggestion;
   const onHoverSuggestionRef = useRef(onHoverSuggestion);
@@ -3034,8 +3387,6 @@ export function VisualEditor({
       historyStateNotificationRef.current = null;
     };
   }, []);
-  const notionPageLinksRef = useRef(notionPageLinks);
-  notionPageLinksRef.current = notionPageLinks;
   const onMediaSourceCommittedRef = useRef<
     ((editor: CoreEditor, transaction: Transaction) => void) | null
   >(null);
@@ -3045,38 +3396,127 @@ export function VisualEditor({
     },
     [],
   );
+  const threadsRef = useRef(commentThreads);
+  threadsRef.current = commentThreads;
+  const onBlockCommentRef = useRef(onBlockComment);
+  onBlockCommentRef.current = onBlockComment;
+  const canCommentOnBlocks = !!onBlockComment;
+  const savesVideoIds = useCallback(
+    (view: EditorView) => view.editable && !suggestingRef.current,
+    [],
+  );
+  // A tab that can't save an id comments on a video only by the id it already
+  // goes by, so a video that goes by none shows no Comment button there.
+  const canCommentOnVideo = useCallback(
+    (view: EditorView, pos: number) =>
+      savesVideoIds(view) || !!commentAnchorBlockAt(view.state.doc, pos),
+    [savesVideoIds],
+  );
+  const onVideoComment = useMemo<ContentVideoOptions["onVideoComment"]>(
+    () =>
+      canCommentOnBlocks
+        ? (view, pos, offsetTop) => {
+            const { doc } = view.state;
+            const node = doc.nodeAt(pos);
+            if (!node) return;
+            const canWrite = savesVideoIds(view);
+            // A video whose id another video shares goes by none, so it gets
+            // an id of its own before a thread can point at it.
+            const blockId =
+              commentAnchorBlockAt(doc, pos)?.blockId ??
+              (canWrite ? createContentBlockId("video") : null);
+            if (!blockId) return;
+            // A thread names a video saved without an id by its derived id.
+            // Writing that down saves the id with the page, so an agent that
+            // reads the page finds it instead of minting one that strands it.
+            if (node.attrs.blockId !== blockId && canWrite)
+              view.dispatch(
+                view.state.tr
+                  .setNodeAttribute(pos, "blockId", blockId)
+                  .setMeta("addToHistory", false),
+              );
+            onBlockCommentRef.current?.(
+              {
+                blockId,
+                blockType: "video",
+                from: pos,
+                to: pos + node.nodeSize,
+              },
+              offsetTop,
+            );
+          }
+        : undefined,
+    [canCommentOnBlocks, savesVideoIds],
+  );
+  const findCommentQuote = useCallback(
+    (threadId: string, doc: ProseMirrorNode) => {
+      const thread = threadsRef.current?.find((t) => t.threadId === threadId);
+      if (!thread || thread.resolved) return null;
+      return resolveAnchor(doc, threadAnchor(thread));
+    },
+    [],
+  );
   const onImageFilePickerRequest = useCallback(
     (request: PendingImagePicker) => {
       runIfMediaCreationAllowed(suggestingRef.current, () => {
         if (pendingImagePickerRef.current) return;
+        if (fileStorageStateRef.current !== "configured") {
+          if (editor) restorePendingImagePicker(editor.view, request);
+          setIsFileStorageSetupOpen(true);
+          return;
+        }
         pendingImagePickerRef.current = request;
         imageFileInputRef.current?.click();
       });
     },
     [],
   );
+  useEffect(() => {
+    if (!fileStorageConfigured) return;
+    setIsFileStorageSetupOpen(false);
+    const pending = pendingMediaFilesRef.current;
+    pendingMediaFilesRef.current = null;
+    if (
+      !pending ||
+      pending.documentId !== (documentId ?? null) ||
+      !pending.view.dom.isConnected ||
+      suggestingRef.current
+    ) {
+      return;
+    }
+    if (pending.imageFiles.length > 0) {
+      void uploadAndInsertImageFiles(
+        pending.view,
+        pending.imageFiles,
+        pending.position,
+      );
+    }
+    if (pending.videoFiles.length > 0) {
+      void uploadAndInsertVideoFiles(
+        pending.view,
+        pending.videoFiles,
+        pending.position,
+      );
+    }
+    if (pending.audioFiles.length > 0) {
+      void uploadAndInsertAudioFiles(
+        pending.view,
+        pending.audioFiles,
+        pending.position,
+      );
+    }
+  }, [documentId, fileStorageConfigured]);
   const canMutateMedia = useCallback(() => !suggestingRef.current, []);
-  const resolveNotionPageLink = useCallback((notionPageId: string) => {
-    const normalized = notionPageId.replace(/-/g, "").toLowerCase();
-    return (
-      notionPageLinksRef.current.find(
-        (link) =>
-          link.notionPageId === notionPageId ||
-          link.notionPageId.replace(/-/g, "").toLowerCase() === normalized,
-      ) ?? null
-    );
-  }, []);
+  const isSuggesting = useCallback(() => suggestingRef.current, []);
   const isVisualEditorFocused = useCallback((editor: CoreEditor) => {
     if (editor.isFocused) return true;
     const activeElement = editor.view.dom.ownerDocument.activeElement;
     return Boolean(
-      activeElement?.matches(".notion-toggle__summary") &&
+      activeElement?.matches(".content-toggle__summary") &&
       editor.view.dom.contains(activeElement),
     );
   }, []);
 
-  // Reuse the synced Awareness instance when provided; fall back for tests or
-  // non-template embedders that only pass a Y.Doc.
   const fallbackAwareness = useMemo(() => {
     if (awareness) return null;
     if (!ydoc) return null;
@@ -3088,20 +3528,14 @@ export function VisualEditor({
   }, [awareness, user, ydoc]);
   const localAwareness = awareness ?? fallbackAwareness;
 
-  // Update user info when it changes
   useEffect(() => {
     if (localAwareness && user) {
       localAwareness.setLocalStateField("user", user);
     }
   }, [localAwareness, user]);
 
-  // Clean up awareness on unmount
   useEffect(() => {
     return () => {
-      // Only the fallback instance is owned by this editor. A provided
-      // awareness belongs to the shared useCollaborativeDoc connection; clearing
-      // it here races StrictMode/remounts and can erase the tab's durable
-      // presence while the shared connection is still active.
       fallbackAwareness?.setLocalState(null);
       fallbackAwareness?.destroy();
     };
@@ -3109,6 +3543,8 @@ export function VisualEditor({
 
   const onEscapeRef = useRef(onEscape);
   onEscapeRef.current = onEscape;
+  const onImportFilesRef = useRef(onImportFiles);
+  onImportFilesRef.current = onImportFiles;
   const extensions = useMemo(
     () => [
       ...createVisualEditorExtensions({
@@ -3117,19 +3553,24 @@ export function VisualEditor({
         localAwareness,
         user,
         onImageComment: onComment,
+        onVideoComment,
+        canCommentOnVideo,
         onImageFilePickerRequest,
         canMutateMedia,
+        isSuggesting,
         onJoinTitle,
-        resolveNotionPageLink,
         onOpenNotionPageLink,
         localFilePath,
         referenceDepth,
         emptyBlockPlaceholder: t("editor.emptyBlockPlaceholder"),
         onMediaSourceCommitted,
+        findCommentQuote,
       }),
       Extension.create({
         name: "contentEditorEscape",
-        priority: 0,
+        // Last, so editor Escape handlers such as the table's run first. Not 0:
+        // TipTap reads a priority of 0 as unset, which puts this first instead.
+        priority: 1,
         addProseMirrorPlugins() {
           return [
             new Plugin({
@@ -3144,7 +3585,6 @@ export function VisualEditor({
                     !onEscapeRef.current
                   )
                     return false;
-                  // Run after editor commands, before ProseMirror's native Escape fallback.
                   event.preventDefault();
                   onEscapeRef.current();
                   return true;
@@ -3161,25 +3601,40 @@ export function VisualEditor({
       localAwareness,
       user,
       onComment,
+      onVideoComment,
+      canCommentOnVideo,
       onImageFilePickerRequest,
       canMutateMedia,
+      isSuggesting,
       onJoinTitle,
-      resolveNotionPageLink,
       onOpenNotionPageLink,
       localFilePath,
       referenceDepth,
       t,
       onMediaSourceCommitted,
+      findCommentQuote,
     ],
   );
 
-  // The collab hook needs the editor, but useEditor's `onUpdate` needs the
-  // hook's guards. Break the cycle with a ref: `onUpdate` reads the guards
-  // through `guardsRef`, populated right after the hook runs below. `onUpdate`
-  // only fires once the editor exists, by which point the ref holds the guards.
   const guardsRef = useRef<UseCollabReconcileResult | null>(null);
+  const draftEmissionGenerationRef = useRef(0);
+  // Parent draft emissions are deferred; verification must see document changes synchronously.
+  const documentVersionRef = useRef<object>({});
+  const observedDocumentRef = useRef<ProseMirrorNode | null>(null);
+  const pendingDraftEmissionsRef = useRef<Array<() => void>>([]);
+  const drainPendingDraftEmissions = useCallback(() => {
+    const pending = pendingDraftEmissionsRef.current;
+    pendingDraftEmissionsRef.current = [];
+    for (const emit of pending) emit();
+  }, []);
   const lastUserEditIntentAtRef = useRef(0);
   const hasUserEditIntentRef = useRef(false);
+  // Set by a person's typing that lands before the live copy's seed check
+  // finishes, and cleared when a seed, a restore or another tab replaces it.
+  const unseededEditRef = useRef(false);
+  // The Page text sent up for each version of the editor's document, so the
+  // highlights can tell whether the Page's drafts have caught up with it.
+  const sentContentRef = useRef(new WeakMap<ProseMirrorNode, string>());
   const markUserEditIntent = useCallback(() => {
     lastUserEditIntentAtRef.current = Date.now();
     hasUserEditIntentRef.current = true;
@@ -3202,15 +3657,11 @@ export function VisualEditor({
           return options?.strict === true
             ? ("failed" as const)
             : ("unchanged" as const);
+        scheduleLiveBodyParity(editorToPersist);
         const normalized = options?.markdown ?? serialized;
-        if (localFileMode && normalized === content)
+        sentContentRef.current.set(editorToPersist.state.doc, normalized);
+        if (localFileMode && normalized === content && options?.strict !== true)
           return "unchanged" as const;
-        // TipTap/Yjs can emit a local-looking empty-paragraph transaction while
-        // an editor is mounting or reconciling. Content serializes that filler
-        // as `<empty-block/>`, so the generic whitespace-only collab guard does
-        // not catch it. Never let that lifecycle normalization clear a saved
-        // body. A real Select All/Delete (or Cut) records user intent through
-        // the DOM handlers below and is still allowed to persist normally.
         if (
           !shouldPersistEffectivelyEmptyEditorUpdate({
             nextContent: normalized,
@@ -3223,11 +3674,13 @@ export function VisualEditor({
           return onSaveContentRef.current(normalized);
         }
         if (options?.immediate) return "failed" as const;
-        // Don't persist an empty doc before Collaboration has seeded (would
-        // clobber DB content with an empty string). `registerEmitted` records
-        // this as the last-emitted value and returns false to skip the save.
         if (!guards.registerEmitted(normalized)) return "unchanged" as const;
-        setTimeout(() => onChangeRef.current(normalized), 0);
+        const generation = draftEmissionGenerationRef.current;
+        pendingDraftEmissionsRef.current.push(() => {
+          if (generation === draftEmissionGenerationRef.current)
+            onChangeRef.current(normalized);
+        });
+        setTimeout(drainPendingDraftEmissions, 0);
         return "scheduled" as const;
       } catch (err: any) {
         toast.error(
@@ -3237,7 +3690,24 @@ export function VisualEditor({
         return "failed" as const;
       }
     },
-    [content, localFileMode, t],
+    [
+      content,
+      drainPendingDraftEmissions,
+      localFileMode,
+      scheduleLiveBodyParity,
+      t,
+    ],
+  );
+  // A remote snapshot is the whole live document, so it already holds local
+  // typing whose deferred report has not run. Reporting that typing first keeps
+  // it a local edit; otherwise the snapshot absorbs it and an older save's
+  // acknowledgment can clear the only journaled copy.
+  const reportRemoteSnapshot = useCallback(
+    (markdown: string) => {
+      drainPendingDraftEmissions();
+      onRemoteSnapshotChange?.(markdown);
+    },
+    [drainPendingDraftEmissions, onRemoteSnapshotChange],
   );
   onMediaSourceCommittedRef.current = async (editorToPersist, transaction) => {
     if (suggestingRef.current) return;
@@ -3252,9 +3722,6 @@ export function VisualEditor({
         throw new Error(t("empty.genericError"));
       }
     } catch (error) {
-      // The ordinary onUpdate path still queues its debounced retry. Keep the
-      // immediate durability attempt from becoming an unhandled rejection,
-      // but fail visibly instead of treating a skipped save as success.
       toast.error(t("empty.genericError"));
       console.error("Media source persistence error:", error);
     }
@@ -3271,19 +3738,37 @@ export function VisualEditor({
     ReturnType<typeof setTimeout> | undefined
   >(undefined);
   const editor = useEditor({
+    onCreate: ({ editor }) => {
+      if (editor.isDestroyed || !editor.view.dom.isConnected) return;
+      if (documentId && visitKey !== undefined) {
+        observeEditorMount(
+          editor,
+          documentId,
+          visitKey,
+          editorMountMode ??
+            (!editable ? "readonly" : suggesting ? "suggesting" : "editing"),
+        );
+      }
+    },
     extensions,
-    // With Collaboration (ydoc) active, content is owned by the Y.XmlFragment —
-    // the seed effect populates an empty doc and the reconcile applies external
-    // edits. Passing `content` here would make the editor initialize from the
-    // prop AND the Y.Doc, firing an initial (non-remote) update that could
-    // autosave a stale value over newer SQL. Only seed `content` when there is
-    // no ydoc (tests / non-collaborative embedders).
     content: ydoc ? undefined : nfmToDoc(content),
     editorProps: {
       attributes: {
-        class: "notion-editor",
+        class: "content-editor",
       },
       handleDrop(view, event) {
+        const droppedFiles = Array.from(event.dataTransfer?.files ?? []);
+        if (
+          view.editable &&
+          onImportFilesRef.current &&
+          droppedFiles.some((file) => isMarkdownFilePath(file.name))
+        ) {
+          // Images dropped beside Markdown belong to the import, not the page.
+          event.preventDefault();
+          setIsDraggingMedia(false);
+          onImportFilesRef.current(droppedFiles);
+          return true;
+        }
         if (view.editable) markUserEditIntent();
         setIsDraggingMedia(false);
         if (!view.editable || !event.dataTransfer) return false;
@@ -3305,6 +3790,18 @@ export function VisualEditor({
             top: event.clientY,
           });
           const position = coords?.pos ?? view.state.selection.from;
+          if (fileStorageStateRef.current !== "configured") {
+            pendingMediaFilesRef.current = {
+              view,
+              documentId: documentId ?? null,
+              imageFiles,
+              videoFiles,
+              audioFiles,
+              position,
+            };
+            setIsFileStorageSetupOpen(true);
+            return;
+          }
           if (imageFiles.length > 0) {
             void uploadAndInsertImageFiles(view, imageFiles, position);
           }
@@ -3330,10 +3827,20 @@ export function VisualEditor({
         ) {
           return false;
         }
-        // Let ProseMirror continue handling any textual clipboard payload, but
-        // never start an excluded media upload while composing a suggestion.
         return runIfMediaCreationAllowed(suggestingRef.current, () => {
           event.preventDefault();
+          if (fileStorageStateRef.current !== "configured") {
+            pendingMediaFilesRef.current = {
+              view,
+              documentId: documentId ?? null,
+              imageFiles,
+              videoFiles,
+              audioFiles,
+              position: view.state.selection.from,
+            };
+            setIsFileStorageSetupOpen(true);
+            return;
+          }
           if (imageFiles.length > 0) {
             void uploadAndInsertImageFiles(
               view,
@@ -3358,12 +3865,30 @@ export function VisualEditor({
         });
       },
       handleDOMEvents: {
-        beforeinput(view) {
+        beforeinput(view, event) {
+          if (
+            (event.inputType === "historyUndo" ||
+              event.inputType === "historyRedo") &&
+            suggestionDecisionHoldsHistory(view.state)
+          ) {
+            event.preventDefault();
+            return true;
+          }
           if (view.editable) markUserEditIntent();
           return false;
         },
         keydown(view, event) {
           if (view.editable) markUserEditIntent();
+          if (
+            (event.metaKey || event.ctrlKey) &&
+            !event.altKey &&
+            (event.key.toLowerCase() === "z" ||
+              event.key.toLowerCase() === "y") &&
+            suggestionDecisionHoldsHistory(view.state)
+          ) {
+            event.preventDefault();
+            return true;
+          }
           if (
             view.editable &&
             (event.metaKey || event.ctrlKey) &&
@@ -3413,18 +3938,16 @@ export function VisualEditor({
       },
     },
     editable,
-    onTransaction: ({ editor }) => {
+    onTransaction: ({ editor, transaction }) => {
+      if (observedDocumentRef.current !== editor.state.doc) {
+        observedDocumentRef.current = editor.state.doc;
+        documentVersionRef.current = {};
+      }
       notifyHistoryStateChange({
         canUndo: editor.can().undo(),
         canRedo: editor.can().redo(),
       });
     },
-    // Selection context for the agent — see `content-selection.ts`. Debounced
-    // so rapid selection changes (dragging, arrow-key movement) don't spam
-    // application-state writes; cleared on unmount/document change below.
-    // Deliberately NOT cleared on blur: the user blurs this editor the moment
-    // they switch to the external agent's window to ask about "the selected
-    // text", and the browser keeps the highlight while the window is behind.
     onSelectionUpdate: ({ editor }) => {
       if (!documentId) return;
       clearTimeout(selectionSyncTimerRef.current);
@@ -3438,31 +3961,9 @@ export function VisualEditor({
     },
     onUpdate: ({ editor, transaction }) => {
       const guards = guardsRef.current;
-      // `shouldIgnoreUpdate` covers: not editable, mid-programmatic setContent,
-      // and (collab) remote-origin transactions — the exact guards content used
-      // inline before, now owned by the shared hook.
-      if (!guards || guards.shouldIgnoreUpdate(transaction)) return;
-      if (
-        localFileMode &&
-        transaction.getMeta(normalizeTableHeadersPluginKey)
-      ) {
-        return;
-      }
-      if (
-        localFileMode &&
-        !shouldPersistLocalFileEditorUpdate({
-          docChanged: transaction.docChanged,
-          editorFocused: editor.isFocused,
-          explicitLocalFileUserEdit:
-            transaction.getMeta(LOCAL_FILE_USER_EDIT_META) === true,
-          recentUserEditIntent:
-            Date.now() - lastUserEditIntentAtRef.current < 2000,
-          transactionUiEvent: transaction.getMeta("uiEvent"),
-        })
-      ) {
-        return;
-      }
-      const userInitiated = isUserInitiatedCollaborativeEditorUpdate({
+      guards?.reportRemoteUpdate(transaction);
+      if (!guards) return;
+      const userInitiated = hasDirectUserEditEvidence({
         editorFocused: editor.isFocused,
         explicitUserEdit:
           transaction.getMeta(LOCAL_FILE_USER_EDIT_META) === true,
@@ -3470,16 +3971,23 @@ export function VisualEditor({
           Date.now() - lastUserEditIntentAtRef.current < 2000,
         transactionUiEvent: transaction.getMeta("uiEvent"),
       });
-      if (userInitiated) hasUserEditIntentRef.current = true;
-      if (
-        !shouldPersistCollaborativeEditorUpdate({
-          collab: !!ydoc,
-          editorFocused: editor.isFocused,
-          userInitiated,
-        })
-      ) {
+      if (guards.shouldIgnoreUpdate(transaction)) {
+        // The guards drop every edit until the live copy's seed check
+        // finishes, so typing that lands first is saved once it does, unless
+        // the seed replaces it.
+        if (guards.isSettingContentRef.current) {
+          unseededEditRef.current = false;
+        } else if (
+          guards.initialSeedPending &&
+          userInitiated &&
+          isLocalEditorEdit(transaction)
+        ) {
+          unseededEditRef.current = true;
+        }
         return;
       }
+      if (!isLocalEditorEdit(transaction)) return;
+      hasUserEditIntentRef.current = true;
       if (isActiveSlashCommandDraft(editor)) return;
       if (shouldSkipMediaDraftPersistence(editor)) return;
       const priorSelection =
@@ -3494,12 +4002,78 @@ export function VisualEditor({
       if (replacementIntent) {
         onSuggestionReplacementIntentRef.current?.(replacementIntent);
       }
-      void persistEditorContent(editor, {
-        userInitiated,
-      });
+      unseededEditRef.current = false;
+      void persistEditorContent(editor, { userInitiated });
     },
   });
   historyEditorRef.current = editor;
+  const appliedContentResetKeyRef = useRef(contentResetKey);
+  useLayoutEffect(() => {
+    if (!editor || appliedContentResetKeyRef.current === contentResetKey)
+      return;
+    appliedContentResetKeyRef.current = contentResetKey;
+    if (ydoc || docToNfm(editor.getJSON() as any) === content) return;
+    editor
+      .chain()
+      .command(({ tr }) => {
+        tr.setMeta("addToHistory", false);
+        return true;
+      })
+      .setContent(nfmToDoc(content), { emitUpdate: false })
+      .run();
+  }, [content, contentResetKey, editor, ydoc]);
+  const externalContentRef = useRef(externalContent);
+  externalContentRef.current = externalContent;
+  const externalContentKey = externalContent?.key ?? null;
+  useLayoutEffect(() => {
+    if (!editor || externalContentKey === null) return;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    const merge = () => {
+      const request = externalContentRef.current;
+      if (editor.isDestroyed || request?.key !== externalContentKey) return;
+      // A slash command or an upload in progress isn't reported yet, and
+      // changing the text mid-composition (an IME) breaks the word being
+      // composed.
+      const live = editable ? serializeEditorDraftForPersistence(editor) : null;
+      if (
+        editable &&
+        (live === null ||
+          isActiveSlashCommandDraft(editor) ||
+          editor.view.composing)
+      ) {
+        retry = setTimeout(merge, 300);
+        return;
+      }
+      // Text the editor can't hold would throw here or empty the editor, so
+      // the merge checks its result before committing it.
+      const parsedTexts = new Map<string, ProseMirrorNode | null>();
+      const parse = (text: string) => {
+        if (!parsedTexts.has(text)) {
+          parsedTexts.set(text, parseNfmForCollabReconcile(editor, text));
+        }
+        return parsedTexts.get(text) ?? null;
+      };
+      const next = request.merge(live, (text) => parse(text) !== null);
+      if (next === null || next === live) return;
+      const parsed = parse(next);
+      if (!parsed) return;
+      // The merge holds everything typed so far, so typing that is still
+      // being reported would only undo it.
+      draftEmissionGenerationRef.current += 1;
+      if (applyDocSurgically(editor, parsed) === "failed") {
+        editor
+          .chain()
+          .command(({ tr }) => {
+            tr.setMeta("addToHistory", false);
+            return true;
+          })
+          .setContent(parsed.toJSON(), { emitUpdate: false })
+          .run();
+      }
+    };
+    merge();
+    return () => clearTimeout(retry);
+  }, [editable, editor, externalContentKey]);
   useEffect(() => {
     if (!editor) return;
     const capture = ({ transaction }: { transaction: Transaction }) => {
@@ -3519,16 +4093,23 @@ export function VisualEditor({
       onPersistenceControllerChange?.(null);
       return;
     }
+    if (observedDocumentRef.current !== editor.state.doc) {
+      observedDocumentRef.current = editor.state.doc;
+      documentVersionRef.current = {};
+    }
     onPersistenceControllerChange?.({
+      get version() {
+        return documentVersionRef.current;
+      },
       flushLatest: async () => {
         if (
           !shouldFlushVisualEditorDraft({
-            editable,
             hasUserEditIntent: hasUserEditIntentRef.current,
           })
         ) {
           return true;
         }
+        // The save callback owns permission for drafts entered before an edit lock.
         const result = await Promise.resolve(
           persistEditorContent(editor, {
             immediate: true,
@@ -3543,7 +4124,7 @@ export function VisualEditor({
   }, [editable, editor, onPersistenceControllerChange, persistEditorContent]);
 
   useEffect(() => {
-    if (!editor) {
+    if (!editor || editor.isDestroyed) {
       onHistoryControllerChange?.(null);
       return;
     }
@@ -3571,6 +4152,8 @@ export function VisualEditor({
             canonicalizeNfm(snapshot.content);
         }
         if (applied) {
+          unseededEditRef.current = false;
+          draftEmissionGenerationRef.current += 1;
           acknowledgedRestoreRef.current = {
             documentId: documentId ?? null,
             ...snapshot,
@@ -3595,6 +4178,16 @@ export function VisualEditor({
     onHistoryControllerChange,
     onHistoryStateChange,
   ]);
+
+  useEffect(() => {
+    if (!onSuggestionPlacementsChange) return;
+    onSuggestionPlacementsChange((suggestionIds) =>
+      editor.isDestroyed
+        ? {}
+        : suggestionPlacements(editor.state, suggestionIds),
+    );
+    return () => onSuggestionPlacementsChange(null);
+  }, [editor, onSuggestionPlacementsChange]);
 
   useEffect(() => {
     if (!editor) {
@@ -3699,10 +4292,6 @@ export function VisualEditor({
     };
   }, [editor, onSelectionControllerChange]);
 
-  // Clear the agent's selection context when this document closes — on
-  // unmount, and on document change (the editor is reused across route
-  // navigation rather than remounted, so a documentId change alone would
-  // otherwise leave the previous document's selection stale).
   useEffect(() => {
     return () => {
       clearTimeout(selectionSyncTimerRef.current);
@@ -3719,6 +4308,11 @@ export function VisualEditor({
       pendingImagePickerRef.current = null;
       if (suggestingRef.current) return;
       if (!editor || !file || !request) return;
+      if (fileStorageStateRef.current !== "configured") {
+        restorePendingImagePicker(editor.view, request);
+        setIsFileStorageSetupOpen(true);
+        return;
+      }
 
       const uploadId = createMediaUploadId("image");
       if (!ensurePendingImageUpload(editor.view, request, uploadId)) return;
@@ -3800,12 +4394,6 @@ export function VisualEditor({
     };
   }, [editor, handleImageFileInputCancel, handleImageFileInputChange]);
 
-  // The shared seed / reconcile / lead-client / onUpdate-guard logic, with
-  // Content's NFM serializer injected so the editor reads/writes the exact same
-  // bytes as before (docToNfm / nfmToDoc / canonicalizeNfm, and the
-  // `<empty-block/>`-aware seed predicate). `initialAppliedUpdatedAt: null`
-  // preserves Content's "first run reconciles a stale persisted Y.Doc against
-  // authoritative SQL" behavior (an agent that edited the CLOSED doc).
   let acknowledgedRestore = acknowledgedRestoreRef.current;
   if (
     acknowledgedRestore &&
@@ -3831,6 +4419,115 @@ export function VisualEditor({
     (!contentUpdatedAt ||
       contentUpdatedAt < acknowledgedRestore.contentUpdatedAt),
   );
+  const initialSeedErrorShownRef = useRef(false);
+  const requestInitialSeed = useCallback(
+    async (seedEditor: CoreEditor, markdown: string): Promise<Uint8Array> => {
+      if (!documentId)
+        throw new Error("A document ID is required to seed collaboration.");
+      const seedDoc = prosemirrorToYDoc(
+        seedEditor.schema.nodeFromJSON(nfmToDoc(markdown)),
+        "default",
+      );
+      try {
+        const update = encodeStateAsUpdate(seedDoc);
+        let binary = "";
+        for (const byte of update) binary += String.fromCharCode(byte);
+        const result = await callAction<{ stateBase64: string }>(
+          "seed-document-collab",
+          { id: documentId, seedUpdateBase64: btoa(binary) },
+        );
+        initialSeedErrorShownRef.current = false;
+        return Uint8Array.from(atob(result.stateBase64), (char) =>
+          char.charCodeAt(0),
+        );
+      } finally {
+        seedDoc.destroy();
+      }
+    },
+    [documentId],
+  );
+  const requestSnapshotAdoption = useCallback(
+    async ({ revision, update }: { revision: string; update: Uint8Array }) => {
+      if (!documentId)
+        throw new Error("A document ID is required to adopt a snapshot.");
+      let binary = "";
+      for (const byte of update) binary += String.fromCharCode(byte);
+      const result = await callAction<{
+        status: "adopted" | "already-adopted" | "rebase" | "stale";
+        adoptedRevision: string | null;
+        adoptedBody: string | null;
+        stateBase64: string;
+      }>("adopt-document-snapshot", {
+        id: documentId,
+        revision,
+        adoptionUpdateBase64: btoa(binary),
+      });
+      return {
+        status: result.status,
+        adoptedRevision: result.adoptedRevision,
+        adoptedBody: result.adoptedBody,
+        state: Uint8Array.from(atob(result.stateBase64), (char) =>
+          char.charCodeAt(0),
+        ),
+      };
+    },
+    [documentId],
+  );
+  const onInitialSeedError = useCallback(
+    (error: unknown) => {
+      if (initialSeedErrorShownRef.current) return;
+      initialSeedErrorShownRef.current = true;
+      toast.error(t("empty.genericError"));
+      console.error("Collaborative editor seed failed:", error);
+    },
+    [t],
+  );
+  const getCollabMarkdown = useCallback(
+    (editorToSerialize: CoreEditor) =>
+      docToNfm(editorToSerialize.getJSON() as any),
+    [],
+  );
+  const setCollabContent = useCallback(
+    (
+      editorToUpdate: CoreEditor,
+      value: string,
+      options: { emitUpdate?: boolean; addToHistory?: boolean },
+    ) => {
+      if (!editable) return;
+      const doc = nfmToDoc(value);
+      if (options.addToHistory === false) {
+        editorToUpdate
+          .chain()
+          .command(({ tr }) => {
+            tr.setMeta("addToHistory", false);
+            return true;
+          })
+          .setContent(doc, { emitUpdate: options.emitUpdate })
+          .run();
+        return;
+      }
+      editorToUpdate.commands.setContent(doc);
+    },
+    [editable],
+  );
+  const shouldSeedCollabContent = useCallback(
+    ({
+      value,
+      currentMarkdown,
+      fragmentLength,
+    }: {
+      value: string;
+      currentMarkdown: string;
+      fragmentLength: number;
+    }) =>
+      editable &&
+      shouldSeedCollaborativeContent({
+        content: value,
+        currentMarkdown,
+        fragmentLength,
+      }),
+    [editable],
+  );
   const collabState = useCollabReconcile({
     editor,
     ydoc,
@@ -3852,58 +4549,129 @@ export function VisualEditor({
       : collabContentRevision,
     requestCollabSync,
     onBaseAwareReconcile,
+    onBaseAwareMerge: documentId
+      ? (outcome) => reportEditorMerge(documentId, "open_editor", outcome)
+      : undefined,
+    onRemoteSnapshotChange: onRemoteSnapshotChange
+      ? reportRemoteSnapshot
+      : undefined,
+    isEditorClean,
+    requestInitialSeed:
+      ydoc && editable && documentId ? requestInitialSeed : undefined,
+    requestSnapshotAdoption:
+      ydoc && editable && documentId ? requestSnapshotAdoption : undefined,
+    onInitialSeedError,
+    overlapPolicy: "prefer-live",
     editable,
     isEditorFocused: isVisualEditorFocused,
-    getMarkdown: (e) => docToNfm(e.getJSON() as any),
-    // Read-only viewers join the shared Y.Doc purely to RECEIVE live edits and
-    // cursors; their editor content comes from the server state fetch + peer Yjs
-    // updates, never from SQL reconcile. Any local Y.Doc write from a viewer
-    // would be POSTed to the editor-only `/update` route (→ 403) and could
-    // publish an author-less snapshot, so both write paths are neutered when
-    // `!editable`: this `setContent` (used by both the seed and the reconcile
-    // apply) no-ops, and `shouldSeed` returns false so the seed never runs.
-    setContent: (e, value, options) => {
-      if (!editable) return;
-      const doc = nfmToDoc(value);
-      if (options.addToHistory === false) {
-        e.chain()
-          .command(({ tr }) => {
-            // addToHistory:false so cmd+z (or Yjs undo) doesn't erase
-            // externally-loaded content.
-            tr.setMeta("addToHistory", false);
-            return true;
-          })
-          .setContent(doc, { emitUpdate: options.emitUpdate })
-          .run();
-        return;
-      }
-      e.commands.setContent(doc);
-    },
+    getMarkdown: getCollabMarkdown,
+    setContent: setCollabContent,
     normalizeValue: canonicalizeNfm,
-    // The shared fallback parser is CommonMark. Content stores canonical NFM,
-    // whose adjacent lines are separate Notion blocks, so always provide the
-    // exact NFM parser for the surgical reconcile path.
     parseValue: parseNfmForCollabReconcile,
-    shouldSeed: ({ value, currentMarkdown, fragmentLength }) =>
-      editable &&
-      shouldSeedCollaborativeContent({
-        content: value,
-        currentMarkdown,
-        fragmentLength,
-      }),
+    shouldSeed: shouldSeedCollabContent,
     initialAppliedUpdatedAt: null,
   });
   guardsRef.current = collabState;
+  useEffect(() => {
+    if (!editor || editor.isDestroyed || !editable) return;
+    if (collabState.initialSeedPending || !unseededEditRef.current) return;
+    unseededEditRef.current = false;
+    hasUserEditIntentRef.current = true;
+    if (isActiveSlashCommandDraft(editor)) return;
+    if (shouldSkipMediaDraftPersistence(editor)) return;
+    void persistEditorContent(editor, { userInitiated: true });
+  }, [collabState.initialSeedPending, editable, editor, persistEditorContent]);
+  // Another tab's change that deletes what this tab wrote replaces the typing.
+  // A change elsewhere on the page merges with it, and the page saves both.
+  useEffect(() => {
+    if (!ydoc) return;
+    const dropReplacedEdit = (transaction: YTransaction) => {
+      if (
+        !transaction.local &&
+        transaction.deleteSet.clients.has(ydoc.clientID)
+      ) {
+        unseededEditRef.current = false;
+      }
+    };
+    ydoc.on("afterTransaction", dropReplacedEdit);
+    return () => ydoc.off("afterTransaction", dropReplacedEdit);
+  }, [ydoc]);
+  // A live copy nobody has opened yet is empty until the server seeds it from
+  // the stored body, a round trip after this editor mounts. The stored body
+  // stands in for it until then, so the page never shows an empty editor.
+  const awaitingInitialSeed =
+    collabState.initialSeedPending &&
+    !!editor &&
+    !!ydoc &&
+    ydoc.getXmlFragment("default").length === 0 &&
+    hasSemanticCollaborationContent(content);
+  // Node views and their images can draw after the editor's DOM mounts. Keep
+  // the already drawn body until its replacement can hold the same layout.
+  const [holdsStoredBody, setHoldsStoredBody] = useState(replacesStoredBody);
+  const awaitingNodeViews = holdsStoredBody && !!editor;
+  useLayoutEffect(() => {
+    if (!editor || !awaitingNodeViews || awaitingInitialSeed) return;
+    const dom = editor.view.dom;
+    const undrawn = () =>
+      [...dom.querySelectorAll(".react-renderer")].filter((renderer) => {
+        if (renderer.parentElement?.closest(".ProseMirror") !== dom)
+          return false;
+        // Before its component renders, a view holds at most its content hole.
+        const first = renderer.firstElementChild;
+        return !first || first.hasAttribute("data-node-view-content-react");
+      });
+    const pendingImages = () => {
+      const loadedSources = new Set(
+        [
+          ...(wrapperRef.current?.querySelectorAll<HTMLImageElement>(
+            "[data-static-document-body] img.media-block__content",
+          ) ?? []),
+        ]
+          .filter((image) => image.complete && image.naturalWidth > 0)
+          .map((image) => image.src),
+      );
+      return [
+        ...dom.querySelectorAll<HTMLImageElement>("img.media-block__content"),
+      ].filter(
+        (image) =>
+          image.closest(".ProseMirror") === dom &&
+          loadedSources.has(image.src) &&
+          !image.complete,
+      );
+    };
+    const pending = () => undrawn().length || pendingImages().length;
+    const drawn = () => setHoldsStoredBody(false);
+    if (!pending()) {
+      drawn();
+      return;
+    }
+    const check = () => {
+      if (pending()) return;
+      cleanup();
+      drawn();
+    };
+    const observer = new MutationObserver(check);
+    observer.observe(dom, { childList: true, subtree: true });
+    dom.addEventListener("load", check, true);
+    dom.addEventListener("error", check, true);
+    const cleanup = () => {
+      observer.disconnect();
+      dom.removeEventListener("load", check, true);
+      dom.removeEventListener("error", check, true);
+      clearTimeout(deadline);
+    };
+    const deadline = setTimeout(() => {
+      cleanup();
+      console.warn("[content] editor body did not draw", {
+        nodeViews: undrawn().map((renderer) => renderer.className),
+        images: pendingImages().length,
+      });
+      drawn();
+    }, NODE_VIEW_DRAW_DEADLINE_MS);
+    return cleanup;
+  }, [editor, awaitingNodeViews, awaitingInitialSeed]);
+  const showStoredBody = awaitingInitialSeed || awaitingNodeViews;
 
-  // ─── Recent-edit highlights (Google-Docs / Figma "just edited this") ─────────
-  //
-  // Other participants — including the AI agent — publish a short ring of recent
-  // edits into their awareness state. `usePresence` surfaces the remote entries,
-  // `useRecentEdits` filters to the non-expired ones, and `RecentEditHighlights`
-  // paints a lingering, fading glow with the editor's name/color flag. For the
-  // agent, `edit-document` / `update-document` publish a `{ kind: "text", quote }`
-  // descriptor, which we resolve to a viewport rect by locating the quote in the
-  // live ProseMirror doc and measuring the span with `coordsAtPos`.
   const localClientId = ydoc?.clientID ?? null;
   const { others } = usePresence(localAwareness, localClientId);
   const recentEdits = useRecentEdits(others);
@@ -3918,12 +4686,8 @@ export function VisualEditor({
           : "";
       if (!quote) return null;
 
-      // Clamp very long quotes — matching a long exact string across the doc is
-      // brittle (whitespace/markdown differences); the leading slice is enough to
-      // anchor the highlight to the right region.
       const needle = quote.slice(0, 60);
 
-      // Walk the doc's text, tracking absolute positions, to find the needle.
       const doc = editor.state.doc;
       let found: { from: number; to: number } | null = null;
       let acc = "";
@@ -3939,7 +4703,6 @@ export function VisualEditor({
           found = { from, to: from + needle.length };
           return false;
         }
-        // Keep only a tail long enough to catch a needle spanning two text nodes.
         if (acc.length > needle.length * 2) {
           const drop = acc.length - needle.length;
           acc = acc.slice(drop);
@@ -3960,137 +4723,148 @@ export function VisualEditor({
     [editor],
   );
 
-  // Side-map that feeds the shared registry-block NodeView its typed `data`,
-  // lazily parsed from each node's verbatim `__raw` NFM. Edits write the
-  // re-serialized MDX back onto the node so the existing NFM save path persists
-  // them. A document with no `registryBlock` nodes never touches this store.
   const registryBlockStore = useRegistryBlockStore(editor);
   const registryBlockDataValue = useMemo(
     () => ({
       editable,
       getBlock: registryBlockStore.getBlock,
       onBlockDataChange: registryBlockStore.onBlockDataChange,
-      // When the document is linked to a Notion page, badge any present block
-      // whose type has no NFM analog so the author sees what won't push. The
-      // shared NodeView only consults `isNotionIncompatibleType` while
-      // `notionSync` is on, so a non-linked document never badges anything.
       notionSync: !!notionPageId,
       isNotionIncompatibleType: isNotionIncompatibleBlockType,
     }),
     [editable, registryBlockStore, notionPageId],
   );
 
+  const editableMarkedRef = useRef(false);
+  useEffect(() => {
+    if (editor && !editor.isDestroyed && documentId && visitKey !== undefined) {
+      observeEditorMount.contextChanged(
+        editor,
+        documentId,
+        visitKey,
+        editorMountMode ??
+          (!editable ? "readonly" : suggesting ? "suggesting" : "editing"),
+      );
+    }
+  }, [editor, editable, documentId, visitKey, suggesting, editorMountMode]);
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
     editor.setEditable(editable);
   }, [editor, editable]);
+  useEffect(() => {
+    if (
+      !editor ||
+      editor.isDestroyed ||
+      !editable ||
+      showStoredBody ||
+      referenceDepth ||
+      editableMarkedRef.current
+    )
+      return;
+    editableMarkedRef.current = true;
+    markStartupMilestone(CONTENT_EDITABLE_MARK, documentId);
+  }, [editor, editable, showStoredBody, referenceDepth, documentId]);
 
-  // Resolve each open thread's stored anchor to a live range and push the
-  // highlight specs into the CommentHighlight plugin. Reads threads through a
-  // ref (the query returns a new array each poll) and re-runs on a cheap
-  // signature so we don't thrash, while the plugin maps ranges through edits in
-  // between so highlights track the text live.
-  const threadsRef = useRef(commentThreads);
-  threadsRef.current = commentThreads;
   const threadsSignature = useMemo(
     () =>
       (commentThreads ?? [])
-        .map((t) => `${t.threadId}:${t.resolved ? 1 : 0}:${t.quotedText ?? ""}`)
+        .map(
+          (t) =>
+            `${t.threadId}:${t.resolved ? 1 : 0}:${JSON.stringify(threadAnchor(t))}`,
+        )
         .join("|"),
     [commentThreads],
   );
   const pendingKey = pendingHighlight
-    ? `${pendingHighlight.from}-${pendingHighlight.to}`
+    ? `${pendingHighlight.from}-${pendingHighlight.to}-${pendingHighlight.blockId ?? ""}`
     : "";
+  const resolvedQuotesRef = useRef(new Map<string, string>());
 
-  // Push the resolved highlight specs into the plugin. When `force` is false we
-  // KEEP the positions of highlights the plugin is already tracking (so they
-  // stay live-mapped while typing) and only resolve threads that are missing —
-  // this is what establishes highlights after the collaborative doc seeds.
-  // `force` re-resolves everything from scratch (used when the loaded content is
-  // swapped wholesale by an agent / Notion pull).
-  const applyHighlights = useCallback(
-    (force: boolean) => {
-      if (!editor || editor.isDestroyed) return;
-      const view = editor.view;
-      const current = commentHighlightKey.getState(view.state);
-      const mapped = force
-        ? new Map<string, CommentHighlightSpec>()
-        : new Map((current?.specs ?? []).map((s) => [s.threadId, s]));
-      const specs: CommentHighlightSpec[] = [];
-      if (!showCommentIndicators) {
-        setCommentHighlights(view, {
-          specs,
-          pending: pendingHighlight ?? null,
-          activeId: activeThreadId ?? null,
-          hoveredId: hoveredThreadId ?? null,
-        });
-        return;
-      }
-      for (const thread of threadsRef.current ?? []) {
-        if (thread.resolved) continue;
-        const existing = mapped.get(thread.threadId);
-        if (existing) {
-          specs.push(existing);
-          continue;
-        }
-        const range = resolveAnchor(view.state.doc, {
-          quotedText: thread.quotedText,
-          prefix: thread.prefix ?? undefined,
-          suffix: thread.suffix ?? undefined,
-          startOffset: thread.startOffset ?? undefined,
-        });
-        if (range) {
-          specs.push({
-            threadId: thread.threadId,
-            from: range.from,
-            to: range.to,
-          });
-        }
-      }
+  const applyHighlights = useCallback(() => {
+    if (!editor || editor.isDestroyed) return;
+    const view = editor.view;
+    const current = commentHighlightKey.getState(view.state);
+    const mapped = new Map((current?.specs ?? []).map((s) => [s.threadId, s]));
+    const specs: CommentHighlightSpec[] = [];
+    if (!showCommentIndicators) {
       setCommentHighlights(view, {
         specs,
         pending: pendingHighlight ?? null,
         activeId: activeThreadId ?? null,
         hoveredId: hoveredThreadId ?? null,
       });
-    },
-    [
-      activeThreadId,
-      editor,
-      hoveredThreadId,
-      pendingHighlight,
-      showCommentIndicators,
-    ],
-  );
+      return;
+    }
+    for (const thread of threadsRef.current ?? []) {
+      if (thread.resolved) continue;
+      const existing = mapped.get(thread.threadId);
+      // A highlight stands for the quote it was resolved from, so only a
+      // thread's own new quote, such as the one an accepted edit re-anchors
+      // to, replaces it. Re-resolving an unchanged quote can pick another
+      // copy of its text once edits leave its stored context behind; the
+      // highlight plugin follows the text through edits and swaps instead.
+      const anchor = threadAnchor(thread);
+      const quote = JSON.stringify(anchor);
+      if (
+        existing &&
+        resolvedQuotesRef.current.get(thread.threadId) === quote
+      ) {
+        specs.push(existing);
+        continue;
+      }
+      const block = threadCommentBlock(view.state.doc, thread);
+      const range = block
+        ? {
+            from: block.pos,
+            to: block.pos + block.nodeSize,
+            blockId: block.blockId,
+          }
+        : thread.block
+          ? null
+          : resolveAnchor(view.state.doc, anchor);
+      if (range) {
+        resolvedQuotesRef.current.set(thread.threadId, quote);
+        specs.push({ threadId: thread.threadId, ...range });
+      } else if (existing) {
+        // An edit to the quoted text, such as an accepted suggestion, can
+        // reach the editor before the thread's re-anchored quote does.
+        specs.push(existing);
+      }
+    }
+    setCommentHighlights(view, {
+      specs,
+      pending: pendingHighlight ?? null,
+      activeId: activeThreadId ?? null,
+      hoveredId: hoveredThreadId ?? null,
+    });
+  }, [
+    activeThreadId,
+    editor,
+    hoveredThreadId,
+    pendingHighlight,
+    showCommentIndicators,
+  ]);
 
   const applyRef = useRef(applyHighlights);
   applyRef.current = applyHighlights;
-  // Coalesce with a macrotask rather than requestAnimationFrame: rAF is throttled
-  // in background/unfocused tabs, which would stall highlight updates whenever
-  // the document isn't the foreground tab.
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const scheduleApply = useCallback((force: boolean) => {
+  const scheduleApply = useCallback(() => {
     clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => applyRef.current(force), 0);
+    timerRef.current = setTimeout(() => applyRef.current(), 0);
   }, []);
   useEffect(() => () => clearTimeout(timerRef.current), []);
 
-  // Establish highlights when the thread set changes. The collaborative doc
-  // seeds asynchronously AND the seed is applied with `emitUpdate: false`, so we
-  // can neither resolve once on mount (the doc may still be empty) nor rely on
-  // an editor "update" event firing. Instead poll on a short interval, keeping
-  // already-tracked ranges and filling in missing ones each pass, until every
-  // open thread is established (or we give up after a few seconds for anchors
-  // whose text no longer exists). Idempotent once everything is in place.
-  useEffect(() => {
+  // Before paint: a thread's card can render under a new id, as an optimistic
+  // thread is saved, and anything that finds the card's highlight by that id
+  // misses it until this runs.
+  useLayoutEffect(() => {
     if (!editor || editor.isDestroyed) return;
     let stopped = false;
     let attempts = 0;
-    let timer: ReturnType<typeof setTimeout>;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const tick = () => {
       if (stopped || editor.isDestroyed) return;
-      applyRef.current(false);
+      applyRef.current();
       attempts += 1;
       const present = new Set(
         (commentHighlightKey.getState(editor.view.state)?.specs ?? []).map(
@@ -4102,30 +4876,26 @@ export function VisualEditor({
         .every((t) => present.has(t.threadId));
       if (!allPresent && attempts < 25) timer = setTimeout(tick, 150);
     };
-    timer = setTimeout(tick, 0);
+    tick();
     return () => {
       stopped = true;
       clearTimeout(timer);
     };
   }, [editor, threadsSignature]);
 
-  // Active card / pending selection just update the existing highlights.
+  // Loaded content can bring a quote that was not in the document before.
   useEffect(() => {
-    scheduleApply(false);
+    scheduleApply();
   }, [
     activeThreadId,
+    content,
+    contentUpdatedAt,
     editor,
     hoveredThreadId,
     pendingKey,
     scheduleApply,
     showCommentIndicators,
   ]);
-
-  // Re-resolve from scratch when the loaded content changes wholesale (an agent
-  // edit / Notion pull replaces the document body).
-  useEffect(() => {
-    scheduleApply(true);
-  }, [editor, scheduleApply, content, contentUpdatedAt]);
 
   const suggestionsSignature = useMemo(
     () =>
@@ -4137,45 +4907,208 @@ export function VisualEditor({
         .join("|"),
     [suggestions],
   );
+  const applySuggestionsRef = useRef<
+    ((report?: boolean, transaction?: Transaction) => void) | null
+  >(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!editor || editor.isDestroyed) return;
-    const apply = () => {
+    const apply = (report = true, transaction?: Transaction) => {
       if (editor.isDestroyed) return;
+      const drafting = suggesting && editable;
+      // The Page redraws the author's drafts a frame or two after their
+      // typing, and until then the highlight plugin moves the drafts along
+      // with it. Undo puts the original words back, so it waits instead.
+      const typed =
+        drafting && !transaction?.getMeta("history$")
+          ? (suggestionHighlightKey.getState(editor.state)?.specs ?? [])
+          : [];
+      const sent = sentContentRef.current.get(editor.state.doc);
+      let lagging = !!transaction || (sent !== undefined && sent !== content);
       const specs = suggestions
-        .map((suggestion) =>
-          suggestionHighlightSpec(editor.state.doc, suggestion),
-        )
+        .map((suggestion) => {
+          const spec = suggestionHighlightSpec(editor.state.doc, suggestion);
+          if (!spec && drafting && suggestion.presentation === "draft") {
+            lagging = true;
+            return (
+              typed.find(
+                (held) => held.draft && held.suggestionId === suggestion.id,
+              ) ?? null
+            );
+          }
+          // While suggesting, a saved suggestion's text outside the document
+          // is somewhere to type beside, not a control to focus.
+          return spec &&
+            suggesting &&
+            editable &&
+            suggestion.presentation === "canonical"
+            ? { ...spec, editableBoundary: true }
+            : spec;
+        })
         .filter((spec): spec is SuggestionHighlightSpec => spec !== null);
-      onSuggestionAnchorsChange?.(
-        Array.from(new Set(specs.map((spec) => spec.suggestionId))),
-      );
-      const visibleSpecs = showCommentIndicators ? specs : [];
+      if (lagging) specs.push(...typed.filter(isProvisionalDraftSpec));
+      if (report)
+        onSuggestionAnchorsChange?.(
+          Array.from(
+            new Set(
+              specs
+                .filter((spec) => !isProvisionalDraftSpec(spec))
+                .map((spec) => spec.suggestionId),
+            ),
+          ),
+        );
+      // A decision that's saving keeps its words drawn and held either way.
+      const visibleSpecs = showCommentIndicators
+        ? specs
+        : specs.filter((spec) => spec.settling || spec.frozen);
       const selection = pendingNativeSuggestionSelection(
         editor.view,
         visibleSpecs,
       );
       setSuggestionHighlights(
         editor.view,
-        { specs: visibleSpecs, activeId: activeSuggestionId ?? null },
+        {
+          specs: visibleSpecs,
+          activeId: activeSuggestionId ?? null,
+          drafting,
+        },
         selection.status === "mapped" ? selection.selection : undefined,
       );
     };
-    const onTransaction = ({ transaction }: { transaction: Transaction }) => {
-      if (transaction.docChanged) apply();
-    };
+    applySuggestionsRef.current = apply;
     apply();
+    return () => {
+      applySuggestionsRef.current = null;
+    };
+  }, [
+    activeSuggestionId,
+    content,
+    editable,
+    editor,
+    onSuggestionAnchorsChange,
+    suggesting,
+    suggestions,
+    suggestionsSignature,
+    showCommentIndicators,
+  ]);
+
+  useLayoutEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    // Prop updates must not move reconciliation behind other transaction consumers.
+    const onTransaction = ({ transaction }: { transaction: Transaction }) => {
+      // While suggesting, the draft reaches the parent a tick after the doc
+      // changes, so these are the previous draft's suggestions; reporting
+      // their anchors would mark text the author is typing as unplaced.
+      // Collaboration redraws an identical Page when the editor's plugins
+      // change, and the highlight plugin keeps its highlights for that.
+      if (transaction.docChanged && !transaction.before.eq(transaction.doc))
+        applySuggestionsRef.current?.(!suggestingRef.current, transaction);
+    };
     editor.on("transaction", onTransaction);
     return () => {
       editor.off("transaction", onTransaction);
     };
+  }, [editor]);
+
+  // Callers build the readbacks inline and render again on every report, so
+  // these checks key on the readbacks' fields and report each divergent body
+  // once: keyed on the objects, each report re-runs its check until React
+  // aborts the render.
+  const acceptedReadbackId = acceptedDecisionReadback?.id ?? null;
+  const acceptedReadbackContent = acceptedDecisionReadback?.content ?? null;
+  useLayoutEffect(() => {
+    if (
+      !editor ||
+      editor.isDestroyed ||
+      acceptedReadbackId === null ||
+      acceptedReadbackContent === null
+    )
+      return;
+    const settlingSuggestion = suggestions.find(
+      (suggestion) => suggestion.id === acceptedReadbackId,
+    );
+    if (!settlingSuggestion) return;
+    let reported: string | null = null;
+    const check = () => {
+      if (editor.isDestroyed) return;
+      const actualContent = docToNfm(editor.getJSON() as any);
+      if (
+        acceptedSuggestionRendered(
+          actualContent,
+          acceptedReadbackContent,
+          settlingSuggestion,
+        )
+      ) {
+        onAcceptedDecisionRendered?.(acceptedReadbackId);
+      } else if (
+        actualContent !== reported &&
+        acceptedSuggestionReadbackOutdated(
+          actualContent,
+          acceptedReadbackContent,
+          settlingSuggestion,
+        )
+      ) {
+        reported = actualContent;
+        onAcceptedDecisionReadbackOutdated?.(acceptedReadbackId, actualContent);
+      }
+    };
+    editor.on("transaction", check);
+    check();
+    return () => {
+      editor.off("transaction", check);
+    };
   }, [
-    activeSuggestionId,
+    acceptedReadbackContent,
+    acceptedReadbackId,
     editor,
-    onSuggestionAnchorsChange,
+    onAcceptedDecisionRendered,
+    onAcceptedDecisionReadbackOutdated,
     suggestions,
-    suggestionsSignature,
-    showCommentIndicators,
+  ]);
+
+  const proposalReadbackGeneration =
+    proposalDecisionReadback?.generation ?? null;
+  const proposalReadbackContent = proposalDecisionReadback?.content ?? null;
+  const proposalReadbackBefore =
+    proposalDecisionReadback?.beforeContent ?? null;
+  useLayoutEffect(() => {
+    if (
+      !editor ||
+      editor.isDestroyed ||
+      proposalReadbackGeneration === null ||
+      proposalReadbackContent === null ||
+      proposalReadbackBefore === null
+    )
+      return;
+    let reported: string | null = null;
+    const check = () => {
+      if (editor.isDestroyed) return;
+      const actual = canonicalizeNfm(docToNfm(editor.getJSON() as any));
+      if (actual === canonicalizeNfm(proposalReadbackContent))
+        onProposalDecisionRendered?.(proposalReadbackGeneration);
+      else if (
+        actual !== reported &&
+        actual !== canonicalizeNfm(proposalReadbackBefore)
+      ) {
+        reported = actual;
+        onProposalDecisionReadbackOutdated?.(
+          proposalReadbackGeneration,
+          actual,
+        );
+      }
+    };
+    editor.on("transaction", check);
+    check();
+    return () => {
+      editor.off("transaction", check);
+    };
+  }, [
+    editor,
+    onProposalDecisionReadbackOutdated,
+    onProposalDecisionRendered,
+    proposalReadbackBefore,
+    proposalReadbackContent,
+    proposalReadbackGeneration,
   ]);
 
   useEffect(() => {
@@ -4205,10 +5138,11 @@ export function VisualEditor({
       if (!editor.isDestroyed) {
         editor.view.dispatch(editor.state.tr.setSelection(selection!));
         editor.view.focus();
+        onInitialSelectionApplied?.(initialSelection);
       }
     });
     return () => cancelAnimationFrame(frame);
-  }, [editable, editor, initialSelection]);
+  }, [editable, editor, initialSelection, onInitialSelectionApplied]);
 
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
@@ -4236,10 +5170,8 @@ export function VisualEditor({
         onActivateSuggestionRef.current?.(suggestion.dataset.suggestionId);
         return;
       }
-      const comment = target?.closest<HTMLElement>("[data-comment-thread]");
-      if (comment?.dataset.commentThread) {
-        onActivateThreadRef.current?.(comment.dataset.commentThread);
-      }
+      const threadId = commentThreadAt(target, activeThreadIdRef.current);
+      if (threadId) onActivateThreadRef.current?.(threadId);
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Enter" && event.key !== " ") return;
@@ -4285,13 +5217,21 @@ export function VisualEditor({
   }, [editor]);
 
   if (!editor) {
-    return (
+    const skeleton = (
       <div className="flex flex-col gap-3 px-8 py-6 animate-pulse">
         <div className="h-4 w-2/3 rounded bg-muted" />
         <div className="h-4 w-full rounded bg-muted" />
         <div className="h-4 w-5/6 rounded bg-muted" />
         <div className="h-4 w-3/4 rounded bg-muted" />
       </div>
+    );
+    return (
+      <WidgetLoadDiagnostic
+        active={widgetDiagnosticsActive}
+        stage={t("editor.widgetEditorInitStage")}
+        action="VisualEditor.useEditor"
+        fallback={skeleton}
+      />
     );
   }
 
@@ -4308,12 +5248,16 @@ export function VisualEditor({
       />
       {editable ? (
         <BubbleToolbar editor={editor} onComment={onComment} />
+      ) : onComment ? (
+        <ReadOnlyCommentBubble editor={editor} onComment={onComment} />
       ) : null}
       {editable ? (
         <SlashCommandMenu
           editor={editor}
           documentId={documentId}
+          contentSpaceId={contentSpaceId}
           suggesting={suggesting}
+          directoryWidgetEditing={directoryWidgetEditing}
           notionPageId={notionPageId}
           onDraftCommitted={() =>
             Promise.resolve(
@@ -4332,7 +5276,10 @@ export function VisualEditor({
         />
       ) : null}
       <LinkHoverPreview editor={editor} editable={editable} />
-      {editable ? <TableHoverControls editor={editor} /> : null}
+      {editable && !suggesting ? <TableHoverControls editor={editor} /> : null}
+      {editable ? (
+        <BlockActionsMenu editor={editor} tableOptions={!suggesting} />
+      ) : null}
       {editable && isDraggingMedia ? (
         <div className="media-drop-overlay">
           <div className="media-drop-overlay__content">
@@ -4343,12 +5290,41 @@ export function VisualEditor({
           </div>
         </div>
       ) : null}
+      <FileStorageStatusGate
+        status={fileUploadStatus}
+        open={isFileStorageSetupOpen}
+        onOpenChange={handleFileStorageSetupOpenChange}
+      />
       <RegistryBlockDataProvider value={registryBlockDataValue}>
-        <EditorContent editor={editor} />
+        {showStoredBody ? (
+          <StaticDocumentBody
+            schema={editor.schema}
+            content={content}
+            documentId={referenceDepth ? undefined : documentId}
+          />
+        ) : null}
+        <EditorContent editor={editor} hidden={showStoredBody} />
       </RegistryBlockDataProvider>
+      {collabState.initialSeedFailed ? (
+        <div
+          role="alert"
+          className="flex items-center gap-2 px-4 py-2 text-sm text-destructive"
+        >
+          <span>{t("empty.genericError")}</span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={collabState.retryInitialSeed}
+          >
+            {t("comments.retry")}
+          </Button>
+        </div>
+      ) : null}
       <input
         ref={imageFileInputRef}
         type="file"
+        disabled={!fileStorageConfigured}
         className="hidden"
         tabIndex={-1}
         aria-hidden="true"

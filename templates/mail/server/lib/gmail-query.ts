@@ -6,9 +6,6 @@ import { isSelfAddressedThread } from "@shared/self-notes.js";
 import type { EmailMessage } from "@shared/types.js";
 
 export const VIEW_QUERIES: Record<string, string> = {
-  // Keep sent replies in a matching Gmail thread. The local thread filter
-  // below excludes sent-only threads while preserving received inbox threads
-  // whose latest message was sent by the user.
   inbox: "in:inbox",
   unread: "is:unread in:inbox",
   starred: "is:starred",
@@ -58,8 +55,6 @@ function viewSearchClauseForLabelTab(view: string, label: string): string {
     return VIEW_QUERIES[view] ?? "";
   }
   if (view === "inbox" && label.toLowerCase() === "note-to-self") {
-    // Self-sent notes can carry both INBOX and SENT. Keep them in this inbox
-    // tab while still excluding sent-only/archive-only results.
     return "in:inbox";
   }
   return VIEW_QUERIES[view] ?? `label:${view}`;

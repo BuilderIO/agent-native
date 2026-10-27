@@ -4,8 +4,6 @@ const mockSetResponseStatus = vi.hoisted(() => vi.fn());
 const mockRun = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core", () => ({
-  // Mirrors the real duck-typed predicate so the route is exercised the way
-  // the action transport tags a `fail()`.
   isActionContractError: (error: unknown) =>
     !!error &&
     typeof error === "object" &&
@@ -73,10 +71,6 @@ describe("slides html export route", () => {
     });
   });
 
-  // 403 rather than 401 on purpose: the route's own auth gate returns 401
-  // before the action runs (covered below), so a 401 here would prove nothing
-  // about production. 403 also has no legacy message fallback, so passing this
-  // means the contract branch did the work, not the "Deck not found" prefix.
   it("preserves a contract status that has no legacy message fallback", async () => {
     mockRun.mockRejectedValue(
       contractError("Requires editor role on deck deck-1", "forbidden", 403),
@@ -116,7 +110,6 @@ describe("slides html export route", () => {
   });
 
   it("still maps an untyped legacy 'Deck not found' throw to 404", async () => {
-    // `native-creative-context` raises this bare; the prefix fallback covers it.
     mockRun.mockRejectedValue(new Error("Deck not found"));
 
     const result = await handler();

@@ -4,20 +4,17 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
 
 import { elementInfoFromCodeLayerNode } from "@/pages/design-editor/code-layer-state";
-import { readYjsUndoSelection } from "@/pages/design-editor/history";
+import {
+  readYjsUndoSelection,
+  type ContentHistoryChange,
+  type YjsUndoSelectionSnapshot,
+} from "@/pages/design-editor/history";
 import { prepareCanonicalSourceContent } from "@/pages/design-editor/source-publication";
 import type { DesignFile } from "@/pages/design-editor/types";
 
 import { runFrameSelection } from "./frame-selection";
 import { runGroupSelection } from "./group-selection";
 
-/**
- * Figma parity: Cmd+G on a single object (canGroup allows 1+, "Figma groups
- * a single object too") and Cmd+Alt+G on a single object both wrap it in a
- * container. Undoing that must restore the canvas/inspector selection to
- * the element that was wrapped, not clear it — group/frame are only a true
- * multi-select gesture (selectedElement: null) when 2+ nodes were selected.
- */
 const FIXTURE = `<body>
   <div data-agent-native-node-id="alpha" data-agent-native-layer-name="Alpha" style="position:absolute;left:20px;top:20px;width:100px;height:80px"></div>
 </body>`;
@@ -73,6 +70,7 @@ describe("runGroupSelection: single-layer Cmd+G undo selection restore", () => {
       codeLayerOwnerByNodeIdRef: { current: new Map() },
       contentHistorySelectionAfterRef: { current: new Map() },
       contentUndoStackRef: { current: [] },
+      localContentUndoStackRef: { current: [] },
       files: [activeFile],
       getFreshActiveContent: () => FIXTURE,
       overviewSelectedScreenIds: [],
@@ -90,6 +88,60 @@ describe("runGroupSelection: single-layer Cmd+G undo selection restore", () => {
       elementInfoFromCodeLayerNode(originalNode),
     );
     expect(stamped?.selectedLayerIds).toEqual([originalNode.id]);
+  });
+
+  it("stamps the grouped layer as the local fallback redo selection", () => {
+    const localContentUndoStackRef = {
+      current: [] as ContentHistoryChange[],
+    };
+    const applyLocalContentUpdate = vi.fn(
+      (
+        content: string,
+        options?: { selectionBefore?: YjsUndoSelectionSnapshot },
+      ) => {
+        const publication = acceptFixture(content);
+        localContentUndoStackRef.current.push({
+          fileId: activeFile.id,
+          before: FIXTURE,
+          after: publication.content,
+          selectionBefore: options?.selectionBefore,
+        });
+        return publication;
+      },
+    );
+    const originalNode = originalAlphaNode();
+
+    runGroupSelection({
+      activeFile,
+      applyLocalContentUpdate,
+      canEditDesign: true,
+      codeLayerOwnerByNodeIdRef: { current: new Map() },
+      contentHistorySelectionAfterRef: { current: new Map() },
+      contentUndoStackRef: { current: [] },
+      localContentUndoStackRef,
+      files: [activeFile],
+      getFreshActiveContent: () => FIXTURE,
+      overviewSelectedScreenIds: [],
+      selectedLayerIdsState: [originalNode.id],
+      sendRuntimeLayerSemanticHandoff: () => false,
+      setSelectedElement: vi.fn(),
+      setSelectedLayerIdsState: vi.fn(),
+      t: (key: string) => key,
+      undoManagerRef: { current: null },
+    } as unknown as Parameters<typeof runGroupSelection>[0]);
+
+    const entry = localContentUndoStackRef.current[0]!;
+    const wrapper = buildCodeLayerProjection(entry.after, {
+      source: { kind: "design-file", fileId: activeFile.id },
+    }).nodes.find(
+      (candidate) =>
+        candidate.dataAttributes["data-agent-native-group"] === "true",
+    );
+    expect(wrapper).toBeDefined();
+    expect(entry.selectionAfter).toEqual({
+      selectedElement: elementInfoFromCodeLayerNode(wrapper!),
+      selectedLayerIds: [wrapper!.id],
+    });
   });
 });
 
@@ -111,6 +163,7 @@ describe("runFrameSelection: single-layer Cmd+Alt+G undo selection restore", () 
       canEditDesign: true,
       contentHistorySelectionAfterRef: { current: new Map() },
       contentUndoStackRef: { current: [] },
+      localContentUndoStackRef: { current: [] },
       files: [activeFile],
       getFreshActiveContent: () => FIXTURE,
       overviewSelectedScreenIds: [],
@@ -128,16 +181,59 @@ describe("runFrameSelection: single-layer Cmd+Alt+G undo selection restore", () 
     );
     expect(stamped?.selectedLayerIds).toEqual([originalNode.id]);
   });
+
+  it("stamps the framed layer as the local fallback redo selection", () => {
+    const localContentUndoStackRef = {
+      current: [] as ContentHistoryChange[],
+    };
+    const applyLocalContentUpdate = vi.fn(
+      (
+        content: string,
+        options?: { selectionBefore?: YjsUndoSelectionSnapshot },
+      ) => {
+        const publication = acceptFixture(content);
+        localContentUndoStackRef.current.push({
+          fileId: activeFile.id,
+          before: FIXTURE,
+          after: publication.content,
+          selectionBefore: options?.selectionBefore,
+        });
+        return publication;
+      },
+    );
+    const originalNode = originalAlphaNode();
+
+    runFrameSelection({
+      activeFile,
+      applyLocalContentUpdate,
+      canEditDesign: true,
+      contentHistorySelectionAfterRef: { current: new Map() },
+      contentUndoStackRef: { current: [] },
+      localContentUndoStackRef,
+      files: [activeFile],
+      getFreshActiveContent: () => FIXTURE,
+      overviewSelectedScreenIds: [],
+      selectedLayerIdsState: [originalNode.id],
+      setSelectedElement: vi.fn(),
+      setSelectedLayerIdsState: vi.fn(),
+      t: (key: string) => key,
+      undoManagerRef: { current: null },
+    } as unknown as Parameters<typeof runFrameSelection>[0]);
+
+    const entry = localContentUndoStackRef.current[0]!;
+    const wrapper = buildCodeLayerProjection(entry.after, {
+      source: { kind: "design-file", fileId: activeFile.id },
+    }).nodes.find(
+      (candidate) => candidate.dataAttributes["data-an-primitive"] === "frame",
+    );
+    expect(wrapper).toBeDefined();
+    expect(entry.selectionAfter).toEqual({
+      selectedElement: elementInfoFromCodeLayerNode(wrapper!),
+      selectedLayerIds: [wrapper!.id],
+    });
+  });
 });
 
-/**
- * Figma parity: a true multi-select Cmd+G (2+ nodes) has no single canonical
- * element (selectedElement stays null, unlike the single-node case above),
- * but undo must still restore BOTH original layer ids so the group can be
- * undone back to its exact pre-group multi-selection — never an empty
- * selection. Regression coverage for the e2e "redo re-selects the group
- * Cmd+G produced, not the pre-group selection it undid back to" scenario.
- */
 const MULTI_FIXTURE = `<body>
   <div data-agent-native-node-id="box-a" data-agent-native-layer-name="Box A" style="position:absolute;left:20px;top:20px;width:100px;height:80px"></div>
   <div data-agent-native-node-id="box-b" data-agent-native-layer-name="Box B" style="position:absolute;left:140px;top:20px;width:100px;height:80px"></div>
@@ -179,6 +275,7 @@ describe("runGroupSelection: multi-layer Cmd+G undo selection restore", () => {
       codeLayerOwnerByNodeIdRef: { current: new Map() },
       contentHistorySelectionAfterRef: { current: new Map() },
       contentUndoStackRef: { current: [] },
+      localContentUndoStackRef: { current: [] },
       files: [multiActiveFile],
       getFreshActiveContent: () => MULTI_FIXTURE,
       overviewSelectedScreenIds: [],

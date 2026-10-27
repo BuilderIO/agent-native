@@ -50,11 +50,6 @@ const SLIDES_PITCH_MOCK_CSS = [
   ".slides-pitch-mock-prompt { display: flex; flex-direction: column; gap: 12px; padding: 16px 18px; border-radius: 8px; background: var(--pitch-prompt-bg); border: 1px solid var(--pitch-prompt-border); color: var(--pitch-fg); font-size: 16px; line-height: 1.5; }",
   ".slides-pitch-mock-attachment { display: inline-flex; align-self: flex-start; align-items: center; gap: 7px; padding: 6px 11px; border-radius: 999px; background: var(--pitch-chip-bg); color: var(--pitch-fg-muted); font-size: 13px; }",
 
-  // Hidden by default and revealed by adding slides-pitch-reveal-in once the
-  // card scrolls into view (see the IntersectionObserver in the component).
-  // The two fallbacks below keep it from ever being stuck invisible:
-  // scripting:none covers no-JS, and reduced-motion covers visitors who asked
-  // not to see things move — both just show the end state immediately.
   ".slides-pitch-mock-response { display: flex; flex-direction: column; gap: 16px; opacity: 0; filter: blur(8px); transform: translateY(16px); transition: opacity 0.7s cubic-bezier(0.5, 1, 0.89, 1), filter 0.7s cubic-bezier(0.5, 1, 0.89, 1), transform 0.7s cubic-bezier(0.5, 1, 0.89, 1); }",
   ".slides-pitch-mock-response.slides-pitch-reveal-in { opacity: 1; filter: blur(0); transform: translateY(0); }",
   "@media (scripting: none) { .slides-pitch-mock-response { opacity: 1; filter: none; transform: none; } }",
@@ -72,11 +67,6 @@ const SLIDES_PITCH_MOCK_CSS = [
 
   SLIDE_ARTWORK_CSS,
 
-  // The strip is three fixed-size slides side by side, so its zoom steps down
-  // with the card: the use-case row narrows its media cell long before the page
-  // is anywhere near mobile. Each step is the largest zoom that still clears
-  // the card padding at the top of its band. Stays after the artwork CSS so it
-  // wins on source order.
   "@media (max-width: 1320px) { .slides-pitch-mock-strip { --sd-scale: 0.14; } }",
   "@media (max-width: 560px) { .slides-pitch-mock-frame { padding: 22px; } .slides-pitch-mock-strip { --sd-scale: 0.115; gap: 8px; } }",
   "@media (max-width: 440px) { .slides-pitch-mock-strip { --sd-scale: 0.095; } }",

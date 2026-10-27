@@ -1,11 +1,31 @@
 export {
+  readComposerWebsiteSource,
+  type ComposerWebsiteExtraction,
+} from "./composer-website-source.js";
+export {
+  isAgentKitFigmaSourceAvailable,
+  listAgentKitCapabilities,
+  readAgentKitIntegrationIntent,
+  type AgentKitCapabilityAppId,
+  type AgentKitCapabilityCatalog,
+  type AgentKitIntegrationCapability,
+} from "../agentkit/capabilities.js";
+export {
   defineAppConfig,
   getAppConfig,
+  resolveAppHomePath,
   resetAppConfigForTests,
+  resolveClipsHostedStorageConfig,
+  resolveHostedStorageConfig,
   appConfigSchema,
   type AppConfig,
   type AppConfigInput,
+  type ClipsHostedStorageConfig,
+  type ResolvedClipsHostedStorageConfig,
 } from "../app-config/index.js";
+export { platformWaitUntil } from "./background-work.js";
+export { resolveDeployEnvironment } from "./deploy-environment.js";
+export { isTestIdentity, testIdentitySql } from "./test-identity.js";
 export {
   inferWorkspaceAppRootHomePath,
   readConfiguredWorkspaceAppHomePath,
@@ -72,12 +92,16 @@ export {
   type VerifyEmbedSessionTokenResult,
 } from "./embed-session.js";
 export { createSSEHandler, type SSEHandlerOptions } from "./sse.js";
+export { isCredentialMembershipUnavailable } from "./credential-membership-unavailable.js";
+export { readOrgMemberRole } from "./personal-provider-key-policy.js";
 export {
   mountAuthMiddleware,
   autoMountAuth,
   registerAuthPublicPaths,
   getSession,
+  isSessionResolutionUnavailable,
   getMcpOAuthBearerSession,
+  logout,
   COOKIE_NAME,
   addSession,
   removeSession,
@@ -117,6 +141,7 @@ export {
 export {
   createBetterAuthSessionForEmail,
   ensureGoogleAuthIdentity,
+  getBetterAuthUserIdForEmail,
   hasGoogleAuthIdentity,
   setBetterAuthSessionCookie,
 } from "./better-auth-instance.js";
@@ -164,15 +189,49 @@ export type { AgentActionScope } from "../agent/types.js";
 export {
   actionsToEngineTools,
   executeAgentToolCall,
+  filterInitialEngineTools,
+  getJevContextCredentials,
   getOwnerActiveApiKey,
   getOwnerApiKeyForEngine,
+  getOwnerJevApiKey,
   resolveOwnerEngineApiKey,
   runAgentLoop,
   type AgentToolCallExecutionResult,
   type ExecuteAgentToolCallOptions,
+  type JevContextCredentials,
   type ResolvedOwnerApiKey,
 } from "../agent/production-agent.js";
-export { getRunStatus, getRunTurnRef } from "../agent/run-store.js";
+export { approvalKeyWithArguments } from "../agent/approval-key.js";
+export {
+  persistAgentTurnToThread,
+  type PersistAgentTurnToThreadInput,
+} from "../agent/persist-agent-turn.js";
+export {
+  isJevEnabled,
+  requestJevThroughBuilder,
+  type JevResponse,
+} from "../agent/jev-tool-prefetch.js";
+export { decide, getDecisionsStatus } from "../decisions/decide.js";
+export type {
+  DecideOptions,
+  DecideResult,
+  DecisionAnswer,
+  DecisionFailureReason,
+  DecisionInput,
+  DecisionInputPart,
+  DecisionProvider,
+  DecisionQuestion,
+  DecisionResult,
+  DecisionsStatus,
+} from "../decisions/types.js";
+export {
+  getCurrentTurnRunEventsForThread,
+  getCurrentTurnRunIdsForThread,
+  getRunStatus,
+  getRunTurnRef,
+  type CurrentTurnRunEvent,
+} from "../agent/run-store.js";
+export { callerHasThreadAccess } from "../agent/run-ownership.js";
 export { getActiveRunForThreadAsync } from "../agent/run-manager.js";
 export {
   mountRealtimeVoiceRoutes,
@@ -219,6 +278,10 @@ export {
 } from "./better-auth-migrations.js";
 export { runFrameworkReleaseMigrations } from "./release-migrations.js";
 export {
+  runAppReleaseMigrations,
+  type AppReleaseMigrationResult,
+} from "./app-release-migrations.js";
+export {
   initServerSentry,
   isServerSentryEnabled,
   setSentryUserForRequest,
@@ -233,9 +296,6 @@ export {
   type CaptureErrorProvider,
 } from "./capture-error.js";
 export { createSentryPlugin, defaultSentryPlugin } from "./sentry-plugin.js";
-// Re-export the org plugin so the auto-discovery's DEFAULT_PLUGIN_REGISTRY
-// (which references "defaultOrgPlugin" from @agent-native/core/server) can
-// resolve it during the deploy build worker-entry generation.
 export { createOrgPlugin, defaultOrgPlugin } from "../org/plugin.js";
 export {
   createFeatureFlagA2AActionRouteAuth,
@@ -259,9 +319,20 @@ export type { GoogleAuthMode } from "./google-auth-mode.js";
 export {
   createAgentChatPlugin,
   defaultAgentChatPlugin,
-  refreshGlobalMcpManager,
+  loadResourcesForPrompt,
   type AgentChatPluginOptions,
 } from "./agent-chat-plugin.js";
+export type {
+  AgentChatAdditionalActionsDetails,
+  AgentChatAdditionalActionsExternalSurface,
+  AgentChatAdditionalActionsSurface,
+  ResolveAgentChatAdditionalActions,
+} from "./agent-chat/additional-actions.js";
+export {
+  buildFrameworkPrompts,
+  generateActionsPrompt,
+} from "./agent-chat/framework-prompts.js";
+export { refreshMcpManagerForPrincipal } from "./agent-chat/mcp-glue.js";
 export {
   AGENT_CHAT_STREAM_PATH,
   AGENT_CHAT_STREAM_TOKEN_SUFFIX,
@@ -297,8 +368,11 @@ export {
   setThreadPinned,
   setThreadScope,
   type ChatThread,
+  type ChatThreadAccessBasis,
+  type ChatThreadOwnership,
   type ChatThreadScope,
   type ChatThreadSummary,
+  type ChatThreadListRow,
   type ListThreadsOptions,
 } from "../chat-threads/store.js";
 export {
@@ -335,7 +409,9 @@ export {
   createAgentNativeOgImageHandler,
   renderAgentNativeOgImagePng,
   renderAgentNativeOgImageSvg,
+  stageOgImageResponseHeaders,
   type AgentNativeOgImageInput,
+  type AgentNativeOgImagePresentation,
 } from "./social-og-image.js";
 export { AGENT_NATIVE_OG_BACKGROUND_DATA_URL } from "./og-background-data.js";
 export { OG_FONT_FAMILY, resolveOgFontFiles } from "./og-fonts.js";
@@ -419,6 +495,8 @@ export {
 export {
   fireInternalDispatch,
   resolveSelfDispatchBaseUrl,
+  SelfDispatchHttpError,
+  SelfDispatchNetworkError,
   type FireInternalDispatchOptions,
 } from "./self-dispatch.js";
 export {
@@ -432,11 +510,6 @@ export {
   mergeCoreSharingActions,
   registerPackageActions,
 } from "./action-discovery.js";
-// A standalone `mountMCP` plugin has to compose the same action surface the
-// agent-chat plugin does. Without these, the only way to build one was to
-// hand-roll a copy — which is how a template ends up with a `tool-search` that
-// drifts from the framework's, and an MCP mount that silently ignores
-// `frameworkTools`.
 export {
   attachToolSearch,
   createToolSearchEntry,
@@ -454,6 +527,7 @@ export {
   type ResolvedFrameworkTools,
 } from "../framework-tools.js";
 export {
+  buildCompactSkillsSummary,
   registerPromptContextProvider,
   type PromptContextProvider,
   type PromptContextProviderContext,
@@ -467,6 +541,7 @@ export {
 } from "./action-routes.js";
 export {
   AGENT_RUN_OWNER_CONTEXT_KEY,
+  readBrowserSessionIdHeader,
   seedAgentRunOwnerContext,
   type AgentRunOwnerContext,
 } from "./agent-run-context.js";
@@ -487,6 +562,10 @@ export {
   type RequestContext,
   type RequestRunContext,
 } from "./request-context.js";
+export {
+  loadFirstRunBuilderCreditsV2Assignment,
+  recordFirstRunBuilderCreditsV2Exposure,
+} from "../onboarding/first-run-builder-credits-experiment.js";
 export { formatDateInTimezone, todayInTimezone } from "./date-utils.js";
 
 export {
@@ -571,6 +650,7 @@ export {
   type OAuthOwnerResult,
   type OAuthSessionResult,
 } from "./google-oauth.js";
+export { queryEchoSafeRedirect } from "./query-echo-safe-redirect.js";
 
 export {
   buildWorkspaceProviderAuthorizationUrl,
@@ -595,21 +675,20 @@ export {
   isBuilderEnvManaged,
   getBuilderProxyOrigin,
   getBuilderImageGenerationBaseUrl,
+  getBuilderEmbeddingsBaseUrl,
+  getBuilderVideoGenerationBaseUrl,
   getBuilderWebSearchBaseUrl,
   getBuilderAuthHeader,
   resolveBuilderPrivateKey,
   resolveBuilderAuthHeader,
+  registerDelegatedBuilderCredentials,
+  type DelegatedBuilderCredentials,
   resolveHasBuilderPrivateKey,
   resolveHasCompleteBuilderConnection,
   resolveBuilderCredentials,
   resolveBuilderCredentialsDetailed,
-  // Gateway lane, for the metered surfaces a deployed site can call without an
-  // identity — image and video generation, realtime transcription. Falls
-  // through to the identity credential first, so a consumer moves lane by
-  // swapping the resolver and changing nothing else.
   resolveBuilderGatewayCredentialsDetailed,
   resolveBuilderGatewayAuth,
-  // Deprecated: kept only for external callers built against the old export.
   resolveBuilderGatewayCredentials,
   resolveHasBuilderGatewayCredential,
   resolveBuilderCredentialSource,
@@ -619,34 +698,96 @@ export {
   writeBuilderCredentials,
   deleteBuilderCredentials,
   resolveSecret,
+  resolveSecretDetailed,
+  prefetchSecrets,
+  BuilderCredentialLookupError,
   type BuilderCredentialsDetailed,
+  type ResolvedSecretDetail,
 } from "./credential-provider.js";
+export {
+  GEMINI_API_KEY,
+  LEGACY_GEMINI_API_KEY,
+  canonicalSecretKey,
+  readGeminiDeployCredentialEnv,
+  resolveGeminiApiKey,
+  resolveGeminiApiKeyDetailed,
+  resolveSecretWithAliases,
+  resolveSecretWithAliasesDetailed,
+  secretKeyNames,
+  type ResolvedAliasedSecret,
+} from "./secret-key-aliases.js";
+export {
+  SERVICE_IDS,
+  SERVICE_PROVIDERS_SETTING_KEY,
+  SERVICE_PROVIDER_KEYS,
+  SERVICE_PROVIDER_OPTIONS,
+  isServiceProviderOption,
+  readServiceProviderChoice,
+  readServiceProviderSettings,
+  serviceProviderOrder,
+  writeServiceProviderChoice,
+  type ServiceId,
+  type ServiceProviderChoices,
+  type ServiceProviderId,
+  type ServiceProviderSettings,
+} from "./service-providers.js";
+export {
+  getInfrastructureStatus,
+  type InfrastructureApp,
+  type InfrastructureDatabase,
+  type InfrastructureDatabaseProvider,
+  type InfrastructureHosting,
+  type InfrastructureSetupTag,
+  type InfrastructureSetupTags,
+  type InfrastructureStatus,
+  type InfrastructureVariable,
+  type InfrastructureVariableKey,
+} from "./infrastructure-status.js";
+export {
+  resolveDeployPlatform,
+  type DeployPlatform,
+} from "./deploy-environment.js";
+export { isServerlessRuntime } from "../db/client.js";
 export {
   BUILDER_PUBLISH_MCP_RESOURCE,
   canAuthorizeBuilderApiRequest,
   hasBuilderApiCredentialCustody,
   resolveBuilderApiAuthorization,
+  resolveBuilderLegacyRequestAuthorization,
   resolveBuilderRequestAuthorization,
   type BuilderLegacyCredentialKey,
   type BuilderRequestAuthorization,
 } from "./builder-api-auth.js";
 export {
+  createFusionAgentFeed,
+  fusionStepToAgentChatEvents,
+  type FusionAgentFeedSummary,
+} from "./fusion-agent-feed.js";
+export {
   BUILDER_ASSETS_WRITE_SCOPE,
+  BUILDER_CONTENT_READ_SCOPE,
+  BUILDER_CONTENT_WRITE_SCOPE,
+  BUILDER_OAUTH_RESOURCE,
   BUILDER_OAUTH_SCOPE,
   type BuilderOAuthPermissionScope,
 } from "./builder-oauth.js";
 export {
+  assertBuilderDesignSystemCodeIndexingAllowed,
   builderDesignSystemUrl,
   builderProjectBranchUrl,
   buildBuilderDesignSystemIndexFiles,
   collectBuilderDesignSystemGitHubFiles,
   createBuilderDesignSystemProxyFields,
+  designSystemTierUpgradeUrl,
   fetchBuilderDesignSystemDecodeJobStatus,
   fetchBuilderDesignSystemDocs,
+  fetchBuilderDesignSystemDocumentCount,
   fetchBuilderDesignSystemRecord,
+  fetchBuilderDesignSystemTierLimit,
   getBuilderDesignSystemsBaseUrl,
   hydrateBuilderDesignSystemReference,
   indexBuilderDesignSystem,
+  isBuilderDesignSystemReadyByCount,
   localBuilderDesignSystemId,
   mimeTypeForBuilderDesignSystemFilename,
   parseBuilderDesignSystemProxyReference,
@@ -657,6 +798,7 @@ export {
   type BuilderDesignSystemDecodeJobStatus,
   type BuilderDesignSystemDocsOptions,
   type BuilderDesignSystemDocument,
+  type BuilderDesignSystemDocumentCountResult,
   type BuilderDesignSystemHydratedReference,
   type BuilderDesignSystemIndexFile,
   type BuilderDesignSystemIndexFromSourcesOptions,
@@ -664,6 +806,7 @@ export {
   type BuilderDesignSystemIndexResult,
   type BuilderDesignSystemRecord,
   type BuilderDesignSystemStatus,
+  type BuilderDesignSystemTierLimit,
   type BuilderDesignSystemGitHubFile,
   type BuilderDesignSystemGitHubFileCollection,
   type BuilderDesignSystemGitHubSource,
@@ -675,6 +818,7 @@ export {
   type BuilderDesignSystemSourceKind,
 } from "./builder-design-systems.js";
 export {
+  cdnSafeOriginStatus,
   createBuilderProject,
   ensureBuilderProject,
   findBuilderProjectForRepo,
@@ -683,6 +827,7 @@ export {
   requestBuilderBrowserConnection,
   resolveBuilderBranchProjectId,
   resolveIsBuilderBranchingEnabled,
+  normalizeBuilderAgentAttachments,
   runBuilderAgent,
   type BuilderAgentAttachment,
   type BuilderAgentUploadAttachment,
@@ -690,6 +835,21 @@ export {
   type BuilderProjectResult,
   type RunBuilderAgentResult,
 } from "./builder-browser.js";
+export {
+  BuilderBranchError,
+  getBuilderBranchStatus,
+  sendBuilderBranchMessage,
+  type BuilderBranchAgentState,
+  type BuilderBranchErrorCode,
+  type BuilderBranchOperation,
+  type BuilderBranchPrStatus,
+  type BuilderBranchRef,
+  type BuilderBranchState,
+  type BuilderBranchStatus,
+  type GetBuilderBranchStatusOptions,
+  type SendBuilderBranchMessageOptions,
+  type SendBuilderBranchMessageResult,
+} from "./builder-branch.js";
 export {
   ensureFusionContainer,
   sendFusionBranchMessage,
@@ -721,9 +881,19 @@ export {
   listTransactionalEmails,
   getTransactionalEmail,
   renderTransactionalEmailPreview,
+  renderTransactionalEmailPreviewAsync,
   type TransactionalEmailDefinition,
   type RegisteredTransactionalEmail,
 } from "../email-catalog/registry.js";
+export {
+  overrideTransactionalEmail,
+  removeTransactionalEmailOverride,
+  type CoreTransactionalEmailArgs,
+  type CoreTransactionalEmailId,
+  type CoreTransactionalEmailProps,
+  type TransactionalEmailOverride,
+  type TransactionalEmailOverrideResult,
+} from "../email-catalog/templates.js";
 export {
   notifyActivity,
   runActivityNotification,
@@ -737,16 +907,42 @@ export {
 export {
   renderEmail,
   emailStrong,
+  emailQuote,
   emailLink,
+  escapeEmailHtml,
+  type EmailTemplateApp,
   type RenderEmailArgs,
   type RenderedEmail,
   type EmailCta,
 } from "./email-template.js";
 export {
+  hasRecurringSweepHandler,
+  registerRecurringSweepHandler,
+  runRecurringSweepHandlers,
+  type RecurringSweepContext,
+  type RecurringSweepHandler,
+} from "../jobs/sweep-hooks.js";
+export {
+  hasJobRunner,
+  registerJobRunner,
+  type JobRunner,
+  type JobRunnerContext,
+  type JobRunnerResult,
+} from "../jobs/job-runner.js";
+export { shouldDisableInProcessSweeps } from "./sweep-runtime.js";
+export {
+  scheduledTriggerAvailability,
+  type ScheduledTriggerAvailability,
+} from "./agent-chat/recurring-jobs-runtime.js";
+export {
   getAppProductionUrl,
   getFirstPartyProdUrl,
   resolveAppRuntimeUrl,
 } from "./app-url.js";
+export {
+  getForwardedRequestOrigin,
+  getForwardedRequestURL,
+} from "./request-origin.js";
 export {
   getConfiguredAppBasePath,
   normalizeAppBasePath,
@@ -787,15 +983,15 @@ export {
   type BuildAgentReadableResourceDiscoveryOptions,
 } from "../shared/agent-readable-resource.js";
 
-// SSR handler is NOT re-exported here — it uses a virtual module
-// (virtual:react-router/server-build) that only exists at Vite dev/build time.
-// Including it in this barrel would break the esbuild CF Pages bundler.
-// Templates import directly: import { ssrHandler } from "@agent-native/core/server/ssr-handler"
+export {
+  registerObservabilityProvider,
+  type ObservabilityMeterProvider,
+  type ObservabilityProvider,
+  type ObservabilityTracerProvider,
+} from "../observability/otel-provider.js";
 
-// Nitro plugin helper — re-exported so templates don't need nitro as a direct dependency.
-// defineNitroPlugin is an identity function; this typed wrapper lets templates use it
-// without resolving `nitro/runtime` (which requires Nitro's virtual modules at runtime).
 export type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 export function defineNitroPlugin(def: NitroPluginDef): NitroPluginDef {
   return def;
 }
+export { appStateListKeysByKeySuffixPrefix } from "./application-state-maintenance.js";

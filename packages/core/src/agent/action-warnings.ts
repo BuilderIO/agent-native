@@ -23,18 +23,11 @@ import {
   type RequestRunContext,
 } from "../server/request-context.js";
 
-/**
- * `critical` means the operation probably broke something the user must hear
- * about now; `advisory` means worth mentioning, not worth alarming. Required so
- * a caller cannot get a downgrade by omission.
- */
 export type AgentWarningSeverity = "advisory" | "critical";
 
 export interface AgentWarning {
   severity: AgentWarningSeverity;
-  /** Stable machine-readable class, e.g. `org-cross-org-repoint`. */
   code: string;
-  /** One human sentence: what happened, the consequence, and the remedy. */
   message: string;
 }
 
@@ -44,16 +37,9 @@ function formatForConsole(warning: AgentWarning): string {
   return `[agent-native][${warning.severity}:${warning.code}] ${warning.message}`;
 }
 
-/**
- * Raise a warning for the agent to relay to the user. Safe to call from any
- * depth inside an action; no `ctx` needed.
- */
 export function warnAgent(warning: AgentWarning): void {
   const run = getRequestRunContext();
   if (!run) {
-    // No agent run to attach to (CLI, migration script, boot). A warning that
-    // reaches nobody is the exact failure this channel exists to fix, so the
-    // console stays the fallback home instead of the warning being dropped.
     console.warn(formatForConsole(warning));
     return;
   }
@@ -62,9 +48,6 @@ export function warnAgent(warning: AgentWarning): void {
     pendingWarnings.set(run, [warning]);
     return;
   }
-  // Dedupe only within what the next drain will emit: the same sentence twice in
-  // one tool result is noise, but the same warning from a later tool call is a
-  // second real operation the user still needs to hear about.
   if (
     pending.some(
       (existing) =>
@@ -76,7 +59,6 @@ export function warnAgent(warning: AgentWarning): void {
   pending.push(warning);
 }
 
-/** Take and clear the warnings raised so far in the current run. */
 export function drainAgentWarnings(): AgentWarning[] {
   const run = getRequestRunContext();
   if (!run) return [];
@@ -86,11 +68,6 @@ export function drainAgentWarnings(): AgentWarning[] {
   return pending;
 }
 
-/**
- * Render drained warnings as tagged blocks for a tool result. Never called with
- * an empty list by the loop, so an action that raises nothing leaves its result
- * byte-identical.
- */
 export function formatAgentWarningsForToolResult(
   warnings: AgentWarning[],
 ): string {

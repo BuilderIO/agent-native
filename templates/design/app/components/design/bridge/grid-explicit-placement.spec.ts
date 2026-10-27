@@ -422,7 +422,7 @@ describe("explicit grid placement repro", () => {
     await browser.close();
   });
 
-  it("preserves same-grid one-cell ranges written with end lines", async () => {
+  it("moves a same-grid one-cell range written with end lines into the cell past the line", async () => {
     const browser = await chromium.launch({ headless: true });
     const page = await browser.newPage({
       viewport: { width: 700, height: 500 },
@@ -464,14 +464,14 @@ describe("explicit grid placement repro", () => {
         column: getComputedStyle(node).gridColumn,
         row: getComputedStyle(node).gridRow,
       })),
-    ).toEqual({ parent: "grid", column: "3 / 4", row: "1 / 2" });
+    ).toEqual({ parent: "grid", column: "1 / 2", row: "3 / 4" });
     expect(
       await page.evaluate(
         () =>
           (window as Window & { __gridDrop?: { gridPlacement?: unknown } })
             .__gridDrop?.gridPlacement,
       ),
-    ).toBeUndefined();
+    ).toEqual({ column: 1, columnEnd: 2, row: 3, rowEnd: 4 });
     await browser.close();
   });
 
@@ -1145,8 +1145,15 @@ describe("explicit grid placement repro", () => {
             event.data.moves;
       });
     });
-    const target = await box(page, "#target");
-    await dragSelectedGroup(page, { x: target.x + 230, y: target.y + 110 });
+    const occupied = await box(page, "#occupied");
+    await dragSelectedGroup(page, {
+      x: occupied.x + occupied.width / 2,
+      y: occupied.y + occupied.height / 2,
+    });
+    const guide = await box(page, "[data-agent-native-insertion-guide]");
+    expect(guide.x).toBeCloseTo(occupied.x - 1, 0);
+    expect(guide.y).toBeCloseTo(occupied.y, 0);
+    expect(guide.height).toBeCloseTo(occupied.height, 0);
     await page.mouse.up();
     await expect
       .poll(() =>

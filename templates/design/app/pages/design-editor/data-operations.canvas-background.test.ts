@@ -19,6 +19,20 @@ describe("getDesignCanvasBackground", () => {
     expect(getDesignCanvasBackground({ canvasBackground: "red" })).toBe("red");
   });
 
+  it("accepts wide-gamut colours as written", () => {
+    expect(
+      getDesignCanvasBackground({ canvasBackground: "oklch(70% 0.3 150)" }),
+    ).toBe("oklch(70% 0.3 150)");
+    expect(
+      getDesignCanvasBackground({
+        canvasBackground: "color(display-p3 0.1 0.2 0.3)",
+      }),
+    ).toBe("color(display-p3 0.1 0.2 0.3)");
+    expect(
+      getDesignCanvasBackground({ canvasBackground: "oklch(70% 0.3)" }),
+    ).toBeNull();
+  });
+
   it("returns null when unset", () => {
     expect(getDesignCanvasBackground({})).toBeNull();
     expect(getDesignCanvasBackground(null)).toBeNull();
@@ -27,8 +41,6 @@ describe("getDesignCanvasBackground", () => {
   });
 
   it("rejects a non-colour string rather than trusting it", () => {
-    // This value is interpolated into a style attribute, so an arbitrary
-    // persisted string would be a CSS injection vector.
     expect(
       getDesignCanvasBackground({ canvasBackground: "red; position: fixed" }),
     ).toBeNull();
@@ -57,8 +69,6 @@ describe("sanitizeCanvasBackground", () => {
   });
 
   it("rejects the same injection shapes as the persisted reader", () => {
-    // The draft goes straight into a style attribute during the drag, so it
-    // needs the same gate as the stored value.
     expect(sanitizeCanvasBackground("red; position: fixed")).toBeNull();
     expect(sanitizeCanvasBackground("")).toBeNull();
     expect(sanitizeCanvasBackground(null)).toBeNull();

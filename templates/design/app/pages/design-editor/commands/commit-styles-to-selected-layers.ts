@@ -1,3 +1,4 @@
+import { keepsPixelGrid, roundGeometryStylesPx } from "@shared/canvas-math";
 import { buildCodeLayerProjection } from "@shared/code-layer";
 import { linkedComponentRootForNode } from "@shared/component-links";
 import type { InteractionState } from "@shared/interaction-states";
@@ -122,12 +123,22 @@ export function runCommitStylesToSelectedLayers(
   pendingUndoGestureId?: string,
 ) {
   if (!canEditDesign) return false;
-  const entries = Object.entries(styles).filter(
-    ([, value]) => value !== undefined,
+  const candidateTargets = targetsOverride ?? selectedLayerTargetsRef.current;
+  // One patch serves every target, so positions keep their precision only
+  // when every target sits in a block that leaves the pixel grid.
+  const offGrid = candidateTargets.every(
+    (target) =>
+      !keepsPixelGrid(target.elementInfo.positionContainingBlockTransform),
   );
+  const entries = Object.entries(
+    roundGeometryStylesPx(styles, {
+      containingBlockTransform: offGrid
+        ? candidateTargets[0]?.elementInfo.positionContainingBlockTransform
+        : undefined,
+    }),
+  ).filter(([, value]) => value !== undefined);
   if (entries.length === 0) return false;
   const effectiveLayerState = effectiveCodeLayerStateRef.current;
-  const candidateTargets = targetsOverride ?? selectedLayerTargetsRef.current;
   const targets = candidateTargets.filter(
     (target) =>
       !effectiveLayerState.lockedIds.has(target.fileId) &&
@@ -331,8 +342,6 @@ export function runCommitStylesToSelectedLayers(
         return;
       }
       entries.forEach(([property, value]) => {
-        // §6.4 — multi-selection commits route through the same
-        // class-vs-media breakpoint scoping as single-selection edits.
         const patch = applyScopedVisualStyleEdit({
           content: nextContent,
           target: { nodeId: node.id },
@@ -357,15 +366,6 @@ export function runCommitStylesToSelectedLayers(
       });
     });
     if (nextContent === baseContent) return;
-    // Multi-node commit — the change is NOT scoped to the currently
-    // selected element's subtree, so request the bridge's in-place
-    // FULL-document replace instead of `refreshPreview: true`'s srcdoc
-    // rebuild (real iframe reload, white flash — the same anti-pattern
-    // getPersistedContentHostSyncOptions' doc comment describes, and the
-    // same forcePreviewFullDocument routing undo/redo uses). Deliberately
-    // NOT the helper itself: this content is a client-authored edit that
-    // still must persist — the helper's `persist: false` would cancel the
-    // queued save and silently drop the commit.
     pendingWrites.push({ fileId, content: nextContent });
   });
 

@@ -7,12 +7,6 @@ import {
   type ColumnsData,
 } from "./columns.config.js";
 
-/**
- * Minimal `BlockAttrReader` over a plain attribute bag, mirroring the runtime
- * `createAttrReader` value-domain narrowing (string-vs-number-vs-object). Lets
- * the test assert the `toAttrs` → `fromAttrs` round-trip without spinning up the
- * full MDX serialize/parse pipeline.
- */
 function reader(attrs: Record<string, unknown>): BlockAttrReader {
   const read = (name: string) => attrs[name];
   return {
@@ -32,7 +26,6 @@ function reader(attrs: Record<string, unknown>): BlockAttrReader {
   };
 }
 
-/** Re-decode data from the attribute bag `toAttrs` produced. */
 function roundTrip(data: ColumnsData): ColumnsData {
   const attrs = columnsMdx.toAttrs(data) as Record<string, unknown>;
   return columnsMdx.fromAttrs(reader(attrs), "");

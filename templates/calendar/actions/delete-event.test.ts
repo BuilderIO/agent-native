@@ -24,7 +24,25 @@ vi.mock("../server/lib/event-guest-notifications.js", () => ({
   sendEventGuestNotificationNote: vi.fn(),
 }));
 
+import {
+  actionCallIntent,
+  preparedCallArguments,
+} from "@agent-native/core/action";
+
+import { createGoogleAccountEventId } from "../shared/google-calendar-sources";
 import action from "./delete-event";
+
+// Every caller's gate judges the call as prepared: validated, defaults
+// applied.
+async function gate(args: Record<string, unknown>) {
+  const needsApproval = action.needsApproval;
+  if (typeof needsApproval !== "function") {
+    throw new Error("expected a predicate");
+  }
+  const intent = await actionCallIntent(action, args);
+  if (!intent.valid) throw intent.error;
+  return needsApproval(preparedCallArguments(intent) as never);
+}
 
 describe("delete-event", () => {
   beforeEach(() => {
@@ -100,10 +118,28 @@ describe("delete-event", () => {
     expect(removeEventFromCalendarMock).not.toHaveBeenCalled();
   });
 
-  it("gates only a delete that reaches the guests", async () => {
-    const gate = action.needsApproval;
-    if (typeof gate !== "function") throw new Error("expected a predicate");
+  it("rejects an account that conflicts with the opaque event identity", async () => {
+    getAuthStatusMock.mockResolvedValue({
+      accounts: [{ email: "alpha@example.com" }, { email: "zulu@example.com" }],
+    });
+    const id = createGoogleAccountEventId({
+      accountEmail: "alpha@example.com",
+      googleEventId: "same-provider-id",
+    });
 
+    await expect(
+      action.run({
+        id,
+        accountEmail: "zulu@example.com",
+        scope: "single",
+      }),
+    ).rejects.toThrow("does not match");
+
+    expect(deleteEventMock).not.toHaveBeenCalled();
+    expect(removeEventFromCalendarMock).not.toHaveBeenCalled();
+  });
+
+  it("gates only a delete that reaches the guests", async () => {
     expect(await gate({ id: "google-a" } as never)).toBe(false);
     expect(await gate({ id: "google-a", sendUpdates: "none" } as never)).toBe(
       false,
@@ -114,11 +150,9 @@ describe("delete-event", () => {
     expect(
       await gate({ id: "google-a", notificationMessage: "Sorry!" } as never),
     ).toBe(true);
-    // A blank note sends no companion email, so it is not a reason to stop.
     expect(
       await gate({ id: "google-a", notificationMessage: "   " } as never),
     ).toBe(false);
-    // removeOnly forces sendUpdates to none, so no guest hears about it.
     expect(
       await gate({
         id: "google-a",

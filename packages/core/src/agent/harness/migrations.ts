@@ -3,7 +3,6 @@ import type { MigrationEntry } from "../../db/migrations.js";
 export const AGENT_HARNESS_SESSION_MIGRATIONS_TABLE =
   "_agent_harness_session_migrations";
 
-/** Authoritative release-time schema for persisted hosted harness sessions. */
 export const AGENT_HARNESS_SESSION_MIGRATIONS: MigrationEntry[] = [
   {
     version: 1,
@@ -43,9 +42,6 @@ export const AGENT_HARNESS_SESSION_MIGRATIONS: MigrationEntry[] = [
   {
     version: 3,
     name: "agent-harness-sessions-widen-millisecond-timestamps",
-    // Existing release migrations may have created these columns as Postgres
-    // int4 before the timestamp contract was widened. The type change is
-    // additive and keeps Date.now() values representable on those databases.
     sql: {
       postgres: `
         -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
@@ -66,6 +62,30 @@ export const AGENT_HARNESS_SESSION_MIGRATIONS: MigrationEntry[] = [
     sql: {
       postgres:
         "ALTER TABLE agent_harness_sessions ADD COLUMN IF NOT EXISTS generation BIGINT NOT NULL DEFAULT 0",
+    },
+  },
+  {
+    version: 5,
+    name: "agent-harness-sessions-follow-up-claim",
+    sql: {
+      postgres:
+        "ALTER TABLE agent_harness_sessions ADD COLUMN IF NOT EXISTS follow_up_claim_id TEXT",
+    },
+  },
+  {
+    version: 6,
+    name: "agent-harness-sessions-approval-resolution",
+    sql: {
+      postgres:
+        "ALTER TABLE agent_harness_sessions ADD COLUMN IF NOT EXISTS approval_resolution_id TEXT",
+    },
+  },
+  {
+    version: 7,
+    name: "agent-harness-sessions-expiry-cleanup",
+    sql: {
+      postgres:
+        "ALTER TABLE agent_harness_sessions ADD COLUMN IF NOT EXISTS expiry_cleanup_id TEXT",
     },
   },
 ];

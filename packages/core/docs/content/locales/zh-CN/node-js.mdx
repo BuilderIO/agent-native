@@ -1,17 +1,158 @@
 ---
 title: "Node.js"
-description: "Localized pointer to the the default Nitro Node.js server preset."
+description: "将独立的 Agent-Native 应用部署为由你自己运行的 Node.js 服务器。"
 ---
-
-<!-- i18n-docs-ignore -->
 
 # Node.js
 
-Read the [English Node.js guide](/docs/node-js) for the build steps and
-provider-specific production configuration.
+Node.js 是在生产环境中运行 Agent-Native 应用最简单的方式。构建会生成一个
+Node.js 服务器，同时提供应用的页面和 API。你可以在任何能运行 Node.js 的
+地方运行这个服务器，例如虚拟机、托管的 Node.js 主机，或者你自己的硬件。
 
-Use the generated app's `pnpm build` script for the build step.
+本指南将从零开始演示如何部署一个独立应用。你将创建应用，为它配置生产数据库和
+身份验证密钥，准备好数据库，然后构建并启动服务器。
 
-The deployment must use a persistent PostgreSQL database. Configure `DATABASE_URL`
-and `BETTER_AUTH_SECRET` in the provider environment. The Nitro preset is
-`node`.
+<Callout tone="info">
+
+需要 Node.js `22.22+`。
+
+</Callout>
+
+本指南中的每条命令都要在托管该应用的服务器上运行。如果使用虚拟机，通常需要先
+通过 SSH 连接到它。应用的文件夹、环境变量以及正在运行的服务器都位于那台机器上。
+
+## 第 1 步：创建应用 {#step-1-create-the-app}
+
+创建新的独立应用。下面的示例基于 Chat 模板创建应用，但你可以从任何模板开始。
+进入应用的文件夹并安装依赖。`corepack enable` 会启用应用所需的 `pnpm` 版本，
+因此你无需自己安装 `pnpm`。
+
+```bash
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
+```
+
+如果愿意，可以把 `my-app` 替换为你自己的应用名称。本指南的其余部分假定你位于
+应用的文件夹中。
+
+<Callout tone="info">
+
+如果这些命令因对等依赖错误而失败，原因可能是 npx 缓存中有过时的软件包副本。运行 `npx clear-npx-cache` 清除缓存，然后重新运行这些命令。
+
+</Callout>
+
+## 第 2 步：配置环境密钥 {#step-2-configure-environment-secrets}
+
+应用从环境变量中读取其生产设置：
+
+| 变量                 | 必填 | 用途                                 |
+| -------------------- | ---- | ------------------------------------ |
+| `DATABASE_URL`       | 是   | 将应用连接到它的 PostgreSQL 数据库   |
+| `BETTER_AUTH_SECRET` | 是   | 为用户会话签名                       |
+| `BETTER_AUTH_URL`    | 否   | 设置用户访问你的应用时使用的公共地址 |
+
+下面的 export 命令让后续命令能在当前 shell 中正常运行。部署之前，请把这些变量
+同样保存到主机的项目或服务环境设置中，这样服务器在重启或重新部署后仍然能获取它们。
+
+### 数据库 URL {#database-url}
+
+在本地开发期间，如果未设置 `DATABASE_URL`，应用会把数据存储在本地数据库中。
+已部署的应用需要一个真正的 PostgreSQL 数据库，在重启之间保留数据。从你的提供商
+处复制连接字符串并导出它：
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+[数据库提供商指南](/docs/neon)介绍了在每个提供商处查找连接字符串的位置。
+
+<Callout tone="warning">
+
+请选择持久的 PostgreSQL 提供商，例如 Neon、Supabase、Amazon RDS 等。
+
+</Callout>
+
+### 身份验证密钥 {#auth-secret}
+
+只需生成一次，并在各次部署之间保持不变。
+
+应用使用 `BETTER_AUTH_SECRET` 为用户会话签名。如果它发生变化，所有已登录的用户
+都会被登出。下面的命令会生成一个随机值：
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+请把生成的值保存在安全的地方，例如主机的密钥设置或密码管理器。每次部署时都使用
+相同的值。
+
+### 公共 URL {#public-url}
+
+可选。在使用自定义域名、反向代理，或需要固定公共源的身份验证/OAuth 流程时设置它。
+
+`BETTER_AUTH_URL` 是用户访问你的应用时使用的公共地址。如果不设置，应用会根据
+每个传入请求推断自己的地址。这通常没有问题，但当应用位于代理或自定义域名之后时，
+登录链接和 OAuth 重定向可能会指向错误的位置。
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## 第 3 步：迁移 {#step-3-migrate}
+
+迁移会在你的数据库中创建和更新应用所需的表。
+
+请在首次访问之前，在主机上针对生产环境的 `DATABASE_URL` 运行此命令。
+
+```bash
+pnpm migrate:production
+```
+
+该命令会从你在上一步导出的环境中读取 `DATABASE_URL`。升级应用之后、启动新版本
+之前，请再次运行它。
+
+## 第 4 步：构建并启动 {#step-4-build-and-start}
+
+明确针对 Node.js 目标进行构建：
+
+```bash
+NITRO_PRESET=node pnpm build
+```
+
+构建会把完成的服务器写入 `.output` 文件夹。`NITRO_PRESET=node` 确保输出是一个
+普通的 Node.js 服务器，即使在检测到其他托管目标的机器上也是如此。
+
+使用导出的环境变量启动生成的服务器：
+
+```bash
+NODE_ENV=production \
+DATABASE_URL="$DATABASE_URL" \
+BETTER_AUTH_SECRET="$BETTER_AUTH_SECRET" \
+pnpm start
+```
+
+`NODE_ENV=production` 让服务器以生产模式运行。由于你之前已经导出了这些变量，
+如果你设置了 `BETTER_AUTH_URL`，服务器也会收到它。
+
+服务器监听端口 `3000`。如果你的主机分配了其他端口，请在启动服务器之前设置
+`PORT` 环境变量。
+
+要从互联网访问应用，请在服务器的防火墙中开放端口 `3000`，或者在它前面放置
+Nginx 或 Caddy 等反向代理，通过 HTTPS 为你的域名提供服务。然后打开应用的公共
+地址并创建第一个账户。
+
+## 保持服务器运行 {#keep-the-server-running}
+
+当你关闭终端或服务器重启时，`pnpm start` 命令就会停止。要让应用持续运行，请通过
+进程管理器或服务（例如 `systemd`）启动同一条命令，并为该服务提供相同的环境变量。
+
+## 下一步 {#whats-next}
+
+- [**Docker**](/docs/docker) - 将这个 Node.js 服务器打包到容器中
+- [**部署环境变量**](/docs/deployment-environment-variables) - 生产设置的完整列表
+- [**部署**](/docs/deployment) - 比较各个托管目标及其前提条件

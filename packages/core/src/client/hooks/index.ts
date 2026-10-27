@@ -37,7 +37,10 @@ export {
   ACTION_KEEPALIVE_BODY_BUDGET_BYTES,
   actionErrorMessage,
   callAction,
+  callActionBlob,
   callActionWithRetry,
+  currentActionQueryCacheBinding,
+  recordActionQueryBrowserPersist,
   tryCallActionKeepalive,
   useActionQuery,
   useActionMutation,
@@ -48,12 +51,11 @@ export {
   type KeepaliveActionCallRejectionReason,
   type KeepaliveActionCallResult,
 } from "../use-action.js";
-export { createAgentNativeQueryClient } from "../create-query-client.js";
 export {
-  AgentNativeWebMcpActionRegistration,
-  AppProviders,
-  type AppProvidersProps,
-} from "../app-providers.js";
+  actionErrorCode,
+  isTerminalActionError,
+} from "../action-failure-circuit.js";
+export { createAgentNativeQueryClient } from "../create-query-client.js";
 export {
   APP_CHAT_SIDEBAR_STATE_EVENT,
   APP_CHAT_SIDEBAR_STATE_MESSAGE,

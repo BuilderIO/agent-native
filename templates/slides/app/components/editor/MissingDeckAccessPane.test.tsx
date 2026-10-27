@@ -34,6 +34,8 @@ vi.mock("@agent-native/core/client/i18n", () => ({
         "The deck owner was asked to share this deck with {{email}}.",
       "deckEditor.accessRequestFailed": "Couldn't request access. Try again.",
       "deckEditor.backToDecks": "Back to Decks",
+      "deckEditor.backToHome": "Back to Home",
+      "deckEditor.originalPrompt": "You asked for",
       "deckEditor.tryAgain": "Try again",
       "deckEditor.checkingSharedAccess": "Checking access",
       "deckEditor.joinTeamToOpen": "Join your team to open this deck",
@@ -64,6 +66,7 @@ function renderPane(
       requestAccessDialogOpen={false}
       requesterEmail=""
       requestAccessDialogError={null}
+      originalPrompt={null}
       signedIn={true}
       signInHref="/sign-in"
       viewerEmail="viewer@example.com"
@@ -96,6 +99,29 @@ describe("MissingDeckAccessPane", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Request access" }));
     expect(onRequestAccess).toHaveBeenCalledOnce();
+  });
+
+  it("explains organization deck access denial without offering private-deck requests", () => {
+    renderPane({
+      accessStatus: {
+        exists: true,
+        hasAccess: false,
+        signedIn: true,
+        viewerEmail: "viewer@example.com",
+        viewerName: null,
+        role: null,
+        visibility: "org",
+      },
+      accessStatusError: false,
+      accessStatusLoading: false,
+    });
+
+    expect(
+      screen.getByRole("heading", { name: "Deck unavailable" }),
+    ).toBeTruthy();
+    expect(screen.getByText("Deck unavailable.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Request access" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
   });
 
   it("keeps Login primary and Request access secondary when signed out", () => {
@@ -182,5 +208,16 @@ describe("MissingDeckAccessPane", () => {
       ).disabled,
     ).toBe(true);
     expect(screen.getByText("The owner has been notified.")).toBeTruthy();
+  });
+
+  it("shows the saved request and a clear Home action when available", () => {
+    const onBack = vi.fn();
+    const originalPrompt = "Create a deck about coastal restoration.";
+    renderPane({ originalPrompt, onBack });
+
+    expect(screen.getByText("You asked for")).toBeTruthy();
+    expect(screen.getByText(originalPrompt)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Back to Home" }));
+    expect(onBack).toHaveBeenCalledOnce();
   });
 });

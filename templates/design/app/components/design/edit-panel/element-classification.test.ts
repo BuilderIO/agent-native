@@ -1,36 +1,57 @@
-/**
- * isTextElement classification tests (B5-12 regression).
- *
- * The real-world payload that regressed: selecting a T-tool text primitive
- * nested inside a canvas-drawn rectangle (board/overview layer-panel
- * selection) produces an ElementInfo parsed from source HTML — it has NO
- * `primitiveKind` field even though the DOM node carries
- * data-an-primitive="text", and it has `isFlexContainer: true` because the
- * T-tool's text divs use `display: flex` for their own vertical alignment.
- * The old fallback heuristic excluded flex containers, so both branches
- * failed and the Typography section vanished for exactly these nodes.
- */
+// @vitest-environment happy-dom
 
 import { describe, expect, it, vi } from "vitest";
 
 import type { AutoLayoutSizingAxis } from "../inspector";
-import type { ElementInfo } from "../types";
+import type { ElementChildLayout, ElementInfo } from "../types";
 import {
   availableSizingForElement,
   canHugContent,
   commitElementMinMax,
   commitElementSizing,
+  commitElementSizingForAxes,
   commitFixedElementSizes,
   componentNameForElementInfo,
   elementHasComponentAnnotation,
   inferElementSizing,
   inspectorObjectTitle,
+  isBoxlessText,
   isContainerElement,
   measuredElementSize,
   parentFlexDirection,
   isTextElement,
   isVectorShapeElement,
 } from "./element-classification";
+
+function child(
+  overrides: Partial<ElementChildLayout> = {},
+): ElementChildLayout {
+  return {
+    nodeId: "child",
+    tagName: "div",
+    position: "static",
+    display: "block",
+    flexGrow: "0",
+    alignSelf: "auto",
+    justifySelf: "auto",
+    float: "none",
+    width: "auto",
+    height: "auto",
+    rect: { x: 0, y: 0, width: 40, height: 20 },
+    ...overrides,
+  };
+}
+
+function childLayouts(
+  children: ElementChildLayout[],
+  extra: { looseText?: boolean; complete?: boolean } = {},
+): ElementInfo["childLayouts"] {
+  return {
+    children,
+    looseText: extra.looseText ?? false,
+    complete: extra.complete ?? true,
+  };
+}
 
 function makeElement(overrides: Partial<ElementInfo> = {}): ElementInfo {
   return {
@@ -46,9 +67,6 @@ function makeElement(overrides: Partial<ElementInfo> = {}): ElementInfo {
 
 describe("isTextElement — B5-12 nested board text regression", () => {
   it("classifies the exact real-design payload (flex text primitive without primitiveKind) as text", () => {
-    // Mirrors the persisted design-selection payload captured from the real
-    // AI-generated todo design: div tag, draft-text-* source id, no
-    // primitiveKind, flex container, childless, own text content.
     const element = makeElement({
       tagName: "div",
       sourceId: "draft-text-1783385467477-aur5b5",
@@ -77,8 +95,6 @@ describe("isTextElement — B5-12 nested board text regression", () => {
   });
 
   it("classifies a childless flex div with its own text as text (no primitive markers at all)", () => {
-    // The flex-container exclusion was the bug: T-tool text divs ARE flex
-    // containers, so "is flex" must not imply "not text" for a leaf node.
     const element = makeElement({
       isFlexContainer: true,
       childElementCount: 0,
@@ -153,6 +169,92 @@ describe("isTextElement — B5-12 nested board text regression", () => {
   });
 });
 
+describe("isBoxlessText — corner radius on text", () => {
+  const text = (computedStyles: Record<string, string> = {}) =>
+    makeElement({ tagName: "h1", hasOwnText: true, computedStyles });
+
+  it("does not expose corner rounding for plain text", () => {
+    expect(
+      isBoxlessText(
+        text({
+          backgroundColor: "rgba(0, 0, 0, 0)",
+          backgroundImage: "none",
+          borderTopWidth: "0px",
+          borderTopStyle: "none",
+          outlineWidth: "3px",
+          outlineStyle: "none",
+          outlineColor: "rgb(21, 24, 27)",
+          boxShadow: "none",
+          backdropFilter: "none",
+          textShadow: "0px 4px 12px rgba(30, 158, 73, 0.57)",
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not count a gradient clipped to the glyphs as a box", () => {
+    expect(
+      isBoxlessText(
+        text({
+          backgroundImage: "linear-gradient(red, blue)",
+          backgroundClip: "text",
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps corner radius when HTML text paints a box", () => {
+    expect(isBoxlessText(text({ backgroundColor: "rgb(255, 0, 0)" }))).toBe(
+      false,
+    );
+    expect(
+      isBoxlessText(text({ backgroundImage: "linear-gradient(red, blue)" })),
+    ).toBe(false);
+    expect(
+      isBoxlessText(
+        text({
+          borderLeftWidth: "1px",
+          borderLeftStyle: "solid",
+          borderLeftColor: "rgb(0, 0, 0)",
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isBoxlessText(text({ boxShadow: "rgb(0, 0, 0) 0px 2px 4px 0px" })),
+    ).toBe(false);
+    expect(isBoxlessText(text({ backdropFilter: "blur(8px)" }))).toBe(false);
+  });
+
+  it("never disables corner radius on non-text layers", () => {
+    expect(isBoxlessText(makeElement({ tagName: "div" }))).toBe(false);
+  });
+});
+
+describe("isVectorShapeElement — pasted SVG descendants", () => {
+  it("uses SVG fill controls for drawable path and shape elements", () => {
+    for (const tagName of [
+      "path",
+      "polygon",
+      "polyline",
+      "ellipse",
+      "circle",
+      "rect",
+      "line",
+    ]) {
+      expect(isVectorShapeElement(makeElement({ tagName }))).toBe(true);
+    }
+  });
+
+  it("does not expose SVG use instances as directly editable vector shapes", () => {
+    expect(isVectorShapeElement(makeElement({ tagName: "use" }))).toBe(false);
+  });
+
+  it("keeps unmarked SVG containers and other elements out of vector classification", () => {
+    expect(isVectorShapeElement(makeElement({ tagName: "svg" }))).toBe(false);
+    expect(isVectorShapeElement(makeElement({ tagName: "div" }))).toBe(false);
+  });
+});
+
 describe("componentNameForElementInfo", () => {
   it("uses React source provenance when the DOM payload has no explicit component name", () => {
     expect(
@@ -219,16 +321,86 @@ describe("inspectorObjectTitle", () => {
       ),
     ).toBe("Card");
   });
+
+  it("classifies imported images, vectors, and frames from layer metadata", () => {
+    expect(inspectorObjectTitle(makeElement({ tagName: "img" }))).toBe("Image");
+    expect(inspectorObjectTitle(makeElement({ tagName: "svg" }))).toBe(
+      "Vector",
+    );
+    expect(
+      inspectorObjectTitle(
+        makeElement({ tagName: "div", primitiveKind: "frame" }),
+      ),
+    ).toBe("Frame");
+  });
+});
+
+describe("inspectorObjectTitle — layer types", () => {
+  it("names drawn primitives by their shape, not their backing tag", () => {
+    const title = (overrides: Partial<ElementInfo>) =>
+      inspectorObjectTitle(makeElement(overrides));
+    expect(title({ tagName: "div", primitiveKind: "rectangle" })).toBe(
+      "Rectangle",
+    );
+    expect(title({ tagName: "div", primitiveKind: "rect" })).toBe("Rectangle");
+    expect(title({ tagName: "div", primitiveKind: "ellipse" })).toBe("Ellipse");
+    expect(title({ tagName: "svg", primitiveKind: "line" })).toBe("Line");
+    expect(title({ tagName: "svg", primitiveKind: "arrow" })).toBe("Arrow");
+    expect(title({ tagName: "svg", primitiveKind: "polygon" })).toBe("Polygon");
+    expect(title({ tagName: "svg", primitiveKind: "star" })).toBe("Star");
+    expect(title({ tagName: "svg", primitiveKind: "path" })).toBe("Vector");
+  });
+
+  it("names generated containers Frame, and Auto layout frame once they lay out children", () => {
+    expect(
+      inspectorObjectTitle(
+        makeElement({
+          tagName: "div",
+          childElementCount: 2,
+          computedStyles: { display: "block" },
+        }),
+      ),
+    ).toBe("Frame");
+    expect(
+      inspectorObjectTitle(
+        makeElement({
+          tagName: "section",
+          childElementCount: 2,
+          isFlexContainer: true,
+          computedStyles: { display: "flex" },
+        }),
+      ),
+    ).toBe("Auto layout frame");
+    expect(
+      inspectorObjectTitle(
+        makeElement({
+          tagName: "div",
+          primitiveKind: "frame",
+          computedStyles: { display: "grid" },
+          isGridContainer: true,
+        }),
+      ),
+    ).toBe("Auto layout frame");
+  });
 });
 
 describe("isContainerElement — primitive inspector layout semantics", () => {
-  it("treats empty rectangle and frame primitives as containers", () => {
+  it("treats a frame as a container even when empty, a rectangle only once it holds layers", () => {
     expect(
       isContainerElement(
         makeElement({
           primitiveKind: "rectangle",
           sourceId: "draft-rect-1",
           childElementCount: 0,
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isContainerElement(
+        makeElement({
+          primitiveKind: "rectangle",
+          sourceId: "draft-rect-1",
+          childElementCount: 1,
         }),
       ),
     ).toBe(true);
@@ -286,16 +458,6 @@ describe("isContainerElement — primitive inspector layout semantics", () => {
     }
   });
 
-  // Regression: the `isTextElement(element)) return false` short-circuit
-  // added to fix the flex-backed T-tool text primitive case above (a real
-  // `primitiveKind: "text"` marker) was too broad — it also ran
-  // `isTextElement`'s generic childless-div-with-text fallback, which has
-  // nothing to do with the T-tool and matches any ordinary content div with
-  // no primitive/tag/id marker at all. That silently stripped the
-  // Flow/Padding/Auto-layout sections from ordinary Tailwind pill/badge/
-  // button-label divs — ubiquitous in generated markup — even though they
-  // hit `isFlexContainer`/`CONTAINER_TAGS` and were correctly treated as
-  // containers before that short-circuit existed.
   it("still treats a childless flex div with its own text as a container (no primitive markers at all)", () => {
     expect(
       isContainerElement(
@@ -321,13 +483,6 @@ describe("isContainerElement — primitive inspector layout semantics", () => {
   });
 });
 
-// ─── commitElementMinMax — scrub gesture meta threading (B5-14 follow-up) ────
-//
-// Min/max constraint fields are ScrubInputs; dropping their gesture meta on
-// the way to onStyleChange forces every preview tick down the slow persist
-// path (same class of bug as the padding/gap chain). The helper must forward
-// the meta verbatim so preview ticks hit the host's live fast path and only
-// the release commit persists.
 describe("commitElementMinMax — meta forwarding", () => {
   it("forwards preview-phase meta on a set", () => {
     const onStyleChange = vi.fn();
@@ -366,12 +521,6 @@ describe("commitElementMinMax — meta forwarding", () => {
   });
 });
 
-// Clip B 16:39-16:46 (7xCLOlVaAj3n): the reviewer repeatedly sets "Hug
-// contents" on the `1W` button of a 1D/1W/1M/1Y segmented control and the
-// inspector keeps reading W 42px, X 754, Y 340, Grow 0 / Shrink 1 /
-// Basis auto across four sampled frames six seconds apart. `button` is in
-// neither the container nor the text tag set, so Hug was never in the
-// offered options at all.
 describe("availableSizingForElement — hug availability", () => {
   const hugFor = (element: ElementInfo, axis: AutoLayoutSizingAxis) =>
     availableSizingForElement(element)[axis]?.includes("hug") ?? false;
@@ -424,6 +573,7 @@ describe("availableSizingForElement — fill eligibility", () => {
       for (const position of ["absolute", "fixed"]) {
         const element = makeElement({
           parentDisplay,
+          childElementCount: 0,
           textContent: "Ignored child",
           computedStyles: { position },
         });
@@ -461,9 +611,6 @@ describe("availableSizingForElement — fill eligibility", () => {
 
 describe("inferElementSizing — authored vs resolved size", () => {
   it("reads hug from the authored width when computedStyles resolved it to px", () => {
-    // A bridge selection payload: getComputedStyle always resolves
-    // width:fit-content to a pixel value, so computedStyles alone can never
-    // report hug.
     const element = makeElement({
       computedStyles: { width: "68px" },
       inlineStyles: { width: "fit-content" },
@@ -510,9 +657,6 @@ describe("inferElementSizing — authored vs resolved size", () => {
   });
 
   it("reads Hug from an auto-layout container with no authored height", () => {
-    // The bridge reports the resolved pixel height even when the source has
-    // no height declaration. For a flex container that is the source's
-    // intrinsic sizing intent, so the inspector must not relabel it Fixed.
     const element = makeElement({
       isFlexContainer: true,
       computedStyles: {
@@ -554,7 +698,6 @@ describe("inferElementSizing — authored vs resolved size", () => {
   });
 
   it("reads a stretch child of a row parent as filling the cross axis", () => {
-    // An undeclared flex direction is a row, so height IS the cross axis here.
     const element = makeElement({
       isFlexChild: true,
       parentDisplay: "flex",
@@ -579,6 +722,7 @@ describe("commitElementSizing — hug must undo a previous fill", () => {
       isFlexChild: true,
       parentDisplay: "flex",
       parentLayout: { flexDirection: "row" },
+      childElementCount: 0,
       computedStyles: { height: "120px", alignSelf: "stretch" },
     });
     commitElementSizing(
@@ -596,6 +740,7 @@ describe("commitElementSizing — hug must undo a previous fill", () => {
   it("uses justifySelf for a grid child's horizontal axis, both ways", () => {
     const element = makeElement({
       parentDisplay: "grid",
+      childElementCount: 0,
       computedStyles: { width: "200px" },
     });
     const fill = vi.fn();
@@ -709,9 +854,6 @@ describe("commitElementSizing — hug must undo a previous fill", () => {
   });
 });
 
-// The W field showed "437 Hug" — the mode was right, the number was the
-// pre-commit boundingRect. Figma re-measures and shows the real width; without
-// a fresh measurement the only honest readout is none.
 describe("measuredElementSize", () => {
   it("reports the resolved px when the payload has one", () => {
     const element = makeElement({
@@ -761,10 +903,6 @@ describe("measuredElementSize", () => {
   });
 });
 
-// PR #3585 review: `<div class="flex">` is the most common row container there
-// is, and the projection reports no direction for it because CSS already
-// defaults to row. Treating that as unknown sent horizontal Fill down the
-// cross-axis path and wrote align-self:stretch instead of flex: 1 0 0.
 describe("parentFlexDirection — unknown parent vs unknown direction", () => {
   it("defaults a flex parent with no authored direction to row", () => {
     const element = makeElement({
@@ -808,7 +946,6 @@ describe("parentFlexDirection — unknown parent vs unknown direction", () => {
   });
 });
 
-// PR #3585 review round 2.
 describe("measuredElementSize — zero is a size, not an absence", () => {
   it("reports 0 for a collapsed layer", () => {
     const element = makeElement({
@@ -819,7 +956,6 @@ describe("measuredElementSize — zero is a size, not an absence", () => {
   });
 
   it("still reports null for the projection's placeholder rect", () => {
-    // No computed size at all plus an all-zero rect is "never measured".
     const element = makeElement({
       computedStyles: {},
       boundingRect: { x: 0, y: 0, width: 0, height: 0 },
@@ -850,12 +986,24 @@ describe("canHugContent — Hug availability", () => {
     expect(canHugContent(element)).toBe(false);
   });
 
-  it("offers hug to a rectangle that has children", () => {
+  it("offers hug to a rectangle whose children sit in flow", () => {
+    const element = makeElement({
+      primitiveKind: "rectangle",
+      childElementCount: 2,
+      childLayouts: childLayouts([
+        child({ tagName: "p" }),
+        child({ tagName: "p" }),
+      ]),
+    });
+    expect(canHugContent(element)).toBe(true);
+  });
+
+  it("withholds hug from a rectangle whose child layout is unreadable", () => {
     const element = makeElement({
       primitiveKind: "rectangle",
       childElementCount: 2,
     });
-    expect(canHugContent(element)).toBe(true);
+    expect(canHugContent(element)).toBe(false);
   });
 
   it("withholds hug from an empty plain container", () => {
@@ -873,7 +1021,6 @@ describe("canHugContent — Hug availability", () => {
   });
 
   it("treats an absent content signal as unknown, not empty", () => {
-    // Older/hover payloads omit both; denying hug there would be a guess.
     expect(canHugContent(makeElement({ tagName: "div" }))).toBe(true);
   });
 });
@@ -911,10 +1058,19 @@ describe("isVectorShapeElement", () => {
     },
   );
 
+  it("accepts the scoped pasted SVG marker", () => {
+    expect(
+      isVectorShapeElement(
+        makeElement({ tagName: "svg", primitiveKind: "pasted-svg" }),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not broaden unmarked inline SVG classification", () => {
+    expect(isVectorShapeElement(makeElement({ tagName: "svg" }))).toBe(false);
+  });
+
   it("rejects a board-migrated polygon, which is a div painted with background", () => {
-    // board-file.ts serializes polygon/star as plain divs carrying the same
-    // data-an-primitive, so keying on the kind alone would send fill/stroke
-    // declarations to an element that renders neither.
     expect(
       isVectorShapeElement(
         makeElement({ tagName: "div", primitiveKind: "polygon" }),
@@ -931,13 +1087,12 @@ describe("isVectorShapeElement", () => {
     },
   );
 
-  it("rejects frames, text and unmarked svgs", () => {
+  it("rejects frames and text", () => {
     expect(
       isVectorShapeElement(
         makeElement({ tagName: "div", primitiveKind: "frame" }),
       ),
     ).toBe(false);
-    expect(isVectorShapeElement(makeElement({ tagName: "svg" }))).toBe(false);
   });
 });
 
@@ -1009,5 +1164,382 @@ describe("inline text style roots", () => {
 
     expect(isTextElement(row)).toBe(false);
     expect(isContainerElement(row)).toBe(true);
+  });
+});
+
+describe("isVectorShapeElement for imported svg", () => {
+  it("keeps an unmarked svg out of vector classification", () => {
+    expect(isVectorShapeElement(makeElement({ tagName: "svg" }))).toBe(false);
+  });
+});
+
+const absoluteChild = (nodeId: string) =>
+  child({
+    nodeId,
+    position: "absolute",
+    width: "40px",
+    height: "40px",
+    rect: { x: 12, y: 12, width: 40, height: 40 },
+  });
+
+describe("Hug needs content laid out in flow", () => {
+  const hugFor = (element: ElementInfo, axis: AutoLayoutSizingAxis) =>
+    availableSizingForElement(element)[axis]?.includes("hug") ?? false;
+
+  it("withholds Hug from a freeform frame whose children are all absolutely positioned", () => {
+    const element = makeElement({
+      primitiveKind: "frame",
+      childElementCount: 2,
+      childLayouts: childLayouts([absoluteChild("a"), absoluteChild("b")]),
+      computedStyles: { display: "block", position: "relative" },
+    });
+    expect(hugFor(element, "horizontal")).toBe(false);
+    expect(hugFor(element, "vertical")).toBe(false);
+  });
+
+  it("withholds Hug from a plain container whose children are all out of flow", () => {
+    const element = makeElement({
+      tagName: "div",
+      childElementCount: 2,
+      childLayouts: childLayouts([
+        absoluteChild("a"),
+        child({ nodeId: "overlay", tagName: "span", position: "fixed" }),
+      ]),
+      computedStyles: { display: "block", position: "relative" },
+    });
+    expect(hugFor(element, "horizontal")).toBe(false);
+  });
+
+  it("withholds Hug from a frame without auto layout when its children are not readable", () => {
+    const element = makeElement({
+      primitiveKind: "frame",
+      childElementCount: 2,
+      computedStyles: { display: "block" },
+    });
+    expect(hugFor(element, "horizontal")).toBe(false);
+  });
+
+  it("keeps Hug for a container with one child in flow beside absolute ones", () => {
+    const element = makeElement({
+      tagName: "div",
+      childElementCount: 2,
+      childLayouts: childLayouts([
+        absoluteChild("a"),
+        child({ nodeId: "caption", tagName: "p" }),
+      ]),
+    });
+    expect(hugFor(element, "horizontal")).toBe(true);
+  });
+
+  it("keeps Hug for a freeform frame that holds loose text", () => {
+    const element = makeElement({
+      primitiveKind: "frame",
+      childElementCount: 1,
+      childLayouts: childLayouts([absoluteChild("a")], { looseText: true }),
+    });
+    expect(hugFor(element, "horizontal")).toBe(true);
+  });
+
+  it("keeps Hug for an auto layout frame even when every child is absolute", () => {
+    const element = makeElement({
+      primitiveKind: "frame",
+      isFlexContainer: true,
+      childElementCount: 1,
+      childLayouts: childLayouts([absoluteChild("a")]),
+    });
+    expect(hugFor(element, "horizontal")).toBe(true);
+  });
+
+  it("withholds Hug while the child list is truncated, since an unseen child may fill", () => {
+    const element = makeElement({
+      tagName: "div",
+      childElementCount: 400,
+      childLayouts: childLayouts([absoluteChild("a")], { complete: false }),
+    });
+    expect(hugFor(element, "horizontal")).toBe(false);
+  });
+});
+
+describe("Fill needs an in-flow child", () => {
+  it.each(["absolute", "fixed"])(
+    "withholds fill from a %s child of a block parent",
+    (position) => {
+      const element = makeElement({
+        parentDisplay: "block",
+        computedStyles: { position, width: "120px" },
+      });
+      expect(availableSizingForElement(element).horizontal).not.toContain(
+        "fill",
+      );
+    },
+  );
+});
+
+describe("Hug on a parent freezes the children that fill that axis", () => {
+  const frame = (
+    children: ElementChildLayout[],
+    flexDirection = "row",
+  ): ElementInfo =>
+    makeElement({
+      sourceId: "frame",
+      isFlexContainer: true,
+      childElementCount: children.length,
+      childLayouts: childLayouts(children),
+      computedStyles: {
+        display: "flex",
+        flexDirection,
+        width: "320px",
+        height: "80px",
+      },
+      authoredSizeStyles: { width: "320px", height: "80px" },
+    });
+  const grower = child({
+    nodeId: "grow",
+    flexGrow: "1",
+    rect: { x: 0, y: 0, width: 212.4, height: 40 },
+  });
+
+  it("offers Hug on the main axis a child grows along", () => {
+    const sizing = availableSizingForElement(frame([grower, child()]));
+    expect(sizing.horizontal).toContain("hug");
+  });
+
+  it("writes the frame and the frozen child as one multi-node edit", () => {
+    const onStylesChange = vi.fn();
+    const onApplyLayoutFlow = vi.fn(() => "applied" as const);
+    commitElementSizing(
+      frame([grower, child({ nodeId: "fixed", width: "40px" })]),
+      "horizontal",
+      "hug",
+      vi.fn(),
+      onStylesChange,
+      onApplyLayoutFlow,
+    );
+    expect(onStylesChange).not.toHaveBeenCalled();
+    expect(onApplyLayoutFlow).toHaveBeenCalledTimes(1);
+    const [nodeId, containerStyles, patches] = onApplyLayoutFlow.mock
+      .calls[0] as unknown as [string, object, Map<string, object>];
+    expect(nodeId).toBe("frame");
+    expect(containerStyles).toEqual({});
+    expect(Object.fromEntries(patches)).toEqual({
+      frame: { width: "fit-content" },
+      grow: {
+        width: "212px",
+        flexGrow: "0",
+        flexShrink: "0",
+        flexBasis: "auto",
+      },
+    });
+  });
+
+  it("freezes a child sized 100% along a column's cross axis", () => {
+    const onApplyLayoutFlow = vi.fn(() => "applied" as const);
+    commitElementSizing(
+      frame(
+        [
+          child({
+            nodeId: "full",
+            width: "100%",
+            rect: { x: 0, y: 0, width: 320, height: 20 },
+          }),
+        ],
+        "column",
+      ),
+      "horizontal",
+      "hug",
+      vi.fn(),
+      vi.fn(),
+      onApplyLayoutFlow,
+    );
+    const patches = (onApplyLayoutFlow.mock.calls[0] as unknown[])[2] as Map<
+      string,
+      Record<string, string>
+    >;
+    expect(patches.get("full")).toEqual({
+      width: "320px",
+      alignSelf: "auto",
+    });
+  });
+
+  it("leaves a cross-axis stretch child alone: the line sizes before it stretches", () => {
+    const sizing = availableSizingForElement(
+      frame([child({ nodeId: "stretch", alignSelf: "stretch" }), child()]),
+    );
+    expect(sizing.vertical).toContain("hug");
+    const onStylesChange = vi.fn();
+    commitElementSizing(
+      frame([child({ nodeId: "stretch", alignSelf: "stretch" })]),
+      "vertical",
+      "hug",
+      vi.fn(),
+      onStylesChange,
+      vi.fn(),
+    );
+    expect(onStylesChange.mock.calls[0]?.[0]).toEqual({
+      height: "fit-content",
+    });
+  });
+
+  it("withholds Hug while a filling child cannot be frozen in place", () => {
+    const sizing = availableSizingForElement(
+      frame([child({ nodeId: undefined, flexGrow: "1" })]),
+    );
+    expect(sizing.horizontal).not.toContain("hug");
+    expect(sizing.vertical).toContain("hug");
+  });
+
+  it("ignores a filling child that is out of flow", () => {
+    const sizing = availableSizingForElement(
+      frame([
+        child({ nodeId: undefined, position: "absolute", width: "100%" }),
+        child(),
+      ]),
+    );
+    expect(sizing.horizontal).toContain("hug");
+  });
+});
+
+describe("inferElementSizing — the mode the layer is actually in", () => {
+  it("reads a column child that the parent stretches as Fill on the cross axis", () => {
+    const element = makeElement({
+      isFlexChild: true,
+      parentDisplay: "flex",
+      parentLayout: {
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "normal",
+      },
+      computedStyles: { width: "320px", height: "40px", alignSelf: "auto" },
+      authoredSizeStyles: { width: "auto", height: "auto" },
+    });
+    expect(inferElementSizing(element, "horizontal")).toBe("fill");
+    expect(inferElementSizing(element, "vertical")).toBe("hug");
+  });
+
+  it("keeps Hug when the parent aligns its children instead of stretching them", () => {
+    const element = makeElement({
+      isFlexChild: true,
+      parentDisplay: "flex",
+      parentLayout: {
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+      },
+      computedStyles: { width: "120px", alignSelf: "auto" },
+      authoredSizeStyles: { width: "auto" },
+    });
+    expect(inferElementSizing(element, "horizontal")).toBe("hug");
+  });
+
+  it("reads a block child with auto width as filling its block parent", () => {
+    const element = makeElement({
+      parentDisplay: "block",
+      computedStyles: { display: "block", width: "600px", height: "48px" },
+      authoredSizeStyles: { width: "auto", height: "auto" },
+    });
+    expect(inferElementSizing(element, "horizontal")).toBe("fill");
+    expect(inferElementSizing(element, "vertical")).toBe("hug");
+  });
+
+  it.each([
+    ["inline-block", "static", "none"],
+    ["block", "absolute", "none"],
+    ["block", "static", "left"],
+  ])(
+    "reads a %s / %s / float %s auto-width child of a block parent as Hug",
+    (display, position, float) => {
+      const element = makeElement({
+        parentDisplay: "block",
+        computedStyles: { display, position, float, width: "80px" },
+        authoredSizeStyles: { width: "auto" },
+      });
+      expect(inferElementSizing(element, "horizontal")).toBe("hug");
+    },
+  );
+
+  it("reads back the Fill the inspector writes for a grid child", () => {
+    const element = makeElement({
+      parentDisplay: "grid",
+      computedStyles: { width: "200px", justifySelf: "stretch" },
+      inlineStyles: { width: "auto", justifySelf: "stretch" },
+    });
+    expect(inferElementSizing(element, "horizontal")).toBe("fill");
+  });
+
+  it("reports the same modes after a code-layer refresh drops the measured sizes", () => {
+    const parentLayout = {
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "normal",
+    };
+    const live = makeElement({
+      isFlexChild: true,
+      parentDisplay: "flex",
+      parentLayout,
+      computedStyles: {
+        display: "block",
+        width: "320px",
+        height: "40px",
+        alignSelf: "auto",
+      },
+      inlineStyles: { padding: "8px" },
+      authoredSizeStyles: { width: "auto", height: "auto" },
+    });
+    const refreshed = makeElement({
+      isFlexChild: true,
+      parentDisplay: "flex",
+      parentLayout,
+      computedStyles: { padding: "8px" },
+      inlineStyles: { padding: "8px" },
+      authoredSizeStyles: undefined,
+    });
+    for (const axis of ["horizontal", "vertical"] as const) {
+      expect(inferElementSizing(refreshed, axis)).toBe(
+        inferElementSizing(live, axis),
+      );
+    }
+    expect(inferElementSizing(refreshed, "horizontal")).toBe("fill");
+    expect(inferElementSizing(refreshed, "vertical")).toBe("hug");
+  });
+
+  it("keeps a utility-sized layer Fixed after a refresh drops its measured size", () => {
+    const element = makeElement({
+      classes: ["w-64", "p-4"],
+      computedStyles: { padding: "16px" },
+      inlineStyles: {},
+    });
+    expect(inferElementSizing(element, "horizontal")).toBe("fixed");
+    expect(inferElementSizing(element, "vertical")).toBe("hug");
+  });
+});
+
+describe("commitElementSizingForAxes — one patch for both axes", () => {
+  it("commits Resize to fit as a single Hug patch", () => {
+    const onStyleChange = vi.fn();
+    const onStylesChange = vi.fn();
+    const element = makeElement({
+      isFlexChild: true,
+      parentDisplay: "flex",
+      parentLayout: { display: "flex", flexDirection: "row" },
+      isFlexContainer: true,
+      childLayouts: childLayouts([]),
+      computedStyles: { width: "200px", height: "80px", flexGrow: "1" },
+    });
+    commitElementSizingForAxes(
+      element,
+      { horizontal: "hug", vertical: "hug" },
+      onStyleChange,
+      onStylesChange,
+    );
+    expect(onStyleChange).not.toHaveBeenCalled();
+    expect(onStylesChange).toHaveBeenCalledTimes(1);
+    expect(onStylesChange.mock.calls[0]?.[0]).toEqual({
+      width: "fit-content",
+      height: "fit-content",
+      flexGrow: "0",
+      flexShrink: "0",
+      flexBasis: "auto",
+      alignSelf: "auto",
+    });
   });
 });

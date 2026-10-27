@@ -1,5 +1,5 @@
-import { defineBlock } from "@agent-native/core/blocks";
-import type { BlockReadProps } from "@agent-native/core/blocks";
+import { defineBlock } from "@agent-native/toolkit/app/blocks";
+import type { BlockReadProps } from "@agent-native/toolkit/app/blocks";
 import type React from "react";
 
 import {
@@ -11,15 +11,8 @@ import {
 
 export type { ComparisonData };
 
-/** Curated accent keys, matching Badge's color naming so authors reach for
- * the same word everywhere on the site. Each maps to a real theme token in
- * global.css (docs-comparison-col[data-accent-color]), not a raw hex, so it
- * stays correct in both themes. */
 const ACCENT_COLOR_KEYS = new Set(["blue", "green", "red", "yellow"]);
 
-/** Legacy heuristic: a bare "Before"/"After"-style label still gets an
- * accent with no explicit `color`, so every pre-existing Comparison in the
- * docs corpus keeps rendering exactly as before. */
 const LEGACY_LABEL_ACCENT: Record<string, string> = {
   before: "red",
   old: "red",

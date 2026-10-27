@@ -7,10 +7,6 @@ import registerBuilderHostEmbedHeaders, {
 
 type ResponseHook = (res: Response, event: H3Event) => void;
 
-/**
- * Captures the hook by the name Nitro actually calls. Nitro 3 has no
- * `beforeResponse`, and an unknown name registers a listener that never fires.
- */
 function responseHook(): ResponseHook {
   const registered = new Map<string, ResponseHook>();
   registerBuilderHostEmbedHeaders({
@@ -43,7 +39,6 @@ describe("isShellCanvasRequest", () => {
     expect(isShellCanvasRequest(mockEvent("/visual-edit/abc123"))).toBe(false);
     expect(isShellCanvasRequest(mockEvent("/design/abc123"))).toBe(false);
     expect(isShellCanvasRequest(mockEvent("/"))).toBe(false);
-    // A design literally named "shell" still lives under a longer path.
     expect(isShellCanvasRequest(mockEvent("/visual-edit/shell/extra"))).toBe(
       false,
     );

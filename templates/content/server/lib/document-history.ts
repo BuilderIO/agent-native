@@ -1,6 +1,10 @@
 import type { ActionRunContext } from "@agent-native/core/action";
 import { and, desc, eq, sql } from "drizzle-orm";
 
+import {
+  bulkChunkSizeForColumnCount,
+  chunks,
+} from "../../actions/_batch-utils.js";
 import type {
   DocumentHistoryActorKind,
   DocumentHistoryGroupKind,
@@ -8,6 +12,7 @@ import type {
 import { getDb, schema } from "../db/index.js";
 import {
   documentVersionChatContextFromAction,
+  type DocumentVersionChatContext,
   serializeDocumentVersionChatContext,
 } from "./document-version-context.js";
 
@@ -26,6 +31,8 @@ export interface DocumentHistoryCause {
   actorEmail?: string | null;
   actorKind?: Exclude<DocumentHistoryActorKind, "unknown">;
   origin?: string;
+  chatContext?: DocumentVersionChatContext;
+  skipBeforeCheckpoint?: boolean;
   operation: string;
 }
 
@@ -40,6 +47,14 @@ interface ResolvedDocumentHistoryCause {
 
 function newGroupId(prefix: string) {
   return `${prefix}:${crypto.randomUUID()}`;
+}
+
+export function documentChatStartVersionId(
+  ownerEmail: string,
+  documentId: string,
+  chatStartKey: string,
+) {
+  return `agent-chat-start:${encodeURIComponent(ownerEmail)}:${encodeURIComponent(documentId)}:${encodeURIComponent(chatStartKey)}`;
 }
 
 export function resolveDocumentHistoryCause(
@@ -110,12 +125,54 @@ export function resolveDocumentHistoryCause(
   };
 }
 
+/**
+ * Records the first checkpoint of documents just created, many in one
+ * statement. A new document has no history yet, so it gets only the "after"
+ * checkpoint recordDocumentHistoryTransition writes for it.
+ */
+export async function recordCreatedDocumentsHistory(args: {
+  db: ContentDb;
+  ownerEmail: string;
+  documents: Array<{
+    documentId: string;
+    title: string;
+    content: string;
+    cause: DocumentHistoryCause;
+  }>;
+  now: string;
+}): Promise<void> {
+  const checkpoints = args.documents.map((document) => ({
+    id: crypto.randomUUID(),
+    ownerEmail: args.ownerEmail,
+    documentId: document.documentId,
+    title: document.title,
+    content: document.content,
+    bodyRevision: null,
+    chatContext: serializeDocumentVersionChatContext(
+      document.cause.chatContext ??
+        documentVersionChatContextFromAction(document.cause.ctx),
+    ),
+    ...resolveDocumentHistoryCause(document.cause),
+    checkpointKind: "after",
+    createdAt: args.now,
+    updatedAt: args.now,
+  }));
+  if (checkpoints.length === 0) return;
+  // A few statements, each small enough for SQLite's cap on its values.
+  const size = bulkChunkSizeForColumnCount(Object.keys(checkpoints[0]!).length);
+  for (const chunk of chunks(checkpoints, size)) {
+    await args.db.insert(schema.documentVersions).values(chunk);
+  }
+}
+
 export async function recordDocumentHistoryTransition(args: {
   db: ContentDb;
   ownerEmail: string;
   documentId: string;
   before: DocumentHistoryState;
   after: DocumentHistoryState;
+  beforeBodyRevision?: number;
+  afterBodyRevision?: number;
   cause: DocumentHistoryCause;
   now: string;
 }): Promise<{
@@ -129,6 +186,7 @@ export async function recordDocumentHistoryTransition(args: {
       id: schema.documentVersions.id,
       title: schema.documentVersions.title,
       content: schema.documentVersions.content,
+      bodyRevision: schema.documentVersions.bodyRevision,
       createdAt: schema.documentVersions.createdAt,
     })
     .from(schema.documentVersions)
@@ -152,9 +210,12 @@ export async function recordDocumentHistoryTransition(args: {
 
   let beforeCheckpointId: string | undefined;
   if (
-    !latest ||
-    latest.title !== args.before.title ||
-    latest.content !== args.before.content
+    !args.cause.skipBeforeCheckpoint &&
+    (!latest ||
+      latest.title !== args.before.title ||
+      latest.content !== args.before.content ||
+      (args.beforeBodyRevision !== undefined &&
+        latest.bodyRevision !== args.beforeBodyRevision))
   ) {
     beforeCheckpointId = crypto.randomUUID();
     await args.db.insert(schema.documentVersions).values({
@@ -163,8 +224,10 @@ export async function recordDocumentHistoryTransition(args: {
       documentId: args.documentId,
       title: args.before.title,
       content: args.before.content,
+      bodyRevision: args.beforeBodyRevision ?? null,
       chatContext: serializeDocumentVersionChatContext(
-        documentVersionChatContextFromAction(args.cause.ctx),
+        args.cause.chatContext ??
+          documentVersionChatContextFromAction(args.cause.ctx),
       ),
       ...cause,
       checkpointKind: "before",
@@ -176,20 +239,59 @@ export async function recordDocumentHistoryTransition(args: {
   const afterCreatedAt = beforeCheckpointId
     ? new Date(new Date(checkpointCreatedAt).getTime() + 1).toISOString()
     : checkpointCreatedAt;
-  const afterCheckpointId = crypto.randomUUID();
-  await args.db.insert(schema.documentVersions).values({
+  const isChatStart =
+    cause.groupKind === "agent_run" && cause.operation === "chat start";
+  const chatStartKey = args.cause.chatContext?.threadId ?? cause.groupId;
+  const afterCheckpointId = isChatStart
+    ? documentChatStartVersionId(args.ownerEmail, args.documentId, chatStartKey)
+    : crypto.randomUUID();
+  const afterValues = {
     id: afterCheckpointId,
     ownerEmail: args.ownerEmail,
     documentId: args.documentId,
     title: args.after.title,
     content: args.after.content,
+    bodyRevision: args.afterBodyRevision ?? null,
     chatContext: serializeDocumentVersionChatContext(
-      documentVersionChatContextFromAction(args.cause.ctx),
+      args.cause.chatContext ??
+        documentVersionChatContextFromAction(args.cause.ctx),
     ),
     ...cause,
     checkpointKind: "after",
     createdAt: afterCreatedAt,
     updatedAt: afterCreatedAt,
-  });
+  };
+  if (isChatStart) {
+    const [inserted] = await args.db
+      .insert(schema.documentVersions)
+      .values(afterValues)
+      .onConflictDoNothing()
+      .returning({ id: schema.documentVersions.id });
+    if (!inserted) {
+      const [existing] = await args.db
+        .select({ id: schema.documentVersions.id })
+        .from(schema.documentVersions)
+        .where(
+          and(
+            eq(schema.documentVersions.ownerEmail, args.ownerEmail),
+            eq(schema.documentVersions.documentId, args.documentId),
+            eq(schema.documentVersions.id, afterCheckpointId),
+          ),
+        )
+        .limit(1);
+      if (!existing) {
+        throw new Error(
+          "Chat-start history checkpoint conflict had no matching checkpoint.",
+        );
+      }
+      return {
+        groupId: cause.groupId,
+        beforeCheckpointId,
+        afterCheckpointId: existing.id,
+      };
+    }
+  } else {
+    await args.db.insert(schema.documentVersions).values(afterValues);
+  }
   return { groupId: cause.groupId, beforeCheckpointId, afterCheckpointId };
 }

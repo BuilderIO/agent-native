@@ -92,7 +92,7 @@ description: "操作聲明的本機聊天渲染器、可重用的 DataTable/Data
 
 伺服器 actions 應從
 `@agent-native/core/data-widgets`；用戶端程式碼可以從
-`@agent-native/core/client/chat` 或 `@agent-native/core/client`。
+`@agent-native/core/client/widgets` 或 `@agent-native/core/client`。
 
 ```ts
 import { defineAction } from "@agent-native/core/action";
@@ -226,7 +226,7 @@ export default defineAction({
 關於行動：
 
 ```tsx
-import { registerActionChatRenderer } from "@agent-native/core/client/chat";
+import { registerActionChatRenderer } from "@agent-native/toolkit/app/chat";
 
 registerActionChatRenderer({
   id: "crm.deal-card",
@@ -251,6 +251,48 @@ export default defineAction({
 沒有可供百分比參照的確定高度——圖表長條上的 `height: 40%` 不會報錯，而是塌陷為零，
 看起來就像轉譯器沒有畫出來。請為圖表及其他依賴高度的視覺元素設定像素（或 `rem`）
 基準；寬度使用百分比沒有問題，因為聊天記錄欄確實有確定的寬度。
+
+### 選擇動作介面的顯示時機 {#conditional-native-ui}
+
+一個動作可以處理多種操作，但只有部分結果需要顯示卡片。請在 `chatUI` 加入 `when(args, result)` 來選擇這些呼叫。動作成功後，伺服器會執行此述詞。如果回傳 `false`，結果會保留在一般可摺疊的工具記錄中。述詞不會儲存或傳送至瀏覽器。
+
+Mail 的 `manage-draft` 使用此方式在建立草稿時顯示卡片，並讓更新和刪除保留為一般工具呼叫：
+
+```ts
+chatUI: {
+  renderer: "mail.draft-created",
+  when: (args, result) => {
+    if (
+      args.action !== "create" ||
+      !result ||
+      typeof result !== "object" ||
+      Array.isArray(result)
+    ) {
+      return false;
+    }
+    const output = result as Record<string, unknown>;
+    return typeof output.deepLink === "string" && Boolean(output.draft);
+  },
+},
+```
+
+對於包含多種寫入操作的動作，請同時檢查參數和成功結果。Mail 的 Gmail 篩選器動作只會為包含摘要欄位的新建或取代篩選器選取規則卡片：
+
+```ts
+when: (args, result) => {
+  if (
+    (args.operation !== "create" && args.operation !== "replace") ||
+    !result ||
+    typeof result !== "object" ||
+    Array.isArray(result)
+  ) {
+    return false;
+  }
+  const output = result as Record<string, unknown>;
+  const filter = output.filter as Record<string, unknown> | undefined;
+  return output.ok === true && Boolean(filter?.criteriaSummary);
+},
+```
 
 ## BYO 代理執行時 {#byo-agent-runtimes}
 
@@ -316,15 +358,13 @@ export default defineAction({
 
 </Diagram>
 
-所有連線器均從 `@agent-native/core/client/chat` 匯出（以及根
+所有連線器均從 `@agent-native/core/client/agent-chat` 匯出（以及根
 `@agent-native/core/client` 條目）。當您的代理使用通用 HTTP 執行時
 可以公開返回 SSE 或 NDJSON 執行時事件的 POST 端點：
 
 ```tsx
-import {
-  AssistantChat,
-  createHttpAgentChatRuntime,
-} from "@agent-native/core/client/chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
+import { createHttpAgentChatRuntime } from "@agent-native/core/client/agent-chat";
 
 const runtime = createHttpAgentChatRuntime({
   id: "external:mastra",
@@ -350,7 +390,7 @@ import {
   createOpenAIAgentsChatRuntime,
   createOpenAIResponsesChatRuntime,
   createVercelAiChatRuntime,
-} from "@agent-native/core/client/chat";
+} from "@agent-native/core/client/agent-chat";
 
 const openAiAgentsRuntime = createOpenAIAgentsChatRuntime({
   endpoint: "/api/openai-agents/chat",
@@ -393,7 +433,7 @@ iframe。
 當您希望內建 Agent-Native 傳輸作為執行時物件時，請使用：
 
 ```ts
-import { createAgentNativeChatRuntime } from "@agent-native/core/client/chat";
+import { createAgentNativeChatRuntime } from "@agent-native/core/client/agent-chat";
 
 const runtime = createAgentNativeChatRuntime({
   threadId: "forms-chat",
@@ -401,10 +441,9 @@ const runtime = createAgentNativeChatRuntime({
 });
 ```
 
-僅在需要完整時才使用`<AssistantChat createAdapter={...} />`
-assist-ui 轉接器控制項。當您的產品時單獨使用`PromptComposer`
-擁有整個外部轉錄本並且只想要 Agent-Native 的撰寫器
-欄位。
+使用 `<AssistantChat createTransport={...} />` 接入自訂 AgentKit 傳輸；若由宿主執行對話回合，則傳入 `runtime`。現有的 `assistant-ui ChatModelAdapter` 實作必須移轉至 `AgentTransport` 或 `AgentChatRuntime`，才能使用 AgentKit 的 transcript 和 composer。若產品擁有完整的外部 transcript 且只需要 Agent-Native 輸入欄位，可單獨使用 `PromptComposer`。
+
+舊 API 與新 API 的對照表及移轉步驟，請參閱 [AgentKit 聊天移轉指南](https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/migrations/agentkit-chat.md)。
 
 OpenAI、AG-UI、Claude Agent SDK 和 Vercel AI SDK 流可以使用標準
 連線器助手。 ACP 保留編碼代理/編輯器互操作性，而不是

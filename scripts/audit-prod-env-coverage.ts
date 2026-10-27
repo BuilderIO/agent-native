@@ -1,20 +1,3 @@
-/**
- * Report env vars a production Netlify site sets that the matching template's
- * `.env.example` never mentions.
- *
- * This exists because "copy production env into local .env" is the obvious
- * request and the wrong one: production sets `DATABASE_URL` plus a dozen
- * `<app>_DATABASE_URL` vars pointing at production Neon, so a local dev server
- * loaded with them reads and writes production data. It also sets
- * `NITRO_PRESET=netlify`, `COOKIE_DOMAIN=.agent-native.com` and an https
- * `BETTER_AUTH_URL`, none of which work on a laptop.
- *
- * So the question worth asking is not "does local hold production's values"
- * but "is anything production depends on undocumented". Names only: this never
- * reads or prints a value, and Netlify keeps most of them write-only anyway.
- *
- * Usage: tsx scripts/audit-prod-env-coverage.ts
- */
 import { execFile } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { promisify } from "node:util";
@@ -22,10 +5,8 @@ import { promisify } from "node:util";
 const run = promisify(execFile);
 const REPO = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 
-/** Netlify/CI plumbing that has no meaning in a checkout. */
 const DEPLOY_ONLY =
   /^(NETLIFY|AWS_|CI$|NODE_VERSION|NPM_|SITE_ID|DEPLOY_|BRANCH$|CONTEXT$|INCOMING_HOOK|PULL_REQUEST|URL$|REPOSITORY_URL|COMMIT_REF|CACHED_COMMIT_REF|HEAD$|GIT_)/;
-/** Real config, but pointing it at a laptop is wrong or actively harmful. */
 const PROD_ONLY =
   /^(NITRO_PRESET|NODE_ENV|COOKIE_DOMAIN|BETTER_AUTH_URL|VITE_BETTER_AUTH_URL|SENTRY_|VITE_SENTRY_|GA_MEASUREMENT_ID|GTM_CONTAINER_ID|AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT|VITE_AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT|SENTRY_ENVIRONMENT|APP_URL|.*_DATABASE_URL$|DATABASE_URL_UNPOOLED|AGENT_NATIVE_SKIP_ENSURE_TABLES|ANALYTICS_SKIP_BOOT_MIGRATIONS)$/;
 
@@ -58,7 +39,6 @@ function documentedKeys(path: string): Set<string> {
   );
 }
 
-// listSites is paginated; one page silently hides sites past the first.
 const sites: Site[] = [];
 for (let page = 1; ; page += 1) {
   const batch = await api<Site[]>("listSites", { page, per_page: 100 });
@@ -70,7 +50,6 @@ let gapCount = 0;
 for (const site of sites.sort((a, b) => a.name.localeCompare(b.name))) {
   const matched = /^agent-native-(.+)$/.exec(site.name);
   if (!matched) continue;
-  // A few site names do not match their template directory.
   const SITE_TO_TEMPLATE: Record<string, string> = {
     images: "assets",
     starter: "chat",

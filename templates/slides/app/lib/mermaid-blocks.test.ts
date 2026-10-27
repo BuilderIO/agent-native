@@ -13,7 +13,6 @@ describe("extractMermaidBlocks", () => {
     expect(contentWithPlaceholders).toBe(
       '<div class="fmd-slide"><div data-mermaid-index="0"></div></div>',
     );
-    // The extracted definition must never have its arrows HTML-escaped.
     expect(blocks[0]).not.toContain("&gt;");
   });
 

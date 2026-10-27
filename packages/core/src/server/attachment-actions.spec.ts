@@ -5,11 +5,9 @@ import {
   isTextLikeFilename,
   persistTextAttachmentsAsResources,
   createCoreAttachmentActionEntries,
+  clearAttachmentRereadCache,
+  attachmentRereadCacheStats,
 } from "./attachment-actions.js";
-
-// ---------------------------------------------------------------------------
-// Helpers: mime / filename detection
-// ---------------------------------------------------------------------------
 
 describe("isTextLikeMimeType", () => {
   it("recognises plain text variants", () => {
@@ -54,13 +52,17 @@ describe("isTextLikeFilename", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// persistTextAttachmentsAsResources
-// ---------------------------------------------------------------------------
-
 const resourcePutMock = vi.hoisted(() => vi.fn());
 const resourceListMock = vi.hoisted(() => vi.fn());
 const resourceGetMock = vi.hoisted(() => vi.fn());
+
+const hydrateOwnedFileUrlMock = vi.hoisted(() => vi.fn());
+vi.mock("../file-upload/owned-attachment.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../file-upload/owned-attachment.js")
+  >()),
+  hydrateOwnedFileUrl: hydrateOwnedFileUrlMock,
+}));
 
 vi.mock("../resources/store.js", () => ({
   resourcePut: resourcePutMock,
@@ -107,13 +109,16 @@ describe("persistTextAttachmentsAsResources", () => {
 
     expect(result.size).toBe(1);
     expect(result.get(0)).toMatchObject({
-      path: "attachments/thread-1/0-data.csv",
+      kind: "stored",
+      path: expect.stringMatching(
+        /^attachments\/thread-1\/[a-z0-9]+-0-data\.csv$/,
+      ),
       totalChars: "id,name\n1,Alice".length,
     });
     expect(resourcePutMock).toHaveBeenCalledOnce();
     const [owner, path, content] = resourcePutMock.mock.calls[0];
     expect(owner).toBe("user@example.com");
-    expect(path).toBe("attachments/thread-1/0-data.csv");
+    expect(path).toMatch(/^attachments\/thread-1\/[a-z0-9]+-0-data\.csv$/);
     expect(content).toBe("id,name\n1,Alice");
   });
 
@@ -134,9 +139,15 @@ describe("persistTextAttachmentsAsResources", () => {
       ownerEmail: "user@example.com",
     });
 
-    expect(stored.get(0)?.totalChars).toBe(content.length);
+    expect(stored.get(0)).toMatchObject({
+      kind: "stored",
+      totalChars: content.length,
+    });
     resourceListMock.mockResolvedValue([
-      { id: "resource-message", path: "attachments/thread-1/0-message.eml" },
+      {
+        id: "resource-message",
+        path: "attachments/thread-1/mfh2a1b2-0-message.eml",
+      },
     ]);
     resourceGetMock.mockResolvedValue({ content });
 
@@ -199,11 +210,13 @@ describe("persistTextAttachmentsAsResources", () => {
       ownerEmail: "user@example.com",
     });
 
-    expect(result.size).toBe(1);
-    expect(result.get(0)?.path).toBe("attachments/thread-1/0-script.py");
+    expect(result.get(0)).toMatchObject({
+      kind: "stored",
+      path: expect.stringMatching(/-0-script\.py$/),
+    });
   });
 
-  it("does not throw when resourcePut fails — returns empty map entry", async () => {
+  it("reports a failed write as a typed failure instead of a missing entry", async () => {
     resourcePutMock.mockRejectedValue(new Error("DB unavailable"));
 
     const result = await persistTextAttachmentsAsResources({
@@ -219,22 +232,255 @@ describe("persistTextAttachmentsAsResources", () => {
       ownerEmail: "user@example.com",
     });
 
+    expect(result.get(0)).toEqual({
+      kind: "failed",
+      reason: "write-failed",
+      error: "DB unavailable",
+    });
+  });
+
+  it("stores hydrated markdown and SVG data URLs as text", async () => {
+    const markdown = "# Design\n" + "x".repeat(70_000);
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg"><rect/></svg>';
+    const result = await persistTextAttachmentsAsResources({
+      attachments: [
+        {
+          type: "file",
+          name: "DESIGN.md",
+          contentType: "text/markdown",
+          data: `data:text/markdown;base64,${Buffer.from(markdown).toString("base64")}`,
+        },
+        {
+          type: "file",
+          name: "logo.svg",
+          contentType: "image/svg+xml",
+          data: `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`,
+        },
+      ],
+      threadId: "thread-1",
+      ownerEmail: "user@example.com",
+    });
+
+    expect(result.get(0)).toMatchObject({
+      kind: "stored",
+      totalChars: markdown.length,
+    });
+    expect(result.get(1)).toMatchObject({ kind: "stored" });
+    expect(
+      resourcePutMock.mock.calls.map((call) => [call[2], call[3]]),
+    ).toEqual([
+      [markdown, "text/markdown"],
+      [svg, "text/plain"],
+    ]);
+  });
+
+  it("gives each turn its own path so an earlier note keeps its file", async () => {
+    const persist = (text: string) =>
+      persistTextAttachmentsAsResources({
+        attachments: [
+          {
+            type: "file",
+            name: "DESIGN.md",
+            contentType: "text/markdown",
+            text,
+          },
+        ],
+        threadId: "thread-1",
+        ownerEmail: "user@example.com",
+      });
+
+    const first = (await persist("v1")).get(0);
+    const second = (await persist("v2")).get(0);
+
+    expect(first?.kind === "stored" && second?.kind === "stored").toBe(true);
+    if (first?.kind !== "stored" || second?.kind !== "stored") return;
+    expect(first.path).not.toBe(second.path);
+  });
+
+  it("stores the body of wrapped pasted text so offsets match the prompt", async () => {
+    await persistTextAttachmentsAsResources({
+      attachments: [
+        {
+          type: "file",
+          name: "pasted-text.txt",
+          contentType: "text/plain",
+          text: "<attachment name=pasted-text.txt>\nbody\n</attachment>",
+        },
+      ],
+      threadId: "thread-1",
+      ownerEmail: "user@example.com",
+    });
+
+    expect(resourcePutMock.mock.calls[0]?.[2]).toBe("body");
+  });
+
+  it("stores a reference, not the body, for an upload already in file storage", async () => {
+    const markdown = "# Design\n" + "x".repeat(2_000_000);
+    const result = await persistTextAttachmentsAsResources({
+      attachments: [
+        {
+          type: "file",
+          name: "DESIGN.md",
+          contentType: "text/markdown",
+          url: "https://storage.example.test/DESIGN.md",
+          uploadProvider: "s3",
+          data: `data:text/markdown;base64,${Buffer.from(markdown).toString("base64")}`,
+        },
+      ],
+      threadId: "thread-1",
+      ownerEmail: "user@example.com",
+    });
+
+    expect(result.get(0)).toMatchObject({
+      kind: "stored",
+      totalChars: markdown.length,
+    });
+    const [, , content, mimeType] = resourcePutMock.mock.calls[0]!;
+    expect(mimeType).toBe(
+      "application/vnd.agent-native.attachment-reference+json",
+    );
+    expect(JSON.parse(content)).toEqual({
+      url: "https://storage.example.test/DESIGN.md",
+      contentType: "text/markdown",
+      name: "DESIGN.md",
+    });
+  });
+
+  it("stores a text type in the reference when the upload type was generic", async () => {
+    await persistTextAttachmentsAsResources({
+      attachments: [
+        {
+          type: "file",
+          name: "deploy.sh",
+          contentType: "application/octet-stream",
+          url: "https://storage.example.test/deploy.sh",
+          uploadProvider: "s3",
+          data: `data:application/octet-stream;base64,${Buffer.from("echo hi").toString("base64")}`,
+        },
+      ],
+      threadId: "thread-1",
+      ownerEmail: "user@example.com",
+    });
+
+    expect(JSON.parse(resourcePutMock.mock.calls[0]![2])).toMatchObject({
+      contentType: "text/plain",
+    });
+  });
+
+  it("never writes a body row with the server's reference type", async () => {
+    await persistTextAttachmentsAsResources({
+      attachments: [
+        {
+          type: "file",
+          name: "ref.json",
+          contentType: "application/vnd.agent-native.attachment-reference+json",
+          text: '{"url":"https://storage.example.test/other-user.md"}',
+        },
+      ],
+      threadId: "thread-1",
+      ownerEmail: "user@example.com",
+    });
+
+    expect(resourcePutMock.mock.calls[0]![3]).toBe("text/plain");
+  });
+
+  it("caps the body text one request copies into SQL", async () => {
+    const result = await persistTextAttachmentsAsResources({
+      attachments: [
+        {
+          type: "file",
+          name: "a.txt",
+          contentType: "text/plain",
+          text: "a".repeat(900_000),
+        },
+        {
+          type: "file",
+          name: "b.txt",
+          contentType: "text/plain",
+          text: "b".repeat(900_000),
+        },
+        {
+          type: "file",
+          name: "c.txt",
+          contentType: "text/plain",
+          text: "c".repeat(900_000),
+        },
+      ],
+      threadId: "thread-1",
+      ownerEmail: "user@example.com",
+    });
+
+    expect(result.get(0)).toMatchObject({ kind: "stored" });
+    expect(result.get(1)).toMatchObject({ kind: "stored" });
+    expect(result.get(2)).toEqual({ kind: "failed", reason: "too-large" });
+  });
+
+  it("refuses to copy a large body into SQL when there is no storage URL", async () => {
+    const result = await persistTextAttachmentsAsResources({
+      attachments: [
+        {
+          type: "file",
+          name: "notes.txt",
+          contentType: "text/plain",
+          text: "x".repeat(1_000_001),
+        },
+      ],
+      threadId: "thread-1",
+      ownerEmail: "user@example.com",
+    });
+
+    expect(result.get(0)).toEqual({ kind: "failed", reason: "too-large" });
+    expect(resourcePutMock).not.toHaveBeenCalled();
+  });
+
+  it("does not store text whose payload the prompt reports as undecodable", async () => {
+    const result = await persistTextAttachmentsAsResources({
+      attachments: [
+        {
+          type: "file",
+          name: "notes.md",
+          contentType: "text/markdown",
+          text: "readable-looking fallback",
+          data: `data:text/markdown;base64,${Buffer.from([0xff, 0xfe]).toString("base64")}`,
+        },
+      ],
+      threadId: "thread-1",
+      ownerEmail: "user@example.com",
+    });
+
     expect(result.size).toBe(0);
+    expect(resourcePutMock).not.toHaveBeenCalled();
+  });
+
+  it("does not store display-only attachments the prompt leaves out", async () => {
+    const result = await persistTextAttachmentsAsResources({
+      attachments: [
+        {
+          type: "file",
+          name: "notes.txt",
+          contentType: "text/plain",
+          displayOnly: true,
+          text: "not for the model",
+        },
+      ],
+      threadId: "thread-1",
+      ownerEmail: "user@example.com",
+    });
+
+    expect(result.size).toBe(0);
+    expect(resourcePutMock).not.toHaveBeenCalled();
   });
 });
-
-// ---------------------------------------------------------------------------
-// read-attachment action slicing
-// ---------------------------------------------------------------------------
 
 describe("createCoreAttachmentActionEntries / read-attachment", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    clearAttachmentRereadCache();
   });
 
   const makeResource = (content: string) => ({
     id: "res-1",
-    path: "attachments/thread-1/0-data.csv",
+    path: "attachments/thread-1/mfh2a1b2-0-data.csv",
     owner: "user@example.com",
     content,
     mimeType: "text/csv",
@@ -254,7 +500,7 @@ describe("createCoreAttachmentActionEntries / read-attachment", () => {
     resourceListMock.mockResolvedValue([
       {
         id: "res-1",
-        path: "attachments/thread-1/0-data.csv",
+        path: "attachments/thread-1/mfh2a1b2-0-data.csv",
         owner: "user@example.com",
       },
     ]);
@@ -275,7 +521,7 @@ describe("createCoreAttachmentActionEntries / read-attachment", () => {
   it("returns second page correctly", async () => {
     const content = "A".repeat(5000) + "B".repeat(5000);
     resourceListMock.mockResolvedValue([
-      { id: "res-1", path: "attachments/thread-1/0-data.csv" },
+      { id: "res-1", path: "attachments/thread-1/mfh2a1b2-0-data.csv" },
     ]);
     resourceGetMock.mockResolvedValue(makeResource(content));
 
@@ -287,6 +533,448 @@ describe("createCoreAttachmentActionEntries / read-attachment", () => {
 
     expect(result.content).toBe("B".repeat(5000));
     expect(result.hasMore).toBe(false);
+  });
+
+  it("reads by stored path when names collide or need escaping", async () => {
+    resourceListMock.mockResolvedValue([
+      { id: "res-0", path: "attachments/thread-1/0-Q_A.md" },
+      { id: "res-1", path: "attachments/thread-1/1-Q_A.md" },
+    ]);
+    resourceGetMock.mockImplementation(async (id: string) =>
+      makeResource(id === "res-1" ? "second" : "first"),
+    );
+
+    const result = await createCoreAttachmentActionEntries()[
+      "read-attachment"
+    ].run(
+      { path: "attachments/thread-1/1-Q_A.md" },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+
+    expect(resourceListMock).toHaveBeenCalledWith(
+      "user@example.com",
+      "attachments/thread-1/",
+      { includeAgentScratch: true },
+    );
+    expect(result.content).toBe("second");
+  });
+
+  it("reads the latest upload when looking up a repeated name", async () => {
+    resourceListMock.mockResolvedValue([
+      { id: "res-old", path: "attachments/thread-1/mfh2a1b2-0-DESIGN.md" },
+      { id: "res-new", path: "attachments/thread-1/mfh9z9z9-0-DESIGN.md" },
+    ]);
+    resourceGetMock.mockImplementation(async (id: string) =>
+      makeResource(id === "res-new" ? "new" : "old"),
+    );
+
+    const result = await createCoreAttachmentActionEntries()[
+      "read-attachment"
+    ].run(
+      { name: "DESIGN.md", threadId: "thread-1" },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+
+    expect(result.content).toBe("new");
+  });
+
+  it("does not match a different file that ends with the requested name", async () => {
+    resourceListMock.mockResolvedValue([
+      { id: "res-mine", path: "attachments/thread-1/mfh9z9z9-0-MY-DESIGN.md" },
+      { id: "res-design", path: "attachments/thread-1/mfh2a1b2-1-DESIGN.md" },
+    ]);
+    resourceGetMock.mockImplementation(async (id: string) =>
+      makeResource(id === "res-design" ? "design" : "mine"),
+    );
+
+    const entries = createCoreAttachmentActionEntries();
+    const result = await entries["read-attachment"].run(
+      { name: "DESIGN.md", threadId: "thread-1" },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+    expect(result.content).toBe("design");
+
+    resourceListMock.mockResolvedValue([
+      { id: "res-mine", path: "attachments/thread-1/mfh9z9z9-0-MY-DESIGN.md" },
+    ]);
+    const missing = await entries["read-attachment"].run(
+      { name: "DESIGN.md", threadId: "thread-1" },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+    expect(missing.error).toContain(
+      'No stored attachment found with name "DESIGN.md"',
+    );
+  });
+
+  it("still finds attachments stored before paths had a batch id", async () => {
+    resourceListMock.mockResolvedValue([
+      { id: "res-legacy", path: "attachments/thread-1/0-2024-notes.md" },
+    ]);
+    resourceGetMock.mockResolvedValue(makeResource("legacy"));
+
+    const result = await createCoreAttachmentActionEntries()[
+      "read-attachment"
+    ].run(
+      { name: "2024-notes.md", threadId: "thread-1" },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+
+    expect(result.content).toBe("legacy");
+  });
+
+  it("prefers a batched upload over a legacy one with the same name", async () => {
+    resourceListMock.mockResolvedValue([
+      { id: "res-legacy", path: "attachments/thread-1/0-DESIGN.md" },
+      { id: "res-new", path: "attachments/thread-1/mfh2a1b2-0-DESIGN.md" },
+    ]);
+    resourceGetMock.mockImplementation(async (id: string) =>
+      makeResource(id === "res-new" ? "new" : "legacy"),
+    );
+
+    const result = await createCoreAttachmentActionEntries()[
+      "read-attachment"
+    ].run(
+      { name: "DESIGN.md", threadId: "thread-1" },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+
+    expect(result.content).toBe("new");
+  });
+
+  it("reads a legacy name that contains digit segments", async () => {
+    resourceListMock.mockResolvedValue([
+      { id: "res-legacy", path: "attachments/thread-1/0-report-1-final.md" },
+    ]);
+    resourceGetMock.mockResolvedValue(makeResource("report"));
+
+    const result = await createCoreAttachmentActionEntries()[
+      "read-attachment"
+    ].run(
+      { name: "report-1-final.md", threadId: "thread-1" },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+
+    expect(result.content).toBe("report");
+  });
+
+  it("does not call legacy uploads from different turns ambiguous", async () => {
+    resourceListMock.mockResolvedValue([
+      { id: "res-0", path: "attachments/thread-1/0-DESIGN.md" },
+      { id: "res-1", path: "attachments/thread-1/1-DESIGN.md" },
+    ]);
+    resourceGetMock.mockImplementation(async (id: string) =>
+      makeResource(id === "res-1" ? "index one" : "index zero"),
+    );
+
+    const result = await createCoreAttachmentActionEntries()[
+      "read-attachment"
+    ].run(
+      { name: "DESIGN.md", threadId: "thread-1" },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(result.content).toBe("index one");
+  });
+
+  it("asks for a path when one message attached two files with the same name", async () => {
+    resourceListMock.mockResolvedValue([
+      { id: "res-2", path: "attachments/thread-1/mfh2a1b2-2-DESIGN.md" },
+      { id: "res-10", path: "attachments/thread-1/mfh2a1b2-10-DESIGN.md" },
+    ]);
+
+    const result = await createCoreAttachmentActionEntries()[
+      "read-attachment"
+    ].run(
+      { name: "DESIGN.md", threadId: "thread-1" },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+
+    expect(result.error).toBe(
+      '"DESIGN.md" matches more than one attachment sent together: attachments/thread-1/mfh2a1b2-10-DESIGN.md, attachments/thread-1/mfh2a1b2-2-DESIGN.md. Call again with one of these as path.',
+    );
+    expect(resourceGetMock).not.toHaveBeenCalled();
+  });
+
+  it("re-reads a stored reference from file storage", async () => {
+    resourceListMock.mockResolvedValue([
+      { id: "res-ref", path: "attachments/thread-1/mfh2a1b2-0-DESIGN.md" },
+    ]);
+    resourceGetMock.mockResolvedValue({
+      ...makeResource(
+        JSON.stringify({
+          url: "https://storage.example.test/DESIGN.md",
+          contentType: "text/markdown",
+          name: "DESIGN.md",
+        }),
+      ),
+      mimeType: "application/vnd.agent-native.attachment-reference+json",
+    });
+    hydrateOwnedFileUrlMock.mockResolvedValue({
+      kind: "hydrated",
+      dataUrl: `data:text/markdown;base64,${Buffer.from("A".repeat(10) + "TAIL").toString("base64")}`,
+      mediaType: "text/markdown",
+      provider: "s3",
+    });
+
+    const entries = createCoreAttachmentActionEntries();
+    const result = await entries["read-attachment"].run(
+      { path: "attachments/thread-1/mfh2a1b2-0-DESIGN.md", offset: "10" },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+    expect(hydrateOwnedFileUrlMock).toHaveBeenCalledWith(
+      "https://storage.example.test/DESIGN.md",
+      "text/markdown",
+      "DESIGN.md",
+      expect.any(Object),
+    );
+    expect(result).toMatchObject({ content: "TAIL", totalChars: 14 });
+
+    clearAttachmentRereadCache();
+    hydrateOwnedFileUrlMock.mockResolvedValue({
+      kind: "failed",
+      code: "fetch-failed",
+    });
+    const failed = await entries["read-attachment"].run(
+      { path: "attachments/thread-1/mfh2a1b2-0-DESIGN.md" },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+    expect(failed.error).toContain('Could not re-read "mfh2a1b2-0-DESIGN.md"');
+    expect(failed.content).toBeUndefined();
+  });
+
+  it("downloads a referenced file once while paging through it", async () => {
+    const reference = {
+      ...makeResource(
+        JSON.stringify({
+          url: "https://storage.example.test/DESIGN.md",
+          contentType: "text/markdown",
+          name: "DESIGN.md",
+        }),
+      ),
+      id: "res-paged",
+      mimeType: "application/vnd.agent-native.attachment-reference+json",
+    };
+    resourceListMock.mockResolvedValue([
+      { id: "res-paged", path: "attachments/thread-1/mfh2a1b2-0-DESIGN.md" },
+    ]);
+    resourceGetMock.mockResolvedValue(reference);
+    hydrateOwnedFileUrlMock.mockResolvedValue({
+      kind: "hydrated",
+      dataUrl: `data:text/markdown;base64,${Buffer.from("AAAABBBB").toString("base64")}`,
+      mediaType: "text/markdown",
+      provider: "s3",
+    });
+
+    const entries = createCoreAttachmentActionEntries();
+    const path = "attachments/thread-1/mfh2a1b2-0-DESIGN.md";
+    const first = await entries["read-attachment"].run(
+      { path, offset: "0", limit: "4" },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+    const second = await entries["read-attachment"].run(
+      { path, offset: "4", limit: "4" },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+
+    expect([first.content, second.content]).toEqual(["AAAA", "BBBB"]);
+    expect(hydrateOwnedFileUrlMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-reads a referenced upload verbatim when it only looks like a pasted-text envelope", async () => {
+    const envelopeShaped = "<attachment name=x>\nbody\n</attachment>";
+    resourceListMock.mockResolvedValue([
+      { id: "res-doc", path: "attachments/thread-1/mfh2a1b2-0-doc.md" },
+    ]);
+    resourceGetMock.mockResolvedValue({
+      ...makeResource(
+        JSON.stringify({
+          url: "https://storage.example.test/doc.md",
+          contentType: "text/markdown",
+          name: "doc.md",
+        }),
+      ),
+      id: "res-doc",
+      mimeType: "application/vnd.agent-native.attachment-reference+json",
+    });
+    hydrateOwnedFileUrlMock.mockResolvedValue({
+      kind: "hydrated",
+      dataUrl: `data:text/markdown;base64,${Buffer.from(envelopeShaped).toString("base64")}`,
+      mediaType: "text/markdown",
+      provider: "s3",
+    });
+
+    const result = await createCoreAttachmentActionEntries()[
+      "read-attachment"
+    ].run(
+      { path: "attachments/thread-1/mfh2a1b2-0-doc.md" },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+
+    expect(result.content).toBe(envelopeShaped);
+  });
+
+  it("keeps non-ASCII names that share a length distinct", async () => {
+    await persistTextAttachmentsAsResources({
+      attachments: [
+        {
+          type: "file",
+          name: "设计.md",
+          contentType: "text/markdown",
+          text: "a",
+        },
+        {
+          type: "file",
+          name: "规格.md",
+          contentType: "text/markdown",
+          text: "b",
+        },
+      ],
+      threadId: "thread-1",
+      ownerEmail: "user@example.com",
+    });
+    const [first, second] = resourcePutMock.mock.calls.map(
+      (call) => call[1] as string,
+    );
+    expect(first).not.toBe(second.replace(/-1-/, "-0-"));
+
+    vi.clearAllMocks();
+    resourceListMock.mockResolvedValue([
+      { id: "res-design", path: first },
+      { id: "res-spec", path: second },
+    ]);
+    resourceGetMock.mockImplementation(async (id: string) =>
+      makeResource(id === "res-spec" ? "spec" : "design"),
+    );
+    const result = await createCoreAttachmentActionEntries()[
+      "read-attachment"
+    ].run(
+      { name: "规格.md", threadId: "thread-1" },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+    expect(result.content).toBe("spec");
+  });
+
+  it("reads the most recently written of two legacy same-name files", async () => {
+    resourceListMock.mockResolvedValue([
+      { id: "res-old", path: "attachments/thread-1/3-DESIGN.md", updatedAt: 1 },
+      { id: "res-new", path: "attachments/thread-1/0-DESIGN.md", updatedAt: 2 },
+    ]);
+    resourceGetMock.mockImplementation(async (id: string) =>
+      makeResource(id === "res-new" ? "new" : "old"),
+    );
+
+    const result = await createCoreAttachmentActionEntries()[
+      "read-attachment"
+    ].run(
+      { name: "DESIGN.md", threadId: "thread-1" },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+
+    expect(result.content).toBe("new");
+  });
+
+  it("bounds the re-read cache by entry count", async () => {
+    hydrateOwnedFileUrlMock.mockResolvedValue({
+      kind: "hydrated",
+      dataUrl: `data:text/markdown;base64,${Buffer.from("x").toString("base64")}`,
+      mediaType: "text/markdown",
+      provider: "s3",
+    });
+    const entries = createCoreAttachmentActionEntries();
+    for (let index = 0; index < 40; index++) {
+      const path = `attachments/thread-1/mfh2a1b2-${index}-f.md`;
+      resourceListMock.mockResolvedValue([{ id: `res-${index}`, path }]);
+      resourceGetMock.mockResolvedValue({
+        ...makeResource(
+          JSON.stringify({ url: `https://storage.example.test/${index}.md` }),
+        ),
+        id: `res-${index}`,
+        mimeType: "application/vnd.agent-native.attachment-reference+json",
+      });
+      await entries["read-attachment"].run(
+        { path },
+        { caller: "tool", userEmail: "user@example.com" },
+      );
+    }
+
+    expect(attachmentRereadCacheStats()).toEqual({ entries: 32, chars: 32 });
+  });
+
+  it("never splits a surrogate pair at a page edge", async () => {
+    const content = "a😀b";
+    resourceListMock.mockResolvedValue([
+      { id: "res-1", path: "attachments/thread-1/mfh2a1b2-0-data.csv" },
+    ]);
+    resourceGetMock.mockResolvedValue(makeResource(content));
+    const entries = createCoreAttachmentActionEntries();
+
+    const first = await entries["read-attachment"].run(
+      { path: "attachments/thread-1/mfh2a1b2-0-data.csv", limit: "2" },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+    expect(first).toMatchObject({ content: "a", hasMore: true });
+    expect(first.note).toContain("offset=1");
+
+    const mid = await entries["read-attachment"].run(
+      {
+        path: "attachments/thread-1/mfh2a1b2-0-data.csv",
+        offset: "2",
+        limit: "3",
+      },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+    expect(mid).toMatchObject({ content: "😀b", offset: 1 });
+  });
+
+  it("returns a whole surrogate pair rather than an empty page at limit 1", async () => {
+    resourceListMock.mockResolvedValue([
+      { id: "res-1", path: "attachments/thread-1/mfh2a1b2-0-data.csv" },
+    ]);
+    resourceGetMock.mockResolvedValue(makeResource("😀b"));
+
+    const result = await createCoreAttachmentActionEntries()[
+      "read-attachment"
+    ].run(
+      { path: "attachments/thread-1/mfh2a1b2-0-data.csv", limit: "1" },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+
+    expect(result).toMatchObject({ content: "😀", hasMore: true });
+    expect(result.note).toContain("offset=2");
+  });
+
+  it("clamps an offset past the end instead of returning a negative limit", async () => {
+    resourceListMock.mockResolvedValue([
+      { id: "res-1", path: "attachments/thread-1/mfh2a1b2-0-data.csv" },
+    ]);
+    resourceGetMock.mockResolvedValue(makeResource("abc"));
+
+    const result = await createCoreAttachmentActionEntries()[
+      "read-attachment"
+    ].run(
+      { path: "attachments/thread-1/mfh2a1b2-0-data.csv", offset: "10" },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+
+    expect(result).toMatchObject({
+      content: "",
+      offset: 3,
+      limit: 0,
+      hasMore: false,
+    });
+  });
+
+  it("rejects a path outside stored attachments", async () => {
+    const result = await createCoreAttachmentActionEntries()[
+      "read-attachment"
+    ].run(
+      { path: "notes/private.md" },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+
+    expect(result.error).toContain("is not a stored attachment path");
+    expect(resourceListMock).not.toHaveBeenCalled();
   });
 
   it("returns error when attachment is not found", async () => {
@@ -308,6 +996,6 @@ describe("createCoreAttachmentActionEntries / read-attachment", () => {
       { caller: "tool", userEmail: "user@example.com" },
     );
 
-    expect(result.error).toContain("name is required");
+    expect(result.error).toContain("name or path is required");
   });
 });

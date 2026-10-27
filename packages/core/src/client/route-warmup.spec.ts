@@ -15,6 +15,7 @@ const {
   renderWarmupLinksForSelector,
   routeAssetUrlsForHref,
   resetRouteWarmupCachesForTests,
+  warmRouteAssetsForHref,
 } = __routeWarmupInternalsForTests;
 
 describe("route warmup runtime helpers", () => {
@@ -109,6 +110,41 @@ describe("route warmup runtime helpers", () => {
     expect(new URL(dataRouteUrlsForHref("/dispatch/docs/")[0]!).pathname).toBe(
       "/dispatch/docs/_.data",
     );
+  });
+
+  it("never warms paths the server answers, even under a catch-all route", () => {
+    window.__reactRouterManifest = {
+      routes: {
+        root: { id: "root", path: "", hasLoader: true },
+        "routes/$": {
+          id: "routes/$",
+          parentId: "root",
+          path: "*",
+          hasLoader: true,
+        },
+      },
+    };
+    const serverPaths = [
+      "/mcp/connect",
+      "/mcp",
+      "/.well-known/agent-card.json",
+      "/api/automations/trigger",
+      "/_agent-native/actions/list-automations",
+      "/cdn-cgi/trace",
+    ];
+
+    for (const path of serverPaths) {
+      expect(dataRouteUrlsForHref(path), path).toEqual([]);
+      expect(
+        isClientRouteUrl(new URL(path, window.location.origin)),
+        path,
+      ).toBe(false);
+    }
+    expect(dataRouteUrlsForHref("/mcp-servers")).toHaveLength(1);
+
+    window.__reactRouterContext = { basename: "/mail" };
+    expect(dataRouteUrlsForHref("/mail/mcp/connect?locale=en")).toEqual([]);
+    expect(dataRouteUrlsForHref("/mail/inbox")).toHaveLength(1);
   });
 
   it("refreshes the route tree when React Router patches manifest routes in place", () => {
@@ -212,6 +248,33 @@ describe("route warmup runtime helpers", () => {
 
     expect(hasWarmableRouteAssets()).toBe(false);
     expect(routeAssetUrlsForHref("/docs")).toEqual([]);
+  });
+
+  it("marks speculative module preloads so chunk recovery can ignore them", () => {
+    window.__reactRouterManifest = {
+      routes: {
+        root: {
+          id: "root",
+          path: "",
+          module: "/assets/root-AbC123.js",
+        },
+        "routes/docs._index": {
+          id: "routes/docs._index",
+          parentId: "root",
+          path: "docs",
+          index: true,
+          module: "/assets/docs._index-DNb8kxCk.js",
+        },
+      },
+    };
+
+    warmRouteAssetsForHref("/docs");
+
+    expect(
+      document
+        .querySelector('link[href$="/assets/docs._index-DNb8kxCk.js"]')
+        ?.getAttribute("data-agent-native-route-warmup"),
+    ).toBe("true");
   });
 
   it("finds render warmup links using the configured selector", () => {

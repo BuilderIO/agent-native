@@ -266,10 +266,6 @@ export default function SessionsScreen() {
         pending.push(loadRunDetail(selectedRunId));
         pending.push(loadTranscript(selectedRunId, true));
       }
-      // The relay loaders take no abort signal, so the timeout can only
-      // report a slow cycle — it must not release `inFlight`. Releasing there
-      // would let the next tick run against still-live requests whose late
-      // responses then overwrite the newer hosts/runs/events state.
       const work = Promise.all(pending).then(
         () => {},
         () => {},

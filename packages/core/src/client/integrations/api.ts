@@ -284,12 +284,21 @@ export async function listIntegrationEnvStatuses(): Promise<
   return Array.isArray(result) ? (result as IntegrationEnvStatus[]) : [];
 }
 
+/**
+ * Save unregistered keys at `scope` (the route refuses `org` from anyone but
+ * an owner or admin). Without one they save personally; registered keys
+ * always save at their registered scope.
+ */
 export async function saveIntegrationEnvVars(
   vars: Array<{ key: string; value: string }>,
+  options?: { scope?: "user" | "org" },
 ): Promise<SavedEnvVarsResult> {
   return integrationRequest<SavedEnvVarsResult>("/_agent-native/env-vars", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ vars }),
+    body: JSON.stringify({
+      vars,
+      ...(options?.scope ? { scope: options.scope } : {}),
+    }),
   });
 }

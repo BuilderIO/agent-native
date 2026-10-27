@@ -13,6 +13,7 @@ import {
   blankScreenHtml,
   canvasPrimitiveInsertionHostNodeId,
   extractCanvasPrimitiveHtml,
+  type LayerSize,
   uniqueLayerId,
 } from "@/pages/design-editor/canvas-primitive-insert";
 import { parsePenPathFromSerializedD } from "@/pages/design-editor/canvas-primitives";
@@ -61,7 +62,6 @@ export interface CreatePrimitiveArgs {
     },
   ) => ApplyLocalContentUpdateResult;
   boardFileId: string | undefined;
-  /** Effective canvas colour, stored or themed — the board's visible surface. */
   canvasBackground: string | null | undefined;
   canEditDesign: boolean;
   files: DesignFile[];
@@ -80,10 +80,13 @@ export interface CreatePrimitiveArgs {
 }
 
 type PrimitiveCreationHostLayout =
-  | "flow"
-  | "freeform"
-  | "unavailable"
-  | "stale";
+  | { status: "unavailable" }
+  | { status: "stale" }
+  | {
+      status: "resolved";
+      layout: "flow" | "freeform";
+      document: Document;
+    };
 
 function resolvePrimitiveCreationHostLayout(args: {
   activeBreakpointWidthState?: number;
@@ -101,15 +104,18 @@ function resolvePrimitiveCreationHostLayout(args: {
     fileId: args.fileId,
     overviewScreens: args.overviewScreens,
   });
-  if (preview.status === "unavailable") return "unavailable";
-  if (preview.status === "stale" || !preview.document.body) return "stale";
+  if (preview.status === "unavailable") return { status: "unavailable" };
+  if (preview.status === "stale" || !preview.document.body) {
+    return { status: "stale" };
+  }
 
   const host = canvasPrimitiveInsertionHostNodeId(
     args.content,
     args.primitive,
     args.fileId === args.boardFileId,
+    preview.document,
   );
-  if (!host) return "stale";
+  if (!host) return { status: "stale" };
 
   let liveHost: Element | null = preview.document.body;
   if (host.kind === "frame") {
@@ -131,19 +137,64 @@ function resolvePrimitiveCreationHostLayout(args: {
       liveMatches.length !== 1 ||
       sourceMatches[0]?.localName !== liveMatches[0]?.localName
     ) {
-      return "stale";
+      return { status: "stale" };
     }
     liveHost = liveMatches[0] ?? null;
   }
   const view = preview.document.defaultView;
-  if (!liveHost || !view) return "stale";
+  if (!liveHost || !view) return { status: "stale" };
   try {
-    return isFlowDisplay(view.getComputedStyle(liveHost).display)
-      ? "flow"
-      : "freeform";
+    return {
+      status: "resolved",
+      layout: isFlowDisplay(view.getComputedStyle(liveHost).display)
+        ? "flow"
+        : "freeform",
+      document: preview.document,
+    };
   } catch {
-    return "stale";
+    return { status: "stale" };
   }
+}
+
+function readLiveHostChildSizes(args: {
+  activeBreakpointWidthState?: number;
+  activeFileId?: string;
+  boardFileId?: string;
+  content: string;
+  fileId: string;
+  overviewScreens?: readonly OverviewScreen[];
+  primitive: CanvasPrimitiveInsert;
+}): Map<string, LayerSize> {
+  const sizes = new Map<string, LayerSize>();
+  const preview = getLivePreviewDocument(args);
+  if (preview.status !== "resolved") return sizes;
+  const host = canvasPrimitiveInsertionHostNodeId(
+    args.content,
+    args.primitive,
+    args.fileId === args.boardFileId,
+    preview.document,
+  );
+  const liveHost =
+    host?.kind === "frame"
+      ? preview.document.querySelector(
+          `[data-agent-native-node-id="${CSS.escape(host.nodeId)}"]`,
+        )
+      : preview.document.body;
+  for (const child of Array.from(liveHost?.children ?? [])) {
+    const id = child.getAttribute("data-agent-native-node-id");
+    if (!id) continue;
+    if ("offsetWidth" in child) {
+      const element = child as HTMLElement;
+      sizes.set(id, {
+        width: element.offsetWidth,
+        height: element.offsetHeight,
+      });
+    } else {
+      const rect = child.getBoundingClientRect();
+      sizes.set(id, { width: rect.width, height: rect.height });
+    }
+  }
+  return sizes;
 }
 
 export function runCreatePrimitive(
@@ -207,35 +258,43 @@ export function runCreatePrimitive(
           nodeId: uniqueLayerId(primitive.kind || "primitive"),
         }
       : primitive;
-  // A localhost screen's stored content is its route URL, not an editable
-  // document. Keep that URL intact and send one serialized primitive
-  // through the same live insert bridge used by board-to-screen drops.
-  // The bridge echo records the pending source handoff and owns the
-  // optimistic DOM/history lifecycle (selection, Layers, undo, and redo).
   if (isStandaloneHttpUrl(baseContent)) {
     if (reparentTargetIdentity) return false;
     const nodeId =
       primitive.nodeId ?? uniqueLayerId(primitive.kind || "primitive");
     const livePrimitive = { ...primitive, nodeId };
+    const livePreview = getLivePreviewDocument({
+      activeBreakpointWidthState,
+      activeFileId: activeFile?.id,
+      boardFileId,
+      fileId: targetFile.id,
+      overviewScreens,
+    });
     const temporaryDocument = appendCanvasPrimitiveToHtml(
       blankScreenHtml("Live insert"),
       livePrimitive,
+      {
+        isBoardTarget: targetFile.id === boardFileId,
+        boardBackground: canvasBackground,
+        liveDocument:
+          livePreview.status === "resolved" ? livePreview.document : undefined,
+      },
     );
     if (!temporaryDocument) {
       toast.error(t("designEditor.toasts.primitiveInsertFailed"));
       return false;
     }
     const enrichedDocument =
-      primitive.kind === "path" && primitive.pathData
+      primitive.kind === "path" && (primitive.penPath || primitive.pathData)
         ? (() => {
-            const reconstructed = parsePenPathFromSerializedD(
-              primitive.pathData!,
-            );
-            return reconstructed
+            const penPath =
+              primitive.penPath ??
+              parsePenPathFromSerializedD(primitive.pathData!);
+            return penPath
               ? setPenNodesAttributeOnElement(
                   temporaryDocument,
                   nodeId,
-                  reconstructed,
+                  penPath,
                 )
               : temporaryDocument;
           })()
@@ -266,7 +325,7 @@ export function runCreatePrimitive(
     overviewScreens,
     primitive: insertionPrimitive,
   });
-  if (hostLayout === "stale") {
+  if (hostLayout.status === "stale") {
     toast.error(t("designEditor.toasts.primitiveInsertFailed"));
     return false;
   }
@@ -277,34 +336,45 @@ export function runCreatePrimitive(
       preserveNegativePosition: targetFile.id === boardFileId,
       isBoardTarget: targetFile.id === boardFileId,
       boardBackground: canvasBackground,
-      positioning: hostLayout === "flow" ? "flow" : "absolute",
+      positioning:
+        hostLayout.status === "resolved" && hostLayout.layout === "flow"
+          ? "flow"
+          : "absolute",
+      liveLayerSizes:
+        insertionPrimitive.kind === "frame" &&
+        hostLayout.status === "resolved" &&
+        hostLayout.layout === "freeform"
+          ? readLiveHostChildSizes({
+              activeBreakpointWidthState,
+              activeFileId: activeFile?.id,
+              boardFileId,
+              content: insertionBaseContent,
+              fileId: targetFile.id,
+              overviewScreens,
+              primitive: insertionPrimitive,
+            })
+          : undefined,
+      liveDocument:
+        hostLayout.status === "resolved" ? hostLayout.document : undefined,
     },
   );
   if (!insertedContent) {
     toast.error(t("designEditor.toasts.primitiveInsertFailed"));
     return false;
   }
-  // Vector-edit foundations: stash the structured pen path (nodes +
-  // handles) alongside the flattened `d` so a later double-click/Enter
-  // can re-hydrate it into an editable path instead of only having the
-  // already-flattened curve. `primitive.pathData` is the only carrier of
-  // pen geometry that crosses the MultiScreenCanvas -> DesignEditor
-  // boundary for an OVERVIEW-drawn pen path (see
-  // parsePenPathFromSerializedD's doc comment for why this reconstructs
-  // rather than receives the structured path directly).
   const rawNextContent =
-    insertionPrimitive.kind === "path" &&
-    insertionPrimitive.pathData &&
-    insertionPrimitive.nodeId
+    insertionPrimitive.kind === "path" && insertionPrimitive.nodeId
       ? (() => {
-          const reconstructed = parsePenPathFromSerializedD(
-            insertionPrimitive.pathData!,
-          );
-          return reconstructed
+          const penPath =
+            insertionPrimitive.penPath ??
+            (insertionPrimitive.pathData
+              ? parsePenPathFromSerializedD(insertionPrimitive.pathData)
+              : null);
+          return penPath
             ? setPenNodesAttributeOnElement(
                 insertedContent,
                 insertionPrimitive.nodeId!,
-                reconstructed,
+                penPath,
               )
             : insertedContent;
         })()
@@ -419,10 +489,6 @@ export function runCreatePrimitive(
   );
   const result = acceptedNode?.id ?? false;
 
-  // Record the nodeId when a TEXT primitive is created so the next
-  // handlePrimitiveCreated (or handleBoardDrawPrimitive) can immediately
-  // enter text-edit mode — fixing the "click to add text should let me
-  // type immediately" bug. The ref is read once and cleared.
   if (insertionPrimitive.kind === "text") {
     pendingTextEditNodeIdRef.current = acceptedNode
       ? (acceptedNode.dataAttributes["data-agent-native-node-id"] ?? null)

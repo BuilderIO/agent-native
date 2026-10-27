@@ -82,6 +82,24 @@ export const parityEvalScenarios: ParityEvalScenario[] = [
     expectedTools: ["duplicate-database-items", "remove-database-items"],
   },
   {
+    id: "database-distinct-row-patches",
+    title: "Distinct per-row patches",
+    capabilityIds: ["database.rows"],
+    gateEnv: "CONTENT_PARITY_EVALS",
+    defaultState: "skipped",
+    requiresPrivateCredentials: false,
+    prompt:
+      "Using fixture Content database rows only, reverse the order of the Rank number property across every row so each row gets a different rank. Report how many rows changed and the verified final rank of each row ID.",
+    successSignals: [
+      "Reads the collection once with get-content-database before writing.",
+      "Uses patch-database-items once with a distinct patch per row.",
+      "Does not loop update-database-item for the multi-row rank change.",
+      "Reports the verified final rank per row from the receipt or a fresh read.",
+      "Does not use private provider credentials.",
+    ],
+    expectedTools: ["get-content-database", "patch-database-items"],
+  },
+  {
     id: "database-source-scope",
     title: "Source-backed database scope",
     capabilityIds: [

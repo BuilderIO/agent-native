@@ -22,6 +22,10 @@ vi.mock("../server/db/index.js", () => ({
   schema: {
     contentDatabases: { id: "database-id", viewConfigJson: "view-config" },
     contentDatabaseItems: { id: "item-id", databaseId: "database-id" },
+    documentPropertyDefinitions: {
+      id: "property-id",
+      databaseId: "property-database-id",
+    },
   },
 }));
 vi.mock("./_content-database-personal-view.js", async (importOriginal) => ({
@@ -88,10 +92,16 @@ beforeEach(() => {
             ]
           : "systemRole" in projection
             ? [{ systemRole }]
-            : [{ id: "item-a" }, { id: "item-b" }],
+            : projection.id === "property-id"
+              ? [
+                  "title",
+                  "status",
+                  "priority",
+                  filesParentPropertyId("db"),
+                ].map((id) => ({ id }))
+              : [{ id: "item-a" }, { id: "item-b" }],
     }),
   }));
-  // Serialize callbacks at the settings boundary; SQL/CAS belongs to its own tests.
   let queue = Promise.resolve();
   boundary.mutate.mockImplementation(
     (
@@ -158,6 +168,41 @@ describe("personal navigation patch action", () => {
       (saved as ContentDatabasePersonalViewOverrides).views[0].sidebarOrder
         ?.itemIds,
     ).toHaveLength(5_001);
+  });
+  it("returns a save without sorts or filters on deleted properties", async () => {
+    const [table, board] = initialState().views;
+    saved = {
+      ...initialState(),
+      views: [
+        {
+          ...table,
+          sorts: [
+            ...table.sorts,
+            { key: "deleted", label: "Deleted", direction: "asc" },
+          ],
+          filters: [
+            ...table.filters,
+            {
+              key: "deleted",
+              label: "Deleted",
+              operator: "is_not_empty",
+              value: "",
+            },
+          ],
+        },
+        board,
+      ],
+    };
+
+    const result = await action.run(
+      { databaseId: "db", navigation: { activeViewId: "board" } },
+      ctx,
+    );
+
+    expect(result.overrides).toEqual({
+      ...initialState(),
+      activeViewId: "board",
+    });
   });
   it("seeds the first sidebar override from the shared View's query", async () => {
     saved = null;

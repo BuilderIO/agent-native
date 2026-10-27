@@ -1,6 +1,3 @@
-/**
- * delete-deck — remove a deck and its version history.
- */
 import { defineAction } from "@agent-native/core/action";
 import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
@@ -16,11 +13,15 @@ export default defineAction({
     id: z.string().min(1).describe("Deck ID"),
   }),
   http: { method: "DELETE" },
+  needsApproval: true,
+  allowPersistentApproval: false,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   run: async ({ id }) => {
     try {
-      // assertAccess loads the row and verifies the caller has admin role on
-      // this resource — it must run BEFORE the delete so we don't leak
-      // existence to callers who lack access.
       const access = await assertAccess("deck", id, "admin");
       const owner = access.resource.ownerEmail as string;
       const orgId =
@@ -99,7 +100,6 @@ export default defineAction({
       }
       return { success: true };
     } catch (err) {
-      // 404 rather than 403 so callers can't probe for decks they can't see.
       if (err instanceof ForbiddenError) {
         throw deckHttpError(404, "Deck not found");
       }

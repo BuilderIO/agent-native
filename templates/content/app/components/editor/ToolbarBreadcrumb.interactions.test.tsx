@@ -75,7 +75,7 @@ describe("breadcrumb menu interaction", () => {
     await pointer(label, "pointerdown");
     await pointer(label, "pointerup");
     await act(async () => label.click());
-    expect(onOpen).toHaveBeenCalledExactlyOnceWith("parent");
+    expect(onOpen).toHaveBeenCalledExactlyOnceWith("parent", undefined);
   });
 
   it("keeps the menu open when a pointer clicks after hovering", async () => {
@@ -92,7 +92,7 @@ describe("breadcrumb menu interaction", () => {
       const items = document.querySelectorAll<HTMLElement>('[role="menuitem"]');
       items[1].click();
     });
-    expect(onOpen).toHaveBeenCalledWith("sibling");
+    expect(onOpen).toHaveBeenCalledWith("sibling", undefined);
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
   });
 

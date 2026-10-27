@@ -12,11 +12,16 @@ export const REASONING_EFFORTS = [
 export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
 
 /**
- * Shared chat always chooses an explicit effort tier. Keep `auto` in the
- * accepted type only so older persisted selections and external callers can
- * migrate cleanly; new UI and engine defaults resolve it to High.
+ * No choice made: requests carry no effort and the provider's own default
+ * applies. "auto" is that unset state wherever a value is required.
  */
-export const DEFAULT_REASONING_EFFORT: ReasoningEffort = "high";
+export const DEFAULT_REASONING_EFFORT: ReasoningEffort = "auto";
+
+export function isUnsetReasoningEffort(
+  effort: ReasoningEffort | undefined,
+): effort is "auto" | undefined {
+  return effort === undefined || effort === "auto";
+}
 
 export const REASONING_EFFORT_LABELS: Record<ReasoningEffort, string> = {
   auto: "Auto",
@@ -75,9 +80,8 @@ export function normalizeReasoningEffortForModel(
   model: string | undefined,
   effort: ReasoningEffort | undefined,
 ): ReasoningEffort | undefined {
-  if (!model) return undefined;
-  let normalized =
-    !effort || effort === "auto" ? DEFAULT_REASONING_EFFORT : effort;
+  if (!model || isUnsetReasoningEffort(effort)) return undefined;
+  let normalized: ReasoningEffort = effort;
   if (
     normalized === "xhigh" &&
     isClaudeReasoningModel(model) &&
@@ -95,11 +99,6 @@ export function normalizeReasoningEffortForModel(
   return normalized;
 }
 
-/**
- * Normalize a chat request before it reaches an engine. Explicit off/minimal
- * sentinels must survive this layer so the engine can distinguish them from a
- * missing selection, which now means the Medium default.
- */
 export function normalizeReasoningEffortForRequest(
   model: string | undefined,
   effort: ReasoningEffort | undefined,
@@ -109,36 +108,18 @@ export function normalizeReasoningEffortForRequest(
 }
 
 export function reasoningEffortLabel(effort: ReasoningEffort | undefined) {
-  return REASONING_EFFORT_LABELS[
-    !effort || effort === "auto" ? DEFAULT_REASONING_EFFORT : effort
-  ];
+  return REASONING_EFFORT_LABELS[effort ?? "auto"];
 }
 
-/**
- * Resolve a user-facing selection for a model. Legacy `auto`, missing values,
- * and tiers unsupported by the newly selected model all become High.
- * Models without effort controls still retain High in persisted chat state so
- * moving back to an effort-capable model has a predictable default; their
- * engines omit the effort through `normalizeReasoningEffortForModel`.
- */
 export function resolveReasoningEffortSelection(
   model: string | undefined,
   effort: ReasoningEffort | undefined,
 ): ReasoningEffort {
-  const requested =
-    !effort || effort === "auto" ? DEFAULT_REASONING_EFFORT : effort;
+  if (isUnsetReasoningEffort(effort)) return "auto";
   const options = getReasoningEffortOptionsForModel(model);
-  return options.length === 0 || options.includes(requested)
-    ? requested
-    : DEFAULT_REASONING_EFFORT;
+  return options.length === 0 || options.includes(effort) ? effort : "auto";
 }
 
-/**
- * One tier down from each effort, stopping at "minimal" — legacy `auto`,
- * "none", and "minimal" itself are left unchanged. Used by the
- * empty-final-response retry so a retried turn asks for meaningfully less
- * effort instead of repeating the exact request that came back empty.
- */
 const REASONING_EFFORT_STEP_DOWN: Partial<
   Record<ReasoningEffort, ReasoningEffort>
 > = {
@@ -179,27 +160,47 @@ function isClaudeReasoningModel(model: string) {
   const id = model.toLowerCase().replace(/^anthropic\//, "");
   if (id.includes("fable-5") || id.includes("mythos-5")) return true;
   if (id.includes("sonnet-5") || id.includes("sonnet-4-6")) return true;
-  if (id.includes("haiku-4-5")) return true;
+  if (
+    id.includes("haiku-5-5") ||
+    id.includes("haiku-5.5") ||
+    id.includes("haiku-4-5")
+  ) {
+    return true;
+  }
   return claudeOpusAtLeast(id, 4, 6);
 }
 
-/**
- * Anthropic's adaptive-thinking API is only available on the newer Claude
- * model families. Claude Haiku 4.5 supports effort, but it still
- * requires the legacy manual `budget_tokens` configuration.
- */
 export function supportsClaudeAdaptiveThinking(model: string | undefined) {
   if (!model) return false;
   const id = model.toLowerCase().replace(/^anthropic\//, "");
   if (id.includes("fable-5") || id.includes("mythos-5")) return true;
+  if (id.includes("haiku-5-5") || id.includes("haiku-5.5")) return true;
   if (id.includes("sonnet-5") || id.includes("sonnet-4-6")) return true;
   return claudeOpusAtLeast(id, 4, 6);
 }
 
 /**
- * Map the shared effort ladder to Anthropic's manual thinking budgets for
- * models that do not support adaptive thinking (currently Claude Haiku 4.5).
+ * Opus 4.7 and later default adaptive thinking to `display: "omitted"`, which
+ * streams thinking blocks with no text, so the chat has no reasoning to show.
+ * Older models reject the field and already summarize.
  */
+function claudeDefaultsThinkingToOmitted(model: string) {
+  const id = model.toLowerCase().replace(/^anthropic\//, "");
+  if (id.includes("fable-5") || id.includes("mythos-5")) return true;
+  if (id.includes("haiku-5-5") || id.includes("haiku-5.5")) return true;
+  if (id.includes("sonnet-5")) return true;
+  return claudeOpusAtLeast(id, 4, 7);
+}
+
+export function claudeAdaptiveThinking(model: string): {
+  type: "adaptive";
+  display?: "summarized";
+} {
+  return claudeDefaultsThinkingToOmitted(model)
+    ? { type: "adaptive", display: "summarized" }
+    : { type: "adaptive" };
+}
+
 export function anthropicManualThinkingBudget(effort: ReasoningEffort) {
   switch (effort) {
     case "low":
@@ -219,15 +220,9 @@ export function anthropicManualThinkingBudget(effort: ReasoningEffort) {
 
 function supportsClaudeXHigh(model: string) {
   const id = model.toLowerCase().replace(/^anthropic\//, "");
-  // Models that support the xhigh effort tier (built-in extended thinking via
-  // output_config.effort). Keep this version-aware so any future Claude model
-  // with a higher patch/minor number is automatically included rather than
-  // silently falling back to the lower "high" tier.
-  // claude-fable-5 is a Mythos-class model and also supports xhigh.
   if (id.includes("fable-5")) return true;
-  // Sonnet 5 supports the expanded effort ladder through Builder/Anthropic.
+  if (id.includes("haiku-5-5") || id.includes("haiku-5.5")) return true;
   if (id.includes("sonnet-5")) return true;
-  // Opus 4.7 introduced xhigh; later major versions retain it.
   return claudeOpusAtLeast(id, 4, 7);
 }
 
@@ -235,31 +230,14 @@ function isGeminiReasoningModel(model: string) {
   return /^gemini-/.test(model.toLowerCase().replace(/^google\//, ""));
 }
 
-/**
- * Claude dropped the sampling parameters (`temperature`, `top_p`, `top_k`)
- * starting with Opus 4.7 / Opus 5 / Sonnet 5 / Fable 5; sending one there is a
- * 400. Older Claude models still accept them, but only the value 1 once
- * thinking is on.
- */
 function claudeAcceptsSamplingParams(model: string) {
   const id = model.toLowerCase().replace(/^anthropic\//, "");
   if (id.includes("fable-5") || id.includes("mythos-5")) return false;
+  if (id.includes("haiku-5-5") || id.includes("haiku-5.5")) return false;
   if (id.includes("sonnet-5")) return false;
   return !claudeOpusAtLeast(id, 4, 7);
 }
 
-/**
- * Whether a request may carry the sampling parameters (`temperature`,
- * `top_p`, `top_k`) at all. Effort resolves to High for every
- * reasoning-capable Claude model, so a caller that asked only for
- * `temperature: 0` — an eval judge, a classifier, the memory compactor — was
- * building a request Anthropic answers with "`temperature` may only be set to
- * 1 when thinking is enabled or in adaptive mode". Thinking is the capability
- * worth keeping; the sampling knobs are what the provider withdrew, so they
- * are dropped once at the engine boundary instead of at every caller. Pass
- * `thinkingEnabled` only for requests that actually carry Anthropic thinking,
- * so other providers keep their sampling controls.
- */
 export function allowsSamplingParams(args: {
   model: string | undefined;
   thinkingEnabled: boolean;

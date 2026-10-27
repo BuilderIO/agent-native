@@ -3,12 +3,14 @@ import type { ActionRunContext } from "@agent-native/core/action";
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
+import { installBuiltinDashboardOnce } from "../server/lib/builtin-dashboards";
 import {
   credentialKeys,
   credentialProviderConfigs,
   optionalCredentialKeys,
   partitionCredentialUpdate,
 } from "../server/lib/credential-keys";
+import { resolveCredentialSaveScope } from "../server/lib/credential-save-scope";
 import {
   deleteCredential,
   hasCredential,
@@ -16,19 +18,12 @@ import {
   type CredentialContext,
 } from "../server/lib/credentials";
 import { tryRequestCredentialContext } from "../server/lib/credentials-context";
-import { loadDashboardSeed } from "../server/lib/dashboard-seeds";
-import {
-  getScopedSettingRecord,
-  putScopedSettingRecord,
-  resolveRequestScope,
-} from "../server/lib/scoped-settings";
 
 const GA4_CREDENTIAL_KEYS = new Set([
   "GA4_PROPERTY_ID",
   "GOOGLE_APPLICATION_CREDENTIALS_JSON",
 ]);
 const GA_DASHBOARD_ID = "google-analytics";
-const SQL_DASHBOARD_KEY = `sql-dashboard-${GA_DASHBOARD_ID}`;
 const ALLOWED_KEYS = new Set(credentialKeys.map((k) => k.key));
 
 function validateCredential(key: string, value: string): string | null {
@@ -84,9 +79,10 @@ export default defineAction({
         }),
       )
       .min(1),
+    scope: z.enum(["user", "org"]).optional(),
   }),
   agentTool: false,
-  run: async ({ vars }, actionContext?: ActionRunContext) => {
+  run: async ({ vars, scope }, actionContext?: ActionRunContext) => {
     const recognized = vars.filter((v) => ALLOWED_KEYS.has(v.key));
     if (recognized.length === 0) {
       throw new Error("No recognized credential keys in request");
@@ -112,6 +108,7 @@ export default defineAction({
 
     const ctx = tryRequestCredentialContext();
     if (!ctx) throw new Error("Sign in to save credentials");
+    const saveScope = await resolveCredentialSaveScope(ctx, scope);
 
     const changedKeys = new Set([...toSave.map(({ key }) => key), ...toDelete]);
     const affectedProviders = credentialProviderConfigs.filter((provider) =>
@@ -130,10 +127,10 @@ export default defineAction({
     );
 
     for (const { key, value } of toSave) {
-      await saveCredential(key, value, ctx);
+      await saveCredential(key, value, { ...ctx, scope: saveScope });
     }
     for (const key of toDelete) {
-      await deleteCredential(key, ctx);
+      await deleteCredential(key, { ...ctx, scope: saveScope });
     }
 
     const savedKeys = new Set(toSave.map((v) => v.key));
@@ -142,14 +139,13 @@ export default defineAction({
     );
     if (savedGaCred) {
       try {
-        const scope = resolveRequestScope();
-        const existing = await getScopedSettingRecord(scope, SQL_DASHBOARD_KEY);
-        if (!existing) {
-          const seed = loadDashboardSeed(GA_DASHBOARD_ID);
-          if (seed) {
-            await putScopedSettingRecord(scope, SQL_DASHBOARD_KEY, seed);
-          }
-        }
+        await installBuiltinDashboardOnce(
+          {
+            email: ctx.userEmail,
+            orgId: saveScope === "org" ? (ctx.orgId ?? null) : null,
+          },
+          GA_DASHBOARD_ID,
+        );
       } catch (err) {
         console.warn(
           "[credentials] failed to seed google-analytics dashboard:",

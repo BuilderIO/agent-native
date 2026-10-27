@@ -6,6 +6,9 @@
     ".react-router/types/**/*"
   ],
   "compilerOptions": {
+    "noUncheckedIndexedAccess": false,
+    "exactOptionalPropertyTypes": false,
+    "noImplicitOverride": true,
     "ignoreDeprecations": "6.0",
     "target": "ES2022",
     "jsx": "react-jsx",
@@ -16,7 +19,7 @@
       "@/*": ["./app/*"]
     },
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "types": ["vite/client", "@webgpu/types"],
+    "types": ["vite/client"],
 
     /* Bundler mode */
     "moduleResolution": "bundler",

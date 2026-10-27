@@ -1,10 +1,12 @@
-import { APP_ACTION_MENU_CONTENT_CLASS } from "@agent-native/core/client/chat-first";
 import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { ShareButton } from "@agent-native/core/client/sharing";
+import { useOrgRole } from "@agent-native/core/client/org";
+import { parseAgentProfileMetadata } from "@agent-native/core/shared";
+import { APP_ACTION_MENU_CONTENT_CLASS } from "@agent-native/toolkit/app/chat/chat-first/app-open-actions";
+import { ShareButton } from "@agent-native/toolkit/app/sharing";
 import {
   IconChevronDown,
   IconChevronRight,
@@ -70,6 +72,23 @@ import { AppResourceEffectiveStack } from "./workspace-resource-effective-stack"
 const APP_CARD_ACTION_CLASS =
   "size-7 rounded-md p-0 text-muted-foreground transition-[background-color,color] hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-accent data-[state=open]:text-foreground";
 
+function normalizeProfileDescription(value: string): string {
+  return value.replace(/[\r\n]+/g, " ").replace(/[\u0000-\u001f\u007f]/g, "");
+}
+
+function normalizeWhenToUseText(value: string): string {
+  return value
+    .replace(/\r\n?/g, "\n")
+    .replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, "");
+}
+
+function parseWhenToUseText(value: string): string[] {
+  return value
+    .split("\n")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 function deferWorkspaceAppOverlayOpen(
   event: { preventDefault: () => void },
   closeMenu: () => void,
@@ -87,13 +106,6 @@ function deferWorkspaceAppOverlayOpen(
   }
 }
 
-// The settings menu's own DropdownMenuContent restores focus to its trigger
-// once its FocusScope unmounts, independent of the requestAnimationFrame
-// above. If that restore lands after the deferred overlay's DismissableLayer
-// has already mounted, the resulting focusin event reads as an outside
-// interaction and immediately dismisses the overlay we just opened. Skip the
-// default restore whenever we're mid-handoff to a sibling overlay — mirrors
-// AgentPanel's identical guard (consumeAgentPanelOverlayFocusRestore).
 function consumeWorkspaceAppOverlayFocusRestore(
   pendingOverlayRef: { current: boolean },
   event: { preventDefault: () => void },
@@ -115,6 +127,12 @@ export function WorkspaceAppCard({
   onTogglePinned?: () => void;
 }) {
   const t = useT();
+  const { org, role, isLoading: orgLoading, error: orgError } = useOrgRole();
+  const canEditMetadata =
+    !orgLoading &&
+    !orgError &&
+    !!org?.orgId &&
+    (role === "owner" || role === "admin");
   const href = workspaceAppHref(app);
   const directHref =
     app.status !== "pending" &&
@@ -137,14 +155,27 @@ export function WorkspaceAppCard({
   const [resourcesOpen, setResourcesOpen] = useState(false);
   const [draftName, setDraftName] = useState(app.name);
   const [draftDescription, setDraftDescription] = useState(
-    app.description || "",
+    normalizeProfileDescription(app.description || ""),
+  );
+  const [draftWhenToUse, setDraftWhenToUse] = useState(
+    app.whenToUse?.join("\n") ?? "",
+  );
+  const draftWhenToUseValues = parseWhenToUseText(draftWhenToUse);
+  const validProfile = Boolean(
+    parseAgentProfileMetadata({
+      ...(draftDescription.trim()
+        ? { description: draftDescription.trim() }
+        : {}),
+      whenToUse: draftWhenToUseValues,
+    }),
   );
 
   useEffect(() => {
     if (editOpen) return;
     setDraftName(app.name);
-    setDraftDescription(app.description || "");
-  }, [app.description, app.name, editOpen]);
+    setDraftDescription(normalizeProfileDescription(app.description || ""));
+    setDraftWhenToUse(app.whenToUse?.join("\n") ?? "");
+  }, [app.description, app.name, app.whenToUse, editOpen]);
 
   const archive = useActionMutation("archive-workspace-app", {
     onError: (err) =>
@@ -186,10 +217,35 @@ export function WorkspaceAppCard({
       toast.error("App name is required.");
       return;
     }
+    const description = draftDescription.trim();
+    const currentDescription = normalizeProfileDescription(
+      app.description || "",
+    ).trim();
+    const currentWhenToUse = app.whenToUse ?? [];
+    const nameChanged = name !== app.name.trim();
+    const descriptionChanged = description !== currentDescription;
+    const whenToUseChanged =
+      draftWhenToUseValues.length !== currentWhenToUse.length ||
+      draftWhenToUseValues.some(
+        (example, index) => example !== currentWhenToUse[index],
+      );
+    if (
+      !parseAgentProfileMetadata({
+        ...(description ? { description } : {}),
+        whenToUse: draftWhenToUseValues,
+      })
+    ) {
+      return;
+    }
+    if (!nameChanged && !descriptionChanged && !whenToUseChanged) {
+      setEditOpen(false);
+      return;
+    }
     updateMetadata.mutate({
       appId: app.id,
-      name,
-      description: draftDescription.trim(),
+      ...(nameChanged ? { name } : {}),
+      ...(descriptionChanged ? { description } : {}),
+      ...(whenToUseChanged ? { whenToUse: draftWhenToUseValues } : {}),
     });
   };
   const pinLabel = t(
@@ -254,6 +310,7 @@ export function WorkspaceAppCard({
           />
           <WorkspaceAppSettings
             app={app}
+            canEditMetadata={canEditMetadata}
             isArchived={isArchived}
             isPending={isPending}
             onEdit={() => setEditOpen(true)}
@@ -291,10 +348,42 @@ export function WorkspaceAppCard({
               <Textarea
                 id={`app-description-${app.id}`}
                 value={draftDescription}
-                maxLength={500}
+                maxLength={1000}
                 rows={4}
-                onChange={(event) => setDraftDescription(event.target.value)}
+                onChange={(event) =>
+                  setDraftDescription(
+                    normalizeProfileDescription(event.target.value),
+                  )
+                }
               />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor={`app-when-to-use-${app.id}`}>
+                {t("dispatch.pages.appProfileWhenToUse", {
+                  defaultValue: "When to use",
+                })}
+              </Label>
+              <Textarea
+                id={`app-when-to-use-${app.id}`}
+                value={draftWhenToUse}
+                aria-invalid={!validProfile}
+                rows={3}
+                placeholder={t(
+                  "dispatch.pages.appProfileWhenToUsePlaceholder",
+                  {
+                    defaultValue: "One example request per line",
+                  },
+                )}
+                onChange={(event) =>
+                  setDraftWhenToUse(normalizeWhenToUseText(event.target.value))
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                {t("dispatch.pages.appProfileWhenToUseHint", {
+                  defaultValue:
+                    "Add up to 6 examples, with no more than 140 characters each.",
+                })}
+              </p>
             </div>
             <DialogFooter>
               <Button
@@ -304,7 +393,10 @@ export function WorkspaceAppCard({
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={updateMetadata.isPending}>
+              <Button
+                type="submit"
+                disabled={updateMetadata.isPending || !validProfile}
+              >
                 {updateMetadata.isPending ? "Saving..." : "Save"}
               </Button>
             </DialogFooter>
@@ -413,6 +505,7 @@ type WorkspaceAppMetadataLabels = {
 
 function WorkspaceAppSettings({
   app,
+  canEditMetadata,
   isArchived,
   isPending,
   onEdit,
@@ -424,6 +517,7 @@ function WorkspaceAppSettings({
   labels,
 }: {
   app: WorkspaceAppSummary;
+  canEditMetadata: boolean;
   isArchived: boolean;
   isPending: boolean;
   onEdit: () => void;
@@ -484,10 +578,12 @@ function WorkspaceAppSettings({
             )
           }
         >
-          <DropdownMenuItem onSelect={onEdit}>
-            <IconEdit size={14} aria-hidden="true" />
-            Edit details
-          </DropdownMenuItem>
+          {canEditMetadata ? (
+            <DropdownMenuItem onSelect={onEdit}>
+              <IconEdit size={14} aria-hidden="true" />
+              Edit details
+            </DropdownMenuItem>
+          ) : null}
           {!isPending ? (
             <DropdownMenuItem
               onSelect={(event) =>

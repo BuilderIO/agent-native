@@ -1,3 +1,7 @@
+import { isOutsideAgentCall } from "@agent-native/core";
+import { fail, type ActionRunContext } from "@agent-native/core/action";
+import type { BUILDER_MODEL_CONFIG } from "@agent-native/core/agent/model-config";
+import { isProductionServerlessFunctionRuntime } from "@agent-native/core/db";
 import { subscribe } from "@agent-native/core/event-bus";
 import { notify } from "@agent-native/core/notifications";
 import { resolveOrgIdForEmail } from "@agent-native/core/org";
@@ -7,11 +11,13 @@ import {
   resourceGetByPath,
   resourceList,
   resourcePut,
+  resourcePutIfAbsent,
   resourcePutIfCurrent,
   WORKSPACE_OWNER,
 } from "@agent-native/core/resources";
 import {
   defineNitroPlugin,
+  registerRecurringSweepHandler,
   runWithRequestContext,
 } from "@agent-native/core/server";
 import { deleteAutomationRuns } from "@agent-native/core/triggers";
@@ -50,29 +56,25 @@ import { repairFactoryAutomationsFromConfig } from "../lib/factory-automation-re
 import { listFactoryAutomationDefinitions } from "../lib/factory-automation-resources.js";
 import {
   DEFAULT_FACTORY_ID,
+  assertSingleLineFactoryAutomationSettings,
   assignCreatedByIfMissing,
   factoryAutomationJobPath,
   factoryAutomationJobPrefix,
   factoryAutomationLeafName,
   factoryAutomationRunHistoryKey,
   factoryConfigRowId,
+  normalizeFactoryAutomationFrontmatter,
   readFactoryIdFromAutomationPath,
   readTriageConfigRow,
   setAutomationFrontmatterField,
 } from "../lib/factory-scope.js";
 import { persistGitHubRepository } from "../lib/github-repository.js";
 import {
-  BABYSIT_DECISION_INSTRUCTION,
-  BABYSIT_FIXED_PATH,
-  BABYSIT_SCOPE_INSTRUCTION,
-  BABYSIT_WORK_RETRIGGER,
-} from "../lib/pr-babysit-prompt.js";
-import { SLACK_FEEDBACK_DISPATCH_INSTRUCTIONS } from "../lib/slack-feedback-prompt.js";
-import {
   recordFactoryAutomationRunPrompt,
   recordFactoryGovernanceAudit,
 } from "../triage/audit.js";
 import { FACTORY_ALIGNMENT_REVISION } from "../triage/review-skill-alignment.js";
+import { registerWorkflowJobRunner } from "../workflow-host/register-job-runner.js";
 
 const LEGACY_JOB_PATH = "jobs/factory-observation-scheduler.md";
 const FAILURE_ALERT_COOLDOWN_MS = 15 * 60_000;
@@ -155,8 +157,8 @@ async function notifyFactoryAutomationFailure(
 
   const url = factoryPublicUrl();
   const debugTarget = url
-    ? `${url}/factory?factoryId=${encodeURIComponent(factoryId)}&tab=automations`
-    : "Factory > Automations";
+    ? `${url}/factory?factoryId=${encodeURIComponent(factoryId)}&tab=settings`
+    : "Factory > Settings";
   const details = [
     `Automation: ${event.automation}`,
     `Run: ${event.automationRunId}`,
@@ -198,15 +200,7 @@ export async function recordFinishedAutomationPrompt(
   ) {
     return;
   }
-  // list-factory-audit joins audit events by the agent run id (event.runId),
-  // not the core history-row id (event.automationRunId) — every other writer
-  // of factoryAuditEvents.automationRunId already stores the agent run id.
-  // Without one, this row can never be joined to a displayed run.
   if (!event.runId) return;
-  // Reads the live resource: known gap (Cause 1 in
-  // .tmp/notes/factory-prompt-audit-gap.md) — an edit mid-run can make this
-  // describe a newer prompt than the one that actually executed. Parked
-  // pending the factory_automation_versions rework.
   const resource = await resourceGetByPath(event.owner, event.path);
   if (!resource) return;
   const { body } = splitAutomationFrontmatter(resource.content);
@@ -253,157 +247,15 @@ type AutomationSeed = {
   body: string;
 };
 
-const FACTORY_DEFAULT_MODEL = "gpt-5.6-luna";
-// Not yet honored end to end for GPT + tools on the Builder gateway — see
-// packages/core/docs/design/gpt-reasoning-effort-gateway-contract.md. Seeded
-// here so it takes effect immediately for non-GPT models, and for GPT once
-// that gateway lane ships, without a follow-up migration of every seed.
+// Seeded without an engine, so the run engine normalizes it; typed against the
+// Builder catalog so a retired id fails typecheck instead of silently falling
+// back to the engine default.
+const FACTORY_DEFAULT_MODEL: (typeof BUILDER_MODEL_CONFIG.supportedModels)[number] =
+  "gpt-6-luna";
 const FACTORY_DEFAULT_REASONING_EFFORT = "high";
 const FACTORY_DEFAULT_MAX_ITERATIONS = 32;
 const FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS = 1_000_000;
 const AUTOMATION_SEEDS: AutomationSeed[] = [
-  {
-    name: "factory-slack-feedback",
-    schedule: "*/5 * * * *",
-    legacySchedules: ["* * * * *"],
-    model: FACTORY_DEFAULT_MODEL,
-    reasoningEffort: FACTORY_DEFAULT_REASONING_EFFORT,
-    maxIterations: FACTORY_DEFAULT_MAX_ITERATIONS,
-    maxRunInputTokens: FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS,
-    body: `
-# Factory Slack feedback triage
-
-List needsReview Slack items after poll-slack-channel. Call
-get-slack-feedback-context for each one. A truncated or unreadable thread is
-not a clear bug.
-
-A clear bug is a concrete broken behavior, reproducible failure, error,
-regression, stuck run, incorrect result, or a specific failing path with
-enough evidence to investigate — including visual/UI defects such as a
-duplicate control or broken layout. Feature requests, vague questions, and
-incomplete threads are not. A clear bug still only reaches Builder when its
-risk and confidence both clear the bar below — most clear bugs will not.
-
-${SLACK_FEEDBACK_DISPATCH_INSTRUCTIONS}
-Cluster only items listed in this run: one dispatch with relatedItemIds. Do
-not dispatch needs_manual items or items that already started.
-
-Across a run, expect roughly 1 in 10 items to qualify for dispatch. If most
-of what you are seeing lands at risk low and confidence high, you are
-under-weighting uncertainty — re-check the evidence bar before passing those
-values.
-
-Preserve action errors. Do not claim a Builder reply, PR, merge, or fix
-unless an action returned that state.
-`,
-  },
-  {
-    name: "factory-sentry-errors",
-    schedule: "0 9 * * *",
-    timezone: "America/Los_Angeles",
-    model: FACTORY_DEFAULT_MODEL,
-    reasoningEffort: FACTORY_DEFAULT_REASONING_EFFORT,
-    maxIterations: 24,
-    maxRunInputTokens: FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS,
-    body: `
-# Factory Sentry error triage
-
-Read the Factory configuration. When Sentry polling is enabled and a Sentry
-organization is configured, call poll-sentry-errors. List at most 3 new or
-changed errors by passing needsReview true, source sentry, and limit 3. Inspect
-the title, culprit, level, event count, and errorReport metadata. Never list the
-full queue or use the action's default page size.
-
-Only classify a concrete unresolved error as a clear bug when the Sentry
-evidence is sufficient to investigate. Do not dispatch on noise, expected
-errors, product ideas, or incomplete provider responses.
-
-Classify risk and confidence on every item, including ones you skip — this
-data is read later even when Builder is never tagged. Risk is how bad it is
-if this item is mishandled, not how likely it is to be real: negligible
-(cosmetic noise, barely a bug), low (a clear, narrowly scoped defect you
-would be comfortable seeing fixed with no further review), medium (ambiguous
-scope, or touches shared or critical code), high (serious functional or data
-breakage), or critical (security, auth, tenant isolation, payments, or data
-loss). When in doubt, pick the higher tier.
-
-Confidence is how sure you are this can be correctly diagnosed and fixed as
-a code or test change from the evidence already gathered, without
-reproducing it in a browser: high (the stack trace, culprit, and event
-evidence pin down a specific failing path, and correctness does not depend
-on rendering or manually interacting with the UI), medium (a plausible cause
-but real uncertainty — a thin event count, no clear culprit, or more than
-one reasonable fix), or low (needs visual or browser reproduction to
-confirm, or the root cause is genuinely unclear from the Sentry evidence
-alone).
-
-For each item, call dispatch-factory-item with clearBug true or false, risk,
-confidence, an evidence-grounded reason, and clearErrorReport containing
-only the bounded Sentry evidence when clearBug is true. The action only
-opens or reuses a GitHub issue and tags @builderio-bot when clearBug is
-true, risk is low, and confidence is high — everything else is recorded as
-a skip. Do not claim a PR exists until GitHub evidence confirms it.
-
-Across your decisions over time, expect roughly 1 in 10 items to qualify for
-dispatch. If most of what you are seeing lands at risk low and confidence
-high, you are under-weighting uncertainty — re-check the evidence bar before
-passing those values.
-`,
-  },
-  {
-    name: "factory-github-issues",
-    schedule: "0 * * * *",
-    legacySchedules: ["* * * * *", "*/5 * * * *"],
-    model: FACTORY_DEFAULT_MODEL,
-    reasoningEffort: FACTORY_DEFAULT_REASONING_EFFORT,
-    maxIterations: FACTORY_DEFAULT_MAX_ITERATIONS,
-    maxRunInputTokens: FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS,
-    body: `
-# Factory GitHub issue triage
-
-Call poll-github-sources with includeIssues true and includePullRequests false.
-List at most 3 new or changed issues by passing needsReview true, source
-github_issue, and limit 3. Never list the full queue or use the action's default
-page size.
-
-Treat an issue as a clear bug only when it has a concrete error report,
-reproduction, incorrect behavior, regression, or specific failing path. Do
-not dispatch feature requests, vague questions, or issues without enough
-evidence.
-
-Classify risk and confidence on every item, including ones you skip — this
-data is read later even when Builder is never tagged. Risk is how bad it is
-if this item is mishandled, not how likely it is to be real: negligible
-(cosmetic noise, barely a bug), low (a clear, narrowly scoped defect you
-would be comfortable seeing fixed with no further review), medium (ambiguous
-scope, or touches shared or critical code), high (serious functional or data
-breakage), or critical (security, auth, tenant isolation, payments, or data
-loss). When in doubt, pick the higher tier.
-
-Confidence is how sure you are this can be correctly diagnosed and fixed as
-a code or test change from the evidence already gathered, without
-reproducing it in a browser: high (the issue body pins down a specific
-failing path — an error message, stack trace, log line, or a concrete
-reproducible input and output — and correctness does not depend on
-rendering or manually interacting with the UI), medium (a plausible cause
-but real uncertainty: a thin report, no stack trace, or more than one
-reasonable fix), or low (needs visual or browser reproduction to confirm, or
-the root cause is genuinely unclear).
-
-For each item call dispatch-factory-item with clearBug true or false, risk,
-confidence, an evidence-grounded reason, and the bounded issue body as
-clearErrorReport when clearBug is true. The action only comments
-@builderio-bot on the GitHub issue when clearBug is true, risk is low, and
-confidence is high — everything else is recorded as a skip. Preserve
-failures and never report a successful Builder run without its action
-confirmation.
-
-Across your decisions over time, expect roughly 1 in 10 items to qualify for
-dispatch. If most of what you are seeing lands at risk low and confidence
-high, you are under-weighting uncertainty — re-check the evidence bar before
-passing those values.
-`,
-  },
   {
     name: "factory-pr-governance",
     schedule: "*/10 * * * *",
@@ -453,8 +305,14 @@ approval; record their exact states and never call them clean. Active credible
 safety findings in fresh review evidence always block approval. Apply the
 verified Alice/Content, Nick/Slides, Enzo/Factory-specific, Sid/Design, and
 docs-only owner exceptions from review-prs only after membership and an
-explicit ultra-scary assessment. Those exceptions do not waive membership,
-external-author, or ultra-scary gates.
+explicit ultra-scary assessment. For BuilderIO/agent-native PRs, Shomix
+(shomix, GitHub user ID 100691266) may be auto-approved across app and framework areas, including UX
+changes, refactors, ordinary unresolved feedback, and failed or pending checks.
+Verify both the login and immutable GitHub ID; do not rely on the mutable login alone.
+The Shomix exception does not apply to
+review/approval policy, agent-safety instructions, membership verification, or
+CI/deployment security changes; those require independent human review. These
+exceptions do not waive membership, external-author, or ultra-scary gates.
 
 Never auto-merge. Approval is the only GitHub write this workflow may request;
 a normal open PR must never be treated as a Builder-triggered run.
@@ -464,28 +322,6 @@ fully owned by their product owners for feedback work, while the verified
 PR-owner exceptions still apply to their own scoped PRs. Do not call GitHub
 write actions directly or claim an approval unless the governance action
 confirms it.
-`,
-  },
-  {
-    name: "factory-pr-babysit",
-    schedule: "*/5 * * * *",
-    legacySchedules: ["*/2 * * * *"],
-    model: FACTORY_DEFAULT_MODEL,
-    reasoningEffort: FACTORY_DEFAULT_REASONING_EFFORT,
-    maxIterations: 12,
-    maxRunInputTokens: FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS,
-    body: `
-# Factory PR babysitting
-
-${BABYSIT_FIXED_PATH}
-
-${BABYSIT_SCOPE_INSTRUCTION}
-
-${BABYSIT_WORK_RETRIGGER}
-
-${BABYSIT_DECISION_INSTRUCTION}
-
-Never approve or merge. Preserve action errors.
 `,
   },
 ];
@@ -548,6 +384,12 @@ function automationContent(
   userPrompt?: string,
 ): string {
   const resolved = config ?? defaultAutomationConfig("slack", "blank");
+  assertSingleLineFactoryAutomationSettings({
+    ...resolved,
+    authorIds: resolved.authorIds.join(","),
+    displayName,
+    factoryId,
+  });
   let content = `---
 schedule: "${scheduleCron(resolved)}"
 ${resolved.timezone ? `timezone: ${resolved.timezone}\n` : ""}enabled: ${enabled ? "true" : "false"}
@@ -650,8 +492,6 @@ export async function ensureFactoryAutomations(
       }
       const contentBeforeMetadata = repaired;
 
-      // Earlier Factory versions created these rows without identity and run
-      // budget metadata. Repair YAML only unless gated body repair above ran.
       repaired = setFrontmatterField(repaired, "triggerType", "schedule");
       repaired = setFrontmatterField(repaired, "domain", "factory");
       repaired = setFrontmatterField(repaired, "appId", "factory");
@@ -683,8 +523,6 @@ export async function ensureFactoryAutomations(
       ) {
         repaired = setFrontmatterField(repaired, "schedule", seed.schedule);
       }
-      // Every row here matched a seed, so the leaf resolves a definite source.
-      // Nothing in this loop may fall back to a guess.
       const existingConfig = readFactoryAutomationConfig(repaired, leafName);
       repaired = applyAutomationConfigFrontmatter(repaired, {
         ...existingConfig,
@@ -700,17 +538,9 @@ export async function ensureFactoryAutomations(
       );
       if (repaired === originalContent) return;
 
-      // Insert the predecessor snapshot before the live write commits, same
-      // as save/restore: if the write below fails, this is just an unused
-      // extra row, but the reverse order would let the repair commit with no
-      // recoverable pre-repair version when the history insert fails.
       let insertedRepairVersion: FactoryAutomationVersionRow | null = null;
       if (bodyRepairNeeded) {
         const automationName = factoryAutomationRunHistoryKey(path);
-        // Unconditional, not the no-op-skipping insert: repair's whole
-        // purpose is recording a change (deduped injected blocks) that the
-        // user-facing-identity no-op check would otherwise treat as
-        // unchanged, since normalizing strips those blocks either way.
         insertedRepairVersion = await insertFactoryAutomationVersionRow({
           automationId: existing.id,
           factoryId,
@@ -721,19 +551,12 @@ export async function ensureFactoryAutomations(
           summary: "Before deduped injected prompt blocks",
           source: "repair",
         });
-        // The row above claims the current live version number as its own.
-        // Leaving the live promptVersion unchanged would let the next normal
-        // save try to insert that same number again and collide with the
-        // unique (orgId, automationId, version) index, so the repaired
-        // content must advance past it.
         repaired = setFrontmatterField(
           repaired,
           "promptVersion",
           String(insertedRepairVersion.version + 1),
         );
       }
-      // A thrown write failure must compensate exactly like a falsy return —
-      // resourcePutIfCurrent has no try/catch of its own.
       let updated: Awaited<ReturnType<typeof resourcePutIfCurrent>> = null;
       let writeError: unknown;
       try {
@@ -922,6 +745,7 @@ export async function createFactoryAutomation(
     config: FactoryAutomationConfig;
     enabled?: boolean;
   },
+  context?: ActionRunContext,
 ): Promise<{ id: string; name: string; path: string }> {
   const owner = organizationResourceOwner(orgId);
   const existing = await listFactoryAutomationResources(
@@ -944,23 +768,38 @@ export async function createFactoryAutomation(
   const seed =
     AUTOMATION_SEEDS.find((entry) => entry.name === preferred) ??
     blankAutomationSeed(input.config.source, leafName);
-  const path = factoryAutomationJobPath(factoryId, leafName);
-  const content = automationContent(
-    ownerEmail,
-    orgId,
-    factoryId,
-    { ...seed, name: leafName },
-    input.enabled ?? false,
-    input.config,
-    input.displayName,
-    input.prompt,
-  );
-  const written = await resourcePut(owner, path, content, "text/markdown");
-  return {
-    id: written.id,
-    name: factoryAutomationLeafName(path),
-    path,
-  };
+  const outside = isOutsideAgentCall(context);
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const path = factoryAutomationJobPath(factoryId, leafName);
+    let content = automationContent(
+      ownerEmail,
+      orgId,
+      factoryId,
+      { ...seed, name: leafName },
+      input.enabled ?? false,
+      input.config,
+      input.displayName,
+      input.prompt,
+    );
+    if (outside) {
+      content = normalizeFactoryAutomationFrontmatter(content, { context });
+    }
+    const written = await resourcePutIfAbsent(
+      owner,
+      path,
+      content,
+      "text/markdown",
+    );
+    if (written) {
+      return { id: written.id, name: factoryAutomationLeafName(path), path };
+    }
+    leafName = `${preferred}-${suffix}`;
+    suffix += 1;
+  }
+  fail("Factory automation changed concurrently. Refresh and try again.", {
+    statusCode: 409,
+    errorCode: "automation_version_conflict",
+  });
 }
 
 export function factoryAutomationTemplateSeed(
@@ -1072,7 +911,6 @@ async function ensureDefaultTriageConfig(
     slackWorkspace: "primary",
     slackChannelId: null,
     slackChannelName: null,
-    builderSlackUserId: null,
     pollingEnabled: 0,
     githubPollingEnabled,
     sentryPollingEnabled: 0,
@@ -1116,10 +954,30 @@ async function ensureSchedulerJobs(): Promise<void> {
   await disableLegacyObserver();
 }
 
+let automationRepair: Promise<void> | undefined;
+
+export function repairOrganizationAutomationsOnce(): Promise<void> {
+  automationRepair ??= ensureSchedulerJobs().catch((error: unknown) => {
+    automationRepair = undefined;
+    throw error;
+  });
+  return automationRepair;
+}
+
+// Nitro does not await plugins, so on a serverless request function this
+// repair outlives the response: the instance freezes mid-query and the thawed
+// timers report a 15s DB timeout against a healthy database, once per cold
+// start. Serverless runs it from the awaited durable sweep instead.
 export default defineNitroPlugin(async () => {
   subscribeToAutomationFailures();
+  registerRecurringSweepHandler("factory-automation-repair", () =>
+    repairOrganizationAutomationsOnce(),
+  );
+  // Before the serverless return: a request function runs queued ticks too.
+  registerWorkflowJobRunner();
+  if (isProductionServerlessFunctionRuntime()) return;
   try {
-    await ensureSchedulerJobs();
+    await repairOrganizationAutomationsOnce();
   } catch (error) {
     console.error(
       "[factory-scheduler-job] failed to repair organization automations:",

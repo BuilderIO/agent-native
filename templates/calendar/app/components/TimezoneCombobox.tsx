@@ -40,8 +40,6 @@ const FALLBACK_TIMEZONES = [
   "Pacific/Auckland",
 ];
 
-// Zoom/Calendly-style quick-access group for the most commonly booked
-// continental US zones, surfaced ahead of the full IANA region list.
 const US_TIMEZONE_LABELS: Record<string, string> = {
   "America/New_York": "Eastern Time",
   "America/Chicago": "Central Time",
@@ -167,9 +165,6 @@ export function TimezoneCombobox({
 }) {
   const [open, setOpen] = useState(false);
   const t = useT();
-  // Builds ~400 IANA zone entries with an Intl.DateTimeFormat offset lookup
-  // each — mounted once per attendee, so this must not run on unrelated
-  // keystrokes in a sibling field.
   const groups = useMemo(() => buildTimezoneOptions(value), [value]);
   const selected = groups
     .flatMap((group) => group.options)

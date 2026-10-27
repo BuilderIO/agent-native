@@ -106,6 +106,14 @@ The canonical paths that control how the agent uses each resource:
 
 These paths apply across all three scopes — workspace, organization/app, and personal. The later scope wins when the same path exists at multiple levels.
 
+## Take resources with you {#resource-pack}
+
+Export a checksummed JSON pack of the text resources you can already read (`export-resource-pack`), and import it into another app or user (`import-resource-pack`). The Resources tab **Export pack** / **Import pack** controls call the same actions.
+
+- Export includes only text. Binary uploads are omitted. API-key-shaped strings and MCP `env` / `headers` token fields are redacted; reconnect MCP after import.
+- Import defaults to **personal** scope with skip-on-conflict. Organization import requires the same admin write ACL as editing organization files. Workspace import is not available.
+- A pack that exceeds 200 text files or 1 MB fails with `too_large` instead of truncating. A checksum mismatch fails closed.
+
 <Diagram id="doc-block-i69rby" title="Three scopes, one effective file" summary={"The runtime resolves the same path across workspace, app, and personal scopes on read — the most specific scope wins."}>
 
 ```html

@@ -21,13 +21,6 @@ const { default: actionsRegistry } = await import(
   `${pathToFileURL(path.join(projectRoot, ".generated/actions-registry.ts")).href}?cacheBust=${Date.now()}`
 );
 
-// The hand-maintained DATA_QUERY_ACTIONS allowlist is gone, so no file in this
-// template names these actions any more. They are defined in
-// @agent-native/core and re-exported here, which means a core build that drops
-// `grounding: true` sends every grounded provider answer to the "connect data
-// sources" fallback with nothing failing. This is the only check between that
-// regression and production; provider-api-request is the recommended path for
-// every provider integration, so it is also the most-used one.
 const CORE_GROUNDING_ACTIONS = [
   "provider-api-request",
   "provider-corpus-job",
@@ -50,8 +43,6 @@ describe("grounding derivation", () => {
     );
   });
 
-  // Runs last on purpose: "never registered" is a state this module cannot be
-  // returned to once anything registers.
   it("fails at first use rather than at registration when the flag is missing", () => {
     expect(() => hasDataQueryAttempt([{ name: "gong-calls" }])).toThrow(
       /never registered/,

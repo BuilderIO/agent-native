@@ -2,7 +2,7 @@
 name: export-handoff
 description: >-
   Export Design work and produce developer handoff materials. Use when the user
-  wants HTML, PNG, SVG, ZIP/code exports, implementation notes, or a coding
+  wants HubSpot email HTML, PNG, SVG, ZIP/code exports, implementation notes, or a coding
   handoff for a selected design.
 ---
 
@@ -34,6 +34,24 @@ How to export designs and generate handoff documentation for developers converti
   failure instead of pretending that a downloadable image exists. The editor's
   Download PNG remains the faithful client-side path for localhost/fusion
   screens that are not stored HTML.
+  PNG and PDF are sRGB: a color written as `oklch()` or `color(display-p3 ...)`
+  that sRGB cannot show is rendered as its CSS Color 4 gamut-mapped sRGB
+  fallback (lightness and hue kept, chroma reduced), not the browser's clip.
+  HTML and SVG exports keep such colors as written.
+  Saved native shader scenes use the live editor's PNG path so GPU fills and
+  Liquid Glass keep their rendered appearance. The inspector exports selected
+  authored layers with transparent unselected surroundings. For agent exports,
+  discover the live tab with `get-native-render-contexts`, obtain the exact source
+  `versionHash` from `get-shader`, then call `request-native-local-export` with
+  that `targetTabId` and source hash. Its `export.viewport` is the unchanged CSS
+  layout viewport. Optional `cropRect: { x, y, width, height }` bounds the output
+  in that viewport's world coordinates; `selectedNodeIds` additionally isolates
+  those authored subtrees while backdrop inputs still sample the full scene.
+  Omitting `selectedNodeIds` captures the full composition inside the crop.
+  Output dimensions are the crop size times `pixelRatio`, bounded to 4096 pixels
+  per edge and 8,388,608 pixels total. Poll `get-native-local-export` with the
+  exact request and tab IDs; only `completed` provides the protected PNG URL.
+
 - **Deploy preview**: `deploy-design-preview` triggers a preview deploy for a
   fusion-backed design branch. It requires the design's source to advertise
   the `deployPreview` capability (fusion tier) and Builder.io to be connected;
@@ -43,6 +61,17 @@ How to export designs and generate handoff documentation for developers converti
   publishing goes through the Builder Visual Editor's Publish flow.
 
 ## Export Formats
+
+### HubSpot email HTML
+
+`export-hubspot-html` validates any HTML frame and returns `{ html, filename,
+imageCount }` for manual import; no special frame type is required and saved
+source is unchanged. It inlines supported CSS and validates email markup,
+HubL, visible footer text and public images. For target resolution, authoring,
+conversion and completion checks, read `hubspot-email`; it is the single email
+workflow owner. An `invalid_hubspot_email` result identifies content to repair,
+not a missing frame category. Validation and sample browser previews do not
+prove HubSpot compilation or inbox rendering.
 
 ### HTML Export
 
@@ -60,8 +89,10 @@ Returns:
 
 The exported HTML:
 - Includes `@tailwindcss/browser@4` and `alpinejs@3.15.11` CDN links
-- Combines all CSS files into a single `<style>` block
-- Combines all HTML/JSX files into the `<body>`
+- With multiple HTML screens, embeds each in its own isolated viewport, stacked
+  vertically
+- Includes project CSS in each screen document
+- Appends JSX files to the first screen
 - Works when double-clicked in any modern browser
 
 ### ZIP Export
@@ -139,11 +170,10 @@ fall back to `export-svg` or `export-html`.
 type, but its SVG importer reads only font family, size and a coarse bold
 weight. Letter spacing is dropped, and weights above 700 resolve to Bold,
 so tracked or extra-bold text arrives at a different width than the design.
-Measured against Figma directly: `textLength`/`lengthAdjust`, multi-value
-and sibling `tspan` `x`, `word-spacing` and family-encoded weights are
-ignored too. Everything else in the document is geometry-exact. This is a
-Figma import limitation, not a defect in the export; the report's
-`vectorizedTextCaveat` field carries this note for the agent/user.
+Additional SVG text fields, including `textLength`, `lengthAdjust`, `word-spacing`,
+and sibling `tspan` positions, are not preserved by the destination importer.
+The export report's `vectorizedTextCaveat` field carries this limitation for
+the agent and user.
 
 **Getting it into Figma**: two supported paths —
 

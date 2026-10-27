@@ -7,8 +7,6 @@ import {
   type PlanTocItem,
 } from "./PlanTableOfContents.utils";
 
-// Query the whole shell (not via the TOC nav) so deep links still resolve when
-// the contents rail is hidden and when wide blocks render in a breakout flow.
 function findDocumentRoot(): HTMLElement | null {
   return (
     document.querySelector<HTMLElement>(".plan-document-shell") ??
@@ -24,27 +22,13 @@ function readHashTarget(): string {
   }
 }
 
-// Settle-window tuning.
-const SETTLE_MS = 6000; // hard cap; re-pinning stops earlier once stable
+const SETTLE_MS = 6000;
 const TICK_MS = 100;
-const STABLE_TICKS = 3; // ≈300ms on-target before we stop
-const DRIFT_TOLERANCE = 4; // px slack for sub-pixel jitter
+const STABLE_TICKS = 3;
+const DRIFT_TOLERANCE = 4;
 
-/**
- * Scroll a plan to the `#plan-heading-…` / `#plan-section-…` section in the URL
- * on initial load, reload, and browser back/forward — paths the TOC's own click
- * handler doesn't cover.
- *
- * Two complications beyond a native anchor jump: the editor mounts async (the
- * heading isn't there yet, and editable-view ids are lazy), and heavy blocks
- * below the fold grow the document afterwards, shoving an already-scrolled
- * target back out of view. So we re-resolve like the TOC does and re-pin on a
- * short poll until the target stops drifting (or the user scrolls).
- */
 export function usePlanHashScroll(blocks: PlanBlock[]) {
   const items = useMemo(() => collectPlanTocItems(blocks), [blocks]);
-  // Read latest items from the mount-only effect without re-running it (and
-  // re-scrolling) on every content poll.
   const itemsRef = useRef<PlanTocItem[]>(items);
   itemsRef.current = items;
 
@@ -68,8 +52,6 @@ export function usePlanHashScroll(blocks: PlanBlock[]) {
       deadlineId = 0;
     };
 
-    // Resolve like the TOC does; null while the section is still mounting. Also
-    // writes a stable id so native back/forward keeps working in read-only view.
     const resolveTarget = (): HTMLElement | null => {
       const id = readHashTarget();
       const item = itemFor(id);
@@ -84,7 +66,7 @@ export function usePlanHashScroll(blocks: PlanBlock[]) {
     const tick = () => {
       if (userTookOver) return stop();
       const target = resolveTarget();
-      if (!target) return; // still mounting — keep polling
+      if (!target) return;
 
       const top = target.getBoundingClientRect().top;
       if (
@@ -92,12 +74,10 @@ export function usePlanHashScroll(blocks: PlanBlock[]) {
         alignedTop !== null &&
         Math.abs(top - alignedTop) <= DRIFT_TOLERANCE
       ) {
-        // Stable since the last pin; stop once it holds for a few ticks.
         if (++stableHits >= STABLE_TICKS) stop();
         return;
       }
 
-      // First pin, or drifted as content grew — (re)align and reset.
       target.scrollIntoView({ behavior: "auto", block: "start" });
       everScrolled = true;
       stableHits = 0;
@@ -116,8 +96,6 @@ export function usePlanHashScroll(blocks: PlanBlock[]) {
       deadlineId = window.setTimeout(stop, SETTLE_MS);
     };
 
-    // A real user scroll cancels pinning; programmatic scroll fires `scroll`,
-    // not these, so it can't trip this.
     const onUserTakeOver = () => {
       userTookOver = true;
       stop();
@@ -128,8 +106,6 @@ export function usePlanHashScroll(blocks: PlanBlock[]) {
     );
 
     begin();
-    // `popstate` covers back/forward to pushState'd hashes (which skip
-    // `hashchange`); `begin` no-ops when the hash isn't a known section.
     window.addEventListener("hashchange", begin);
     window.addEventListener("popstate", begin);
 

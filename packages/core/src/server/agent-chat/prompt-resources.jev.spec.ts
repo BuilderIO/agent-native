@@ -1,22 +1,60 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import type { DiscoveredAgentsWithDirectoryStatus } from "../agent-discovery.js";
 
 const mocks = vi.hoisted(() => ({
+  useRealRanker: { value: false },
   rankJevCandidates: vi.fn(),
+  track: vi.fn(),
   loadAgentsBundle: vi.fn(),
+  generateSkillsPromptBlock: vi.fn(() => ""),
   getRuntimeSkills: vi.fn(),
+  getRuntimeSkillsForUser: vi.fn(),
   requestOrgId: vi.fn(() => null),
+  requestUserEmail: vi.fn(() => undefined),
+  discoverAgentsWithDirectoryStatus: vi.fn(
+    async (): Promise<DiscoveredAgentsWithDirectoryStatus> => ({
+      agents: [],
+      directory: { status: "available" as const },
+    }),
+  ),
   resourceGet: vi.fn(),
   resourceGetByPath: vi.fn(),
   resourceList: vi.fn(),
   resourceListAccessible: vi.fn(),
+  requestRunContext: vi.fn((): Record<string, unknown> | null => null),
 }));
 
-vi.mock("../../agent/jev-tool-prefetch.js", () => ({
-  rankJevCandidates: (...args: unknown[]) => mocks.rankJevCandidates(...args),
-}));
+vi.mock("../../agent/jev-tool-prefetch.js", async () => {
+  const actual = await vi.importActual<
+    typeof import("../../agent/jev-tool-prefetch.js")
+  >("../../agent/jev-tool-prefetch.js");
+  return {
+    JEV_TIMEOUT_MS: 750,
+    rankJevCandidates: (...args: unknown[]) => mocks.rankJevCandidates(...args),
+    // The stub can only say selected or no-match; `useRealRanker` runs the
+    // real ranker so its failed and timed_out outcomes reach the preload.
+    rankJevCandidatesWithStatus: async (
+      ...args: Parameters<typeof actual.rankJevCandidatesWithStatus>
+    ) => {
+      if (mocks.useRealRanker.value) {
+        return actual.rankJevCandidatesWithStatus(...args);
+      }
+      const ids = (await mocks.rankJevCandidates(...args)) as string[];
+      return {
+        status: ids.length > 0 ? "selected" : "no-match",
+        ids,
+      };
+    },
+  };
+});
 vi.mock("../agents-bundle.js", () => ({
   loadAgentsBundle: (...args: unknown[]) => mocks.loadAgentsBundle(...args),
+  generateSkillsPromptBlock: (...args: unknown[]) =>
+    mocks.generateSkillsPromptBlock(...args),
   getRuntimeSkills: (...args: unknown[]) => mocks.getRuntimeSkills(...args),
+  getRuntimeSkillsForUser: (...args: unknown[]) =>
+    mocks.getRuntimeSkillsForUser(...args),
 }));
 vi.mock("../../resources/store.js", () => ({
   SHARED_OWNER: "__shared__",
@@ -36,24 +74,39 @@ vi.mock("../../resources/store.js", () => ({
   ensurePersonalDefaults: vi.fn(),
 }));
 vi.mock("../../framework-tools.js", () => ({
-  frameworkGroupEnabled: () => true,
+  frameworkGroupEnabled: (
+    disabled: ReadonlySet<string> | undefined,
+    group: string,
+  ) => !disabled?.has(group),
 }));
+vi.mock("../../tracking/registry.js", () => ({ track: mocks.track }));
 vi.mock("../agent-discovery.js", () => ({
-  discoverAgents: vi.fn(async () => []),
+  discoverAgentsWithDirectoryStatus: (...args: unknown[]) =>
+    mocks.discoverAgentsWithDirectoryStatus(...args),
 }));
 vi.mock("../request-context.js", () => ({
+  getRequestContext: () => null,
   getRequestOrgId: () => mocks.requestOrgId(),
+  getRequestUserEmail: () => mocks.requestUserEmail(),
+  getRequestRunContext: () => mocks.requestRunContext(),
 }));
 
 import {
   loadResourcesForPrompt,
   preloadJevContextForPrompt,
+  preloadJevContextWithStatus,
 } from "./prompt-resources.js";
 
 describe("preloadJevContextForPrompt", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.loadAgentsBundle.mockResolvedValue({ skills: {} });
+    mocks.useRealRanker.value = false;
+    mocks.loadAgentsBundle.mockResolvedValue({
+      skills: {},
+      agentsMd: "",
+      runtimeAgentsMd: "",
+      workspaceAgentsMd: "",
+    });
     mocks.getRuntimeSkills.mockReturnValue([
       {
         meta: {
@@ -65,11 +118,195 @@ describe("preloadJevContextForPrompt", () => {
         content: "# Launch messaging\n\nLead with the customer outcome.",
       },
     ]);
+    mocks.getRuntimeSkillsForUser.mockImplementation(
+      (_bundle: unknown, userEmail?: string) =>
+        userEmail === "disabled@example.test" ? [] : mocks.getRuntimeSkills(),
+    );
     mocks.resourceListAccessible.mockResolvedValue([]);
     mocks.resourceList.mockResolvedValue([]);
     mocks.resourceGetByPath.mockResolvedValue(null);
     mocks.requestOrgId.mockReturnValue(null);
+    mocks.requestUserEmail.mockReturnValue(undefined);
+    mocks.requestRunContext.mockReturnValue(null);
+    mocks.discoverAgentsWithDirectoryStatus.mockResolvedValue({
+      agents: [],
+      directory: { status: "available" },
+    });
   });
+
+  it.each([false, true])(
+    "projects delegated resource context without dead runtime hints (compact: %s)",
+    async (compact) => {
+      const owner = "user@example.test";
+      mocks.loadAgentsBundle.mockResolvedValue({
+        skills: {},
+        agentsMd: "",
+        runtimeAgentsMd: "STATIC_APP_RULE ".repeat(5_000),
+      });
+      mocks.resourceGetByPath.mockImplementation(
+        async (_owner: string, path: string) =>
+          path === "memory/INSTRUCTIONS.md"
+            ? { content: "PERSONAL_MEMORY_RULE ".repeat(5_000) }
+            : null,
+      );
+      const instruction = {
+        id: "instruction",
+        owner,
+        path: "instructions/workflow.md",
+        mimeType: "text/markdown",
+      };
+      mocks.resourceList.mockImplementation(
+        async (resourceOwner: string, prefix?: string) =>
+          resourceOwner === owner && prefix === "instructions/"
+            ? [instruction]
+            : [],
+      );
+      mocks.resourceGet.mockResolvedValue({
+        ...instruction,
+        content: "EAGER_WORKFLOW_RULE",
+      });
+
+      const prompt = await loadResourcesForPrompt(
+        owner,
+        compact,
+        undefined,
+        null,
+        {
+          runtimeToolHints: false,
+          skillReadTool: "docs-search",
+          disabledFrameworkGroups: new Set(["workspaceApps"]),
+        },
+      );
+      expect(prompt).toContain("STATIC_APP_RULE");
+      expect(prompt).toContain('docs-search --slug "agents-template"');
+      expect(prompt).toContain("PERSONAL_MEMORY_RULE");
+      expect(prompt).toContain("EAGER_WORKFLOW_RULE");
+      expect(prompt).not.toContain("`resources`");
+      expect(prompt).not.toContain("<instruction-resources");
+      expect(prompt).not.toContain("<workspace-resources");
+      expect(prompt).not.toContain("<available-apps>");
+      expect(prompt).not.toContain("call-agent");
+    },
+  );
+
+  it("includes bundled skill text eagerly when a delegated registry has no static reader", async () => {
+    const prompt = await loadResourcesForPrompt(
+      "user@example.test",
+      true,
+      undefined,
+      null,
+      {
+        runtimeToolHints: false,
+        skillReadTool: null,
+        disabledFrameworkGroups: new Set(["workspaceApps"]),
+      },
+    );
+    expect(prompt).toContain("Lead with the customer outcome.");
+    expect(prompt).not.toContain("docs-search");
+    expect(prompt).not.toContain("`resources`");
+  });
+
+  it("ranks workspace apps deterministically before applying the 30-app prompt limit", async () => {
+    const candidates = Array.from({ length: 32 }, (_, index) => ({
+      id: `app-${String(index + 1).padStart(2, "0")}`,
+      name: `App ${String(index + 1).padStart(2, "0")}`,
+      description: "General workspace app.",
+      source: "workspace" as const,
+    }));
+    mocks.discoverAgentsWithDirectoryStatus.mockResolvedValue({
+      agents: candidates,
+      directory: { status: "available" },
+    });
+
+    const prompt = await loadResourcesForPrompt(
+      "user@example.test",
+      false,
+      undefined,
+      null,
+    );
+    const appBlock = prompt.match(
+      /<available-apps>[\s\S]*?<\/available-apps>/,
+    )?.[0];
+
+    expect(appBlock).toBeDefined();
+    expect(appBlock).toContain("- App 01 (app-01)");
+    expect(appBlock).toContain("- App 30 (app-30)");
+    expect(appBlock).not.toContain("- App 31 (app-31)");
+    expect(appBlock).not.toContain("- App 32 (app-32)");
+    expect(appBlock?.match(/^\- App /gm)).toHaveLength(30);
+    expect(appBlock?.indexOf("- App 01 (app-01)")).toBeLessThan(
+      appBlock?.indexOf("- App 02 (app-02)") ?? Number.POSITIVE_INFINITY,
+    );
+  });
+
+  it("states how to search when workspace apps are omitted", async () => {
+    mocks.discoverAgentsWithDirectoryStatus.mockResolvedValue({
+      agents: Array.from({ length: 32 }, (_, index) => ({
+        id: `app-${String(index + 1).padStart(2, "0")}`,
+        name: `App ${String(index + 1).padStart(2, "0")}`,
+        description: "General workspace app.",
+        source: "workspace" as const,
+      })),
+      directory: { status: "available" },
+    });
+
+    const prompt = await loadResourcesForPrompt(
+      "user@example.test",
+      false,
+      undefined,
+      null,
+    );
+
+    expect(prompt).toContain(
+      '+2 more — search with describe-workspace-apps query="<capability you need>".',
+    );
+  });
+
+  it.each([
+    ["explicit options", (query: string) => ({ requestText: query })],
+    [
+      "request context",
+      (query: string) => {
+        mocks.requestRunContext.mockReturnValue({ appDiscoveryQuery: query });
+        return undefined;
+      },
+    ],
+  ] as const)(
+    "uses QR request text from %s to include a matching app past the initial 30",
+    async (_source, optionsForQuery) => {
+      const candidates = Array.from({ length: 30 }, (_, index) => ({
+        id: `distractor-${String(index + 1).padStart(2, "0")}`,
+        name: `Distractor ${String(index + 1).padStart(2, "0")}`,
+        description: "General workspace app.",
+        source: "workspace" as const,
+      }));
+      candidates.push({
+        id: "qr-maker",
+        name: "QR Maker",
+        description: "Create and export QR codes.",
+        source: "workspace",
+      });
+      mocks.discoverAgentsWithDirectoryStatus.mockResolvedValue({
+        agents: candidates,
+        directory: { status: "available" },
+      });
+      const query = "Create a QR code";
+      const options = optionsForQuery(query);
+
+      const prompt = await loadResourcesForPrompt(
+        "user@example.test",
+        false,
+        undefined,
+        null,
+        options,
+      );
+      const appBlock = prompt.match(
+        /<available-apps>[\s\S]*?<\/available-apps>/,
+      )?.[0];
+
+      expect(appBlock).toContain("- QR Maker (qr-maker)");
+    },
+  );
 
   it("does nothing without a Jev key", async () => {
     await expect(
@@ -78,6 +315,263 @@ describe("preloadJevContextForPrompt", () => {
       }),
     ).resolves.toBe("");
     expect(mocks.rankJevCandidates).not.toHaveBeenCalled();
+  });
+
+  const qrRoutingCases = [
+    { request: "give me a QR code", selfAppId: undefined },
+    {
+      request: "add a QR code to this slide",
+      selfAppId: "slides",
+    },
+    { request: "QR for this clip", selfAppId: "clips" },
+  ];
+  const qrRoutingApps = [
+    {
+      id: "qr",
+      name: "QR Code Generator",
+      description: "Generate scannable QR code images.",
+      whenToUse: [
+        "Create a QR code for Slack.",
+        "Insert the generated QR image into a slide.",
+        "Make a QR code for a clip link.",
+      ],
+      aliases: ["QR", "QR code"],
+      source: "workspace" as const,
+      url: "https://qr.example.test",
+      color: "#fff",
+    },
+    {
+      id: "slides",
+      name: "Slides",
+      description: "Create and edit slide decks.",
+      source: "workspace" as const,
+      url: "https://slides.example.test",
+      color: "#fff",
+    },
+    {
+      id: "clips",
+      name: "Clips",
+      description: "Record and share screen recordings.",
+      source: "workspace" as const,
+      url: "https://clips.example.test",
+      color: "#fff",
+    },
+  ];
+  const qrRoutingDistractors = [
+    {
+      id: "mail",
+      name: "Mail",
+      description: "Send and receive email messages.",
+      aliases: ["email"],
+      source: "builtin" as const,
+    },
+    {
+      id: "assets",
+      name: "Assets",
+      description: "Search and manage files, images, and media.",
+      source: "workspace" as const,
+    },
+    {
+      id: "content",
+      name: "Content",
+      description: "Draft, edit, and publish pages.",
+      source: "workspace" as const,
+    },
+    {
+      id: "analytics",
+      name: "Analytics",
+      description: "Explore reports, charts, and metrics.",
+      source: "workspace" as const,
+    },
+    ...Array.from({ length: 26 }, (_, index) => ({
+      id: `workspace-app-${index + 1}`,
+      name: `Workspace ${index + 1}`,
+      description: `Manage records and code for workspace ${index + 1}.`,
+      source: "workspace" as const,
+    })),
+  ];
+
+  it.each(qrRoutingCases)(
+    "selects QR in the first three of a realistic 30-app directory for $request without Jev",
+    async ({ request, selfAppId }) => {
+      mocks.discoverAgentsWithDirectoryStatus.mockResolvedValue({
+        agents: [...qrRoutingApps, ...qrRoutingDistractors].filter(
+          (agent) => agent.id !== selfAppId,
+        ),
+        directory: { status: "available" },
+      });
+
+      const result = await preloadJevContextWithStatus({
+        request,
+        appRequest: request,
+        selfAppId,
+      });
+
+      expect(result.appSelection?.selectedIds.slice(0, 3)).toContain("qr");
+      expect(result.relevantAppsContext).toContain('call-agent agent="qr"');
+    },
+  );
+
+  it.each(qrRoutingCases)(
+    "keeps Jev's QR pick in the first three of a realistic 30-app directory for $request",
+    async ({ request, selfAppId }) => {
+      mocks.discoverAgentsWithDirectoryStatus.mockResolvedValue({
+        agents: [...qrRoutingApps, ...qrRoutingDistractors].filter(
+          (agent) => agent.id !== selfAppId,
+        ),
+        directory: { status: "available" },
+      });
+      mocks.rankJevCandidates.mockImplementation(
+        async (options: { candidateStateKey: string }) =>
+          options.candidateStateKey === "candidate_app" ? ["app:qr"] : [],
+      );
+
+      const result = await preloadJevContextWithStatus({
+        request,
+        appRequest: request,
+        selfAppId,
+        directApiKey: "org-jev-test-key",
+      });
+
+      expect(result.appSelection?.selectedIds.slice(0, 3)).toContain("qr");
+      expect(result.relevantAppsContext).toContain('call-agent agent="qr"');
+      expect(mocks.rankJevCandidates).toHaveBeenCalledWith(
+        expect.objectContaining({
+          request,
+          candidateStateKey: "candidate_app",
+          answerKey: "best_app",
+          directApiKey: "org-jev-test-key",
+        }),
+      );
+    },
+  );
+
+  it.each(qrRoutingCases)(
+    "selects the QR app deterministically for $request when Jev is unavailable",
+    async ({ request, selfAppId }) => {
+      mocks.discoverAgentsWithDirectoryStatus.mockResolvedValue({
+        agents: qrRoutingApps.filter((agent) => agent.id !== selfAppId),
+        directory: { status: "available" },
+      });
+
+      const result = await preloadJevContextWithStatus({
+        request,
+        appRequest: request,
+        selfAppId,
+      });
+
+      expect(result.relevantAppsContext).toContain('selected-ids="qr"');
+      expect(result.relevantAppsContext).toContain('call-agent agent="qr"');
+      expect(result.appSelection).toMatchObject({
+        status: "selected",
+        selectedIds: ["qr"],
+      });
+      expect(result.appSelection?.latencyMs).toBeGreaterThanOrEqual(0);
+    },
+  );
+
+  it.each(qrRoutingCases)(
+    "keeps the QR app in the app Jev category for $request",
+    async ({ request, selfAppId }) => {
+      mocks.discoverAgentsWithDirectoryStatus.mockResolvedValue({
+        agents: qrRoutingApps.filter((agent) => agent.id !== selfAppId),
+        directory: { status: "available" },
+      });
+      mocks.rankJevCandidates.mockImplementation(
+        async (options: { candidateStateKey: string }) =>
+          options.candidateStateKey === "candidate_app" ? ["app:qr"] : [],
+      );
+
+      const result = await preloadJevContextWithStatus({
+        request: "Current request: unrelated wording",
+        appRequest: request,
+        selfAppId,
+        apiKey: "jev-test-key",
+      });
+
+      expect(result.relevantAppsContext).toContain('selected-ids="qr"');
+      expect(result.appSelection?.selectedIds).toEqual(["qr"]);
+      expect(mocks.rankJevCandidates).toHaveBeenCalledWith(
+        expect.objectContaining({
+          request,
+          answerKey: "best_app",
+          candidateStateKey: "candidate_app",
+          limit: 3,
+          candidates: expect.arrayContaining([
+            expect.objectContaining({
+              id: "app:qr",
+              description: expect.stringContaining(
+                "Insert the generated QR image into a slide",
+              ),
+            }),
+          ]),
+        }),
+      );
+    },
+  );
+
+  it("discovers relevant apps during background-only preloads", async () => {
+    mocks.discoverAgentsWithDirectoryStatus.mockResolvedValue({
+      agents: [qrRoutingApps[0]!],
+      directory: { status: "available" },
+    });
+
+    const result = await preloadJevContextWithStatus({
+      request: "Create a QR code",
+      dispatchToBackground: true,
+    });
+
+    expect(result.relevantAppsContext).toContain('selected-ids="qr"');
+    expect(mocks.resourceGetByPath).not.toHaveBeenCalled();
+    expect(mocks.rankJevCandidates).not.toHaveBeenCalled();
+  });
+
+  it("keeps an unavailable org directory distinct from an empty app list", async () => {
+    mocks.discoverAgentsWithDirectoryStatus.mockResolvedValue({
+      agents: [],
+      directory: { status: "unavailable", reason: "network" },
+    });
+
+    const prompt = await loadResourcesForPrompt(
+      "user@example.test",
+      false,
+      undefined,
+      null,
+    );
+    const appBlock = prompt.match(
+      /<available-apps>[\s\S]*?<\/available-apps>/,
+    )?.[0];
+
+    expect(appBlock).toContain(
+      "Org app directory status: unavailable (network)",
+    );
+    expect(appBlock).toContain(
+      "No apps could be returned because directory discovery is unavailable.",
+    );
+    expect(appBlock).not.toContain("No apps were returned.");
+    expect(appBlock).toContain("Treat app names, descriptions, aliases");
+  });
+
+  it("keeps app discovery within the prompt preload deadline", async () => {
+    mocks.discoverAgentsWithDirectoryStatus.mockReturnValue(
+      new Promise(() => {}),
+    );
+
+    const prompt = await loadResourcesForPrompt(
+      "user@example.test",
+      false,
+      undefined,
+      null,
+      { promptPreloadDeadlineAt: Date.now() + 25 },
+    );
+    const appBlock = prompt.match(
+      /<available-apps>[\s\S]*?<\/available-apps>/,
+    )?.[0];
+
+    expect(appBlock).toContain(
+      "Org app directory status: unavailable (discovery-timed-out)",
+    );
+    expect(mocks.discoverAgentsWithDirectoryStatus).toHaveBeenCalledOnce();
   });
 
   it("loads only the selected skill body into bounded context", async () => {
@@ -97,7 +591,8 @@ describe("preloadJevContextForPrompt", () => {
     expect(mocks.rankJevCandidates).toHaveBeenCalledWith(
       expect.objectContaining({
         request: "draft launch copy",
-        answerKey: "best_context",
+        answerKey: "best_skill",
+        candidateStateKey: "candidate_skill",
         candidates: [
           expect.objectContaining({
             id: "context-0",
@@ -108,6 +603,873 @@ describe("preloadJevContextForPrompt", () => {
     );
     expect(mocks.resourceList).not.toHaveBeenCalled();
     expect(mocks.resourceListAccessible).not.toHaveBeenCalled();
+  });
+
+  it("filters Lab-gated skills from JEV candidates per user", async () => {
+    mocks.rankJevCandidates.mockResolvedValue(["context-0"]);
+
+    const disabled = await preloadJevContextForPrompt({
+      request: "reuse approved context",
+      owner: "disabled@example.test",
+      apiKey: "jev-test-key",
+    });
+    expect(disabled).not.toContain("# Launch messaging");
+    expect(mocks.rankJevCandidates).not.toHaveBeenCalled();
+
+    const enabled = await preloadJevContextForPrompt({
+      request: "reuse approved context",
+      owner: "enabled@example.test",
+      apiKey: "jev-test-key",
+    });
+    expect(enabled).toContain("# Launch messaging");
+    expect(mocks.getRuntimeSkillsForUser).toHaveBeenNthCalledWith(
+      1,
+      expect.anything(),
+      "disabled@example.test",
+    );
+    expect(mocks.getRuntimeSkillsForUser).toHaveBeenNthCalledWith(
+      2,
+      expect.anything(),
+      "enabled@example.test",
+    );
+  });
+
+  it("prefetches Jev context with a saved personal key and no deployment key", async () => {
+    mocks.rankJevCandidates.mockResolvedValue(["context-0"]);
+
+    const result = await preloadJevContextForPrompt({
+      request: "draft launch copy",
+      personalApiKey: " user-jev-key ",
+    });
+
+    expect(result).toContain("# Launch messaging");
+    expect(mocks.rankJevCandidates).toHaveBeenCalledWith(
+      expect.objectContaining({
+        apiKey: undefined,
+        personalApiKey: "user-jev-key",
+        answerKey: "best_skill",
+      }),
+    );
+  });
+
+  it("includes RAG fallback references when Jev is not connected", async () => {
+    const result = await preloadJevContextForPrompt({
+      request: "How many active users last month?",
+      candidates: [
+        {
+          id: "analytics-reference-1",
+          description: "Analytics dictionary entry; retrieval rank 1.",
+          metadata: { kind: "analytics-reference" },
+          name: "Active users",
+          scope: "analytics-catalog",
+          content:
+            "Metric: active users. Query: SELECT COUNT(DISTINCT user_id).",
+        },
+      ],
+      fallbackCandidateIds: ["analytics-reference-1"],
+    });
+
+    expect(result).toContain("<resource");
+    expect(result).toContain("Metric: active users");
+    expect(mocks.rankJevCandidates).not.toHaveBeenCalled();
+  });
+
+  it("keeps a high-similarity reference when Jev selects only a skill", async () => {
+    mocks.rankJevCandidates.mockImplementation(
+      async (options: { candidateStateKey: string }) =>
+        options.candidateStateKey === "candidate_skill" ? ["context-0"] : [],
+    );
+
+    const result = await preloadJevContextForPrompt({
+      request: "How many active users last month?",
+      apiKey: "jev-test-key",
+      candidates: [
+        {
+          id: "analytics-reference-1",
+          description: "Approved active users definition.",
+          metadata: { kind: "analytics-reference", similarity: "0.82" },
+          name: "Active users",
+          scope: "analytics-catalog",
+          content:
+            "Metric: active users. Query: SELECT COUNT(DISTINCT user_id).",
+        },
+      ],
+      fallbackCandidateIds: ["analytics-reference-1"],
+    });
+
+    expect(result).toContain("# Launch messaging");
+    expect(result).toContain("Metric: active users");
+    expect(mocks.rankJevCandidates).toHaveBeenCalledTimes(2);
+  });
+
+  it("injects selected Analytics references before long selected skills", async () => {
+    mocks.getRuntimeSkills.mockReturnValue(
+      ["one", "two", "three"].map((name, index) => ({
+        meta: {
+          name: `large-skill-${name}`,
+          description: "A large skill.",
+          scope: "both",
+        },
+        dir: `.agents/skills/large-skill-${name}`,
+        content: `SKILL_BODY_${index} ${"x".repeat(10_000)}`,
+      })),
+    );
+    mocks.rankJevCandidates.mockImplementation(
+      async (options: { candidateStateKey: string }) =>
+        options.candidateStateKey === "candidate_skill"
+          ? ["context-0", "context-1", "context-2"]
+          : ["analytics-reference-1"],
+    );
+
+    const result = await preloadJevContextForPrompt({
+      request: "How many active users last month?",
+      appId: "analytics",
+      apiKey: "jev-test-key",
+      candidates: [
+        {
+          id: "analytics-reference-1",
+          description: "Approved active users definition.",
+          metadata: { kind: "analytics-reference" },
+          name: "Active users",
+          scope: "analytics-catalog",
+          content:
+            "Metric: active users. Query: SELECT COUNT(DISTINCT user_id).",
+        },
+      ],
+    });
+
+    expect(result).toContain("Metric: active users.");
+    expect(result.indexOf("Metric: active users.")).toBeLessThan(
+      result.indexOf("SKILL_BODY_0"),
+    );
+  });
+
+  it("keeps a high-similarity reference when Jev returns no match", async () => {
+    mocks.rankJevCandidates.mockResolvedValue([]);
+
+    const result = await preloadJevContextForPrompt({
+      request: "What is the weather?",
+      apiKey: "jev-test-key",
+      candidates: [
+        {
+          id: "analytics-reference-1",
+          description: "An unrelated Analytics definition.",
+          metadata: { kind: "analytics-reference", similarity: "0.74" },
+          name: "Active users",
+          scope: "analytics-catalog",
+          content: "Metric: active users.",
+        },
+      ],
+      fallbackCandidateIds: ["analytics-reference-1"],
+    });
+
+    expect(result).toContain("Metric: active users.");
+  });
+
+  it("honors a no-match for references below the similarity floor", async () => {
+    mocks.rankJevCandidates.mockResolvedValue([]);
+
+    const result = await preloadJevContextForPrompt({
+      request: "What is the weather?",
+      apiKey: "jev-test-key",
+      candidates: [
+        {
+          id: "analytics-reference-1",
+          description: "An unrelated Analytics definition.",
+          metadata: { kind: "analytics-reference", similarity: "0.1" },
+          name: "Unrelated definition",
+          scope: "analytics-catalog",
+          content: "Metric: unrelated.",
+        },
+      ],
+      fallbackCandidateIds: ["analytics-reference-1"],
+    });
+
+    expect(result).toBe("");
+  });
+
+  it("keeps high-similarity reference fallback without starting expired Jev work", async () => {
+    const requestRunContext: Record<string, unknown> = {};
+    mocks.requestRunContext.mockReturnValue(requestRunContext);
+    const result = await preloadJevContextForPrompt({
+      request: "How many active users last month?",
+      apiKey: "jev-test-key",
+      appId: "analytics",
+      contextPrefetchDeadlineAt: Date.now() - 1,
+      candidates: [
+        {
+          id: "analytics-reference-1",
+          description: "Approved active users definition.",
+          metadata: { kind: "analytics-reference", similarity: "0.82" },
+          name: "Active users",
+          scope: "analytics-catalog",
+          content: "Metric: active users.",
+        },
+      ],
+      fallbackCandidateIds: ["analytics-reference-1"],
+    });
+
+    expect(result).toContain("Metric: active users.");
+    expect(mocks.rankJevCandidates).not.toHaveBeenCalled();
+    expect(mocks.resourceGetByPath).not.toHaveBeenCalled();
+    expect(requestRunContext.analyticsJevPrefetch).toEqual({
+      preloadedReferenceCount: 1,
+    });
+  });
+
+  describe("status", () => {
+    const reference = {
+      id: "analytics-reference-1",
+      description: "Approved active users definition.",
+      metadata: { kind: "analytics-reference", similarity: "0.82" },
+      name: "Active users",
+      scope: "analytics-catalog",
+      content: "Metric: active users.",
+    };
+
+    it("is empty, not degraded, when nothing relevant exists", async () => {
+      mocks.getRuntimeSkills.mockReturnValue([]);
+
+      await expect(
+        preloadJevContextWithStatus({
+          request: "What is the weather?",
+          apiKey: "jev-test-key",
+        }),
+      ).resolves.toMatchObject({ context: "", status: "empty" });
+    });
+
+    it("is timed_out when the deadline passed before anything could load", async () => {
+      await expect(
+        preloadJevContextWithStatus({
+          request: "How many active users last month?",
+          apiKey: "jev-test-key",
+          contextPrefetchDeadlineAt: Date.now() - 1,
+        }),
+      ).resolves.toMatchObject({ context: "", status: "timed_out" });
+    });
+
+    it("keeps resource prefetch timeouts visible alongside app-selection context", async () => {
+      mocks.resourceGetByPath.mockImplementation(() => new Promise(() => {}));
+      mocks.discoverAgentsWithDirectoryStatus.mockResolvedValue({
+        agents: [],
+        directory: { status: "unavailable", reason: "network" },
+      });
+
+      const result = await preloadJevContextWithStatus({
+        request: "Find a workspace app for QR codes",
+        owner: "user@example.test",
+        contextPrefetchDeadlineAt: Date.now() + 25,
+      });
+
+      expect(result).toMatchObject({
+        context: "",
+        status: "timed_out",
+        appSelection: {
+          status: "unavailable",
+          directoryStatus: "unavailable",
+        },
+      });
+      expect(result.relevantAppsContext).toContain(
+        "The workspace app directory is not currently available.",
+      );
+    }, 2_000);
+
+    it("preserves unavailable discovery when the preload has no candidates", async () => {
+      mocks.discoverAgentsWithDirectoryStatus.mockResolvedValue({
+        agents: [],
+        directory: { status: "unavailable", reason: "network" },
+      });
+
+      const result = await preloadJevContextWithStatus({
+        request: "Find a workspace app for QR codes",
+        appDiscoveryOnly: true,
+      });
+
+      expect(result).toMatchObject({
+        context: "",
+        status: "ok",
+        appSelection: {
+          status: "unavailable",
+          directoryStatus: "unavailable",
+        },
+      });
+      expect(result.relevantAppsContext).toContain(
+        'directory-status="unavailable (network)"',
+      );
+      expect(result.relevantAppsContext).toContain(
+        "The workspace app directory is not currently available.",
+      );
+    });
+
+    it("does not report a directory outage when workspace apps are disabled", async () => {
+      const result = await preloadJevContextWithStatus({
+        request: "How many active users last month?",
+        workspaceAppsEnabled: false,
+        candidates: [reference],
+        fallbackCandidateIds: [reference.id],
+      });
+
+      expect(result.context).toContain("Metric: active users.");
+      expect(result.appSelection).toBeUndefined();
+      expect(result.relevantAppsContext).toBeUndefined();
+      expect(mocks.discoverAgentsWithDirectoryStatus).not.toHaveBeenCalled();
+    });
+
+    it("surfaces a timed-out app ranker to the model and diagnostics", async () => {
+      mocks.discoverAgentsWithDirectoryStatus.mockResolvedValue({
+        agents: [qrRoutingApps[0]!],
+        directory: { status: "available" },
+      });
+      mocks.rankJevCandidates.mockImplementation(
+        () => new Promise<string[]>(() => {}),
+      );
+
+      const result = await preloadJevContextWithStatus({
+        request: "unrelated request",
+        appRequest: "unrelated request",
+        appDiscoveryOnly: true,
+        apiKey: "jev-test-key",
+        contextPrefetchDeadlineAt: Date.now() + 25,
+      });
+
+      expect(result.appSelection).toMatchObject({ status: "timed_out" });
+      expect(result.relevantAppsContext).toContain(
+        '<relevant-apps status="timed_out"',
+      );
+      expect(result.relevantAppsContext).toContain("App ranking timed out.");
+      expect(result.relevantAppsContext).toContain("describe-workspace-apps");
+    }, 2_000);
+
+    it("surfaces app ranking failure when ranking throws and nothing was injected", async () => {
+      mocks.rankJevCandidates.mockRejectedValue(new Error("ranker down"));
+
+      await expect(
+        preloadJevContextWithStatus({
+          request: "How many active users last month?",
+          apiKey: "jev-test-key",
+        }),
+      ).resolves.toMatchObject({
+        context: "",
+        status: "failed",
+        appSelection: { status: "failed" },
+        relevantAppsContext: expect.stringContaining("App ranking failed."),
+      });
+    });
+
+    describe("with the real ranker", () => {
+      const builderAuth = {
+        authorization: "Bearer test-token",
+        spaceId: null,
+        userId: null,
+      };
+      const preload = (
+        extra: Partial<Parameters<typeof preloadJevContextWithStatus>[0]> = {},
+      ) =>
+        preloadJevContextWithStatus({
+          request: "draft launch copy",
+          builderAuth,
+          ...extra,
+        });
+
+      beforeEach(() => {
+        mocks.useRealRanker.value = true;
+        vi.spyOn(console, "warn").mockImplementation(() => {});
+      });
+
+      afterEach(() => {
+        vi.unstubAllGlobals();
+      });
+
+      it("surfaces app ranking failure when the request errors", async () => {
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(async () => new Response("nope", { status: 500 })),
+        );
+
+        await expect(preload()).resolves.toMatchObject({
+          context: "",
+          status: "failed",
+          appSelection: { status: "failed" },
+          relevantAppsContext: expect.stringContaining("App ranking failed."),
+        });
+      });
+
+      it("surfaces app ranking timeout when the request outlives its own timeout", async () => {
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(
+            (_url: unknown, init?: RequestInit) =>
+              new Promise<Response>((_resolve, reject) => {
+                init?.signal?.addEventListener("abort", () =>
+                  reject(new DOMException("aborted", "AbortError")),
+                );
+              }),
+          ),
+        );
+
+        await expect(preload()).resolves.toMatchObject({
+          context: "",
+          status: "timed_out",
+          appSelection: { status: "timed_out" },
+          relevantAppsContext: expect.stringContaining(
+            "App ranking timed out.",
+          ),
+        });
+      });
+
+      it("surfaces app ranking failure when the ranking response is unusable", async () => {
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(
+            async () =>
+              new Response(
+                JSON.stringify({
+                  answers: {
+                    best_skill: { probabilities: { "context-0": 2 } },
+                  },
+                }),
+              ),
+          ),
+        );
+
+        await expect(preload()).resolves.toMatchObject({
+          context: "",
+          status: "failed",
+          appSelection: { status: "failed" },
+          relevantAppsContext: expect.stringContaining("App ranking failed."),
+        });
+      });
+
+      it("still injects the fallback reference when the ranking fails", async () => {
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(async () => new Response("nope", { status: 500 })),
+        );
+
+        const result = await preload({
+          appId: "analytics",
+          // Below the similarity floor, so only the fallback can inject it.
+          candidates: [
+            {
+              ...reference,
+              metadata: { kind: "analytics-reference", similarity: "0.1" },
+            },
+          ],
+          fallbackCandidateIds: ["analytics-reference-1"],
+        });
+
+        expect(result.status).toBe("ok");
+        expect(result.context).toContain("Metric: active users.");
+      });
+    });
+
+    it("is ok when a fallback reference was still injected after the deadline", async () => {
+      const result = await preloadJevContextWithStatus({
+        request: "How many active users last month?",
+        apiKey: "jev-test-key",
+        appId: "analytics",
+        contextPrefetchDeadlineAt: Date.now() - 1,
+        candidates: [reference],
+        fallbackCandidateIds: ["analytics-reference-1"],
+      });
+
+      expect(result.status).toBe("ok");
+      expect(result.context).toContain("Metric: active users.");
+    });
+  });
+
+  it("loads only the selected memory body and ranks its short index summary", async () => {
+    const owner = "user@example.test";
+    const memoryIndex = [
+      "# Memory Index",
+      ...Array.from(
+        { length: 7 },
+        (_, index) =>
+          `- [unrelated-${index}](unrelated-${index}.md) — Unrelated note ${index}.`,
+      ),
+      "- [selected-memory](selected-memory.md) — Prefer the verified Analytics dictionary and BigQuery source dialect.",
+    ].join("\n");
+    mocks.resourceGetByPath.mockImplementation(
+      async (resourceOwner: string, path: string) =>
+        resourceOwner === owner && path === "memory/MEMORY.md"
+          ? { content: memoryIndex }
+          : resourceOwner === owner && path === "memory/selected-memory.md"
+            ? {
+                content:
+                  "---\ntype: feedback\ndescription: query style\n---\nRead the verified data dictionary, then run the live query.",
+              }
+            : null,
+    );
+    mocks.rankJevCandidates.mockImplementation(
+      async (options: {
+        candidates: Array<{ id: string; description: string }>;
+      }) => {
+        const selected = options.candidates.find((candidate) =>
+          candidate.description.includes("verified Analytics dictionary"),
+        );
+        return selected ? [selected.id] : [];
+      },
+    );
+
+    const result = await preloadJevContextForPrompt({
+      request: "How do we query Analytics data?",
+      apiKey: "jev-test-key",
+      owner,
+      orgId: "org-test",
+      appId: "analytics",
+    });
+
+    expect(result).toContain("Read the verified data dictionary");
+    expect(mocks.rankJevCandidates).toHaveBeenCalledWith(
+      expect.objectContaining({
+        candidates: expect.arrayContaining([
+          expect.objectContaining({
+            id: expect.stringMatching(/^personal-memory-/),
+            description:
+              "Personal memory: Prefer the verified Analytics dictionary and BigQuery source dialect.",
+          }),
+        ]),
+      }),
+    );
+    expect(mocks.rankJevCandidates.mock.calls[0]?.[0]).not.toMatchObject({
+      candidates: expect.arrayContaining([
+        expect.objectContaining({
+          description: expect.stringContaining(
+            "Read the verified data dictionary",
+          ),
+        }),
+      ]),
+    });
+    expect(mocks.resourceGetByPath).toHaveBeenCalledWith(
+      owner,
+      "memory/MEMORY.md",
+      {
+        orgId: "org-test",
+      },
+    );
+    expect(
+      mocks.resourceGetByPath.mock.calls.map(([resourceOwner, path]) => [
+        resourceOwner,
+        path,
+      ]),
+    ).toEqual([
+      [owner, "memory/MEMORY.md"],
+      ["__organization__:org-test", "memory/MEMORY.md"],
+      [owner, "memory/selected-memory.md"],
+    ]);
+    const rankedCandidates = mocks.rankJevCandidates.mock.calls.flatMap(
+      ([options]) =>
+        (options as { candidates: Array<{ description: string }> }).candidates,
+    );
+    expect(JSON.stringify(rankedCandidates)).not.toContain(
+      "Read the verified data dictionary",
+    );
+  });
+
+  it("preloads an exact-term personal memory without Jev", async () => {
+    const owner = "user@example.test";
+    mocks.resourceGetByPath.mockImplementation(
+      async (resourceOwner: string, path: string) =>
+        resourceOwner === owner && path === "memory/MEMORY.md"
+          ? {
+              content:
+                "# Memory Index\n- [wife-contact](wife-contact.md) — My wife's name and email address.",
+            }
+          : resourceOwner === owner && path === "memory/wife-contact.md"
+            ? { content: "My wife Alex can be reached at alex@example.test." }
+            : null,
+    );
+
+    const result = await preloadJevContextForPrompt({
+      request: "Email my wife about dinner.",
+      owner,
+    });
+
+    expect(result).toContain("My wife Alex can be reached");
+    expect(mocks.rankJevCandidates).not.toHaveBeenCalled();
+    expect(mocks.resourceGetByPath).toHaveBeenCalledWith(
+      owner,
+      "memory/wife-contact.md",
+      { orgId: undefined },
+    );
+  });
+
+  it.each([
+    ["a short exact term", "Who is Mom?", "Mom's contact details."],
+    ["Arabic", "أرسل بريدًا إلى زوجتي", "زوجتي وعنوان بريدها الإلكتروني."],
+    ["Chinese", "给妻子发邮件", "妻子联系人的邮箱地址。"],
+  ])(
+    "preloads a personal memory for %s without Jev",
+    async (_label, request, description) => {
+      const owner = "user@example.test";
+      mocks.resourceGetByPath.mockImplementation(
+        async (resourceOwner: string, path: string) =>
+          resourceOwner === owner && path === "memory/MEMORY.md"
+            ? {
+                content: `# Memory Index\n- [contact](contact.md) — ${description}`,
+              }
+            : resourceOwner === owner && path === "memory/contact.md"
+              ? { content: `Saved contact: ${description}` }
+              : null,
+      );
+
+      const result = await preloadJevContextForPrompt({ request, owner });
+
+      expect(result).toContain(`Saved contact: ${description}`);
+      expect(mocks.rankJevCandidates).not.toHaveBeenCalled();
+    },
+  );
+
+  it("does not start another selected memory read after the shared budget expires", async () => {
+    const owner = "user@example.test";
+    const startedBodyPaths: string[] = [];
+    mocks.resourceGetByPath.mockImplementation(
+      async (_resourceOwner: string, path: string) => {
+        if (path === "memory/MEMORY.md") {
+          return {
+            content:
+              "# Memory Index\n- [first](first.md) — First confirmed preference.\n- [second](second.md) — Second confirmed preference.",
+          };
+        }
+        startedBodyPaths.push(path);
+        if (startedBodyPaths.length === 1) return new Promise(() => {});
+        return { content: "Second memory body." };
+      },
+    );
+    mocks.getRuntimeSkills.mockReturnValue([]);
+    mocks.rankJevCandidates.mockImplementation(
+      (options: {
+        candidateStateKey: string;
+        candidates: Array<{ id: string }>;
+      }) =>
+        options.candidateStateKey === "candidate_memory"
+          ? options.candidates.map((candidate) => candidate.id)
+          : [],
+    );
+
+    await preloadJevContextForPrompt({
+      request: "Use the saved preferences.",
+      apiKey: "jev-test-key",
+      owner,
+      contextPrefetchDeadlineAt: Date.now() + 100,
+    });
+
+    expect(startedBodyPaths).toHaveLength(1);
+  });
+
+  it("does not inject a lexical memory fallback after Jev explicitly returns no-match", async () => {
+    const owner = "user@example.test";
+    mocks.resourceGetByPath.mockImplementation(
+      async (resourceOwner: string, path: string) =>
+        resourceOwner === owner && path === "memory/MEMORY.md"
+          ? {
+              content:
+                "# Memory Index\n- [query-preference](query-preference.md) — Prefer BigQuery STRING instead of ILIKE for Analytics.",
+            }
+          : resourceOwner === owner && path === "memory/query-preference.md"
+            ? {
+                content:
+                  "---\ntype: feedback\ndescription: query preference\n---\nDo not reuse this stale query preference.",
+              }
+            : null,
+    );
+    mocks.rankJevCandidates.mockResolvedValue([]);
+
+    const result = await preloadJevContextForPrompt({
+      request: "Prefer BigQuery STRING instead of ILIKE for Analytics.",
+      apiKey: "jev-test-key",
+      owner,
+      orgId: "org-test",
+    });
+
+    expect(result).not.toContain("stale query preference");
+    expect(
+      mocks.resourceGetByPath.mock.calls.map(([resourceOwner, path]) => [
+        resourceOwner,
+        path,
+      ]),
+    ).toEqual([
+      [owner, "memory/MEMORY.md"],
+      ["__organization__:org-test", "memory/MEMORY.md"],
+    ]);
+  });
+
+  it("loads only org-scoped memory for the active org and rejects index traversal", async () => {
+    const owner = "user@example.test";
+    const orgId = "org-a";
+    const orgOwner = "__organization__:org-a";
+    const otherOrgOwner = "__organization__:org-b";
+    mocks.getRuntimeSkills.mockReturnValue([]);
+    mocks.resourceGetByPath.mockImplementation(
+      async (resourceOwner: string, path: string) => {
+        if (resourceOwner === owner && path === "memory/MEMORY.md") return null;
+        if (resourceOwner === orgOwner && path === "memory/MEMORY.md") {
+          return {
+            content: [
+              "# Memory Index",
+              "- [other-org](../other-org.md) — Never read this cross-org entry.",
+              "- [dialect](dialect.md) — Use BigQuery STRING instead of ILIKE.",
+            ].join("\n"),
+          };
+        }
+        if (resourceOwner === orgOwner && path === "memory/dialect.md") {
+          return { content: "For this organization, use BigQuery STRING." };
+        }
+        if (resourceOwner === otherOrgOwner && path === "memory/other-org.md") {
+          return { content: "This must stay in another organization." };
+        }
+        return null;
+      },
+    );
+    mocks.rankJevCandidates.mockImplementation((input: any) => {
+      const candidate = input.candidates.find(
+        (item: any) =>
+          item.metadata?.kind === "personal-memory" &&
+          item.metadata?.scope === "current-org",
+      );
+      return candidate ? [candidate.id] : [];
+    });
+
+    const result = await preloadJevContextForPrompt({
+      request: "How should I query active users?",
+      apiKey: "jev-test-key",
+      owner,
+      orgId,
+    });
+
+    expect(result).toContain("For this organization, use BigQuery STRING.");
+    expect(result).not.toContain("This must stay in another organization.");
+    const reads = mocks.resourceGetByPath.mock.calls.map(
+      ([resourceOwner, path]) => [resourceOwner, path],
+    );
+    expect(reads).toContainEqual([orgOwner, "memory/MEMORY.md"]);
+    expect(reads).toContainEqual([orgOwner, "memory/dialect.md"]);
+    expect(reads).not.toContainEqual([owner, "memory/dialect.md"]);
+    expect(reads).not.toContainEqual([otherOrgOwner, "memory/MEMORY.md"]);
+    expect(reads).not.toContainEqual([otherOrgOwner, "memory/other-org.md"]);
+  });
+
+  it("skips Jev and memory retrieval before background dispatch", async () => {
+    await expect(
+      preloadJevContextForPrompt({
+        request: "How do we query Analytics data?",
+        apiKey: "jev-test-key",
+        owner: "user@example.test",
+        appId: "analytics",
+        dispatchToBackground: true,
+      }),
+    ).resolves.toBe("");
+
+    expect(mocks.resourceGetByPath).not.toHaveBeenCalled();
+    expect(mocks.rankJevCandidates).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["worker", { dispatchToBackground: false }],
+    ["internal continuation", { internalContinuation: true }],
+  ] as const)(
+    "injects Analytics references and records their count in a %s prompt",
+    async (_mode, requestOptions) => {
+      const requestRunContext: Record<string, unknown> = {
+        isBackgroundWorker: true,
+      };
+      mocks.requestRunContext.mockReturnValue(requestRunContext);
+      mocks.getRuntimeSkills.mockReturnValue([]);
+
+      const result = await preloadJevContextForPrompt({
+        request: "How many active users last month?",
+        appId: "analytics",
+        ...requestOptions,
+        candidates: [
+          {
+            id: "analytics-reference-1",
+            description: "Approved active users definition.",
+            metadata: { kind: "analytics-reference" },
+            name: "Active users",
+            scope: "analytics-catalog",
+            content: "Metric: active users.",
+          },
+        ],
+        fallbackCandidateIds: ["analytics-reference-1"],
+      });
+
+      expect(result).toContain("Metric: active users.");
+      expect(requestRunContext.analyticsJevPrefetch).toEqual({
+        preloadedReferenceCount: 1,
+      });
+    },
+  );
+
+  it("uses lexical reference fallbacks when Jev outlives the shared budget", async () => {
+    mocks.getRuntimeSkills.mockReturnValue([]);
+    const signals: AbortSignal[] = [];
+    mocks.rankJevCandidates.mockImplementation(
+      (options: { signal?: AbortSignal }) => {
+        if (options.signal) signals.push(options.signal);
+        return new Promise<string[]>(() => {});
+      },
+    );
+
+    const result = await preloadJevContextForPrompt({
+      request: "How many active users last month?",
+      apiKey: "jev-test-key",
+      contextPrefetchDeadlineAt: Date.now() + 100,
+      candidates: [
+        {
+          id: "analytics-reference-1",
+          description: "Approved active users definition.",
+          metadata: { kind: "analytics-reference" },
+          name: "Active users",
+          scope: "analytics-catalog",
+          content: "Metric: active users.",
+        },
+      ],
+      fallbackCandidateIds: ["analytics-reference-1"],
+    });
+
+    expect(result).toContain("Metric: active users.");
+    expect(signals.length).toBeGreaterThan(0);
+    expect(signals.every((signal) => signal.aborted)).toBe(true);
+  });
+
+  it("records privacy-safe Analytics Jev selection counts", async () => {
+    mocks.rankJevCandidates.mockResolvedValue(["analytics-reference-1"]);
+
+    await preloadJevContextForPrompt({
+      request: "How many active users last month?",
+      apiKey: "jev-test-key",
+      appId: "analytics",
+      candidates: [
+        {
+          id: "analytics-reference-1",
+          kind: "analytics-reference",
+          description: "A private metric label",
+          metadata: { kind: "analytics-reference" },
+          name: "Private dashboard name",
+          scope: "analytics-catalog",
+          content: "Private SQL body",
+        },
+      ],
+    });
+
+    await vi.waitFor(() =>
+      expect(mocks.track).toHaveBeenCalledWith(
+        "jev_context_prefetch",
+        expect.objectContaining({
+          jev_configured: true,
+          jev_status: "selected",
+          selection_source: "jev",
+          candidate_analytics_reference_count: 1,
+          selected_analytics_reference_count: 1,
+        }),
+      ),
+    );
+    const trackedProperties = mocks.track.mock.calls[0]?.[1] as Record<
+      string,
+      unknown
+    >;
+    expect(JSON.stringify(trackedProperties)).not.toContain("Private");
+    expect(JSON.stringify(trackedProperties)).not.toContain("SQL");
   });
 
   it("keeps access-scoped workspace skill metadata out of Jev", async () => {
@@ -404,6 +1766,176 @@ describe("preloadJevContextForPrompt", () => {
     expect(prompt).not.toContain("Ambient");
     expect(prompt).not.toContain("ambient.md");
   });
+
+  it("prefers the most recently updated resource skill when names repeat", async () => {
+    const owner = "user@example.test";
+    const candidates = [
+      {
+        id: "legacy-repeat-skill",
+        owner,
+        path: "skills/legacy-repeat-skill.md",
+        mimeType: "text/markdown",
+        updatedAt: 500,
+        content:
+          "---\nname: repeat-skill\ndescription: Legacy filename version.\n---\n# Legacy",
+      },
+      {
+        id: "repeat-skill-2",
+        owner,
+        path: "skills/repeat-skill-2/SKILL.md",
+        mimeType: "text/markdown",
+        updatedAt: 1000,
+        content:
+          "---\nname: repeat-skill\ndescription: Older version.\n---\n# Older",
+      },
+      {
+        id: "repeat-skill-3",
+        owner,
+        path: "skills/repeat-skill-3/SKILL.md",
+        mimeType: "text/markdown",
+        updatedAt: 2000,
+        content:
+          "---\nname: repeat-skill\ndescription: Newest version.\n---\n# Newest",
+      },
+    ];
+    mocks.resourceListAccessible.mockResolvedValue(
+      candidates.map(({ content: _content, ...resource }) => resource),
+    );
+    mocks.resourceGet.mockImplementation(
+      async (id: string) =>
+        candidates.find((candidate) => candidate.id === id) ?? null,
+    );
+
+    const prompt = await loadResourcesForPrompt(owner, false, undefined, null);
+
+    expect(prompt).toContain(
+      "`repeat-skill` at resource `skills/repeat-skill-3/SKILL.md`",
+    );
+    expect(prompt).toContain("Newest version.");
+    expect(prompt).not.toContain("skills/repeat-skill-2/SKILL.md");
+    expect(prompt).not.toContain("skills/legacy-repeat-skill.md");
+  });
+
+  it("prefers the same personal skill across canonical, suffixed, org, and shared paths", async () => {
+    const owner = "user@example.test";
+    const candidates = [
+      {
+        id: "resource-priority-canonical",
+        owner,
+        path: "skills/resource-priority/SKILL.md",
+        mimeType: "text/markdown",
+        updatedAt: 1000,
+        content:
+          "---\nname: resource-priority\ndescription: Older canonical version.\n---\n# Older",
+      },
+      {
+        id: "resource-priority-suffixed",
+        owner,
+        path: "skills/resource-priority-2/SKILL.md",
+        mimeType: "text/markdown",
+        updatedAt: 2000,
+        content:
+          "---\nname: resource-priority\ndescription: Newer personal version.\n---\n# Newer personal",
+      },
+      {
+        id: "resource-priority-organization",
+        owner: "__organization__:org-1",
+        path: "skills/organization-copy/SKILL.md",
+        mimeType: "text/markdown",
+        updatedAt: 3000,
+        content:
+          "---\nname: resource-priority\ndescription: Newer organization version.\n---\n# Organization",
+      },
+      {
+        id: "resource-priority-shared",
+        owner: "__shared__",
+        path: "skills/shared-copy/SKILL.md",
+        mimeType: "text/markdown",
+        updatedAt: 4000,
+        content:
+          "---\nname: resource-priority\ndescription: Newer shared version.\n---\n# Shared",
+      },
+      {
+        id: "organization-priority-organization",
+        owner: "__organization__:org-1",
+        path: "skills/organization-priority/SKILL.md",
+        mimeType: "text/markdown",
+        updatedAt: 1000,
+        content:
+          "---\nname: organization-priority\ndescription: Organization version.\n---\n# Organization",
+      },
+      {
+        id: "organization-priority-shared",
+        owner: "__shared__",
+        path: "skills/organization-priority-shared/SKILL.md",
+        mimeType: "text/markdown",
+        updatedAt: 4000,
+        content:
+          "---\nname: organization-priority\ndescription: Newer shared version.\n---\n# Shared",
+      },
+    ];
+    mocks.resourceListAccessible.mockResolvedValue(
+      candidates.map(({ content: _content, ...resource }) => resource),
+    );
+    mocks.resourceGet.mockImplementation(
+      async (id: string) =>
+        candidates.find((candidate) => candidate.id === id) ?? null,
+    );
+
+    const prompt = await loadResourcesForPrompt(
+      owner,
+      false,
+      undefined,
+      "org-1",
+    );
+
+    expect(prompt).toContain(
+      "`resource-priority` at resource `skills/resource-priority-2/SKILL.md`",
+    );
+    expect(prompt).toContain("Newer personal version.");
+    expect(prompt).not.toContain(
+      "`resource-priority` at resource `skills/organization-copy/SKILL.md`",
+    );
+    expect(prompt).not.toContain(
+      "`resource-priority` at resource `skills/shared-copy/SKILL.md`",
+    );
+    expect(prompt).toContain(
+      "`organization-priority` at resource `skills/organization-priority/SKILL.md`",
+    );
+    expect(prompt).toContain("Organization version.");
+    expect(prompt).not.toContain("Newer shared version.");
+  });
+
+  it.each([false, true])(
+    "loads personal memory instructions in %s compact context",
+    async (compact) => {
+      const owner = "user@example.test";
+      mocks.resourceGetByPath.mockImplementation(
+        async (resourceOwner: string, path: string) =>
+          resourceOwner === owner && path === "memory/INSTRUCTIONS.md"
+            ? {
+                content:
+                  "Remember stable contact details; skip one-off errands.",
+              }
+            : null,
+      );
+
+      const prompt = await loadResourcesForPrompt(
+        owner,
+        compact,
+        undefined,
+        null,
+      );
+
+      expect(prompt).toContain("memory/INSTRUCTIONS.md");
+      expect(prompt).toContain("Remember stable contact details");
+      expect(mocks.resourceGetByPath).toHaveBeenCalledWith(
+        owner,
+        "memory/INSTRUCTIONS.md",
+        { orgId: null },
+      );
+    },
+  );
 
   it.each([
     ["instruction", "instructions/", "instructions/failing.md"],

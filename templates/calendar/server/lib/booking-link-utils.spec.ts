@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   getBookingLinkRequiredHostEmails,
+  isBookingLinkHost,
   normalizeBookingHosts,
   serializeBookingHosts,
 } from "./booking-link-utils";
@@ -28,11 +29,17 @@ describe("booking link host utilities", () => {
   });
 
   it("returns the owner and co-hosts as required hosts", () => {
-    expect(
-      getBookingLinkRequiredHostEmails({
-        ownerEmail: "steve@example.com",
-        hosts: JSON.stringify([{ email: "brent@example.com" }]),
-      }),
-    ).toEqual(["steve@example.com", "brent@example.com"]);
+    const link = {
+      ownerEmail: "steve@example.com",
+      hosts: JSON.stringify([{ email: "brent@example.com" }]),
+    };
+    expect(getBookingLinkRequiredHostEmails(link)).toEqual([
+      "steve@example.com",
+      "brent@example.com",
+    ]);
+    expect(isBookingLinkHost(link, "STEVE@example.com")).toBe(true);
+    expect(isBookingLinkHost(link, "brent@example.com")).toBe(true);
+    expect(isBookingLinkHost(link, "viewer@example.com")).toBe(false);
+    expect(isBookingLinkHost(link, null)).toBe(false);
   });
 });

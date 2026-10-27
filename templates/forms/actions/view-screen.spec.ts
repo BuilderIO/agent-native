@@ -2,12 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { buildFormSelectionSummary, summarizeFields } from "./view-screen.js";
 
-/**
- * `patch-form-fields` upsert replaces a field wholesale. The screen preview
- * caps a field's options, so without `optionsTruncated` a capped preview is
- * indistinguishable from the real list and a caller that rebuilds the field
- * from it silently deletes every option past the cap.
- */
 function selectField(optionCount: number) {
   return {
     id: "f1",
@@ -37,12 +31,6 @@ describe("summarizeFields option preview", () => {
   });
 });
 
-/**
- * The form builder writes `forms-selection` for whichever form is open in
- * that browser tab. It must only be surfaced for the form it names — a
- * selection left over from a form the user has since navigated away from
- * must never be attributed to a different form the agent is now looking at.
- */
 describe("buildFormSelectionSummary", () => {
   it("returns null when there is no selection", () => {
     expect(buildFormSelectionSummary(null, "form-1")).toBeNull();

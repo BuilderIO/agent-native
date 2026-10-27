@@ -1,129 +1,435 @@
-/**
- * Per-turn tool-call journal — derived (not separately recorded) from the
- * existing run-event ledger. Borrowed from Flue's durable-execution journal:
- * when an agent run resumes after an interruption (gateway/transport drop, cold
- * start, soft-timeout auto-continue), we classify the tool calls already in the
- * ledger so the resumed model does NOT re-execute side effects it already
- * completed (re-sending an email, re-creating a ticket) and so it is explicitly
- * told about any tool call that started but whose outcome was never recorded.
- *
- * IMPORTANT — this is a pure read-over-the-ledger view. There is no new
- * recording hook anywhere in the hot path. Classification uses input-aware
- * `tool_start` → `tool_done` matching when a `tool_done` event carries its
- * input, while preserving the legacy positional fallback that older ledger
- * events and `thread-data-builder.ts` rely on:
- *
- *   - `tool_start` events carry `{ tool, input }` (no tool-call id at this
- *     layer; the ledger event stream omits it).
- *   - `tool_done` events carry `{ tool, input?, result }`.
- *   - A `tool_done` with input is matched to the open start with the same tool
- *     name and deep-canonicalized input.
- *   - A legacy `tool_done` without input is matched to the OLDEST still-open
- *     `tool_start` for the same tool name (FIFO per tool).
- *
- * A `tool_start` with no matching `tool_done` is the dangerous case: the call
- * began, its side effect may or may not have landed, and the interruption ate
- * the result. We surface those as "interrupted / unknown outcome" so the model
- * decides rather than blindly re-running.
- *
- * Two layers of protection are built on this: (1) a prompt-level note on resume
- * (see `run-loop-with-resume.ts`) telling the model what already completed, and
- * (2) tool-layer enforcement in `production-agent.ts`/`runToolCall`, which uses
- * `findCompletedJournalEntry(...)` to refuse re-executing a journaled-complete
- * write tool — returning the journaled result instead of running the side
- * effect again. Layer 2 is the stronger guarantee.
- */
+import { createHash } from "node:crypto";
 
+import type { ActionChatUIConfig } from "../action-ui.js";
 import {
   isArtifactReceipt,
   type ArtifactReceipt,
 } from "../artifacts/detect.js";
-import type { AgentChatEvent, AgentToolInput } from "./types.js";
+import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
+import { stripInlineBytes } from "../shared/inline-bytes.js";
+import type {
+  EngineMessage,
+  EngineToolCallPart,
+  EngineToolResultPart,
+} from "./engine/types.js";
+import { toolCallInputSignature as inputSignature } from "./tool-call-input-signature.js";
+import { isUnknownWriteCause } from "./types.js";
+import type {
+  AgentChatEvent,
+  AgentFileMutationProof,
+  AgentToolInput,
+  UnknownWriteCause,
+} from "./types.js";
 
-/** A single recorded tool-call ledger entry, classified by outcome. */
 export interface ToolCallJournalEntry {
-  /**
-   * Stable-ish identity for this tool call within the turn. The ledger event
-   * stream has no tool-call id, so we key by tool name + a short input
-   * signature + positional order, exactly enough to disambiguate repeats of the
-   * same tool within one turn for human/model-readable reporting.
-   */
   key: string;
-  /** Tool / action name (from the `tool_start` event). */
   tool: string;
-  /** Tool input captured at `tool_start`, if any. */
+  id?: string;
+  executionStepId?: string;
   input?: AgentToolInput;
-  /** 0-based position of the `tool_start` among all tool calls in the turn. */
+  inputFingerprint?: string;
+  inputStoredFingerprint?: string;
   order: number;
-  /** Result text from the matched `tool_done`, when the call completed. */
   result?: string;
-  /** Typed artifact evidence captured before the model-facing result was capped. */
+  /** The call failed after its side effect completed. */
+  isError?: true;
+  errorCode?: string;
+  /** The call recorded a completed side effect, its own or a nested call's. */
+  committed?: true;
+  /** Exact identity of the arguments the call ran with, defaults applied. */
+  argumentsHash?: string;
+  /** The call settled with an outcome it could not confirm. */
+  outcomeUnknown?: true;
+  /** Why such a call's outcome is unknown, when its event recorded it. */
+  unknownCause?: UnknownWriteCause;
   artifacts?: ArtifactReceipt[];
+  fileMutation?: AgentFileMutationProof;
+  mcpApp?: AgentMcpAppPayload;
+  chatUI?: Omit<ActionChatUIConfig, "when" | "projectResult">;
+  chatUIResult?: unknown;
 }
 
-/** Result of classifying one turn's ledger events. */
 export interface ToolCallJournal {
-  /** Tool calls with a matching `tool_done` — already ran, do NOT re-run. */
   completed: ToolCallJournalEntry[];
-  /**
-   * Tool calls with a `tool_start` but no matching `tool_done` — interrupted,
-   * outcome unknown. The model must decide whether re-running is safe.
-   */
   interrupted: ToolCallJournalEntry[];
 }
 
-/** Max length of an input signature included in a journal key (debug-readable). */
+export function toolCallIdentityKey(
+  id?: string,
+  executionStepId?: string,
+): string | undefined {
+  if (executionStepId !== undefined)
+    return JSON.stringify(["step", executionStepId]);
+  return id === undefined ? undefined : JSON.stringify(["id", id]);
+}
+
+export function matchToolCallResultsInHistory(
+  history: readonly EngineMessage[],
+): Array<{ call: EngineToolCallPart; result: EngineToolResultPart }> {
+  const calls: Array<{ part: EngineToolCallPart; order: number }> = [];
+  const results: Array<{ part: EngineToolResultPart; order: number }> = [];
+  const callsByStep = new Map<string, typeof calls>();
+  const resultsByStep = new Map<string, typeof results>();
+  const callsById = new Map<string, typeof calls>();
+  const resultsById = new Map<string, typeof results>();
+  let order = 0;
+
+  for (const message of history) {
+    for (const part of message.content) {
+      if (message.role === "assistant" && part.type === "tool-call") {
+        const call = { part, order };
+        calls.push(call);
+        if (part.executionStepId !== undefined) {
+          const matches = callsByStep.get(part.executionStepId) ?? [];
+          matches.push(call);
+          callsByStep.set(part.executionStepId, matches);
+        }
+        const matches = callsById.get(part.id) ?? [];
+        matches.push(call);
+        callsById.set(part.id, matches);
+      } else if (message.role !== "assistant" && part.type === "tool-result") {
+        const result = { part, order };
+        results.push(result);
+        if (part.executionStepId !== undefined) {
+          const matches = resultsByStep.get(part.executionStepId) ?? [];
+          matches.push(result);
+          resultsByStep.set(part.executionStepId, matches);
+        }
+        const matches = resultsById.get(part.toolCallId) ?? [];
+        matches.push(result);
+        resultsById.set(part.toolCallId, matches);
+      }
+      order++;
+    }
+  }
+
+  const matched: Array<{
+    call: EngineToolCallPart;
+    result: EngineToolResultPart;
+  }> = [];
+  for (const { part: result, order: resultOrder } of results) {
+    let call: (typeof calls)[number] | undefined;
+    if (result.executionStepId !== undefined) {
+      const candidates = callsByStep.get(result.executionStepId) ?? [];
+      if (
+        candidates.length !== 1 ||
+        (resultsByStep.get(result.executionStepId)?.length ?? 0) !== 1
+      ) {
+        continue;
+      }
+      call = candidates[0];
+    } else {
+      const candidates = callsById.get(result.toolCallId) ?? [];
+      if (
+        candidates.length !== 1 ||
+        candidates[0]?.part.executionStepId !== undefined ||
+        (resultsById.get(result.toolCallId)?.length ?? 0) !== 1
+      ) {
+        continue;
+      }
+      call = candidates[0];
+    }
+
+    if (
+      !call ||
+      call.order >= resultOrder ||
+      call.part.name !== result.toolName
+    ) {
+      continue;
+    }
+    matched.push({ call: call.part, result });
+  }
+  return matched;
+}
+
+export function unmatchedAmbiguousLegacyToolCallResultsInHistory(
+  history: readonly EngineMessage[],
+): Array<{
+  result: EngineToolResultPart;
+  candidateCalls: EngineToolCallPart[];
+}> {
+  const matchedResults = new Set(
+    matchToolCallResultsInHistory(history).map(({ result }) => result),
+  );
+  const callsByIdentity = new Map<
+    string,
+    Array<{ part: EngineToolCallPart; order: number }>
+  >();
+  const results: Array<{ part: EngineToolResultPart; order: number }> = [];
+  let order = 0;
+
+  for (const message of history) {
+    for (const part of message.content) {
+      if (
+        message.role === "assistant" &&
+        part.type === "tool-call" &&
+        part.executionStepId === undefined
+      ) {
+        const key = JSON.stringify([part.id, part.name]);
+        const calls = callsByIdentity.get(key) ?? [];
+        calls.push({ part, order });
+        callsByIdentity.set(key, calls);
+      } else if (
+        message.role !== "assistant" &&
+        part.type === "tool-result" &&
+        part.executionStepId === undefined
+      ) {
+        results.push({ part, order });
+      }
+      order++;
+    }
+  }
+
+  const ambiguous: Array<{
+    result: EngineToolResultPart;
+    candidateCalls: EngineToolCallPart[];
+  }> = [];
+  for (const { part: result, order: resultOrder } of results) {
+    if (matchedResults.has(result)) continue;
+    const candidates = callsByIdentity.get(
+      JSON.stringify([result.toolCallId, result.toolName]),
+    );
+    const candidateCalls =
+      candidates
+        ?.filter((candidate) => candidate.order < resultOrder)
+        .map(({ part }) => part) ?? [];
+    if (candidateCalls.length > 0) ambiguous.push({ result, candidateCalls });
+  }
+  return ambiguous;
+}
+
+export function journalEntriesRepresentedInHistory(
+  journal: ToolCallJournal,
+  history: readonly EngineMessage[],
+): Set<string> {
+  return journalHistoryAttribution(journal, history).represented;
+}
+
+export function journalEntriesAmbiguousInHistory(
+  journal: ToolCallJournal,
+  history: readonly EngineMessage[],
+): Set<string> {
+  return journalHistoryAttribution(journal, history).ambiguous;
+}
+
+function journalHistoryAttribution(
+  journal: ToolCallJournal,
+  history: readonly EngineMessage[],
+): { represented: Set<string>; ambiguous: Set<string> } {
+  const callsByStep = new Map<string, number>();
+  const resultsByStep = new Map<string, number>();
+  const callsByLegacyIdentity = new Map<string, number>();
+  const resultsByLegacyIdentity = new Map<string, number>();
+  const resultCountsByLegacyIdentity = new Map<string, number>();
+  const count = (entries: Map<string, number>, key: string) => {
+    entries.set(key, (entries.get(key) ?? 0) + 1);
+  };
+  const legacyIdentity = (toolName: string, id: string, fingerprint: string) =>
+    JSON.stringify([toolName, id, fingerprint]);
+  const legacyResultIdentity = (
+    toolName: string,
+    id: string,
+    fingerprint: string,
+    result: string,
+  ) => JSON.stringify([toolName, id, fingerprint, result]);
+
+  for (const message of history) {
+    for (const part of message.content) {
+      if (message.role === "assistant" && part.type === "tool-call") {
+        if (part.executionStepId) {
+          count(callsByStep, JSON.stringify([part.name, part.executionStepId]));
+        } else {
+          count(
+            callsByLegacyIdentity,
+            legacyIdentity(
+              part.name,
+              part.id,
+              part.inputFingerprint ?? toolCallInputFingerprint(part.input),
+            ),
+          );
+        }
+      } else if (message.role !== "assistant" && part.type === "tool-result") {
+        if (part.executionStepId) {
+          count(
+            resultsByStep,
+            JSON.stringify([part.toolName, part.executionStepId]),
+          );
+        } else {
+          let input: unknown;
+          try {
+            input = JSON.parse(part.toolInput);
+          } catch {
+            continue;
+          }
+          const fingerprint =
+            part.inputFingerprint ?? toolCallInputFingerprint(input);
+          const baseIdentity = legacyIdentity(
+            part.toolName,
+            part.toolCallId,
+            fingerprint,
+          );
+          const resultIdentity = legacyResultIdentity(
+            part.toolName,
+            part.toolCallId,
+            fingerprint,
+            part.content,
+          );
+          count(resultsByLegacyIdentity, resultIdentity);
+          count(resultCountsByLegacyIdentity, baseIdentity);
+        }
+      }
+    }
+  }
+
+  const represented = new Set<string>();
+  const ambiguous = new Set<string>();
+  const entriesByLegacyIdentity = new Map<string, ToolCallJournalEntry[]>();
+  const entriesByLegacyBaseIdentity = new Map<string, ToolCallJournalEntry[]>();
+  for (const entry of journal.completed) {
+    if (entry.executionStepId) {
+      const identity = JSON.stringify([entry.tool, entry.executionStepId]);
+      if (
+        callsByStep.get(identity) === 1 &&
+        resultsByStep.get(identity) === 1
+      ) {
+        represented.add(entry.key);
+      }
+      continue;
+    }
+    if (entry.id === undefined || entry.input === undefined) continue;
+    const fingerprint =
+      entry.inputFingerprint ?? toolCallInputFingerprint(entry.input);
+    const identity = legacyResultIdentity(
+      entry.tool,
+      entry.id,
+      fingerprint,
+      entry.result ?? "",
+    );
+    const entries = entriesByLegacyIdentity.get(identity);
+    if (entries) entries.push(entry);
+    else entriesByLegacyIdentity.set(identity, [entry]);
+    const baseIdentity = legacyIdentity(entry.tool, entry.id, fingerprint);
+    const baseEntries = entriesByLegacyBaseIdentity.get(baseIdentity);
+    if (baseEntries) baseEntries.push(entry);
+    else entriesByLegacyBaseIdentity.set(baseIdentity, [entry]);
+  }
+  for (const [baseIdentity, entries] of entriesByLegacyBaseIdentity) {
+    const callCount = callsByLegacyIdentity.get(baseIdentity) ?? 0;
+    const resultCount = resultCountsByLegacyIdentity.get(baseIdentity) ?? 0;
+    if (
+      resultCount > callCount ||
+      (callCount > 1 && resultCount !== callCount)
+    ) {
+      for (const entry of entries) ambiguous.add(entry.key);
+      continue;
+    }
+    if (callCount > 1) {
+      const exactAttribution =
+        entries.length === resultCount &&
+        [...entriesByLegacyIdentity].every(([identity, identityEntries]) => {
+          const [toolName, id, fingerprint] = JSON.parse(identity) as [
+            string,
+            string,
+            string,
+            string,
+          ];
+          if (legacyIdentity(toolName, id, fingerprint) !== baseIdentity) {
+            return true;
+          }
+          return (
+            (resultsByLegacyIdentity.get(identity) ?? 0) ===
+            identityEntries.length
+          );
+        });
+      for (const entry of entries) {
+        (exactAttribution ? represented : ambiguous).add(entry.key);
+      }
+      continue;
+    }
+    for (const [identity, identityEntries] of entriesByLegacyIdentity) {
+      const [toolName, id, fingerprint] = JSON.parse(identity) as [
+        string,
+        string,
+        string,
+        string,
+      ];
+      if (legacyIdentity(toolName, id, fingerprint) !== baseIdentity) continue;
+      const matchingResultCount = resultsByLegacyIdentity.get(identity) ?? 0;
+      if (matchingResultCount === 0) continue;
+      for (const entry of identityEntries) {
+        (matchingResultCount >= identityEntries.length
+          ? represented
+          : ambiguous
+        ).add(entry.key);
+      }
+    }
+  }
+  return { represented, ambiguous };
+}
+
 const INPUT_SIGNATURE_MAX_CHARS = 120;
 
-/** Max length of a per-tool-call result summary surfaced in the resume note. */
 const RESULT_SUMMARY_MAX_CHARS = 400;
 
-/** Max length of explicit next-step guidance surfaced outside result summaries. */
 const NEXT_REQUIRED_ACTION_MAX_CHARS = 900;
 
-function inputSignature(input: unknown): string {
-  if (input == null) return "";
+function replayOutcomeIdentity(entry: ToolCallJournalEntry): string {
   try {
-    return JSON.stringify(canonicalizeForSignature(input));
+    return JSON.stringify([
+      entry.id,
+      entry.executionStepId,
+      entry.argumentsHash,
+      entry.inputFingerprint,
+      entry.inputStoredFingerprint,
+      entry.result,
+      entry.isError,
+      entry.errorCode,
+      entry.committed,
+      entry.outcomeUnknown,
+      entry.artifacts,
+      entry.fileMutation,
+      entry.mcpApp,
+      entry.chatUI,
+      entry.chatUIResult,
+    ]);
   } catch {
-    return String(input);
+    return entry.key;
   }
 }
 
-function canonicalizeForSignature(
+export function toolCallInputFingerprint(input: unknown): string {
+  return createHash("sha256").update(inputSignature(input)).digest("hex");
+}
+
+export function isUnavailableToolCallInput(input: unknown): boolean {
+  if (typeof input === "string")
+    return /\[inline [^\]]+ data omitted\]/.test(input);
+  if (!input || typeof input !== "object") return false;
+  if (
+    "omitted" in input &&
+    (input.omitted === "inline-bytes" || input.omitted === "tool-input")
+  ) {
+    return true;
+  }
+  return Object.values(input).some(isUnavailableToolCallInput);
+}
+
+export function isConsistentToolCallInputFingerprint(
   input: unknown,
-  seen = new WeakSet(),
-): unknown {
-  if (input == null) return input;
-  if (typeof input === "bigint") return input.toString();
-  if (typeof input === "function" || typeof input === "symbol") {
-    return String(input);
-  }
-  if (typeof input !== "object") return input;
-
-  if (seen.has(input)) return "[Circular]";
-  seen.add(input);
-  if (Array.isArray(input)) {
-    const output = input.map((value) =>
-      value === undefined
-        ? "[Undefined]"
-        : canonicalizeForSignature(value, seen),
+  fingerprint: string | undefined,
+  storedFingerprint?: string,
+): boolean {
+  if (storedFingerprint !== undefined)
+    return (
+      fingerprint !== undefined &&
+      input !== undefined &&
+      toolCallInputFingerprint(input) === storedFingerprint
     );
-    seen.delete(input);
-    return output;
-  }
-
-  const object = input as Record<string, unknown>;
-  const output: Record<string, unknown> = {};
-  for (const key of Object.keys(object).sort()) {
-    const value = object[key];
-    output[key] =
-      value === undefined
-        ? "[Undefined]"
-        : canonicalizeForSignature(value, seen);
-  }
-  seen.delete(input);
-  return output;
+  return (
+    fingerprint === undefined ||
+    input === undefined ||
+    toolCallInputFingerprint(input) === fingerprint
+  );
 }
 
 function displayInputSignature(input: unknown): string {
@@ -133,38 +439,32 @@ function displayInputSignature(input: unknown): string {
     : sig;
 }
 
-/**
- * Classify a single turn's recorded events into completed vs interrupted tool
- * calls. Pure and side-effect free — given the same events it always returns
- * the same journal. A `clear` event resets the per-turn tally exactly as the
- * thread rebuild does, so partial streamed output that was discarded on resume
- * doesn't leave phantom open tool calls.
- */
 export function classifyToolCallJournal(
   events: readonly AgentChatEvent[],
 ): ToolCallJournal {
-  // Open tool_start entries awaiting a matching tool_done. We index by tool
-  // name first, then prefer matching input signatures when the done event
-  // carries input. Older ledger entries without done input fall back to FIFO.
   const openByTool = new Map<string, ToolCallJournalEntry[]>();
   const completed: ToolCallJournalEntry[] = [];
   let order = 0;
 
+  // Clearing a draft does not establish the outcome of a started action.
   for (const event of events) {
-    if (event.type === "clear") {
-      // Discarded partial output: drop any not-yet-completed starts so they
-      // aren't reported as interrupted. Already-completed entries stay.
-      openByTool.clear();
-      continue;
-    }
-
     if (event.type === "tool_start") {
       const tool = event.tool ?? "unknown";
       const input = event.input ?? undefined;
       const entry: ToolCallJournalEntry = {
         key: `${tool}#${order}:${displayInputSignature(input)}`,
         tool,
+        ...(event.id !== undefined ? { id: event.id } : {}),
+        ...(event.executionStepId !== undefined
+          ? { executionStepId: event.executionStepId }
+          : {}),
         ...(input ? { input } : {}),
+        ...(event.inputFingerprint
+          ? { inputFingerprint: event.inputFingerprint }
+          : {}),
+        ...(event.inputStoredFingerprint
+          ? { inputStoredFingerprint: event.inputStoredFingerprint }
+          : {}),
         order,
       };
       order += 1;
@@ -179,24 +479,43 @@ export function classifyToolCallJournal(
       const queue = openByTool.get(tool);
       const entry = takeMatchingOpenEntry(queue, event);
       if (entry) {
+        if (event.outcomeUnknown === true) {
+          entry.outcomeUnknown = true;
+          if (isUnknownWriteCause(event.unknownCause)) {
+            entry.unknownCause = event.unknownCause;
+          }
+          if (event.argumentsHash) entry.argumentsHash = event.argumentsHash;
+          queue!.push(entry);
+          continue;
+        }
         if (isNonCompletedToolDone(event)) {
-          // Failed/blocked calls reached a terminal tool_done, but their side
-          // effect did not complete. Drop the matching start instead of
-          // classifying it as completed or interrupted.
           continue;
         }
         entry.result = event.result ?? "";
+        if (event.isError === true) entry.isError = true;
+        if (event.errorCode) entry.errorCode = event.errorCode;
+        if (event.completedSideEffect === true) entry.committed = true;
+        if (event.argumentsHash) entry.argumentsHash = event.argumentsHash;
         const artifacts = event.artifacts?.filter(isArtifactReceipt);
         if (artifacts && artifacts.length > 0) entry.artifacts = artifacts;
+        if (event.fileMutation) entry.fileMutation = event.fileMutation;
+        if (event.mcpApp) entry.mcpApp = event.mcpApp;
+        if (event.chatUI && event.chatUIResult !== undefined) {
+          entry.chatUI = {
+            renderer: event.chatUI.renderer,
+            ...(event.chatUI.title ? { title: event.chatUI.title } : {}),
+            ...(event.chatUI.description
+              ? { description: event.chatUI.description }
+              : {}),
+          };
+          entry.chatUIResult = event.chatUIResult;
+        }
         completed.push(entry);
       }
-      // A tool_done with no open start is ignored — it can't be re-associated
-      // and re-reporting a duplicate done would be noise.
       continue;
     }
   }
 
-  // Anything still open never received a tool_done → interrupted / unknown.
   const interrupted: ToolCallJournalEntry[] = [];
   for (const queue of openByTool.values()) {
     for (const entry of queue) interrupted.push(entry);
@@ -211,29 +530,99 @@ function takeMatchingOpenEntry(
   event: Extract<AgentChatEvent, { type: "tool_done" }>,
 ): ToolCallJournalEntry | undefined {
   if (!queue || queue.length === 0) return undefined;
-  if (event.input !== undefined) {
-    const doneSig = inputSignature(event.input);
-    const index = queue.findIndex(
-      (entry) => inputSignature(entry.input) === doneSig,
+  if (
+    !isConsistentToolCallInputFingerprint(
+      event.input,
+      event.inputFingerprint,
+      event.inputStoredFingerprint,
+    )
+  )
+    return undefined;
+  const hasIdentity =
+    event.id !== undefined ||
+    event.inputFingerprint !== undefined ||
+    event.input !== undefined;
+  if (!hasIdentity && queue.length !== 1) return undefined;
+
+  const doneFingerprint =
+    event.inputFingerprint ??
+    (event.input === undefined
+      ? undefined
+      : toolCallInputFingerprint(event.input));
+  const matches = queue.filter((entry) => {
+    if (
+      event.executionStepId !== undefined &&
+      entry.executionStepId !== event.executionStepId
+    ) {
+      return false;
+    }
+    if (
+      !isConsistentToolCallInputFingerprint(
+        entry.input,
+        entry.inputFingerprint,
+        entry.inputStoredFingerprint,
+      )
+    )
+      return false;
+    if (
+      event.executionStepId === undefined &&
+      event.id !== undefined &&
+      entry.id !== event.id
+    ) {
+      return false;
+    }
+    if (
+      doneFingerprint !== undefined &&
+      (entry.inputFingerprint ?? toolCallInputFingerprint(entry.input)) !==
+        doneFingerprint
+    )
+      return false;
+    return (
+      event.input === undefined ||
+      inputSignature(
+        event.inputFingerprint === undefined &&
+          entry.inputFingerprint === undefined
+          ? entry.input
+          : stripInlineBytes(entry.input, "placeholder"),
+      ) ===
+        inputSignature(
+          event.inputFingerprint === undefined &&
+            entry.inputFingerprint === undefined
+            ? event.input
+            : stripInlineBytes(event.input, "placeholder"),
+        )
     );
-    if (index >= 0) return queue.splice(index, 1)[0];
+  });
+  if (matches.length === 0) return undefined;
+  if (event.executionStepId !== undefined) {
+    const matched = new Set(matches);
+    const latest = matches[matches.length - 1];
+    if (!latest) return undefined;
+    for (let i = queue.length - 1; i >= 0; i--) {
+      if (matched.has(queue[i]!)) queue.splice(i, 1);
+    }
+    return latest;
   }
-  return queue.shift();
+  if (matches.length !== 1) return undefined;
+  return queue.splice(queue.indexOf(matches[0]!), 1)[0];
 }
 
 function isNonCompletedToolDone(
   event: Extract<AgentChatEvent, { type: "tool_done" }>,
 ): boolean {
-  if (event.completedSideEffect === false) return true;
-  if (event.isError === true) return true;
+  if (event.replayed === true) return true;
+  // The effect, not the response: a call can fail after its changes saved.
+  if (event.completedSideEffect !== undefined) {
+    return !event.completedSideEffect;
+  }
+  if (event.isError !== undefined) return event.isError;
 
   const result = (event.result ?? "").trim();
   if (!result) return false;
 
-  // Legacy run events did not persist isError. Keep known non-execution results
-  // from becoming durable "completed" write calls after deploy.
   return (
     result.startsWith("Error: Unknown tool") ||
+    result.startsWith("Error: Tool no longer available") ||
     result.startsWith("Error running ") ||
     result.startsWith("Invalid action parameters for ") ||
     result.startsWith("Plan mode blocked ") ||
@@ -245,40 +634,461 @@ function isNonCompletedToolDone(
   );
 }
 
-/** True when the journal has nothing worth telling a resuming model about. */
 export function isJournalEmpty(journal: ToolCallJournal): boolean {
   return journal.completed.length === 0 && journal.interrupted.length === 0;
 }
 
+export type JournalCallEffect = "none" | "committed" | "unknown";
+
 /**
- * Find a COMPLETED journal entry that matches a tool call about to be
- * dispatched, by tool name + input signature (position-independent — a resumed
- * call may sit at a different order than the original). Used by the tool-layer
- * hard-block in production-agent.ts/runToolCall to skip re-executing a side
- * effect that already completed in a prior interrupted chunk: when this returns
- * an entry, the loop returns `entry.result` instead of running the action.
- *
- * Returns the FIRST unmatched completed entry for that (name + input); the
- * caller is expected to claim it (mark it consumed) so two identical fresh
- * calls in the same turn don't both short-circuit on one journaled completion.
- * Returns undefined when there is no completed entry for this exact call —
- * including every fresh call, which must execute normally.
+ * A conservative legacy effect group for IDs reused across calls. This key is
+ * only for invalidating cached reads and holding unknown writes; it does not
+ * identify a call for replay or argument matching.
  */
-export function findCompletedJournalEntry(
+export function ambiguousLegacyCallEffectKey(
+  id: string,
+  toolName: string,
+): string {
+  return JSON.stringify(["ambiguous-legacy-effect", toolName, id]);
+}
+
+/**
+ * What each call recorded having done, keyed by execution step where present
+ * and otherwise by an unambiguous legacy provider ID. Ambiguous legacy IDs
+ * retain a conservative effect group, separate from call identity.
+ */
+export function journalCallEffects(
+  journal: ToolCallJournal,
+  events: readonly AgentChatEvent[],
+  history: readonly EngineMessage[] = [],
+): Map<string, JournalCallEffect> {
+  const effects = new Map<string, JournalCallEffect>();
+  const identityKey = (
+    id: string | undefined,
+    executionStepId: string | undefined,
+    toolName: string,
+  ) =>
+    journalCallIdentityKeyIfUnambiguous(
+      id,
+      executionStepId,
+      toolName,
+      events,
+      history,
+    );
+  const recordEffect = (
+    id: string | undefined,
+    executionStepId: string | undefined,
+    toolName: string,
+    effect: JournalCallEffect,
+  ) => {
+    const key = identityKey(id, executionStepId, toolName);
+    if (key) {
+      effects.set(key, effect);
+      return;
+    }
+    if (executionStepId !== undefined || id === undefined) return;
+
+    const fallbackKey = ambiguousLegacyCallEffectKey(id, toolName);
+    const previous = effects.get(fallbackKey);
+    if (
+      previous === undefined ||
+      (previous === "none" && effect !== "none") ||
+      effect === "unknown"
+    ) {
+      effects.set(fallbackKey, effect);
+    }
+  };
+  // The journal drops a call that changed nothing, so its own record says so.
+  for (const event of events) {
+    if (
+      event.type === "tool_done" &&
+      event.completedSideEffect === false &&
+      event.outcomeUnknown !== true
+    ) {
+      recordEffect(event.id, event.executionStepId, event.tool, "none");
+    }
+  }
+  for (const entry of journal.completed) {
+    if (entry.committed) {
+      recordEffect(entry.id, entry.executionStepId, entry.tool, "committed");
+    }
+  }
+  for (const entry of journal.interrupted) {
+    if (entry.outcomeUnknown) {
+      recordEffect(entry.id, entry.executionStepId, entry.tool, "unknown");
+    }
+  }
+  return effects;
+}
+
+/**
+ * The prepared identity for each call, keyed by its execution step where
+ * present and otherwise by an unambiguous legacy provider ID.
+ */
+export function journalCallIdentities(
+  events: readonly AgentChatEvent[],
+  history: readonly EngineMessage[],
+): Map<string, string> {
+  const identities = new Map<string, string>();
+  for (const event of events) {
+    if (event.type === "tool_done" && event.argumentsHash) {
+      const key = journalCallIdentityKeyIfUnambiguous(
+        event.id,
+        event.executionStepId,
+        event.tool,
+        events,
+        history,
+      );
+      if (key) identities.set(key, event.argumentsHash);
+    }
+  }
+  return identities;
+}
+
+function journalCallIdentityKeyIfUnambiguous(
+  id: string | undefined,
+  executionStepId: string | undefined,
+  toolName: string,
+  events: readonly AgentChatEvent[],
+  history: readonly EngineMessage[],
+): string | undefined {
+  if (executionStepId !== undefined) {
+    const hasConflictingJournalCall = events.some(
+      (event) =>
+        event.type === "tool_start" &&
+        event.executionStepId === executionStepId &&
+        event.tool !== toolName,
+    );
+    const hasConflictingHistoryCall = history.some(
+      (message) =>
+        message.role === "assistant" &&
+        message.content.some(
+          (part) =>
+            part.type === "tool-call" &&
+            part.executionStepId === executionStepId &&
+            part.name !== toolName,
+        ),
+    );
+    return !hasConflictingJournalCall && !hasConflictingHistoryCall
+      ? toolCallIdentityKey(id, executionStepId)
+      : undefined;
+  }
+  if (id === undefined) return undefined;
+
+  let journalMatches = 0;
+  let historyMatches = 0;
+  for (const event of events) {
+    if (event.type !== "tool_start" || event.id !== id) continue;
+    if (event.executionStepId !== undefined) return undefined;
+    journalMatches++;
+  }
+  for (const message of history) {
+    if (message.role !== "assistant") continue;
+    for (const part of message.content) {
+      if (part.type !== "tool-call" || part.id !== id) continue;
+      if (part.executionStepId !== undefined) return undefined;
+      historyMatches++;
+    }
+  }
+  return journalMatches <= 1 && historyMatches <= 1
+    ? toolCallIdentityKey(id)
+    : undefined;
+}
+
+/**
+ * The completed call a continued turn replays instead of running a call
+ * prepared to `argumentsHash`: one that recorded a committed effect for that
+ * exact identity, whatever raw input either call was sent with. A call that
+ * recorded no committed effect runs fresh. A call recorded before calls had
+ * identities is matched as it was then, by its raw input, and only for a
+ * call prepared as a write, given in `rawWrite`: running that fresh could
+ * repeat its effect. A legacy result already represented in history cannot
+ * identify a new step merely because its tool and arguments match. The result
+ * and the identity it ran with come from one `tool_done`, never joined by call
+ * id, so a repeated id cannot attach one call's result to another's arguments.
+ */
+export function findReplayableJournalEntry(
   journal: ToolCallJournal,
   toolName: string,
+  argumentsHash: string,
+  consumedKeys?: Set<string>,
+  rawWrite?: { input: unknown },
+  representedKeys?: ReadonlySet<string>,
+  executionStepId?: string,
+  ambiguousKeys?: ReadonlySet<string>,
+): ToolCallJournalEntry | undefined {
+  const matches = (candidate: ToolCallJournalEntry) =>
+    candidate.tool === toolName &&
+    !consumedKeys?.has(candidate.key) &&
+    (candidate.argumentsHash === undefined
+      ? rawWrite !== undefined &&
+        (candidate.inputFingerprint
+          ? candidate.inputFingerprint ===
+            toolCallInputFingerprint(rawWrite.input)
+          : inputSignature(candidate.input) === inputSignature(rawWrite.input))
+      : candidate.committed === true &&
+        candidate.argumentsHash === argumentsHash);
+  const candidates = journal.completed.filter((candidate) => {
+    const represented = representedKeys?.has(candidate.key) === true;
+    const ambiguous = ambiguousKeys?.has(candidate.key) === true;
+    const identityMatches =
+      executionStepId === undefined
+        ? candidate.executionStepId === undefined && !ambiguous && !represented
+        : candidate.executionStepId === executionStepId ||
+          (candidate.executionStepId === undefined &&
+            !ambiguous &&
+            !represented);
+    return identityMatches && matches(candidate);
+  });
+  const firstCandidate = candidates[0];
+  const hasRepresentedLegacyCandidate = candidates.some(
+    (candidate) =>
+      candidate.executionStepId === undefined &&
+      representedKeys?.has(candidate.key) === true,
+  );
+  const candidate =
+    candidates.length === 1
+      ? firstCandidate
+      : hasRepresentedLegacyCandidate
+        ? undefined
+        : firstCandidate &&
+            candidates.every(
+              (entry) =>
+                replayOutcomeIdentity(entry) ===
+                replayOutcomeIdentity(firstCandidate),
+            )
+          ? candidates.at(-1)
+          : undefined;
+  const entry = candidate;
+  if (entry) consumedKeys?.add(entry.key);
+  return entry;
+}
+
+export function findAmbiguousLegacyJournalEntryForCall(
+  journal: ToolCallJournal,
+  ambiguousKeys: ReadonlySet<string>,
+  representedKeys: ReadonlySet<string>,
+  toolName: string,
+  argumentsHash: string,
+  input: unknown,
+  consumedKeys?: ReadonlySet<string>,
+  includeRepresentedDuplicates = false,
+): ToolCallJournalEntry | undefined {
+  const inputFingerprint = toolCallInputFingerprint(input);
+  const matchesInput = (entry: ToolCallJournalEntry) =>
+    entry.argumentsHash === undefined
+      ? entry.inputFingerprint !== undefined
+        ? entry.inputFingerprint === inputFingerprint
+        : entry.input !== undefined &&
+          inputSignature(entry.input) === inputSignature(input)
+      : entry.argumentsHash === argumentsHash;
+  const matchingEntries = journal.completed.filter(
+    (entry) =>
+      !entry.executionStepId && entry.tool === toolName && matchesInput(entry),
+  );
+  const historyAmbiguity = matchingEntries.find((entry) =>
+    ambiguousKeys.has(entry.key),
+  );
+  if (historyAmbiguity) return historyAmbiguity;
+  const availableEntries = matchingEntries.filter(
+    (entry) => !consumedKeys?.has(entry.key),
+  );
+  const representedMatches = availableEntries.filter((entry) =>
+    representedKeys.has(entry.key),
+  );
+  if (
+    includeRepresentedDuplicates &&
+    representedMatches.length > 0 &&
+    availableEntries.length > 1
+  ) {
+    return representedMatches[0];
+  }
+  const candidates = matchingEntries.filter(
+    (entry) =>
+      !ambiguousKeys.has(entry.key) &&
+      !representedKeys.has(entry.key) &&
+      !consumedKeys?.has(entry.key),
+  );
+  const firstCandidate = candidates[0];
+  if (!firstCandidate || candidates.length < 2) return undefined;
+  return candidates.every(
+    (entry) =>
+      replayOutcomeIdentity(entry) === replayOutcomeIdentity(firstCandidate),
+  )
+    ? undefined
+    : firstCandidate;
+}
+
+export function findInterruptedJournalEntryForCall(
+  journal: ToolCallJournal,
+  toolName: string,
+  argumentsHash: string | undefined,
   input: unknown,
   consumedKeys?: Set<string>,
 ): ToolCallJournalEntry | undefined {
-  const wantSig = inputSignature(input);
-  for (const entry of journal.completed) {
-    if (entry.tool !== toolName) continue;
-    if (inputSignature(entry.input) !== wantSig) continue;
-    if (consumedKeys?.has(entry.key)) continue;
-    consumedKeys?.add(entry.key);
-    return entry;
+  const matches = journalStepEntriesForCall(
+    journal.interrupted,
+    toolName,
+    argumentsHash,
+    input,
+    consumedKeys,
+  );
+  const match = matches.length === 1 ? matches[0] : undefined;
+  if (match) consumedKeys?.add(match.key);
+  return match;
+}
+
+/**
+ * The entry with a durable step that this call's identity claims: the
+ * earliest-started unclaimed match among the interrupted entries and the
+ * finished ones the model never saw. A finished entry carries its own result,
+ * so identical calls pair with identical entries in the order they started;
+ * an interrupted one binds only when no other interrupted entry matches.
+ */
+export function findUnresolvedJournalStepForCall(
+  journal: ToolCallJournal,
+  unseenFinished: readonly ToolCallJournalEntry[],
+  toolName: string,
+  argumentsHash: string | undefined,
+  input: unknown,
+  consumedKeys?: Set<string>,
+): ToolCallJournalEntry | undefined {
+  const interrupted = journalStepEntriesForCall(
+    journal.interrupted,
+    toolName,
+    argumentsHash,
+    input,
+    consumedKeys,
+  );
+  const finished = journalStepEntriesForCall(
+    unseenFinished,
+    toolName,
+    argumentsHash,
+    input,
+    consumedKeys,
+  );
+  const earliest = [...interrupted, ...finished].reduce<
+    ToolCallJournalEntry | undefined
+  >(
+    (first, entry) =>
+      first === undefined || entry.order < first.order ? entry : first,
+    undefined,
+  );
+  const match =
+    earliest && (finished.includes(earliest) || interrupted.length === 1)
+      ? earliest
+      : undefined;
+  if (match) consumedKeys?.add(match.key);
+  return match;
+}
+
+/** Whether any interrupted or unseen finished entry could name this call's step. */
+export function hasJournalStepForCall(
+  journal: ToolCallJournal,
+  unseenFinished: readonly ToolCallJournalEntry[],
+  toolName: string,
+  argumentsHash: string | undefined,
+  input: unknown,
+): boolean {
+  return [journal.interrupted, unseenFinished].some(
+    (entries) =>
+      journalStepEntriesForCall(
+        entries,
+        toolName,
+        argumentsHash,
+        input,
+        undefined,
+      ).length > 0,
+  );
+}
+
+function journalStepEntriesForCall(
+  entries: readonly ToolCallJournalEntry[],
+  toolName: string,
+  argumentsHash: string | undefined,
+  input: unknown,
+  consumedKeys: ReadonlySet<string> | undefined,
+): ToolCallJournalEntry[] {
+  const inputFingerprint = toolCallInputFingerprint(input);
+  return entries.filter((entry) => {
+    if (
+      entry.tool !== toolName ||
+      !entry.executionStepId ||
+      consumedKeys?.has(entry.key)
+    ) {
+      return false;
+    }
+    if (entry.argumentsHash !== undefined && argumentsHash !== undefined) {
+      return entry.argumentsHash === argumentsHash;
+    }
+    if (entry.inputFingerprint !== undefined) {
+      return entry.inputFingerprint === inputFingerprint;
+    }
+    return (
+      entry.input !== undefined &&
+      inputSignature(entry.input) === inputSignature(input)
+    );
+  });
+}
+
+export function findInterruptedLegacyJournalEntryForCall(
+  journal: ToolCallJournal,
+  toolName: string,
+  argumentsHash: string | undefined,
+  input: unknown,
+  history: readonly EngineMessage[],
+  consumedKeys?: Set<string>,
+):
+  | { status: "none" }
+  | { status: "ambiguous" }
+  | { status: "matched"; entry: ToolCallJournalEntry; stepId: string } {
+  const inputFingerprint = toolCallInputFingerprint(input);
+  const matchesInput = (entry: ToolCallJournalEntry) =>
+    entry.argumentsHash !== undefined && argumentsHash !== undefined
+      ? entry.argumentsHash === argumentsHash
+      : entry.inputFingerprint !== undefined
+        ? entry.inputFingerprint === inputFingerprint
+        : entry.input !== undefined &&
+          inputSignature(entry.input) === inputSignature(input);
+  const candidates = journal.interrupted.filter(
+    (entry) =>
+      entry.executionStepId === undefined &&
+      entry.id !== undefined &&
+      entry.id.length > 0 &&
+      entry.tool === toolName &&
+      !consumedKeys?.has(entry.key) &&
+      matchesInput(entry),
+  );
+  if (candidates.length === 0) return { status: "none" };
+  if (candidates.length !== 1) return { status: "ambiguous" };
+
+  const entry = candidates[0]!;
+  const stepId = entry.id!;
+  const sameIdJournalEntries = [
+    ...journal.completed,
+    ...journal.interrupted,
+  ].filter((candidate) => candidate.id === stepId);
+  const sameIdHistoryCalls = history.flatMap((message) =>
+    message.role === "assistant"
+      ? message.content.filter(
+          (part) => part.type === "tool-call" && part.id === stepId,
+        )
+      : [],
+  );
+  if (
+    sameIdJournalEntries.length !== 1 ||
+    sameIdHistoryCalls.length > 1 ||
+    (sameIdHistoryCalls.length === 1 &&
+      (sameIdHistoryCalls[0]?.type !== "tool-call" ||
+        sameIdHistoryCalls[0].name !== toolName ||
+        toolCallInputFingerprint(sameIdHistoryCalls[0].input) !==
+          inputFingerprint))
+  ) {
+    return { status: "ambiguous" };
   }
-  return undefined;
+
+  consumedKeys?.add(entry.key);
+  return { status: "matched", entry, stepId };
 }
 
 function summarizeResult(result: string | undefined): string {
@@ -324,16 +1134,6 @@ function describeInput(input: unknown): string {
   return sig && sig !== "{}" ? ` input: ${sig}` : "";
 }
 
-/**
- * Build the structured resume note injected on auto-continue. Returns `null`
- * when there are no completed or interrupted tool calls to report, so the
- * caller can preserve the exact pre-existing "continue from where you left off"
- * behavior on normal resumes (no regression for turns with no tool activity).
- *
- * The note is intentionally a flat, model-readable block: a list of already-run
- * tool calls (with short results) the model must NOT re-run, and a separate list
- * of interrupted calls whose outcome is unknown for the model to decide on.
- */
 export function buildResumeJournalNote(
   journal: ToolCallJournal,
 ): string | null {
@@ -352,7 +1152,7 @@ export function buildResumeJournalNote(
     for (const entry of journal.completed) {
       const nextRequiredAction = summarizeNextRequiredAction(entry.result);
       lines.push(
-        `- ${entry.tool}${describeInput(entry.input)} → ${summarizeResult(entry.result)}`,
+        `- ${entry.tool}${describeInput(entry.input)} → ${entry.isError ? "failed after its changes were saved: " : ""}${summarizeResult(entry.result)}`,
       );
       if (nextRequiredAction) {
         lines.push(`  Next required action from result: ${nextRequiredAction}`);

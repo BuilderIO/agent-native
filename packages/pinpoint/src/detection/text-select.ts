@@ -5,24 +5,16 @@
 // extracts container element and surrounding context.
 
 export interface TextSelection {
-  /** The selected text */
   text: string;
-  /** The container element */
   container: Element;
-  /** Start offset within the container */
   startOffset: number;
-  /** End offset within the container */
   endOffset: number;
-  /** Surrounding context (text before + selected + text after) */
   context: string;
-  /** Bounding rect of the selection */
   rect: DOMRect;
 }
 
 export interface TextSelectOptions {
-  /** Called when text selection changes */
   onSelect?: (selection: TextSelection | null) => void;
-  /** Minimum characters to trigger selection callback */
   minLength?: number;
 }
 
@@ -38,7 +30,6 @@ export class TextSelect {
     this.handleSelectionChange = () => {
       if (!this.active) return;
 
-      // Debounce to avoid excessive callbacks during selection
       if (this.debounceTimer) clearTimeout(this.debounceTimer);
       this.debounceTimer = setTimeout(() => {
         const selection = this.getTextSelection();
@@ -66,7 +57,6 @@ export class TextSelect {
 
     if (!container) return null;
 
-    // Get surrounding context
     const fullText = container.textContent || "";
     const startOffset = range.startOffset;
     const endOffset = range.endOffset;
@@ -105,7 +95,6 @@ export class TextSelect {
     }
   }
 
-  /** Get the current text selection, if any */
   getCurrentSelection(): TextSelection | null {
     return this.getTextSelection();
   }

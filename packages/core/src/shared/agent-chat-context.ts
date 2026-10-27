@@ -1,46 +1,38 @@
-/**
- * The `<context>` envelope an app wraps around hidden prompt context, and its
- * inverse. Anything that classifies intent must read the two halves apart: the
- * message is what the user asked for, the context is what the app attached.
- */
+import { splitAgentKitMessageContext } from "@agent-native/agentkit/chat-context";
 
-const CONTEXT_BLOCK_PATTERN = /<context\b[^>]*>([\s\S]*?)<\/context>\n?/gi;
-const UNCLOSED_CONTEXT_PATTERN = /<context\b[^>]*>([\s\S]*)$/i;
-const STRAY_CONTEXT_CLOSE_PATTERN = /<\/context>/gi;
+export { appendAgentChatContextToMessage } from "@agent-native/agentkit/chat-context";
+export type { AgentKitMessageParts as AgentChatMessageParts } from "@agent-native/agentkit/chat-context";
 
-export interface AgentChatMessageParts {
-  /** The user-visible prompt, with every attached context block removed. */
-  message: string;
-  /** The attached context bodies, joined; empty when nothing was attached. */
-  context: string;
-}
+export const splitAgentChatContextFromMessage = splitAgentKitMessageContext;
 
-export function appendAgentChatContextToMessage(
-  message: string,
-  context: string,
-): string {
-  const trimmedContext = context.trim();
-  if (!trimmedContext) return message;
-  return `${message}\n\n<context>\n${trimmedContext}\n</context>`;
-}
+const ENCODED_AGENT_CHAT_CONTEXT_OPENING =
+  '<context data-agentkit-context-encoding="entities-v1">';
+const LEGACY_CONTEXT_OPEN_PATTERN = /<context(?=[\s>])[^>]*>/gi;
 
-export function splitAgentChatContextFromMessage(
-  text: string,
-): AgentChatMessageParts {
-  const contexts: string[] = [];
-  let message = text.replace(CONTEXT_BLOCK_PATTERN, (_match, body: string) => {
-    contexts.push(body.trim());
-    return "";
-  });
-  // A truncated payload still carries context the reader must not see as the
-  // user's own words, so an unclosed tag swallows the rest of the message.
-  const unclosed = UNCLOSED_CONTEXT_PATTERN.exec(message);
-  if (unclosed) {
-    contexts.push(unclosed[1].trim());
-    message = message.slice(0, unclosed.index);
+export function stripAgentChatContextFromMessage(text: string): string {
+  LEGACY_CONTEXT_OPEN_PATTERN.lastIndex = 0;
+  const opening = LEGACY_CONTEXT_OPEN_PATTERN.exec(text);
+  if (!opening) return text;
+
+  if (opening[0] === ENCODED_AGENT_CHAT_CONTEXT_OPENING)
+    return splitAgentChatContextFromMessage(text).message;
+
+  const closingPattern = /<\/context(?=[\s>])[^>]*>/gi;
+  closingPattern.lastIndex = opening.index + opening[0].length;
+  let lastClosing: RegExpExecArray | null = null;
+  let closing = closingPattern.exec(text);
+  while (closing) {
+    lastClosing = closing;
+    closing = closingPattern.exec(text);
   }
-  return {
-    message: message.replace(STRAY_CONTEXT_CLOSE_PATTERN, "").trim(),
-    context: contexts.filter(Boolean).join("\n"),
-  };
+
+  if (!lastClosing) return text.slice(0, opening.index);
+  LEGACY_CONTEXT_OPEN_PATTERN.lastIndex =
+    lastClosing.index + lastClosing[0].length;
+  if (LEGACY_CONTEXT_OPEN_PATTERN.exec(text))
+    return text.slice(0, opening.index);
+  return (
+    text.slice(0, opening.index) +
+    text.slice(lastClosing.index + lastClosing[0].length)
+  );
 }

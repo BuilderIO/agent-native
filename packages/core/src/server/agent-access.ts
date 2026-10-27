@@ -4,8 +4,8 @@ import {
   type AgentAccessResourceScope,
 } from "../shared/agent-access.js";
 import {
-  signShortLivedToken,
-  verifyShortLivedToken,
+  signCompactShortLivedToken,
+  verifyCompactShortLivedToken,
   type VerifyResult,
 } from "./short-lived-token.js";
 
@@ -26,7 +26,6 @@ export {
 
 export interface ScopedAgentAccessTokenOptions extends AgentAccessResourceScope {
   viewerEmail?: string;
-  /** Display name of the agent the link is for. Signed, but display-only. */
   agentLabel?: string;
   ttlSeconds?: number;
 }
@@ -44,7 +43,7 @@ export function signScopedAgentAccessToken({
   agentLabel,
   ttlSeconds = DEFAULT_AGENT_ACCESS_TTL_SECONDS,
 }: ScopedAgentAccessTokenOptions): string {
-  return signShortLivedToken({
+  return signCompactShortLivedToken({
     resourceId: scopedAgentAccessResourceId(resourceKind, resourceId),
     viewerEmail,
     agentLabel,
@@ -57,7 +56,7 @@ export function verifyScopedAgentAccessToken(
   scope: AgentAccessResourceScope,
 ): VerifyResult {
   if (!token) return { ok: false, reason: "missing" };
-  return verifyShortLivedToken(
+  return verifyCompactShortLivedToken(
     token,
     scopedAgentAccessResourceId(scope.resourceKind, scope.resourceId),
   );

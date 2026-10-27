@@ -1,6 +1,7 @@
 import type { H3Event } from "h3";
 import { getHeader } from "h3";
 
+import { fail } from "../../action.js";
 import { getAppConfig } from "../../app-config/index.js";
 import type { EnvKeyConfig } from "../../server/create-server.js";
 import { resolveSecret } from "../../server/credential-provider.js";
@@ -14,13 +15,8 @@ import type {
   PlatformDeliveryReceipt,
 } from "../types.js";
 
-/** Telegram's max message length */
 const TELEGRAM_MAX_LENGTH = 4096;
 
-/**
- * One-shot warning flag — log once per process when accepting unverified
- * webhooks (M6 in the webhook security audit).
- */
 let _telegramUnverifiedWarned = false;
 
 /**
@@ -35,13 +31,6 @@ function shouldRefuseWhenSecretMissing(): boolean {
   return process.env.NODE_ENV === "production";
 }
 
-/**
- * Create a Telegram platform adapter.
- *
- * Required env vars:
- * - TELEGRAM_BOT_TOKEN — Bot token from @BotFather
- * - TELEGRAM_WEBHOOK_SECRET — Secret token for webhook verification
- */
 export function telegramAdapter(): PlatformAdapter {
   return {
     platform: "telegram",
@@ -77,11 +66,6 @@ export function telegramAdapter(): PlatformAdapter {
     async handleVerification(
       event: H3Event,
     ): Promise<{ handled: boolean; response?: unknown }> {
-      // Pre-read the raw body once and cache on the event context. h3 v2's
-      // request body stream can only be consumed once; without this, the
-      // later `parseIncomingMessage` call throws "Body has already been read"
-      // because something upstream (signature check, dedupe, etc.) drains it.
-      // Mirrors the Slack adapter's pattern.
       try {
         if (!event.context.__rawBody) {
           const body = await readBody(event);
@@ -90,7 +74,6 @@ export function telegramAdapter(): PlatformAdapter {
       } catch {
         // If we can't pre-read, parseIncomingMessage will surface the error
       }
-      // Telegram has no challenge; we never short-circuit.
       return { handled: false };
     },
 
@@ -120,7 +103,6 @@ export function telegramAdapter(): PlatformAdapter {
       const headerSecret = getHeader(event, "x-telegram-bot-api-secret-token");
       if (!headerSecret) return false;
 
-      // Timing-safe comparison
       try {
         const crypto = await import("node:crypto");
         return crypto.timingSafeEqual(
@@ -135,21 +117,15 @@ export function telegramAdapter(): PlatformAdapter {
     async parseIncomingMessage(
       event: H3Event,
     ): Promise<IncomingMessage | null> {
-      // Use the pre-cached raw body if available (set by handleVerification).
-      // Falls back to readBody for paths that bypass handleVerification.
       const body = (event.context.__rawBody as any) ?? (await readBody(event));
       if (!body) return null;
 
-      // Handle regular messages
       const message = body.message || body.edited_message;
       if (!message) return null;
 
-      // Only process text messages
       const text = message.text?.trim();
       if (!text) return null;
 
-      // Ignore bot commands that we don't handle (e.g., /start is fine)
-      // Remove /start command prefix if present
       const cleanText =
         text === "/start"
           ? "Hello! I'm ready to chat."
@@ -235,7 +211,6 @@ export function telegramAdapter(): PlatformAdapter {
             description?: string;
           };
           if (!data.ok) {
-            // Retry without Markdown if parsing fails
             if (data.description?.includes("parse")) {
               const retry = await fetch(
                 `https://api.telegram.org/bot${token}/sendMessage`,
@@ -282,8 +257,9 @@ export function telegramAdapter(): PlatformAdapter {
     ): Promise<void> {
       const token = await resolveSecret("TELEGRAM_BOT_TOKEN");
       if (!token) {
-        console.error("[telegram] TELEGRAM_BOT_TOKEN not configured");
-        return;
+        fail("[telegram] TELEGRAM_BOT_TOKEN not configured", {
+          errorCode: "config_invalid",
+        });
       }
 
       const chunks = splitMessage(message.text, TELEGRAM_MAX_LENGTH);
@@ -320,9 +296,6 @@ export function telegramAdapter(): PlatformAdapter {
     },
 
     formatAgentResponse(text: string): OutgoingMessage {
-      // Telegram's legacy Markdown uses single asterisks for bold, not double.
-      // `[text](url)` is already supported natively.
-      // 's' flag (dotAll) so `.` matches newlines — bold text can span lines.
       const normalized = text.replace(/\*\*(.+?)\*\*/gs, "*$1*");
       return { text: normalized, platformContext: { parse_mode: "Markdown" } };
     },
@@ -367,7 +340,6 @@ export function telegramAdapter(): PlatformAdapter {
   };
 }
 
-/** Split a message into chunks that fit within the platform's limit */
 function splitMessage(text: string, maxLength: number): string[] {
   if (text.length <= maxLength) return [text];
   const chunks: string[] = [];

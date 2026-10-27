@@ -687,9 +687,6 @@ describe("Builder CMS write adapter plan", () => {
   });
 
   it("resolves the gate push mode from the tier, ignoring a change-set's own pushMode", () => {
-    // Local create change-sets hardcode pushMode "autosave". Under the
-    // publish_updates tier the gate must still key on the tier mode ("publish"),
-    // so prepare and execute compute the same idempotency key.
     const publishUpdatesSource = source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
       writeMode: "publish_updates",
       pushMode: "publish",
@@ -709,10 +706,6 @@ describe("Builder CMS write adapter plan", () => {
   });
 
   it("keys a tier create-draft gate on the tier push mode, not autosave", () => {
-    // Reproduces the create-push regression: a new-row create change-set
-    // (no matched Builder entry, pushMode "autosave") pushed with no explicit
-    // confirmation under publish_updates. Prepare's gate key must be :publish so
-    // execute — which resolves the same way — finds the gate.
     const plan = buildBuilderCmsExecutionPlan({
       source: {
         ...source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
@@ -943,10 +936,6 @@ describe("Builder CMS write adapter plan", () => {
   });
 
   it("creates a draft for an unmatched (synthetic-fixture) Builder row", () => {
-    // A row synthesized as `builder-<documentId>` has no real Builder entry, so
-    // its effect is create_draft. Creating a new entry from such a row is the
-    // intended behavior — the unmatched-row blocker only applies to effects that
-    // write to an existing entry (autosave / update_in_place).
     const plan = buildBuilderCmsExecutionPlan({
       source: {
         ...source(true, BUILDER_CMS_SAFE_WRITE_MODEL),
@@ -1297,6 +1286,68 @@ describe("Builder CMS write adapter plan", () => {
         },
       }),
     ).toThrow(/Approve/);
+  });
+
+  it("records the reviewed Builder lastUpdated on the gate's target", () => {
+    const plan = buildBuilderCmsExecutionPlan({
+      source: source(true, BUILDER_CMS_SAFE_WRITE_MODEL),
+      changeSet: approvedChangeSet(),
+      pushModeConfirmation: "autosave",
+    });
+
+    expect(plan.payload.target.reviewedLastUpdated).toBe(
+      "2026-06-08T00:00:00.000Z",
+    );
+    expect(plan.payload.request.body).not.toHaveProperty("__write");
+  });
+
+  it("blocks an existing-entry write whose reviewed lastUpdated is unknown", () => {
+    const builderSource = source(true, BUILDER_CMS_SAFE_WRITE_MODEL);
+    builderSource.rows[0]!.lastSourceUpdatedAt = null;
+
+    const plan = buildBuilderCmsExecutionPlan({
+      source: builderSource,
+      changeSet: approvedChangeSet(),
+      pushModeConfirmation: "autosave",
+    });
+
+    expect(plan).toMatchObject({
+      state: "blocked",
+      payload: { target: { reviewedLastUpdated: null } },
+      lastError:
+        "Refresh this Builder entry before writing so its last update time can be checked.",
+    });
+  });
+
+  it("marks a gate stale when a refresh moved the entry's lastUpdated after review", () => {
+    const reviewed = buildBuilderCmsExecutionPlan({
+      source: source(true, BUILDER_CMS_SAFE_WRITE_MODEL),
+      changeSet: approvedChangeSet(),
+      pushModeConfirmation: "autosave",
+    });
+    const refreshedSource = source(true, BUILDER_CMS_SAFE_WRITE_MODEL);
+    refreshedSource.rows[0]!.lastSourceUpdatedAt = "2026-06-08T00:05:00.000Z";
+    const rebuilt = buildBuilderCmsExecutionPlan({
+      source: refreshedSource,
+      changeSet: approvedChangeSet(),
+      pushModeConfirmation: "autosave",
+    });
+
+    expect(
+      validateBuilderCmsExecutionDryRun({
+        storedPayload: reviewed.payload,
+        plan: rebuilt,
+        now: "2026-06-08T01:00:00.000Z",
+      }),
+    ).toMatchObject({
+      target: { reviewedLastUpdated: "2026-06-08T00:00:00.000Z" },
+      dryRun: {
+        status: "stale",
+        mismatches: [
+          "Builder entry changed since this change was reviewed. Refresh and review it again.",
+        ],
+      },
+    });
   });
 
   it("validates a stored dry-run payload when it matches the rebuilt plan", () => {

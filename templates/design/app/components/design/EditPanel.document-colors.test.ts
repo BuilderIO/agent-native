@@ -1,9 +1,5 @@
-import {
-  buildCodeLayerProjection,
-  buildCodeLayerTree,
-  type CodeLayerTreeNode,
-} from "@shared/code-layer";
-import { describe, expect, it } from "vitest";
+import { buildCodeLayerProjection } from "@shared/code-layer";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   runSelectionColorChange,
@@ -13,16 +9,13 @@ import {
 } from "../../pages/design-editor/commands/selection-color-change";
 import {
   replaceSelectionColorsInHtml,
-  replaceSelectionFillColorsInHtml,
-  rewriteSelectionFillStyles,
-  selectionFillAddedStyles,
-  selectionFillColorValues,
-  selectionFillInspectorStyles,
-  selectionFillModel,
   selectionColorTargets,
   selectionColorValues,
 } from "./edit-panel/document-colors";
-import { extractDocumentColorPalette } from "./EditPanel";
+import {
+  extractDocumentColorPalette,
+  withCapturedSelectionColorScopeIdentities,
+} from "./EditPanel";
 import type { ElementInfo } from "./types";
 
 function fakeElement(computedStyles: Record<string, string>): ElementInfo {
@@ -35,6 +28,57 @@ function fakeElement(computedStyles: Record<string, string>): ElementInfo {
     isFlexContainer: false,
   };
 }
+
+describe("withCapturedSelectionColorScopeIdentities", () => {
+  it("adds only scope identity to persisted-source upload metadata", () => {
+    const content = '<div style="color: #123456"></div>';
+    const scopes = [
+      {
+        fileId: "file-b",
+        content,
+        projection: buildCodeLayerProjection(content),
+        sourceId: "node-b",
+        selector: ".b",
+        wholeDocument: false,
+      },
+      {
+        fileId: "file-a",
+        content,
+        projection: buildCodeLayerProjection(content),
+        wholeDocument: true,
+      },
+    ];
+    const meta = {
+      phase: "commit" as const,
+      requirePersistedSourceAcceptance: true,
+    };
+
+    expect(withCapturedSelectionColorScopeIdentities(scopes, meta)).toEqual({
+      ...meta,
+      capturedSelectionColorScopeIdentities: [
+        { fileId: "file-a", wholeDocument: true },
+        {
+          fileId: "file-b",
+          sourceId: "node-b",
+          selector: ".b",
+          wholeDocument: false,
+        },
+      ],
+    });
+    expect(
+      JSON.stringify(withCapturedSelectionColorScopeIdentities(scopes, meta)),
+    ).not.toContain(content);
+  });
+
+  it("preserves ordinary style metadata without adding scope identities", () => {
+    const meta = { phase: "commit" as const };
+
+    expect(withCapturedSelectionColorScopeIdentities([], meta)).toBe(meta);
+    expect(withCapturedSelectionColorScopeIdentities([], undefined)).toBe(
+      undefined,
+    );
+  });
+});
 
 describe("extractDocumentColorPalette", () => {
   it("collects hex colors from inline styles across multiple files", () => {
@@ -54,6 +98,31 @@ describe("extractDocumentColorPalette", () => {
       expect.arrayContaining(["#FF0000", "#00FF00", "#0000FF"]),
     );
     expect(palette).toHaveLength(3);
+  });
+
+  it("re-reads a file whose bytes changed under the same id and length", () => {
+    const red = '<div style="color: #FF0000;"></div>';
+    const green = '<div style="color: #00FF00;"></div>';
+    const other = { id: "file-2", content: '<p style="color: #0000FF;"></p>' };
+    const cache = new Map();
+    expect(
+      extractDocumentColorPalette(
+        [{ id: "file-1", content: red }, other],
+        undefined,
+        cache,
+      ),
+    ).toEqual(["#FF0000", "#0000FF"]);
+    expect(
+      extractDocumentColorPalette(
+        [{ id: "file-1", content: green }, other],
+        undefined,
+        cache,
+      ),
+    ).toEqual(["#00FF00", "#0000FF"]);
+    expect(extractDocumentColorPalette([other], undefined, cache)).toEqual([
+      "#0000FF",
+    ]);
+    expect([...cache.keys()]).toEqual(["file-2"]);
   });
 
   it("normalizes different formats of the same color to one deduped entry", () => {
@@ -119,6 +188,24 @@ describe("extractDocumentColorPalette", () => {
     ).toContain("--color-bg: #000000");
   });
 
+  it("reads and rewrites svg paint attributes that an inline style does not override", () => {
+    const content = `<svg fill="none" viewBox="0 0 20 20"><path d="M0 0" fill="rgb(255, 255, 255)"></path><path d="M1 1" stroke="#000000" style="stroke: #a62e2e"></path></svg>`;
+    const scopes = [{ fileId: "file-1", content, wholeDocument: true }];
+
+    expect(selectionColorValues([], scopes).map((c) => c.value)).toEqual([
+      "rgb(255, 255, 255)",
+      "#a62e2e",
+    ]);
+    expect(
+      replaceSelectionColorsInHtml(
+        content,
+        scopes,
+        "rgb(255, 255, 255)",
+        "#ff0000",
+      ),
+    ).toContain('fill="#ff0000"');
+  });
+
   it("orders results by descending frequency (most-used colors first)", () => {
     const palette = extractDocumentColorPalette([
       {
@@ -152,8 +239,6 @@ describe("extractDocumentColorPalette", () => {
   it("caps results at the given limit, keeping the most frequent colors", () => {
     const content = Array.from({ length: 30 }, (_, i) => {
       const hex = i.toString(16).padStart(2, "0");
-      // Repeat earlier colors more often than later ones so frequency order
-      // is unambiguous once capped.
       const repeats = 30 - i;
       return `<div style="color:#${hex}${hex}${hex};">`.repeat(repeats);
     }).join("");
@@ -161,7 +246,6 @@ describe("extractDocumentColorPalette", () => {
     const palette = extractDocumentColorPalette([{ id: "f", content }], 5);
 
     expect(palette).toHaveLength(5);
-    // The 5 most-repeated colors are the first 5 generated (i = 0..4).
     expect(palette).toEqual([
       "#000000",
       "#010101",
@@ -552,10 +636,6 @@ describe("selectionColorValues", () => {
   });
 
   it("skips any other zero-alpha color, not just the two literal spellings", () => {
-    // Regression: this used to only filter the exact strings "transparent"
-    // and "rgba(0, 0, 0, 0)" — a zero-alpha color with any other RGB
-    // channels or formatting (e.g. a non-black rgba, or hsla) slipped
-    // through as a bogus, effectively-invisible "selection color" swatch.
     const values = selectionColorValues(
       fakeElement({
         color: "rgb(0, 0, 0)",
@@ -610,6 +690,35 @@ describe("selectionColorValues", () => {
     expect(values).toEqual([{ property: "color", value: "Mixed" }]);
   });
 
+  it("adds the colors a truncated subtree read found and warns on an unreadable one", () => {
+    const element = {
+      ...fakeElement({ backgroundColor: "#ffffff" }),
+      selector: '[data-agent-native-node-id="card"]',
+      styleSnapshotReadOnDemand: true,
+    };
+    expect(
+      selectionColorValues(element, [], () => ({
+        status: "truncated",
+        nodes: [{ "background-color": "#101828ff" }],
+      })).map((color) => color.value),
+    ).toEqual(["#ffffff", "#101828ff"]);
+
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect(
+        selectionColorValues(element, [], () => ({ status: "failed" })).map(
+          (color) => color.value,
+        ),
+      ).toEqual(["#ffffff"]);
+      expect(warn).toHaveBeenCalledWith(
+        "Could not read the colors under the selection",
+        '[data-agent-native-node-id="card"]',
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("omits named computed colors without an authored token to replace", () => {
     expect(
       selectionColorValues(
@@ -626,6 +735,66 @@ describe("selectionColorValues", () => {
         { fileId: "screen", content, sourceId: "root" },
       ]),
     ).toEqual([{ property: "color", value: "#0066ff" }]);
+  });
+
+  it("reads and replaces SVG presentation colors only inside the selected subtree", () => {
+    const content = [
+      '<svg data-agent-native-node-id="logo" aria-label="Brand fill=#f97316" data-note="stroke: #f97316" fill="#111111">',
+      '<path fill="#f97316" d="M0 0h30v30z"/>',
+      '<circle fill="#16a34a" cx="60" cy="20" r="15"/>',
+      "</svg>",
+      '<svg><path fill="#f97316" d="M0 0h10v10z"/></svg>',
+    ].join("");
+    const scopes = [{ fileId: "screen", content, sourceId: "logo" }];
+
+    expect(selectionColorValues([], scopes)).toEqual([
+      { property: "color", value: "#111111" },
+      { property: "color", value: "#f97316" },
+      { property: "color", value: "#16a34a" },
+    ]);
+    expect(
+      replaceSelectionColorsInHtml(content, scopes, "#f97316", "#8b5cf6"),
+    ).toBe(
+      [
+        '<svg data-agent-native-node-id="logo" aria-label="Brand fill=#f97316" data-note="stroke: #f97316" fill="#111111">',
+        '<path fill="#8b5cf6" d="M0 0h30v30z"/>',
+        '<circle fill="#16a34a" cx="60" cy="20" r="15"/>',
+        "</svg>",
+        '<svg><path fill="#f97316" d="M0 0h10v10z"/></svg>',
+      ].join(""),
+    );
+  });
+
+  it("preserves SVG ancestry while scanning nested selected groups and paths", () => {
+    const content =
+      '<svg data-an-primitive="pasted-svg"><g data-agent-native-node-id="group"><path data-agent-native-node-id="path" fill="#f97316"/></g></svg>';
+
+    for (const sourceId of ["group", "path"]) {
+      const scopes = [{ fileId: "screen", content, sourceId }];
+      expect(selectionColorValues([], scopes)).toEqual([
+        { property: "color", value: "#f97316" },
+      ]);
+      expect(
+        replaceSelectionColorsInHtml(content, scopes, "#f97316", "#2563eb"),
+      ).toBe(
+        '<svg data-an-primitive="pasted-svg"><g data-agent-native-node-id="group"><path data-agent-native-node-id="path" fill="#2563eb"/></g></svg>',
+      );
+    }
+  });
+
+  it("does not treat SVG gradient references as colors but edits stop colors", () => {
+    const content =
+      '<svg data-agent-native-node-id="gradient"><defs><linearGradient id="a1b2c3"><stop stop-color="#123456"/></linearGradient></defs><path fill="url(#a1b2c3)" stroke="url(#fff)"/></svg>';
+    const scopes = [{ fileId: "screen", content, sourceId: "gradient" }];
+
+    expect(selectionColorValues([], scopes)).toEqual([
+      { property: "color", value: "#123456" },
+    ]);
+    expect(
+      replaceSelectionColorsInHtml(content, scopes, "#123456", "#ef4444"),
+    ).toBe(
+      '<svg data-agent-native-node-id="gradient"><defs><linearGradient id="a1b2c3"><stop stop-color="#ef4444"/></linearGradient></defs><path fill="url(#a1b2c3)" stroke="url(#fff)"/></svg>',
+    );
   });
 
   it("scans every descendant in a selected source range and counts reuse", () => {
@@ -826,8 +995,6 @@ describe("selectionColorValues", () => {
       phase: "preview",
     });
 
-    // Undo restores the source from before the prior commit while the picker
-    // remains open; the old gesture must not target a color in that new source.
     args.scopes = [{ fileId: "screen", content: initial, sourceId: "root" }];
     expect(
       runSelectionColorChange(args, "#f97316", "#22c55e", {
@@ -1088,70 +1255,8 @@ describe("selectionColorValues", () => {
   });
 });
 
-describe("selectionFillColorValues", () => {
-  it("exposes one shared fill/text color while excluding strokes and borders", () => {
-    const content = `<!doctype html><html><body>
-      <div data-agent-native-node-id="group">
-        <div style="background-color:#f97316;border:8px solid #f97316"></div>
-        <div style="background:#f97316;border-color:#111827"></div>
-        <p style="color:#f97316;text-shadow:0 0 2px #f97316">Paint</p>
-      </div>
-    </body></html>`;
-    const scopes = [
-      {
-        fileId: "file",
-        content,
-        sourceId: "group",
-      },
-    ];
-
-    expect(selectionFillColorValues(scopes)).toEqual([
-      { property: "fill", value: "#f97316", count: 3 },
-    ]);
-
-    const replaced = replaceSelectionFillColorsInHtml(
-      content,
-      scopes,
-      "#f97316",
-      "#3b82f6",
-    );
-    expect(replaced).toContain("background-color:#3b82f6");
-    expect(replaced).toContain("background:#3b82f6");
-    expect(replaced).toContain("color:#3b82f6");
-    expect(replaced).toContain("border:8px solid #f97316");
-    expect(replaced).toContain("text-shadow:0 0 2px #f97316");
-  });
-
-  it("does not count an unfilled text box as a separate empty Group Fill", () => {
-    const content = `<!doctype html><html><body>
-      <div data-agent-native-node-id="group" data-agent-native-group="true">
-        <div data-agent-native-node-id="shape-a" data-an-primitive="rectangle" style="position:absolute;width:120px;height:80px;background:#f97316"></div>
-        <div data-agent-native-node-id="shape-b" data-an-primitive="rectangle" style="position:absolute;width:120px;height:80px;background:#f97316"></div>
-        <div data-agent-native-node-id="text" style="position:absolute;left:20px;top:100px;width:220px;height:48px;color:#f97316">Paint</div>
-      </div>
-    </body></html>`;
-    const model = selectionFillModel([
-      { fileId: "file", content, sourceId: "group" },
-    ]);
-
-    expect(model.state).toBe("common");
-    expect(model.targets.map(({ channel }) => channel)).toEqual([
-      "background",
-      "background",
-      "text",
-    ]);
-    expect(
-      model.stacks.map((stack) =>
-        stack.map(({ kind, value, opacity }) => [kind, value, opacity]),
-      ),
-    ).toEqual([
-      [["solid", "#f97316", 100]],
-      [["solid", "#f97316", 100]],
-      [["solid", "#f97316", 100]],
-    ]);
-  });
-
-  it("keeps mixed descendant fills in Selection Colors instead of stacking Group Fill rows", () => {
+describe("Selection colors inside a Group", () => {
+  it("lists each mixed descendant fill in Selection Colors", () => {
     const content = `<!doctype html><html><body>
       <div data-agent-native-node-id="group">
         <div style="background-color:#f97316"></div>
@@ -1160,55 +1265,13 @@ describe("selectionFillColorValues", () => {
     </body></html>`;
     const scopes = [{ fileId: "file", content, sourceId: "group" }];
 
-    expect(selectionFillColorValues(scopes)).toEqual([]);
     expect(selectionColorValues([], scopes).map(({ value }) => value)).toEqual([
       "#f97316",
       "#3b82f6",
     ]);
   });
 
-  it("uses a unique selector to disambiguate duplicate Group ids for paint reads and writes", () => {
-    const content = `<!doctype html><html><body>
-      <div class="first" data-agent-native-node-id="group" data-agent-native-group="true">
-        <div data-agent-native-node-id="shape-a" style="background:#f97316"></div>
-      </div>
-      <div class="second" data-agent-native-node-id="group" data-agent-native-group="true">
-        <div data-agent-native-node-id="shape-b" style="background:#f97316"></div>
-      </div>
-    </body></html>`;
-    const groups = buildCodeLayerProjection(content).nodes.filter(
-      (node) => node.dataAttributes["data-agent-native-group"] === "true",
-    );
-    expect(groups).toHaveLength(2);
-    const secondGroup = groups[1];
-    expect(secondGroup).toBeDefined();
-    const scope = {
-      fileId: "file",
-      content,
-      sourceId: "group",
-      selector: ".second",
-    };
-
-    const model = selectionFillModel([scope]);
-    expect(
-      model.targets.map(({ selector, channel }) => ({ selector, channel })),
-    ).toEqual([
-      {
-        selector: '[data-agent-native-node-id="shape-b"]',
-        channel: "background",
-      },
-    ]);
-    const result = rewriteSelectionFillStyles([scope], {
-      backgroundColor: "#3b82f6",
-      backgroundImage: "none",
-    });
-    expect(result.status, result.message).toBe("applied");
-    const rewritten = result.updates[0]?.content ?? "";
-    expect(rewritten).toMatch(/shape-a[^>]*background:\s*#f97316/);
-    expect(rewritten).toMatch(/shape-b[^>]*background-color:\s*#3b82f6/);
-  });
-
-  it("refuses multi-Group paint edits when any duplicate-id scope is ambiguous", () => {
+  it("refuses a multi-Group color replacement when any duplicate-id scope is ambiguous", () => {
     const content = `<!doctype html><html><body>
       <div class="first" data-agent-native-node-id="group" data-agent-native-group="true">
         <div data-agent-native-node-id="shape-a" style="background:#f97316"></div>
@@ -1226,16 +1289,6 @@ describe("selectionFillColorValues", () => {
     const ambiguousScope = { fileId: "file", content, sourceId: "group" };
     const scopes = [validScope, ambiguousScope];
 
-    expect(selectionFillModel([ambiguousScope])).toMatchObject({
-      scopeConflict: true,
-      targets: [],
-    });
-    const rewrite = rewriteSelectionFillStyles(scopes, {
-      backgroundColor: "#3b82f6",
-      backgroundImage: "none",
-    });
-    expect(rewrite.status).toBe("conflict");
-    expect(rewrite.updates).toEqual([]);
     expect(
       replaceSelectionColorsInHtml(content, scopes, "#f97316", "#3b82f6"),
     ).toBeNull();
@@ -1290,517 +1343,5 @@ describe("selectionFillColorValues", () => {
     expect(Array.from(previewHistoryRef.current)).toEqual([
       ["ambiguous-file", { before: "before", after: "current" }],
     ]);
-  });
-
-  it("does not misreport a same-color gradient with varied stop alpha as a solid Group Fill", () => {
-    const content = `<!doctype html><html><body>
-      <div data-agent-native-node-id="group">
-        <div style="background-image:linear-gradient(90deg,#3b82f6 0%,color-mix(in srgb,#3b82f6 25%,transparent) 100%)"></div>
-        <div style="background-image:linear-gradient(90deg,#3b82f6 0%,color-mix(in srgb,#3b82f6 25%,transparent) 100%)"></div>
-      </div>
-    </body></html>`;
-    const scopes = [{ fileId: "file", content, sourceId: "group" }];
-
-    expect(selectionFillColorValues(scopes)).toEqual([]);
-    expect(selectionFillModel(scopes).state).toBe("common");
-    expect(selectionFillModel(scopes).stacks[0]?.[0]?.kind).toBe("gradient");
-  });
-
-  it("treats gradients with different stop alpha as different ordered paints", () => {
-    const content = `<!doctype html><html><body>
-      <div data-agent-native-node-id="group" data-agent-native-group="true">
-        <div style="background-image:linear-gradient(90deg,#3b82f6 0%,color-mix(in srgb,#3b82f6 25%,transparent) 100%)"></div>
-        <div style="background-image:linear-gradient(90deg,#3b82f6 0%,color-mix(in srgb,#3b82f6 50%,transparent) 100%)"></div>
-      </div>
-    </body></html>`;
-    const scopes = [{ fileId: "file", content, sourceId: "group" }];
-
-    expect(selectionFillModel(scopes).state).toBe("mixed");
-    expect(selectionFillColorValues(scopes)).toEqual([]);
-  });
-
-  it("includes an empty geometric fill stack when deciding whether Group Fill is common", () => {
-    const content = `<!doctype html><html><body>
-      <div data-agent-native-node-id="group" data-agent-native-group="true">
-        <div data-an-primitive="rectangle" style="position:absolute;width:40px;height:40px"></div>
-        <div data-an-primitive="rectangle" style="position:absolute;width:40px;height:40px;background-color:#3b82f6"></div>
-      </div>
-    </body></html>`;
-    const scopes = [{ fileId: "file", content, sourceId: "group" }];
-
-    const model = selectionFillModel(scopes);
-    expect(
-      model,
-      JSON.stringify(
-        model.targets.map(({ nodeId, channel, stack }) => ({
-          nodeId,
-          channel,
-          stack,
-        })),
-      ),
-    ).toMatchObject({
-      state: "mixed",
-      stacks: [[], [{ kind: "solid", value: "#3b82f6" }]],
-    });
-    expect(selectionFillColorValues(scopes)).toEqual([]);
-  });
-
-  it("keeps paint stack order when comparing group descendants", () => {
-    const content = `<!doctype html><html><body>
-      <div data-agent-native-node-id="group" data-agent-native-group="true">
-        <div style="background-color:#3b82f6;background-image:linear-gradient(90deg,#f97316,#111827),linear-gradient(90deg,#ffffff,#000000)"></div>
-        <div style="background-color:#3b82f6;background-image:linear-gradient(90deg,#ffffff,#000000),linear-gradient(90deg,#f97316,#111827)"></div>
-      </div>
-    </body></html>`;
-    const scopes = [{ fileId: "file", content, sourceId: "group" }];
-
-    expect(selectionFillModel(scopes).state).toBe("mixed");
-    expect(selectionFillColorValues(scopes)).toEqual([]);
-  });
-
-  it("treats a Boolean result as one visible vector fill, not its mask operands", () => {
-    const content = `<!doctype html><html><body>
-      <div data-agent-native-node-id="group" data-agent-native-group="true">
-        <svg data-agent-native-node-id="subtract" data-an-primitive="boolean" style="--boolean-mask-fill:#f97316;--boolean-mask-stroke:#111827">
-          <defs><mask><use style="fill:white"></use><svg data-an-primitive="boolean-operand" style="--operand-fill:#111827"><rect style="fill:#111827"></rect></svg></mask></defs>
-          <use data-an-boolean-result="true" style="fill:var(--boolean-mask-fill)"></use>
-        </svg>
-        <div style="background-color:#f97316"></div>
-      </div>
-    </body></html>`;
-    const scopes = [{ fileId: "file", content, sourceId: "group" }];
-    const model = selectionFillModel(scopes);
-
-    expect(model.state).toBe("common");
-    expect(model.targets.map(({ channel }) => channel)).toEqual([
-      "vector",
-      "background",
-    ]);
-    expect(model.targets[0]?.stack).toMatchObject([
-      { kind: "solid", value: "#f97316" },
-    ]);
-  });
-
-  it("keeps authored alpha zero distinct from eye-hidden fill state", () => {
-    const content = `<!doctype html><html><body>
-      <div data-agent-native-node-id="group" data-agent-native-group="true">
-        <div style="background-color:rgba(249,115,22,0)"></div>
-        <div style="background-color:color-mix(in srgb,#f97316 0%,transparent)"></div>
-      </div>
-    </body></html>`;
-    const scopes = [{ fileId: "file", content, sourceId: "group" }];
-
-    expect(selectionFillModel(scopes).state).toBe("mixed");
-    expect(selectionFillModel(scopes).stacks).toMatchObject([
-      [{ opacity: 0 }],
-      [{ hidden: true, opacity: 0 }],
-    ]);
-  });
-
-  it("keeps Boolean results opaque to Group Fill while excluding SVG mask scaffolding", () => {
-    const content = `<!doctype html><html><body>
-      <div data-agent-native-node-id="group" data-agent-native-group="true">
-        <svg data-agent-native-node-id="subtract" data-an-primitive="boolean" style="--boolean-mask-fill:#f97316;--boolean-mask-stroke:#111827">
-          <defs><mask><use style="fill:white"></use><svg data-an-primitive="boolean-operand" style="--operand-fill:#111827"><rect style="fill:#111827"></rect></svg></mask></defs>
-          <use data-an-boolean-result="true" style="fill:var(--boolean-mask-fill)"></use>
-        </svg>
-        <div style="background-color:#f97316"></div>
-      </div>
-    </body></html>`;
-    const scopes = [{ fileId: "file", content, sourceId: "group" }];
-    const model = selectionFillModel(scopes);
-
-    expect(model.state).toBe("common");
-    expect(model.targets.map(({ channel }) => channel)).toEqual([
-      "vector",
-      "background",
-    ]);
-    expect(model.targets).toHaveLength(2);
-    expect(
-      model.targets.flatMap(({ stack }) => stack).map(({ value }) => value),
-    ).toEqual(["#f97316", "#f97316"]);
-  });
-
-  it("models one ordinary SVG shape as a vector fill and edits that shape", () => {
-    const content = `<!doctype html><html><body>
-      <div data-agent-native-node-id="group" data-agent-native-group="true">
-        <div data-an-primitive="rectangle" style="background-color:#f97316"></div>
-        <svg data-agent-native-node-id="icon" style="width:24px;height:24px"><circle cx="12" cy="12" r="8" fill="#f97316" stroke="#111827" stroke-width="2"/></svg>
-      </div>
-    </body></html>`;
-    const scopes = [{ fileId: "file", content, sourceId: "group" }];
-    const model = selectionFillModel(scopes);
-
-    expect(model.state).toBe("common");
-    expect(model.targets.map(({ channel }) => channel)).toEqual([
-      "background",
-      "vector",
-    ]);
-
-    const result = rewriteSelectionFillStyles(scopes, {
-      backgroundColor: "#3b82f6",
-      backgroundImage: "none",
-    });
-    expect(result.status, result.message).toBe("applied");
-    const rewritten = result.updates[0]?.content ?? "";
-    expect(rewritten).toMatch(
-      /<circle[^>]*fill="#f97316"[^>]*style="[^"]*fill: #3b82f6/,
-    );
-    expect(rewritten).toContain('stroke="#111827"');
-    expect(rewritten).not.toMatch(/<svg[^>]*style="[^"]*fill: #3b82f6/);
-  });
-
-  it("refuses multi-shape inline SVG fills instead of painting their bounds", () => {
-    const content = `<!doctype html><html><body>
-      <div data-agent-native-node-id="group" data-agent-native-group="true">
-        <div data-an-primitive="rectangle" style="background-color:#f97316"></div>
-        <svg data-agent-native-node-id="icon" style="width:24px;height:24px"><circle cx="12" cy="12" r="8" fill="#f97316"/><path d="M0 0h4" stroke="#111827"/></svg>
-      </div>
-    </body></html>`;
-    const scopes = [{ fileId: "file", content, sourceId: "group" }];
-    const model = selectionFillModel(scopes);
-    const result = rewriteSelectionFillStyles(scopes, {
-      backgroundColor: "#3b82f6",
-      backgroundImage: "none",
-    });
-
-    expect(model.state).toBe("mixed");
-    expect(result.status).toBe("unsupported");
-    expect(result.updates).toEqual([]);
-  });
-
-  it("fills nested rich text through its text owner without flattening the runs", () => {
-    const content = `<!doctype html><html><body>
-      <div data-agent-native-node-id="group" data-agent-native-group="true">
-        <div data-an-primitive="rectangle" style="background-color:#f97316"></div>
-        <p data-agent-native-node-id="text" style="color:#f97316">Paint <strong style="color:#c026d3">this</strong></p>
-      </div>
-    </body></html>`;
-    const scopes = [{ fileId: "file", content, sourceId: "group" }];
-    const model = selectionFillModel(scopes);
-
-    expect(model.state).toBe("common");
-    expect(model.targets.map(({ channel }) => channel)).toEqual([
-      "background",
-      "text",
-    ]);
-    const result = rewriteSelectionFillStyles(scopes, {
-      backgroundColor: "#3b82f6",
-      backgroundImage: "none",
-    });
-
-    expect(result.status, result.message).toBe("applied");
-    const rewritten = result.updates[0]?.content ?? "";
-    expect(rewritten).toContain('<strong style="color:#c026d3">this</strong>');
-    expect(rewritten).toContain("background-clip: text");
-    expect(rewritten).toContain("-webkit-text-fill-color: transparent");
-    expect(rewritten).not.toContain("<strong data-an-text>");
-  });
-
-  it("keeps generated text hosts unpainted through repeated Group Fill edits", () => {
-    const content = `<!doctype html><html><body>
-      <div data-agent-native-node-id="group" data-agent-native-group="true">
-        <div data-an-primitive="rectangle" style="background-color:#f97316"></div>
-        <div data-agent-native-node-id="text" data-agent-native-layer-name="Fill Text" style="position:absolute;left:20px;top:100px;width:220px;height:48px;color:#f97316;font-size:24px;line-height:48px">Paint</div>
-      </div>
-    </body></html>`;
-    const scope = { fileId: "file", content, sourceId: "group" };
-    const findLayer = (
-      layers: CodeLayerTreeNode[],
-      id: string,
-    ): CodeLayerTreeNode | undefined => {
-      for (const layer of layers) {
-        if (layer.id === id) return layer;
-        const nested = findLayer(layer.children, id);
-        if (nested) return nested;
-      }
-      return undefined;
-    };
-    const originalTextNode = buildCodeLayerProjection(content).nodes.find(
-      (node) => node.dataAttributes["data-agent-native-node-id"] === "text",
-    );
-    expect(originalTextNode).toBeDefined();
-    const originalTextLayer = findLayer(
-      buildCodeLayerTree(buildCodeLayerProjection(content)),
-      originalTextNode!.id,
-    );
-    expect(originalTextLayer).toMatchObject({
-      name: "Fill Text",
-      type: "text",
-      children: [],
-    });
-
-    const first = rewriteSelectionFillStyles([scope], {
-      backgroundColor: "#3b82f6",
-      backgroundImage: "none",
-    });
-    expect(first.status, first.message).toBe("applied");
-    const firstContent = first.updates[0]?.content ?? "";
-    const inspectText = (html: string) => {
-      const nodes = buildCodeLayerProjection(html).nodes;
-      const textNode = nodes.find(
-        (node) => node.dataAttributes["data-agent-native-node-id"] === "text",
-      );
-      return {
-        host: textNode,
-        glyph: nodes.find(
-          (node) => node.attributes["data-an-text"] !== undefined,
-        ),
-        textNodeId: textNode?.id,
-      };
-    };
-    const firstText = inspectText(firstContent);
-    expect(firstText.glyph).toBeUndefined();
-    expect(firstText.host?.style).toMatchObject({
-      "background-color": "#3b82f6",
-      "background-clip": "text",
-      "-webkit-background-clip": "text",
-      color: "transparent",
-      "-webkit-text-fill-color": "transparent",
-    });
-
-    const second = rewriteSelectionFillStyles(
-      [{ ...scope, content: firstContent }],
-      {
-        backgroundColor: "rgba(59, 130, 246, 0.5)",
-        backgroundImage: "none",
-      },
-    );
-    expect(second.status, second.message).toBe("applied");
-    const secondContent = second.updates[0]?.content ?? "";
-    const secondText = inspectText(secondContent);
-    expect(secondText.glyph).toBeUndefined();
-    expect(secondText.host?.style["background-color"]).toBe(
-      "rgba(59, 130, 246, 0.5)",
-    );
-    expect(secondText.host?.style["background-clip"]).toBe("text");
-
-    const third = rewriteSelectionFillStyles(
-      [{ ...scope, content: secondContent }],
-      { backgroundColor: "#22c55e", backgroundImage: "none" },
-    );
-    expect(third.status, third.message).toBe("applied");
-    const thirdText = inspectText(third.updates[0]?.content ?? "");
-    expect(thirdText.glyph).toBeUndefined();
-    expect(thirdText.host?.style["background-color"]).toBe("#22c55e");
-    expect(thirdText.host?.style["background-clip"]).toBe("text");
-    const thirdProjection = buildCodeLayerProjection(
-      third.updates[0]?.content ?? "",
-    );
-    const thirdTextNode = thirdProjection.nodes.find(
-      (node) => node.dataAttributes["data-agent-native-node-id"] === "text",
-    );
-    expect(
-      findLayer(
-        buildCodeLayerTree(thirdProjection),
-        thirdTextNode?.id ?? "missing-text",
-      ),
-    ).toMatchObject({
-      name: "Fill Text",
-      type: "frame",
-      children: [],
-    });
-  });
-
-  it("preserves an authored text-container background while recoloring text", () => {
-    const content = `<!doctype html><html><body>
-      <div data-agent-native-node-id="group" data-agent-native-group="true">
-        <div data-an-primitive="rectangle" style="background-color:#f97316"></div>
-        <div data-agent-native-node-id="text" style="position:absolute;left:20px;top:100px;width:220px;height:48px;color:#f97316;background-color:#111827">Paint</div>
-      </div>
-    </body></html>`;
-    const result = rewriteSelectionFillStyles(
-      [{ fileId: "file", content, sourceId: "group" }],
-      { backgroundColor: "#3b82f6", backgroundImage: "none" },
-    );
-
-    expect(result.status, result.message).toBe("applied");
-    const nodes = buildCodeLayerProjection(
-      result.updates[0]?.content ?? "",
-    ).nodes;
-    const host = nodes.find(
-      (node) => node.dataAttributes["data-agent-native-node-id"] === "text",
-    );
-    const glyph = nodes.find(
-      (node) => node.attributes["data-an-text"] !== undefined,
-    );
-    expect(host?.style["background-color"]).toBe("#111827");
-    expect(glyph?.style).toMatchObject({
-      "background-color": "#3b82f6",
-      "background-clip": "text",
-      "-webkit-text-fill-color": "transparent",
-    });
-  });
-
-  it("recolors existing text wrappers without painting their class-backed host", () => {
-    const content = `<!doctype html><html><head><style>.text-host{background-color:#111827}</style></head><body>
-      <div data-agent-native-node-id="group" data-agent-native-group="true">
-        <div data-an-primitive="rectangle" style="background-color:#f97316"></div>
-        <div data-agent-native-node-id="text" class="text-host" style="position:absolute;left:20px;top:100px;width:220px;height:48px;color:#f97316"><span data-an-text>Paint</span></div>
-      </div>
-    </body></html>`;
-    const scopes = [{ fileId: "file", content, sourceId: "group" }];
-    const model = selectionFillModel(scopes);
-    expect(model.state).toBe("common");
-    expect(model.targets.map(({ channel }) => channel)).toEqual([
-      "background",
-      "text",
-    ]);
-
-    const result = rewriteSelectionFillStyles(scopes, {
-      backgroundColor: "#3b82f6",
-      backgroundImage: "none",
-    });
-    expect(result.status, result.message).toBe("applied");
-    const rewritten = result.updates[0]?.content ?? "";
-    const nodes = buildCodeLayerProjection(rewritten).nodes;
-    const host = nodes.find(
-      (node) => node.dataAttributes["data-agent-native-node-id"] === "text",
-    );
-    const glyph = nodes.find(
-      (node) => node.attributes["data-an-text"] !== undefined,
-    );
-    expect(host?.classes).toContain("text-host");
-    expect(host?.style["background-color"]).toBeUndefined();
-    expect(glyph?.style).toMatchObject({
-      "background-color": "#3b82f6",
-      "background-clip": "text",
-      "-webkit-text-fill-color": "transparent",
-    });
-    expect(rewritten).toContain(".text-host{background-color:#111827}");
-  });
-
-  it("refuses rich text with an explicit nested text-fill override atomically", () => {
-    const content = `<!doctype html><html><body>
-      <div data-agent-native-node-id="group" data-agent-native-group="true">
-        <div data-an-primitive="rectangle" style="background-color:#f97316"></div>
-        <p style="color:#f97316">Paint <strong style="-webkit-text-fill-color:#c026d3">this</strong></p>
-      </div>
-    </body></html>`;
-    const result = rewriteSelectionFillStyles(
-      [{ fileId: "file", content, sourceId: "group" }],
-      { backgroundColor: "#3b82f6", backgroundImage: "none" },
-    );
-
-    expect(result.status).toBe("unsupported");
-    expect(result.updates).toEqual([]);
-  });
-
-  it("adds a shared black 20% paint above the existing group fill stack", () => {
-    const content = `<!doctype html><html><body>
-      <div data-agent-native-node-id="group" data-agent-native-group="true">
-        <div data-agent-native-node-id="shape-a" data-an-primitive="rectangle" style="background:#f97316;border:8px solid #111827"></div>
-        <div data-agent-native-node-id="shape-b" data-an-primitive="rectangle" style="background:#f97316;border:8px solid #f97316"></div>
-        <p data-agent-native-node-id="text" style="color:#f97316">Paint</p>
-      </div>
-    </body></html>`;
-    const scopes = [{ fileId: "file", content, sourceId: "group" }];
-    const added = selectionFillAddedStyles(selectionFillModel(scopes));
-
-    expect(added.open).toBe("layer");
-    expect(added.styles.backgroundColor).toBe("#f97316");
-    expect(added.styles.backgroundImage).toContain("rgba(0, 0, 0, 0.2)");
-
-    const result = rewriteSelectionFillStyles(scopes, added.styles);
-    expect(result.status, result.message).toBe("applied");
-    const rewritten = result.updates[0]?.content ?? "";
-    expect(rewritten).toMatch(/border:\s*8px solid #111827/);
-    expect(rewritten).toMatch(/border:\s*8px solid #f97316/);
-    expect(
-      rewritten.match(/background-image:[^;]*rgba\(0, 0, 0, 0\.2\)/g),
-    ).toHaveLength(3);
-    expect(rewritten).not.toContain("data-an-text");
-    expect(rewritten).toMatch(/background-clip:\s*text/);
-    expect(rewritten).toMatch(/-webkit-text-fill-color:\s*transparent/);
-  });
-
-  it("replaces mixed fills with the most recently committed color", () => {
-    const content = `<!doctype html><html><body>
-      <div data-agent-native-node-id="group" data-agent-native-group="true">
-        <div data-agent-native-node-id="shape-a" data-an-primitive="rectangle" style="background-color:#f97316"></div>
-        <div data-agent-native-node-id="shape-b" data-an-primitive="rectangle" style="background-color:#3b82f6"></div>
-        <p data-agent-native-node-id="text" style="color:#f97316">Paint</p>
-      </div>
-    </body></html>`;
-    const scopes = [{ fileId: "file", content, sourceId: "group" }];
-    const added = selectionFillAddedStyles(
-      selectionFillModel(scopes),
-      "#3b82f6",
-    );
-
-    expect(added.open).toBe("base");
-    expect(added.styles.backgroundColor).toMatch(/(?:#3b82f6|59, 130, 246)/i);
-    expect(added.styles.backgroundImage).toBe("none");
-
-    const result = rewriteSelectionFillStyles(scopes, added.styles);
-    expect(result.status).toBe("applied");
-    const rewritten = result.updates[0]?.content ?? "";
-    expect(
-      rewritten.match(/background-color:\s*(?:#3b82f6|rgb\(59, 130, 246\))/g),
-    ).toHaveLength(3);
-    expect(rewritten).toMatch(/-webkit-text-fill-color:\s*transparent/);
-    expect(rewritten).not.toContain("background-color:#f97316");
-  });
-
-  it("keeps visibility metadata separate from authored zero-alpha paint", () => {
-    const transparentContent = `<div data-agent-native-node-id="shape" data-an-primitive="rectangle" style="background-color:rgba(249,115,22,0)"></div>`;
-    const hiddenContent = `<div data-agent-native-node-id="shape" data-an-primitive="rectangle" style="background-color:color-mix(in srgb,#f97316 0%,transparent)"></div>`;
-    const transparent = selectionFillInspectorStyles(
-      selectionFillModel([
-        {
-          fileId: "transparent",
-          content: transparentContent,
-          wholeDocument: true,
-        },
-      ]),
-    );
-    const hidden = selectionFillInspectorStyles(
-      selectionFillModel([
-        { fileId: "hidden", content: hiddenContent, wholeDocument: true },
-      ]),
-    );
-
-    expect(transparent.backgroundColor).toBe("rgba(249, 115, 22, 0)");
-    expect(hidden.backgroundColor).toBe(
-      "color-mix(in srgb, #f97316 0%, transparent)",
-    );
-  });
-
-  it("refuses the whole Group edit when SVG use cannot be represented", () => {
-    const useContent = `<!doctype html><html><body>
-      <div data-agent-native-node-id="group" data-agent-native-group="true">
-        <div data-agent-native-node-id="shape" data-an-primitive="rectangle" style="background:#f97316"></div>
-        <svg data-agent-native-node-id="icon" style="width:24px;height:24px"><use href="#shape"></use></svg>
-      </div>
-    </body></html>`;
-    const styles = { backgroundColor: "#3b82f6", backgroundImage: "none" };
-    const unsupportedUse = rewriteSelectionFillStyles(
-      [{ fileId: "use", content: useContent, sourceId: "group" }],
-      styles,
-    );
-    expect(
-      unsupportedUse.status,
-      JSON.stringify(
-        selectionFillModel([
-          { fileId: "use", content: useContent, sourceId: "group" },
-        ]),
-      ),
-    ).toBe("unsupported");
-    expect(unsupportedUse.updates).toEqual([]);
-  });
-
-  it("does not partially apply a stacked Group fill when a Boolean result cannot accept layers", () => {
-    const content = `<!doctype html><html><body>
-      <div data-agent-native-node-id="group" data-agent-native-group="true">
-        <svg data-agent-native-node-id="subtract" data-an-primitive="boolean" style="--boolean-mask-fill:#f97316;fill:var(--boolean-mask-fill)"><defs><mask></mask></defs></svg>
-        <div data-agent-native-node-id="shape" data-an-primitive="rectangle" style="background:#f97316"></div>
-      </div>
-    </body></html>`;
-    const scopes = [{ fileId: "file", content, sourceId: "group" }];
-    const added = selectionFillAddedStyles(selectionFillModel(scopes));
-    const result = rewriteSelectionFillStyles(scopes, added.styles);
-
-    expect(result.status).toBe("unsupported");
-    expect(result.updates).toEqual([]);
   });
 });

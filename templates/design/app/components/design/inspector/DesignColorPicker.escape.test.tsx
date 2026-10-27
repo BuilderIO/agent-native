@@ -45,9 +45,6 @@ function Harness({
   onPopoverEscape: () => void;
   onCanvasEscapeHotkey: () => void;
 }) {
-  // Mirrors DesignEditor.tsx's real `useDesignHotkeys({ ..., onEscape:
-  // handleEscapeHotkey })` call: no `target`/`capture` override, so it binds
-  // to `window` in the default bubble phase, exactly like production.
   useDesignHotkeys({ onEscape: onCanvasEscapeHotkey });
 
   return (
@@ -122,7 +119,10 @@ describe("Escape ordering — DesignColorPicker popover vs canvas hotkeys", () =
         }),
       ),
     );
-    expect(container.textContent).toContain("DEDCF9");
+    expect(
+      container.querySelector<HTMLInputElement>('input[aria-label="Color"]')!
+        .value,
+    ).toBe("DEDCF9");
     expect(onChange).not.toHaveBeenCalled();
     expect(onCommit).toHaveBeenCalledTimes(1);
     expect(onCommit).toHaveBeenCalledWith("#dedcf9");
@@ -136,7 +136,10 @@ describe("Escape ordering — DesignColorPicker popover vs canvas hotkeys", () =
       ),
     );
     expect(document.querySelector('input[aria-label="Hex"]')).toBeNull();
-    expect(container.textContent).toContain("DEDCF9");
+    expect(
+      container.querySelector<HTMLInputElement>('input[aria-label="Color"]')!
+        .value,
+    ).toBe("DEDCF9");
     expect(onChange).not.toHaveBeenCalled();
     expect(onCommit).toHaveBeenCalledTimes(1);
     expect(onCanvasEscape).not.toHaveBeenCalled();
@@ -164,7 +167,10 @@ describe("Escape ordering — DesignColorPicker popover vs canvas hotkeys", () =
         }),
       ),
     );
-    expect(container.textContent).toContain("DEDCF9");
+    expect(
+      container.querySelector<HTMLInputElement>('input[aria-label="Color"]')!
+        .value,
+    ).toBe("DEDCF9");
     expect(onCommit).toHaveBeenCalledTimes(1);
     expect(onCanvasEscape).not.toHaveBeenCalled();
   });
@@ -235,13 +241,17 @@ describe("Escape ordering — DesignColorPicker popover vs canvas hotkeys", () =
 });
 
 describe("DesignColorPicker Hex commit callbacks", () => {
-  async function enterHex(hex: string) {
+  /** Types a hex into the Hex field, or into the nth gradient stop's own field. */
+  async function enterHex(hex: string, stopIndex?: number) {
     await act(() =>
       container.querySelector<HTMLButtonElement>("button")!.click(),
     );
-    const input = document.querySelector<HTMLInputElement>(
-      'input[aria-label="Hex"]',
-    )!;
+    const input =
+      stopIndex === undefined
+        ? document.querySelector<HTMLInputElement>('input[aria-label="Hex"]')!
+        : document.querySelectorAll<HTMLInputElement>(
+            'input[aria-label="Stop color"]',
+          )[stopIndex]!;
     await act(() => {
       input.focus();
       Object.getOwnPropertyDescriptor(
@@ -299,7 +309,7 @@ describe("DesignColorPicker Hex commit callbacks", () => {
         </TooltipProvider>,
       ),
     );
-    await enterHex("EC4899");
+    await enterHex("EC4899", 0);
 
     expect(onPaintValueChange).toHaveBeenCalledTimes(1);
     expect(onPaintValueChange.mock.calls[0]?.[0]).toMatch(/#ec4899/i);
@@ -324,13 +334,36 @@ describe("DesignColorPicker Hex commit callbacks", () => {
         </TooltipProvider>,
       ),
     );
-    await enterHex("EC4899");
+    await enterHex("EC4899", 0);
 
     expect(onPaintValueChange).toHaveBeenCalledTimes(1);
     expect(onPaintValueChange.mock.calls[0]?.[0]).toMatch(/#ec4899/i);
     expect(onChangeComplete).not.toHaveBeenCalled();
     expect(onChange).not.toHaveBeenCalled();
   });
+
+  async function enterStopHex(hex: string, stopIndex: number) {
+    const input = document.querySelectorAll<HTMLInputElement>(
+      'input[aria-label="Stop color"]',
+    )[stopIndex]!;
+    await act(() => {
+      input.focus();
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!.call(input, hex);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(() =>
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
+  }
 
   it("commits a layered gradient Hex edit without touching sibling paints or the solid callback", async () => {
     const firstSibling = "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)";
@@ -364,13 +397,13 @@ describe("DesignColorPicker Hex commit callbacks", () => {
     await act(() => root.render(<LayeredColorInput />));
     await act(() =>
       document
-        .querySelector<HTMLButtonElement>('[aria-label="Linear"]')!
+        .querySelector<HTMLButtonElement>('[aria-label="Gradient"]')!
         .click(),
     );
     onChange.mockClear();
     onBackgroundImageChange.mockClear();
 
-    await enterHex("EC4899");
+    await enterStopHex("EC4899", 0);
 
     expect(onBackgroundImageChange).toHaveBeenCalledTimes(1);
     const layers = splitCssLayers(onBackgroundImageChange.mock.calls[0]![0]);
@@ -381,7 +414,85 @@ describe("DesignColorPicker Hex commit callbacks", () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
-  it("commits the displayed color after selecting another gradient stop", async () => {
+  it("commits one solid value when a native vector gradient has no CSS layer stack", async () => {
+    const gradient =
+      "linear-gradient(90deg, rgba(255, 0, 0, 0.5) 0%, #0000ff 100%)";
+    const onChange = vi.fn();
+    const onBackgroundImageChange = vi.fn();
+
+    await act(() =>
+      root.render(
+        <TooltipProvider>
+          <ColorInput
+            label="Fill"
+            value={gradient}
+            onChange={onChange}
+            open
+            singlePaint
+            onBackgroundImageChange={onBackgroundImageChange}
+          />
+        </TooltipProvider>,
+      ),
+    );
+
+    await act(() =>
+      document
+        .querySelector<HTMLButtonElement>('button[aria-label="Solid"]')!
+        .click(),
+    );
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange.mock.calls[0]?.[0]).toBe("rgba(255, 0, 0, 0.5)");
+    expect(onChange.mock.calls[0]?.[1]).toMatchObject({ phase: "commit" });
+    expect(onBackgroundImageChange).not.toHaveBeenCalled();
+  });
+
+  it("keeps a native vector gradient as the paint source across a solid round trip", async () => {
+    const writes: string[] = [];
+    function NativeVectorPaint() {
+      const [value, setValue] = useState("#ef4444");
+      return (
+        <TooltipProvider>
+          <ColorInput
+            label="Fill"
+            value={value}
+            open
+            singlePaint
+            supportedPaintTypes={["solid", "linear", "radial"]}
+            onChange={(next) => {
+              writes.push(next);
+              setValue(next);
+            }}
+            onSolidToGradientChange={(patch) => {
+              writes.push(patch.backgroundImage);
+              setValue(patch.backgroundImage);
+            }}
+          />
+        </TooltipProvider>
+      );
+    }
+
+    await act(() => root.render(<NativeVectorPaint />));
+    await act(() =>
+      document
+        .querySelector<HTMLButtonElement>('button[aria-label="Gradient"]')!
+        .click(),
+    );
+    expect(writes[0]).toMatch(/^linear-gradient\(/);
+    expect(document.querySelector('[aria-label="Solid"]')).not.toBeNull();
+
+    await act(() =>
+      document
+        .querySelector<HTMLButtonElement>('button[aria-label="Solid"]')!
+        .click(),
+    );
+
+    expect(writes).toHaveLength(2);
+    expect(writes[1]).toBe("#ef4444");
+    expect(writes[1]).not.toBe("#000000");
+  });
+
+  it("edits only the stop whose own field was typed in", async () => {
     const onPaintValueChange = vi.fn();
 
     await act(() =>
@@ -396,31 +507,12 @@ describe("DesignColorPicker Hex commit callbacks", () => {
         </TooltipProvider>,
       ),
     );
-    await act(() =>
-      container.querySelector<HTMLButtonElement>("button")!.click(),
-    );
-    const secondStop = document.querySelector<HTMLButtonElement>(
-      'button[aria-label^="#ffffff at"]',
-    )!;
-    await act(() => secondStop.click());
-    const input = document.querySelector<HTMLInputElement>(
-      'input[aria-label="Hex"]',
-    )!;
-    expect(input.value).toBe("FFFFFF");
-
-    await act(() =>
-      input.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: "Enter",
-          bubbles: true,
-          cancelable: true,
-        }),
-      ),
-    );
+    await enterHex("00FF00", 1);
 
     expect(onPaintValueChange).toHaveBeenCalledTimes(1);
     const gradient = parseGradientLayer(onPaintValueChange.mock.calls[0]![0]);
-    expect(gradient?.stops[1]?.color).toBe("#ffffff");
+    expect(gradient?.stops[0]?.color).toBe("#000000");
+    expect(gradient?.stops[1]?.color).toBe("#00ff00");
   });
 
   it("falls back to onChange for a solid Hex commit without a completion callback", async () => {
@@ -437,5 +529,148 @@ describe("DesignColorPicker Hex commit callbacks", () => {
 
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(onChange).toHaveBeenCalledWith("#ec4899");
+  });
+});
+
+describe("Escape ordering for a color outside sRGB", () => {
+  function setInput(input: HTMLInputElement, text: string) {
+    Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )!.set!.call(input, text);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  const press = (target: Element, key: string) =>
+    target.dispatchEvent(
+      new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }),
+    );
+
+  async function renderWide() {
+    const onCanvasEscape = vi.fn();
+    const onChange = vi.fn();
+    const onCommit = vi.fn();
+    function PickerHarness() {
+      const [value, setValue] = useState("oklch(70% 0.3 150)");
+      useDesignHotkeys({ onEscape: onCanvasEscape });
+      return (
+        <TooltipProvider>
+          <DesignColorPicker
+            value={value}
+            onChange={(next) => {
+              onChange(next);
+              setValue(next);
+            }}
+            onChangeComplete={(next) => {
+              onCommit(next);
+              setValue(next);
+            }}
+          />
+        </TooltipProvider>
+      );
+    }
+    await act(() => root.render(<PickerHarness />));
+    await act(() =>
+      container.querySelector<HTMLButtonElement>("button")!.click(),
+    );
+    return { onCanvasEscape, onChange, onCommit };
+  }
+
+  it("opens the wide mode and keeps a committed OKLCH edit when Escape closes it", async () => {
+    const { onCanvasEscape, onChange, onCommit } = await renderWide();
+    const lightness = document.querySelector<HTMLInputElement>(
+      'input[aria-label="L"]',
+    )!;
+    expect(lightness.value).toBe("70");
+    await act(() => {
+      lightness.focus();
+      setInput(lightness, "80");
+    });
+    await act(() => press(lightness, "Enter"));
+    expect(onChange).toHaveBeenLastCalledWith("oklch(80% 0.3 150)");
+    expect(onCommit).toHaveBeenLastCalledWith("oklch(80% 0.3 150)");
+
+    await act(() => press(lightness, "Escape"));
+    expect(document.querySelector('input[aria-label="L"]')).toBeNull();
+    expect(
+      container.querySelector<HTMLElement>('[aria-label="Color"]')!.textContent,
+    ).toBe("OKLCH 80 0.3 150");
+    expect(onCanvasEscape).not.toHaveBeenCalled();
+  });
+
+  it("drops an uncommitted OKLCH draft on Escape and writes nothing", async () => {
+    const { onCanvasEscape, onChange, onCommit } = await renderWide();
+    const chroma = document.querySelector<HTMLInputElement>(
+      'input[aria-label="C"]',
+    )!;
+    await act(() => {
+      chroma.focus();
+      setInput(chroma, "0.1");
+    });
+    await act(() => press(chroma, "Escape"));
+    expect(document.querySelector('input[aria-label="C"]')).toBeNull();
+    expect(onChange).not.toHaveBeenCalled();
+    expect(onCommit).not.toHaveBeenCalled();
+    expect(
+      container.querySelector<HTMLElement>('[aria-label="Color"]')!.textContent,
+    ).toBe("OKLCH 70 0.3 150");
+    expect(onCanvasEscape).not.toHaveBeenCalled();
+  });
+
+  it("shows a wide fill in its own notation in the trigger field and does not flatten it on Escape", async () => {
+    const { onChange, onCommit } = await renderWide();
+    const field = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Color"]',
+    )!;
+    expect(field.textContent).toBe("OKLCH 70 0.3 150");
+    await act(() => field.click());
+    const inline = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Color"]',
+    )!;
+    expect(inline.value).toBe("OKLCH 70 0.3 150");
+    await act(() => {
+      inline.focus();
+      setInput(inline, "OKLCH 60 0.2 20");
+    });
+    await act(() => press(inline, "Escape"));
+    expect(container.querySelector('input[aria-label="Color"]')).toBeNull();
+    expect(
+      container.querySelector<HTMLElement>('[aria-label="Color"]')!.textContent,
+    ).toBe("OKLCH 70 0.3 150");
+    expect(onChange).not.toHaveBeenCalled();
+    expect(onCommit).not.toHaveBeenCalled();
+  });
+
+  it("commits what was typed in the field's own notation, as that notation", async () => {
+    const { onCommit } = await renderWide();
+    await act(() =>
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Color"]')!
+        .click(),
+    );
+    const inline = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Color"]',
+    )!;
+    await act(() => {
+      inline.focus();
+      setInput(inline, "OKLCH 60 0.2 20");
+    });
+    await act(() => press(inline, "Enter"));
+    expect(onCommit).toHaveBeenCalledTimes(1);
+    expect(onCommit).toHaveBeenCalledWith("oklch(60% 0.2 20)");
+
+    await act(() =>
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Color"]')!
+        .click(),
+    );
+    const again = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Color"]',
+    )!;
+    await act(() => {
+      again.focus();
+      setInput(again, "P3 0.1 0.2 0.3");
+    });
+    await act(() => press(again, "Enter"));
+    expect(onCommit).toHaveBeenLastCalledWith("color(display-p3 0.1 0.2 0.3)");
   });
 });

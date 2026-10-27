@@ -6,10 +6,6 @@ function makeId(owner: string, contact: string): string {
   return `${owner.toLowerCase()}:${contact.toLowerCase()}`;
 }
 
-/**
- * Increment contact frequency after sending an email.
- * Upserts a row for each recipient in a single batched statement.
- */
 export async function incrementSendFrequency(
   ownerEmail: string,
   recipients: { email: string; name?: string }[],
@@ -18,11 +14,6 @@ export async function incrementSendFrequency(
 
   const now = Date.now();
 
-  // De-dupe by conflict key (id), summing send counts for repeated emails.
-  // A single multi-row insert can't target the same conflict key twice —
-  // Postgres raises "ON CONFLICT DO UPDATE command cannot affect row a
-  // second time" — so recipients appearing more than once in one call must
-  // be merged before the insert.
   const byId = new Map<
     string,
     { id: string; contactEmail: string; contactName: string; sendCount: number }
@@ -66,10 +57,6 @@ export async function incrementSendFrequency(
     });
 }
 
-/**
- * Get contact frequency map for a user.
- * Returns a map of lowercase email → total interaction count.
- */
 export async function getContactFrequencyMap(
   ownerEmail: string,
 ): Promise<Map<string, number>> {

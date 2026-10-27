@@ -186,8 +186,10 @@ bold/italic/strike/code/underline/color/background and links, inline + block
 equations, code blocks, dividers, `<empty-block/>`, callouts, toggles, columns,
 tables (header row/column, cell/row colors), images/audio/video/file/pdf, page
 and database references, synced blocks (children preserved), mentions, and
-backslash-escaped special characters. Visual indentation is a block `indent`
-attribute (Tab indents a block, matching Notion).
+backslash-escaped special characters. A list item's, callout's, toggle's,
+column's, or synced block's children sit one tab deeper than its line or tags.
+Visual indentation is a block `indent` attribute (Tab indents a block,
+matching Notion).
 
 ## Sync State
 
@@ -231,3 +233,6 @@ the two copies from drifting.
 - Because storage is canonical NFM, a no-op sync changes nothing: editing the
   same document in Notion and in the app will not create growing inconsistencies.
 - Always check `connect-notion-status` before attempting sync operations.
+- A Notion export is a one-time copy, not a sync. `import-content` takes the
+  export's `.md` files and images but not the zip itself yet; link and pull
+  pages that should stay in sync with Notion.

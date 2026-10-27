@@ -32,9 +32,6 @@ interface ComposeSlashMenuProps {
 }
 
 interface CommandItem {
-  // Either a translation key or a literal string may be supplied — literal
-  // strings win, so dynamic (non-translatable) content like a saved snippet's
-  // name can share the same command shape as the built-in i18n-keyed items.
   titleKey?: string;
   title?: string;
   descriptionKey?: string;
@@ -44,11 +41,6 @@ interface CommandItem {
   category?: string;
 }
 
-/**
- * Case-insensitive subsequence match: every character of `query` must appear
- * in `text` in order, not necessarily contiguously (e.g. "mtg" matches
- * "meeting"). Empty query matches everything.
- */
 function fuzzyMatch(text: string, query: string): boolean {
   if (!query) return true;
   const haystack = text.toLowerCase();

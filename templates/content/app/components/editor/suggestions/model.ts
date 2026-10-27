@@ -84,6 +84,64 @@ export const SUPPORTED_SUGGESTION_BLOCKS = new Set([
   "horizontalRule",
 ]);
 
+const SUPPORTED_SUGGESTION_INLINE_NODES = new Set(["hardBreak"]);
+
+const SUGGESTION_FRAME_NODES = new Set([
+  "table",
+  "tableRow",
+  "tableHeader",
+  "tableCell",
+  "notionCallout",
+  "notionToggle",
+  "notionColumns",
+  "notionColumn",
+]);
+
+// These frames hold ordinary blocks, so a suggestion may add or remove a
+// paragraph inside them. A table's rows and cells, and the columns of a
+// column layout, are the frame itself.
+const SUGGESTION_OPEN_FRAME_NODES = new Set([
+  "notionCallout",
+  "notionToggle",
+  "notionColumn",
+]);
+
+// A suggestion may change an editable node freely. Inside a frame it may
+// change text, but not the frame's own attributes (a callout icon, a toggle
+// title) or its rows, cells, and columns. It must leave a frozen node exactly
+// as it is. The server refuses a proposal that breaks this, so the
+// suggesting editor enforces the same roles.
+export type SuggestionNodeRole = "editable" | "frame" | "frozen";
+
+export function suggestionNodeRole(type: string): SuggestionNodeRole {
+  if (
+    type === "doc" ||
+    type === "text" ||
+    SUPPORTED_SUGGESTION_BLOCKS.has(type) ||
+    SUPPORTED_SUGGESTION_INLINE_NODES.has(type)
+  ) {
+    return "editable";
+  }
+  return SUGGESTION_FRAME_NODES.has(type) ? "frame" : "frozen";
+}
+
+export function isOpenSuggestionFrame(type: string): boolean {
+  return SUGGESTION_OPEN_FRAME_NODES.has(type);
+}
+
+// The part of a frame a suggestion must leave unchanged.
+export function suggestionFrameShape(
+  type: string,
+  attrs: unknown,
+  children: readonly string[],
+): string {
+  return JSON.stringify([
+    type,
+    attrs ?? null,
+    isOpenSuggestionFrame(type) ? null : children,
+  ]);
+}
+
 export const SUPPORTED_SUGGESTION_MARKS = new Set<SuggestionMark>([
   "bold",
   "italic",
@@ -114,7 +172,6 @@ export function textContent(doc: SuggestionNode): string {
   return result;
 }
 
-/** Stable, dependency-free digest suitable for detecting a proposal base. */
 export function digest(value: string): string {
   let hash = 2166136261;
   for (let i = 0; i < value.length; i += 1) {

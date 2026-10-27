@@ -32,7 +32,6 @@ function agentState(docId: string): Record<string, any> | undefined {
   return entry ? JSON.parse(entry.state) : undefined;
 }
 
-/** Fire any pending linger removal for deterministic cleanup. */
 function flushLinger(): void {
   vi.advanceTimersByTime(AGENT_PRESENCE_LINGER_MS + 1);
 }
@@ -83,11 +82,11 @@ describe("agentEnterDocument / agentLeaveDocument", () => {
     agentEnterDocument(docId);
     agentEnterDocument(docId);
 
-    agentLeaveDocument(docId); // count 2 -> 1, still present
+    agentLeaveDocument(docId);
     flushLinger();
     expect(getDocAwareness(docId).has(AGENT_CLIENT_ID)).toBe(true);
 
-    agentLeaveDocument(docId); // count 1 -> 0, linger then removed
+    agentLeaveDocument(docId);
     flushLinger();
     expect(getDocAwareness(docId).has(AGENT_CLIENT_ID)).toBe(false);
   });
@@ -97,7 +96,6 @@ describe("agentEnterDocument / agentLeaveDocument", () => {
     agentEnterDocument(docId);
     agentLeaveDocument(docId);
 
-    // Still present immediately after leave — viewers get a beat to see it.
     expect(getDocAwareness(docId).has(AGENT_CLIENT_ID)).toBe(true);
 
     vi.advanceTimersByTime(AGENT_PRESENCE_LINGER_MS - 1000);
@@ -120,7 +118,7 @@ describe("agentEnterDocument / agentLeaveDocument", () => {
     agentLeaveDocument(docId);
 
     vi.advanceTimersByTime(AGENT_PRESENCE_LINGER_MS - 1000);
-    agentEnterDocument(docId); // back in before the linger fires
+    agentEnterDocument(docId);
 
     vi.advanceTimersByTime(AGENT_PRESENCE_LINGER_MS * 2);
     expect(getDocAwareness(docId).has(AGENT_CLIENT_ID)).toBe(true);
@@ -138,7 +136,6 @@ describe("agentEnterDocument / agentLeaveDocument", () => {
     agentEnterDocument(docId);
     agentEnterDocument(docId);
 
-    // Only one interval was created despite two enters.
     expect(setIntervalSpy.mock.calls.length - before).toBe(1);
 
     agentLeaveDocument(docId);
@@ -153,8 +150,6 @@ describe("agentEnterDocument / agentLeaveDocument", () => {
     agentEnterDocument(docId);
     expect(getDocAwareness(docId).get(AGENT_CLIENT_ID)?.lastSeen).toBe(0);
 
-    // Advancing past the 10s interval fires the heartbeat, which stamps
-    // lastSeen with Date.now() at fire time (the advanced fake clock).
     vi.advanceTimersByTime(10_000);
     expect(getDocAwareness(docId).get(AGENT_CLIENT_ID)?.lastSeen).toBe(10_000);
 
@@ -302,7 +297,6 @@ describe("agentTouchDocument", () => {
     });
 
     flushLinger();
-    // Still present: the explicit operation owns the lifecycle.
     expect(getDocAwareness(docId).has(AGENT_CLIENT_ID)).toBe(true);
 
     agentLeaveDocument(docId);
@@ -357,9 +351,7 @@ describe("agentApplyEditsIncrementally", () => {
       "d",
       "agent",
     );
-    // Presence lingers after completion so viewers see who edited…
     expect(getDocAwareness(docId).has(AGENT_CLIENT_ID)).toBe(true);
-    // …then clears.
     flushLinger();
     expect(getDocAwareness(docId).has(AGENT_CLIENT_ID)).toBe(false);
   });

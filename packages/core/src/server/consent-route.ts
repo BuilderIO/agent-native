@@ -1,0 +1,184 @@
+import {
+  appendResponseHeader,
+  defineEventHandler,
+  getHeader,
+  getMethod,
+  setResponseHeader,
+  setResponseStatus,
+} from "h3";
+import type { H3Event } from "h3";
+
+import {
+  CONSENT_COOKIE_LIFETIME_SECONDS,
+  CONSENT_COOKIE_NAME,
+  consentCookieDomain,
+  isConsentRegionCountry,
+  parseConsent,
+  serializeConsent,
+  type ConsentCategory,
+} from "../shared/consent.js";
+import { parseCookieHeader } from "./attribution.js";
+import { readBodyWithSizeLimit } from "./h3-helpers.js";
+import {
+  getForwardedRequestOrigin,
+  getForwardedRequestURL,
+  isSameOriginPost,
+} from "./request-origin.js";
+
+const MAX_CONSENT_BODY_BYTES = 256;
+
+/**
+ * The visitor's country from the host's geo header, if it sent one. The
+ * headers a CDN always overwrites come first, so a visitor's own `x-country`
+ * can't outrank them.
+ */
+export function requestCountry(event: H3Event): string | undefined {
+  return requestCountryFromHeader((name) => getHeader(event, name));
+}
+
+function netlifyGeoCountryFromHeader(
+  geo: string | undefined,
+): string | undefined {
+  if (!geo) return undefined;
+  try {
+    const parsed = JSON.parse(Buffer.from(geo, "base64").toString("utf8"));
+    const code = parsed?.country?.code;
+    return typeof code === "string" ? code : undefined;
+  } catch {
+    // coercion-ok: an unreadable geo header is an unknown country; the next
+    // header, or the browser's time zone, decides.
+    return undefined;
+  }
+}
+
+function requestCountryFromHeader(
+  readHeader: (name: string) => string | undefined,
+): string | undefined {
+  return (
+    netlifyGeoCountryFromHeader(readHeader("x-nf-geo")) ??
+    readHeader("cf-ipcountry") ??
+    readHeader("x-vercel-ip-country") ??
+    readHeader("x-country")
+  );
+}
+
+export function requestCountryFromHeaders(
+  headers: Headers | null | undefined,
+): string | undefined {
+  return requestCountryFromHeader((name) => headers?.get(name) ?? undefined);
+}
+
+function allowsConsentCategory(
+  cookieHeader: string | undefined,
+  country: string | undefined,
+  category: ConsentCategory,
+): boolean {
+  const consent = parseConsent(
+    parseCookieHeader(cookieHeader)[CONSENT_COOKIE_NAME],
+  );
+  if (consent) return consent[category];
+  const normalizedCountry = country?.trim().toUpperCase();
+  if (
+    !normalizedCountry ||
+    !/^[A-Z]{2}$/.test(normalizedCountry) ||
+    normalizedCountry === "XX" ||
+    normalizedCountry === "ZZ"
+  ) {
+    return false;
+  }
+  return !isConsentRegionCountry(normalizedCountry);
+}
+
+/** Consent decision for auth callbacks using standard request headers. */
+export function requestAllowsConsentCategoryFromHeaders(
+  headers: Headers | null | undefined,
+  category: ConsentCategory,
+): boolean {
+  return allowsConsentCategory(
+    headers?.get("cookie") ?? undefined,
+    requestCountryFromHeaders(headers),
+    category,
+  );
+}
+
+/**
+ * A stored choice applies everywhere; without one, the country decides
+ * whether storing `category` cookies requires an opt-in.
+ */
+export function requestAllowsConsentCategory(
+  event: H3Event,
+  category: ConsentCategory,
+): boolean {
+  return allowsConsentCategory(
+    getHeader(event, "cookie"),
+    requestCountry(event),
+    category,
+  );
+}
+
+/**
+ * `GET /_agent-native/auth/consent-region`: `consent` when the visitor's
+ * country gets the banner, `none` when it doesn't, `unknown` when the host
+ * sent no country. The SSR shell is cached for everyone, so the browser asks
+ * here instead of reading it from the page.
+ */
+export function createConsentRegionHandler() {
+  return defineEventHandler((event) => {
+    setResponseHeader(event, "cache-control", "no-store");
+    if (getMethod(event) !== "GET") {
+      setResponseStatus(event, 405);
+      return { error: "Method not allowed" };
+    }
+    const country = requestCountry(event);
+    if (!country) return { region: "unknown" };
+    return { region: isConsentRegionCountry(country) ? "consent" : "none" };
+  });
+}
+
+/**
+ * `POST /_agent-native/auth/consent` with `{ choice: "1.p1.t0" }`: write the
+ * visitor's choice from the server. Safari keeps a cookie page JavaScript
+ * wrote for seven days at most, and builder.io asks again only after a year.
+ * Uses the same domain as the browser's copy, so it replaces that copy.
+ */
+export function createConsentHandler() {
+  return defineEventHandler(async (event) => {
+    setResponseHeader(event, "cache-control", "no-store");
+    if (getMethod(event) !== "POST") {
+      setResponseStatus(event, 405);
+      return { error: "Method not allowed" };
+    }
+    if (!isSameOriginPost(event)) {
+      setResponseStatus(event, 403);
+      return { error: "Cross-origin request" };
+    }
+    let choice;
+    try {
+      const body = await readBodyWithSizeLimit<{ choice?: unknown } | null>(
+        event,
+        MAX_CONSENT_BODY_BYTES,
+      );
+      choice = parseConsent(body?.choice as string);
+    } catch (error) {
+      if ((error as { statusCode?: number }).statusCode === 413) {
+        return { error: "Body too large" };
+      }
+      setResponseStatus(event, 400);
+      return { error: "Invalid JSON" };
+    }
+    if (!choice) {
+      setResponseStatus(event, 400);
+      return { error: "Missing choice" };
+    }
+    const domain = consentCookieDomain(getForwardedRequestURL(event).hostname);
+    const secure = getForwardedRequestOrigin(event).startsWith("https:");
+    appendResponseHeader(
+      event,
+      "set-cookie",
+      `${CONSENT_COOKIE_NAME}=${serializeConsent(choice)}; ` +
+        `Max-Age=${CONSENT_COOKIE_LIFETIME_SECONDS}; Path=/; SameSite=Lax` +
+        `${domain ? `; Domain=${domain}` : ""}${secure ? "; Secure" : ""}`,
+    );
+    return { stored: true, choice };
+  });
+}

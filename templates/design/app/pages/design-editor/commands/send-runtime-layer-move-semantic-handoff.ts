@@ -11,12 +11,15 @@ import {
   reactSourceAnchorForPendingEdit,
   reactSourceAnchorUnavailableReason,
 } from "@/pages/design-editor/pending-edits";
-import { buildRuntimeReactStructureMoveHandoff } from "@/pages/design-editor/react-semantic-handoff";
+import {
+  buildRuntimeReactStructureMoveHandoff,
+  type ReactGridPlacement,
+} from "@/pages/design-editor/react-semantic-handoff";
 import type { DesignLeftPanel } from "@/pages/design-editor/types";
 
 export interface SendRuntimeLayerMoveSemanticHandoffArgs {
   codeLayerOwnerByNodeIdRef: RefObject<
-    Map<
+    ReadonlyMap<
       string,
       {
         fileId: string;
@@ -45,6 +48,7 @@ export function runSendRuntimeLayerMoveSemanticHandoff(
   subjectLayerId: string,
   targetLayerId: string,
   placement: "before" | "after" | "inside",
+  gridPlacement?: ReactGridPlacement,
 ): boolean {
   const subjectOwner = codeLayerOwnerByNodeIdRef.current.get(subjectLayerId);
   const targetOwner = codeLayerOwnerByNodeIdRef.current.get(targetLayerId);
@@ -79,9 +83,6 @@ export function runSendRuntimeLayerMoveSemanticHandoff(
   const subjectAnchor = sourceAnchorForOwner(subjectOwner, "subject");
   const targetAnchor = sourceAnchorForOwner(targetOwner, "target");
   if (!subjectAnchor || !targetAnchor) {
-    // Mixed runtime/source moves are only safe when BOTH endpoints carry
-    // exact compiler provenance. Never fall back to selectors or a generic
-    // source/AST move for the missing side.
     toast.error(
       reactSourceAnchorUnavailableReason([
         elementInfoFromCodeLayerNode(subjectOwner.node),
@@ -97,6 +98,7 @@ export function runSendRuntimeLayerMoveSemanticHandoff(
     subjectAnchor,
     targetAnchor,
     placement,
+    gridPlacement,
     sourceScreenId: subjectOwner.fileId,
     targetScreenId: targetOwner.fileId,
   });

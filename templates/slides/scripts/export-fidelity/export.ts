@@ -1,11 +1,3 @@
-// Headless export harness: signs into the local Slides dev server, creates
-// (or reuses) a deck, exports it to PPTX through the app's REAL browser
-// exporter (buildDeckPptxBlob), and renders pixel-faithful reference PNGs of
-// every slide. See README.md for usage.
-//
-// Usage:
-//   pnpm exec tsx export.ts <fixture.json> --out <dir>
-//   pnpm exec tsx export.ts --deck <deckId> --out <dir>
 import { readFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -177,9 +169,6 @@ async function computeSlideLayoutInPage({
 
   type Glyph = { char: string; node: Text; offset: number; rect: DOMRect };
 
-  /** One Range measurement per codepoint (not UTF-16 unit, so surrogate-pair
-   * emoji stay a single glyph), skipping positions with no visible box —
-   * collapsed whitespace at a wrap point renders nothing there. */
   function collectGlyphs(textNodes: Text[]): Glyph[] {
     const range = document.createRange();
     const glyphs: Glyph[] = [];
@@ -200,9 +189,6 @@ async function computeSlideLayoutInPage({
     return glyphs;
   }
 
-  /** New line when a glyph's vertical center jumps more than ~2px from the
-   * line's reference (first-glyph) center — a real wrap moves by a full
-   * line-height, never a couple of px. */
   function groupIntoLines(glyphs: Glyph[]): Glyph[][] {
     const lines: Glyph[][] = [];
     let current: Glyph[] | null = null;
@@ -225,9 +211,6 @@ async function computeSlideLayoutInPage({
     string,
     { ascent: number; descent: number }
   >();
-  /** Font-level ascent/descent for an exact computed `font` shorthand
-   * (family+size+weight+style, as `getComputedStyle` reports it) — the same
-   * value for any text in that font, so this is cached per shorthand. */
   function fontAscentDescent(fontShorthand: string): {
     ascent: number;
     descent: number;
@@ -237,9 +220,6 @@ async function computeSlideLayoutInPage({
     if (!metricsCtx)
       metricsCtx = document.createElement("canvas").getContext("2d");
     const ctx = metricsCtx!;
-    // `getComputedStyle().font` can carry a line-height ("400 16px / 24px
-    // Inter"), which the canvas font setter rejects — leaving the previously
-    // measured face in place and reporting its metrics as this one's.
     const canvasFont = fontShorthand.replace(/\s*\/\s*\S+/, "");
     ctx.font = "10px serif";
     ctx.font = canvasFont;
@@ -256,9 +236,6 @@ async function computeSlideLayoutInPage({
   }
 
   document.querySelectorAll("[data-layout-stage]").forEach((el) => el.remove());
-  // Split so tsc treats this as a computed expression instead of a
-  // resolvable module specifier (a literal path string here fails with
-  // TS2307) — this only ever runs inside the browser page via page.evaluate.
   const { findSlideExportSource }: any = await import(
     "/app/" + "lib/export-pdf-client.ts"
   );
@@ -354,21 +331,8 @@ async function computeSlideLayoutInPage({
     const lines = lineGroups.map((line) => {
       const top = Math.min(...line.map((g) => g.rect.top));
       const bottom = Math.max(...line.map((g) => g.rect.bottom));
-      // Font metrics come from this LINE's own first glyph's immediate
-      // parent, not the owner's. A `<div>label<br><span style="font-size:
-      // 32px">4,820</span></div>` stat card is one text element (per spec:
-      // a DIV split by <br> is one element with several lines) but its
-      // "4,820" line renders in a completely different font size than the
-      // div's own computed style reports — using the owner's font for every
-      // line put that line's baseline outside its own measured box.
       const lineFont = getComputedStyle(line[0].node.parentElement!).font;
       const { ascent, descent } = fontAscentDescent(lineFont);
-      // Standard CSS half-leading: the line box may be taller than the
-      // font's own ascent+descent (extra space split evenly above/below),
-      // or — as seen here, where the font's natural metrics exceed the
-      // declared line-height — exactly equal to it with zero leading.
-      // Either way this is derived from each line's OWN measured box, so
-      // unlike a per-line DOM probe it can't mix up which line is which.
       const halfLeading = (bottom - top - (ascent + descent)) / 2;
       const baseline = top + halfLeading + ascent;
       return {
@@ -543,12 +507,6 @@ async function main() {
         ),
     );
 
-    // tsx/esbuild wraps nested named function declarations in a `__name(...)`
-    // helper call for `.name` preservation. That helper only exists in the
-    // compiled module's own scope, not in the source text `.toString()`
-    // extracts for `page.evaluate(fnRef, ...)` — so a function with nested
-    // named helpers (like computeSlideLayoutInPage below) throws
-    // "__name is not defined" the moment it runs in the page. Stub it once.
     await page.evaluate(() => {
       const w = window as any;
       if (!w.__name) {
@@ -574,9 +532,6 @@ async function main() {
     let anyBaselineOutOfOrder = false;
     for (let i = 0; i < slideIds.length; i++) {
       const slideId = slideIds[i];
-      // page.evaluate is called through the untyped `any` playwright handle
-      // (see resolvePnpmEntry above), so its return type doesn't flow from
-      // computeSlideLayoutInPage's own signature — annotate explicitly.
       const { texts }: { texts: any[] } = await page.evaluate(
         computeSlideLayoutInPage,
         {
@@ -605,10 +560,6 @@ async function main() {
         }`,
       );
 
-      // Sanity check (see README.md): a multi-line element's baselines must
-      // strictly increase top-to-bottom. This is what actually caught the
-      // insertNode-probe bug during development (wrong technique produced a
-      // repeated, non-increasing baseline) — keep checking it on every run.
       for (const t of texts) {
         for (let li = 1; li < t.lines.length; li++) {
           if (t.lines[li].baseline <= t.lines[li - 1].baseline) {
@@ -644,7 +595,6 @@ async function main() {
     );
     const exportResult = await page.evaluate(
       async ({ title, slides, aspectRatio }: any) => {
-        // Vite dev serves app/ source under its filesystem-relative path.
         const mod: any = await import("/app/" + "lib/export-pptx-client.ts");
         const { blob, filename, blankShapes } = await mod.buildDeckPptxBlob(
           title,
@@ -679,8 +629,6 @@ async function main() {
     console.log(
       `[export] wrote ${pptxPath} (${exportResult.byteLength} bytes, blankShapes=${exportResult.blankShapes})`,
     );
-    // A blank shape is a graphic that rasterized to nothing, so it is missing
-    // from the deck — and a text-only comparison cannot see that it went.
     if (exportResult.blankShapes > 0) {
       console.error(
         `[export] FAILED: ${exportResult.blankShapes} shape(s) rasterized empty and are missing from ${pptxPath}`,
@@ -726,8 +674,6 @@ async function main() {
           document
             .querySelectorAll("[data-ref-stage]")
             .forEach((el) => el.remove());
-          // Same DOM lookup the real exporter uses, so the reference is
-          // built from the identical source node buildDeckPptxBlob reads.
           const { findSlideExportSource }: any = await import(
             "/app/" + "lib/export-pdf-client.ts"
           );
@@ -746,9 +692,6 @@ async function main() {
           });
 
           const clone = source.cloneNode(true) as HTMLElement;
-          // Native, unscaled size — identical technique to the exporter's own
-          // createUnscaledExportClone — then magnified via CSS transform so
-          // layout/type proportions match the true 960x540 render exactly.
           Object.assign(clone.style, {
             position: "absolute",
             top: "0",

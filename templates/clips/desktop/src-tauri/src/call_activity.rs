@@ -1,11 +1,17 @@
-//! Whether a conferencing app is holding a live audio input right now.
-//!
-//! Both meeting watchers read this, from opposite ends of a call: the ad-hoc
-//! detector treats a running input as corroboration that a call actually
-//! started, and the silence detector treats its release as evidence one
-//! ended. The silence detector's `mic_attribution` watcher also reuses
-//! `bundle_id_matches` to compare Control Center's mic attribution against
-//! the same candidate bundle ids, independent of CoreAudio.
+const BROWSER_CALL_APP_BUNDLE_IDS: &[&str] = &[
+    "com.google.chrome",
+    "company.thebrowser.browser",
+    "com.apple.safari",
+    "org.mozilla.firefox",
+];
+
+#[cfg(any(target_os = "macos", test))]
+pub(crate) fn supported_browser_bundle_id(bundle_id: &str) -> Option<&'static str> {
+    BROWSER_CALL_APP_BUNDLE_IDS
+        .iter()
+        .copied()
+        .find(|candidate| candidate.eq_ignore_ascii_case(bundle_id))
+}
 
 #[cfg(target_os = "macos")]
 pub(crate) fn default_call_app_bundle_ids() -> Vec<String> {
@@ -21,9 +27,6 @@ pub(crate) fn default_call_app_bundle_ids() -> Vec<String> {
 }
 
 pub(crate) fn bundle_id_matches(bundle_id: &str, candidate: &str) -> bool {
-    // Readings arrive lowercased (CoreAudio and Control Center both do that
-    // here) while configured ids keep their canonical case ("com.google.Chrome"),
-    // so compare case-insensitively at this one boundary.
     let bundle_id = bundle_id.to_lowercase();
     let candidate = candidate.to_lowercase();
     let (bundle_id, candidate) = (bundle_id.as_str(), candidate.as_str());
@@ -31,47 +34,38 @@ pub(crate) fn bundle_id_matches(bundle_id: &str, candidate: &str) -> bool {
         return true;
     }
     if candidate == "us.zoom.xos" {
-        // Zoom's in-call helpers (CptHost, caphost, aomhost, airhost,
-        // zCCIMeetingHost, ...) run as separate CoreAudio process objects
-        // under their own "us.zoom.*" bundle ids inside zoom.us.app, not as
-        // dotted children of us.zoom.xos, so the generic suffix rule below
-        // can't see them.
         return bundle_id.starts_with("us.zoom.");
     }
-    !matches!(
-        candidate,
-        "com.google.chrome"
-            | "company.thebrowser.browser"
-            | "com.apple.safari"
-            | "org.mozilla.firefox"
-    ) && bundle_id
-        .strip_prefix(candidate)
-        .map(|suffix| suffix.starts_with('.'))
-        .unwrap_or(false)
+    !BROWSER_CALL_APP_BUNDLE_IDS.contains(&candidate)
+        && bundle_id
+            .strip_prefix(candidate)
+            .map(|suffix| suffix.starts_with('.'))
+            .unwrap_or(false)
 }
 
-/// Returns whether one of the target conferencing apps currently has a live
-/// CoreAudio input stream. `None` means the OS could not provide a reliable
-/// answer, so callers must keep the existing conservative fallbacks.
-///
-/// `kAudioProcessPropertyIsRunningInput` is macOS 14+, so an older system is a
-/// `None` and never a `Some(false)`. Callers that collapse the two make the
-/// feature silently dead on Sonoma-minus rather than degraded.
-///
-/// Observation only: this enumerates process objects and never opens an input
-/// unit. A detector that grabbed one while idle would fight `whisper_speech`,
-/// which holds VPIO with uplink processing bypassed precisely so a call app
-/// cannot starve Clips of mic buffers.
 #[cfg(target_os = "macos")]
 pub(crate) fn call_app_uses_microphone(bundle_ids: &[String]) -> Option<bool> {
+    call_matching_process_microphone(bundle_ids, None)
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn call_process_uses_microphone(pid: i32, bundle_id: &str) -> Option<bool> {
+    call_matching_process_microphone(&[bundle_id.to_string()], Some(pid))
+}
+
+#[cfg(target_os = "macos")]
+fn call_matching_process_microphone(
+    bundle_ids: &[String],
+    expected_pid: Option<i32>,
+) -> Option<bool> {
     use core_foundation::base::TCFType;
     use core_foundation::string::CFString;
     use objc2_core_audio::{
         kAudioHardwareNoError, kAudioHardwarePropertyProcessObjectList,
         kAudioObjectPropertyElementMain, kAudioObjectPropertyScopeGlobal, kAudioObjectSystemObject,
         kAudioProcessPropertyBundleID, kAudioProcessPropertyIsRunningInput,
-        AudioObjectGetPropertyData, AudioObjectGetPropertyDataSize, AudioObjectID,
-        AudioObjectPropertyAddress,
+        kAudioProcessPropertyPID, AudioObjectGetPropertyData, AudioObjectGetPropertyDataSize,
+        AudioObjectID, AudioObjectPropertyAddress,
     };
     use std::ffi::c_void;
     use std::mem::size_of;
@@ -92,7 +86,13 @@ pub(crate) fn call_app_uses_microphone(bundle_ids: &[String]) -> Option<bool> {
             NonNull::from(&mut data_size),
         )
     };
-    if list_status != kAudioHardwareNoError || data_size == 0 {
+    if list_status != kAudioHardwareNoError {
+        return None;
+    }
+    if data_size == 0 {
+        return Some(false);
+    }
+    if data_size as usize % size_of::<AudioObjectID>() != 0 {
         return None;
     }
 
@@ -111,12 +111,39 @@ pub(crate) fn call_app_uses_microphone(bundle_ids: &[String]) -> Option<bool> {
         return None;
     }
 
-    // Set when a target bundle is found but its running-input state can't be
-    // read. Distinct from "no target bundle is running at all" — the caller's
-    // None/Some(false) contract depends on not conflating the two.
-    let mut matched_bundle_with_unreadable_input = false;
+    let mut unreadable_process_id = false;
+    let mut unreadable_target_bundle = false;
+    let mut unreadable_input = false;
+    let mut matched_bundle = false;
 
     for process in processes {
+        if let Some(expected_pid) = expected_pid {
+            let mut pid_address = AudioObjectPropertyAddress {
+                mSelector: kAudioProcessPropertyPID,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain,
+            };
+            let mut process_pid: i32 = 0;
+            let mut pid_size = size_of::<i32>() as u32;
+            let pid_status = unsafe {
+                AudioObjectGetPropertyData(
+                    process,
+                    NonNull::from(&mut pid_address),
+                    0,
+                    std::ptr::null(),
+                    NonNull::from(&mut pid_size),
+                    NonNull::new((&mut process_pid as *mut i32).cast::<c_void>())?,
+                )
+            };
+            if pid_status != kAudioHardwareNoError {
+                unreadable_process_id = true;
+                continue;
+            }
+            if process_pid != expected_pid {
+                continue;
+            }
+        }
+
         let mut bundle_address = AudioObjectPropertyAddress {
             mSelector: kAudioProcessPropertyBundleID,
             mScope: kAudioObjectPropertyScopeGlobal,
@@ -135,6 +162,9 @@ pub(crate) fn call_app_uses_microphone(bundle_ids: &[String]) -> Option<bool> {
             )
         };
         if bundle_status != kAudioHardwareNoError || bundle_ref.is_null() {
+            if expected_pid.is_some() {
+                unreadable_target_bundle = true;
+            }
             continue;
         }
         let bundle_id = unsafe {
@@ -148,6 +178,7 @@ pub(crate) fn call_app_uses_microphone(bundle_ids: &[String]) -> Option<bool> {
         {
             continue;
         }
+        matched_bundle = true;
 
         let mut input_address = AudioObjectPropertyAddress {
             mSelector: kAudioProcessPropertyIsRunningInput,
@@ -167,7 +198,7 @@ pub(crate) fn call_app_uses_microphone(bundle_ids: &[String]) -> Option<bool> {
             )
         };
         if input_status != kAudioHardwareNoError {
-            matched_bundle_with_unreadable_input = true;
+            unreadable_input = true;
             continue;
         }
         if input_running != 0 {
@@ -175,7 +206,14 @@ pub(crate) fn call_app_uses_microphone(bundle_ids: &[String]) -> Option<bool> {
         }
     }
 
-    if matched_bundle_with_unreadable_input {
+    if expected_pid.is_some()
+        && (unreadable_target_bundle
+            || (unreadable_process_id && !matched_bundle)
+            || (unreadable_input && matched_bundle))
+    {
+        return None;
+    }
+    if unreadable_input && matched_bundle {
         return None;
     }
     Some(false)
@@ -183,7 +221,7 @@ pub(crate) fn call_app_uses_microphone(bundle_ids: &[String]) -> Option<bool> {
 
 #[cfg(test)]
 mod tests {
-    use super::bundle_id_matches;
+    use super::{bundle_id_matches, supported_browser_bundle_id, BROWSER_CALL_APP_BUNDLE_IDS};
 
     #[test]
     fn matches_native_helpers_but_only_exact_browser_processes() {
@@ -208,21 +246,36 @@ mod tests {
 
     #[test]
     fn zoom_in_call_helpers_match_by_bundle_prefix() {
-        // Real in-call helper bundle ids observed on this machine: Zoom runs
-        // them as separate CoreAudio process objects, not as children of
-        // us.zoom.xos.
         assert!(bundle_id_matches("us.zoom.cpthost", "us.zoom.xos"));
         assert!(bundle_id_matches("us.zoom.caphost", "us.zoom.xos"));
         assert!(bundle_id_matches("us.zoom.aomhost", "us.zoom.xos"));
         assert!(bundle_id_matches("us.zoom.airhost", "us.zoom.xos"));
         assert!(bundle_id_matches("us.zoom.zccimeetinghost", "us.zoom.xos"));
-        // Not a helper of us.zoom.xos, but still a "us.zoom.*" bundle — the
-        // broad prefix is intentional here, see the doc comment above.
         assert!(bundle_id_matches("us.zoom.zoomclips", "us.zoom.xos"));
-        // Unrelated apps still need an exact or dotted-child match.
         assert!(!bundle_id_matches(
             "com.microsoft.teams2",
             "com.microsoft.teams"
         ));
+    }
+
+    #[test]
+    fn supported_browser_bundle_ids_are_exact_and_case_insensitive() {
+        for bundle_id in BROWSER_CALL_APP_BUNDLE_IDS {
+            assert_eq!(
+                supported_browser_bundle_id(bundle_id),
+                Some(*bundle_id),
+                "{bundle_id} is a supported browser"
+            );
+            assert!(bundle_id_matches(bundle_id, bundle_id));
+            assert!(!bundle_id_matches(
+                &format!("{bundle_id}.helper"),
+                bundle_id
+            ));
+        }
+        assert_eq!(
+            supported_browser_bundle_id("COM.GOOGLE.CHROME"),
+            Some("com.google.chrome")
+        );
+        assert_eq!(supported_browser_bundle_id("com.google.chromium"), None);
     }
 }

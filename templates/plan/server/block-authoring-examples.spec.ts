@@ -11,21 +11,6 @@ import {
 } from "./plan-block-examples.js";
 import { parsePlanMdxFolder } from "./plan-mdx.js";
 
-/* -------------------------------------------------------------------------- */
-/* Authoring-examples corpus.                                                 */
-/*                                                                            */
-/* The PR Visual Recap agent kept emitting blocks with missing required       */
-/* fields because the `get-plan-blocks` reference taught shapes via JSON       */
-/* schemas only. We now render a concrete, COMPLETE, VALID example per key    */
-/* block type into that reference. This corpus proves every example is the    */
-/* exact valid authoring form: each canonical block validates, serializes to  */
-/* MDX, and round-trips through the STRICT (no-salvage) source parser with no */
-/* `__unknown_block__` placeholder and the expected block `type`. It also     */
-/* guards against drift — the rendered reference must contain an example for  */
-/* every priority block type.                                                 */
-/* -------------------------------------------------------------------------- */
-
-/** The salvage placeholder marker (see parsePlanContentWithSalvage). */
 const UNKNOWN_MARKER = "__unknown_block__:";
 
 function isUnknownPlaceholder(block: PlanContent["blocks"][number]): boolean {
@@ -58,24 +43,16 @@ describe("plan block authoring examples", () => {
     }
   });
 
-  // The core guarantee: the EXACT MDX shown in the reference round-trips through
-  // the strict (no-salvage) source parser, yields a block of the expected type,
-  // and produces NO unsupported-block placeholder. If a block's natural
-  // authoring form does not round-trip cleanly, that's a real bug — it fails
-  // loudly here rather than the block being silently omitted.
   for (const type of PRIORITY_EXAMPLE_BLOCK_TYPES) {
     it(`example MDX for \`${type}\` round-trips through strict parsePlanMdxFolder`, async () => {
       const exampleMdx = await serializeExampleBlockToMdx(EXAMPLE_BLOCKS[type]);
       expect(exampleMdx.length).toBeGreaterThan(0);
 
-      // Strict parse (no salvage). A failure means the taught form is invalid.
       const parsed = await parsePlanMdxFolder(
         { "plan.mdx": `---\ntitle: Example\n---\n\n${exampleMdx}\n` },
         // strict: salvageInvalidBlocks defaults to false
       );
 
-      // Exactly the one example block parsed back, of the expected type, with
-      // no unsupported-block placeholder substituted.
       const blocks = parsed.blocks;
       const placeholders = blocks.filter(isUnknownPlaceholder);
       expect(
@@ -103,19 +80,15 @@ describe("get-plan-blocks reference includes authoring examples", () => {
     const section = await renderPlanBlockAuthoringExamples();
     expect(section).toContain("## Authoring examples");
     for (const type of PRIORITY_EXAMPLE_BLOCK_TYPES) {
-      // Each example is labeled with a `### \`<type>\`` heading.
       expect(
         section,
         `authoring examples missing a section for "${type}"`,
       ).toContain(`### \`${type}\``);
     }
-    // The generated examples are fenced as ```mdx code blocks.
     expect(section).toContain("```mdx");
   });
 
   it("the get-plan-blocks action reference embeds an example for every priority type", async () => {
-    // The action's run only reads args; context is unused for this read-only
-    // catalog action, matching how other plan action specs invoke `.run({...})`.
     const result = (await (
       getPlanBlocks.run as (args: { format: "reference" }) => Promise<unknown>
     )({ format: "reference" })) as { reference: string };

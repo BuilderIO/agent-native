@@ -218,11 +218,6 @@ export function nextCodeAgentScheduleRunAt(
   return new Date(next).toISOString();
 }
 
-/**
- * A schedules file that exists but cannot be understood. Every mutation
- * rewrites the whole file, so treating this as an empty list would delete every
- * stored schedule; callers must fail instead.
- */
 export class CodeAgentSchedulesUnreadableError extends Error {
   readonly filePath: string;
 
@@ -245,8 +240,6 @@ function readScheduleFile(): CodeAgentScheduleRecord[] {
   try {
     contents = fs.readFileSync(filePath, "utf8");
   } catch (error) {
-    // Only a genuinely absent file is an empty schedule list. A permission
-    // error or transient I/O failure is unknown, not empty.
     if ((error as NodeJS.ErrnoException | null)?.code === "ENOENT") return [];
     throw new CodeAgentSchedulesUnreadableError(filePath, "read failed", {
       cause: error,

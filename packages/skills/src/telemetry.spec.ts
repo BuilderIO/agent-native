@@ -1,11 +1,3 @@
-/**
- * Behavior + drift guards for the skills-CLI telemetry sender.
- *
- * The standalone installer and `@agent-native/core` each ship their own copy of
- * `telemetry.ts` (skills can't depend on the heavyweight core), so the funnel
- * event contract — and therefore the analytics dashboard — only stays correct
- * if the two copies match. The drift guard fails CI if they diverge.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -26,7 +18,6 @@ const coreTelemetry = path.join(
   "telemetry.ts",
 );
 
-/** Strip the leading block comment so the executable code can be compared. */
 function executableSource(text: string): string {
   return text.replace(/^\s*\/\*\*[\s\S]*?\*\/\s*/, "").trim();
 }
@@ -86,7 +77,6 @@ describe("createCliTelemetry", () => {
     delete process.env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY;
     delete process.env.DO_NOT_TRACK;
     delete process.env.AGENT_NATIVE_TELEMETRY_DISABLED;
-    // Force the non-test gate off so the embedded default decides whether it sends.
     process.env.NODE_ENV = "production";
     const telemetry = createCliTelemetry({
       cli: "skills-installer",
@@ -187,7 +177,6 @@ describe("createCliTelemetry", () => {
 describe("telemetry drift guard", () => {
   it("matches the @agent-native/core copy (ignoring the doc comment)", () => {
     if (!fs.existsSync(coreTelemetry)) {
-      // Running outside the monorepo (published package) — nothing to compare.
       return;
     }
     const mine = executableSource(

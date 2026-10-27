@@ -1,54 +1,10 @@
-//! System-audio capture via Apple's ScreenCaptureKit (macOS 13+).
-//!
-//! For Meetings we need to capture whatever the *other* party is saying — the
-//! speaker output. This module taps that stream via `SCStream` +
-//! `SCStreamConfiguration::with_captures_audio(true)`, mono-mixes each
-//! `CMSampleBuffer` into an `AVAudioPCMBuffer`, and forwards the mono f32
-//! samples to a caller-supplied callback. Transcription itself lives in the
-//! local Whisper engine (`whisper_speech.rs`), which runs the system stream
-//! and the mic stream as two parallel whisper.cpp workers — sidestepping
-//! `SFSpeechRecognizer`'s one-task-per-process limit. Transcripts reach the
-//! renderer's `LiveTranscript` tagged `source: "system"`.
-//!
-//! Uses the safe `screencapturekit` Rust crate. Its `SCStreamOutputTrait`
-//! callback hands us a `CMSampleBuffer` per audio frame; each source is decoded
-//! from its advertised format, normalized to 48 kHz, and mono-mixed.
-//!
-//! ## Tauri commands
-//!
-//! | Command                            | Purpose                                  |
-//! | ---------------------------------- | ---------------------------------------- |
-//! | `system_audio_request_permission`  | Probe + request Screen Recording perm.   |
-//! | `system_audio_version_status`      | Report macOS SCK-audio support.          |
-//! | `system_audio_open_privacy_settings`| Open the Screen Recording privacy pane.  |
-//! | `audio_transcription_start`        | Start the Whisper mic + system capture.  |
-//! | `audio_transcription_reset_timeline`| Rebase transcript timestamps to an offset.|
-//! | `audio_transcription_stop`         | Stop the capture.                         |
-//!
-//! `start_raw_system_capture` and `start_raw_meeting_capture` (in the `macos`
-//! submodule) are the capture entry points the Whisper engine calls directly.
-//!
-//! ## Events
-//!   - `voice:audio-level` `{ level, source: "system" }` — waveform meter.
-//! Transcript events (`voice:partial-transcript` / `voice:final-transcript`,
-//! `{ text, source }`) are emitted by `whisper_speech.rs`.
-
 use serde::Serialize;
 use tauri::AppHandle;
 
-/// Structured macOS version status for the renderer. Returned by
-/// `system_audio_version_status` so the Settings UI can display the right
-/// affordance without having to parse error strings.
 #[derive(Serialize, Clone, Debug)]
 pub struct VersionStatus {
-    /// `true` if the OS supports ScreenCaptureKit audio capture (macOS 13+
-    /// on Apple silicon / Intel; non-macOS hosts always report `false`).
     pub supported: bool,
-    /// Human-readable OS version, e.g. `"macOS 14.5"`. On non-macOS hosts
-    /// this is the bare platform string (e.g. `"linux"`, `"windows"`).
     pub os_version: String,
-    /// Optional reason when `supported = false`. Filled in when the host is
-    /// macOS but below 13, or non-macOS.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
 }
@@ -73,8 +29,6 @@ pub fn system_audio_version_status() -> VersionStatus {
 pub async fn system_audio_request_permission() -> Result<bool, String> {
     #[cfg(target_os = "macos")]
     {
-        // Fail fast on macOS < 13 so the renderer can surface the right
-        // affordance instead of silently falling back to mic-only.
         let status = macos::version_status();
         if !status.supported {
             return Err(status.reason.unwrap_or_else(|| {
@@ -92,8 +46,6 @@ pub async fn system_audio_request_permission() -> Result<bool, String> {
     }
 }
 
-/// Open the macOS Screen Recording privacy pane so the user can grant
-/// permission. No-op on other platforms.
 #[tauri::command]
 pub fn system_audio_open_privacy_settings() -> Result<(), String> {
     #[cfg(target_os = "macos")]
@@ -117,6 +69,7 @@ pub async fn audio_transcription_start(
     voice_processing: Option<bool>,
     emit_partials: Option<bool>,
     owner: Option<String>,
+    run_id: Option<u64>,
 ) -> Result<(), String> {
     let _ = meeting_id;
     crate::logfile::diagnostic("[meeting-audio] transcription engine start requested");
@@ -126,14 +79,10 @@ pub async fn audio_transcription_start(
         mic_device_id,
         mic_device_label,
         capture_system.unwrap_or(true),
-        // Fail safe for meeting/recording callers: an omitted flag must not
-        // create a second VoiceProcessingIO stack beside a live call app.
-        // Short dictation sessions opt in explicitly from the renderer.
         voice_processing.unwrap_or(false),
-        // Existing meeting callers depend on live partials. Recording capture
-        // explicitly opts out because it only persists final segments.
         emit_partials.unwrap_or(true),
         owner,
+        run_id,
     )
     .await;
     if let Err(error) = &result {
@@ -148,13 +97,26 @@ pub async fn audio_transcription_start(
 }
 
 #[tauri::command]
-pub async fn audio_transcription_stop(app: AppHandle) -> Result<(), String> {
-    crate::whisper_speech::whisper_transcription_stop(app).await
+pub async fn audio_transcription_stop(
+    app: AppHandle,
+    owner: Option<String>,
+    run_id: Option<u64>,
+) -> Result<(), String> {
+    crate::whisper_speech::whisper_transcription_stop(app, owner, run_id).await
 }
 
 #[tauri::command]
-pub async fn audio_transcription_reset_timeline(offset_ms: Option<u64>) -> Result<(), String> {
-    crate::whisper_speech::whisper_transcription_reset_timeline(offset_ms.unwrap_or(0)).await
+pub async fn audio_transcription_reset_timeline(
+    owner: Option<String>,
+    run_id: Option<u64>,
+    offset_ms: Option<u64>,
+) -> Result<(), String> {
+    crate::whisper_speech::whisper_transcription_reset_timeline(
+        owner,
+        run_id,
+        offset_ms.unwrap_or(0),
+    )
+    .await
 }
 
 #[cfg(target_os = "macos")]
@@ -174,27 +136,11 @@ pub(crate) mod macos {
         output_type::SCStreamOutputType, sc_stream::SCStream,
     };
 
-    // CoreGraphics screen-capture preflight / request APIs. These exist as
-    // raw C symbols in the CoreGraphics framework — there's no objc2 wrapper
-    // for them in the deps we already pull in, so we declare them inline.
-    // Both functions return a Boolean: `true` if the calling process is
-    // authorized to capture the screen / window contents.
-    //
-    // `CGRequestScreenCaptureAccess` triggers the macOS permission prompt
-    // the first time it's called — subsequent calls just return the cached
-    // answer. ScreenCaptureKit's audio tap is gated by the same TCC bucket
-    // ("Screen Recording") so this is the right preflight for SCK too.
     extern "C" {
         fn CGPreflightScreenCaptureAccess() -> bool;
         fn CGRequestScreenCaptureAccess() -> bool;
     }
 
-    /// Runtime OS version probe. ScreenCaptureKit's audio-capture API
-    /// (`SCStreamConfiguration::with_captures_audio`) requires macOS 13
-    /// (Ventura) or later. Build-time feature gating in the
-    /// `screencapturekit` crate (`macos_13_0`) only ensures the API is
-    /// linked — at runtime we still need to confirm the host kernel
-    /// supports it before we attempt to call into SCK.
     pub fn version_status() -> super::VersionStatus {
         // SAFETY: `processInfo` is a singleton; `operatingSystemVersion`
         // returns a plain struct of i64s.
@@ -222,11 +168,6 @@ pub(crate) mod macos {
         }
     }
 
-    /// Best-effort open of the macOS Screen Recording privacy pane. We
-    /// `open` the well-known pref URL via `osascript` to avoid pulling in
-    /// extra crates; if the URL scheme changes in a future macOS this
-    /// silently no-ops, which is the correct fallback (the user can still
-    /// open System Settings manually).
     pub fn open_screen_recording_settings() -> Result<(), String> {
         use std::process::Command;
         let url = "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_ScreenCapture";
@@ -250,16 +191,12 @@ pub(crate) mod macos {
         Ok(granted)
     }
 
-    // ----------------------------------------------------------------------
-    // System-audio capture via ScreenCaptureKit. Forwards every mono
-    // channel-0 f32 buffer to a caller-supplied callback (the Whisper meeting
-    // engine in `whisper_speech.rs`).
-    // ----------------------------------------------------------------------
     struct RawAudioForwarder {
         on_samples: Arc<dyn Fn(&[f32]) + Send + Sync>,
         app: AppHandle,
         cancelled: Arc<AtomicBool>,
         level_tick: Arc<AtomicU32>,
+        run_id: Option<u64>,
         output_type: SCStreamOutputType,
         source: &'static str,
     }
@@ -303,23 +240,15 @@ pub(crate) mod macos {
                     AudioLevelPayload {
                         level,
                         source: self.source,
+                        run_id: self.run_id,
                     },
                 );
             }
         }
     }
 
-    /// `SCStream::stop_capture()` occasionally never returns when the stream's
-    /// underlying connection was already interrupted (same ScreenCaptureKit
-    /// flakiness `native_screen::run_bounded_capture_stop` bounds for the video
-    /// stream). This capture has no delegate to observe that ahead of time, so
-    /// bound the stop call itself — otherwise a hung stop blocks the
-    /// `audio_transcription_stop` Tauri command, which blocks the recorder's
-    /// finalize await, forever.
     const SYSTEM_AUDIO_SCK_STOP_TIMEOUT: Duration = Duration::from_secs(3);
 
-    /// Handle for a running raw SCK audio capture. A meeting capture can carry
-    /// both system and microphone output handlers on this one stream.
     pub(crate) struct RawSckAudioCapture {
         stream: SCStream,
         cancelled: Arc<AtomicBool>,
@@ -346,31 +275,25 @@ pub(crate) mod macos {
         }
     }
 
-    /// Start system-audio capture via SCK and forward every mono f32 buffer
-    /// (48 kHz) to `on_samples`. No recognizer wiring.
     pub(crate) fn start_raw_system_capture(
         app: AppHandle,
         on_samples: Arc<dyn Fn(&[f32]) + Send + Sync>,
+        run_id: Option<u64>,
     ) -> Result<RawSckAudioCapture, String> {
-        start_raw_sck_audio_capture(app, true, None, None, Some(on_samples), None)
+        start_raw_sck_audio_capture(app, true, None, None, Some(on_samples), None, run_id)
     }
 
-    /// Whether this macOS version supports ScreenCaptureKit's independent
-    /// microphone output (`SCStreamOutputType::Microphone`).
     pub(crate) fn supports_sck_microphone_capture() -> bool {
         let version = NSProcessInfo::processInfo().operatingSystemVersion();
         version.majorVersion >= 15
     }
 
-    /// Start one ScreenCaptureKit stream with independent system-audio and
-    /// microphone callbacks. This avoids opening a second AVAudioEngine /
-    /// VoiceProcessingIO input while Zoom, Meet, or Teams owns the live-call
-    /// microphone uplink.
     pub(crate) fn start_raw_meeting_capture(
         app: AppHandle,
         mic_device_id: Option<String>,
         mic_device_label: Option<String>,
         capture_system: bool,
+        run_id: Option<u64>,
         on_mic_samples: Arc<dyn Fn(&[f32]) + Send + Sync>,
         on_system_samples: Option<Arc<dyn Fn(&[f32]) + Send + Sync>>,
     ) -> Result<RawSckAudioCapture, String> {
@@ -384,6 +307,7 @@ pub(crate) mod macos {
             mic_device_label,
             on_system_samples,
             Some(on_mic_samples),
+            run_id,
         )
     }
 
@@ -394,6 +318,7 @@ pub(crate) mod macos {
         mic_device_label: Option<String>,
         on_system_samples: Option<Arc<dyn Fn(&[f32]) + Send + Sync>>,
         on_mic_samples: Option<Arc<dyn Fn(&[f32]) + Send + Sync>>,
+        run_id: Option<u64>,
     ) -> Result<RawSckAudioCapture, String> {
         let granted = unsafe { CGPreflightScreenCaptureAccess() };
         if !granted {
@@ -450,6 +375,7 @@ pub(crate) mod macos {
                 app: app.clone(),
                 cancelled: cancelled.clone(),
                 level_tick: Arc::new(AtomicU32::new(0)),
+                run_id,
                 output_type: SCStreamOutputType::Audio,
                 source: "system",
             };
@@ -461,6 +387,7 @@ pub(crate) mod macos {
                 app: app.clone(),
                 cancelled: cancelled.clone(),
                 level_tick: Arc::new(AtomicU32::new(0)),
+                run_id,
                 output_type: SCStreamOutputType::Microphone,
                 source: "mic",
             };
@@ -476,8 +403,11 @@ pub(crate) mod macos {
     }
 
     #[derive(Serialize, Clone)]
+    #[serde(rename_all = "camelCase")]
     struct AudioLevelPayload {
         level: f32,
         source: &'static str,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        run_id: Option<u64>,
     }
 }

@@ -56,8 +56,6 @@ vi.mock("../server/lib/library-access.js", () => ({
   assertCanDraftAuthoredBy: libraryAccessMock,
   assertCanDeleteAsset: libraryAccessMock,
   draftProvenanceAccess: draftProvenanceAccessMock,
-  // The draft-input guards have their own tests; these specs exercise the
-  // surrounding behavior with an approver's unrestricted scope.
   draftScopeForLibrary: vi.fn(async () => unrestrictedScope),
   resolveDraftReadScope: vi.fn(async () => unrestrictedScope),
   unrestrictedDraftReadScope: vi.fn(() => unrestrictedScope),
@@ -331,10 +329,6 @@ describe("generate-image preset reference board", () => {
   });
 
   it("records a kit viewer's provenance as draft work, not as editing the kit", async () => {
-    // A viewer may generate candidates, so every provenance write in this path
-    // must declare the draft role. Leaving the record at the `editor` default
-    // let the kit gate pass and then failed the turn with a bare
-    // `Requires editor role on asset-library <id> (have viewer)`.
     const { recordGenerationCreativeContext } =
       await import("@agent-native/creative-context/server");
     libraryAccessMock.mockResolvedValue({ role: "viewer", canApprove: false });

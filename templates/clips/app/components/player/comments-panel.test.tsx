@@ -3,7 +3,16 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  assert,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+  vi,
+} from "vitest";
 
 import {
   collectCommentSubtreeIds,
@@ -16,6 +25,7 @@ import { TimestampedCommentBar } from "./timestamped-comment-button";
 const actionMocks = vi.hoisted(() => ({
   addComment: vi.fn(),
   updateComment: vi.fn(),
+  deleteComment: vi.fn(),
   otherMutation: vi.fn(),
   mutationOptions: new Map<string, any>(),
 }));
@@ -33,7 +43,9 @@ vi.mock("@agent-native/core/client/hooks", () => ({
             ? actionMocks.addComment
             : name === "update-comment"
               ? actionMocks.updateComment
-              : actionMocks.otherMutation
+              : name === "delete-comment"
+                ? actionMocks.deleteComment
+                : actionMocks.otherMutation
         )(vars);
       },
     };
@@ -187,6 +199,8 @@ describe("CommentsPanel reply composer", () => {
     currentUserEmail = "viewer@example.com",
     comments: Comment[] = [rootComment],
     presentation: "default" | "share" | "inline" = "share",
+    enableComments = true,
+    canDeleteOwnComments?: boolean,
   ) {
     act(() => {
       root.render(
@@ -196,8 +210,9 @@ describe("CommentsPanel reply composer", () => {
             comments={comments}
             currentMs={34_000}
             currentUserEmail={currentUserEmail}
-            enableComments
-            canComment
+            enableComments={enableComments}
+            canComment={enableComments}
+            canDeleteOwnComments={canDeleteOwnComments}
             onSeek={vi.fn()}
             queryKey={["recording", "recording-1"]}
             presentation={presentation}
@@ -355,8 +370,7 @@ describe("CommentsPanel reply composer", () => {
     );
     expect(composerShell?.className).toContain("focus-within:border-ring");
     expect(composer?.className).toContain("min-h-[54px]");
-    expect(composer?.className).toContain("max-h-[54px]");
-    expect(composer?.className).toContain("overflow-y-auto");
+    expect(composer?.className).toContain("max-h-[40vh]");
     const composerDock = composerShell?.closest(".shrink-0");
     expect(composerDock?.className).toContain("relative");
     expect(composerDock?.className).toContain("z-10");
@@ -402,13 +416,6 @@ describe("CommentsPanel reply composer", () => {
   });
 
   it("keeps inline comments scrollable with the composer available, at every width", () => {
-    // Both recording routes render CommentsPanel with presentation="inline"
-    // inside the shared RecordingSidePanel rail, which is a fixed
-    // h-[min(420px,55dvh)] overflow-hidden box below the lg breakpoint too
-    // (not just at lg). Gating the scroll container behind lg: left that
-    // box with no way to scroll on mobile - content past 420px was just
-    // clipped. The scroll classes must apply unconditionally, matching the
-    // sibling transcript tab and the (dead) "default" preset.
     renderPanel("viewer@example.com", [rootComment], "inline");
 
     const panel = container.firstElementChild as HTMLElement | null;
@@ -441,7 +448,7 @@ describe("CommentsPanel reply composer", () => {
     expect(listRegion?.className).not.toMatch(/\blg:overflow-y-auto\b/);
   });
 
-  it("opens account creation when a signed-out viewer activates the composer", () => {
+  it("shows a clear sign-in action for a signed-out viewer", () => {
     const onUnauthenticated = vi.fn();
 
     act(() => {
@@ -462,17 +469,21 @@ describe("CommentsPanel reply composer", () => {
       );
     });
 
-    const composer = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("commentsPanel.leaveComment"),
+    const signInButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("commentsPanel.signInToComment"),
     );
 
-    expect(composer).toBeDefined();
-    expect(composer?.className).not.toContain("border-input");
-    const composerShell = composer?.querySelector("span.rounded-xl");
-    expect(composerShell?.className).toContain("rounded-xl");
-    expect(composerShell?.className).toContain("border-transparent");
+    expect(signInButton).toBeDefined();
+    expect(signInButton?.className).toContain("justify-start");
+    expect(signInButton?.querySelector("span.rounded-xl")).toBeNull();
+    expect(signInButton?.querySelector("svg")).toBeNull();
+    expect(
+      container.querySelector(
+        'textarea[placeholder="commentsPanel.leaveComment"]',
+      ),
+    ).toBeNull();
     expect(container.textContent).not.toContain("commentsPanel.beFirst");
-    act(() => composer?.click());
+    act(() => signInButton?.click());
     expect(onUnauthenticated).toHaveBeenCalledWith("comment");
   });
 
@@ -510,14 +521,15 @@ describe("CommentsPanel reply composer", () => {
     expect(onUnauthenticated).toHaveBeenCalledWith("comment");
   });
 
-  it("caps a growing comment composer before it overwhelms the thread", () => {
+  it("grows comment composers to 40vh and scrolls only past that limit", () => {
     const composer = container.querySelector<HTMLTextAreaElement>(
       'textarea[placeholder="commentsPanel.leaveComment"]',
     );
     expect(composer).not.toBeNull();
+    const maxHeight = Math.round(window.innerHeight * 0.4);
     Object.defineProperty(composer, "scrollHeight", {
       configurable: true,
-      value: 144,
+      value: maxHeight + 64,
     });
 
     act(() => {
@@ -525,8 +537,59 @@ describe("CommentsPanel reply composer", () => {
       setTextareaValue(composer, "A comment long enough to wrap");
     });
 
-    expect(composer?.style.height).toBe("128px");
+    expect(composer?.style.height).toBe(`${maxHeight}px`);
     expect(composer?.style.overflowY).toBe("auto");
+
+    Object.defineProperty(composer, "scrollHeight", {
+      configurable: true,
+      value: 72,
+    });
+    act(() => {
+      if (!composer) return;
+      setTextareaValue(composer, "Short comment");
+    });
+
+    expect(composer?.style.height).toBe("72px");
+    expect(composer?.style.overflowY).toBe("hidden");
+  });
+
+  it("recalculates the comment textarea cap after a viewport resize", () => {
+    const composer = container.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder="commentsPanel.leaveComment"]',
+    );
+    expect(composer).not.toBeNull();
+    const heightDescriptor = Object.getOwnPropertyDescriptor(
+      window,
+      "innerHeight",
+    );
+    const originalHeight = window.innerHeight;
+
+    try {
+      Object.defineProperty(composer, "scrollHeight", {
+        configurable: true,
+        value: Math.round(originalHeight * 0.4) + 64,
+      });
+      act(() => {
+        if (composer) setTextareaValue(composer, "A long comment");
+      });
+      expect(composer?.style.height).toBe(
+        `${Math.round(originalHeight * 0.4)}px`,
+      );
+
+      Object.defineProperty(window, "innerHeight", {
+        configurable: true,
+        value: 400,
+      });
+      act(() => window.dispatchEvent(new Event("resize")));
+      expect(composer?.style.height).toBe("160px");
+      expect(composer?.style.overflowY).toBe("auto");
+    } finally {
+      if (heightDescriptor) {
+        Object.defineProperty(window, "innerHeight", heightDescriptor);
+      } else {
+        Reflect.deleteProperty(window, "innerHeight");
+      }
+    }
   });
 
   it("regrows comment textareas when their width changes wrapping", () => {
@@ -534,15 +597,42 @@ describe("CommentsPanel reply composer", () => {
       'textarea[placeholder="commentsPanel.leaveComment"]',
     );
     expect(composer).not.toBeNull();
+    const naturalHeight = Math.floor(window.innerHeight * 0.2);
     Object.defineProperty(composer, "scrollHeight", {
       configurable: true,
-      value: 192,
+      value: naturalHeight,
     });
 
     act(() => notifyResize?.());
 
-    expect(composer?.style.height).toBe("128px");
-    expect(composer?.style.overflowY).toBe("auto");
+    expect(composer?.style.height).toBe(`${naturalHeight}px`);
+    expect(composer?.style.overflowY).toBe("hidden");
+  });
+
+  it("lets the comment feed widget expand with its composer", () => {
+    renderPanel("viewer@example.com", [rootComment], "inline");
+    const composer = container.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder="commentsPanel.leaveComment"]',
+    );
+    expect(composer).not.toBeNull();
+    const naturalHeight = Math.floor(window.innerHeight * 0.2);
+    Object.defineProperty(composer, "scrollHeight", {
+      configurable: true,
+      value: naturalHeight,
+    });
+
+    act(() => {
+      if (!composer) return;
+      setTextareaValue(composer, "A longer comment in the feed");
+    });
+
+    expect(composer?.style.height).toBe(`${naturalHeight}px`);
+    expect(composer?.closest(".comment-widget-shadow")?.className).toContain(
+      "min-h-[96px]",
+    );
+    expect(
+      composer?.closest(".comment-widget-shadow")?.className.split(" "),
+    ).not.toContain("h-[96px]");
   });
 
   it("renders inline Markdown while flattening headings", () => {
@@ -966,6 +1056,11 @@ describe("CommentsPanel reply composer", () => {
   });
 
   it("prefills and saves an author's comment inline", async () => {
+    const setSelectionRange = vi.spyOn(
+      HTMLTextAreaElement.prototype,
+      "setSelectionRange",
+    );
+    onTestFinished(() => setSelectionRange.mockRestore());
     renderPanel("author@example.com");
 
     const menuTrigger = container.querySelector<HTMLButtonElement>(
@@ -987,7 +1082,16 @@ describe("CommentsPanel reply composer", () => {
       'textarea[aria-label="commentsPanel.editComment"]',
     );
     expect(editor?.value).toBe(rootComment.content);
+    // The closing menu hands focus back to its button a tick later; Edit
+    // swaps that button out, so focus stays in the edit box.
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
     expect(document.activeElement).toBe(editor);
+    // happy-dom moves the caret to the end whenever the value is set, so check
+    // the call a browser needs.
+    expect(setSelectionRange).toHaveBeenCalledWith(
+      rootComment.content.length,
+      rootComment.content.length,
+    );
 
     act(() => {
       if (!editor) return;
@@ -1155,7 +1259,7 @@ describe("CommentsPanel reply composer", () => {
     expect(actionMocks.addComment).not.toHaveBeenCalled();
   });
 
-  it("keeps the timestamped composer bounded with a compact send action", () => {
+  it("grows the timestamped composer to 40vh with a compact send action", () => {
     act(() => {
       root.render(
         <TimestampedCommentBar
@@ -1172,9 +1276,24 @@ describe("CommentsPanel reply composer", () => {
     const send = container.querySelector<HTMLButtonElement>(
       'button[aria-label="commentsPanel.commentAt 0:34"]',
     );
+    const maxHeight = Math.round(window.innerHeight * 0.4);
+    Object.defineProperty(composer, "scrollHeight", {
+      configurable: true,
+      value: maxHeight + 64,
+    });
+
+    act(() => {
+      if (!composer) return;
+      setTextareaValue(
+        composer,
+        "A timestamped comment that spans several lines",
+      );
+    });
 
     expect(composer?.getAttribute("rows")).toBe("1");
-    expect(composer?.className).toContain("max-h-32");
+    expect(composer?.className).toContain("max-h-[40vh]");
+    expect(composer?.style.height).toBe(`${maxHeight}px`);
+    expect(composer?.style.overflowY).toBe("auto");
     expect(composer?.closest(".max-w-lg")).not.toBeNull();
     expect(send?.className).toContain("size-7");
     expect(send?.querySelector(".tabler-icon-arrow-up")).not.toBeNull();
@@ -1191,6 +1310,160 @@ describe("CommentsPanel reply composer", () => {
     expect(icon).not.toBeNull();
     expect(svg).not.toBeNull();
     expect(container.textContent).toContain("commentsPanel.beFirst");
+  });
+
+  it.each(["reply", "edit"])(
+    "closes an open %s composer when comments are disabled",
+    async (operation) => {
+      renderPanel("author@example.com");
+      if (operation === "reply") {
+        const reply = Array.from(container.querySelectorAll("button")).find(
+          (button) => button.textContent.trim() === "commentsPanel.reply",
+        );
+        assert.isDefined(reply);
+        act(() => reply.click());
+      } else {
+        await openMenu(
+          container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]'),
+        );
+        const edit = Array.from(
+          document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+        ).find(
+          (item) => item.textContent.trim() === "commentsPanel.editComment",
+        );
+        assert.isDefined(edit);
+        await act(async () => {
+          edit.click();
+          await Promise.resolve();
+        });
+      }
+      expect(container.querySelector("textarea")).not.toBeNull();
+      renderPanel("author@example.com", [rootComment], "share", false);
+      expect(container.querySelector("textarea")).toBeNull();
+      expect(container.textContent).toContain(
+        rootComment.content.split(" https:")[0],
+      );
+    },
+  );
+
+  it("shows saved owner comments read-only when comments are disabled", () => {
+    act(() => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <CommentsPanel
+            recordingId="recording-1"
+            comments={[{ ...rootComment, content: "Fake saved comment" }]}
+            currentMs={34_000}
+            currentUserEmail="owner@example.com"
+            enableComments={false}
+            canComment={false}
+            onSeek={vi.fn()}
+            queryKey={["recording", "recording-1"]}
+          />
+        </QueryClientProvider>,
+      );
+    });
+    expect(container.textContent).toContain("Fake saved comment");
+    expect(container.querySelector('[contenteditable="true"]')).toBeNull();
+    expect(container.textContent).not.toContain("commentsPanel.reply");
+  });
+
+  it.each([
+    {
+      viewer: "the author with comments on",
+      email: "author@example.com",
+      enableComments: true,
+      canDeleteOwnComments: undefined,
+      items: ["commentsPanel.editComment", "commentsPanel.delete"],
+    },
+    {
+      viewer: "the author reviewing history with comments off",
+      email: "author@example.com",
+      enableComments: false,
+      canDeleteOwnComments: true,
+      items: ["commentsPanel.delete"],
+    },
+    {
+      viewer: "the recording owner on another author's history",
+      email: "owner@example.com",
+      enableComments: false,
+      canDeleteOwnComments: true,
+      items: null,
+    },
+    {
+      viewer: "the author when the caller grants no deletion",
+      email: "author@example.com",
+      enableComments: false,
+      canDeleteOwnComments: undefined,
+      items: null,
+    },
+  ])(
+    "gives $viewer only the comment menu actions they may take",
+    async ({ email, enableComments, canDeleteOwnComments, items }) => {
+      renderPanel(
+        email,
+        [rootComment],
+        "inline",
+        enableComments,
+        canDeleteOwnComments,
+      );
+      const menuTrigger = container.querySelector<HTMLButtonElement>(
+        '[aria-haspopup="menu"]',
+      );
+      if (items === null) {
+        expect(menuTrigger).toBeNull();
+        return;
+      }
+      await openMenu(menuTrigger);
+      expect(
+        Array.from(
+          document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+          (item) => item.textContent.trim(),
+        ),
+      ).toEqual(items);
+    },
+  );
+
+  it("lets the author delete saved history while comments are off", async () => {
+    renderPanel(
+      "author@example.com",
+      [
+        {
+          ...rootComment,
+          emojiReactionsJson: JSON.stringify({ "👍": ["member@example.com"] }),
+        },
+      ],
+      "inline",
+      false,
+      true,
+    );
+    const buttons = () =>
+      Array.from(container.querySelectorAll("button"), (button) =>
+        (button.getAttribute("aria-label") ?? button.textContent).trim(),
+      );
+    expect(buttons()).not.toContain("commentsPanel.reply");
+    expect(buttons()).not.toContain("commentsPanel.react");
+    expect(buttons()).not.toContain("👍 1");
+    expect(container.textContent).toContain("👍 1");
+    expect(container.textContent).not.toContain("commentsPanel.resolve");
+    expect(container.querySelector("textarea")).toBeNull();
+
+    await openMenu(
+      container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]'),
+    );
+    const deleteItem = Array.from(
+      document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent.trim() === "commentsPanel.delete");
+    assert.isDefined(deleteItem);
+    await act(async () => {
+      deleteItem.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(actionMocks.deleteComment).toHaveBeenCalledWith({
+      id: rootComment.id,
+    });
+    expect(container.textContent).not.toContain("Please take a look");
   });
 
   it("renders the shared empty state icon when comments are disabled", () => {

@@ -51,7 +51,18 @@ export interface ResolvedReviewAnchor {
   anchor: DesignReviewAnchor;
   point: ReviewAnchorPoint;
   source: "node" | "selector" | "point";
+  selectorResolution?: ReviewAnchorSelectorFailure;
 }
+
+export type ReviewAnchorSelectorResolution =
+  | { status: "matched"; point: ReviewAnchorPoint }
+  | { status: ReviewAnchorSelectorFailure };
+
+export type ReviewAnchorSelectorFailure =
+  | "not-found"
+  | "invalid-selector"
+  | "unavailable"
+  | "invalid-geometry";
 
 export function createElementReviewAnchor(input: {
   nodeId?: string | null;
@@ -121,11 +132,6 @@ function inBoundsPercentage(value: unknown): number | null {
   return value;
 }
 
-/**
- * Parse the persisted anchor contract used by Design review comments.
- * Malformed anchors intentionally return null so a thread remains visible in
- * the panel without creating a misleading canvas pin.
- */
 export function parseReviewAnchor(value: unknown): DesignReviewAnchor | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
@@ -238,12 +244,12 @@ function parseRegion(value: unknown): ReviewAnchorRegion | null {
   return { xPct, yPct, widthPct, heightPct };
 }
 
-/** Resolve a node or selector position first, then degrade to the click point. */
 export function resolveReviewAnchor(
   value: unknown,
   resolveNodePoint: (nodeId: string) => ReviewAnchorPoint | null,
-  resolveSelectorPoint: (selector: string) => ReviewAnchorPoint | null = () =>
-    null,
+  resolveSelectorPoint: (
+    selector: string,
+  ) => ReviewAnchorSelectorResolution = () => ({ status: "not-found" }),
   screenId?: string | null,
 ): ResolvedReviewAnchor | null {
   const anchor = parseReviewAnchor(value);
@@ -262,11 +268,14 @@ export function resolveReviewAnchor(
       }
     }
   }
+  let selectorResolution: ReviewAnchorSelectorFailure | undefined;
   if (anchor.selector) {
-    const selectorPoint = resolveSelectorPoint(anchor.selector);
-    if (selectorPoint) {
-      const xPct = inBoundsPercentage(selectorPoint.xPct);
-      const yPct = inBoundsPercentage(selectorPoint.yPct);
+    const resolution = resolveSelectorPoint(anchor.selector);
+    selectorResolution =
+      resolution.status === "matched" ? undefined : resolution.status;
+    if (resolution.status === "matched") {
+      const xPct = inBoundsPercentage(resolution.point.xPct);
+      const yPct = inBoundsPercentage(resolution.point.yPct);
       if (xPct !== null && yPct !== null) {
         return {
           anchor,
@@ -274,11 +283,17 @@ export function resolveReviewAnchor(
           source: "selector",
         };
       }
+      selectorResolution = "invalid-geometry";
     }
   }
   const point =
     screenId && anchor.screenId === screenId && anchor.screenPoint
       ? anchor.screenPoint
       : anchor.point;
-  return { anchor, point, source: "point" };
+  return {
+    anchor,
+    point,
+    source: "point",
+    ...(selectorResolution ? { selectorResolution } : {}),
+  };
 }

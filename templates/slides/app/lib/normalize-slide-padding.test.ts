@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { normalizeSlidePadding } from "./normalize-slide-padding";
+import {
+  normalizeSlidePadding,
+  normalizeSlidePaddingForWrite,
+} from "./normalize-slide-padding";
 
 describe("normalizeSlidePadding", () => {
   it("preserves explicit one-value padding", () => {
@@ -43,10 +46,53 @@ describe("normalizeSlidePadding", () => {
     expect(normalizeSlidePadding(html)).toBe(html);
   });
 
+  it("never adds a second style attribute to a styled wrapper", () => {
+    const multiline =
+      '<div\n  class="fmd-slide"\n  style="\n    background: #111;\n    color: #fff;\n  "\n><p>Hi</p></div>';
+    const withAngle = `<div class="fmd-slide" style="background: url('data:image/svg+xml,<svg></svg>'); color: #fff"><p>Hi</p></div>`;
+    const dataStyle =
+      '<div data-style="x" class="fmd-slide" style="color: #fff"></div>';
+    for (const html of [multiline, withAngle, dataStyle]) {
+      const out = normalizeSlidePadding(html);
+      expect(out.match(/\sstyle\s*=/g)).toHaveLength(1);
+      expect(out).toContain("padding: 64px 80px;");
+      expect(out).toContain("color: #fff");
+    }
+  });
+
+  it("preserves padding declared in a multi-line style", () => {
+    const html =
+      '<div class="fmd-slide" style="\n  padding: 40px;\n  color: #fff;\n"></div>';
+    expect(normalizeSlidePadding(html)).toBe(html);
+  });
+
   it("adds a style attribute when the canonical wrapper has no inline style", () => {
     const html = '<div class="fmd-slide"></div>';
     expect(normalizeSlidePadding(html)).toBe(
       '<div class="fmd-slide" style="padding: 64px 80px;"></div>',
+    );
+  });
+});
+
+describe("normalizeSlidePaddingForWrite", () => {
+  const styled =
+    '<div class="fmd-slide"><style>.fmd-slide{padding:32px}</style><p>Hi</p></div>';
+
+  it("leaves a stylesheet-padded slide alone when its root tag is unchanged", () => {
+    const next = styled.replace("Hi", "Hi there");
+    expect(normalizeSlidePaddingForWrite(styled, next)).toBe(next);
+  });
+
+  it("normalizes when the root tag changed or the slide is new", () => {
+    const next = styled.replace(
+      '<div class="fmd-slide">',
+      '<div class="fmd-slide" style="color: red">',
+    );
+    expect(normalizeSlidePaddingForWrite(styled, next)).toContain(
+      'style="padding: 64px 80px; color: red"',
+    );
+    expect(normalizeSlidePaddingForWrite(undefined, styled)).toContain(
+      'style="padding: 64px 80px;"',
     );
   });
 });

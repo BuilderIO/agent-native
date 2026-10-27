@@ -6,10 +6,15 @@ const mocks = vi.hoisted(() => {
     where: vi.fn(),
   };
   selectChain.from.mockReturnValue(selectChain);
+  const contentSelectChain = { from: vi.fn(), where: vi.fn(), limit: vi.fn() };
+  contentSelectChain.from.mockReturnValue(contentSelectChain);
+  contentSelectChain.where.mockReturnValue(contentSelectChain);
 
   return {
     getDb: vi.fn(() => ({
-      select: vi.fn(() => selectChain),
+      select: vi.fn((columns) =>
+        columns?.content ? contentSelectChain : selectChain,
+      ),
     })),
     parseCanvasFrameGeometryById: vi.fn((value) => value ?? []),
     listAppState: vi.fn(),
@@ -21,6 +26,7 @@ const mocks = vi.hoisted(() => {
     queryReviewComments: vi.fn(),
     eq: vi.fn((left, right) => ({ left, right })),
     selectChain,
+    contentSelectChain,
     getDesignSystemRun: vi.fn(async ({ id }: { id: string }) => ({
       id,
       title: "Acme",
@@ -80,6 +86,7 @@ vi.mock("../server/db/index.js", () => ({
       fileType: "designFiles.fileType",
       updatedAt: "designFiles.updatedAt",
       designId: "designFiles.designId",
+      content: "designFiles.content",
     },
   },
 }));
@@ -104,6 +111,7 @@ describe("view-screen", () => {
     mocks.getReviewThreadSummary.mockReset();
     mocks.queryReviewComments.mockReset();
     mocks.selectChain.where.mockReset();
+    mocks.contentSelectChain.limit.mockResolvedValue([]);
     mocks.resolveAccess.mockResolvedValue({
       role: "viewer",
       resource: {
@@ -122,12 +130,11 @@ describe("view-screen", () => {
   });
 
   it("reports the design's own linked design system, not just a template's", async () => {
-    // Choosing a system on an empty design writes it to the design row and
-    // nowhere else, so the agent's first read has to carry it.
     mocks.resolveAccess.mockResolvedValue({
       role: "editor",
       resource: {
         title: "Shared checkout",
+        liveCollaborationEnabled: true,
         designSystemId: "system-7",
         data: '{"canvasFrames":[]}',
       },
@@ -158,6 +165,7 @@ describe("view-screen", () => {
       expect.objectContaining({ compact: "true" }),
     );
     expect(result.design?.designSystemId).toBe("system-7");
+    expect(result.design?.liveCollaborationEnabled).toBe(true);
     expect(result.design?.designSystem).toMatchObject({
       status: "available",
       scope: "summary",
@@ -193,7 +201,172 @@ describe("view-screen", () => {
     expect(result.design?.designSystemId).toBeNull();
   });
 
+  it("shows the Interact preview's device and theme from the published selection", async () => {
+    mocks.readAppStateForCurrentTab
+      .mockResolvedValueOnce({
+        view: "editor",
+        editorView: "single",
+        designId: "design_123",
+      })
+      .mockResolvedValueOnce({
+        viewMode: "single",
+        mode: "interact",
+        activeFileId: "file_index",
+        activeFilename: "index.html",
+        interact: {
+          device: { name: "iPhone 17", width: 402, height: 874 },
+          theme: "dark",
+        },
+      });
+    mocks.selectChain.where.mockResolvedValue([
+      {
+        id: "file_index",
+        filename: "index.html",
+        fileType: "html",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(result.designSelection.mode).toBe("interact");
+    expect(result.designSelection.interact).toEqual({
+      device: { name: "iPhone 17", width: 402, height: 874 },
+      theme: "dark",
+    });
+  });
+
+  it("reports a System theme as System, and describes the three themes to the agent", async () => {
+    mocks.readAppStateForCurrentTab
+      .mockResolvedValueOnce({
+        view: "editor",
+        editorView: "single",
+        designId: "design_123",
+      })
+      .mockResolvedValueOnce({
+        viewMode: "single",
+        mode: "interact",
+        activeFileId: "file_index",
+        activeFilename: "index.html",
+        interact: {
+          device: { name: "iPhone 17", width: 402, height: 874 },
+          theme: "system",
+        },
+      });
+    mocks.selectChain.where.mockResolvedValue([
+      {
+        id: "file_index",
+        filename: "index.html",
+        fileType: "html",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(result.designSelection.interact.theme).toBe("system");
+    expect(action.tool.description).toMatch(
+      /theme, light, dark or system \(system, the default, shows the design as authored/,
+    );
+    expect(action.tool.description).not.toMatch(/follows the editor/);
+  });
+
+  it("hands the editor's mode, active tool and open panel to the agent as published", async () => {
+    mocks.readAppStateForCurrentTab
+      .mockResolvedValueOnce({
+        view: "editor",
+        editorView: "single",
+        designId: "design_123",
+      })
+      .mockResolvedValueOnce({
+        viewMode: "single",
+        activeFileId: "file_index",
+        activeFilename: "index.html",
+        mode: "interact",
+        activeTool: "move",
+        leftPanel: "agent",
+      });
+    mocks.selectChain.where.mockResolvedValue([
+      {
+        id: "file_index",
+        filename: "index.html",
+        fileType: "html",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(result.designSelection).toMatchObject({
+      mode: "interact",
+      activeTool: "move",
+      leftPanel: "agent",
+    });
+  });
+
+  it("hands the agent the Threads panel and the Comment tool while the user is pinning a comment", async () => {
+    mocks.readAppStateForCurrentTab
+      .mockResolvedValueOnce({
+        view: "editor",
+        editorView: "overview",
+        designId: "design_123",
+      })
+      .mockResolvedValueOnce({
+        viewMode: "overview",
+        mode: "annotate",
+        activeTool: "comment",
+        leftPanel: "threads",
+      });
+    mocks.selectChain.where.mockResolvedValue([]);
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(result.designSelection).toMatchObject({
+      mode: "annotate",
+      activeTool: "comment",
+      leftPanel: "threads",
+    });
+  });
+
+  it("does not report an inspector tab, even when a stale selection record has one", async () => {
+    mocks.readAppStateForCurrentTab
+      .mockResolvedValueOnce({
+        view: "editor",
+        editorView: "single",
+        designId: "design_123",
+      })
+      .mockResolvedValueOnce({
+        viewMode: "single",
+        mode: "edit",
+        activeFileId: "file_index",
+        activeFilename: "index.html",
+        inspectorTab: "comments",
+      });
+    mocks.selectChain.where.mockResolvedValue([
+      {
+        id: "file_index",
+        filename: "index.html",
+        fileType: "html",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(result.designSelection).toMatchObject({
+      mode: "edit",
+      activeFileId: "file_index",
+    });
+    expect(result.designSelection).not.toHaveProperty("inspectorTab");
+  });
+
   it("uses active file before overview multi-selection", async () => {
+    mocks.contentSelectChain.limit.mockResolvedValue([
+      {
+        content:
+          '<html><head><meta name="agent-native:frame-type" content="hubspot-email"></head><body>Email</body></html>',
+      },
+    ]);
     mocks.readAppStateForCurrentTab
       .mockResolvedValueOnce({
         view: "editor",
@@ -226,6 +399,7 @@ describe("view-screen", () => {
     expect(result.design.activeScreen).toMatchObject({
       id: "file_index",
       filename: "index.html",
+      frameType: "hubspot-email",
     });
   });
 

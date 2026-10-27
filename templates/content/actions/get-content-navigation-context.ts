@@ -1,12 +1,13 @@
 import { ActionContractError } from "@agent-native/core";
 import { defineAction, fail } from "@agent-native/core/action";
 import { alias } from "@agent-native/core/db/schema";
+import { parseIconValue, serializeIconValue } from "@agent-native/core/icons";
 import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import { accessFilter, type AccessContext } from "@agent-native/core/sharing";
-import { and, eq, isNull, or } from "drizzle-orm";
+import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -41,7 +42,7 @@ async function resolveNavigationFilesContext(
   db: ReturnType<typeof getDb>,
   documentId: string,
 ): Promise<NavigationFilesContext | undefined> {
-  const membershipCandidates = await db
+  const membershipCandidatesQuery = db
     .select({
       databaseId: schema.contentDatabases.id,
       databaseDocumentId: schema.contentDatabases.documentId,
@@ -65,7 +66,7 @@ async function resolveNavigationFilesContext(
         isNull(schema.contentSpaces.archivedAt),
       ),
     );
-  const filesDocumentCandidates = await db
+  const filesDocumentCandidatesQuery = db
     .select({
       databaseId: schema.contentDatabases.id,
       databaseDocumentId: schema.contentDatabases.documentId,
@@ -85,6 +86,10 @@ async function resolveNavigationFilesContext(
         isNull(schema.contentSpaces.archivedAt),
       ),
     );
+  const [membershipCandidates, filesDocumentCandidates] = await Promise.all([
+    membershipCandidatesQuery,
+    filesDocumentCandidatesQuery,
+  ]);
   const candidates = new Map(
     [...membershipCandidates, ...filesDocumentCandidates].map((candidate) => [
       candidate.databaseId,
@@ -166,7 +171,7 @@ export default defineAction({
             id: document.id,
             parentId: document.parentId,
             title: document.title,
-            icon: document.icon,
+            icon: serializeIconValue(parseIconValue(document.icon)),
             databaseId: null,
             databaseDocumentId: null,
             isFavorite: document.isFavorite,
@@ -199,63 +204,72 @@ export default defineAction({
         orgId: getRequestOrgId() ?? undefined,
       };
     const orgId = accessContext.orgId;
-    const seen = new Set<string>();
-    let activeRow: typeof schema.documents.$inferSelect | undefined;
-    let activeMembership:
-      | { databaseId: string; databaseDocumentId: string }
-      | undefined;
-    let currentId: string | null = id;
-    while (currentId && path.length <= MAX_ANCESTORS) {
-      if (seen.has(currentId))
-        throw new Error("Document ancestry contains a cycle");
-      seen.add(currentId);
-      const [row] = await db
+    // The recursive term carries the same trash and access predicates as the
+    // anchor, so the chain ends at the first ancestor the caller cannot read.
+    const chain = await db
+      .select({
+        depth: sql<number>`navigation_chain.depth`,
+        cycle: sql<boolean>`navigation_chain.cycle`,
+        id: schema.documents.id,
+        spaceId: schema.documents.spaceId,
+        parentId: schema.documents.parentId,
+        title: schema.documents.title,
+        icon: schema.documents.icon,
+        position: schema.documents.position,
+        description: schema.documents.description,
+        visibility: schema.documents.visibility,
+        ownerEmail: schema.documents.ownerEmail,
+        orgId: schema.documents.orgId,
+        isFavorite: schema.documents.isFavorite,
+        hideFromSearch: schema.documents.hideFromSearch,
+        trashedAt: schema.documents.trashedAt,
+        trashRootId: schema.documents.trashRootId,
+        bodyRevision: schema.documents.bodyRevision,
+        sourceMode: schema.documents.sourceMode,
+        sourceKind: schema.documents.sourceKind,
+        sourcePath: schema.documents.sourcePath,
+        sourceRootPath: schema.documents.sourceRootPath,
+        sourceUpdatedAt: schema.documents.sourceUpdatedAt,
+        createdAt: schema.documents.createdAt,
+        updatedAt: schema.documents.updatedAt,
+      })
+      .from(
+        sql`(
+          with recursive chain(id, parent_id, depth, visited, cycle) as (
+            select ${schema.documents.id}, ${schema.documents.parentId}, 0,
+              array[${schema.documents.id}], false
+            from ${schema.documents}
+            where ${schema.documents.id} = ${id}
+              and ${schema.documents.trashedAt} is null
+              and ${accessFilter(schema.documents, schema.documentShares, accessContext)}
+            union all
+            select ${schema.documents.id}, ${schema.documents.parentId}, chain.depth + 1,
+              chain.visited || ${schema.documents.id},
+              ${schema.documents.id} = any(chain.visited)
+            from chain
+            join ${schema.documents} on ${schema.documents.id} = chain.parent_id
+            where not chain.cycle
+              and chain.depth < ${MAX_ANCESTORS}
+              and ${schema.documents.trashedAt} is null
+              and ${accessFilter(schema.documents, schema.documentShares, accessContext)}
+          )
+          select id, depth, cycle from chain
+        ) as navigation_chain`,
+      )
+      .innerJoin(
+        schema.documents,
+        eq(schema.documents.id, sql`navigation_chain.id`),
+      )
+      .orderBy(sql`navigation_chain.depth`);
+    if (!chain.length)
+      throw Object.assign(new Error(`Document "${id}" not found`), {
+        statusCode: 404,
+      });
+    const chainIds = [...new Set(chain.map((row) => row.id))];
+    const [membershipRows, shareRows, favorites] = await Promise.all([
+      db
         .select({
-          id: schema.documents.id,
-          spaceId: schema.documents.spaceId,
-          parentId: schema.documents.parentId,
-          title: schema.documents.title,
-          icon: schema.documents.icon,
-          position: schema.documents.position,
-          description: schema.documents.description,
-          visibility: schema.documents.visibility,
-          ownerEmail: schema.documents.ownerEmail,
-          orgId: schema.documents.orgId,
-          isFavorite: schema.documents.isFavorite,
-          hideFromSearch: schema.documents.hideFromSearch,
-          trashedAt: schema.documents.trashedAt,
-          trashRootId: schema.documents.trashRootId,
-          bodyRevision: schema.documents.bodyRevision,
-          sourceMode: schema.documents.sourceMode,
-          sourceKind: schema.documents.sourceKind,
-          sourcePath: schema.documents.sourcePath,
-          sourceRootPath: schema.documents.sourceRootPath,
-          sourceUpdatedAt: schema.documents.sourceUpdatedAt,
-          createdAt: schema.documents.createdAt,
-          updatedAt: schema.documents.updatedAt,
-        })
-        .from(schema.documents)
-        .where(
-          and(
-            eq(schema.documents.id, currentId),
-            isNull(schema.documents.trashedAt),
-            accessFilter(
-              schema.documents,
-              schema.documentShares,
-              accessContext,
-            ),
-          ),
-        )
-        .limit(1);
-      if (!row) {
-        if (currentId === id)
-          throw Object.assign(new Error(`Document "${id}" not found`), {
-            statusCode: 404,
-          });
-        break;
-      }
-      const memberships = await db
-        .select({
+          documentId: schema.contentDatabaseItems.documentId,
           databaseId: schema.contentDatabaseItems.databaseId,
           databaseDocumentId: schema.contentDatabases.documentId,
           systemRole: schema.contentDatabases.systemRole,
@@ -278,7 +292,7 @@ export default defineAction({
         )
         .where(
           and(
-            eq(schema.contentDatabaseItems.documentId, row.id),
+            inArray(schema.contentDatabaseItems.documentId, chainIds),
             eq(schema.contentDatabases.spaceId, schema.contentSpaces.id),
             eq(
               schema.contentSpaces.filesDatabaseId,
@@ -293,8 +307,48 @@ export default defineAction({
               accessContext,
             ),
           ),
-        )
-        .limit(2);
+        ),
+      userEmail
+        ? db
+            .select({
+              resourceId: schema.documentShares.resourceId,
+              role: schema.documentShares.role,
+            })
+            .from(schema.documentShares)
+            .where(
+              and(
+                inArray(schema.documentShares.resourceId, chainIds),
+                or(
+                  and(
+                    eq(schema.documentShares.principalType, "user"),
+                    eq(schema.documentShares.principalId, userEmail),
+                  ),
+                  ...(orgId
+                    ? [
+                        and(
+                          eq(schema.documentShares.principalType, "org"),
+                          eq(schema.documentShares.principalId, orgId),
+                        ),
+                      ]
+                    : []),
+                ),
+              ),
+            )
+        : [],
+      userEmail
+        ? favoriteDocumentIds(db, userEmail, chainIds)
+        : new Set<string>(),
+    ]);
+
+    let activeRow: (typeof chain)[number] | undefined;
+    let activeMembership:
+      | { databaseId: string; databaseDocumentId: string }
+      | undefined;
+    for (const row of chain) {
+      if (row.cycle) throw new Error("Document ancestry contains a cycle");
+      const memberships = membershipRows.filter(
+        (membership) => membership.documentId === row.id,
+      );
       if (memberships.length > 1) {
         fail(
           "The document belongs to more than one authoritative Files navigation context.",
@@ -312,35 +366,14 @@ export default defineAction({
           ? navigationFilesContext
           : undefined;
       const navigationMembership = membership ?? activeFilesDatabase;
-      const shareRows = userEmail
-        ? await db
-            .select({ role: schema.documentShares.role })
-            .from(schema.documentShares)
-            .where(
-              and(
-                eq(schema.documentShares.resourceId, row.id),
-                or(
-                  and(
-                    eq(schema.documentShares.principalType, "user"),
-                    eq(schema.documentShares.principalId, userEmail),
-                  ),
-                  ...(orgId
-                    ? [
-                        and(
-                          eq(schema.documentShares.principalType, "org"),
-                          eq(schema.documentShares.principalId, orgId),
-                        ),
-                      ]
-                    : []),
-                ),
-              ),
-            )
-        : [];
+      const rowShares = shareRows.filter(
+        (share) => share.resourceId === row.id,
+      );
       const role =
         userEmail && row.ownerEmail.toLowerCase() === userEmail.toLowerCase()
           ? "owner"
           : (["admin", "editor", "commenter", "viewer"].find((candidate) =>
-              shareRows.some((share) => share.role === candidate),
+              rowShares.some((share) => share.role === candidate),
             ) ?? "viewer");
       path.unshift({
         id: row.id,
@@ -349,30 +382,21 @@ export default defineAction({
         icon: row.icon,
         databaseId: navigationMembership?.databaseId ?? null,
         databaseDocumentId: navigationMembership?.databaseDocumentId ?? null,
-        isFavorite: false,
+        isFavorite: favorites.has(row.id),
         visibility: row.visibility as "private" | "org" | "public",
         ...permissions(role),
         source: serializeDocumentSource(row),
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
       });
-      currentId = row.parentId;
       if (path.length > MAX_ANCESTORS)
         throw new Error(
           "Document ancestry exceeds the supported navigation depth",
         );
       if (row.id === id) {
-        activeRow = row as typeof schema.documents.$inferSelect;
+        activeRow = row;
         activeMembership = navigationMembership;
       }
-    }
-    if (userEmail) {
-      const favorites = await favoriteDocumentIds(
-        db,
-        userEmail,
-        path.map((entry) => entry.id),
-      );
-      for (const entry of path) entry.isFavorite = favorites.has(entry.id);
     }
     return {
       mode,

@@ -1,10 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Intercept the DB-touching recorder that the defineAction audit wrapper loads
-// lazily. Resolves to the same module the wrapper imports (`./audit/record.js`
-// from action.ts == this directory's record.js).
 const recordActionAudit = vi.fn(async () => {});
 vi.mock("./record.js", () => ({ recordActionAudit }));
+const insertAuditEvent = vi.fn(async (_event: unknown) => {});
+vi.mock("./store.js", () => ({ insertAuditEvent }));
 
 const { defineAction } = await import("../action.js");
 
@@ -23,7 +22,7 @@ describe("defineAction audit wrapper", () => {
       { caller: "tool", actionName: "delete-thing", userEmail: "a@x.com" },
     );
 
-    expect(result).toEqual({ deleted: "t1" }); // result preserved
+    expect(result).toEqual({ deleted: "t1" });
     expect(recordActionAudit).toHaveBeenCalledTimes(1);
     const call = recordActionAudit.mock.calls[0][0] as any;
     expect(call.status).toBe("success");
@@ -46,6 +45,35 @@ describe("defineAction audit wrapper", () => {
     const call = recordActionAudit.mock.calls[0][0] as any;
     expect(call.status).toBe("error");
     expect(call.error).toBeInstanceOf(Error);
+  });
+
+  it("records a write whose thrown value cannot be classified", async () => {
+    const actual =
+      await vi.importActual<typeof import("./record.js")>("./record.js");
+    recordActionAudit.mockImplementationOnce(actual.recordActionAudit as any);
+    const thrown = new Proxy(new Error("Handler failed"), {
+      get(target, key, receiver) {
+        if (key === "actionContractError" || key === "errorCode") {
+          throw new Error("Classification accessor failed");
+        }
+        return Reflect.get(target, key, receiver);
+      },
+    });
+    const action = defineAction({
+      description: "edit a document",
+      run: async () => {
+        throw thrown;
+      },
+    });
+
+    await expect(
+      action.run({}, { caller: "tool", actionName: "edit-doc" }),
+    ).rejects.toThrow("The call failed, and its error could not be read.");
+    expect(insertAuditEvent).toHaveBeenCalledTimes(1);
+    expect(insertAuditEvent.mock.calls[0][0]).toMatchObject({
+      status: "error",
+      errorCode: "error_unreadable",
+    });
   });
 
   it("does not audit read-only (GET) actions by default", async () => {

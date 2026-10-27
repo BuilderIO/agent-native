@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CommandPalette, type QuickCreateEvent } from "./CommandPalette";
 
-vi.mock("@agent-native/core/client/navigation", async () => {
+vi.mock("@agent-native/toolkit/app/shared", async () => {
   const React = await import("react");
 
   const CommandMenu = Object.assign(

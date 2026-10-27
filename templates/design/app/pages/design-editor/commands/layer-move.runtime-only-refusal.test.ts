@@ -12,14 +12,6 @@ import type { DesignFile } from "@/pages/design-editor/types";
 
 import { runLayerMove, type LayerMoveArgs } from "./layer-move";
 
-/**
- * runtime-node-move-error: a runtime-only node (an Alpine x-for clone,
- * script-appended DOM, …) has no counterpart in the screen's saved
- * sourceHtml. Mixing one into a multi-select drag must never let
- * applyVisualEdit/moveNodeBetweenDocuments run on its id — that fails with
- * a raw "No code layer node exists for nodeId ..." string surfaced
- * verbatim to the user (Logan, Sep 11: "a technical jargon error appears").
- */
 const CONTENT = `<body>
   <div data-agent-native-node-id="regular" style="position:relative">Regular</div>
   <div data-agent-native-node-id="target" style="position:relative"></div>
@@ -34,10 +26,6 @@ function buildArgs() {
   const targetNode = projection.nodes.find(
     (n) => n.dataAttributes["data-agent-native-node-id"] === "target",
   )!;
-  // A runtime-only owner whose .node has no counterpart anywhere in CONTENT
-  // — exactly what a bridge-reported Alpine/script-generated clone looks
-  // like: a real CodeLayerNode shape, keyed by an id the saved document
-  // never contains.
   const runtimeOnlyId = "runtime-fake-clone-id";
   const codeLayerOwnerByNodeId = new Map([
     [
@@ -145,7 +133,6 @@ describe("runLayerMove: runtime-only id in a multi-select drag", () => {
       expect(message).not.toMatch(/No code layer node exists/i);
       expect(message).not.toMatch(runtimeOnlyId);
     }
-    // The regular item in the same gesture must still move.
     expect(isApplied(), "the non-runtime dragged item should still move").toBe(
       true,
     );

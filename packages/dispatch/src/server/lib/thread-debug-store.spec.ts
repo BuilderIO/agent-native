@@ -1,3 +1,4 @@
+import { isActionContractError } from "@agent-native/core/action";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -5,11 +6,44 @@ const mocks = vi.hoisted(() => ({
   createDbExec: vi.fn(),
   orgId: null as string | null,
   ownerEmail: "owner@example.com",
+  delegatedOrgMember: false,
+  dispatchConfig: {
+    adminEmails: [] as string[],
+    workspaceOwnerEmails: [] as string[],
+    defaultOwnerEmail: undefined as string | undefined,
+  },
+  superOrgId: undefined as string | undefined,
 }));
 
 vi.mock("@agent-native/core/db", () => ({
   createDbExec: mocks.createDbExec,
   getDbExec: () => ({ execute: mocks.currentExecute }),
+}));
+
+vi.mock("@agent-native/core/server", () => ({
+  getRequestContext: () =>
+    mocks.delegatedOrgMember
+      ? {
+          a2aIdentityAssurance: "org-member",
+          userEmail: mocks.ownerEmail,
+          orgId: mocks.orgId,
+        }
+      : undefined,
+  getAppConfig: () => ({
+    dispatch: mocks.dispatchConfig,
+    observability: { superOrgId: mocks.superOrgId },
+  }),
+  readOrgMemberRole: async (orgId: string, email: string) => {
+    const result = await mocks.currentExecute({
+      sql: "SELECT role FROM org_members",
+      args: [orgId, email.toLowerCase()],
+    });
+    const role = result.rows[0]?.role;
+    if (mocks.delegatedOrgMember && (role === "owner" || role === "admin")) {
+      return "member";
+    }
+    return typeof role === "string" ? role : null;
+  },
 }));
 
 vi.mock("./dispatch-store.js", () => ({
@@ -100,6 +134,11 @@ describe("thread-debug-store", () => {
   beforeEach(() => {
     mocks.orgId = null;
     mocks.ownerEmail = "owner@example.com";
+    mocks.delegatedOrgMember = false;
+    mocks.dispatchConfig.adminEmails = [];
+    mocks.dispatchConfig.workspaceOwnerEmails = [];
+    mocks.dispatchConfig.defaultOwnerEmail = undefined;
+    mocks.superOrgId = undefined;
     mocks.currentExecute.mockReset();
     mocks.createDbExec.mockReset();
     mocks.currentExecute.mockImplementation(async ({ sql, args }) => ({
@@ -260,7 +299,7 @@ describe("thread-debug-store", () => {
   });
 
   it("merges all admin-visible sources, sorts globally, limits, and preserves partial health", async () => {
-    vi.stubEnv("DISPATCH_ADMIN_EMAILS", "owner@example.com");
+    mocks.dispatchConfig.defaultOwnerEmail = "Owner@Example.com";
     vi.stubEnv("REMOTE_A_DATABASE_URL", "postgres://remote-a/db");
     vi.stubEnv("REMOTE_B_DATABASE_URL", "postgres://remote-b/db");
     vi.stubEnv("REMOTE_C_DATABASE_URL", "postgres://remote-c/db");
@@ -327,7 +366,7 @@ describe("thread-debug-store", () => {
   });
 
   it("retains disconnected configured sources without attempting a connection", async () => {
-    vi.stubEnv("DISPATCH_ADMIN_EMAILS", "owner@example.com");
+    mocks.dispatchConfig.adminEmails = ["owner@example.com"];
     vi.stubEnv(
       "AGENT_NATIVE_THREAD_DEBUG_DATABASES",
       JSON.stringify([
@@ -362,9 +401,19 @@ describe("thread-debug-store", () => {
       ]),
     );
     expect(mocks.createDbExec).not.toHaveBeenCalled();
-    await expect(
-      listAgentRunFailures({ sourceId: "missing-prod" }),
-    ).rejects.toThrow("configured but disconnected");
+    // Asking for that one source is a deploy misconfiguration, not a user
+    // state: an untyped error the action boundary captures as a 500.
+    const disconnected = await listAgentRunFailures({
+      sourceId: "missing-prod",
+    }).catch((error: unknown) => error);
+    expect(disconnected).toBeInstanceOf(Error);
+    expect((disconnected as Error).message).toContain(
+      "configured but disconnected",
+    );
+    expect(isActionContractError(disconnected)).toBe(false);
+    expect(
+      (disconnected as { statusCode?: unknown }).statusCode,
+    ).toBeUndefined();
   });
 
   it("does not misclassify a missing additive column as a missing table", async () => {
@@ -404,7 +453,76 @@ describe("thread-debug-store", () => {
     expect(mocks.createDbExec).not.toHaveBeenCalled();
   });
 
+  it("lets super-org admins inspect owners outside the Dispatch roster", async () => {
+    mocks.orgId = "super-org";
+    mocks.superOrgId = "super-org";
+    mocks.currentExecute.mockImplementation(async ({ sql, args }) => {
+      if (sql.includes("SELECT role FROM org_members")) {
+        return { rows: [{ role: "admin" }] };
+      }
+      if (sql.includes("SELECT email FROM org_members")) {
+        return { rows: [{ email: "owner@example.com" }] };
+      }
+      if (sql.includes("FROM chat_threads")) {
+        return {
+          rows:
+            sql.includes("1 = 1") && args[0] === "thread-1"
+              ? [{ ...thread, owner_email: "outsider@example.com" }]
+              : [],
+        };
+      }
+      return { rows: rowsForThreadLookup(sql, args) };
+    });
+
+    const result = await getAgentThreadDebug({ threadId: "thread-1" });
+
+    expect(result.thread.ownerEmail).toBe("outsider@example.com");
+  });
+
+  it("scopes a delegated owner assertion to its own transcripts", async () => {
+    mocks.orgId = "org-1";
+    mocks.ownerEmail = "owner@example.com";
+    mocks.delegatedOrgMember = true;
+    mocks.currentExecute.mockImplementation(async ({ sql, args }) => {
+      if (sql.includes("SELECT role FROM org_members")) {
+        return { rows: [{ role: "owner" }] };
+      }
+      if (sql.includes("FROM chat_threads")) {
+        expect(sql).toContain("owner_email = ?");
+        expect(args).toContain("owner@example.com");
+        return { rows: [] };
+      }
+      return { rows: [] };
+    });
+
+    await expect(
+      getAgentThreadDebug({ threadId: "other-members-thread" }),
+    ).rejects.toMatchObject({ statusCode: 404 });
+  });
+
   it("keeps explicit remote sources admin-only", async () => {
+    vi.stubEnv("REMOTE_DATABASE_URL", "postgres://remote/db");
+
+    await expect(
+      listAgentRunFailures({ sourceId: "remote" }),
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      message:
+        "Only Dispatch admins can inspect thread databases from other apps.",
+    });
+    expect(mocks.createDbExec).not.toHaveBeenCalled();
+  });
+
+  it("does not let an environment admin assertion inspect remote transcripts", async () => {
+    mocks.orgId = "org-1";
+    mocks.ownerEmail = "platform-admin@example.com";
+    mocks.delegatedOrgMember = true;
+    mocks.dispatchConfig.adminEmails = ["platform-admin@example.com"];
+    mocks.currentExecute.mockImplementation(async ({ sql }) =>
+      sql.includes("SELECT role FROM org_members")
+        ? { rows: [{ role: "owner" }] }
+        : { rows: [] },
+    );
     vi.stubEnv("REMOTE_DATABASE_URL", "postgres://remote/db");
 
     await expect(

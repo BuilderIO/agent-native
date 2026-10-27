@@ -28,8 +28,23 @@ conflicts. Always choose an explicit `access` mode on `createCollabPlugin`.
 - **SSE fast-path** — `/_agent-native/poll-events` `EventSource` delivers collab
   events push-style; while SSE is healthy the collab poll interval relaxes to
   ~12 s
-- **Polling fallback** — `/_agent-native/poll` is polled every 2 s when SSE is
-  unavailable; this is the universal serverless fallback
+- **Polling fallback** — `/_agent-native/poll` is polled every 2 s when SSE
+  drops mid-session. On serverless, `/events` answers 204 up front (poll-live)
+  and this client relaxes to ~12 s, because `/poll` is the only channel.
+- **Collab poll boost** — while the awareness set shows another visible human
+  on the doc (agent and hidden tabs do not count), the connection holds
+  `acquireCollabPollBoost()` and the shared transport polls every 2.5 s
+  whenever no stream is connected: a no-op while SSE or the hosted gateway is
+  live. A joiner is noticed on the existing user's next ~12 s collab poll
+  (the joiner sees them at once), a leaver within one poll plus the 30 s
+  awareness TTL. The boost lapses after 3 minutes with no input and no remote
+  events. Lone tabs pay nothing extra. Events under the request source a
+  connection posts with (any app-chosen tab id, not only `getBrowserTabId()`)
+  are this tab's own and never count. A read-only viewer must join the doc too (Design's
+  `useViewerPresence`; it never uses the `ydoc`), or it never sees an editor
+  and stays on the idle cadence. A viewer on a different screen than the
+  editor shares no doc with them; its own collab poll sees the design's
+  resource-scoped events from other tabs and starts the boost (60 s) itself.
 - **Update batching** — local Yjs updates are debounced ~80 ms and coalesced
   with `Y.mergeUpdates` before sending; flushed immediately on
   `visibilitychange` / `pagehide`
@@ -95,6 +110,16 @@ if (
 The agent's awareness entry (`AGENT_CLIENT_ID`, max int) can never be the
 lead. A sole client is always the lead. The election is deterministic with no
 coordination round-trip.
+
+A lead that sees another visible human waits `PEER_SETTLE_MS` (2.5 s) before
+adopting a newer snapshot, so that peer's in-flight typing lands first. The wait
+is skipped only when the host passes `isEditorClean(liveMarkdown)` to
+`useCollabReconcile`, it returns true, and the live doc still equals the last
+authoritative snapshot the hook adopted. Do not substitute
+`lastAppliedSerialized`: local emits update it, so it cannot say whether the
+doc holds unsaved text. Content's `isEditorClean` also requires no queued or
+in-flight save, no reconcile recovery draft, and no journaled draft that
+differs from the live doc.
 
 ### v1 limitation
 
@@ -244,6 +269,61 @@ optimizeDeps: {
 | `POST /_agent-native/collab/:docId/awareness` | Sync cursor/presence state |
 | `GET /_agent-native/collab/:docId/users` | List active users |
 
+## Live Copies
+
+A live copy is a document whose Yjs state is the only writable copy of a body;
+the server derives its text on every commit. Declare one with `defineLiveCopy`
+from `@agent-native/core/collab` and pass it to `createCollabPlugin({ liveCopy,
+autoSeed: false })`. Its `name` is its identity: defining the same name again
+replaces the old binding, so a dev reload never leaves a stale one in front;
+work the old binding started commits nothing unless its transaction was
+already committing. Then:
+
+- A live copy's Yjs work (merge, derive, seed, edits) runs only in the
+  binding's `createBoundedTaskRunner`, never on the request thread. Writes to
+  one document wait their turn ahead of that runner, so the binding's
+  `maxWaitingWrites` (default 16), not the runner's queue, bounds them; past
+  it a write fails with `build_failed` / `queue_full`, a 503. Readers of a
+  row this instance has not cached share one runner task, and its text is
+  cached with it, so `readLiveCopy` of a cached row runs none. Its module
+  exports `tasks = defineLiveCopyTasks({ derive, seed, edits })` from
+  `@agent-native/core/collab/live-copy-tasks` and is imported as
+  `./tasks.ts?bounded-task`, which the app's Vite build, server build and
+  `@agent-native/core/vitest-config` already resolve; declare that module
+  pattern's default export as a `BoundedTaskSource` in the app's `*.d.ts`. A
+  handler returns `{ kind: "refused", reason }` for content it cannot
+  represent; never drop it.
+- Edit on the server with `mutateLiveCopy(binding, docId, { edit, input })`,
+  where `edit` names one of the module's edits, and seed with `seedLiveCopy`.
+  Other write helpers throw `write_refused` for covered documents, and
+  `getDoc`, `getText` and `getJson` throw `read_refused`; read with
+  `readLiveCopy`. Do not work around either. All three throw `not_live_copy`
+  for a document the binding does not cover, and for a binding that was
+  released or replaced; call them with the binding `defineLiveCopy` returned
+  last. Only the first means the document left its live copy; the second has
+  reason `binding_inactive`, and retrying with the same handle cannot succeed. Call these writers, and `applyUpdate` on a live copy, outside any
+  transaction; they refuse a caller's, including a persist hook's, so a hook
+  reads its own document with `getState` or `readLiveCopy` but never writes
+  it. Rows that must commit with one edit
+  (say, the suggestion it accepts) go in `mutateLiveCopy`'s `persist` option,
+  which runs in the edit's own transaction. On a changed edit, core stops an
+  attempt a peer overtook before that persist runs, so a persist that checks
+  the app's rows against the edit sees the edit's own base. That check is
+  exact only when the binding's persist takes the lock every commit of the
+  document shares, such as the page row. An edit that changes nothing commits
+  no row core can check first: lock the app's rows, compare
+  `loadYDocVersion(docId)` with `change.version`, and return without writing
+  when it moved; core then redoes the edit. A persist's error is never retried.
+- Write the app's own rows in the binding's `persist` hook, which runs in the
+  commit transaction before `_collab_docs`. Do not save derived text elsewhere.
+  Return `{ derived: false, reason }` when it leaves them alone: the Yjs state
+  still commits, and the update ack says `liveCopy: "not_derived"`, so the
+  client can resume its own saves. An ack without `liveCopy` means unknown.
+- Handle `LiveCopyError` by `code`. Absent, unseeded and `malformed_state` are
+  different states; never treat malformed state as empty. Only an empty field
+  is unseeded, so an update or edit that would empty it is refused; editors
+  keep one empty block instead.
+
 ## Granular Server-Side Merge Pattern
 
 For structured documents (slides, forms, design files) where body collab would
@@ -375,6 +455,17 @@ the whole history — external/agent edits must not wipe the user's undo stack.
   sanctioned `setContent` is gated by `updatedAt` and guarded by
   `isReconcileLeadClient`. Calling it from elsewhere duplicates content across
   the CRDT or re-applies stale snapshots.
+- **Save to SQL only after the edit reached the document** — a client that
+  saves the same text to SQL while its Yjs update is still queued (offline,
+  backoff) lets peers adopt the saved copy and then apply the late update
+  again, duplicating the text. Await `flushUpdates()` from
+  `useCollaborativeDoc` before the save; `false` means delivery failed, so retry
+  later instead of saving. Build the saved value from the live document at that
+  moment, not from a snapshot taken at the last keystroke.
+- **Seed an empty document on the server** — two editors opening a new doc each
+  seed it locally and the copies merge into duplicated text. Pass
+  `requestInitialSeed` (backed by `seedXmlFragmentIfEmpty`) so the server seeds
+  once and every editor adopts that copy.
 - **Add packages to `optimizeDeps`** — Vite won't pre-bundle Yjs correctly
   otherwise, causing runtime errors in dev.
 - **One `Y.Doc` per document** — Don't create multiple Y.Doc instances for the

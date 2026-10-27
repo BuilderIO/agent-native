@@ -137,7 +137,7 @@ export function FieldPropertiesPanel({
               onChange(nextField);
             }}
           >
-            <SelectTrigger className="h-8 text-xs">
+            <SelectTrigger size="sm" className="text-xs">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -154,9 +154,10 @@ export function FieldPropertiesPanel({
         <div className="space-y-1.5">
           <Label className="text-xs">{t("fieldProperties.label")}</Label>
           <Input
+            size="sm"
             value={field.label}
             onChange={(e) => update({ label: e.target.value })}
-            className="h-8 text-xs"
+            className="text-xs"
           />
         </div>
 
@@ -164,9 +165,10 @@ export function FieldPropertiesPanel({
         <div className="space-y-1.5">
           <Label className="text-xs">{t("fieldProperties.placeholder")}</Label>
           <Input
+            size="sm"
             value={field.placeholder || ""}
             onChange={(e) => update({ placeholder: e.target.value })}
-            className="h-8 text-xs"
+            className="text-xs"
           />
         </div>
 
@@ -199,7 +201,7 @@ export function FieldPropertiesPanel({
             value={field.width || "full"}
             onValueChange={(v) => update({ width: v as "full" | "half" })}
           >
-            <SelectTrigger className="h-8 text-xs">
+            <SelectTrigger size="sm" className="text-xs">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -229,10 +231,11 @@ export function FieldPropertiesPanel({
               <div className="space-y-1.5">
                 <Label className="text-xs">{t("fieldProperties.accept")}</Label>
                 <Input
+                  size="sm"
                   value={field.accept || ""}
                   onChange={(event) => update({ accept: event.target.value })}
                   placeholder={t("fieldProperties.acceptPlaceholder")}
-                  className="h-8 text-xs"
+                  className="text-xs"
                 />
               </div>
             </div>
@@ -294,7 +297,7 @@ export function FieldPropertiesPanel({
                         });
                       }}
                     >
-                      <SelectTrigger className="h-8 text-xs">
+                      <SelectTrigger size="sm" className="text-xs">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -327,7 +330,7 @@ export function FieldPropertiesPanel({
                         })
                       }
                     >
-                      <SelectTrigger className="h-8 text-xs">
+                      <SelectTrigger size="sm" className="text-xs">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -361,7 +364,7 @@ export function FieldPropertiesPanel({
                           })
                         }
                       >
-                        <SelectTrigger className="h-8 text-xs">
+                        <SelectTrigger size="sm" className="text-xs">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -378,6 +381,7 @@ export function FieldPropertiesPanel({
                       </Select>
                     ) : (
                       <Input
+                        size="sm"
                         value={conditionValue}
                         onChange={(event) =>
                           update({
@@ -391,7 +395,7 @@ export function FieldPropertiesPanel({
                         placeholder={t(
                           "fieldProperties.conditionValuePlaceholder",
                         )}
-                        className="h-8 text-xs"
+                        className="text-xs"
                       />
                     )}
                   </div>

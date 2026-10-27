@@ -637,47 +637,6 @@ function printMigrationResume(opts: MigrateCliOptions): void {
   );
 }
 
-function renderWorkbenchReady(args: {
-  appDir: string;
-  existing: boolean;
-  outputRoot: string;
-  source: SourceSpec;
-}): string {
-  const rel = path.relative(process.cwd(), args.appDir) || ".";
-  const sourceCommand = formatSourceForCommand(args.source);
-  return [
-    "",
-    args.existing
-      ? "Migration Workbench is ready (reused existing app)."
-      : "Migration Workbench is ready.",
-    "",
-    `  Source: ${formatSourceForDisplay(args.source)}`,
-    `  Output: ${args.outputRoot}`,
-    `  App:    ${args.appDir}`,
-    "",
-    "Run it:",
-    `  cd ${shellQuote(rel)}`,
-    "  pnpm install",
-    "  pnpm dev",
-    "",
-    "npx-friendly commands:",
-    `  npx @agent-native/core@latest code /migrate ${sourceCommand} --out ${shellQuote(path.relative(process.cwd(), args.outputRoot) || ".")}`,
-    `  npx @agent-native/core@latest code /migrate ${sourceCommand} --emit ${shellQuote(defaultDossierDirForDisplay(args.source))}`,
-    "",
-    "Workbench URL:",
-    `  http://localhost:${MIGRATION_DEV_PORT}/`,
-    "  If Vite chooses another port, use the URL printed by `pnpm dev`.",
-    "",
-    "Deep-link shape:",
-    `  http://localhost:${MIGRATION_DEV_PORT}/`,
-    "  Select the run inside the Workbench, or ask the app agent to open a run by ID.",
-    "",
-    ...credentialStatusLines(),
-    "",
-    "The Workbench seed is written to data/migration-source.json. It stores paths and source metadata only, never secret values.",
-  ].join("\n");
-}
-
 function renderCodeAgentMigrationSession(
   run: CodeAgentRunRecord,
   dossier: EmitDossierResult,
@@ -1067,13 +1026,6 @@ function defaultDossierRoot(source: SourceSpec, cwd: string): string {
     );
   }
   return path.resolve(cwd, DEFAULT_DOSSIER_DIR);
-}
-
-function defaultDossierDirForDisplay(source: SourceSpec): string {
-  if (source.sourceRoot) {
-    return `../${path.basename(source.sourceRoot)}-migration-dossier`;
-  }
-  return DEFAULT_DOSSIER_DIR;
 }
 
 function assertOutsideSourceRoot(
@@ -1509,15 +1461,6 @@ function resolveScaffoldedAppDir(cwd: string, appName: string): string {
   return path.join(cwd, appName);
 }
 
-function sourceSeedPayload(source: SourceSpec): Record<string, string> {
-  return {
-    kind: source.kind,
-    value: source.value,
-    ...(source.sourceRoot ? { sourceRoot: source.sourceRoot } : {}),
-    ...(source.description ? { description: source.description } : {}),
-  };
-}
-
 function defaultRunName(source: SourceSpec): string {
   if (source.sourceRoot) {
     return `Migration from ${path.basename(source.sourceRoot)}`;
@@ -1788,17 +1731,6 @@ function isProbablyUrl(value: string): boolean {
 function formatSourceForDisplay(source: SourceSpec): string {
   if (source.sourceRoot) return source.sourceRoot;
   return source.value;
-}
-
-function formatSourceForCommand(source: SourceSpec): string {
-  if (source.kind === "description") {
-    return `--describe ${shellQuote(source.value)}`;
-  }
-  const base = shellQuote(source.value);
-  if (source.description) {
-    return `${base} --describe ${shellQuote(source.description)}`;
-  }
-  return base;
 }
 
 function shellQuote(value: string): string {

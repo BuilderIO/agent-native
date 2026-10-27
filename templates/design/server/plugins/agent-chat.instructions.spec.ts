@@ -37,6 +37,7 @@ describe("external design authoring catalog", () => {
   it("keeps context reads and writes on the compact connector surface", () => {
     for (const name of [
       "open-visual-edit",
+      "get-visual-edit-pending",
       "connect-localhost",
       "add-localhost-screens",
       "list-localhost-connections",
@@ -50,12 +51,22 @@ describe("external design authoring catalog", () => {
       "create-design-from-template",
       "edit-design",
       "generate-design",
+      "delete-file",
     ]) {
       expect(agentChatSource).toContain(`\"${name}\"`);
     }
     expect(agentChatSource).toContain(
       "connectorCatalog: EXTERNAL_CONNECTOR_TOOL_NAMES",
     );
+    expect(agentChatSource).toContain(
+      'keyToolNames: ["get-visual-edit-pending"]',
+    );
+    const connectorCatalog = agentChatSource.slice(
+      agentChatSource.indexOf("const EXTERNAL_CONNECTOR_TOOL_NAMES = ["),
+      agentChatSource.indexOf("const INITIAL_TOOL_NAMES = ["),
+    );
+    expect(connectorCatalog).toContain('"get-visual-edit-pending"');
+    expect(connectorCatalog).toContain('"delete-file"');
     expect(agentChatSource).toContain(
       'externalAgents: { writes: "allowlisted" }',
     );

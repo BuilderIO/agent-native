@@ -330,6 +330,26 @@ describe("optimistic comment mutations", () => {
     });
   });
 
+  it("keeps the Collection of an ambiguous Property comment for its retry", async () => {
+    const client = queryClient();
+    useQueryClient.mockReturnValue(client);
+    const mutation = useCreateComment() as any;
+    const variables = {
+      documentId: "doc-1",
+      content: "Status looks wrong",
+      propertyId: "status",
+      databaseId: "collection-2",
+    };
+    const context = await mutation.onMutate(variables);
+    const timeout = Object.assign(new Error("Timed out"), { timedOut: true });
+    mutation.onError(timeout, variables, context);
+    expect(client.read().comments[1]).toMatchObject({
+      property_id: "status",
+      property_database_id: "collection-2",
+      mutation: { ambiguous: true },
+    });
+  });
+
   it.each([
     [new Error("Comment mentions metadata is not valid JSON"), false],
     [Object.assign(new Error("Forbidden"), { status: 403 }), false],
@@ -688,7 +708,7 @@ describe("optimistic comment mutations", () => {
 
   it("preserves mentions when an edit omits metadata and clears them explicitly", async () => {
     const original = comment({
-      mentions: [{ email: "sam@example.com", name: "Sam" }],
+      mentions: [{ kind: "person", email: "sam@example.com", name: "Sam" }],
     });
     const client = queryClient([original]);
     useQueryClient.mockReturnValue(client);

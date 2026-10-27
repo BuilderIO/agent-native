@@ -1,16 +1,6 @@
-/**
- * Start recording for a meeting.
- *
- * Creates a `recordings` row in `uploading` status and links it to the
- * meeting (`meetings.recordingId`). Stamps `actualStart` if not yet set.
- *
- * Like `create-recording`, this only allocates the DB row — actual
- * MediaRecorder/native-capture is a UI/Tauri gesture.
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
-import { assertAccess } from "@agent-native/core/sharing";
+import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -19,6 +9,11 @@ import {
   materializeCalendarMeetingFromVirtualId,
   parseCalendarMeetingId,
 } from "../server/lib/calendar-event-meetings.js";
+import {
+  isMeetingRecordingAvailable,
+  meetingRecordingReference,
+} from "../server/lib/meeting-recording-access.js";
+import { trackRecordingCreated } from "../server/lib/recording-created.js";
 import {
   getCurrentOwnerEmail,
   getActiveOrganizationId,
@@ -60,17 +55,27 @@ export default defineAction({
     if (!meeting) throw new Error(`Meeting not found: ${meetingId}`);
 
     if (meeting.recordingId) {
-      // Already linked — return the existing row instead of creating a duplicate.
       const [existing] = await db
         .select()
         .from(schema.recordings)
         .where(eq(schema.recordings.id, meeting.recordingId))
         .limit(1);
       if (existing) {
+        await assertAccess("recording", existing.id, "editor");
+        if (
+          !isMeetingRecordingAvailable(
+            { ...existing, hasPassword: Boolean(existing.password) },
+            ownerEmail,
+          )
+        ) {
+          throw new ForbiddenError();
+        }
         return {
-          recording: existing,
+          recording: meetingRecordingReference(existing),
           meetingId,
           created: false,
+          captureStopRevision: meeting.captureStopRevision,
+          actualEnd: meeting.actualEnd,
           scheduledEnd: meeting.scheduledEnd,
         };
       }
@@ -85,12 +90,23 @@ export default defineAction({
       title: recordingTitle,
       hasAudio: args.hasAudio ?? true,
       hasCamera: args.hasCamera ?? false,
+      // Meeting recordings are captured by the desktop app's native macOS
+      // transcript stream; it is this action's only caller.
+      recordingPlatform: "desktop",
       status: "uploading",
       ownerEmail,
       orgId: orgId ?? null,
       visibility: meeting.visibility,
       createdAt: nowIso,
       updatedAt: nowIso,
+    });
+    trackRecordingCreated({
+      recordingId,
+      userId: ownerEmail,
+      platform: "desktop",
+      source: "meeting",
+      hasAudio: args.hasAudio ?? true,
+      hasCamera: args.hasCamera ?? false,
     });
 
     await db
@@ -103,7 +119,6 @@ export default defineAction({
       })
       .where(eq(schema.meetings.id, meetingId));
 
-    // Tell the UI / Tauri tray app to start the actual capture.
     await writeAppState("record-intent", {
       mode: "meeting",
       recordingId,
@@ -112,16 +127,20 @@ export default defineAction({
     });
     await writeAppState("refresh-signal", { ts: Date.now() });
 
-    const [recording] = await db
+    const recordingRows = await db
       .select()
       .from(schema.recordings)
       .where(eq(schema.recordings.id, recordingId))
       .limit(1);
 
+    const recording = recordingRows.values().next().value;
+
     return {
-      recording,
+      recording: recording ? meetingRecordingReference(recording) : undefined,
       meetingId,
       created: true,
+      captureStopRevision: meeting.captureStopRevision,
+      actualEnd: meeting.actualEnd,
       scheduledEnd: meeting.scheduledEnd,
     };
   },

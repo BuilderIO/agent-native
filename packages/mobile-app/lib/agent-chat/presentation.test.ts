@@ -27,6 +27,21 @@ describe("mobile chat presentation parity", () => {
     ).toBe(false);
   });
 
+  it("keeps interactive tool output visible after a run completes", () => {
+    expect(
+      isCollapsibleWorkPart({
+        ...completedTool,
+        mcpApp: { html: "<p>App</p>" },
+      }),
+    ).toBe(false);
+    expect(
+      isCollapsibleWorkPart({
+        ...completedTool,
+        chatUI: { renderer: "custom" },
+      }),
+    ).toBe(false);
+  });
+
   it("keeps active tools expanded instead of hiding live work in a summary", () => {
     const running = { ...completedTool, status: "running" as const };
     expect(hasActiveTool([running])).toBe(true);

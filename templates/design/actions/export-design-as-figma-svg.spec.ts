@@ -1,16 +1,4 @@
-/**
- * export-design-as-figma-svg.spec.ts
- *
- * Covers the DB-shaped branch logic (missing designId/fileId, file not
- * found, wrong file type, chromium-unavailable fallback, success shape) with
- * a mocked drizzle chain and a mocked `renderDesignToFigmaSvg`. The actual
- * render path (real headless Chromium producing real geometry) requires a
- * live browser and DB-backed design_files row — not exercised here, same
- * split as `take-design-screenshot.spec.ts` (see that file's docblock) and
- * `design-to-figma-svg.spec.ts`.
- */
-
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { buildCodeLayerProjection } from "../shared/code-layer.js";
 
@@ -22,7 +10,6 @@ const mockRow = {
   content: "<div>hi</div>",
 };
 
-/** Matches the `source` triple `resolveFigmaSvgNodeSelector` builds from `file`/`designId`. */
 const MOCK_SOURCE = {
   kind: "design-file" as const,
   designId: "design_1",
@@ -42,6 +29,9 @@ function chainable(rows: unknown[]) {
 
 let fileRows: unknown[] = [mockRow];
 let designRows: unknown[] = [{ title: "My Screen" }];
+
+const track = vi.hoisted(() => vi.fn());
+vi.mock("@agent-native/core/tracking", () => ({ track }));
 
 vi.mock("@agent-native/core/collab", () => ({
   hasCollabState: vi.fn().mockResolvedValue(false),
@@ -103,6 +93,110 @@ import action, {
   chromiumUnavailableReason,
   figmaSvgNodeSelector,
 } from "./export-design-as-figma-svg.js";
+
+describe("export-design-as-figma-svg design_exported", () => {
+  const svgResult = {
+    svg: "<svg></svg>",
+    report: {
+      vectorized: [],
+      approximated: [],
+      rasterized: [],
+      omitted: [],
+      warnings: [],
+      vectorizedTextCaveat: "",
+    },
+  };
+  const exportEvents = () =>
+    track.mock.calls.filter(([name]) => name === "design_exported");
+
+  beforeEach(() => {
+    track.mockReset();
+    fileRows = [mockRow];
+  });
+
+  it("records an agent's export once, after the file is found", async () => {
+    renderDesignToFigmaSvg.mockResolvedValueOnce(svgResult);
+    await action.run(
+      { designId: "design_1", filename: "index.html" } as never,
+      { caller: "mcp", userEmail: "owner@example.test" } as never,
+    );
+    expect(exportEvents()).toHaveLength(1);
+    expect(exportEvents()[0]![1]).toMatchObject({
+      output_id: "design_1",
+      export_format: "figma_svg",
+      status: "completed",
+      render_location: "server",
+      caller: "mcp",
+    });
+  });
+
+  it("records nothing for the Design UI, which records its own browser export", async () => {
+    renderDesignToFigmaSvg.mockResolvedValueOnce(svgResult);
+    await action.run(
+      { designId: "design_1", filename: "index.html" } as never,
+      { caller: "frontend", userEmail: "owner@example.test" } as never,
+    );
+    expect(exportEvents()).toEqual([]);
+  });
+
+  it("records an agent's failed export once: no renderer, or a render error rethrown unchanged", async () => {
+    renderDesignToFigmaSvg.mockRejectedValueOnce(
+      new Error("no chromium binary"),
+    );
+    const unavailable = (await action.run(
+      { designId: "design_1", filename: "index.html" } as never,
+      { caller: "mcp" } as never,
+    )) as { ok: boolean };
+    expect(unavailable.ok).toBe(false);
+
+    const boom = new Error("boom");
+    renderDesignToFigmaSvg.mockRejectedValueOnce(boom);
+    await expect(
+      action.run(
+        { designId: "design_1", filename: "index.html" } as never,
+        { caller: "tool" } as never,
+      ),
+    ).rejects.toBe(boom);
+
+    expect(exportEvents().map(([, properties]) => properties)).toEqual([
+      expect.objectContaining({
+        output_id: "design_1",
+        export_format: "figma_svg",
+        status: "failed",
+        error_type: "chromium_unavailable",
+        caller: "mcp",
+      }),
+      expect.objectContaining({
+        output_id: "design_1",
+        export_format: "figma_svg",
+        status: "failed",
+        caller: "tool",
+      }),
+    ]);
+  });
+
+  it("records no failure for the Design UI's own render call", async () => {
+    renderDesignToFigmaSvg.mockRejectedValueOnce(
+      new Error("no chromium binary"),
+    );
+    await action.run(
+      { designId: "design_1", filename: "index.html" } as never,
+      { caller: "frontend" } as never,
+    );
+    expect(exportEvents()).toEqual([]);
+  });
+
+  it("records nothing when the file is not found", async () => {
+    fileRows = [];
+    await expect(
+      action.run(
+        { designId: "design_1", filename: "index.html" } as never,
+        { caller: "mcp" } as never,
+      ),
+    ).rejects.toThrow(/Design file not found/);
+    expect(exportEvents()).toEqual([]);
+  });
+});
 
 describe("figmaSvgNodeSelector", () => {
   it("escapes quotes, slashes, and newlines in runtime node ids", () => {

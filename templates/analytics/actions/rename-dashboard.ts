@@ -6,7 +6,10 @@ import {
 import { z } from "zod";
 
 import { queueDashboardCollabSync } from "../server/lib/dashboard-collab-sync";
-import { upsertDashboardWithRetry } from "../server/lib/dashboards-store";
+import {
+  getDashboard,
+  upsertDashboardWithRetry,
+} from "../server/lib/dashboards-store";
 
 function resolveScope() {
   const orgId = getRequestOrgId() || null;
@@ -26,15 +29,13 @@ export default defineAction({
     if (!name) throw new Error("name is required");
 
     const ctx = resolveScope();
-    // Recomputed on every retry attempt from the freshest dashboard config, so
-    // a concurrent panel edit (mutate-dashboard/update-dashboard) racing this
-    // rename is never silently overwritten by a stale config snapshot.
     const updated = await upsertDashboardWithRetry(args.id, ctx, (existing) => {
       return { kind: existing.kind, body: { ...existing.config, name } };
     });
-    queueDashboardCollabSync(
+    void queueDashboardCollabSync(
       args.id,
-      updated.config,
+      updated.updatedAt,
+      () => getDashboard(args.id, ctx),
       actionContext?.caller === "frontend" ? undefined : "agent",
     );
     return { id: updated.id, name: updated.title };

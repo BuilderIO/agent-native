@@ -1,3 +1,5 @@
+import { type AgentEngineConfiguredState } from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   getOtherGuidedAnswerText,
   hasGuidedAnswer,
@@ -6,8 +8,8 @@ import {
   normalizeGuidedAnswers,
   type GuidedQuestion,
   type GuidedQuestionOption,
-} from "@agent-native/core/client/agent-chat";
-import { useT } from "@agent-native/core/client/i18n";
+} from "@agent-native/toolkit/app/chat/agentkit-chat";
+import { GuidedQuestionProviderGate } from "@agent-native/toolkit/app/chat/agentkit-chat";
 import type { QuestionFlowQuestion } from "@shared/api";
 import { IconCheck, IconPalette, IconUpload, IconX } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -25,6 +27,9 @@ interface QuestionFlowProps {
   description?: string;
   skipLabel?: string;
   submitLabel?: string;
+  isSubmissionBlocked?: boolean;
+  providerStatus?: AgentEngineConfiguredState;
+  onRetryProviderStatus?: () => void;
 }
 
 export function QuestionFlow({
@@ -35,17 +40,13 @@ export function QuestionFlow({
   description,
   skipLabel,
   submitLabel,
+  isSubmissionBlocked = false,
+  providerStatus = "configured",
+  onRetryProviderStatus,
 }: QuestionFlowProps) {
   const t = useT();
   const guidedQuestions = questions as GuidedQuestion[];
   const [answers, setAnswers] = useState<Record<string, unknown>>({});
-  // Guards against a rapid double-click (or two events firing within the
-  // same React batch) triggering onSubmit/onSkip twice before the parent
-  // hook clears the persisted question payload and this component unmounts.
-  // Both handlers post a message to the agent chat, so firing twice would
-  // duplicate the turn. A ref is required (not just state) because the gate
-  // must be visible synchronously to a second click handled in the same
-  // task, before React has flushed the re-render that disables the button.
   const respondedRef = useRef(false);
   const [responded, setResponded] = useState(false);
   const questionsFingerprint = useMemo(
@@ -76,10 +77,20 @@ export function QuestionFlow({
   const requiredAnswered = requiredQuestions.filter(isAnswered).length;
   const allRequiredAnswered = requiredAnswered === requiredQuestions.length;
 
+  if (isSubmissionBlocked) {
+    return (
+      <div className="flex h-full w-full items-center justify-center bg-background px-5 py-8 sm:px-8 lg:px-10">
+        <div className="w-full max-w-xl">
+          <GuidedQuestionProviderGate
+            providerStatus={providerStatus}
+            onRetry={onRetryProviderStatus}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
-    /* `items-start` is what makes the trailing space real: stretched, this
-       column overflows its own padding box, so its `pb` renders above the
-       overflow and the scroll container's `py` bottom is dropped. */
     <div className="flex h-full w-full items-start justify-center overflow-y-auto bg-transparent px-5 py-8 text-[13px] text-foreground sm:px-8 lg:px-10">
       <main className="w-full min-w-0 max-w-[820px] pb-16">
         <div className="mb-6 border-b border-[var(--design-editor-panel-divider-color)] pb-5">
@@ -115,7 +126,7 @@ export function QuestionFlow({
               onSubmit(normalizeGuidedAnswers(answers));
             }}
             disabled={responded || !allRequiredAnswered}
-            className="h-8 cursor-pointer rounded-md bg-[var(--design-editor-accent-color)] px-3 text-[12px] text-[var(--design-editor-accent-contrast-color)] shadow-none hover:bg-[var(--design-editor-accent-hover-color)] hover:text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)]"
+            className="cursor-pointer rounded-md bg-[var(--design-editor-accent-color)] text-[12px] text-[var(--design-editor-accent-contrast-color)] shadow-none hover:bg-[var(--design-editor-accent-hover-color)] hover:text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)]"
           >
             {submitLabel ?? t("questionFlow.continue")}
           </Button>
@@ -130,7 +141,7 @@ export function QuestionFlow({
               onSkip();
             }}
             disabled={responded}
-            className="h-8 cursor-pointer rounded-md px-3 text-[12px] text-muted-foreground hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+            className="cursor-pointer rounded-md text-[12px] text-muted-foreground hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
           >
             {skipLabel ?? t("questionFlow.skip")}
           </Button>
@@ -513,10 +524,6 @@ function SliderQuestion({
   const step = question.step ?? 1;
   const current =
     typeof value === "number" ? value : Math.round((min + max) / 2);
-
-  // Do not auto-fill on mount: a required slider must be explicitly moved by
-  // the user before it counts as answered. `current` already provides a
-  // display-only midpoint fallback for the rendered slider position.
 
   return (
     <div className="max-w-xl rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-3 py-3">

@@ -1,23 +1,11 @@
 import { normalizeMonacoThemeColor } from "../../code-workbench-theme";
 
-/**
- * Pure theme-rule/color builders, extracted from monaco-theme.ts so unit
- * tests can exercise the palette/color-mapping logic without importing
- * `monaco-editor` (it requires a `window` global and can't load under
- * vitest's default node environment).
- */
-
 export interface MonacoThemeRule {
   token: string;
   foreground?: string;
   fontStyle?: string;
 }
 
-/**
- * Curated syntax palette, light/dark HSL pairs converted to hex at build
- * time (Monaco theme rules require hex, no `hsl()`/`var()` support). Kept at
- * modest saturation to match the app's clean Figma-esque visual language.
- */
 const SYNTAX_PALETTE: Record<
   string,
   { light: string; dark: string; fontStyle?: string }
@@ -43,7 +31,6 @@ const SYNTAX_PALETTE: Record<
   operator: { light: "hsl(0 0% 40%)", dark: "hsl(0 0% 65%)" },
 };
 
-/** VS Code token identifiers each palette entry applies to. */
 const PALETTE_TOKEN_SCOPES: Record<string, string[]> = {
   comment: ["comment", "comment.block", "comment.line"],
   keyword: ["keyword", "keyword.control", "keyword.operator.new"],
@@ -87,10 +74,6 @@ function hslToHex(hsl: string): string {
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 }
 
-/**
- * Build the Monaco theme `rules` array (token -> foreground/fontStyle) for a
- * given color scheme.
- */
 export function buildThemeRules(
   colorScheme: "light" | "dark",
 ): MonacoThemeRule[] {
@@ -110,10 +93,6 @@ export function buildThemeRules(
   return rules;
 }
 
-/**
- * Build the Monaco theme `colors` map from resolved `--workbench-*` CSS
- * values.
- */
 export function buildThemeColors(
   values: Record<string, string>,
 ): Record<string, string> {
@@ -130,7 +109,6 @@ export function buildThemeColors(
     "editorIndentGuide.activeBackground1": values["--workbench-muted-fg"],
     "editorGutter.background": values["--workbench-editor-bg"],
 
-    // Widgets: find, suggest, hover.
     "editorWidget.background": values["--workbench-surface-bg"],
     "editorWidget.border": values["--workbench-border"],
     "editorWidget.foreground": values["--workbench-fg"],
@@ -143,7 +121,6 @@ export function buildThemeColors(
     "editorHoverWidget.background": values["--workbench-surface-bg"],
     "editorHoverWidget.border": values["--workbench-border"],
 
-    // Minimap + scrollbar.
     "minimap.background": values["--workbench-editor-bg"],
     "minimapSlider.background": values["--workbench-hover-bg"],
     "minimapSlider.hoverBackground": values["--workbench-active-bg"],
@@ -152,31 +129,26 @@ export function buildThemeColors(
     "scrollbarSlider.hoverBackground": values["--workbench-active-bg"],
     "scrollbarSlider.activeBackground": values["--workbench-active-bg"],
 
-    // Bracket match + sticky scroll.
     "editorBracketMatch.background": values["--workbench-hover-bg"],
     "editorBracketMatch.border": values["--workbench-accent"],
     "editorStickyScroll.background": values["--workbench-surface-bg"],
     "editorStickyScrollHover.background": values["--workbench-hover-bg"],
 
-    // List (reused for suggest widget rows).
     "list.hoverBackground": values["--workbench-list-hover-bg"],
     "list.activeSelectionBackground": values["--workbench-list-active-bg"],
     "list.inactiveSelectionBackground": values["--workbench-list-selection-bg"],
     "list.focusBackground": values["--workbench-list-active-bg"],
     "list.highlightForeground": values["--workbench-accent"],
 
-    // Inputs.
     "input.background": values["--workbench-input-bg"],
     "input.border": values["--workbench-input-border"],
     "input.foreground":
       values["--workbench-input-fg"] ?? values["--workbench-fg"],
     "inputOption.activeBorder": values["--workbench-accent"],
 
-    // Diff editor (future-proof).
     "diffEditor.insertedTextBackground": values["--workbench-selection-bg"],
     "diffEditor.removedTextBackground": values["--workbench-error"],
 
-    // Markers.
     "editorError.foreground": values["--workbench-error"],
     "editorWarning.foreground": values["--workbench-warning"],
 

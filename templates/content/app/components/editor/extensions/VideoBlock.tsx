@@ -1,6 +1,7 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
-import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { useT } from "@agent-native/core/client/i18n";
+import { useFileUploadStatus } from "@agent-native/core/client/uploads";
+import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
   IconArrowsMaximize,
@@ -25,6 +26,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 
+import { FileStorageStatusGate } from "@/components/editor/FileStorageStatusGate";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -44,6 +46,10 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+import {
+  deleteNodeFromMenu,
+  EDITOR_NON_EDIT_META,
+} from "../editor-transaction-meta";
 import { uploadVideoFile, videoUploadErrorMessage } from "../image-upload";
 import type { ContentVideoOptions } from "./VideoNode";
 
@@ -143,14 +149,17 @@ async function copyVideo(
 export function VideoBlock({
   node,
   editor,
-  deleteNode,
   selected,
   updateAttributes,
   extension,
   getPos,
 }: NodeViewProps) {
   const t = useT();
+  const fileUploadStatus = useFileUploadStatus();
+  const fileStorageConfigured =
+    fileUploadStatus.isSuccess && fileUploadStatus.data?.configured === true;
   const [isHovered, setIsHovered] = useState(false);
+  const [storageSetupOpen, setStorageSetupOpen] = useState(false);
   const [sourcePanelDismissed, setSourcePanelDismissed] = useState(false);
   const [videoUrl, setVideoUrl] = useState("");
   const [dragWidth, setDragWidth] = useState<number | null>(null);
@@ -164,6 +173,7 @@ export function VideoBlock({
   const options = extension.options as ContentVideoOptions;
   const canMutateMediaNow = () =>
     editor.isEditable && (options.canMutateMedia?.() ?? true);
+  const deleteNode = () => deleteNodeFromMenu({ editor, getPos, node });
   const isEditable = canMutateMediaNow();
   const src = node.attrs.src as string;
   const sourcePanelOpen = node.attrs.sourcePanelOpen === true;
@@ -175,14 +185,29 @@ export function VideoBlock({
   const activeWidth = dragWidth ?? width;
   const controlsVisible = isEditable && (isHovered || selected);
 
-  function setSourcePanelOpen(open: boolean) {
+  // The panel's state lives on the node, so it reaches other tabs, but it
+  // isn't part of the page and changing it doesn't save.
+  function setSourcePanel(panel: {
+    sourcePanelOpen: boolean;
+    sourceTab?: VideoSourceTab;
+  }) {
     if (!canMutateMediaNow()) return;
-    updateAttributes({ sourcePanelOpen: open });
+    editor.commands.command(({ tr }) => {
+      const pos = typeof getPos === "function" ? getPos() : undefined;
+      const current = typeof pos === "number" ? tr.doc.nodeAt(pos) : null;
+      if (typeof pos !== "number" || !current) return false;
+      tr.setNodeMarkup(pos, undefined, { ...current.attrs, ...panel });
+      tr.setMeta(EDITOR_NON_EDIT_META, true).setMeta("addToHistory", false);
+      return true;
+    });
+  }
+
+  function setSourcePanelOpen(open: boolean) {
+    setSourcePanel({ sourcePanelOpen: open });
   }
 
   function setSourceTab(tab: VideoSourceTab) {
-    if (!canMutateMediaNow()) return;
-    updateAttributes({ sourcePanelOpen: true, sourceTab: tab });
+    setSourcePanel({ sourcePanelOpen: true, sourceTab: tab });
   }
 
   useEffect(() => {
@@ -206,12 +231,20 @@ export function VideoBlock({
       document.removeEventListener("pointerdown", handlePointerDown, true);
   }, [selected, setSourcePanelOpen, sourcePanelOpen]);
 
+  function canComment() {
+    const position = typeof getPos === "function" ? getPos() : undefined;
+    return (
+      !!options.onVideoComment &&
+      typeof position === "number" &&
+      (options.canCommentOnVideo?.(editor.view, position) ?? true)
+    );
+  }
+
   function handleComment() {
     if (!options.onVideoComment) return;
     const position = typeof getPos === "function" ? getPos() : undefined;
-    const coords = editor.view.coordsAtPos(
-      typeof position === "number" ? position : editor.state.selection.from,
-    );
+    if (typeof position !== "number") return;
+    const coords = editor.view.coordsAtPos(position);
     const wrapper = editor.view.dom.closest(".visual-editor-wrapper");
     const scrollContainer = wrapper?.closest(".flex-1.min-h-0.overflow-auto");
     const containerTop = scrollContainer
@@ -219,14 +252,14 @@ export function VideoBlock({
       : 0;
     const scrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
     const offsetTop = coords.top - containerTop + scrollTop;
-    options.onVideoComment(t("editor.media.video"), offsetTop);
+    options.onVideoComment(editor.view, position, offsetTop);
   }
 
   function openReplacePanel() {
     if (!canMutateMediaNow()) return;
     setVideoUrl("");
     setSourcePanelDismissed(false);
-    updateAttributes({ sourcePanelOpen: true, sourceTab: "upload" });
+    setSourcePanel({ sourcePanelOpen: true, sourceTab: "upload" });
   }
 
   function handleLightboxOpenChange(open: boolean) {
@@ -315,7 +348,7 @@ export function VideoBlock({
   }
 
   function videoResizeMaxWidth() {
-    const wrapper = mediaBlockRef.current?.closest(".notion-editor");
+    const wrapper = mediaBlockRef.current?.closest(".content-editor");
     const maxWidth =
       wrapper?.getBoundingClientRect().width ??
       mediaBlockRef.current?.parentElement?.getBoundingClientRect().width ??
@@ -387,7 +420,7 @@ export function VideoBlock({
   async function handleVideoFilePicked(event: ChangeEvent<HTMLInputElement>) {
     const file = event.currentTarget.files?.[0];
     event.currentTarget.value = "";
-    if (!file || !canMutateMediaNow()) return;
+    if (!file || !fileStorageConfigured || !canMutateMediaNow()) return;
 
     const toastId = toast.loading(t("editor.media.uploadingVideo"));
     try {
@@ -405,6 +438,15 @@ export function VideoBlock({
     } catch (error) {
       toast.error(videoUploadErrorMessage(error), { id: toastId });
     }
+  }
+
+  function requestVideoFilePicker() {
+    if (!isEditable || isUploading) return;
+    if (!fileStorageConfigured) {
+      setStorageSetupOpen(true);
+      return;
+    }
+    fileInputRef.current?.click();
   }
 
   function handleEmbedLink(event: FormEvent<HTMLFormElement>) {
@@ -475,10 +517,15 @@ export function VideoBlock({
               type="button"
               variant="outline"
               className="w-full"
-              onClick={() => fileInputRef.current?.click()}
+              onClick={requestVideoFilePicker}
             >
               {t("editor.media.uploadFile")}
             </Button>
+            <FileStorageStatusGate
+              status={fileUploadStatus}
+              open={storageSetupOpen}
+              onOpenChange={setStorageSetupOpen}
+            />
           </div>
         ) : (
           <form className="media-source-panel__body" onSubmit={handleEmbedLink}>
@@ -541,6 +588,7 @@ export function VideoBlock({
             ref={fileInputRef}
             type="file"
             accept="video/*"
+            disabled={!fileStorageConfigured}
             className="hidden"
             tabIndex={-1}
             aria-hidden="true"
@@ -584,6 +632,7 @@ export function VideoBlock({
           ref={fileInputRef}
           type="file"
           accept="video/*"
+          disabled={!fileStorageConfigured}
           className="hidden"
           tabIndex={-1}
           aria-hidden="true"
@@ -625,19 +674,21 @@ export function VideoBlock({
                 event.preventDefault();
               }}
             >
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={handleComment}
-                    className="media-block__toolbar-btn"
-                    aria-label={t("editor.media.commentOnVideo")}
-                  >
-                    <IconMessageCircle size={16} />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>{t("editor.comment")}</TooltipContent>
-              </Tooltip>
+              {canComment() ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={handleComment}
+                      className="media-block__toolbar-btn"
+                      aria-label={t("editor.media.commentOnVideo")}
+                    >
+                      <IconMessageCircle size={16} />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>{t("editor.comment")}</TooltipContent>
+                </Tooltip>
+              ) : null}
 
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -779,7 +830,7 @@ export function VideoBlock({
               </Popover>
             </div>
           </>
-        ) : editor.isEditable && options.onVideoComment ? (
+        ) : canComment() ? (
           <div
             className="media-block__toolbar"
             data-visible={isHovered ? "true" : undefined}

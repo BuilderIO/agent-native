@@ -1,7 +1,7 @@
 # Chat — Agent Guide
 
-Chat is the minimal chat-first agent-native app. The public root is a marketing
-surface; the authenticated chat app starts at `/home`. Actions carry the real
+Chat is the minimal chat-first agent-native app. The public root redirects to
+the shared sign-in/signup page; the authenticated chat app starts at `/home`. Actions carry the real
 capabilities, and screens exist only where a workflow needs durable UI around
 the conversation.
 
@@ -48,7 +48,7 @@ brand. Its `app.name` is used in transactional emails, and its optional
 ## Application State
 
 - `navigation` describes the current view and selected entity ids. The default
-  chat view is `chat` at `/home`; `/` is the public SSR marketing page.
+  chat view is `chat` at `/home`; `/` opens the shared sign-in/signup page.
 - `navigate` moves the UI when the app supports it.
 - `view-screen` is the first tool to call when the user's visible context
   matters.

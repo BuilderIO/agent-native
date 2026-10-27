@@ -1,4 +1,65 @@
+import { z } from "zod";
+
+import { composerWebsiteUrlSchema } from "../../shared/composer-source.js";
+
 const ASSISTANT_CHAT_COMPOSER_DRAFT_PREFIX = "agent-chat-composer-text:";
+const COMPOSER_CONTEXT_DRAFT_PREFIX = "agent-chat-composer-context:";
+const MAX_CONTEXT_DRAFT_BYTES = 64 * 1024;
+
+const composerContextDraftSchema = z.object({
+  designSystemId: z.string().min(1).max(200).nullable(),
+  references: z
+    .array(
+      z.object({
+        source: z.enum(["design", "slides", "figma", "website", "integration"]),
+        id: z.string().min(1).max(2048),
+        title: z.string().max(2048),
+        url: composerWebsiteUrlSchema.optional(),
+        figmaUrl: composerWebsiteUrlSchema.optional(),
+        nodeId: z.string().max(200).optional(),
+      }),
+    )
+    .max(20),
+});
+
+export type AssistantChatComposerContextDraft = z.infer<
+  typeof composerContextDraftSchema
+>;
+
+export function readAssistantChatComposerContextDraft(
+  scope: string,
+): AssistantChatComposerContextDraft | null {
+  if (!scope.trim())
+    throw new Error("Composer context draft scope is required");
+  const stored = window.localStorage.getItem(
+    `${COMPOSER_CONTEXT_DRAFT_PREFIX}${encodeURIComponent(scope)}`,
+  );
+  if (stored === null) return null;
+  if (new TextEncoder().encode(stored).length > MAX_CONTEXT_DRAFT_BYTES)
+    throw new Error("Composer context draft exceeds the size limit");
+  const envelope = z
+    .object({ version: z.literal(1), selection: composerContextDraftSchema })
+    .parse(JSON.parse(stored));
+  return envelope.selection;
+}
+
+export function writeAssistantChatComposerContextDraft(
+  scope: string,
+  selection: AssistantChatComposerContextDraft,
+): void {
+  if (!scope.trim())
+    throw new Error("Composer context draft scope is required");
+  const bounded = composerContextDraftSchema.parse(selection);
+  const key = `${COMPOSER_CONTEXT_DRAFT_PREFIX}${encodeURIComponent(scope)}`;
+  if (!bounded.designSystemId && bounded.references.length === 0) {
+    window.localStorage.removeItem(key);
+    return;
+  }
+  const serialized = JSON.stringify({ version: 1, selection: bounded });
+  if (new TextEncoder().encode(serialized).length > MAX_CONTEXT_DRAFT_BYTES)
+    throw new Error("Composer context draft exceeds the size limit");
+  window.localStorage.setItem(key, serialized);
+}
 
 export function assistantChatComposerDraftKey(
   scope?: string | null,

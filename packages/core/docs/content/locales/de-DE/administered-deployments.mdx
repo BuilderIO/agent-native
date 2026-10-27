@@ -29,7 +29,9 @@ Halten Sie für die Ersteinrichtung und Wiederherstellung eine verifizierte Boot
 
 ## Unternehmensschlüssel und Rollen
 
-Ein Owner oder Admin kann einen LLM-Schlüssel für die Organisation speichern. Die Provider-Einrichtung speichert diese Schlüssel nur für die Organisation, sodass alle Mitglieder denselben Firmenschlüssel verwenden. Persönliche Zeilen aus älteren Bereitstellungen werden beim Speichern eines Organisationsschlüssels entfernt oder können vorher in der Provider-Einrichtung gelöscht werden.
+Bei einer administrierten Bereitstellung speichert ein Owner oder Admin den LLM-Schlüssel des Unternehmens über die Provider-Einrichtung für die Organisation und aktiviert **Persönliche API-Schlüssel einschränken** (`manage-provider-key-policy`), damit Mitglieder die Unternehmensprovider nutzen. Die Einschränkung verhindert, dass Mitglieder persönliche Providerschlüssel speichern oder verwenden; gespeicherte Schlüssel bleiben erhalten und funktionieren wieder, sobald die Einstellung deaktiviert wird. Owner und Admins können weiterhin einen persönlichen Schlüssel als Rückfalloption behalten.
+
+Ohne diese Einschränkung speichern Mitglieder Providerschlüssel persönlich und sehen keine Bereichsauswahl. Owner und Admins speichern standardmäßig für die Organisation und können **Persönlich** wählen. Mitglieder verwenden zuerst ihren eigenen Schlüssel; Owner und Admins zuerst den Organisationsschlüssel. Siehe [Rollen in den Einstellungen](/docs/toolkit-settings#roles).
 
 Das Modellfeld listet aktuelle Modelle als Vorschläge und akzeptiert jede vom Provider oder Gateway unterstützte Modell-ID.
 

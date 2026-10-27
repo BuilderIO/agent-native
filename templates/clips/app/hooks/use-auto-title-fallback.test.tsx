@@ -1,0 +1,312 @@
+// @vitest-environment jsdom
+
+import { act } from "react";
+import { createRoot } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  bumpChangeVersion: vi.fn(),
+  callAction: vi.fn(),
+  startBackgroundAgentSession: vi.fn(
+    (options: {
+      operationId: string;
+      threadId: string;
+      instructions?: string;
+    }) => {
+      const receipt = {
+        operationId: options.operationId,
+        threadId: options.threadId,
+        turnId: "turn-1",
+      };
+      return {
+        ...receipt,
+        accepted: Promise.resolve(receipt),
+        completion: Promise.resolve(),
+        status: vi.fn(),
+        cancel: vi.fn(),
+        open: vi.fn(),
+      };
+    },
+  ),
+}));
+
+vi.mock("@agent-native/core/client/agent-chat", () => ({
+  getBackgroundAgentSessionStatus: vi.fn(),
+  startBackgroundAgentSession: mocks.startBackgroundAgentSession,
+}));
+vi.mock("@agent-native/core/client/api-path", () => ({
+  agentNativePath: (path: string) => path,
+}));
+vi.mock("@agent-native/core/client/hooks", async () => {
+  const React = await import("react");
+  return {
+    bumpChangeVersion: (...args: unknown[]) => {
+      mocks.bumpChangeVersion(...args);
+      window.dispatchEvent(new Event("clips-test-change-version"));
+    },
+    callAction: (...args: unknown[]) => mocks.callAction(...args),
+    getChangeVersion: () => 0,
+    useChangeVersion: () => {
+      const [version, setVersion] = React.useState(0);
+      React.useEffect(() => {
+        const update = () => setVersion((current) => current + 1);
+        window.addEventListener("clips-test-change-version", update);
+        return () =>
+          window.removeEventListener("clips-test-change-version", update);
+      }, []);
+      return version;
+    },
+    // Stands in for React Query: the action is served by the same `callAction`
+    // mock the tests configure, and `refetch` resolves with the new data.
+    useActionQuery: (name: string, args: unknown) => {
+      const [data, setData] = React.useState<unknown>();
+      const refetch = React.useCallback(async () => {
+        const next = await mocks.callAction(name, args, { method: "GET" });
+        setData(next);
+        return { data: next };
+      }, []);
+      React.useEffect(() => {
+        void refetch();
+      }, [refetch]);
+      return { data, refetch };
+    },
+  };
+});
+vi.mock("@shared/clips-ai-prefs", () => ({
+  fullVideoAiModelSelection: () => null,
+}));
+
+import { useAutoTitleBridge } from "./use-auto-title";
+
+const NOW = Date.parse("2026-09-28T12:00:00.000Z");
+
+function candidate(id: string, ageMs: number) {
+  return { id, createdAt: new Date(NOW - ageMs).toISOString() };
+}
+
+function TestBridge() {
+  useAutoTitleBridge();
+  return null;
+}
+
+let container: HTMLDivElement;
+let root: ReturnType<typeof createRoot>;
+
+async function renderWith(result: Record<string, unknown>) {
+  mocks.callAction.mockImplementation(async (name: string) =>
+    name === "list-ai-requests"
+      ? result
+      : name === "regenerate-title"
+        ? { updated: true }
+        : {},
+  );
+  container = document.createElement("div");
+  root = createRoot(container);
+  await act(async () => {
+    root.render(<TestBridge />);
+  });
+}
+
+function regenerateTitleCalls() {
+  return mocks.callAction.mock.calls.filter(
+    ([name]) => name === "regenerate-title",
+  );
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(NOW);
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response(null, { status: 204 })),
+  );
+});
+
+afterEach(async () => {
+  await act(async () => root.unmount());
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
+
+describe("auto-title fallback", () => {
+  it("regenerates the title of an overdue candidate once", async () => {
+    await renderWith({
+      requests: [],
+      titleCandidates: [candidate("rec_old", 5 * 60_000)],
+    });
+
+    await vi.waitFor(() => expect(regenerateTitleCalls()).toHaveLength(1));
+    expect(regenerateTitleCalls()[0]).toEqual([
+      "regenerate-title",
+      { recordingId: "rec_old" },
+    ]);
+  });
+
+  it("refreshes the request list when the fallback queues a title request", async () => {
+    const snapshot = {
+      requests: [],
+      titleCandidates: [candidate("rec_old", 5 * 60_000)],
+    };
+    mocks.callAction.mockImplementation(async (name: string) =>
+      name === "list-ai-requests"
+        ? snapshot
+        : name === "regenerate-title"
+          ? { queued: true, kind: "regenerate-title" }
+          : {},
+    );
+    container = document.createElement("div");
+    root = createRoot(container);
+    await act(async () => {
+      root.render(<TestBridge />);
+    });
+
+    await vi.waitFor(() =>
+      expect(mocks.bumpChangeVersion).toHaveBeenCalledWith(
+        "app-state:refresh-signal",
+        expect.any(Number),
+      ),
+    );
+  });
+
+  it("does not refresh when the fallback titled the clip directly", async () => {
+    await renderWith({
+      requests: [],
+      titleCandidates: [candidate("rec_old", 5 * 60_000)],
+    });
+
+    await vi.waitFor(() => expect(regenerateTitleCalls()).toHaveLength(1));
+    await act(async () => {});
+    expect(mocks.bumpChangeVersion).not.toHaveBeenCalled();
+  });
+
+  it("retries auto-title after a transient queue conflict", async () => {
+    vi.useRealTimers();
+    const snapshot = {
+      requests: [],
+      titleCandidates: [candidate("rec_old", 5 * 60_000)],
+    };
+    let attempts = 0;
+    mocks.callAction.mockImplementation(async (name: string) => {
+      if (name === "list-ai-requests") return snapshot;
+      if (name === "regenerate-title") {
+        attempts += 1;
+        if (attempts === 1) throw new Error("active request conflict");
+        return { updated: true };
+      }
+      return {};
+    });
+    container = document.createElement("div");
+    root = createRoot(container);
+    await act(async () => {
+      root.render(<TestBridge />);
+    });
+
+    await vi.waitFor(() => expect(regenerateTitleCalls()).toHaveLength(2), {
+      timeout: 3_000,
+    });
+  });
+
+  it("retries a failed fallback after its data effect is replaced", async () => {
+    vi.useRealTimers();
+    const snapshot = {
+      requests: [],
+      titleCandidates: [candidate("rec_old", 5 * 60_000)],
+    };
+    let rejectFirstAttempt: ((error: Error) => void) | undefined;
+    let attempts = 0;
+    mocks.callAction.mockImplementation(async (name: string) => {
+      if (name === "list-ai-requests") return snapshot;
+      if (name === "regenerate-title") {
+        attempts += 1;
+        if (attempts === 1) {
+          return new Promise((_, reject) => {
+            rejectFirstAttempt = reject;
+          });
+        }
+        return { updated: true };
+      }
+      return {};
+    });
+    container = document.createElement("div");
+    root = createRoot(container);
+    await act(async () => {
+      root.render(<TestBridge />);
+    });
+    await vi.waitFor(() => expect(regenerateTitleCalls()).toHaveLength(1));
+
+    await act(async () => {
+      window.dispatchEvent(new Event("clips-test-change-version"));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      rejectFirstAttempt?.(new Error("temporary queue failure"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await vi.waitFor(() => expect(regenerateTitleCalls()).toHaveLength(2), {
+      timeout: 3_000,
+    });
+  });
+
+  it("waits for a candidate younger than two minutes", async () => {
+    await renderWith({
+      requests: [],
+      titleCandidates: [candidate("rec_new", 30_000)],
+    });
+
+    await vi.waitFor(() =>
+      expect(mocks.callAction).toHaveBeenCalledWith(
+        "list-ai-requests",
+        {},
+        { method: "GET" },
+      ),
+    );
+    expect(regenerateTitleCalls()).toHaveLength(0);
+  });
+
+  it("delivers a queued request instead of falling back", async () => {
+    await renderWith({
+      requests: [
+        {
+          kind: "regenerate-title",
+          recordingId: "rec_old",
+          requestedAt: "2026-09-28T11:55:00.000Z",
+          message: "Title this clip",
+        },
+      ],
+      titleCandidates: [candidate("rec_old", 5 * 60_000)],
+    });
+
+    await vi.waitFor(() =>
+      expect(mocks.startBackgroundAgentSession).toHaveBeenCalledOnce(),
+    );
+    expect(regenerateTitleCalls()).toHaveLength(0);
+  });
+
+  it("delivers queued requests for recordings that are not title candidates", async () => {
+    await renderWith({
+      requests: [
+        {
+          kind: "regenerate-chapters",
+          recordingId: "rec_titled",
+          requestedAt: "2026-09-28T11:55:00.000Z",
+          currentTitle: "Quarterly planning",
+          message: "Generate chapters",
+        },
+      ],
+      titleCandidates: [],
+    });
+
+    await vi.waitFor(() =>
+      expect(mocks.startBackgroundAgentSession).toHaveBeenCalledOnce(),
+    );
+    const [options] = mocks.startBackgroundAgentSession.mock.calls[0] as [
+      { instructions: string },
+    ];
+    expect(JSON.parse(options.instructions).currentTitle).toBe(
+      "Quarterly planning",
+    );
+  });
+});

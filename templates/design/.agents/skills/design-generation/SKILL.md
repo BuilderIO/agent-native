@@ -1,18 +1,24 @@
 ---
 name: design-generation
 description: >-
-  Generate or refine complete interactive HTML prototypes in Design. Use when
-  creating screens, variants, Alpine/Tailwind prototypes, tweaks, or visual
-  refinements from a prompt or selected design.
+  Generate or refine Design web prototypes and fixed promotional artwork. Use
+  when creating screens, variants, ads, social graphics, flyers, posters, or
+  banners. For HubSpot email requests, read hubspot-email instead.
 ---
 
 # Design Generation
 
-How to generate complete, interactive HTML prototypes using Alpine.js + Tailwind CSS (via CDN). This is the core skill for the design agent.
+Generate complete web prototypes through Design actions.
+
+## HubSpot emails
+
+For HubSpot email creation, alignment, token edits, conversion or HTML handoff,
+read `hubspot-email` before applying the web workflow below. It owns email-safe
+authoring and completion checks, which replace the web stack defaults.
 
 ## Technology Stack
 
-Every generated design uses:
+Web prototypes use:
 - **Tailwind CSS v4** — via `@tailwindcss/browser@4` CDN (NOT the old v3 CDN)
 - **Alpine.js 3.x** — via `alpinejs@3.15.11` CDN with `defer` attribute
 - **Google Fonts** — for distinctive typography (never Inter/Roboto/Arial)
@@ -194,11 +200,17 @@ Pick a preset by `projectType`:
 ## Measurable rules (bake these in)
 
 - 8px spacing grid — all padding/margins/gaps are multiples of 4/8.
-- Absolute `left`/`top` are whole pixels, and multiples of the screen's
-  `layoutGrid.size` when `design-selection` reports one. A fractional or
-  off-grid position reads as a mistake to a designer and does not match what
+- Every px length is a whole number: position, width, height, padding, gap,
+  radius, font size, translate. Absolute `left`/`top` are also multiples of the
+  screen's `layoutGrid.size` when `design-selection` reports one. A fractional
+  or off-grid value reads as a mistake to a designer and does not match what
   dragging the same element produces. Set a screen's grid with
   `set-layout-grid`.
+- Flat layer tree. Every element is a layer the user selects, drags, and
+  resizes, so each one must earn its place: one flex or grid container per
+  visual group, content directly inside it, spacing from `gap` and `padding`.
+  A wrapper with a single child and no layout, paint, or spacing of its own is
+  a defect. Sections are usually three or four levels deep.
 - Body text ≥ 16px, labels ≥ 12px.
 - Big type-scale jumps for hierarchy (don't rely on tiny size deltas).
 - WCAG contrast: 4.5:1 normal text, 3:1 large text. Verify accent-on-background.
@@ -357,10 +369,13 @@ follow-up ambiguity instead of resolving it.
 
 **Carry the form-factor answer through to generation — do not just ask and discard it.** Map the answer to the design's device SET, not to separate per-device screen files. Device widths of the SAME page are breakpoint frames of one document (see the `responsive-breakpoints` skill), never a `mobile.html` + `desktop.html` pair. Pass the answer through `generate-design`'s `devices` param — `("mobile"|"tablet"|"desktop")[]`, default `["desktop","mobile"]`:
 
+- An exact pixel size in the original user request defines one fixed-size canvas. Use those exact dimensions and pass `devices: []` unless the user explicitly asks for device variants; then preserve exactly those requested devices. For `present-design-variants`, use `responsive: false` for a single fixed canvas. Keep each action prompt to one distinct exact canvas size; make separate calls scoped to each screen when a request names different sizes.
+- Ads, banners, social posts/stories, flyers, posters, logos, and other static artwork are fixed canvases, not responsive apps. Do not add mobile or tablet breakpoints unless the user explicitly asks for device variants; if they do, preserve exactly those choices and add no others. If a `present-design-variants` chat caption is generic, pass the original request separately as `brief` so its size and output type stay attached to the variants.
+- For a follow-up on an existing fixed artboard, read its exact frame geometry first. Content-only edits keep that size. When regenerating it for a resize or named-format follow-up (for example, “make it taller” or “now a story version”), target the same file with `generate-design`, pass `devices: []`, and include one `canvasFrames` entry with exact numeric `width` and `height` plus its current placement. Preserve the unchanged dimension and resolve the new one from the conversation or the named format's canonical preset (Instagram Story is 1080×1920). Never let device defaults add breakpoints.
 - If the prompt/answer names specific devices, generate EXACTLY those, deduped ("mobile" only → one mobile frame; "mobile, tablet, desktop" → all three).
-- If nothing about form factor is specified — or the answer is "Both / responsive" or "Decide for me" — default to `["desktop","mobile"]`: a Desktop base + a Mobile frame only. Never auto-add a tablet, a redundant desktop, or a stray duplicate frame.
+- If no exact pixel size or form factor is specified — or the answer is "Both / responsive" or "Decide for me" — default to `["desktop","mobile"]`: a Desktop base + a Mobile frame only. Never auto-add a tablet, a redundant desktop, or a stray duplicate frame.
 
-The WIDEST requested device is the base/primary frame; narrower devices become breakpoint frames (never at the primary width). Device frame sizes: mobile 390×844, tablet 768×1024, desktop 1440×900. `present-design-variants` still takes explicit `width`/`height` per variant to size its exploration screens (see Phase 2).
+The WIDEST requested device is the base/primary frame; narrower devices become breakpoint frames (never at the primary width). Device frame sizes: mobile 390×844, tablet 768×1024, desktop 1440×900. `present-design-variants` takes explicit `width`/`height` per variant to size its exploration screens (see Phase 2). Pass the original request in `brief` when the chat caption is generic; dimensions and output intent come from that brief, never variant labels or feature text.
 
 ### Phase 2 — Generate side-by-side variations (2-5, three by default)
 
@@ -380,6 +395,7 @@ screen name.
 {
   "designId": "<the design id>",
   "prompt": "Pick a direction",
+  "brief": "<the original request, including its exact canvas dimensions>",
   "variants": [
     { "id": "a", "label": "Editorial Serif", "width": 1440, "height": 900, "content": "<!DOCTYPE html>...full self-contained HTML..." },
     { "id": "b", "label": "Bold Brutalist", "width": 1440, "height": 900, "content": "<!DOCTYPE html>..." },
@@ -390,7 +406,7 @@ screen name.
 
 Each `content` is a complete, self-contained document (Alpine.js + Tailwind via CDN, full `<head>`, CSS variables in `:root`). Variations should be **structurally and compositionally distinct** — different layout grammars, hierarchy, density, and focal points — never just color swaps. When a design system is linked, keep its tokens, typography, components, and imagery rules fixed across variants; vary those only when the user explicitly asks to explore a replacement system. Label the directions with concrete names ("Editorial split", not "Variant A").
 
-Pass `width`/`height` on every variant to match the form-factor answer (mobile ≈ 390×844, tablet ≈ 768×1024, desktop ≈ 1440×900) — the example above is desktop-sized. When `content` is omitted, `present-design-variants` infers a size from the prompt/label/description text and the width/height you pass still wins when given.
+Pass `width`/`height` on every variant to match the form-factor answer (mobile ≈ 390×844, tablet ≈ 768×1024, desktop ≈ 1440×900) — the example above is desktop-sized. When the original brief specifies exact pixel dimensions, use that exact size on every variant; Design will preserve it even if a variant supplied another size. Static artwork has no responsive frames even if `responsive: true` is passed. Omit `content` only for open-ended app exploration: a fixed canvas, attached reference image, layout spec, or linked design system rejects direction-only variants. When `content` is omitted, `present-design-variants` infers a size from the brief/label/description text and the width/height you pass still wins when given.
 
 Wait for the user's pick before refining. Once they choose, keep the selected
 screen, delete the unchosen variant screens with `delete-file`, and continue
@@ -424,10 +440,12 @@ Pass the `devices` param (`("mobile"|"tablet"|"desktop")[]`, default `["desktop"
 
 #### Non-web sizes — ad units, print one-pagers, social sizes
 
-`canvasFrames` accepts any exact `width`/`height` in px, so "create a 300x250
-ad" style requests work the same way — no special action, just the pixel
-dimensions the artifact actually needs. The editor's own Frame tool preset
-list (`app/components/design/inspector/frame-size-presets.ts`) documents the
+`canvasFrames` accepts exact `width`/`height` in px, so "create a 300x250
+ad" style requests work the same way — use the requested dimensions verbatim
+and pass `devices: []`. Keep each action prompt to one distinct exact
+size; use separate calls for screens with different dimensions. This also
+applies to exact-size email and social assets. The editor's own Frame tool preset
+list (`shared/frame-size-presets.ts`) documents the
 canonical sizes to reuse instead of guessing:
 
 - **Ad units (IAB standard)**: Medium Rectangle 300×250, Leaderboard 728×90,
@@ -439,16 +457,46 @@ canonical sizes to reuse instead of guessing:
   canvas once. The editor's Download PDF export renders these at a
   print-quality floor (2x raster, ~192dpi) regardless of the export panel's
   default scale setting.
-- **Social**: Instagram Post 1080×1080, Instagram Story 1080×1920, X Post
-  1200×675, Facebook Cover 820×312, LinkedIn Cover 1584×396.
+- **Social and platform assets**: LinkedIn Single Image Ad 1200×627 (distinct
+  from LinkedIn Cover 1584×396), Meta Feed Square Ad 1080×1080, Meta Feed
+  Landscape Ad 1200×628, Instagram Portrait Post 1080×1350, Instagram Story
+  1080×1920, Open Graph Image 1200×630, YouTube Thumbnail 1280×720, X Promo
+  Graphic 1200×675, Email Header 600×200, X Post 1200×675, and Facebook Cover
+  820×312.
 
 Frame geometry is always numbers — `"width": 800`, never `"800"` or `"800px"`. String dimensions are rejected.
 
 At small ad-unit sizes (320×50, 160×600), text commonly runs 9-11px — smaller
 than this skill's general 16px body-text floor — because there is no room to
-reflow. That is expected for these formats; it stays legible in @2x+ exports
-since the export scale multiplies raster resolution, not the authored CSS
-size. Avoid dense multi-line copy at these sizes regardless.
+reflow. Higher-resolution exports make edges sharper, but do not increase text's
+relative size when the asset is displayed at its intended dimensions.
+
+### Promotional artwork typography at delivery size
+
+For ads, social graphics, flyers, posters, and banners, size and space type for
+the fixed canvas and where the asset will appear. The web prototype type scale
+and page section rhythm above are not defaults for artwork. If the user supplies
+a `design.md` or Brand Kit, use its typography, spacing, color, and voice as the
+source of truth and ground the output in those tokens.
+
+Use the canvas's shorter edge as a starting measure: on feed graphics and
+poster-like formats, a headline around 6–10% of that edge and supporting text
+around 2.5–4% often gives a clear first hierarchy (about 65–108px and 27–43px
+on a 1080px square; 38–63px and 16–25px on a 1200×627 canvas). Treat these as
+starting ranges, then adjust for the brand's typeface, copy length, composition,
+and intended display scale; raise type or recompose if the display-size check
+fails. Choose weights by role from the brand-approved type tokens: give the
+headline the strongest available emphasis, keep date/details quieter, and give
+the CTA enough emphasis to scan. If the brand offers one weight, use size,
+position, or contrast for hierarchy instead of inventing another. Estimate
+displayed type size as `authored px × displayed width / canvas width`: 36px type
+on a 1080px-wide asset appears about 12px tall in a 360px feed slot. A 2× export
+adds pixel density, not apparent size. On short banners and small ad slots, use
+a compact message and size type against the available height instead of
+carrying over those ratios. Set line length, line height, safe margins, and
+spacing from the actual canvas so the headline leads and supporting copy stays
+readable. When text does not fit, shorten or recompose it before shrinking
+every line.
 
 ### Phase 4 — Always ship tweaks with the design
 
@@ -475,7 +523,9 @@ by unlinking the system. It is the one check that can catch a design that
 looks fine and is still not the user's.
 
 After the audit is clean, call `take-design-screenshot` on each changed screen
-(default: 1280px desktop + 375px mobile). Fix everything its `diagnostics`
+(default: 1280px desktop + 375px mobile). For an exact-size screen, capture
+only its specified viewport by passing `widths: [width]` and
+`heights: [height]`. Fix everything its `diagnostics`
 report flags — real computed contrast ratios, horizontal/container overflow,
 broken images, zero-size or off-screen text, console errors — before reporting
 the design as ready; this is the same "visually inspect the result" pass, done
@@ -489,6 +539,12 @@ UI, and whether the copy/content still sounds real. To compare two design
 snapshots/branches for a file-level visual diff (added/removed/modified) —
 e.g. after a large refactor or before/after a review pass — call
 `get-design-review` instead of eyeballing both versions.
+
+For fixed promotional artwork, inspect the exact-size screenshot at 1:1 and at
+the intended display scale (for example, as a feed thumbnail). Confirm the main
+message reads first and the supporting copy remains legible at that scale; if
+it fails, revise the type, spacing, or copy and capture it again. Export scale
+alone does not fix type that is too small for the intended display.
 
 After generation or a broad update, leave the user in the screen overview
 (`navigate --view editor --editorView overview`) when the work involves
@@ -882,8 +938,10 @@ regeneration is slow, expensive, and regresses unrelated parts.
      --edits '[{"search":"<h1 class=\"text-4xl\">Hello</h1>","replace":"<h1 class=\"text-5xl\">Hello there</h1>"}]'
    ```
    Each `search` must match the file **exactly and uniquely** — include enough
-   surrounding context to be unambiguous. Wrapping an element in a new div is
-   just a search/replace whose `replace` adds the wrapper around the original.
+   surrounding context to be unambiguous. When a change needs a new container,
+   first try styling the existing parent; add a wrapper only when no existing
+   element can hold the layout, as a search/replace whose `replace` adds it
+   around the original.
 3. **Reserve `generate-design` for** net-new files. For large structural
    rewrites of an existing selected file, call `edit-design` with
    `mode: "replace-file"` and the exact `fileId` from `get-design-snapshot`.
@@ -935,6 +993,8 @@ read `references/code-layers.md`. For the VS Code-style source workbench
   chrome (icons, avatars-as-initials, decorative fills), never as a stand-in
   for a hero, product shot, or portrait that should be a generated image
 - Never set font-size below 16px for body text or 12px for labels
+- Never nest wrapper divs that add no layout, paint, or spacing, and never
+  write fractional px values such as `left: 256.96px`
 
 ## Multi-screen consistency contract
 
@@ -1035,10 +1095,68 @@ for elements entering, `ease-in` for elements leaving. Animate only
 `transform` and `opacity` for performance; avoid animating `width`/`height`/
 `top`/`left`. Every non-essential animation must respect
 `prefers-reduced-motion` (see the mandatory `<style>` block below). For
-inline/Alpine screens, persist motion as durable timeline metadata: inspect
-the current file's timeline with `get-motion-timeline`, then write changes
-with `apply-motion-edit` using the same `sourceRef`/`fileId` — this is not a
-one-way export, edits stay editable.
+motion edits, keep a versioned keyframe timeline as the editable source
+model, then compile it back into the design code. Inspect the selected screen
+with `get-motion-timeline` before writing. Inline HTML/Alpine uses its `fileId`
+as `sourceRef`; a localhost React/TSX screen uses the same selected screen as
+`sourceRef` plus the live module path, connection id, and version hash in
+`localSource`. Write through `apply-motion-edit` so edits stay parseable and
+round-trip between timeline and CSS/JSX. The inline output is standard CSS
+`@keyframes`; the React adapter updates verified JSX/source spans and emits the
+same managed CSS contract.
+
+Inline HTML `<style>` elements and React JSX `<style>` elements can adopt static
+CSS animations from top-level rules that use one uniquely resolved simple
+selector, one `animation-name`, and a matching top-level `@keyframes` block.
+React requires a static id selector with one matching static JSX host and one
+document-unique id. JSX `<style>` CSS is global, so React import does not adopt
+class, type, or attribute selectors. React also requires the complete style
+content to be one lossless JSX text or string/template literal with no
+substitutions. Dynamic style elements and style props that cannot be proven
+free of motion are unsupported. Importable animations use a positive fixed
+`ms`/`s` duration, a non-negative fixed delay, a Motion-supported easing,
+`animation-fill-mode: both`, one iteration, normal direction, running state,
+replace composition, and static keyframe stops from 0% through 100% with both
+endpoints and one or more supported properties: `opacity`, `transform`,
+`translate`, `scale`, `rotate`, `color`, `background-color`, `border-radius`,
+`border-color`, `border-width`, or `box-shadow`. Each property needs static 0%
+and 100% endpoints, and duplicate declarations at one stop are unsupported;
+Motion maps properties to parallel tracks with shared target and animation
+timing. Each target can have one imported animation. Shorthand, multiple
+animation names, conditional animation
+definitions, ambiguous targets, CSS variables in keyframe values, and external
+stylesheets are unsupported; the source reader fails closed so Motion does not
+silently discard or flatten them. The exact global
+`prefers-reduced-motion: reduce` override generated by this skill is preserved
+and does not change the imported timeline.
+
+On the first successful `apply-motion-edit` after import, Motion removes only
+the adopted animation declarations from the inline CSS and writes them into
+its managed stylesheet. Global `@keyframes` definitions and unrelated
+declarations remain in place because other rules may use them.
+`remove-motion-timeline` removes the managed stylesheet, adopted animation
+declarations, and Text runtime; it leaves authored keyframe definitions in
+place. For localhost source, pass the current `sourceVersionHash` returned by
+`get-motion-timeline` as `timelineVersionHash`; stale or missing hashes preserve
+the source and timeline so you can reload before retrying. This CSS importer
+does not read or edit JavaScript runtime animations, GSAP timelines, Web
+Animations API calls, or Alpine `x-transition`/`x-effect` behavior. Generic
+Alpine `x-bind` on a Motion target is unsupported because it can change
+attributes dynamically. In localhost React/TSX, write through the verified
+module path, connection id, and version hash in `localSource`. Include the
+current `moduleVersionHash` and captured `timelineVersionHash`; autosave
+compares both before writing so a code edit cannot replace the source
+underneath a dirty timeline. React inline `style` props such as
+`style={{ animationName: "fade" }}` are detected and rejected because they
+cannot be imported losslessly. This is separate from static JSX `<style>`
+elements, which can be imported under the constraints above. Keep runtime-only
+animation code source-owned and do not claim that Motion round-trips it.
+
+Text animations use `textDocument` version 2 for `animationDirection`, `order`,
+`overlapPercent`, and `ignoreSpaces`; preserve their unit, stagger interval,
+property, duration, and keyframes when editing. Version 1 text documents remain
+readable and are normalized on write. Do not keep the only copy of animation
+state in a GSAP runtime timeline or a one-way export.
 
 ## Imagery
 

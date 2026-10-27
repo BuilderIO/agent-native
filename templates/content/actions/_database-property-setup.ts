@@ -1,7 +1,17 @@
+import {
+  iconValueSchema,
+  parseIconValue,
+  serializeIconValue,
+} from "@agent-native/core/icons";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  syncPrivateIconReference,
+  verifyPrivateIconAssignment,
+} from "../server/lib/private-icon-references.js";
 import {
   DOCUMENT_PROPERTY_VISIBILITIES,
   parsePropertyOptions,
@@ -18,6 +28,7 @@ import {
   setupGuardSchema,
 } from "./_database-setup-mutation.js";
 import { nanoid } from "./_property-utils.js";
+import { assertRelationTargetDatabase } from "./_relation-values.js";
 
 export const ordinaryPropertyTypes = [
   "text",
@@ -33,6 +44,12 @@ export const ordinaryPropertyTypes = [
   "url",
   "email",
   "phone",
+] as const;
+
+/** Types an agent can create through property setup. */
+export const setupPropertyTypes = [
+  ...ordinaryPropertyTypes,
+  "relation",
 ] as const;
 
 const optionPropertyTypes = ["select", "multi_select", "status"] as const;
@@ -72,6 +89,7 @@ const propertyOptionSchema = z
 const propertyDefinitionBase = z.object({
   name: z.string().trim().min(1).max(500),
   description: z.string().max(2_000).optional(),
+  icon: iconValueSchema.nullable().optional(),
   visibility: z.enum(DOCUMENT_PROPERTY_VISIBILITIES).optional(),
 });
 
@@ -90,6 +108,17 @@ const createDefinitionSchema = z.discriminatedUnion("type", [
     .strict(),
   propertyDefinitionBase
     .extend({ type: z.enum(nonOptionPropertyTypes) })
+    .strict(),
+  propertyDefinitionBase
+    .extend({
+      type: z.literal("relation"),
+      relatedDatabaseId: z
+        .string()
+        .min(1)
+        .describe(
+          "Exact ID of the collection this relation links to, in the same Content space (may be this collection)",
+        ),
+    })
     .strict(),
 ]);
 
@@ -126,6 +155,7 @@ const updatePatchSchema = z
   .object({
     name: z.string().trim().min(1).max(500).optional(),
     description: z.string().max(2_000).optional(),
+    icon: iconValueSchema.nullable().optional(),
     visibility: z.enum(DOCUMENT_PROPERTY_VISIBILITIES).optional(),
     optionEdits: z.array(optionEditSchema).max(100).optional(),
     naturalKey: z.boolean().optional(),
@@ -255,6 +285,7 @@ function canonicalProperty(definition: Definition, context: MutationContext) {
     name: definition.name,
     type: definition.type as DocumentPropertyType,
     description: definition.description,
+    icon: definition.icon ? parseIconValue(definition.icon) : null,
     visibility: normalizePropertyVisibility(definition.visibility),
     options: parsePropertyOptions(definition.optionsJson),
     position: definition.position,
@@ -441,8 +472,29 @@ export async function runConfigureDocumentProperty(
       if (input.operation === "create") {
         const propertyId = nanoid();
         const definition = input.definition;
-        const options =
-          "options" in definition ? { options: definition.options ?? [] } : {};
+        const userEmail = getRequestUserEmail();
+        if (!userEmail)
+          setupError("UNAUTHENTICATED", "Authentication is required.", 401);
+        await verifyPrivateIconAssignment({
+          icon: definition.icon,
+          userEmail,
+          orgId: context.database.orgId,
+        });
+        const options: DocumentPropertyOptions =
+          definition.type === "relation"
+            ? {
+                relation: {
+                  databaseId: (
+                    await assertRelationTargetDatabase(tx, {
+                      sourceDatabase: context.database,
+                      targetDatabaseId: definition.relatedDatabaseId,
+                    })
+                  ).id,
+                },
+              }
+            : "options" in definition
+              ? { options: definition.options ?? [] }
+              : {};
         if ("options" in definition) validateOptions(definition.options ?? []);
         const [maxPosition] = await tx
           .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
@@ -461,12 +513,24 @@ export async function runConfigureDocumentProperty(
           databaseId: context.database.id,
           name: definition.name,
           description: definition.description?.trim() ?? "",
+          icon:
+            definition.icon === undefined || definition.icon === null
+              ? null
+              : serializeIconValue(definition.icon),
           type: definition.type,
           visibility: normalizePropertyVisibility(definition.visibility),
           optionsJson: serializePropertyOptions(options),
           position: Number(maxPosition?.max ?? -1) + 1,
           createdAt: now,
           updatedAt: now,
+        });
+        await syncPrivateIconReference(tx, {
+          elementType: "property",
+          elementId: propertyId,
+          documentId: context.database.documentId,
+          icon: definition.icon,
+          ownerEmail: context.database.ownerEmail,
+          orgId: context.database.orgId,
         });
         await configureNaturalKey(
           tx,
@@ -528,6 +592,16 @@ export async function runConfigureDocumentProperty(
         );
       }
       const nextOptions = applyOptionEdits(existing, input.patch.optionEdits);
+      if (input.patch.icon !== undefined) {
+        const userEmail = getRequestUserEmail();
+        if (!userEmail)
+          setupError("UNAUTHENTICATED", "Authentication is required.", 401);
+        await verifyPrivateIconAssignment({
+          icon: input.patch.icon,
+          userEmail,
+          orgId: context.database.orgId,
+        });
+      }
       const now = new Date().toISOString();
       const nextValues = {
         name: input.patch.name ?? existing.name,
@@ -535,6 +609,12 @@ export async function runConfigureDocumentProperty(
           input.patch.description === undefined
             ? existing.description
             : input.patch.description.trim(),
+        icon:
+          input.patch.icon === undefined
+            ? existing.icon
+            : input.patch.icon === null
+              ? null
+              : serializeIconValue(input.patch.icon),
         visibility:
           input.patch.visibility === undefined
             ? normalizePropertyVisibility(existing.visibility)
@@ -544,6 +624,7 @@ export async function runConfigureDocumentProperty(
       const changed =
         nextValues.name !== existing.name ||
         nextValues.description !== existing.description ||
+        nextValues.icon !== existing.icon ||
         nextValues.visibility !==
           normalizePropertyVisibility(existing.visibility) ||
         nextValues.optionsJson !==
@@ -558,6 +639,16 @@ export async function runConfigureDocumentProperty(
           .update(schema.documentPropertyDefinitions)
           .set({ ...nextValues, updatedAt: now })
           .where(eq(schema.documentPropertyDefinitions.id, existing.id));
+        if (input.patch.icon !== undefined) {
+          await syncPrivateIconReference(tx, {
+            elementType: "property",
+            elementId: existing.id,
+            documentId: context.database.documentId,
+            icon: nextValues.icon,
+            ownerEmail: context.database.ownerEmail,
+            orgId: context.database.orgId,
+          });
+        }
         await configureNaturalKey(
           tx,
           context,

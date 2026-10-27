@@ -73,7 +73,6 @@ interface WorkspaceAppRef {
   status?: "ready" | "pending";
 }
 
-/** Shape of the local `list-transactional-emails` action response. */
 function PreviewDialog({
   email,
   appId,

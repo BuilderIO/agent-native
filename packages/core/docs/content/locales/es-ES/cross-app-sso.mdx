@@ -7,10 +7,10 @@ description: "Distingue el inicio OIDC o SAML de una organización de la federac
 
 El SSO de organización usa el proveedor OIDC o SAML de una empresa para iniciar sesión en un despliegue de Agent-Native. La federación entre aplicaciones comparte identidad verificada o contexto de organización entre despliegues separados. Su configuración y límites de confianza son distintos.
 
-La opción de navegador "Sign in with Agent-Native" y el traspaso automático del
-navegador se eliminaron. El inicio de sesión por aplicación es el comportamiento
-predeterminado para usuarios web. Esta página describe los contratos restantes
-de Desktop y de la federación del servidor.
+Las páginas de inicio de sesión de las aplicaciones Agent-Native registradas de
+forma exacta ofrecen la acción "Continue with Agent-Native". Esta inicia el
+flujo existente de Dispatch con correo verificado. Esta página describe la
+federación en el navegador, Desktop y el servidor.
 
 ## Federación entre aplicaciones
 
@@ -37,9 +37,9 @@ el inicio de sesión normal por aplicación sigue disponible.
 
 ### Federación del servidor
 
-Los intermediarios y clientes del servidor restantes usan un protocolo breve y
-verificado por el servidor. No se expone como control de inicio de sesión del
-navegador:
+Los intermediarios y clientes del servidor usan un protocolo breve y verificado
+por el servidor. Las aplicaciones oficiales con registro exacto inician ese
+mismo protocolo cuando la persona elige "Continue with Agent-Native":
 
 1. El cliente solicita un vínculo exacto con una aplicación registrada.
 2. Dispatch autentica la identidad del espacio de trabajo y devuelve un código
@@ -89,10 +89,13 @@ crea un usuario local. Desactivar la federación no elimina datos.
 
 ## Configuración
 
-<code>AGENT_NATIVE_IDENTITY_HUB_URL</code> solo se usa para la ruta restante del
-servidor y Desktop cuando una aplicación autoalojada necesita una implementación
-explícita de Dispatch. No añade una opción de inicio de sesión en el navegador
-ni un traspaso automático.
+<code>AGENT_NATIVE_IDENTITY_HUB_URL</code> identifica Dispatch para las rutas
+del servidor y del navegador cuando una aplicación autoalojada necesita una
+configuración explícita. Las aplicaciones oficiales con registro exacto ofrecen
+la acción "Continue with Agent-Native" en su página de inicio de sesión. La
+bandera <code>browser.identity-sso</code> sigue controlando el inicio silencioso
+con <code>prompt=none</code> y la inicialización tras el inicio de sesión local.
+El inicio de sesión local sigue disponible como alternativa.
 
 Para una implementación autoalojada de Dispatch, registra cada aplicación
 personalizada con su ID, client ID, origen HTTPS, ruta de callback y capacidad
@@ -111,18 +114,21 @@ Después del despliegue:
 
 1. Comprueba que el correo, la contraseña, el enlace mágico y los proveedores
    configurados siguen funcionando en un navegador.
-2. Comprueba que la superficie de autenticación del navegador no ofrece la
-   opción de inicio de sesión de Agent-Native.
+2. Comprueba que aparece la acción "Continue with Agent-Native" y que el inicio
+   de sesión local sigue disponible. Con <code>browser.identity-sso</code>
+   desactivado, comprueba que ambos siguen funcionando. Con la bandera activada,
+   comprueba el inicio silencioso con <code>prompt=none</code> y el formulario
+   local como alternativa.
 3. Si Desktop SSO está habilitado, verifica una aplicación registrada exacta
    desde la acción explícita de Configuración de Desktop.
 4. Si la federación de organizaciones está habilitada, verifica el ID exacto de
    la organización y el rol de membresía en la aplicación destino.
 
-Para revertir la ruta restante, deshabilita la bandera correspondiente y elimina
-
-<code>AGENT_NATIVE_IDENTITY_HUB_URL</code> de la implementación autoalojada.
-Después vuelve a desplegar. Los registros aditivos permanecen disponibles para
-la autenticación local normal.
+Para revertir el inicio silencioso en el navegador o la ruta de Desktop,
+deshabilita su bandera. Para quitar la acción explícita del navegador en una
+aplicación autoalojada, elimina <code>AGENT_NATIVE_IDENTITY_HUB_URL</code> o su
+registro exacto y vuelve a desplegar. El inicio de sesión local sigue disponible
+y los registros aditivos de identidad y organización se conservan.
 
 ## Documentación relacionada
 

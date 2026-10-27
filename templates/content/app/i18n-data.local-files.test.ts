@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
 
-// Locale data registers into messagesByLocale when each lazy module loads;
-// importing every locale module here mirrors the built app's registry.
 import "./i18n/ar-SA";
 import "./i18n/de-DE";
 import "./i18n/es-ES";

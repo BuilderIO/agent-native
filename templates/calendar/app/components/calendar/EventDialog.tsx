@@ -73,7 +73,6 @@ export function EventDialog({
     }
   }, [event]);
 
-  // Keyboard shortcuts inside the dialog
   const isTyping = useCallback((e: KeyboardEvent) => {
     const target = e.target as HTMLElement;
     return (
@@ -88,13 +87,11 @@ export function EventDialog({
 
     function handleKeyDown(e: KeyboardEvent) {
       if (!event) return;
-      // Edit shortcut
       if (e.key === "e" && !editing && !isTyping(e)) {
         e.preventDefault();
         setEditing(true);
         return;
       }
-      // Delete shortcut
       if (
         (e.key === "Delete" || e.key === "Backspace") &&
         !editing &&
@@ -104,7 +101,6 @@ export function EventDialog({
         void handleDelete();
         return;
       }
-      // Save with Cmd/Ctrl+Enter when editing
       if (editing && (e.metaKey || e.ctrlKey) && e.key === "Enter") {
         e.preventDefault();
         void handleSave();

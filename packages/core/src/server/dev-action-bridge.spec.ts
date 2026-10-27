@@ -3,6 +3,10 @@ import os from "node:os";
 import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
+
+const approvalAudit = vi.hoisted(() => vi.fn(async (_input: any) => {}));
+vi.mock("../audit/store.js", () => ({ insertAuditEvent: approvalAudit }));
 
 const mockNotifyActionChange = vi.hoisted(() => vi.fn(async () => {}));
 const mockIsLoopbackRequest = vi.hoisted(() => vi.fn(() => true));
@@ -11,12 +15,16 @@ const mockResolveDevUserEmail = vi.hoisted(() =>
   vi.fn(async () => undefined as string | undefined),
 );
 
-// Same mocking shape as action-routes.spec.ts: a fake h3 event is a plain
-// object with `_headers`/`_body`/`_status`, and `defineEventHandler` is the
-// identity function so the registered handler can be called directly.
 vi.mock("h3", () => ({
+  createError: (input: { statusMessage?: string }) =>
+    Object.assign(new Error(input.statusMessage), input),
   defineEventHandler: (handler: any) => handler,
   getHeader: (event: any, name: string) => event._headers?.[name.toLowerCase()],
+  getRequestHeader: (event: any, name: string) =>
+    event._headers?.[name.toLowerCase()],
+  getRequestIP: () => "127.0.0.1",
+  getRequestURL: (event: any) =>
+    new URL(`http://${event._headers?.host ?? "localhost"}/`),
   readBody: async (event: any) => event._body,
   setResponseStatus: (event: any, status: number) => {
     event._status = status;
@@ -48,8 +56,26 @@ vi.mock("../scripts/db/query.js", () => ({
   runDbQuery: (...args: unknown[]) => mockRunDbQuery(...args),
 }));
 
+const mockGetPgliteClient = vi.hoisted(() => vi.fn());
+const mockDrizzle = vi.hoisted(() => vi.fn());
+const mockMigrate = vi.hoisted(() => vi.fn());
+vi.mock("../db/client.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../db/client.js")>()),
+  getPgliteClient: (...args: unknown[]) => mockGetPgliteClient(...args),
+}));
+vi.mock("drizzle-orm/pglite", () => ({
+  drizzle: (...args: unknown[]) => mockDrizzle(...args),
+}));
+vi.mock("drizzle-orm/pglite/migrator", () => ({
+  migrate: (...args: unknown[]) => mockMigrate(...args),
+}));
+
+import { currentInvocationEvidence } from "../action-frame.js";
+import { runActionInvocation } from "../action-invocation.js";
+import { defineAction } from "../action.js";
 import {
   DEV_ACTION_ROUTE,
+  DEV_DB_MIGRATE_ROUTE,
   DEV_DB_QUERY_ROUTE,
   DEV_ACTION_ORG_HEADER,
   DEV_ACTION_TOKEN_HEADER,
@@ -58,12 +84,17 @@ import {
   hashDatabaseKey,
   isValidDevActionHandoffUrl,
   mountDevActionForwardRoute,
+  mountDevDbMigrateForwardRoute,
   mountDevDbQueryForwardRoute,
   readDevActionDiscoveryFile,
   removeDevActionDiscoveryFile,
   writeDevActionDiscoveryFile,
 } from "./dev-action-bridge.js";
-import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
+import {
+  getRequestContext,
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "./request-context.js";
 
 describe("dev action browser handoff validation", () => {
   it("accepts only the relative embed path or a loopback APP_URL origin", () => {
@@ -213,6 +244,7 @@ describe("mountDevActionForwardRoute", () => {
     mockResolveDeployEnvironment.mockReturnValue("local");
     mockResolveDevUserEmail.mockReset();
     mockResolveDevUserEmail.mockResolvedValue(undefined);
+    approvalAudit.mockClear();
   });
 
   afterEach(() => {
@@ -226,6 +258,447 @@ describe("mountDevActionForwardRoute", () => {
     const event: any = { _headers: {} };
     await expect(handler(event)).resolves.toMatchObject({ ok: false });
     expect(event._status).toBe(401);
+  });
+
+  it.each([undefined, false, "true", 1])(
+    "refuses a gated action without boolean approval (%j)",
+    async (approved) => {
+      writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+      const run = vi.fn();
+      const entry = defineAction({
+        schema: z.object({ action: z.string().default("delete") }),
+        needsApproval: true,
+        audit: { enabled: false },
+        run,
+      });
+      const handler = mountedHandler({ "delete-data": entry });
+      const event: any = {
+        _headers: { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken() },
+        _body: { name: "delete-data", input: {}, approved },
+      };
+      expect(await handler(event)).toEqual({
+        ok: false,
+        errorCode: "approval_required",
+        error:
+          'Action "delete-data" requires human approval. Ask the person, then rerun with --approved.',
+        arguments: { action: "delete" },
+        argumentsHash: expect.any(String),
+      });
+      expect(event._status).toBe(409);
+      expect(run).not.toHaveBeenCalled();
+      expect(mockNotifyActionChange).not.toHaveBeenCalled();
+      expect(approvalAudit).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["flag", "prompt"])(
+    "runs an explicitly approved call and audits %s outside the input",
+    async (approvalSource) => {
+      writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+      const run = vi.fn(async (args) => args);
+      const entry = defineAction({
+        schema: z.object({ action: z.string().default("delete") }).strict(),
+        needsApproval: true,
+        run,
+      });
+      const handler = mountedHandler({ "delete-data": entry });
+      const challenge = await handler({
+        _headers: { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken() },
+        _body: { name: "delete-data", input: {} },
+      });
+      const response = await handler({
+        _headers: { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken() },
+        _body: {
+          name: "delete-data",
+          input: {},
+          approved: true,
+          approvalSource,
+          ...(approvalSource === "prompt"
+            ? { approvalArgumentsHash: challenge.argumentsHash }
+            : {}),
+        },
+      });
+      expect(response).toEqual({ ok: true, result: { action: "delete" } });
+      expect(run).toHaveBeenCalledWith(
+        { action: "delete" },
+        expect.objectContaining({ caller: "cli" }),
+      );
+      // One row per run: the approval rides on the action's own audit event.
+      expect(approvalAudit).toHaveBeenCalledTimes(1);
+      expect(approvalAudit.mock.calls[0]![0]).toMatchObject({
+        caller: "cli",
+        action: "delete-data",
+        status: "success",
+        approval: approvalSource === "flag" ? "cli-flag" : "cli-prompt",
+      });
+      expect(mockNotifyActionChange).toHaveBeenCalledWith({
+        actionName: "delete-data",
+      });
+    },
+  );
+
+  it("runs the reviewed call on a prompted retry, once, after its dynamic defaults change", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    let destination = "reviewed@example.test";
+    const run = vi.fn(async (args) => args);
+    const handler = mountedHandler({
+      send: defineAction({
+        schema: z.object({
+          destination: z.string().default(() => destination),
+        }),
+        needsApproval: true,
+        audit: { enabled: false },
+        run,
+      }),
+    });
+    const headers = { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken() };
+    const challenge = await handler({
+      _headers: headers,
+      _body: { name: "send", input: {} },
+    });
+    expect(challenge.arguments).toEqual({
+      destination: "reviewed@example.test",
+    });
+    destination = "changed@example.test";
+    const retry = (): any => ({
+      _headers: headers,
+      _body: {
+        name: "send",
+        input: {},
+        approved: true,
+        approvalSource: "prompt",
+        approvalArgumentsHash: challenge.argumentsHash,
+      },
+    });
+    expect(await handler(retry())).toEqual({
+      ok: true,
+      result: { destination: "reviewed@example.test" },
+    });
+    expect(run).toHaveBeenCalledTimes(1);
+
+    // The reviewed call runs once.
+    const replay = retry();
+    expect(await handler(replay)).toMatchObject({
+      ok: false,
+      errorCode: "approval_expired",
+    });
+    expect(replay._status).toBe(409);
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a replayed prompt approval whose arguments didn't change", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const run = vi.fn(async (args) => args);
+    const handler = mountedHandler({
+      "delete-data": defineAction({
+        schema: z.object({ action: z.string().default("delete") }),
+        needsApproval: true,
+        audit: { enabled: false },
+        run,
+      }),
+    });
+    const headers = { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken() };
+    const challenge = await handler({
+      _headers: headers,
+      _body: { name: "delete-data", input: {} },
+    });
+    const retry = (): any => ({
+      _headers: headers,
+      _body: {
+        name: "delete-data",
+        input: {},
+        approved: true,
+        approvalSource: "prompt",
+        approvalArgumentsHash: challenge.argumentsHash,
+      },
+    });
+    expect(await handler(retry())).toEqual({
+      ok: true,
+      result: { action: "delete" },
+    });
+    const replay = retry();
+    expect(await handler(replay)).toMatchObject({
+      ok: false,
+      errorCode: "approval_expired",
+    });
+    expect(replay._status).toBe(409);
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("runs each of two identical refusals once", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const run = vi.fn(async (args) => args);
+    const handler = mountedHandler({
+      "delete-data": defineAction({
+        schema: z.object({ action: z.string().default("delete") }),
+        needsApproval: true,
+        audit: { enabled: false },
+        run,
+      }),
+    });
+    const headers = { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken() };
+    const refuse = () =>
+      handler({
+        _headers: headers,
+        _body: { name: "delete-data", input: {} },
+      });
+    const first = await refuse();
+    const second = await refuse();
+    expect(second.argumentsHash).toBe(first.argumentsHash);
+    const confirm = (challenge: { argumentsHash: string }) =>
+      handler({
+        _headers: headers,
+        _body: {
+          name: "delete-data",
+          input: {},
+          approved: true,
+          approvalSource: "prompt",
+          approvalArgumentsHash: challenge.argumentsHash,
+        },
+      });
+    expect(await confirm(first)).toMatchObject({ ok: true });
+    expect(await confirm(second)).toMatchObject({ ok: true });
+    expect(await confirm(second)).toMatchObject({
+      ok: false,
+      errorCode: "approval_expired",
+    });
+    expect(run).toHaveBeenCalledTimes(2);
+
+    // An expired refusal doesn't use up a newer identical one.
+    const now = vi.spyOn(Date, "now");
+    try {
+      now.mockReturnValue(1_000_000);
+      await refuse();
+      now.mockReturnValue(1_000_000 + 10 * 60_000 - 5);
+      const fresh = await refuse();
+      now.mockReturnValue(1_000_000 + 10 * 60_000);
+      expect(await confirm(fresh)).toMatchObject({ ok: true });
+      expect(await confirm(fresh)).toMatchObject({
+        ok: false,
+        errorCode: "approval_expired",
+      });
+      expect(run).toHaveBeenCalledTimes(3);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("holds a reviewed call for 10 minutes", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const run = vi.fn(async (args) => args);
+    const handler = mountedHandler({
+      "delete-data": defineAction({
+        schema: z.object({ action: z.string().default("delete") }),
+        needsApproval: true,
+        audit: { enabled: false },
+        run,
+      }),
+    });
+    const headers = { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken() };
+    const now = vi.spyOn(Date, "now");
+    try {
+      const confirmAfter = async (elapsedMs: number) => {
+        now.mockReturnValue(1_000_000);
+        const challenge = await handler({
+          _headers: headers,
+          _body: { name: "delete-data", input: {} },
+        });
+        now.mockReturnValue(1_000_000 + elapsedMs);
+        return handler({
+          _headers: headers,
+          _body: {
+            name: "delete-data",
+            input: {},
+            approved: true,
+            approvalSource: "prompt",
+            approvalArgumentsHash: challenge.argumentsHash,
+          },
+        });
+      };
+      expect(await confirmAfter(10 * 60_000 - 1)).toMatchObject({ ok: true });
+      expect(await confirmAfter(10 * 60_000)).toMatchObject({
+        ok: false,
+        errorCode: "approval_expired",
+      });
+      expect(run).toHaveBeenCalledTimes(1);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("refuses a prompted retry after the action reloads", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const define = (run: () => unknown) =>
+      defineAction({
+        schema: z.object({ action: z.string().default("delete") }),
+        needsApproval: true,
+        audit: { enabled: false },
+        run,
+      });
+    const stale = vi.fn();
+    const reloaded = vi.fn();
+    const actions: Record<string, ReturnType<typeof define>> = {
+      "delete-data": define(stale),
+    };
+    const handler = mountedHandler(actions);
+    const headers = { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken() };
+    const challenge = await handler({
+      _headers: headers,
+      _body: { name: "delete-data", input: {} },
+    });
+    actions["delete-data"] = define(reloaded);
+    expect(
+      await handler({
+        _headers: headers,
+        _body: {
+          name: "delete-data",
+          input: {},
+          approved: true,
+          approvalSource: "prompt",
+          approvalArgumentsHash: challenge.argumentsHash,
+        },
+      }),
+    ).toMatchObject({ ok: false, errorCode: "approval_expired" });
+    expect(stale).not.toHaveBeenCalled();
+    expect(reloaded).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["the server lost the reviewed call", true],
+    ["no refusal showed the call", false],
+  ])("refuses a prompt approval when %s", async (_case, refusedFirst) => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const run = vi.fn();
+    const actions = {
+      "delete-data": defineAction({
+        schema: z.object({ action: z.string().default("delete") }),
+        needsApproval: true,
+        audit: { enabled: false },
+        run,
+      }),
+    };
+    const headers = { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken() };
+    const challenge = refusedFirst
+      ? await mountedHandler(actions)({
+          _headers: headers,
+          _body: { name: "delete-data", input: {} },
+        })
+      : undefined;
+    // A restarted dev server mounts the route again with nothing held.
+    const handler = mountedHandler(actions);
+    const event: any = {
+      _headers: headers,
+      _body: {
+        name: "delete-data",
+        input: {},
+        approved: true,
+        approvalSource: "prompt",
+        ...(challenge
+          ? { approvalArgumentsHash: challenge.argumentsHash }
+          : {}),
+      },
+    };
+    expect(await handler(event)).toEqual({
+      ok: false,
+      errorCode: "approval_expired",
+      error:
+        'Action "delete-data" has no pending confirmation for this call. A confirmation runs once, and expires after 10 minutes or a dev server restart. Run the command again to review it.',
+    });
+    expect(event._status).toBe(409);
+    expect(run).not.toHaveBeenCalled();
+    expect(approvalAudit).not.toHaveBeenCalled();
+  });
+
+  it("preserves audit records for validation failures before a handler runs", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const run = vi.fn();
+    const handler = mountedHandler({
+      invalid: defineAction({ schema: z.object({ name: z.string() }), run }),
+    });
+    const response = await handler({
+      _headers: { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken() },
+      _body: { name: "invalid", input: {} },
+    });
+    expect(response.ok).toBe(false);
+    expect(run).not.toHaveBeenCalled();
+    expect(approvalAudit).toHaveBeenCalledTimes(1);
+    expect(approvalAudit.mock.calls[0]![0]).toMatchObject({
+      action: "invalid",
+      caller: "cli",
+      status: "error",
+      approval: null,
+    });
+  });
+
+  it("evaluates function gates with prepared defaults and cli context", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const run = vi.fn(async (args) => args);
+    const entry = defineAction({
+      schema: z.object({ action: z.string().default("delete") }),
+      needsApproval: (args, ctx) =>
+        ctx?.caller === "cli" && args.action === "delete",
+      audit: { enabled: false },
+      run,
+    });
+    const handler = mountedHandler({ conditional: entry });
+    const call = (input: unknown) =>
+      handler({
+        _headers: { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken() },
+        _body: { name: "conditional", input },
+      });
+    expect(await call({})).toMatchObject({
+      ok: false,
+      errorCode: "approval_required",
+    });
+    expect(run).not.toHaveBeenCalled();
+    expect(await call({ action: "read" })).toEqual({
+      ok: true,
+      result: { action: "read" },
+    });
+    expect(approvalAudit).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, true])(
+    "does not add an approval audit for ungated calls (%j)",
+    async (approved) => {
+      writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+      const run = vi.fn(async (args) => args);
+      const handler = mountedHandler({
+        ungated: defineAction({
+          schema: z.object({}),
+          audit: { enabled: false },
+          run,
+        }),
+      });
+      expect(
+        await handler({
+          _headers: { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken() },
+          _body: { name: "ungated", input: {}, approved },
+        }),
+      ).toEqual({ ok: true, result: {} });
+      expect(run).toHaveBeenCalledTimes(1);
+      expect(approvalAudit).not.toHaveBeenCalled();
+    },
+  );
+
+  it("fails closed when a predicate throws", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const run = vi.fn();
+    const handler = mountedHandler({
+      gated: {
+        needsApproval: () => {
+          throw new Error("predicate failed");
+        },
+        run,
+      },
+    });
+    expect(
+      await handler({
+        _headers: { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken() },
+        _body: { name: "gated" },
+      }),
+    ).toMatchObject({ ok: false, errorCode: "approval_required" });
+    expect(run).not.toHaveBeenCalled();
   });
 
   it("rejects a non-loopback request with 401", async () => {
@@ -308,6 +781,7 @@ describe("mountDevActionForwardRoute", () => {
     const run = vi.fn(async (params: unknown, ctx: unknown) => ({
       params,
       ctx,
+      requestOrigin: getRequestContext()?.requestOrigin,
     }));
     const handler = mountedHandler(
       { "do-thing": { run, readOnly: false } as any },
@@ -315,6 +789,7 @@ describe("mountDevActionForwardRoute", () => {
     );
     const event: any = {
       _headers: {
+        host: "localhost:8100",
         [DEV_ACTION_TOKEN_HEADER]: token,
         [DEV_ACTION_USER_HEADER]: "owner@example.test",
         [DEV_ACTION_ORG_HEADER]: "org_1",
@@ -324,6 +799,9 @@ describe("mountDevActionForwardRoute", () => {
 
     const response = await handler(event);
     expect(response.ok).toBe(true);
+    // Actions that mint credentials bind them to this origin, as on the HTTP
+    // action routes; without it they fall back to a guessed URL.
+    expect(response.result.requestOrigin).toBe("http://localhost:8100");
     expect(run).toHaveBeenCalledTimes(1);
     const [params, ctx] = run.mock.calls[0]!;
     expect(params).toEqual({ a: 1 });
@@ -338,6 +816,32 @@ describe("mountDevActionForwardRoute", () => {
     expect(mockNotifyActionChange).toHaveBeenCalledWith({
       actionName: "do-thing",
     });
+  });
+
+  it("runs the action in its own frame, without the evidence of an invocation it runs inside", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const seen: unknown[] = [];
+    const handler = mountedHandler({
+      child: { run: async () => seen.push(currentInvocationEvidence()) },
+    });
+    const evidence = {
+      auditOverride: { approval: "a2a-review" as const, threadId: "task-1" },
+    };
+    const outer = {
+      run: () =>
+        handler({
+          _headers: {
+            host: "localhost:8100",
+            [DEV_ACTION_TOKEN_HEADER]: getDevActionToken(),
+            [DEV_ACTION_USER_HEADER]: "owner@example.test",
+          },
+          _body: { name: "child", input: {} },
+        }),
+    };
+
+    const response = await runActionInvocation(outer, {}, undefined, evidence);
+    expect(response.ok).toBe(true);
+    expect(seen).toEqual([undefined]);
   });
 
   it("forwards a hidden browser handoff without making it enumerable in the result", async () => {
@@ -421,6 +925,7 @@ describe("mountDevDbQueryForwardRoute", () => {
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-dev-db-query-route-"));
+    vi.stubEnv("DATABASE_URL", undefined);
     mockIsLoopbackRequest.mockReset();
     mockIsLoopbackRequest.mockReturnValue(true);
     mockResolveDeployEnvironment.mockReset();
@@ -431,6 +936,7 @@ describe("mountDevDbQueryForwardRoute", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     removeDevActionDiscoveryFile(tmpDir);
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -574,11 +1080,166 @@ describe("mountDevDbQueryForwardRoute", () => {
   });
 });
 
+describe("mountDevDbMigrateForwardRoute", () => {
+  let tmpDir: string;
+
+  function mountedMigrateHandler() {
+    const mounted: Array<{ path: string; handler: any }> = [];
+    mountDevDbMigrateForwardRoute({
+      use: (routePath: string, handler: any) =>
+        mounted.push({ path: routePath, handler }),
+    });
+    expect(mounted[0]!.path).toBe(DEV_DB_MIGRATE_ROUTE);
+    return mounted[0]!.handler;
+  }
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-dev-db-migrate-route-"));
+    vi.stubEnv("DATABASE_URL", undefined);
+    mockIsLoopbackRequest.mockReset();
+    mockIsLoopbackRequest.mockReturnValue(true);
+    mockResolveDeployEnvironment.mockReset();
+    mockResolveDeployEnvironment.mockReturnValue("local");
+    mockGetPgliteClient.mockReset().mockResolvedValue({ id: "client" });
+    mockDrizzle.mockReset().mockImplementation((client) => ({ client }));
+    mockMigrate.mockReset().mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    removeDevActionDiscoveryFile(tmpDir);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("rejects with 401 on a production deploy", async () => {
+    mockResolveDeployEnvironment.mockReturnValue("production");
+    const event: any = { _headers: {} };
+    await expect(mountedMigrateHandler()(event)).resolves.toMatchObject({
+      ok: false,
+    });
+    expect(event._status).toBe(401);
+    expect(mockMigrate).not.toHaveBeenCalled();
+  });
+
+  it("rejects a non-loopback request with 401", async () => {
+    mockIsLoopbackRequest.mockReturnValue(false);
+    const event: any = { _headers: {} };
+    await expect(mountedMigrateHandler()(event)).resolves.toMatchObject({
+      ok: false,
+    });
+    expect(event._status).toBe(401);
+    expect(mockMigrate).not.toHaveBeenCalled();
+  });
+
+  it("rejects a missing or wrong dev token with 401", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const handler = mountedMigrateHandler();
+    const noToken: any = { _headers: {}, _body: { migrationsFolder: "m" } };
+    await handler(noToken);
+    expect(noToken._status).toBe(401);
+    const wrongToken: any = {
+      _headers: { [DEV_ACTION_TOKEN_HEADER]: "wrong" },
+      _body: { migrationsFolder: "m" },
+    };
+    await handler(wrongToken);
+    expect(wrongToken._status).toBe(401);
+    expect(mockMigrate).not.toHaveBeenCalled();
+  });
+
+  it("rejects a body with no migrationsFolder", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const event: any = {
+      _headers: { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken()! },
+      _body: {},
+    };
+    const response = await mountedMigrateHandler()(event);
+    expect(response.ok).toBe(false);
+    expect(event._status).toBe(500);
+    expect(mockMigrate).not.toHaveBeenCalled();
+  });
+
+  it.each(["../outside", "/etc", "a/../../outside"])(
+    "rejects migrationsFolder %s that resolves outside the app root",
+    async (migrationsFolder) => {
+      writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+      const event: any = {
+        _headers: { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken()! },
+        _body: { migrationsFolder },
+      };
+      const response = await mountedMigrateHandler()(event);
+      expect(response).toMatchObject({ ok: false });
+      expect(event._status).toBe(500);
+      expect(mockMigrate).not.toHaveBeenCalled();
+    },
+  );
+
+  it("allows a migrationsFolder whose name starts with two dots", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const event: any = {
+      _headers: { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken()! },
+      _body: { migrationsFolder: "..foo/migrations" },
+    };
+    await expect(mountedMigrateHandler()(event)).resolves.toEqual({ ok: true });
+    expect(mockMigrate).toHaveBeenCalledWith(expect.anything(), {
+      migrationsFolder: path.resolve(process.cwd(), "..foo/migrations"),
+    });
+  });
+
+  it("responds 400 when the dev server database is not PGlite", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    vi.stubEnv("DATABASE_URL", "postgres://localhost/db");
+    const event: any = {
+      _headers: { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken()! },
+      _body: { migrationsFolder: "drizzle/migrations" },
+    };
+    await expect(mountedMigrateHandler()(event)).resolves.toEqual({
+      ok: false,
+      error:
+        "The dev server database is not PGlite; run drizzle-kit migrate directly.",
+    });
+    expect(event._status).toBe(400);
+    expect(mockGetPgliteClient).not.toHaveBeenCalled();
+    expect(mockMigrate).not.toHaveBeenCalled();
+  });
+
+  it("migrates through the dev server's own PGlite client", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const event: any = {
+      _headers: { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken()! },
+      _body: {
+        migrationsFolder: "./drizzle/migrations",
+        migrationsTable: "t",
+        migrationsSchema: "s",
+      },
+    };
+    await expect(mountedMigrateHandler()(event)).resolves.toEqual({ ok: true });
+    expect(mockGetPgliteClient).toHaveBeenCalledWith("pglite:./data/pglite");
+    expect(mockMigrate).toHaveBeenCalledWith(
+      { client: { id: "client" } },
+      {
+        migrationsFolder: path.resolve(process.cwd(), "drizzle/migrations"),
+        migrationsTable: "t",
+        migrationsSchema: "s",
+      },
+    );
+  });
+
+  it("returns 500 with the thrown message when migration fails", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    mockMigrate.mockRejectedValue(new Error("relation already exists"));
+    const event: any = {
+      _headers: { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken()! },
+      _body: { migrationsFolder: "drizzle/migrations" },
+    };
+    await expect(mountedMigrateHandler()(event)).resolves.toEqual({
+      ok: false,
+      error: "relation already exists",
+    });
+    expect(event._status).toBe(500);
+  });
+});
+
 describe("auth guard exemption", () => {
-  // The template auth middleware (`runAuthGuard`) 401s anonymous
-  // /_agent-native/* requests before any route runs. The dev routes must be
-  // let through for loopback, non-production requests or `pnpm action`
-  // forwarding silently degrades to "Unauthorized".
   function expectLoopbackBypass(route: string) {
     const source = fs.readFileSync(
       path.join(import.meta.dirname, "auth.ts"),
@@ -597,5 +1258,9 @@ describe("auth guard exemption", () => {
 
   it("keeps the loopback dev-db-query bypass in auth.ts", () => {
     expectLoopbackBypass(DEV_DB_QUERY_ROUTE);
+  });
+
+  it("keeps the loopback dev-db-migrate bypass in auth.ts", () => {
+    expectLoopbackBypass(DEV_DB_MIGRATE_ROUTE);
   });
 });

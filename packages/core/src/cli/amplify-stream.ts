@@ -54,7 +54,10 @@ export function parseAmplifyStreamArgs(
       options.skipRelease = true;
       continue;
     }
-    const valueFlags: Record<string, keyof AmplifyStreamOptions> = {
+    const valueFlags: Record<
+      string,
+      Exclude<keyof AmplifyStreamOptions, "skipRelease">
+    > = {
       "--amplify-app-id": "amplifyAppId",
       "--branch": "branch",
       "--region": "region",
@@ -461,8 +464,6 @@ async function ensureLambdaFunction(
       ],
       region,
     );
-    // Lambda applies configuration asynchronously. Function URL mutations
-    // must wait for this update or AWS can return ResourceConflictException.
     await waitForLambda(functionName, region);
   } else {
     for (let attempt = 0; attempt < 6; attempt++) {
@@ -523,7 +524,7 @@ const FUNCTION_URL_CORS = JSON.stringify({
   ],
   AllowMethods: ["POST"],
   AllowOrigins: ["*"],
-  ExposeHeaders: ["x-dispatch-mode", "x-run-id"],
+  ExposeHeaders: ["x-dispatch-mode", "x-run-id", "x-turn-id"],
   MaxAge: 600,
 });
 

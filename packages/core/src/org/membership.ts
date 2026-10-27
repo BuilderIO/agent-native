@@ -1,3 +1,5 @@
+import type { H3Event } from "h3";
+
 import { getDbExec } from "../db/client.js";
 import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
 import { CROSS_APP_ORG_FEDERATION_FLAG } from "./feature-flags.js";
@@ -29,13 +31,14 @@ export function isMissingOrganizationTableError(error: unknown): boolean {
   return false;
 }
 
-/**
- * One resolver for "is this email in this org". Two private copies of this
- * query already existed; a third would be the one that drifts.
- */
-export async function isOrgMember(
+async function isOrgMemberWithPolicy(
   orgId: string,
   email: string,
+  options: {
+    allowMissingOrganizationTable: boolean;
+    requireOrganizationRecord: boolean;
+    requestEvent?: H3Event;
+  },
 ): Promise<boolean> {
   const normalized = email.trim().toLowerCase();
   if (!orgId || !normalized) return false;
@@ -61,22 +64,17 @@ export async function isOrgMember(
     ).rows;
   } catch (error) {
     if (!isMissingOrganizationTableError(error)) throw error;
-    // Some embedded hosts create org_members for a fixture without enabling
-    // the full org module. Preserve the pre-federation local membership path.
-    return true;
+    if (options.allowMissingOrganizationTable) return true;
+    throw error;
   }
 
-  // Local organizations have no authority to consult. Keep this path
-  // independent of rollout storage so an unrelated org remains available
-  // during a federation rollout-store outage.
   const organization = organizationRows[0] as any;
+  if (!organization && options.requireOrganizationRecord) return false;
   const linked =
     String(organization?.identity_authority ?? "").trim() ||
     String(organization?.identity_id ?? "").trim();
   if (!linked) return true;
 
-  // A linked org's local row is a cache of the authority roster. Keep the
-  // legacy local-only path unchanged while the federation rollout is off.
   if (
     !(await evaluateFeatureFlagStrict(CROSS_APP_ORG_FEDERATION_FLAG.key, {
       userEmail: normalized,
@@ -90,9 +88,44 @@ export async function isOrgMember(
   const { validateFederatedOrganizationMembershipForCurrentRequest } =
     await import("./federation.js");
   const validation =
-    await validateFederatedOrganizationMembershipForCurrentRequest({
-      orgId,
-      email: normalized,
-    });
+    await validateFederatedOrganizationMembershipForCurrentRequest(
+      {
+        orgId,
+        email: normalized,
+      },
+      options.requestEvent,
+    );
   return validation.active;
+}
+
+export function isOrgMember(
+  orgId: string,
+  email: string,
+  options: {
+    requireOrganizationMetadata?: boolean;
+    requestEvent?: H3Event;
+  } = {},
+): Promise<boolean> {
+  return isOrgMemberWithPolicy(orgId, email, {
+    allowMissingOrganizationTable: !options.requireOrganizationMetadata,
+    requireOrganizationRecord: !!options.requireOrganizationMetadata,
+    requestEvent: options.requestEvent,
+  });
+}
+
+/**
+ * Checks the live roster for an opted-in org-member A2A assertion. This proves
+ * membership in the asserted org; authorization still caps the identity at
+ * member regardless of the stored owner/admin role.
+ */
+export function isOrgMemberForA2A(
+  orgId: string,
+  email: string,
+  requestEvent?: H3Event,
+): Promise<boolean> {
+  return isOrgMemberWithPolicy(orgId, email, {
+    allowMissingOrganizationTable: false,
+    requireOrganizationRecord: true,
+    requestEvent,
+  });
 }

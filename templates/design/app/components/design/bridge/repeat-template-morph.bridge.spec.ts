@@ -20,7 +20,6 @@ function hydrated(head: string): string {
 const HEAD = "<style>li{height:32px}</style>";
 const BODY_ROW = '<li data-agent-native-node-id="an-row">';
 
-/** Alpine keeps the template in place and inserts each clone as a sibling. */
 const LIVE = `<!doctype html><html><head>${HEAD}</head><body>
   <ul data-agent-native-node-id="an-list">
     <template x-for="t in todos" data-agent-native-node-id="an-tpl">${BODY_ROW}<span x-text="t"></span></li></template>
@@ -28,16 +27,12 @@ const LIVE = `<!doctype html><html><head>${HEAD}</head><body>
   </ul>
 </body></html>`;
 
-/** Alpine inserts each clone directly after the template, with no whitespace
- *  between them, and does it before the bridge initialises. */
 const TODOS = [
   "Fix login redirect bug",
   "Write onboarding tests",
   "Polish empty states",
 ];
 
-/** What the editor persists after styling one repeated row: the template body
- *  carries the declaration, and no clone exists in source at all. */
 const NEXT_SOURCE = `<!doctype html><html><head>${HEAD}</head><body>
   <ul data-agent-native-node-id="an-list">
     <template x-for="t in todos" data-agent-native-node-id="an-tpl"><li data-agent-native-node-id="an-row" style="background-color: rgb(1, 2, 3);"><span x-text="t"></span></li></template>
@@ -65,8 +60,6 @@ async function applyRepeatStyleEdit() {
         at = row;
         rows.push(row);
       }
-      // Mirror Alpine's ownership index so the bridge can identify these
-      // manually-created clones through its supported runtime ownership path.
       (
         template as HTMLTemplateElement & {
           _x_lookup: Map<string, HTMLElement>;

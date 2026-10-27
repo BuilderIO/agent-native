@@ -1,19 +1,3 @@
-/**
- * `agent-native template` — pull later upstream template changes into an app
- * that was generated from a first-party template.
- *
- * The model is a real 3-way merge:
- *
- *   base   = the pristine upstream tree the app was generated from
- *            (stored as a git ref, see template-baseline.ts)
- *   theirs = the same template re-materialized at a newer ref, through the
- *            exact transform pipeline `create` runs
- *   ours   = the app's working tree
- *
- * Materialization fidelity is the whole feature: any divergence from what
- * `create` produced turns into phantom conflicts on every sync, so this file
- * reuses `create.ts`'s own transforms rather than reimplementing them.
- */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -24,7 +8,7 @@ import {
   _REPO,
   _TEMPLATES_DIR,
   _appTitleForScaffold,
-  _copyDir,
+  _copyTemplateTree,
   _downloadGitHubSubdir,
   _findLocalTemplate,
   _fixPackageJsonName,
@@ -33,10 +17,12 @@ import {
   _getCorePackageVersion,
   _getDispatchDependencyVersion,
   _getGitHubTemplateRefCandidates,
+  _getOtelDependencyVersion,
   _getToolkitDependencyVersion,
   _localTemplateSourceKind,
   _normalizeTemplateName,
   _postProcessStandalone,
+  _removeWorkspaceOnlyTemplateWiring,
   _renameGitignore,
   _replacePlaceholders,
   _rewriteNetlifyToml,
@@ -54,6 +40,11 @@ import {
   resolveBaselineStore,
   writeBaseline,
 } from "./template-baseline.js";
+import {
+  TEMPLATE_LAYER_FILE,
+  applyTemplateLayer,
+  readTemplateLayer,
+} from "./template-layer.js";
 import { workspacifyApp } from "./workspacify.js";
 
 export interface TemplateIO {
@@ -68,7 +59,6 @@ const defaultIO: TemplateIO = {
 
 const CONFLICT_MARKER = "<<<<<<<";
 
-/** Never merged: user secrets, lockfiles, generated output, personal memory. */
 const NEVER_TOUCH_NAMES = new Set([
   ".git",
   "learnings.md",
@@ -99,7 +89,6 @@ export interface AppTarget {
 export interface MaterializeOptions {
   appName: string;
   template: string;
-  /** Git ref to fetch from, or null to use the bundled/local template copy. */
   ref: string | null;
   shape: "workspace" | "standalone";
   workspaceRoot?: string;
@@ -122,14 +111,6 @@ export interface TemplateMergeResult {
   keptLocal: string[];
 }
 
-/* ─────────────────────────────────────────────────────────────────────────
- * Materialization
- * ───────────────────────────────────────────────────────────────────────── */
-
-/**
- * Reproduce, in a temp directory, the exact bytes `create` would have written
- * for this (template, ref, app name, shape, workspace scope).
- */
 export async function materializeTemplate(
   opts: MaterializeOptions,
 ): Promise<MaterializeResult> {
@@ -152,18 +133,23 @@ export async function materializeTemplate(
         `No local copy of the "${resolved}" template is available. Pass --to <ref> to fetch it from GitHub.`,
       );
     }
-    _copyDir(local, dest);
+    _copyTemplateTree(local, dest);
     usedRef = opts.ref ?? fallbackRef ?? "unknown";
     source = _localTemplateSourceKind(local);
   } else {
-    usedRef = await _downloadGitHubSubdir(
-      _REPO,
-      `${_TEMPLATES_DIR}/${sourceTemplate}`,
-      dest,
-      [opts.ref],
-    );
+    const bundled = _findLocalTemplate(sourceTemplate);
+    usedRef =
+      bundled && readTemplateLayer(bundled)
+        ? await downloadTemplateLayer(sourceTemplate, opts.ref, dest)
+        : await _downloadGitHubSubdir(
+            _REPO,
+            `${_TEMPLATES_DIR}/${sourceTemplate}`,
+            dest,
+            [opts.ref],
+          );
     source = "github";
   }
+  _removeWorkspaceOnlyTemplateWiring(dest);
 
   const provenance = { templateRef: usedRef, templateSource: source };
 
@@ -189,6 +175,7 @@ export async function materializeTemplate(
       coreDependencyVersion: _getCoreDependencyVersion(),
       dispatchDependencyVersion: _getDispatchDependencyVersion(),
       toolkitDependencyVersion: _getToolkitDependencyVersion(),
+      otelDependencyVersion: _getOtelDependencyVersion(),
     });
     _fixPackageJsonName(dest, opts.appName, opts.template, {
       ...provenance,
@@ -204,9 +191,44 @@ export async function materializeTemplate(
   return { dir: dest, ref: usedRef, source };
 }
 
-/* ─────────────────────────────────────────────────────────────────────────
- * Merge
- * ───────────────────────────────────────────────────────────────────────── */
+type SubdirDownloader = (
+  subdir: string,
+  dest: string,
+  refs: string[],
+) => Promise<string>;
+
+/**
+ * A bundled layer lives in core's own template folder, not `templates/`, so a
+ * ref fetches the layer from there and its base from `templates/<base>` at the
+ * same ref.
+ */
+export async function downloadTemplateLayer(
+  template: string,
+  ref: string,
+  dest: string,
+  download: SubdirDownloader = (subdir, target, refs) =>
+    _downloadGitHubSubdir(_REPO, subdir, target, refs),
+): Promise<string> {
+  const layerDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-template-layer-"));
+  try {
+    const usedRef = await download(
+      `packages/core/src/templates/${template}`,
+      layerDir,
+      [ref],
+    );
+    const layer = readTemplateLayer(layerDir);
+    if (!layer) {
+      throw new Error(
+        `${template} at ${usedRef} has no ${TEMPLATE_LAYER_FILE}; that ref predates the layered template.`,
+      );
+    }
+    await download(`${_TEMPLATES_DIR}/${layer.base}`, dest, [usedRef]);
+    applyTemplateLayer(layerDir, layer, dest);
+    return usedRef;
+  } finally {
+    fs.rmSync(layerDir, { recursive: true, force: true });
+  }
+}
 
 export function isMergeExcluded(rel: string): boolean {
   const segments = rel.split("/");
@@ -256,13 +278,16 @@ export function mergeTemplateTrees(
     manual: [],
     keptLocal: [],
   };
-  const paths = new Set<string>([
-    ...listMergeableFiles(baseDir),
-    ...listMergeableFiles(theirsDir),
-    ...listMergeableFiles(appDir),
-  ]);
+  const paths = Array.from(
+    new Set<string>([
+      ...listMergeableFiles(baseDir),
+      ...listMergeableFiles(theirsDir),
+      ...listMergeableFiles(appDir),
+    ]),
+  ).sort();
+  const normalized = crlfNormalizedPaths(appDir, paths);
 
-  for (const rel of Array.from(paths).sort()) {
+  for (const rel of paths) {
     const oursPath = path.join(appDir, rel);
     if (isLocalSymlink(oursPath)) {
       result.manual.push(`${rel} (local symlink)`);
@@ -270,7 +295,13 @@ export function mergeTemplateTrees(
     }
     const base = readFileOrNull(path.join(baseDir, rel));
     const theirs = readFileOrNull(path.join(theirsDir, rel));
-    const ours = readFileOrNull(oursPath);
+    const app = readAppFile(
+      oursPath,
+      normalized.has(rel) ? (base ?? theirs) : null,
+    );
+    const ours = app.content;
+    const writeOurs = (content: Buffer) =>
+      writeFile(oursPath, app.crlf ? withCrlf(content) : content);
 
     if (equalBuffers(base, theirs)) continue;
 
@@ -297,7 +328,7 @@ export function mergeTemplateTrees(
 
     if (equalBuffers(ours, theirs)) continue;
     if (equalBuffers(ours, base)) {
-      if (!options.dryRun) writeFile(oursPath, theirs);
+      if (!options.dryRun) writeOurs(theirs);
       result.updated.push(rel);
       continue;
     }
@@ -312,7 +343,9 @@ export function mergeTemplateTrees(
       result.manual.push(`${rel} (merge failed)`);
       continue;
     }
-    if (!options.dryRun) writeFile(oursPath, merged.content);
+    if (!options.dryRun && !equalBuffers(merged.content, ours)) {
+      writeOurs(merged.content);
+    }
     if (merged.conflicts > 0) result.conflicted.push(rel);
     else result.updated.push(rel);
   }
@@ -356,10 +389,6 @@ function gitMergeFile(
     fs.rmSync(dir, { recursive: true, force: true });
   }
 }
-
-/* ─────────────────────────────────────────────────────────────────────────
- * Target resolution
- * ───────────────────────────────────────────────────────────────────────── */
 
 export function readProvenance(appDir: string): TemplateProvenance {
   const pkg = readJson(path.join(appDir, "package.json"));
@@ -457,10 +486,6 @@ function findAppDir(cwd: string): string | null {
   return null;
 }
 
-/* ─────────────────────────────────────────────────────────────────────────
- * Commands
- * ───────────────────────────────────────────────────────────────────────── */
-
 export async function runTemplate(
   args: string[],
   io: TemplateIO = defaultIO,
@@ -478,8 +503,6 @@ export async function runTemplate(
 
   const rest = args.slice(1);
 
-  // `materialize` produces a fresh post-processed template tree at --out; it has
-  // no existing app to resolve, so it runs before target resolution.
   if (command === "materialize") {
     try {
       return await materializeCommand(rest, io);
@@ -553,12 +576,6 @@ async function runForTarget(
   }
 }
 
-/**
- * Write the post-processed template tree to a directory — the pristine,
- * template-derived output `create` would produce (no install/git/skills).
- * `--to` defaults to the local template (walked up from the package); pass a ref
- * to fetch from GitHub instead.
- */
 async function materializeCommand(
   rest: string[],
   io: TemplateIO,
@@ -575,19 +592,9 @@ async function materializeCommand(
     io.err("template materialize requires --template <name>.");
     return 1;
   }
-  // Stage into a unique sibling dir, then swap it in crash-safely: move the old
-  // tree aside, move the staged tree in, and restore the old one if that fails.
-  // Directory replacement isn't atomic on POSIX (you can't rename onto a non-empty
-  // dir), so the old tree is only ever moved — never deleted before the new one is
-  // in place — and a crash between the two renames leaves it recoverable under
-  // `backup`. Unique same-filesystem siblings keep each rename atomic and
-  // collision-free.
   const parent = path.dirname(path.resolve(outDir));
   fs.mkdirSync(parent, { recursive: true });
   const tmp = fs.mkdtempSync(path.join(parent, ".template-materialize-"));
-  // `backup` is a unique dir too, so a concurrent process can't occupy the path;
-  // renaming a directory onto an existing *empty* dir is a valid replace on POSIX,
-  // so the `hadOld` rename below still lands cleanly on it.
   const backup = fs.mkdtempSync(
     path.join(parent, ".template-materialize-backup-"),
   );
@@ -621,9 +628,6 @@ async function materializeCommand(
     return 0;
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
-    // If restoring from `backup` above itself threw, `backupHoldsOriginal` is still
-    // true and `backup` is the only remaining copy of the pre-existing output —
-    // leave it on disk instead of deleting the last copy of the user's data.
     if (!backupHoldsOriginal) {
       fs.rmSync(backup, { recursive: true, force: true });
     } else {
@@ -667,18 +671,20 @@ async function statusCommand(
     try {
       const local = countLocallyModified(target.appDir, baseDir);
       lines.push(`  locally modified files: ${local}`);
-      const targetRef = flags.to ?? target.provenance.templateRef ?? latest;
-      const theirs = await materializeForTarget(target, flags, targetRef);
       try {
-        const changed = countUpstreamChanged(baseDir, theirs.dir);
-        lines.push(`  upstream-changed files: ${changed} (at ${theirs.ref})`);
-      } finally {
-        fs.rmSync(theirs.dir, { recursive: true, force: true });
+        const targetRef = flags.to ?? target.provenance.templateRef ?? latest;
+        const theirs = await materializeForTarget(target, flags, targetRef);
+        try {
+          const changed = countUpstreamChanged(baseDir, theirs.dir);
+          lines.push(`  upstream-changed files: ${changed} (at ${theirs.ref})`);
+        } finally {
+          fs.rmSync(theirs.dir, { recursive: true, force: true });
+        }
+      } catch (err) {
+        lines.push(
+          `  upstream-changed files: unavailable (${err instanceof Error ? err.message.split("\n")[0] : String(err)})`,
+        );
       }
-    } catch (err) {
-      lines.push(
-        `  upstream-changed files: unavailable (${err instanceof Error ? err.message.split("\n")[0] : String(err)})`,
-      );
     } finally {
       fs.rmSync(baseDir, { recursive: true, force: true });
     }
@@ -838,16 +844,14 @@ function acceptCommand(target: AppTarget, io: TemplateIO): number {
   return 0;
 }
 
-/* ─────────────────────────────────────────────────────────────────────────
- * Helpers
- * ───────────────────────────────────────────────────────────────────────── */
-
 function useLocalTemplate(target: AppTarget, ref: string | null): boolean {
   if (!ref) return true;
   const source = target.provenance.templateSource;
   if (source !== "bundled" && source !== "local-checkout") return false;
-  return ref === target.provenance.templateRef;
+  return _getGitHubTemplateRefCandidates().includes(ref);
 }
+
+export { useLocalTemplate as _useLocalTemplate };
 
 async function materializeForTarget(
   target: AppTarget,
@@ -889,14 +893,22 @@ function backfillProvenance(
     shape: target.shape,
   };
   pkg["agent-native"] = agentNative;
-  fs.writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
+  const json = Buffer.from(`${JSON.stringify(pkg, null, 2)}\n`);
+  const app = readAppFile(pkgPath, json);
+  if (equalBuffers(app.content, json)) return;
+  fs.writeFileSync(pkgPath, app.crlf ? withCrlf(json) : json);
 }
 
 function countLocallyModified(appDir: string, baseDir: string): number {
   let count = 0;
-  for (const rel of listMergeableFiles(baseDir)) {
+  const paths = Array.from(listMergeableFiles(baseDir));
+  const normalized = crlfNormalizedPaths(appDir, paths);
+  for (const rel of paths) {
     const base = readFileOrNull(path.join(baseDir, rel));
-    const ours = readFileOrNull(path.join(appDir, rel));
+    const ours = readAppFile(
+      path.join(appDir, rel),
+      normalized.has(rel) ? base : null,
+    ).content;
     if (!equalBuffers(base, ours)) count++;
   }
   return count;
@@ -937,8 +949,6 @@ function renderTreeDiff(baseDir: string, theirsDir: string): string {
       { cwd: staging, encoding: "utf-8", maxBuffer: 128 * 1024 * 1024 },
     );
     const output = (res.stdout ?? "").toString();
-    // Only the staging dir names leak into headers; content lines cannot
-    // contain the prefixed form, so this rewrite is safe.
     return output.trim()
       ? output
           .replaceAll("upstream-base/a/", "upstream-base/")
@@ -1005,7 +1015,6 @@ function reportRefspecs(configured: string[], io: TemplateIO): void {
 
 const VALUE_FLAGS = new Set(["--to", "--ref", "--template"]);
 
-/** A flag's value must never be mistaken for the [app] positional. */
 function positionalArgs(args: string[]): string[] {
   const out: string[] = [];
   for (let i = 0; i < args.length; i++) {
@@ -1064,6 +1073,91 @@ function removeFile(file: string): void {
 function equalBuffers(a: Buffer | null, b: Buffer | null): boolean {
   if (a === null || b === null) return a === b;
   return a.equals(b);
+}
+
+// CRLF that git normalizes on add is not a local edit.
+function readAppFile(
+  file: string,
+  template: Buffer | null,
+): { content: Buffer | null; crlf: boolean } {
+  const content = readFileOrNull(file);
+  if (
+    content === null ||
+    template === null ||
+    template.includes(0x0d) ||
+    !isTextBuffer(content) ||
+    !isTextBuffer(template)
+  ) {
+    return { content, crlf: false };
+  }
+  const text = content.toString("utf-8");
+  if (!text.includes("\r\n") || /\r(?!\n)/.test(text)) {
+    return { content, crlf: false };
+  }
+  return {
+    content: Buffer.from(text.replace(/\r\n/g, "\n")),
+    crlf: !/(^|[^\r])\n/.test(text),
+  };
+}
+
+// Paths whose CRLF git turns into LF on add; anywhere else a CR is content.
+function crlfNormalizedPaths(appDir: string, rels: string[]): Set<string> {
+  const normalized = new Set<string>();
+  if (!resolveBaselineStore(appDir).gitDir) return normalized;
+  const res = spawnSync(
+    "git",
+    ["check-attr", "-z", "--stdin", "text", "crlf", "eol"],
+    {
+      cwd: appDir,
+      input: rels.join("\0"),
+      encoding: "utf-8",
+      maxBuffer: 64 * 1024 * 1024,
+    },
+  );
+  if (res.status !== 0) {
+    throw new Error(
+      `git check-attr failed in ${appDir}: ${res.stderr || res.error?.message}`,
+    );
+  }
+  const config = spawnSync("git", ["config", "--get", "core.autocrlf"], {
+    cwd: appDir,
+    encoding: "utf-8",
+  });
+  if (config.status !== 0 && config.status !== 1) {
+    throw new Error(
+      `git config core.autocrlf failed in ${appDir}: ${config.stderr || config.error?.message}`,
+    );
+  }
+  const byConfig = ["true", "yes", "on", "1", "input"].includes(
+    config.stdout.trim().toLowerCase(),
+  );
+  const attrs = new Map<string, Record<string, string>>();
+  const fields = res.stdout.split("\0");
+  for (let i = 0; i + 2 < fields.length; i += 3) {
+    attrs.set(fields[i], {
+      ...attrs.get(fields[i]),
+      [fields[i + 1]]: fields[i + 2],
+    });
+  }
+  for (const [rel, { text, crlf, eol }] of attrs) {
+    const byAttrs =
+      conversion(text) ??
+      conversion(crlf) ??
+      (eol === "lf" || eol === "crlf" ? true : null);
+    if (byAttrs ?? byConfig) normalized.add(rel);
+  }
+  return normalized;
+}
+
+// A text or crlf attribute as git reads it: convert, keep bytes, or no say.
+function conversion(value: string | undefined): boolean | null {
+  if (value === "set" || value === "auto" || value === "input") return true;
+  return value === "unset" ? false : null;
+}
+
+function withCrlf(content: Buffer): Buffer {
+  if (!isTextBuffer(content)) return content;
+  return Buffer.from(content.toString("utf-8").replace(/\r?\n/g, "\r\n"));
 }
 
 function isTextBuffer(buf: Buffer | null): boolean {

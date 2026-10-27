@@ -20,11 +20,6 @@ const messages = {
   },
   settings: {
     title: "Settings",
-    description: "Language and workspace preferences for this app.",
-    languageTitle: "Language",
-    languageDescription:
-      "Choose the interface language. This preference is saved for your account.",
-    languageLabel: "Interface language",
     workspaceTitle: "Workspace",
     workspaceDescription:
       "Manage team members, organization access, and shared workspace preferences.",
@@ -34,6 +29,7 @@ const messages = {
     agentDescription:
       "Manage the agent's model, API keys, automations, voice, and other controls.",
     openAgentSettings: "Manage agent",
+    editorGroupTitle: "Editor",
     editorTitle: "VS Code extension",
     editorDescription:
       "Open and review plans in a side panel inside VS Code instead of a separate browser tab.",
@@ -188,6 +184,7 @@ const messages = {
       changeStatistics: "Change statistics",
       untitledPlan: "Untitled plan",
       saveFailed: "Couldn't save",
+      openFailed: "Couldn't open this plan for editing. Reload to try again.",
     },
     imageViewer: {
       actualSize: "Actual size",
@@ -382,6 +379,12 @@ const messages = {
       shareAria: "Share {{noun}}",
       share: "Share {{noun}}",
       shareThis: "Share this {{noun}}",
+      teammateSuggestion: {
+        message: "Bring teammates into Plan.",
+        invite: "Invite teammates",
+        enableDomain: "Let anyone at @{{domain}} join",
+        enableFailed: "Could not enable domain joining. Try again.",
+      },
       hostedCopy:
         "This local {{noun}} has a hosted copy for sharing. Open the hosted {{noun}} to manage access.",
       publishDescription:
@@ -626,7 +629,12 @@ const messages = {
       createAccountFailed: "Could not create account.",
       emailSignInFailed: "Could not sign in with email.",
       verifyEmail:
-        "Check your email to verify the account, then reopen this link.",
+        "Check your email and open the verification link. It will return you to this plan; if asked, sign in below with the same email.",
+      resendVerification: "Resend verification email",
+      resendingVerification: "Sending verification email…",
+      verificationEmailResent: "Verification email sent.",
+      verificationEmailFailed:
+        "Could not resend the verification email. Try again.",
       notFoundTitle: "Plan not found",
       requestAccessTitle: "Request access to this plan",
       signInTitle: "Sign in to view this plan",
@@ -652,6 +660,7 @@ const messages = {
       createAccount: "Create account",
       signIn: "Sign in",
       haveAccount: "I have an account",
+      storageStatusUnavailable: "Could not check file storage.",
       retry: "Retry",
       sendFeedback: "Send feedback",
       feedbackPlaceholder:
@@ -763,6 +772,86 @@ const messages = {
     banner:
       "You're browsing as a guest. Sign in to create plans, leave comments, and keep your work.",
     signIn: "Sign in",
+  },
+  edition: {
+    rail: {
+      notes: "Notes",
+      inThisBuild: "In this build",
+      threads: "Threads",
+      partial: "* partial: some pull requests reported no diff",
+    },
+    promise: {
+      readTime: "~{{minutes}} min",
+      unavailable: "Not available",
+      analysed_one: "{{count}} pull request analysed",
+      analysed_other: "{{count}} pull requests analysed",
+      storyCount_one: "{{count}} story",
+      storyCount_other: "{{count}} stories",
+      areaCount_one: "{{count}} area",
+      areaCount_other: "{{count}} areas",
+    },
+    nav: {
+      label: "Editions",
+    },
+    masthead: {
+      issue: "No. {{number}}",
+      dateline: "{{issue}} · {{date}}",
+      nameplate: "The Engineering Daily",
+      dateRange: "{{start}} – {{end}}",
+    },
+    story: {
+      whatShipped: "What shipped",
+      fileCount_one: "{{count}} file",
+      fileCount_other: "{{count}} files",
+      sources: "Sources",
+      quickLinks: "Quick links",
+      authors: "Authors: {{names}}",
+      prCount_one: "{{count}} PR",
+      prCount_other: "{{count}} PRs",
+      whyAndHow: "Why & how it works",
+      why: "Why",
+      howItWorks: "How it works",
+      diffUnavailable: "Diff size unavailable",
+    },
+    coverage: {
+      unresolvedBlocks: "Cited blocks that no longer resolve: {{total}}",
+      label: "Coverage",
+      reposLabel: "Repos",
+      reposUnavailable: "Repositories unavailable",
+      staleNote:
+        "These merged pull requests have a recap, but it was never re-published at merge, so it may describe an earlier state of the change.",
+      missingNote:
+        "These merged pull requests shipped without a recap, so this edition does not cover them.",
+      complete: "Every merged pull request in this window has a recap.",
+      unknown:
+        "Coverage for this edition was not recorded, so the gap is unknown.",
+    },
+    reader: {
+      loading: "Loading edition",
+      error: "This edition could not be loaded.",
+      retry: "Try again",
+      notFound: "That edition is not available.",
+      noStories: "This edition has no stories.",
+    },
+    listen: {
+      voice: "Voice",
+      play: "Listen",
+      pause: "Pause",
+      resume: "Resume",
+      stop: "Stop reading",
+      preparing: "Preparing…",
+      failed: "Could not read this edition aloud: {reason}",
+    },
+    signIn: {
+      prompt: "Sign in to read the newspaper.",
+    },
+    archive: {
+      build: "Build today's edition",
+      loading: "Loading editions",
+      error: "The edition archive could not be loaded.",
+      retry: "Try again",
+      empty: "No editions yet.",
+    },
   },
 };
 

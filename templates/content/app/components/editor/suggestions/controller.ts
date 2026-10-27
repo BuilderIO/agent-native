@@ -11,11 +11,6 @@ export type SuggestionDraft = {
   pending: readonly SuggestionOperation[];
 };
 
-/**
- * Isolated, persistence-free state for a suggesting editor. The canonical tree
- * is retained as an immutable baseline; only the derived preview is projected
- * from pending operations, so this controller cannot write SQL or Yjs state.
- */
 export function createSuggestionDraft(
   canonical: SuggestionNode,
 ): SuggestionDraft {
@@ -26,7 +21,6 @@ export function addPendingSuggestion(
   draft: SuggestionDraft,
   operation: SuggestionOperation,
 ): SuggestionDraft {
-  // Validate against the current preview before retaining the operation.
   applySuggestionOperations(draft.canonical, [...draft.pending, operation]);
   return { ...draft, pending: [...draft.pending, operation] };
 }

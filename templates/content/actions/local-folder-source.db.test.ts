@@ -4,8 +4,15 @@ import { join } from "node:path";
 
 import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
-import { and, eq } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { and, asc, eq } from "drizzle-orm";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
+vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/creative-context/server")
+  >()),
+  getGenerationCreativeContext: vi.fn(async () => null),
+}));
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -24,6 +31,13 @@ let syncManifestLocalFolder: typeof import("./sync-manifest-local-folder-source.
 let getContentDatabaseSource: typeof import("./get-content-database-source.js").default;
 let getContentDatabase: typeof import("./get-content-database.js").default;
 let provisionContentSpaces: typeof import("./_content-spaces.js").provisionContentSpaces;
+let organizationContentSpaceId: typeof import("./_content-spaces.js").organizationContentSpaceId;
+let shareLocalFileDocument: typeof import("./share-local-file-document.js").default;
+let editDocument: typeof import("./edit-document.js").default;
+let setLiveBodySwitch: typeof import("./set-live-body-switch.js").default;
+let putPageOnLiveCopy: typeof import("../server/test-support/live-copy-page.js").putPageOnLiveCopy;
+let liveCopyVersionOf: typeof import("../server/test-support/live-copy-page.js").liveCopyVersionOf;
+let turnLiveCopyFlagsOff: typeof import("../server/test-support/live-copy-page.js").turnLiveCopyFlagsOff;
 
 beforeAll(async () => {
   process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
@@ -54,15 +68,180 @@ beforeAll(async () => {
   getContentDatabaseSource = (await import("./get-content-database-source.js"))
     .default;
   getContentDatabase = (await import("./get-content-database.js")).default;
-  provisionContentSpaces = (await import("./_content-spaces.js"))
-    .provisionContentSpaces;
+  ({ provisionContentSpaces, organizationContentSpaceId } =
+    await import("./_content-spaces.js"));
+  shareLocalFileDocument = (await import("./share-local-file-document.js"))
+    .default;
+  editDocument = (await import("./edit-document.js")).default;
+  setLiveBodySwitch = (await import("./set-live-body-switch.js")).default;
+  ({ putPageOnLiveCopy, liveCopyVersionOf, turnLiveCopyFlagsOff } =
+    await import("../server/test-support/live-copy-page.js"));
 }, 60000);
 
 afterAll(() => {
   rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
+async function pageBodyState(documentId: string) {
+  const [page] = await getDb()
+    .select()
+    .from(schema.documents)
+    .where(eq(schema.documents.id, documentId));
+  const history = await getDb()
+    .select({ content: schema.documentVersions.content })
+    .from(schema.documentVersions)
+    .where(eq(schema.documentVersions.documentId, documentId))
+    .orderBy(asc(schema.documentVersions.createdAt));
+  return {
+    page,
+    history: history.map((version: { content: string }) => version.content),
+    liveCopyVersion: await liveCopyVersionOf(documentId),
+  };
+}
+
+async function folderSourceState(connection: {
+  sourceId: string;
+  spaceId: string;
+}) {
+  const db = getDb();
+  return {
+    source: await db
+      .select()
+      .from(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.id, connection.sourceId)),
+    rows: await db
+      .select()
+      .from(schema.contentDatabaseSourceRows)
+      .where(eq(schema.contentDatabaseSourceRows.sourceId, connection.sourceId))
+      .orderBy(asc(schema.contentDatabaseSourceRows.id)),
+    changeSets: await db
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(
+        eq(
+          schema.contentDatabaseSourceChangeSets.sourceId,
+          connection.sourceId,
+        ),
+      )
+      .orderBy(asc(schema.contentDatabaseSourceChangeSets.id)),
+    pageIds: (
+      await db
+        .select({ id: schema.documents.id })
+        .from(schema.documents)
+        .where(eq(schema.documents.spaceId, connection.spaceId))
+        .orderBy(asc(schema.documents.id))
+    ).map((page: { id: string }) => page.id),
+  };
+}
+
 describe("local-folder Content source", () => {
+  it("creates a shareable copy of a synced local-folder file for its owner", async () => {
+    const id = "content_local_file_share_qa";
+    const now = new Date().toISOString();
+    await getDb().insert(schema.documents).values({
+      id,
+      ownerEmail: OWNER,
+      title: "Synced note",
+      content: "Original body",
+      sourceMode: "local-files",
+      sourceKind: "file",
+      sourcePath: "notes/synced.md",
+      sourceRootPath: "qa-folder-source",
+      visibility: "private",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await expect(
+      runWithRequestContext({ userEmail: "another-user@example.com" }, () =>
+        shareLocalFileDocument.run({ id }),
+      ),
+    ).rejects.toThrow("Only local file documents");
+
+    const copy = await runWithRequestContext({ userEmail: OWNER }, () =>
+      shareLocalFileDocument.run({ id }),
+    );
+    expect(copy).toMatchObject({
+      title: "Synced note",
+      content: "Original body",
+      visibility: "private",
+      source: {
+        mode: "database",
+        kind: "local-file-copy",
+        path: "notes/synced.md",
+        rootPath: "qa-folder-source",
+      },
+    });
+    expect(copy.id).not.toBe(id);
+
+    await getDb()
+      .update(schema.documents)
+      .set({ content: "Updated body" })
+      .where(eq(schema.documents.id, id));
+    const refreshed = await runWithRequestContext({ userEmail: OWNER }, () =>
+      shareLocalFileDocument.run({ id }),
+    );
+    expect(refreshed.id).toBe(copy.id);
+    expect(refreshed.content).toBe("Updated body");
+  });
+
+  it("does not copy a same-owner source from another organization", async () => {
+    const sourceOrgId = "share-source-org-a";
+    const activeOrgId = "share-source-org-b";
+    const sourceId = "content_local_file_cross_org_share_qa";
+    const joinedAt = Math.floor(Date.now() / 1000);
+    for (const orgId of [sourceOrgId, activeOrgId]) {
+      await getDbExec().execute({
+        sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES ($1, $2, $3, $4)",
+        args: [orgId, orgId, OWNER, joinedAt],
+      });
+      await getDbExec().execute({
+        sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES ($1, $2, $3, $4, $5)",
+        args: [`${orgId}-owner`, orgId, OWNER, "owner", joinedAt],
+      });
+    }
+    await runWithRequestContext({ userEmail: OWNER, orgId: sourceOrgId }, () =>
+      provisionContentSpaces(getDb(), OWNER),
+    );
+    const now = new Date().toISOString();
+    await getDb()
+      .insert(schema.documents)
+      .values({
+        id: sourceId,
+        ownerEmail: OWNER,
+        orgId: sourceOrgId,
+        spaceId: organizationContentSpaceId(sourceOrgId),
+        title: "Source org note",
+        content: "Only source org can copy this",
+        sourceMode: "local-files",
+        sourceKind: "file",
+        sourcePath: "notes/cross-org.md",
+        sourceRootPath: "qa-cross-org-folder",
+        visibility: "private",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER, orgId: activeOrgId }, () =>
+        shareLocalFileDocument.run({ id: sourceId }),
+      ),
+    ).rejects.toThrow("Only local file documents");
+    const copy = await runWithRequestContext(
+      { userEmail: OWNER, orgId: sourceOrgId },
+      () => shareLocalFileDocument.run({ id: sourceId }),
+    );
+    const [storedCopy] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, copy.id));
+    expect(storedCopy).toMatchObject({
+      orgId: sourceOrgId,
+      spaceId: organizationContentSpaceId(sourceOrgId),
+      content: "Only source org can copy this",
+    });
+  });
+
   it("previews a new connection without creating durable rows", async () => {
     const beforeSpaces = await getDb().select().from(schema.contentSpaces);
     const beforeSources = await getDb()
@@ -1083,6 +1262,74 @@ describe("local-folder Content source", () => {
     }
   });
 
+  it("retires a file deletion once the folder has the file again, so accepting it can't unlink the page", async () => {
+    const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-deletion-superseded",
+        label: "Deletion superseded",
+        createSourceBackedSpace: true,
+        truthPolicy: "database_primary",
+      }),
+    );
+    const sync = (files: Record<string, string>) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        syncLocalFolder.run({ sourceId: connection.sourceId, files }),
+      );
+    const first = await sync({ "back.md": "Body." });
+    const documentId = first.created[0]!.id;
+    const openDeletions = () =>
+      getDb()
+        .select({ id: schema.contentDatabaseSourceChangeSets.id })
+        .from(schema.contentDatabaseSourceChangeSets)
+        .where(
+          and(
+            eq(
+              schema.contentDatabaseSourceChangeSets.sourceId,
+              connection.sourceId,
+            ),
+            eq(schema.contentDatabaseSourceChangeSets.documentId, documentId),
+            eq(schema.contentDatabaseSourceChangeSets.state, "proposed"),
+          ),
+        );
+    await sync({});
+    const [deletion] = await openDeletions();
+    expect(deletion).toBeDefined();
+
+    await sync({ "back.md": "Body." });
+    await expect(openDeletions()).resolves.toEqual([]);
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        resolveLocalFolderConflict.run({
+          changeSetId: deletion!.id,
+          decision: "accept_source",
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "LOCAL_FOLDER_CONFLICT_NOT_FOUND" });
+    await expect(
+      getDb()
+        .select({ id: schema.contentDatabaseSourceRows.id })
+        .from(schema.contentDatabaseSourceRows)
+        .where(
+          eq(schema.contentDatabaseSourceRows.sourceId, connection.sourceId),
+        ),
+    ).resolves.toHaveLength(1);
+    await expect(
+      getDb()
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, documentId)),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        sourceMode: "local-files",
+        sourcePath: "back.md",
+      }),
+    ]);
+
+    // The same file gone again is proposed again.
+    await sync({});
+    await expect(openDeletions()).resolves.toEqual([{ id: deletion!.id }]);
+  });
+
   it("tracks stable-id renames and removes source-primary deletions from Files without deleting the cached page", async () => {
     const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
       connectLocalFolder.run({
@@ -1520,6 +1767,59 @@ describe("local-folder Content source", () => {
     ]);
   });
 
+  it("relinks a page two remaining folders name to the first by id, as conflict resolution does", async () => {
+    const connect = async (connectionId: string, spaceId?: string) => ({
+      connectionId,
+      ...(await runWithRequestContext({ userEmail: OWNER }, () =>
+        connectLocalFolder.run({
+          connectionId,
+          label: connectionId,
+          ...(spaceId ? { spaceId } : { createSourceBackedSpace: true }),
+          truthPolicy: "source_primary",
+        }),
+      )),
+    });
+    const disconnected = await connect("desktop-folder-relink-order-a");
+    const remaining = [
+      await connect("desktop-folder-relink-order-b", disconnected.spaceId),
+      await connect("desktop-folder-relink-order-c", disconnected.spaceId),
+    ];
+    const [firstById, secondById] = remaining.sort((left, right) =>
+      left.sourceId < right.sourceId ? -1 : 1,
+    );
+    const sharedDocument = `---\nid: relink-order-page\n---\nBody.`;
+    // The later folder's row last, so rows read in insertion order end on it.
+    for (const [connection, path] of [
+      [disconnected, "from-a.md"],
+      [firstById!, "from-first.md"],
+      [secondById!, "from-second.md"],
+    ] as const) {
+      await runWithRequestContext({ userEmail: OWNER }, () =>
+        syncLocalFolder.run({
+          sourceId: connection.sourceId,
+          files: { [path]: sharedDocument },
+        }),
+      );
+    }
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      disconnectLocalFolder.run({ sourceId: disconnected.sourceId }),
+    );
+
+    await expect(
+      getDb()
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, "relink-order-page")),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        sourceMode: "local-files",
+        sourcePath: "from-first.md",
+        sourceRootPath: firstById!.connectionId,
+      }),
+    ]);
+  });
+
   it("rechecks remaining folder links inside the disconnect transaction", async () => {
     const first = await runWithRequestContext({ userEmail: OWNER }, () =>
       connectLocalFolder.run({
@@ -1589,5 +1889,543 @@ describe("local-folder Content source", () => {
         sourceRootPath: null,
       }),
     ]);
+  });
+
+  it("takes a sync's body write to a switched page on main's path, since the page is linked to its file", async () => {
+    const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-live-copy-sync",
+        label: "Live copy sync",
+        createSourceBackedSpace: true,
+        truthPolicy: "source_primary",
+      }),
+    );
+    const first = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: { "live.md": "Baseline body." },
+      }),
+    );
+    const documentId = first.created[0]!.id;
+    await putPageOnLiveCopy(documentId);
+    const before = await pageBodyState(documentId);
+    const files = { "live.md": "Incoming folder edit." };
+
+    const preview = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        dryRun: true,
+        files,
+      }),
+    );
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({ sourceId: connection.sourceId, files }),
+    );
+
+    for (const run of [preview, result]) {
+      expect(run.updated).toEqual([
+        expect.objectContaining({ id: documentId }),
+      ]);
+    }
+    expect(await pageBodyState(documentId)).toEqual({
+      page: expect.objectContaining({
+        content: "Incoming folder edit.",
+        bodyRevision: before.page.bodyRevision + 1,
+      }),
+      history: [...before.history, "Baseline body."],
+      liveCopyVersion: before.liveCopyVersion,
+    });
+  });
+
+  it("refuses to link a page switched to its live copy to a file that names it, until the page is switched back", async () => {
+    const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-link-switched-page",
+        label: "Link switched page",
+        createSourceBackedSpace: true,
+        truthPolicy: "source_primary",
+      }),
+    );
+    const documentId = "content_page_switched_before_link";
+    const now = new Date().toISOString();
+    await getDb().insert(schema.documents).values({
+      id: documentId,
+      spaceId: connection.spaceId,
+      ownerEmail: OWNER,
+      orgId: null,
+      visibility: "private",
+      title: "Content page",
+      content: "Content body.",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await putPageOnLiveCopy(documentId);
+    const before = await pageBodyState(documentId);
+    const sourceBefore = await folderSourceState(connection);
+    const sync = (dryRun: boolean) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        syncLocalFolder.run({
+          sourceId: connection.sourceId,
+          dryRun,
+          // Sync applies files in path order, so this page is created in the
+          // transaction before named.md is refused.
+          files: {
+            "another.md": "A page the refused sync would create.",
+            "named.md": `---\nid: ${documentId}\n---\nFolder body.`,
+          },
+        }),
+      );
+
+    for (const dryRun of [true, false]) {
+      await expect(sync(dryRun)).rejects.toMatchObject({
+        errorCode: "LOCAL_FILE_LINK_SWITCHED_PAGE",
+        statusCode: 409,
+        details: { documentId },
+      });
+    }
+    expect(await pageBodyState(documentId)).toEqual(before);
+    expect(before.page.sourceMode).toBeNull();
+    expect(await folderSourceState(connection)).toEqual(sourceBefore);
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      setLiveBodySwitch.run(
+        { id: documentId, switched: false },
+        { caller: "frontend", userEmail: OWNER },
+      ),
+    );
+    const linked = await sync(false);
+
+    expect(linked.updated).toEqual([
+      expect.objectContaining({ id: documentId }),
+    ]);
+    expect((await pageBodyState(documentId)).page).toMatchObject({
+      content: "Folder body.",
+      sourceMode: "local-files",
+      liveBodySwitchedAt: null,
+    });
+  });
+
+  describe("a switched page whose link a Builder pull reset, with two folders' files naming it", () => {
+    // A Builder pull sets the page's source mode and leaves both folders'
+    // rows, so a remaining row no longer means the page is linked.
+    async function switchedPageNamedByTwoFolders(name: string) {
+      const first = await runWithRequestContext({ userEmail: OWNER }, () =>
+        connectLocalFolder.run({
+          connectionId: `desktop-folder-${name}-a`,
+          label: `${name} A`,
+          createSourceBackedSpace: true,
+          truthPolicy: "reviewed_bidirectional",
+        }),
+      );
+      const second = await runWithRequestContext({ userEmail: OWNER }, () =>
+        connectLocalFolder.run({
+          connectionId: `desktop-folder-${name}-b`,
+          label: `${name} B`,
+          spaceId: first.spaceId,
+          truthPolicy: "source_primary",
+        }),
+      );
+      const documentId = `${name}-page`;
+      const file = `---
+id: ${documentId}
+---
+Body.`;
+      for (const [sourceId, path] of [
+        [first.sourceId, "a.md"],
+        [second.sourceId, "b.md"],
+      ] as const) {
+        await runWithRequestContext({ userEmail: OWNER }, () =>
+          syncLocalFolder.run({ sourceId, files: { [path]: file } }),
+        );
+      }
+      await getDb()
+        .update(schema.documents)
+        .set({
+          sourceMode: "builder-mdx",
+          sourceKind: null,
+          sourcePath: null,
+          sourceRootPath: null,
+        })
+        .where(eq(schema.documents.id, documentId));
+      await putPageOnLiveCopy(documentId);
+      return { first, documentId };
+    }
+
+    it("refuses a disconnect that would relink it to the other folder's file", async () => {
+      const { first, documentId } =
+        await switchedPageNamedByTwoFolders("relink-disconnect");
+      const before = await pageBodyState(documentId);
+      const sourceBefore = await folderSourceState(first);
+
+      await expect(
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          disconnectLocalFolder.run({ sourceId: first.sourceId }),
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "LOCAL_FILE_LINK_SWITCHED_PAGE",
+        statusCode: 409,
+        details: { documentId },
+      });
+      expect(await pageBodyState(documentId)).toEqual(before);
+      expect(before.page.sourceMode).toBe("builder-mdx");
+      expect(await folderSourceState(first)).toEqual(sourceBefore);
+    });
+
+    it("refuses to accept a file deletion that would relink it to the other folder's file", async () => {
+      const { first, documentId } = await switchedPageNamedByTwoFolders(
+        "relink-accept-deletion",
+      );
+      await runWithRequestContext({ userEmail: OWNER }, () =>
+        syncLocalFolder.run({ sourceId: first.sourceId, files: {} }),
+      );
+      const [changeSet] = await getDb()
+        .select()
+        .from(schema.contentDatabaseSourceChangeSets)
+        .where(
+          and(
+            eq(schema.contentDatabaseSourceChangeSets.sourceId, first.sourceId),
+            eq(schema.contentDatabaseSourceChangeSets.documentId, documentId),
+          ),
+        );
+      expect(changeSet).toMatchObject({ state: "proposed" });
+      const before = await pageBodyState(documentId);
+      const sourceBefore = await folderSourceState(first);
+
+      await expect(
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          resolveLocalFolderConflict.run({
+            changeSetId: changeSet.id,
+            decision: "accept_source",
+          }),
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "LOCAL_FILE_LINK_SWITCHED_PAGE",
+        statusCode: 409,
+        details: { documentId },
+      });
+      expect(await pageBodyState(documentId)).toEqual(before);
+      expect(await folderSourceState(first)).toEqual(sourceBefore);
+    });
+  });
+
+  it("links a switched page to a file that names it, as main does, while the live-copy flags are off (SF-11)", async () => {
+    const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-link-switched-flags-off",
+        label: "Link switched page, flags off",
+        createSourceBackedSpace: true,
+        truthPolicy: "source_primary",
+      }),
+    );
+    const documentId = "content_page_switched_flags_off";
+    const now = new Date().toISOString();
+    await getDb().insert(schema.documents).values({
+      id: documentId,
+      spaceId: connection.spaceId,
+      ownerEmail: OWNER,
+      orgId: null,
+      visibility: "private",
+      title: "Content page",
+      content: "Content body.",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await putPageOnLiveCopy(documentId);
+    await turnLiveCopyFlagsOff();
+
+    const linked = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: {
+          "named.md": `---
+id: ${documentId}
+---
+Folder body.`,
+        },
+      }),
+    );
+
+    expect(linked.updated).toEqual([
+      expect.objectContaining({ id: documentId }),
+    ]);
+    expect((await pageBodyState(documentId)).page).toMatchObject({
+      content: "Folder body.",
+      sourceMode: "local-files",
+    });
+  });
+
+  it("takes a sync's body write to a switched page as before while the live-copy flags are off (SF-11)", async () => {
+    const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-live-copy-flags-off",
+        label: "Live copy flags off",
+        createSourceBackedSpace: true,
+        truthPolicy: "source_primary",
+      }),
+    );
+    const first = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: { "live.md": "Baseline body." },
+      }),
+    );
+    const documentId = first.created[0]!.id;
+    await putPageOnLiveCopy(documentId);
+    await turnLiveCopyFlagsOff();
+    const before = await pageBodyState(documentId);
+
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: { "live.md": "Incoming folder edit." },
+      }),
+    );
+
+    expect(result.updated).toEqual([
+      expect.objectContaining({ id: documentId, path: "live.md" }),
+    ]);
+    expect(await pageBodyState(documentId)).toEqual({
+      page: expect.objectContaining({
+        content: "Incoming folder edit.",
+        bodyRevision: before.page.bodyRevision + 1,
+      }),
+      history: [...before.history, "Baseline body."],
+      liveCopyVersion: before.liveCopyVersion,
+    });
+  });
+
+  it("accepts a folder revision onto a switched page on main's path, since the page is linked to its file", async () => {
+    const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-live-copy-resolve",
+        label: "Live copy resolve",
+        createSourceBackedSpace: true,
+        truthPolicy: "source_primary",
+      }),
+    );
+    const first = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: { "resolve.md": "Baseline." },
+      }),
+    );
+    const documentId = first.created[0]!.id;
+    await getDb()
+      .update(schema.documents)
+      .set({ content: "Content edit.", updatedAt: new Date().toISOString() })
+      .where(eq(schema.documents.id, documentId));
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: { "resolve.md": "Folder edit." },
+      }),
+    );
+    const [changeSet] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(
+        and(
+          eq(
+            schema.contentDatabaseSourceChangeSets.sourceId,
+            connection.sourceId,
+          ),
+          eq(schema.contentDatabaseSourceChangeSets.documentId, documentId),
+        ),
+      );
+    await putPageOnLiveCopy(documentId);
+    const before = await pageBodyState(documentId);
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      resolveLocalFolderConflict.run({
+        changeSetId: changeSet.id,
+        decision: "accept_source",
+        sourceContent: "Folder edit.",
+      }),
+    );
+
+    const after = await pageBodyState(documentId);
+    expect(after.page).toMatchObject({
+      content: "Folder edit.",
+      bodyRevision: before.page.bodyRevision + 1,
+    });
+    expect(after.liveCopyVersion).toBe(before.liveCopyVersion);
+    expect((await folderSourceState(connection)).changeSets).toEqual([
+      expect.objectContaining({ id: changeSet.id, state: "applied" }),
+    ]);
+  });
+
+  it("refuses re-sharing over a copy that takes body writes through its live copy", async () => {
+    const id = "content_local_file_share_live_copy";
+    const now = new Date().toISOString();
+    await getDb().insert(schema.documents).values({
+      id,
+      ownerEmail: OWNER,
+      title: "Synced note on a live copy",
+      content: "Original body",
+      sourceMode: "local-files",
+      sourceKind: "file",
+      sourcePath: "notes/live-copy.md",
+      sourceRootPath: "qa-live-copy-folder-source",
+      visibility: "private",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const copy = await runWithRequestContext({ userEmail: OWNER }, () =>
+      shareLocalFileDocument.run({ id }),
+    );
+    await putPageOnLiveCopy(copy.id);
+    await getDb()
+      .update(schema.documents)
+      .set({ content: "Updated body" })
+      .where(eq(schema.documents.id, id));
+    const before = await pageBodyState(copy.id);
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        shareLocalFileDocument.run({ id }),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+      statusCode: 409,
+      details: { documentId: copy.id, operation: "share-local-file-document" },
+    });
+    expect(await pageBodyState(copy.id)).toEqual(before);
+    expect(before.page.content).toBe("Original body");
+  });
+
+  it("re-shares a renamed file over a copy that takes body writes through its live copy when the body is the same", async () => {
+    const id = "content_local_file_share_live_copy_title";
+    const now = new Date().toISOString();
+    await getDb().insert(schema.documents).values({
+      id,
+      ownerEmail: OWNER,
+      title: "Synced note on a live copy",
+      content: "Original body",
+      sourceMode: "local-files",
+      sourceKind: "file",
+      sourcePath: "notes/live-copy-title.md",
+      sourceRootPath: "qa-live-copy-folder-source",
+      visibility: "private",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const copy = await runWithRequestContext({ userEmail: OWNER }, () =>
+      shareLocalFileDocument.run({ id }),
+    );
+    await putPageOnLiveCopy(copy.id);
+    await getDb()
+      .update(schema.documents)
+      .set({ title: "Renamed note" })
+      .where(eq(schema.documents.id, id));
+    const before = await pageBodyState(copy.id);
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      shareLocalFileDocument.run({ id }),
+    );
+
+    const after = await pageBodyState(copy.id);
+    expect(after.page).toMatchObject({
+      title: "Renamed note",
+      content: "Original body",
+      bodyRevision: before.page.bodyRevision,
+    });
+    expect(after.liveCopyVersion).toBe(before.liveCopyVersion);
+  });
+
+  describe("an edit to a linked file on a switched page", () => {
+    async function linkedFilePage(id: string) {
+      const now = new Date().toISOString();
+      await getDb()
+        .insert(schema.documents)
+        .values({
+          id,
+          ownerEmail: OWNER,
+          title: "Linked note",
+          content: "alpha beta",
+          sourceMode: "local-files",
+          sourceKind: "file",
+          sourcePath: `notes/${id}.md`,
+          visibility: "private",
+          createdAt: now,
+          updatedAt: now,
+        });
+    }
+    const edit = (id: string) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        editDocument.run(
+          { id, find: "alpha", replace: "omega", reuseLabels: [] },
+          { caller: "frontend", userEmail: OWNER },
+        ),
+      );
+
+    it("writes the file and the page on main's path, since the page is linked to its file", async () => {
+      const id = "linked_file_edit_live_copy";
+      await linkedFilePage(id);
+      await putPageOnLiveCopy(id);
+      const before = await pageBodyState(id);
+      const linkedLocal = await import("./_linked-local-document-edit.js");
+      const sourceWrite = vi
+        .spyOn(linkedLocal, "editLinkedLocalDocumentThroughBrowser")
+        .mockImplementationOnce(async () => ({
+          status: "persisted",
+          content: "omega beta",
+          title: "Linked note",
+          path: `notes/${id}.md`,
+          runtime: "browser",
+        }));
+      try {
+        await expect(edit(id)).resolves.toMatchObject({ applied: 1 });
+        expect(sourceWrite).toHaveBeenCalledTimes(1);
+        const after = await pageBodyState(id);
+        expect(after.page).toMatchObject({
+          content: "omega beta",
+          bodyRevision: before.page.bodyRevision + 1,
+        });
+        expect(after.liveCopyVersion).toBe(before.liveCopyVersion);
+      } finally {
+        sourceWrite.mockRestore();
+      }
+    });
+
+    it("refuses, and names the file that took the edit, when the page leaves its file and takes its live copy while the file is written", async () => {
+      const id = "linked_file_edit_live_copy_mid_write";
+      await linkedFilePage(id);
+      const linkedLocal = await import("./_linked-local-document-edit.js");
+      let before: Awaited<ReturnType<typeof pageBodyState>> | undefined;
+      const sourceWrite = vi
+        .spyOn(linkedLocal, "editLinkedLocalDocumentThroughBrowser")
+        .mockImplementationOnce(async () => {
+          // As disconnecting its folder leaves it.
+          await getDb()
+            .update(schema.documents)
+            .set({ sourceMode: "database", sourceKind: null, sourcePath: null })
+            .where(eq(schema.documents.id, id));
+          await putPageOnLiveCopy(id);
+          before = await pageBodyState(id);
+          return {
+            status: "persisted",
+            content: "omega beta",
+            title: "Linked note",
+            path: `notes/${id}.md`,
+            runtime: "browser",
+          };
+        });
+      try {
+        await expect(edit(id)).rejects.toMatchObject({
+          errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+          statusCode: 409,
+          details: {
+            documentId: id,
+            operation: "edit-document",
+            sourcePath: `notes/${id}.md`,
+          },
+        });
+        expect(sourceWrite).toHaveBeenCalledTimes(1);
+        expect(before?.page.content).toBe("alpha beta");
+        expect(await pageBodyState(id)).toEqual(before);
+      } finally {
+        sourceWrite.mockRestore();
+      }
+    });
   });
 });

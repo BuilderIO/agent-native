@@ -1,28 +1,18 @@
-/**
- * Regenerate the recording's title using its transcript.
- *
- * Title generation uses the same low-cost text-model media-pipeline path as
- * transcript cleanup so a freshly recorded clip can get a useful title without
- * waiting for the agent chat bridge. If the fast path is unavailable, we still
- * queue the older agent-chat request as a fallback.
- *
- * When the user enables Include full video, we skip the transcript-only fast
- * path and always delegate so the agent can watch the recording.
- *
- * Usage:
- *   pnpm action regenerate-title --recordingId=<id>
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { assertAccess } from "@agent-native/core/sharing";
+import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import { isBuilderCreditsExhaustedMessage } from "../shared/builder-credits.js";
 import { withFullVideoAiInstructions } from "../shared/clips-ai-prefs.js";
+import {
+  isAutoTitleReplaceable,
+  isDefaultTitle,
+} from "../shared/title-source.js";
 import cleanupTranscript from "./cleanup-transcript.js";
 import { loadAgentsMdContext } from "./lib/agents-md-context.js";
 import {
@@ -35,7 +25,6 @@ import {
   cleanGeneratedTitle,
   fallbackTitleFromTranscript,
 } from "./lib/title-fallback.js";
-import { isAutoTitleReplaceable, isDefaultTitle } from "./lib/title-source.js";
 import regenerateSummary from "./regenerate-summary.js";
 
 function transcriptTextFromSegments(raw: string | null | undefined): string {
@@ -160,7 +149,9 @@ export default defineAction({
       ),
   }),
   run: async (args) => {
-    await assertAccess("recording", args.recordingId, "editor");
+    assertRecordingNotExpired(
+      await assertAccess("recording", args.recordingId, "editor"),
+    );
 
     const db = getDb();
     const [rec] = await db
@@ -188,10 +179,8 @@ export default defineAction({
 
     const includeFullVideoInAi = await readIncludeFullVideoInAi();
 
-    // Full-video mode needs the agent to watch the clip; skip the transcript-
-    // only text-model fast path so we don't generate titles from audio alone.
     if (includeFullVideoInAi) {
-      await queueTitleRegenerationRequest({
+      const queuedRequest = await queueTitleRegenerationRequest({
         recordingId: args.recordingId,
         currentTitle: rec.title,
         currentDescription: rec.description,
@@ -207,6 +196,8 @@ export default defineAction({
       );
       return {
         queued: true,
+        kind: queuedRequest.kind,
+        requestedAt: queuedRequest.requestedAt,
         recordingId: args.recordingId,
         includeFullVideoInAi: true,
       };
@@ -263,6 +254,9 @@ export default defineAction({
           (isAutoTitleReplaceable(fresh.title, fresh.titleSource) ||
             fresh.title === rec.title)
         ) {
+          assertRecordingNotExpired(
+            await assertAccess("recording", args.recordingId, "editor"),
+          );
           await db
             .update(schema.recordings)
             .set({
@@ -308,6 +302,7 @@ export default defineAction({
         );
       }
     } catch (err) {
+      if (err instanceof ForbiddenError) throw err;
       builderCreditsPaused = isBuilderCreditsExhaustedMessage(
         (err as Error)?.message ?? String(err),
       );
@@ -339,18 +334,19 @@ export default defineAction({
         (isAutoTitleReplaceable(fresh.title, fresh.titleSource) ||
           fresh.title === rec.title)
       ) {
+        assertRecordingNotExpired(
+          await assertAccess("recording", args.recordingId, "editor"),
+        );
         await db
           .update(schema.recordings)
           .set({
             title: fallbackTitle,
-            // This is an immediate heuristic while the agent prepares the
-            // real transcript-backed title. Keep it replaceable.
             titleSource: "context",
             updatedAt: new Date().toISOString(),
           })
           .where(eq(schema.recordings.id, args.recordingId));
         await writeAppState("refresh-signal", { ts: Date.now() });
-        await queueTitleRegenerationRequest({
+        const queuedRequest = await queueTitleRegenerationRequest({
           recordingId: args.recordingId,
           currentTitle: fallbackTitle,
           currentDescription: rec.description,
@@ -368,6 +364,8 @@ export default defineAction({
         return {
           updated: true,
           queued: true,
+          kind: queuedRequest.kind,
+          requestedAt: queuedRequest.requestedAt,
           recordingId: args.recordingId,
           title: fallbackTitle,
           provider: "local",
@@ -385,7 +383,7 @@ export default defineAction({
       };
     }
 
-    await queueTitleRegenerationRequest({
+    const queuedRequest = await queueTitleRegenerationRequest({
       recordingId: args.recordingId,
       currentTitle: rec.title,
       currentDescription: rec.description,
@@ -400,6 +398,8 @@ export default defineAction({
     console.log(`Delegation queued: regenerate-title for ${args.recordingId}`);
     return {
       queued: true,
+      kind: queuedRequest.kind,
+      requestedAt: queuedRequest.requestedAt,
       recordingId: args.recordingId,
     };
   },

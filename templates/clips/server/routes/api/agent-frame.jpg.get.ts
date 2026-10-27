@@ -1,29 +1,37 @@
 /**
  * GET /api/agent-frame.jpg?id=<recordingId>&atMs=<timestampMs>[&password=<pw>|&t=<token>]
  *
- * Extract a JPEG frame from a public clip for external agents.
+ * Extract a JPEG frame from a public clip for external agents. For a
+ * screenshot, the picture itself in its stored format.
  */
 
-import { runWithRequestContext } from "@agent-native/core/server";
+import {
+  getForwardedRequestURL,
+  runWithRequestContext,
+} from "@agent-native/core/server";
+import { isImageRecording } from "@shared/recording-kind";
 import {
   defineEventHandler,
   getQuery,
-  getRequestURL,
   setResponseHeader,
-  setResponseStatus,
   type H3Event,
 } from "h3";
 
+import {
+  describeFrameFailure,
+  frameFailureStatus,
+  loadAgentFrameAccess,
+  sendFrameJson,
+} from "../../lib/agent-frame-request.js";
 import {
   ensureRecordingThumbnail,
   RECORDING_THUMBNAIL_AT_MS,
 } from "../../lib/ensure-recording-thumbnail.js";
 import {
   CLIPS_AGENT_ACCESS_PARAM,
-  loadPublicAgentAccess,
   loadRecordingMediaFile,
+  loadScreenshotImage,
   queryString,
-  RecordingMediaFetchError,
   type PublicAgentAccess,
 } from "../../lib/public-agent-context.js";
 import {
@@ -129,7 +137,7 @@ function redirectToResolvedFrame(
   access: PublicAgentAccess,
   atMs: number,
 ): Response {
-  const location = getRequestURL(event);
+  const location = getForwardedRequestURL(event);
   location.search = "";
   location.searchParams.set("id", access.recording.id);
   location.searchParams.set("atMs", String(atMs));
@@ -162,7 +170,7 @@ async function extractFrameWithStaleDurationRecovery({
   } catch (error) {
     if (
       !(error instanceof VideoFrameExtractionError) ||
-      error.code !== "NO_VIDEO" ||
+      error.code !== "NO_FRAME_AT_TIMESTAMP" ||
       atMs <= 0
     ) {
       throw error;
@@ -188,7 +196,7 @@ async function extractFrameWithStaleDurationRecovery({
       } catch (candidateError) {
         if (
           !(candidateError instanceof VideoFrameExtractionError) ||
-          candidateError.code !== "NO_VIDEO"
+          candidateError.code !== "NO_FRAME_AT_TIMESTAMP"
         ) {
           throw candidateError;
         }
@@ -200,20 +208,26 @@ async function extractFrameWithStaleDurationRecovery({
 
 export default defineEventHandler(async (event: H3Event) => {
   const query = getQuery(event);
-  const id = queryString(query.id);
-  const accessResult = await loadPublicAgentAccess(event, id, {
-    password: queryString(query.password),
-    token: queryString(query[CLIPS_AGENT_ACCESS_PARAM]),
-  });
-
-  if (!accessResult.ok) {
-    setResponseStatus(event, accessResult.failure.status);
-    setResponseHeader(event, "Content-Type", "application/json; charset=utf-8");
-    setResponseHeader(event, "X-Content-Type-Options", "nosniff");
-    return accessResult.failure.body;
-  }
-
+  const accessResult = await loadAgentFrameAccess(event);
+  if (!accessResult.ok) return accessResult.body;
   const recording = accessResult.access.recording;
+
+  // A still image has one frame, the picture itself; there is no video to
+  // cut one from.
+  if (isImageRecording(recording)) {
+    try {
+      const image = await loadScreenshotImage(recording);
+      setResponseHeader(event, "Content-Type", image.mimeType);
+      setResponseHeader(event, "Cache-Control", "private, no-store");
+      setResponseHeader(event, "X-Content-Type-Options", "nosniff");
+      return Buffer.from(image.bytes);
+    } catch (err) {
+      // Pass the storage outcome on, as the video path does: a timeout or a
+      // missing object is not the same failure to retry as a bad gateway.
+      const status = frameFailureStatus(err);
+      return sendFrameJson(event, status, describeFrameFailure(err, status));
+    }
+  }
   const durationMs =
     typeof recording.durationMs === "number" ? recording.durationMs : 0;
   const requestedMs = parseTimestampMs(
@@ -273,25 +287,7 @@ export default defineEventHandler(async (event: H3Event) => {
       await media.cleanup().catch(() => {});
     }
   } catch (err) {
-    const isFrameError = err instanceof VideoFrameExtractionError;
-    setResponseStatus(
-      event,
-      err instanceof RecordingMediaFetchError
-        ? err.statusCode
-        : isFrameError && err.code === "FFMPEG_UNAVAILABLE"
-          ? 503
-          : err instanceof Error && /too large/i.test(err.message)
-            ? 413
-            : 422,
-    );
-    setResponseHeader(event, "Content-Type", "application/json; charset=utf-8");
-    setResponseHeader(event, "X-Content-Type-Options", "nosniff");
-    return {
-      error: isFrameError
-        ? err.message
-        : err instanceof Error
-          ? err.message
-          : String(err),
-    };
+    const status = frameFailureStatus(err);
+    return sendFrameJson(event, status, describeFrameFailure(err, status));
   }
 });

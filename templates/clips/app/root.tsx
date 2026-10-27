@@ -1,10 +1,10 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
-import { DevOverlay } from "@agent-native/core/client/dev-overlay";
-import { getBrowserTabId, useDbSync } from "@agent-native/core/client/hooks";
 import {
-  AppProviders,
   createAgentNativeQueryClient,
+  getBrowserTabId,
+  useDbSync,
+  useSession,
 } from "@agent-native/core/client/hooks";
 import {
   getLocaleInitScript,
@@ -15,6 +15,8 @@ import {
 } from "@agent-native/core/client/i18n";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
 import { resolveLocaleFromRequest } from "@agent-native/core/server";
+import { DevOverlay } from "@agent-native/toolkit/app/dev-overlay";
+import { AppProviders } from "@agent-native/toolkit/app/providers";
 import { IconCheck } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
@@ -29,9 +31,11 @@ import {
   useRouteLoaderData,
 } from "react-router";
 import type { LinksFunction, LoaderFunctionArgs } from "react-router";
+import { toast } from "sonner";
 
 import { BugReportDialog } from "@/components/bug-report/bug-report-dialog";
 import { ClipsCommandMenu } from "@/components/clips-command-menu";
+import { LibraryLayout } from "@/components/library/library-layout";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -44,13 +48,18 @@ import {
 import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { useNavigationState } from "@/hooks/use-navigation-state";
-import { buildClipsExtensionBaseUrl } from "@/lib/extension-auth";
+import {
+  buildClipsExtensionBaseUrl,
+  fetchClipsExtensionSession,
+  type ClipsExtensionSession,
+} from "@/lib/extension-auth";
 import {
   isLegacyRecordingPath,
+  isRecordingSharePath,
   isStandalonePublicPath,
 } from "@/lib/public-ssr-paths";
 
-import { i18nCatalog, loadI18nMessages } from "./i18n";
+import { i18nCatalog } from "./i18n";
 
 import stylesheet from "./global.css?url";
 
@@ -79,7 +88,7 @@ export async function loader({
 }: LoaderFunctionArgs): Promise<RootLoaderData> {
   const resolved = resolveLocaleFromRequest({ request });
   const messages =
-    (await loadI18nMessages(resolved.locale)) ?? i18nCatalog.messages;
+    (await i18nCatalog.loadMessages?.(resolved.locale)) ?? i18nCatalog.messages;
   return {
     locale: resolved.locale,
     preference: resolved.preference,
@@ -234,17 +243,24 @@ function ClipsExtensionAuthBridge() {
         }
       ).chrome?.runtime;
 
-      const response = await fetch(appPath("/_agent-native/auth/session"), {
-        credentials: "include",
-        cache: "no-store",
-      });
-      const session = (await response.json().catch(() => null)) as {
-        email?: string;
-        token?: string;
-      } | null;
-      if (cancelled || !response.ok || !session?.email || !session.token) {
+      let session: ClipsExtensionSession | null;
+      try {
+        session = await fetchClipsExtensionSession(
+          () =>
+            fetch(appPath("/_agent-native/auth/session"), {
+              credentials: "include",
+              cache: "no-store",
+            }),
+          () => !cancelled,
+        );
+      } catch (error) {
+        if (!cancelled) {
+          console.error("Could not complete Clips extension sign-in.", error);
+          toast.error(t("recordingPage.tryAgainMoment"));
+        }
         return;
       }
+      if (cancelled || !session) return;
 
       const message = {
         source: "clips-auth-bridge",
@@ -336,15 +352,15 @@ function ClipsExtensionAuthBridge() {
   );
 }
 
-function AppContent() {
-  const location = useLocation();
-  if (location.pathname === "/") return <Outlet />;
-  return <PrivateAppContent />;
-}
-
 function PrivateAppContent() {
   const location = useLocation();
-  const standalonePublic = isStandalonePublicPath(location.pathname);
+  const { status: sessionStatus } = useSession();
+  const authenticatedShare =
+    typeof window !== "undefined" &&
+    isRecordingSharePath(location.pathname) &&
+    sessionStatus === "authenticated";
+  const standalonePublic =
+    isStandalonePublicPath(location.pathname) && !authenticatedShare;
   const [cmdkOpen, setCmdkOpen] = useState(false);
 
   return (
@@ -356,30 +372,29 @@ function PrivateAppContent() {
       )}
       {standalonePublic ? null : <BugReportDialog />}
       {standalonePublic ? null : <DevOverlay />}
-      <Outlet />
+      {authenticatedShare ? (
+        <LibraryLayout>
+          <Outlet />
+        </LibraryLayout>
+      ) : (
+        <Outlet />
+      )}
     </>
   );
 }
 
-/**
- * Public share/embed/download/invite paths must SSR real content for
- * first-visit signed-out users and bots. AppProviders' isPublicPath prop
- * removes the ClientOnly gate for these paths so entry.server.tsx streams
- * actual markup and loader-fed OG meta instead of a bare spinner.
- */
 export default function Root() {
   const location = useLocation();
   const loaderData = useLoaderData<typeof loader>();
   const [queryClient] = useState(() => createAgentNativeQueryClient());
-  const isMarketingHome = location.pathname === "/";
-  const isPublicPath =
-    isMarketingHome || isStandalonePublicPath(location.pathname);
+  const isPublicPath = isStandalonePublicPath(location.pathname);
   const legacyRecordingPath = isLegacyRecordingPath(location.pathname);
   const publicSharePath = location.pathname.startsWith("/share/");
   return (
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
+        skeletonLayout="prompt-library"
         isPublicPath={isPublicPath}
         sessionBypass={legacyRecordingPath}
         showEnvironmentBadge={isPublicPath && !publicSharePath}
@@ -400,10 +415,10 @@ export default function Root() {
           persistPreference: !isPublicPath,
         }}
       >
-        <AppContent />
+        <PrivateAppContent />
       </AppProviders>
     </AppToolkitProvider>
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client/ui";
+export { ErrorBoundary } from "@agent-native/toolkit/app/shared";

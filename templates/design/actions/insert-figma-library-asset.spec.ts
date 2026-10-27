@@ -10,14 +10,9 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
+
 const mocks = vi.hoisted(() => {
-  // `where()` must behave both as a directly-awaited result (the initial
-  // multi-file lookup in insert-figma-library-asset.ts) AND as a chain that
-  // supports a trailing `.limit(1)` (writeInlineSourceFile's internal
-  // re-select in server/source-workspace.ts, now used by the action's write
-  // path). Returning a real Promise with an extra `.limit()` method attached
-  // covers both call shapes with the same mocked resolved rows, narrowed by
-  // id when the predicate looks like `eq(designFiles.id, someId)`.
   function makeWhereResult(rows: unknown[]) {
     const promise = Promise.resolve(rows) as Promise<unknown[]> & {
       limit: (n: number) => Promise<unknown[]>;
@@ -56,9 +51,6 @@ const mocks = vi.hoisted(() => {
     transaction: vi.fn(async (callback) => callback(db)),
   };
 
-  // Shared with the @agent-native/core/collab mock below: the prepared source
-  // lease persists its authoritative content back to SQL. Cleared per-test in
-  // beforeEach because the vi.mock factory only runs once per file.
   const seededCollabText = new Map<string, string>();
 
   return {
@@ -209,6 +201,7 @@ describe("insert-figma-library-asset", () => {
 
     expect(result.inserted).toBe(true);
     expect(result.source).toBe("figma");
+    expect(result._receipt).toEqual(designOutputWriteReceipt("design-1", 1));
     const content = lastSavedContent();
     expect(content).toContain("data-agent-native-figma-asset");
     expect(content).toContain('data-figma-file-key="abc123"');
@@ -221,8 +214,6 @@ describe("insert-figma-library-asset", () => {
 
   it("reads the live collab text as the base instead of the stale SQL row", async () => {
     setFile("<html><body><p>stale sql content</p></body></html>");
-    // Simulate a concurrent editor/agent write that already landed in collab
-    // state ahead of this action's SQL row.
     mocks.seededCollabText.set(
       "file-1",
       "<html><body><p>live collab content</p></body></html>",

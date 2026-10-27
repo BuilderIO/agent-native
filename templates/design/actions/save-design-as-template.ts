@@ -1,11 +1,10 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { buildDeepLink } from "@agent-native/core/server";
 import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
-import { track } from "@agent-native/core/tracking";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
@@ -16,6 +15,7 @@ import {
   redactTemplateDesignData,
   remapTemplateFileIds,
 } from "../server/lib/design-template-data.js";
+import { trackDesign } from "../server/lib/design-tracking.js";
 import { isOverviewScreenFile } from "../shared/design-files.js";
 import { countLockedLayersAcrossFiles } from "../shared/locked-layers.js";
 
@@ -41,7 +41,10 @@ export default defineAction({
   run: async ({ designId, title, description, category }, ctx) => {
     const access = await resolveAccess("design", designId);
     if (!access || !["owner", "admin", "editor"].includes(access.role)) {
-      throw new Error("Design not found or not editable");
+      fail("Design not found or not editable", {
+        errorCode: "not_found",
+        statusCode: 404,
+      });
     }
 
     const source = access.resource;
@@ -128,11 +131,9 @@ export default defineAction({
       );
     });
 
-    track(
+    trackDesign(
       "template_saved",
       {
-        app_name: "design",
-        template_name: "design",
         output_id: templateId,
         output_type: "design_template",
         source_design_id: designId,

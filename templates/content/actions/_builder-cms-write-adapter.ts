@@ -36,6 +36,8 @@ export interface BuilderCmsExecutionPayload {
     sourceQualifiedId: string | null;
     documentId: string | null;
     databaseItemId: string | null;
+    /** The entry's lastUpdated when the change was reviewed; execute rejects a live value that differs. */
+    reviewedLastUpdated: string | null;
   };
   request: {
     method: "POST" | "PATCH";
@@ -220,10 +222,6 @@ function builderNativeFieldValue(args: {
     const labels = values.map((value) => {
       if (typeof value !== "string") return null;
       const trimmed = value.trim();
-      // Builder Tags/list fields can be free-form: unlike enums and optioned
-      // selects, their model metadata has no finite label inventory. Preserve
-      // strict mapping whenever choices exist, but pass non-empty labels
-      // through when Builder explicitly exposes no choices to map against.
       if (isList && choices.length === 0) return trimmed || null;
       return (
         choices.find(
@@ -308,7 +306,6 @@ function portableIntentHash(input: string) {
   return [0, 0x9e3779b9, 0x7f4a7c15].map(hashPart).join("");
 }
 
-/** A compact, non-secret marker for recovering an ambiguous safe-model POST. */
 export function builderCmsExecutionIntentMarker(idempotencyKey: string) {
   return `agent-native-execution:${portableIntentHash(idempotencyKey)}`;
 }
@@ -338,13 +335,6 @@ function normalizeSourceWriteMode(
     : null;
 }
 
-/**
- * Single source of truth for the push mode that gates an execution. Prepare and
- * execute MUST resolve this identically, or their idempotency keys diverge and
- * the gate lookup fails ("Prepare the Builder execution gate before executing
- * it"). The write tier wins when set, so a change-set's own `pushMode` (e.g. a
- * local create hardcoded to "autosave") cannot drift from the tier.
- */
 export function resolveBuilderCmsExecutionPushMode(args: {
   source: ContentDatabaseSource;
   changeSet: ContentDatabaseSourceChangeSet;
@@ -358,11 +348,6 @@ export function resolveBuilderCmsExecutionPushMode(args: {
   return args.changeSet.pushMode ?? args.source.metadata.pushMode ?? "autosave";
 }
 
-/**
- * Resolve the Builder entry this change-set targets. A synthetic-fixture row
- * (sourceRowId `builder-<documentId>`, never matched to a real entry) resolves
- * to a null entry id, which is what makes the effect a create.
- */
 export function resolveBuilderCmsWriteTarget(args: {
   source: ContentDatabaseSource;
   changeSet: ContentDatabaseSourceChangeSet;
@@ -385,12 +370,6 @@ export function resolveBuilderCmsWriteTarget(args: {
   return { targetRow, target, entryId, sourceQualifiedId };
 }
 
-/**
- * The resolved write effect (create_draft / update_in_place / autosave /
- * publish / unpublish) for a change-set. Unlike buildBuilderCmsExecutionPlan
- * this does not require the change-set to be approved, so it is safe to call
- * while building review payloads for plain-language labels.
- */
 export function resolveBuilderCmsWriteEffect(args: {
   source: ContentDatabaseSource;
   changeSet: ContentDatabaseSourceChangeSet;
@@ -644,9 +623,6 @@ function builderRequiredFieldBlockers(args: {
     return [];
   }
   const modelFields = args.source.metadata.builderModelFields;
-  // Legacy persisted execution gates predate model-schema snapshots. Preserve
-  // their exact behavior; newly prepared safe-model gates carry the schema and
-  // are validated below before they can become ready.
   if (!modelFields?.length) return [];
   const existingData = Object.fromEntries(
     Object.entries(args.targetRow?.sourceValues ?? {}).flatMap(([key, value]) =>
@@ -666,9 +642,6 @@ function builderRequiredFieldBlockers(args: {
       "string" &&
     args.targetRow.sourceValues[BUILDER_CMS_BODY_BLOCKS_HASH_KEY].trim()
   ) {
-    // Body blocks are intentionally stored outside sourceValues. A reconciled
-    // body hash proves that the hydrated Builder body exists without copying a
-    // large blocks payload into SQL merely to satisfy this gate.
     effectiveData.blocks = ["reconciled-builder-body"];
   }
   return modelFields.flatMap((field) => {
@@ -878,9 +851,6 @@ export function buildBuilderCmsExecutionPlan(args: {
     ),
     bodyDiffPatch.patch,
   );
-  // State-preserving effects must not include `published` in the body. Builder
-  // PATCH preserves omitted publication state, so only transition/create effects
-  // are allowed to set it.
   const request = builderRequestForEffect({
     effect,
     model: args.source.sourceTable,
@@ -904,6 +874,14 @@ export function buildBuilderCmsExecutionPlan(args: {
     targetRow,
     request,
   });
+  const reviewedLastUpdated = targetEntryId
+    ? (targetRow?.lastSourceUpdatedAt ?? null)
+    : null;
+  if (targetEntryId && !reviewedLastUpdated?.trim()) {
+    fieldBlockers.push(
+      "Refresh this Builder entry before writing so its last update time can be checked.",
+    );
+  }
   const safety = builderSafetyChecks({
     source: args.source,
     changeSet: args.changeSet,
@@ -929,10 +907,6 @@ export function buildBuilderCmsExecutionPlan(args: {
       : args.source.capabilities.liveWritesEnabled === true
         ? "ready"
         : "write_disabled";
-  // Key on the RAW resolved push mode (which may be "none" for a read-only
-  // tier), not the effective one. Collapsing "none" → "autosave" would let a
-  // read-only gate share a key with a stage-only gate for the same change-set,
-  // so enabling live writes could reuse a gate prepared under read-only.
   const idempotencyKey = builderCmsExecutionIdempotencyKey({
     sourceId: args.source.id,
     changeSetId: args.changeSet.id,
@@ -970,6 +944,7 @@ export function buildBuilderCmsExecutionPlan(args: {
         sourceQualifiedId: targetSourceQualifiedId,
         documentId: args.changeSet.documentId,
         databaseItemId: args.changeSet.databaseItemId,
+        reviewedLastUpdated,
       },
       pushMode: effectivePushMode,
       request,
@@ -1039,11 +1014,26 @@ export function validateBuilderCmsExecutionDryRun(args: {
       "Stored Builder effect no longer matches the approved write mode.",
     );
   }
-  if (
-    stableJson(storedComparable.target) !== stableJson(planComparable.target)
-  ) {
+  const { reviewedLastUpdated: storedReviewedLastUpdated, ...storedTarget } =
+    (storedComparable.target ?? {}) as Partial<
+      BuilderCmsExecutionPayload["target"]
+    >;
+  const { reviewedLastUpdated: planReviewedLastUpdated, ...planTarget } =
+    (planComparable.target ?? {}) as Partial<
+      BuilderCmsExecutionPayload["target"]
+    >;
+  if (stableJson(storedTarget) !== stableJson(planTarget)) {
     mismatches.push(
       "Stored Builder target no longer matches the current row identity.",
+    );
+  }
+  // A refresh that saw a newer Builder lastUpdated moves the row baseline, so
+  // the value recorded at review is the one the live check must compare.
+  if (
+    (storedReviewedLastUpdated ?? null) !== (planReviewedLastUpdated ?? null)
+  ) {
+    mismatches.push(
+      "Builder entry changed since this change was reviewed. Refresh and review it again.",
     );
   }
 

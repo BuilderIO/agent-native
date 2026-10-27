@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type {
   SqlPanel,
@@ -9,14 +9,69 @@ import {
   buildTableClipboardText,
   formatCell,
   formatSeriesLabelForPanel,
+  reorderColumnConfigs,
   sortTableRows,
 } from "./SqlChart";
 
 describe("SqlChart table helpers", () => {
+  it("reorders visible columns and leaves hidden entries in their slots", () => {
+    const configs: TableColumnConfig[] = [
+      { key: "a" },
+      { key: "secret", hidden: true },
+      { key: "b" },
+      { key: "c" },
+    ];
+
+    expect(
+      reorderColumnConfigs(configs, ["a", "b", "c"], "c", "a").map((c) => [
+        c.key,
+        c.hidden ?? false,
+      ]),
+    ).toEqual([
+      ["c", false],
+      ["secret", true],
+      ["a", false],
+      ["b", false],
+    ]);
+  });
+
+  it("returns the same list when the move is a no-op", () => {
+    const configs: TableColumnConfig[] = [{ key: "a" }, { key: "b" }];
+    expect(reorderColumnConfigs(configs, ["a", "b"], "a", "a")).toBe(configs);
+  });
+
   it("formats numeric strings from SQL providers like numeric values", () => {
     expect(formatCell("1234", "number")).toBe("1,234");
     expect(formatCell("0.125", "percent")).toBe("12.50%");
     expect(formatCell("-2.5", "delta")).toBe("-2.5%");
+  });
+
+  describe("in a time zone west of UTC", () => {
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it("shows a bare date on its own day", () => {
+      vi.stubEnv("TZ", "America/Los_Angeles");
+      expect(formatCell("2026-10-01", "date")).toBe("Oct 1, 2026");
+      expect(formatCell("2026-10-01T12:00:00.000Z", "date")).toBe(
+        "Oct 1, 2026",
+      );
+    });
+  });
+
+  it("puts the sign before the dollar sign for currency cells", () => {
+    expect(formatCell(-7505, "currency")).toBe("-$7,505");
+    expect(formatCell(111090, "currency")).toBe("$111,090");
+  });
+
+  it("sorts negative formatted currency strings numerically", () => {
+    const rows = [{ r: "$9" }, { r: "-$7,505" }, { r: "$1,000" }];
+    expect(sortTableRows(rows, [{ key: "r", direction: "asc" }])).toEqual([
+      { r: "-$7,505" },
+      { r: "$9" },
+      { r: "$1,000" },
+    ]);
   });
 
   it("sorts by multiple columns while treating numeric strings as numbers", () => {
@@ -81,9 +136,6 @@ describe("SqlChart table helpers", () => {
       { revenue: "" },
     ];
 
-    // Unparseable/empty values are a defined, documented position: always
-    // after every value that parsed as a number, independent of asc/desc —
-    // never coerced into the numeric ordering (e.g. as 0).
     expect(sortTableRows(rows, [{ key: "revenue", direction: "asc" }])).toEqual(
       [
         { revenue: "2" },
@@ -100,6 +152,76 @@ describe("SqlChart table helpers", () => {
       { revenue: "N/A" },
       { revenue: "" },
     ]);
+  });
+
+  it("shows duration cells as text and a dash when empty", () => {
+    expect(formatCell(960, "duration")).toBe("16 min");
+    expect(formatCell("26640", "duration")).toBe("7.4 hours");
+    expect(formatCell(null, "duration")).toBe("–");
+    expect(formatCell(undefined, "duration")).toBe("–");
+    expect(formatCell(null, "number")).toBe("");
+  });
+
+  it("shows blank and non-finite duration cells as a dash", () => {
+    for (const value of [
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      "",
+      " ",
+      "NaN",
+    ]) {
+      expect(formatCell(value, "duration"), String(value)).toBe("–");
+    }
+    expect(formatCell("n/a", "duration")).toBe("n/a");
+    expect(formatCell("", "number")).toBe("");
+  });
+
+  it("sorts blank and non-finite duration cells last both ways, like nulls", () => {
+    const rows = [
+      { check: "build", median: 960 },
+      { check: "lint", median: Number.NaN },
+      { check: "unit", median: 60 },
+      { check: "docs", median: "" },
+      { check: "types", median: "Infinity" },
+      { check: "e2e", median: null },
+      { check: "flaky", median: "n/a" },
+      { check: "deploy", median: 120 },
+    ];
+    const columns: TableColumnConfig[] = [
+      { key: "check" },
+      { key: "median", format: "duration" },
+    ];
+    const shown = (sorted: Record<string, unknown>[]) =>
+      sorted.map((row) => formatCell(row.median, "duration"));
+
+    expect(
+      shown(
+        sortTableRows(rows, [{ key: "median", direction: "asc" }], columns),
+      ),
+    ).toEqual(["1 min", "2 min", "16 min", "n/a", "–", "–", "–", "–"]);
+    expect(
+      shown(
+        sortTableRows(rows, [{ key: "median", direction: "desc" }], columns),
+      ),
+    ).toEqual(["16 min", "2 min", "1 min", "n/a", "–", "–", "–", "–"]);
+  });
+
+  it("sorts a duration column by its seconds with empty cells last both ways", () => {
+    const rows = [
+      { check: "build", median: 960 },
+      { check: "lint", median: null },
+      { check: "unit", median: 60 },
+      { check: "types", median: 120 },
+    ];
+    const shown = (sorted: Record<string, unknown>[]) =>
+      sorted.map((row) => formatCell(row.median, "duration"));
+
+    expect(
+      shown(sortTableRows(rows, [{ key: "median", direction: "asc" }])),
+    ).toEqual(["1 min", "2 min", "16 min", "–"]);
+    expect(
+      shown(sortTableRows(rows, [{ key: "median", direction: "desc" }])),
+    ).toEqual(["16 min", "2 min", "1 min", "–"]);
   });
 
   it("builds formatted tab-separated clipboard content", () => {

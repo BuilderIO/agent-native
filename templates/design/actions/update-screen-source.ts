@@ -4,6 +4,7 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { designChangeResource } from "../server/lib/design-change-resource.js";
 import {
   mutateDesignData,
   type DesignDataRecord,
@@ -13,11 +14,14 @@ import {
   fetchLocalhostSnapshot,
   resolveLocalhostConnectionScope,
 } from "../server/lib/localhost-connection.js";
+import { deleteVisualEditSnapshotBlobs } from "../server/lib/visual-edit-snapshot-blobs.js";
+import { retireVisualEditSnapshotInTransaction } from "../server/lib/visual-edit-snapshot-retirement.js";
 import {
   readLiveSourceFile,
   writeInlineSourceFile,
 } from "../server/source-workspace.js";
 import { sanitizeMarkup } from "../shared/capture-sanitize.js";
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import { isStandaloneHttpUrl } from "../shared/html-content.js";
 import { designConnectionIdFromData } from "../shared/source-mode.js";
 import { pathFromUrl, routeUrl } from "./add-localhost-screens.js";
@@ -393,6 +397,20 @@ export default defineAction({
           matches(current.localhostScreens[fileId])
         );
       },
+      mutateInTransaction: (tx, current, next) =>
+        sourceType === "static"
+          ? retireVisualEditSnapshotInTransaction({
+              tx,
+              designId,
+              fileId,
+              currentData: current,
+              nextData: next,
+            })
+          : Promise.resolve(null),
+      afterCommit: async (blobHandle) => {
+        await deleteVisualEditSnapshotBlobs([blobHandle]);
+      },
+      lockSourceMutation: true,
     });
 
     return {
@@ -406,7 +424,12 @@ export default defineAction({
       metadata: appliedMetadata,
       updatedAt: fileUpdatedAt ?? persisted.updatedAt,
       contentChanged: nextContent !== currentContent,
+      _receipt: designOutputWriteReceipt(
+        designId,
+        nextContent !== currentContent ? 1 : 0,
+      ),
       dataUpdatedAt: persisted.updatedAt,
     };
   },
+  changeResource: (p, result) => designChangeResource(p.designId, result),
 });

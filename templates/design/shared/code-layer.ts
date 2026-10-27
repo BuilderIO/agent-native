@@ -1,7 +1,13 @@
-import type { Declaration, Root } from "postcss";
+import type { Declaration, Root, Rule } from "postcss";
 import CssSyntaxError from "postcss/lib/css-syntax-error";
 import parseCss from "postcss/lib/parse";
 
+import {
+  BORDER_AREA_FALLBACK_PROPERTIES,
+  borderAreaFallback,
+  borderAreaLayerIndex,
+  borderAreaSupportedBranch,
+} from "./border-area-fallback.js";
 import {
   isSafeCssUrlReference,
   removeBreakpointMediaDeclaration,
@@ -17,11 +23,41 @@ import {
 } from "./component-model";
 import type { TailwindBreakpointPrefix } from "./design-state.js";
 import {
+  buildLinearGradientDef,
+  buildRadialGradientDef,
+  parseComputedLinearGradient,
+  parseComputedRadialGradient,
+  resolveRadialGradientGeometry,
+  type FigmaSvgColorStop,
+} from "./figma-svg-scene";
+import {
   ensureGroupRuntime,
   MEASURED_FLOW_GROUP_ATTR,
 } from "./group-runtime.js";
 import { isStandaloneHttpUrl } from "./html-content.js";
 import { resolveLayerNameAttribute } from "./layer-name.js";
+import {
+  joinFlowPatch,
+  readLayoutModel,
+  writeLayoutChange,
+  type LayoutBoxModel,
+  type LayoutNodeInput,
+  type LayoutRect,
+  type LayoutStylePatch,
+} from "./layout-model";
+import {
+  LINE_SEGMENT_PROPERTY,
+  lineSegmentPathData,
+  lineSegmentViewBox,
+  parseLineSegment,
+} from "./line-segment";
+import { pruneDeletedNativeEffects } from "./native-effect-pruning";
+import {
+  parsePenNodes,
+  serializePenNodes,
+  serializeRoundedPenPath,
+  withoutVertexRadii,
+} from "./pen-path";
 import {
   getPropertyClasses,
   migrateMaxWidthClassBounds,
@@ -33,7 +69,19 @@ import {
   removePropertyClass,
   utilityStem,
 } from "./responsive-classes.js";
+import { sourceEquivalentSelectorPath } from "./source-equivalent-selector";
 import type { DesignSourceType } from "./source-mode";
+import { commonPrefixLength, commonSuffixLength } from "./string-diff";
+import { parseSvgPathData } from "./svg-path-data";
+import {
+  bareClassToken,
+  EMPTY_STYLE_LENGTH,
+  INLINE_TEXT_TAGS,
+  padsBox,
+  paintsBox,
+  styleValueIsPresent,
+  TEXT_LAYER_TAGS,
+} from "./text-layer-rule";
 import {
   isVectorEndpointProperty,
   isVectorEndpointStyle,
@@ -44,11 +92,6 @@ import {
   VECTOR_START_ENDPOINT_PROPERTY,
 } from "./vector-endpoints.js";
 
-/**
- * Shown when a document transform is handed a URL-backed (localhost/fusion)
- * screen's stored content. Same wording from both producers so the message
- * doesn't depend on which gesture the user happened to use.
- */
 export const LINKED_COMPONENT_STRUCTURE_REFUSAL =
   "Changing linked component layer structure is not supported yet.";
 
@@ -143,6 +186,7 @@ export type VisualStyleProperty =
   | "font-weight"
   | "font-family"
   | "font-style"
+  | "object-fit"
   | "letter-spacing"
   | "word-spacing"
   | "line-height"
@@ -160,6 +204,7 @@ export type VisualStyleProperty =
   | "border-width"
   | "border-style"
   | "border-color"
+  | "--an-css-border-gradient"
   | "border-radius"
   | "border-top-left-radius"
   | "border-top-right-radius"
@@ -176,6 +221,7 @@ export type VisualStyleProperty =
   | "--an-vector-stroke-position"
   | "--an-vector-start-point"
   | "--an-vector-end-point"
+  | "--an-line-segment"
   | "outline"
   | "outline-width"
   | "outline-style"
@@ -215,6 +261,7 @@ export type VisualStyleProperty =
   | "order"
   | "align-self"
   | "align-items"
+  | "place-items"
   | "align-content"
   | "justify-content"
   | "justify-items"
@@ -233,31 +280,11 @@ export type VisualStyleProperty =
 
 export interface StyleToken {
   property: VisualStyleProperty;
-  /**
-   * The resolved value at the *base* breakpoint (unprefixed), or the inline
-   * style value.  For class-sourced tokens this is the utility string of the
-   * base class (e.g. `"text-sm"`).  Use `breakpointValues` to inspect how the
-   * value differs across responsive prefixes.
-   */
   value: string;
   token: string;
   source: "inline-style" | "class";
   confidence: number;
-  /**
-   * For class-sourced tokens only: the resolved utility string per responsive
-   * prefix.  Only prefixes that have an explicit class token are included.
-   *
-   * @example
-   * // className="text-sm md:text-base lg:text-lg"
-   * // styleToken for "color" property would have:
-   * // breakpointValues = { base: "text-sm", md: "text-base", lg: "text-lg" }
-   */
   breakpointValues?: Partial<Record<TailwindBreakpointPrefix, string>>;
-  /**
-   * For class-sourced tokens only: the prefixes (other than `"base"`) at which
-   * this property has a responsive override in the class list.  Populated when
-   * `breakpointValues` has keys other than `"base"`.
-   */
   overriddenAtPrefixes?: TailwindBreakpointPrefix[];
 }
 
@@ -296,37 +323,15 @@ export type EditCapability =
       reason?: string;
     }
   | {
-      /**
-       * Responsive-class editing — adds, replaces, or removes a Tailwind
-       * utility at a specific breakpoint prefix without touching other
-       * breakpoints.  Uses the helpers in `responsive-classes.ts`
-       * (setPropertyClass / removePropertyClass) and the same deterministic
-       * HTML-patch path as `class` edits.
-       *
-       * The `prefix` field indicates the active breakpoint scope for which
-       * this capability was computed (derived from the canvas frame width via
-       * `widthToPrefix`).  Callers may target any prefix — `prefix` is
-       * informational, not a constraint.
-       */
       kind: "responsive-class";
-      /** Active breakpoint scope (informational). */
       prefix: TailwindBreakpointPrefix;
       operations: Array<"add" | "remove" | "replace">;
-      /** Properties that currently have per-breakpoint overrides (non-empty means overrides exist). */
       overriddenProperties: string[];
       confidence: number;
       reason?: string;
     }
   | {
-      /**
-       * Breakpoint-scoped raw style editing (§6.4) — the `@media` fallback
-       * for values responsive class prefixes can't express. Writes into the
-       * managed `<style data-agent-native-breakpoints>` block via
-       * `breakpoint-media.ts`, targeting the node's stable
-       * `data-agent-native-node-id`.
-       */
       kind: "breakpoint-style";
-      /** Inclusive upper viewport bound (px) the edit was applied below. */
       maxWidthPx: number;
       operations: Array<"set" | "remove">;
       properties: string[];
@@ -346,7 +351,6 @@ export type EditCapability =
       reason?: string;
     }
   | {
-      /** Single plain-attribute writes (see AttributeEditIntent). */
       kind: "attribute";
       operations: Array<"set">;
       confidence: number;
@@ -366,11 +370,8 @@ export interface CodeLayerNode {
   dataAttributes: Record<string, string>;
   classes: string[];
   textSnippet: string | null;
-  /** Text this element holds directly, not text a child holds. */
   paintsOwnText: boolean;
-  /** The entire element is an inline text-edit/style root. */
   wholeTextStyleRoot?: boolean;
-  /** The `x-for` this node is rendered by, when it sits inside a repeat. */
   repeatXFor: string | null;
   style: Partial<Record<VisualStyleProperty | (string & {}), string>>;
   styleTokens: StyleToken[];
@@ -380,14 +381,6 @@ export interface CodeLayerNode {
   capabilities: EditCapability[];
   confidence: number;
   source: CodeLayerSourceSpan | null;
-  /**
-   * Present when the node is the root of a component instance — i.e. it
-   * carries a `data-agent-native-component` attribute (Alpine-annotated or
-   * build-time-instrumented).  The canvas uses this to draw the component
-   * outline and the inspector uses it to surface component-level controls.
-   *
-   * `undefined` when the node is not a component root.
-   */
   componentInstance?: ComponentInstance;
 }
 
@@ -427,7 +420,6 @@ export interface CodeLayerTreeNode {
   name: string;
   type: CodeLayerTreeNodeType;
   isNativeTextPrimitive?: boolean;
-  /** Identity, not shape: a button is a frame that is *also* a component. */
   isComponent?: boolean;
   tag: string;
   selector: string;
@@ -440,6 +432,7 @@ export interface CodeLayerTreeNode {
     | "justifyContent"
     | "isFlexContainer"
     | "isGridContainer"
+    | "parentDisplay"
   >;
   badge?: string;
   renamable: boolean;
@@ -524,17 +517,6 @@ export interface TextEditIntent {
   html?: string;
 }
 
-/**
- * Node-id integrity (id-on-demand): sets or replaces a single plain HTML
- * attribute on the target element. Introduced so the host can persist the
- * bridge's minted `pendingNodeId` (see ElementInfo.pendingNodeId) as the
- * element's real `data-agent-native-node-id` the moment an id-less node is
- * selected — every subsequent id-keyed operation (move/reorder, style
- * commits, motion tracks, scrub) then resolves normally. Not limited to that
- * attribute name; kept general so other single-attribute host writes can
- * reuse the same deterministic path instead of a full-document
- * find/replace-and-resave.
- */
 export interface AttributeEditIntent {
   kind: "attribute";
   target: EditIntentTarget;
@@ -554,27 +536,11 @@ export interface MoveNodeEditIntent {
   placement: "before" | "after" | "inside";
 }
 
-/**
- * GROUP: wrap sibling nodes sharing a parent inside a new <div> wrapper.
- * Targets are reparented in source order, and the wrapper takes the stacking
- * position of the topmost selected target. The new wrapper gets a fresh
- * data-agent-native-node-id, a sequential layer name, and the
- * `data-agent-native-group-wrapper="true"` marker. Group wrappers also carry
- * the group marker unless the caller requests a frame wrapper or auto-layout.
- *
- * When autoLayout is true the wrapper also receives
- * `display:flex; flex-direction:column; gap:8px` and
- * position/left/top/right/bottom are stripped from each wrapped child.
- *
- * Returns "unsupported" if the targets don't share a common parent.
- */
 export interface WrapNodeSizeHint {
   width: number;
   height: number;
-  /** Parent-content-relative border-box position for an in-flow target. */
   left?: number;
   top?: number;
-  /** Live layout found authored CSS that removes this target from flow. */
   outOfFlow?: true;
 }
 
@@ -582,142 +548,56 @@ export interface WrapNodesEditIntent {
   kind: "wrapNodes";
   targetIds: string[];
   autoLayout?: boolean;
-  /** Defaults to a Group; auto-layout always creates a Frame. */
   wrapperKind?: "group" | "frame";
-  /**
-   * Live-rendered dimensions per projected target node id. Width/height are
-   * used as a fallback when an absolutely positioned target omits its own
-   * dimensions. left/top are parent-content-relative positions used to keep
-   * an in-flow group at its measured size while rebasing its direct children.
-   * Callers without live DOM measurements simply omit the hint and retain the
-   * source-only behavior. A unique authored node id is also accepted for
-   * direct API callers; ambiguous authored ids are never hint aliases.
-   */
   sizeHints?: Record<string, WrapNodeSizeHint>;
 }
 
-/** Create an editable SVG-backed Boolean Subtract from supported shape siblings. */
 export interface BooleanSubtractEditIntent {
   kind: "booleanSubtract";
   targetIds: string[];
 }
 
-/**
- * UNGROUP: replace the wrapper node with its children, spliced into the
- * wrapper's parent at the wrapper's position, then remove the wrapper.
- */
 export interface UnwrapEditIntent {
   kind: "unwrap";
   targetId: string;
 }
 
-/**
- * CONVERT an existing container to/from auto-layout.
- * When enabled, sets display:flex (+ flex-direction, gap) on the target and
- * strips position:absolute/left/top/right/bottom from its DIRECT children.
- * When !enabled, sets display:block (turns auto-layout off).
- */
 export interface AutoLayoutEditIntent {
   kind: "autoLayout";
   targetId: string;
   enabled: boolean;
-  /**
-   * Container declarations to write instead of the flex trio, so a grid flow
-   * also reaches the child reflow below — without it the children stay
-   * pinned where they were drawn and the new layout renders as a no-op.
-   */
   containerStyles?: Record<string, string>;
   direction?: "row" | "column";
   gap?: string;
-  /**
-   * Measured child geometry, container-relative, keyed by stable node id.
-   * Supplied when disabling so children keep their rendered positions and
-   * become freely draggable; without it they re-stack in block flow.
-   */
   childRects?: Record<
     string,
-    { x: number; y: number; width: number; height: number }
+    {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      box?: LayoutBoxModel;
+    }
   >;
-  /** Rendered size of the container, so it cannot collapse once flow empties. */
   containerRect?: { width: number; height: number };
 }
 
-/**
- * Responsive-class edit intent — adds, replaces, or removes a single Tailwind
- * utility at the given `prefix` (breakpoint scope) without touching classes at
- * other breakpoints.
- *
- * Examples:
- * - Add `text-base` at `md:` on a node that already has `text-sm` base:
- *   `{ kind: "responsive-class", target, prefix: "md", operation: "add", utility: "text-base" }`
- *
- * - Replace whatever `text-*` class currently lives at `lg:` with `text-xl`:
- *   `{ kind: "responsive-class", target, prefix: "lg", operation: "replace", utility: "text-xl" }`
- *
- * - Remove the `md:` override for the `text` stem, falling back to the base:
- *   `{ kind: "responsive-class", target, prefix: "md", operation: "remove", stem: "text" }`
- *
- * `utility` should be the bare utility without its prefix (e.g. `"text-lg"`,
- * not `"md:text-lg"`).  The prefix is applied automatically.
- * `stem` is required only for `"remove"` operations.
- * `from` is an optional guard for `"replace"`: when present, the replace only
- * applies if the utility EFFECTIVE at `prefix` equals `from` (bare, without
- * prefix). "Effective" follows the Tailwind mobile-first cascade — an explicit
- * override at `prefix` wins, otherwise the nearest smaller breakpoint's
- * utility (down to base) is what renders there. If the guard fails (a stale
- * selection targeting a different element/state than the caller expected) the
- * edit reports `"conflict"` instead of silently overwriting whatever is there.
- */
 export interface ResponsiveClassEditIntent {
   kind: "responsive-class";
   target: EditIntentTarget;
-  /** Target breakpoint prefix.  Use `"base"` to edit the unprefixed class. */
   prefix: TailwindBreakpointPrefix;
   operation: "add" | "remove" | "replace";
-  /** The bare utility to add or replace (without prefix).  Required for add/replace. */
   utility?: string;
-  /**
-   * The CSS-property stem to remove (e.g. `"text"`, `"bg"`, `"p"`).
-   * Required for `"remove"` operations; ignored for add/replace (the stem is
-   * derived from `utility` instead).
-   */
   stem?: string;
-  /**
-   * Guard for `"replace"` (honoured for `"add"` too when provided): the bare
-   * utility (without prefix) the caller expects to be EFFECTIVE at `prefix`,
-   * following the Tailwind mobile-first cascade. On mismatch the edit is
-   * rejected as `"conflict"` rather than applied. Ignored for `"remove"`.
-   */
   from?: string;
-  /**
-   * Framer-style desktop-down scope (§6.4 breakpoint bar). When set, the
-   * edit writes a `max-[<maxWidthPx>px]:` scoped token instead of a
-   * min-width `prefix` token, and `prefix` is ignored. The bound comes from
-   * `breakpointUpperBoundPx` (just below the next-wider frame). `from`
-   * guards are not applied to max-width scopes.
-   */
   maxWidthPx?: number;
 }
 
-/**
- * Breakpoint-scoped raw style edit — the `@media` fallback for values that
- * responsive class prefixes can't express (exact px positions from canvas
- * drags, rgb()/calc() values, …). Persists into the managed
- * `<style data-agent-native-breakpoints>` block as a
- * `@media (max-width: <maxWidthPx>px)` rule targeting the element's
- * `data-agent-native-node-id` (stamped automatically when missing).
- *
- * - `operation: "set"` (default) writes/overwrites the declaration.
- * - `operation: "remove"` deletes it, falling back to the base value.
- */
 export interface BreakpointStyleEditIntent {
   kind: "breakpoint-style";
   target: EditIntentTarget;
-  /** Inclusive upper viewport bound (px) the override applies below. */
   maxWidthPx: number;
-  /** CSS property (camelCase or kebab-case). */
   property: string;
-  /** CSS value. Required for `"set"`; ignored for `"remove"`. */
   value?: string;
   operation?: "set" | "remove";
 }
@@ -763,9 +643,7 @@ export interface PatchNodeSummary {
   classes: string[];
   style: Partial<Record<VisualStyleProperty | (string & {}), string>>;
   textSnippet: string | null;
-  /** Text this element holds directly, not text a child holds. */
   paintsOwnText: boolean;
-  /** The `x-for` this node is rendered by, when it sits inside a repeat. */
   repeatXFor: string | null;
 }
 
@@ -783,7 +661,6 @@ export interface PatchResult {
   after?: PatchNodeSummary;
   changed: boolean;
   message?: string;
-  /** The data-agent-native-node-id of a newly created structural wrapper. */
   wrapperNodeId?: string;
 }
 
@@ -823,6 +700,7 @@ interface ProjectionBuild {
   projection: CodeLayerProjection;
   elementByNodeId: Map<string, ParsedElement>;
   elements: ParsedElement[];
+  html: string;
 }
 
 const STYLE_PROPERTIES = [
@@ -877,6 +755,7 @@ const STYLE_PROPERTIES = [
   "border-width",
   "border-style",
   "border-color",
+  "--an-css-border-gradient",
   "border-radius",
   "border-top-left-radius",
   "border-top-right-radius",
@@ -893,6 +772,7 @@ const STYLE_PROPERTIES = [
   "--an-vector-stroke-position",
   "--an-vector-start-point",
   "--an-vector-end-point",
+  "--an-line-segment",
   "outline",
   "outline-width",
   "outline-style",
@@ -933,6 +813,7 @@ const STYLE_PROPERTIES = [
   "order",
   "align-self",
   "align-items",
+  "place-items",
   "align-content",
   "justify-content",
   "justify-items",
@@ -946,6 +827,7 @@ const STYLE_PROPERTIES = [
   "grid-auto-rows",
   "box-sizing",
   "aspect-ratio",
+  "object-fit",
   "isolation",
   "z-index",
 ] as const satisfies readonly VisualStyleProperty[];
@@ -960,18 +842,12 @@ const STYLE_PROPERTY_ALIASES: Record<string, VisualStyleProperty> = {
   radius: "border-radius",
   rotation: "rotate",
   shadow: "box-shadow",
-  // Vendor-prefixed longhands need explicit aliases: the generic camel→kebab
-  // pass in normalizeStyleProperty yields "webkit-text-stroke-*" WITHOUT the
-  // required leading dash, which would miss the allow-list entirely.
   webkitTextStrokeColor: "-webkit-text-stroke-color",
   webkitTextStrokeWidth: "-webkit-text-stroke-width",
   webkitBoxOrient: "-webkit-box-orient",
   webkitLineClamp: "-webkit-line-clamp",
 };
 
-// Matches url(...) in double-quoted, single-quoted, or unquoted form so each
-// reference inside a (possibly multi-layer) background-image value can be
-// checked individually against isSafeCssUrlReference.
 const URL_IN_VALUE_RE =
   /\burl\s*\(\s*(?:"([^"]*)"|'([^']*)'|([^)'"]*?))\s*\)/gi;
 
@@ -992,9 +868,6 @@ const VOID_TAGS = new Set([
   "wbr",
 ]);
 
-// Interiors that are not markup at all, plus boxless void metadata both
-// bridges already strip from the runtime snapshot. Descendants are never
-// parsed, so nothing here can ever be addressed.
 const NON_VISUAL_TAGS = new Set([
   "head",
   "script",
@@ -1007,15 +880,24 @@ const NON_VISUAL_TAGS = new Set([
   "noscript",
 ]);
 
-// Parsed and descended into, but not a layer of its own: a `<template>`
-// measures 0x0 and both bridges refuse to select it, so a row for one is a
-// layer the canvas can never show. Its children re-parent to its own parent.
+const UNPAINTED_SOURCE_RE =
+  /<!--[\s\S]*?-->|<(script|style|noscript|title)\b[^>]*>[\s\S]*?<\/\1\s*>/gi;
+
+const SVG_RESOURCE_TAGS = new Set([
+  "clippath",
+  "defs",
+  "filter",
+  "lineargradient",
+  "mask",
+  "pattern",
+  "radialgradient",
+  "stop",
+]);
+
 const TRANSPARENT_TAGS = new Set(["template"]);
 
 const RAW_TEXT_VISUAL_TAGS = new Set(["textarea"]);
 
-// HTML5 elements that are implicitly closed when a sibling of the same (or
-// related) type opens, because their closing tags are optional per the spec.
 const IMPLICIT_CLOSE_TAGS: Map<string, Set<string>> = new Map([
   ["li", new Set(["li"])],
   ["p", new Set(["p"])],
@@ -1061,23 +943,6 @@ const SEMANTIC_LABEL_ATTRIBUTE_PRIORITY = [
   "data-test-id",
 ] as const;
 
-const TEXT_LAYER_TAGS = new Set([
-  "a",
-  "button",
-  "em",
-  "h1",
-  "h2",
-  "h3",
-  "h4",
-  "h5",
-  "h6",
-  "label",
-  "li",
-  "p",
-  "span",
-  "strong",
-]);
-
 const IMAGE_LAYER_TAGS = new Set(["canvas", "figure", "img", "picture"]);
 const SHAPE_LAYER_TAGS = new Set([
   "circle",
@@ -1089,43 +954,6 @@ const SHAPE_LAYER_TAGS = new Set([
 ]);
 const COMPONENT_LAYER_TAGS = new Set(["button", "input", "select", "textarea"]);
 
-/**
- * Tags that format text *inside* a text layer instead of becoming their own
- * layer. A heading with one coloured `<span>` is a single Text layer with
- * runs; splitting it into three is what makes an imported page unreadable.
- */
-const INLINE_TEXT_TAGS = new Set([
-  "a",
-  "abbr",
-  "b",
-  "bdi",
-  "bdo",
-  "br",
-  "cite",
-  "code",
-  "data",
-  "dfn",
-  "em",
-  "i",
-  "kbd",
-  "mark",
-  "q",
-  "s",
-  "samp",
-  "small",
-  "span",
-  "strong",
-  "sub",
-  "sup",
-  "time",
-  "u",
-  "var",
-  "wbr",
-]);
-
-// Keep this source-projection allowlist aligned with the bridge's
-// isInlineEditableDescendant; a single checkbox or layout child makes its
-// parent a container instead of one whole text style root.
 const INLINE_TEXT_STYLE_ROOT_TAGS = new Set([
   "a",
   "abbr",
@@ -1163,11 +991,6 @@ const INLINE_TEXT_STYLE_ROOT_TAGS = new Set([
   "th",
 ]);
 
-/**
- * First segments of Tailwind utilities. Tailwind's stem vocabulary is closed,
- * so this is a table; the deny-list it replaces was a guess and lost — it let
- * `flex-col`, `opacity-90`, and `top-0` become layer names.
- */
 const UTILITY_CLASS_STEMS = new Set([
   "absolute",
   "accent",
@@ -1353,10 +1176,6 @@ const UTILITY_CLASS_STEMS = new Set([
   "z",
 ]);
 
-function bareClassToken(token: string): string {
-  return token.slice(token.lastIndexOf(":") + 1).replace(/^-/, "");
-}
-
 function looksLikeUtilityClass(token: string): boolean {
   const bare = bareClassToken(token);
   if (!bare) return true;
@@ -1364,11 +1183,6 @@ function looksLikeUtilityClass(token: string): boolean {
   return UTILITY_CLASS_STEMS.has(bare.split("-")[0] ?? "");
 }
 
-/**
- * The four facts that decide a design node's type. Read from the class list
- * and inline style because a source projection has no layout engine — a live
- * screen can upgrade these through the bridge's computed style.
- */
 interface NodeVisualFacts {
   painted: boolean;
   padded: boolean;
@@ -1387,10 +1201,6 @@ function classDimension(
   return null;
 }
 
-/**
- * `rounded-full` alone does not mean a circle — on a wide box it is a pill,
- * which is a rounded rectangle. Equal extents are what separate the two.
- */
 function isSquare(
   classes: readonly string[],
   style: Record<string, string | undefined>,
@@ -1408,43 +1218,12 @@ function isSquare(
   return Boolean(width && height && width === height);
 }
 
-function classPaints(token: string): boolean {
-  const bare = bareClassToken(token);
-  if (/^bg-/.test(bare)) {
-    return !/^bg-(transparent|none|inherit|current|clip-|origin-|fixed|local|scroll|bottom|center|left|right|top|repeat|no-repeat|auto|cover|contain|blend-)/.test(
-      bare,
-    );
-  }
-  if (/^border(-[xytrbles])?(-\d+)?$/.test(bare)) return !/-0$/.test(bare);
-  if (/^ring(-\d+)?$/.test(bare)) return bare !== "ring-0";
-  if (/^outline(-\d+)?$/.test(bare)) return bare !== "outline-0";
-  if (/^shadow(-(sm|md|lg|xl|2xl|inner))?$/.test(bare)) return true;
-  return false;
-}
-
-function classPads(token: string): boolean {
-  const match = /^(p|px|py|pt|pr|pb|pl|ps|pe)-(.+)$/.exec(
-    bareClassToken(token),
-  );
-  return Boolean(match) && match![2] !== "0";
-}
-
 function classSizes(token: string): boolean {
   const bare = bareClassToken(token);
-  // `inset-0` on an absolute overlay is a size even though it names no axis.
   if (/^inset(-[xy])?-/.test(bare)) return !bare.endsWith("-auto");
   const match = /^(w|h|size|min-w|min-h)-(.+)$/.exec(bare);
   if (!match) return false;
   return !["auto", "fit", "min", "max"].includes(match[2]!);
-}
-
-function styleValueIsPresent(
-  value: string | undefined,
-  empties: RegExp,
-): boolean {
-  if (typeof value !== "string") return false;
-  const trimmed = value.trim();
-  return trimmed.length > 0 && !empties.test(trimmed);
 }
 
 function visualFactsFor(node: CodeLayerNode): NodeVisualFacts {
@@ -1463,31 +1242,13 @@ function visualFactsOf(
   rawStyle: Record<string, string | undefined> | object,
 ): NodeVisualFacts {
   const style = rawStyle as Record<string, string | undefined>;
-  const emptyPaint = /^(none|transparent|initial|inherit|unset|0|0px)$/i;
-  const emptyLength = /^(0|0px|0rem|auto|initial|inherit|unset)$/i;
-
-  const painted =
-    classes.some(classPaints) ||
-    styleValueIsPresent(style["background"], emptyPaint) ||
-    styleValueIsPresent(style["background-color"], emptyPaint) ||
-    styleValueIsPresent(style["background-image"], emptyPaint) ||
-    styleValueIsPresent(style["border"], emptyPaint) ||
-    styleValueIsPresent(style["border-width"], emptyPaint) ||
-    styleValueIsPresent(style["box-shadow"], emptyPaint) ||
-    styleValueIsPresent(style["outline"], emptyPaint);
-
-  const padded =
-    classes.some(classPads) ||
-    styleValueIsPresent(style["padding"], emptyLength) ||
-    styleValueIsPresent(style["padding-top"], emptyLength) ||
-    styleValueIsPresent(style["padding-right"], emptyLength) ||
-    styleValueIsPresent(style["padding-bottom"], emptyLength) ||
-    styleValueIsPresent(style["padding-left"], emptyLength);
-
+  const styleValue = (property: string) => style[property];
+  const painted = paintsBox(classes, styleValue);
+  const padded = padsBox(classes, styleValue);
   const sized =
     classes.some(classSizes) ||
-    styleValueIsPresent(style["width"], emptyLength) ||
-    styleValueIsPresent(style["height"], emptyLength);
+    styleValueIsPresent(style["width"], EMPTY_STYLE_LENGTH) ||
+    styleValueIsPresent(style["height"], EMPTY_STYLE_LENGTH);
 
   const roundedFull =
     classes.some((token) => bareClassToken(token) === "rounded-full") ||
@@ -1501,12 +1262,6 @@ function visualFactsOf(
   };
 }
 
-/**
- * Identity, orthogonal to shape: a form control is a Frame that is also a
- * component. Class and layer-name guessing is deliberately NOT here — it
- * painted `product-card-wrapper` violet, and the canvas copy carried no
- * utility-class guard, so one element got two colours in two panels.
- */
 function treeNodeIsComponent(node: CodeLayerNode): boolean {
   return Boolean(node.componentInstance) || COMPONENT_LAYER_TAGS.has(node.tag);
 }
@@ -1560,6 +1315,7 @@ function escapeHtmlText(value: string): string {
 }
 
 function decodeBasicHtmlEntities(value: string): string {
+  if (!value.includes("&")) return value;
   return value
     .replace(/&#x([0-9a-f]+);?/gi, (_, hex: string) => {
       const codePoint = Number.parseInt(hex, 16);
@@ -1597,25 +1353,6 @@ function prettifyIdentifier(value: string): string {
   );
 }
 
-// A `>` inside a quoted attribute (`filter(a => b)`, `x-show="n > 0"`) is not
-// the end of the tag. Ending there spills the attribute into visible text,
-// which then becomes a layer name.
-function stripTags(value: string): string {
-  let out = "";
-  let index = 0;
-  while (index < value.length) {
-    const open = value.indexOf("<", index);
-    if (open === -1) {
-      out += value.slice(index);
-      break;
-    }
-    out += value.slice(index, open);
-    out += " ";
-    index = findHtmlTagEnd(value, open);
-  }
-  return out;
-}
-
 function getAttribute(
   element: ParsedElement,
   name: string,
@@ -1626,10 +1363,6 @@ function getAttribute(
 
 function attributeValue(element: ParsedElement, name: string): string | null {
   const value = getAttribute(element, name)?.value;
-  // Parsed attributes contain source text, so quoted values may still carry
-  // entities emitted by an earlier deterministic patch. Decode before using
-  // them semantically or reserializing; otherwise sequential style edits turn
-  // `&quot;` into `&amp;quot;` on every pass and corrupt quoted CSS url() values.
   if (typeof value === "string") return decodeBasicHtmlEntities(value);
   if (value === true) return "";
   return null;
@@ -1750,7 +1483,10 @@ function attributeRecord(
 ): Record<string, string | true> {
   const record: Record<string, string | true> = {};
   for (const attr of element.attributes) {
-    record[attr.lowerName] = attr.value;
+    record[attr.lowerName] =
+      typeof attr.value === "string"
+        ? decodeBasicHtmlEntities(attr.value)
+        : attr.value;
   }
   return record;
 }
@@ -1759,7 +1495,7 @@ function dataAttributeRecord(element: ParsedElement): Record<string, string> {
   const record: Record<string, string> = {};
   for (const attr of element.attributes) {
     if (attr.lowerName.startsWith("data-") && typeof attr.value === "string") {
-      record[attr.lowerName] = attr.value;
+      record[attr.lowerName] = decodeBasicHtmlEntities(attr.value);
     }
   }
   return record;
@@ -1774,8 +1510,8 @@ function classList(element: ParsedElement): string[] {
 function parseStyle(value: string | null): Record<string, string> {
   const style: Record<string, string> = {};
   if (!value) return style;
-  const parsed = tryParseStyleDeclarations(value);
-  if (!parsed) return style;
+  const parsed = readStyleDeclarations(value);
+  if ("invalid" in parsed) return style;
   const importantByProperty = new Map<string, boolean>();
   for (const declaration of parsed.declarations) {
     const property = cssPropertyKey(declaration.prop);
@@ -1829,31 +1565,58 @@ function parseStyleDeclarations(value: string | null): ParsedStyleDeclarations {
   }
 }
 
-function tryParseStyleDeclarations(
-  value: string | null,
-): ParsedStyleDeclarations | null {
+type StyleDeclarationRead = Pick<Declaration, "prop" | "value" | "important">;
+
+type StyleDeclarationsRead =
+  | { declarations: readonly StyleDeclarationRead[] }
+  | { invalid: string };
+
+const STYLE_READ_CACHE_MAX_CHARS = 4_000_000;
+const styleReadCache = new Map<string, StyleDeclarationsRead>();
+let styleReadCacheChars = 0;
+
+function readStyleDeclarations(value: string): StyleDeclarationsRead {
+  const cached = styleReadCache.get(value);
+  if (cached) return cached;
+  value = (" " + value).slice(1);
+  let parsed: StyleDeclarationsRead;
   try {
-    return parseStyleDeclarations(value);
+    parsed = {
+      declarations: parseStyleDeclarations(value).declarations.map(
+        (declaration) => ({
+          prop: declaration.prop,
+          value: declaration.value,
+          important: declaration.important,
+        }),
+      ),
+    };
   } catch (error) {
-    if (error instanceof InvalidInlineStyleError) return null;
-    throw error;
+    if (!(error instanceof InvalidInlineStyleError)) throw error;
+    parsed = { invalid: error.message };
   }
+  if (styleReadCacheChars + value.length > STYLE_READ_CACHE_MAX_CHARS) {
+    styleReadCache.clear();
+    styleReadCacheChars = 0;
+  }
+  styleReadCache.set(value, parsed);
+  styleReadCacheChars += value.length;
+  return parsed;
 }
 
 function cssPropertyKey(property: string): string {
   return property.startsWith("--") ? property : property.toLowerCase();
 }
 
-function styleDeclarationValue(declaration: Declaration): string {
+function styleDeclarationValue(declaration: StyleDeclarationRead): string {
   return declaration.important
     ? `${declaration.value} !important`
     : declaration.value;
 }
 
-function effectiveStyleDeclarations(
-  parsed: ParsedStyleDeclarations,
-): Declaration[] {
-  const winners = new Map<string, Declaration>();
+function effectiveStyleDeclarations<T extends StyleDeclarationRead>(parsed: {
+  declarations: readonly T[];
+}): T[] {
+  const winners = new Map<string, T>();
   for (const declaration of parsed.declarations) {
     const key = cssPropertyKey(declaration.prop);
     const current = winners.get(key);
@@ -1974,21 +1737,6 @@ function normalizeStyleProperty(property: string): VisualStyleProperty | null {
   return normalized as VisualStyleProperty;
 }
 
-/**
- * `background-image` is the one property where `url(...)` is a legitimate,
- * expected value (image fills — see `ImageFillControls`/
- * `imageFillToBackgroundStyles`). Every `url(...)` reference in the value is
- * checked with the same scheme allowlist the breakpoint-scoped media-block
- * path uses (`isSafeCssUrlReference`, which itself rejects control
- * characters and `<>"'`): http(s), protocol-relative, relative/root paths,
- * and `data:image/...` are allowed; `javascript:` and other non-image
- * schemes are not. The `background` shorthand is deliberately NOT included
- * here — keep it on the strict no-url path below.
- *
- * A `data:image/...` URI legitimately contains a `;` before `base64,`, so a
- * validated `url(...)` is excised before the generic `<>{};` breakout check
- * below runs — that check only ever sees the CSS around the reference.
- */
 function isSafeBackgroundImageValue(value: string): string | false {
   URL_IN_VALUE_RE.lastIndex = 0;
   let match: RegExpExecArray | null;
@@ -2001,8 +1749,6 @@ function isSafeBackgroundImageValue(value: string): string | false {
     lastIndex = URL_IN_VALUE_RE.lastIndex;
   }
   withoutValidatedParts += value.slice(lastIndex);
-  // Anything left that still looks like "url(" wasn't matched by the
-  // well-formed pattern above (malformed/unterminated) — reject.
   if (/url\s*\(/i.test(withoutValidatedParts)) return false;
   return withoutValidatedParts;
 }
@@ -2018,6 +1764,9 @@ function isSafeStyleValue(
   }
   if (isVectorEndpointProperty(property)) {
     return isVectorEndpointStyle(trimmed);
+  }
+  if (property === LINE_SEGMENT_PROPERTY) {
+    return parseLineSegment(trimmed) !== null;
   }
   if (/expression\s*\(/i.test(trimmed)) return false;
   if (/javascript\s*:/i.test(trimmed)) return false;
@@ -2088,37 +1837,27 @@ function parseAttributes(rawTag: string, tagStart: number): ParsedAttribute[] {
   return attrs;
 }
 
-function findHtmlTagEnd(html: string, start: number): number {
-  let quote: '"' | "'" | null = null;
-  for (let index = start; index < html.length; index += 1) {
-    const char = html[index];
+function findHtmlTagEnd(
+  html: string,
+  start: number,
+  end = html.length,
+): number {
+  let quote = 0;
+  for (let index = start; index < end; index += 1) {
+    const code = html.charCodeAt(index);
     if (quote) {
-      if (char === quote) quote = null;
+      if (code === quote) quote = 0;
       continue;
     }
-    if (char === '"' || char === "'") {
-      quote = char;
+    if (code === 34 || code === 39) {
+      quote = code;
       continue;
     }
-    if (char === ">") return index + 1;
+    if (code === 62) return index + 1;
   }
-  return html.length;
+  return -1;
 }
 
-// Depth-aware closing-tag scan: used for NON_VISUAL_TAGS (script/style/
-// template/etc) whose interiors are skipped wholesale rather than descended
-// into by the main parser loop. A naive "first </tag> after `from`" search
-// (the previous implementation) breaks the moment the same tag nests inside
-// itself — e.g. `<template x-if><ul><template x-for>…</template></ul>
-// </template>` (a completely ordinary Alpine x-if-wrapping-x-for pattern) —
-// because it matches the INNER `</template>` and resumes the main loop right
-// after it, leaving the outer element's true `</ul></template>` closes to be
-// mis-parsed as stray/unmatched tags against whatever unrelated element is
-// on the stack. That corrupted contentEnd tracking for enclosing elements
-// (observed: body-append/insertion offsets computed from the wrong node,
-// splicing moved content into template interiors). Track same-tag open/close
-// depth so only the tag that actually balances the ORIGINAL opening tag is
-// returned, matching real nested-template documents correctly.
 function findClosingTag(
   html: string,
   tag: string,
@@ -2142,8 +1881,6 @@ function findClosingTag(
     } else if (!selfClosing) {
       depth += 1;
     }
-    // Guard against zero-length matches causing an infinite loop (not
-    // expected given the tag-name-anchored pattern, but cheap to keep safe).
     if (tagRe.lastIndex === match.index) {
       tagRe.lastIndex += 1;
     }
@@ -2151,44 +1888,10 @@ function findClosingTag(
   return null;
 }
 
-// Defense-in-depth safety net for moveNodeBetweenDocuments: `<template>`
-// interiors (x-if/x-for/x-show templates and friends) are opaque to
-// parseHtmlElements (NON_VISUAL_TAGS) and, per the DOM spec, live in a
-// detached DocumentFragment (`template.content`) — a node inserted into a
-// template's raw markup range renders nowhere, can't be selected/queried by
-// the runtime DOM, and is invisible to every downstream querySelector-based
-// pass (getElementInfo, setAbsolutePositioningForNodeInHtml, etc). A correct
-// findClosingTag (see above) prevents the offset MISCALCULATION that used to
-// cause this, but this function is kept as an independent second guard —
-// even if some other insertion-point calculation ever computes an offset
-// that lands inside a real `<template>` block, this catches it and callers
-// redirect to a real DOM slot instead of silently splicing into markup that
-// will never render or be selectable again.
-//
-// Finding 8: when it fires, callers used to always redirect to the end of
-// <body> (or end of document) — a silent teleport that can land an anchored
-// insert far from where the user was working. `findEnclosingTemplateClose`
-// below returns the ENCLOSING outer template's closeEnd position (the
-// offset immediately after its `</template>`) when `offset` is inside a
-// template interior, so callers can redirect there instead: still a
-// guaranteed-safe real-DOM slot (immediately after a closing tag, a sibling
-// of the template rather than jumping to doc end), just much closer to the
-// anchor the caller actually asked for.
 function isOffsetInsideTemplateInterior(html: string, offset: number): boolean {
   return findEnclosingTemplateClose(html, offset) !== null;
 }
 
-// Exported ONLY for the finding-8 redirect-target unit test below: with
-// findClosingTag's offset-miscalculation bug fixed (see the doc comment
-// above), every insertAt this module's own callers compute through
-// parseHtmlElements-derived positions (anchor.start/end/contentEnd,
-// bodyEl.contentEnd) already lands OUTSIDE template interiors in practice —
-// NON_VISUAL_TAGS like <template> are skipped wholesale, so a template can
-// never itself become part of another element's registered content range.
-// That makes this guard a true defense-in-depth backstop with no reachable
-// integration-level repro through moveNodeBetweenDocuments today; testing
-// the redirect target directly against a synthetic offset is the honest way
-// to pin its behavior instead of contriving a fragile call into the guard.
 export function findEnclosingTemplateClose(
   html: string,
   offset: number,
@@ -2200,8 +1903,6 @@ export function findEnclosingTemplateClose(
     if (openEnd > offset) break;
     const close = findClosingTag(html, "template", openEnd);
     const contentEnd = close ? close.closeStart : html.length;
-    // `openEnd` IS the first content position, so a strict `>` missed the
-    // most likely insertion point of all: before the template's first child.
     if (offset >= openEnd && offset <= contentEnd) {
       return { closeEnd: close ? close.closeEnd : html.length };
     }
@@ -2210,7 +1911,31 @@ export function findEnclosingTemplateClose(
   return null;
 }
 
+const PARSED_ELEMENTS_CACHE_MAX_CHARS = 12_000_000;
+const parsedElementsCache = new Map<string, ParsedElement[]>();
+let parsedElementsCacheChars = 0;
+
+// Callers share the cached result, so parsed elements are read-only.
 function parseHtmlElements(html: string): ParsedElement[] {
+  const cached = parsedElementsCache.get(html);
+  if (cached) {
+    parsedElementsCache.delete(html);
+    parsedElementsCache.set(html, cached);
+    return cached;
+  }
+  const elements = parseHtmlElementsUncached(html);
+  parsedElementsCache.set(html, elements);
+  parsedElementsCacheChars += html.length;
+  for (const [cachedHtml] of parsedElementsCache) {
+    if (parsedElementsCacheChars <= PARSED_ELEMENTS_CACHE_MAX_CHARS) break;
+    if (cachedHtml === html) continue;
+    parsedElementsCache.delete(cachedHtml);
+    parsedElementsCacheChars -= cachedHtml.length;
+  }
+  return elements;
+}
+
+function parseHtmlElementsUncached(html: string): ParsedElement[] {
   const elements: ParsedElement[] = [];
   const stack: number[] = [];
   const sameTypeCounts = new Map<string, number>();
@@ -2219,10 +1944,11 @@ function parseHtmlElements(html: string): ParsedElement[] {
   let match: RegExpExecArray | null;
 
   while ((match = tagRe.exec(html))) {
-    const raw =
-      match[0].startsWith("<!--") || match[0].startsWith("<!")
-        ? match[0]
-        : html.slice(match.index, findHtmlTagEnd(html, match.index));
+    let raw = match[0];
+    if (!raw.startsWith("<!")) {
+      const tagEnd = findHtmlTagEnd(html, match.index);
+      raw = html.slice(match.index, tagEnd === -1 ? html.length : tagEnd);
+    }
     tagRe.lastIndex = match.index + raw.length;
     const tag = match[1]?.toLowerCase();
     if (!tag || raw.startsWith("<!--") || raw.startsWith("<!")) continue;
@@ -2239,8 +1965,6 @@ function parseHtmlElements(html: string): ParsedElement[] {
           element.end = match.index + raw.length;
           break;
         } else {
-          // Implicitly close optional-close-tag elements (e.g. <li>, <p>)
-          // without attributing the parent's close tag to them.
           element.contentEnd = match.index;
           element.end = match.index;
         }
@@ -2248,9 +1972,6 @@ function parseHtmlElements(html: string): ParsedElement[] {
       continue;
     }
 
-    // Auto-close HTML5 optional-close-tag elements when a sibling of the same
-    // type (or a related type) opens. This mirrors how browsers handle elements
-    // like <li>, <p>, <td>, <th>, <tr>, <dt>, <dd>, <option>, <optgroup>.
     const stackTopTag =
       stack.length > 0 ? elements[stack[stack.length - 1]]?.tag : undefined;
     if (stackTopTag && IMPLICIT_CLOSE_TAGS.get(tag)?.has(stackTopTag)) {
@@ -2352,12 +2073,21 @@ function selectorPart(
 ): string {
   const dataSelector = candidateDataSelector(element);
   if (dataSelector) {
-    const sameTypeSibling = elements.some(
-      (sibling) =>
-        sibling.index !== element.index &&
-        sibling.parentIndex === element.parentIndex &&
-        sibling.tag === element.tag,
-    );
+    const siblingIndexes =
+      element.parentIndex === undefined
+        ? undefined
+        : elements[element.parentIndex]?.childIndexes;
+    const sameTypeSibling = siblingIndexes
+      ? siblingIndexes.some(
+          (index) =>
+            index !== element.index && elements[index]?.tag === element.tag,
+        )
+      : elements.some(
+          (sibling) =>
+            sibling.index !== element.index &&
+            sibling.parentIndex === undefined &&
+            sibling.tag === element.tag,
+        );
     const nth = sameTypeSibling ? `:nth-of-type(${element.nthOfType})` : "";
     return `${element.tag}${dataSelector.selector}${nth}`;
   }
@@ -2365,11 +2095,7 @@ function selectorPart(
   const id = attributeValue(element, "id");
   const escapedId = id ? cssIdent(id) : null;
   if (escapedId) {
-    const duplicateId = elements.some(
-      (candidate) =>
-        candidate.index !== element.index &&
-        attributeValue(candidate, "id") === id,
-    );
+    const duplicateId = elementIdCounts(elements).get(id!)! > 1;
     return duplicateId
       ? `${element.tag}#${escapedId}:nth-of-type(${element.nthOfType})`
       : `#${escapedId}`;
@@ -2384,20 +2110,52 @@ function selectorPart(
   return `${element.tag}${classes}${nth}`;
 }
 
+const pathSelectors = new WeakMap<ParsedElement, string>();
+const idCountsByElements = new WeakMap<
+  readonly ParsedElement[],
+  Map<string, number>
+>();
+
+function elementIdCounts(
+  elements: readonly ParsedElement[],
+): Map<string, number> {
+  let counts = idCountsByElements.get(elements);
+  if (!counts) {
+    counts = new Map();
+    for (const element of elements) {
+      const id = attributeValue(element, "id");
+      if (id !== null) counts.set(id, (counts.get(id) ?? 0) + 1);
+    }
+    idCountsByElements.set(elements, counts);
+  }
+  return counts;
+}
+
 function pathSelector(
   element: ParsedElement,
   elements: ParsedElement[],
 ): string {
-  const parts: string[] = [];
+  const uncached: ParsedElement[] = [];
+  let path = "";
   let current: ParsedElement | undefined = element;
   while (current) {
-    parts.unshift(selectorPart(current, elements));
+    const cached = pathSelectors.get(current);
+    if (cached !== undefined) {
+      path = cached;
+      break;
+    }
+    uncached.push(current);
     current =
       current.parentIndex === undefined
         ? undefined
         : elements[current.parentIndex];
   }
-  return parts.join(" > ");
+  for (let index = uncached.length - 1; index >= 0; index -= 1) {
+    const part = selectorPart(uncached[index]!, elements);
+    path = path ? `${path} > ${part}` : part;
+    pathSelectors.set(uncached[index]!, path);
+  }
+  return path;
 }
 
 function primarySelector(
@@ -2425,17 +2183,18 @@ function primarySelector(
   return { selector: pathSelector(element, elements), confidence: 0.58 };
 }
 
+function nodeIdentityKey(source: CodeLayerSource): string {
+  return (
+    source.fileId ?? source.filename ?? source.path ?? source.url ?? source.kind
+  );
+}
+
 function nodeIdFor(
   element: ParsedElement,
   elements: ParsedElement[],
   source: CodeLayerSource,
 ): string {
-  const sourceKey =
-    source.fileId ??
-    source.filename ??
-    source.path ??
-    source.url ??
-    source.kind;
+  const sourceKey = nodeIdentityKey(source);
   const codeLayerId = stableSourceIdForElement(element);
   if (codeLayerId) {
     return `html:${hashStable(`${sourceKey}:data:${codeLayerId}`)}`;
@@ -2454,43 +2213,67 @@ function stableSourceIdForElement(element: ParsedElement): string | null {
   return null;
 }
 
+// Projection nodes share identical tokens and capability lists, so neither may
+// be mutated once built.
+const SHARED_NODE_PART_MAX = 50_000;
+const sharedStyleTokens = new Map<string, StyleToken>();
+const sharedInlineStyleTokenLists = new Map<string, StyleToken[]>();
+const sharedCapabilityLists = new Map<string, EditCapability[]>();
+
+function sharedNodePart<T>(
+  shared: Map<string, T>,
+  key: string,
+  create: () => T,
+): T {
+  let part = shared.get(key);
+  if (part === undefined) {
+    if (shared.size >= SHARED_NODE_PART_MAX) shared.clear();
+    part = create();
+    shared.set(key, part);
+  }
+  return part;
+}
+
+function inlineStyleTokensFor(style: string): StyleToken[] {
+  return sharedNodePart(sharedInlineStyleTokenLists, style, () => {
+    const tokens: StyleToken[] = [];
+    const parsedInlineStyle = readStyleDeclarations(style);
+    for (const declaration of "invalid" in parsedInlineStyle
+      ? []
+      : effectiveStyleDeclarations(parsedInlineStyle)) {
+      const property = normalizeStyleProperty(declaration.prop);
+      if (!property) continue;
+      const value = styleDeclarationValue(declaration);
+      const token = `${declaration.prop}: ${value}`;
+      tokens.push(
+        sharedNodePart(sharedStyleTokens, `inline\n${token}`, () => ({
+          property,
+          value,
+          token,
+          source: "inline-style",
+          confidence: 0.95,
+        })),
+      );
+    }
+    return tokens;
+  });
+}
+
 function styleTokensFor(element: ParsedElement): StyleToken[] {
+  const inlineTokens = inlineStyleTokensFor(
+    attributeValue(element, "style") ?? "",
+  );
   const tokens: StyleToken[] = [];
 
-  // --- Inline styles (no breakpoint concept) ---
-  const parsedInlineStyle = tryParseStyleDeclarations(
-    attributeValue(element, "style"),
-  );
-  for (const declaration of parsedInlineStyle
-    ? effectiveStyleDeclarations(parsedInlineStyle)
-    : []) {
-    const property = normalizeStyleProperty(declaration.prop);
-    if (!property) continue;
-    const value = styleDeclarationValue(declaration);
-    tokens.push({
-      property,
-      value,
-      token: `${declaration.prop}: ${value}`,
-      source: "inline-style",
-      confidence: 0.95,
-    });
-  }
-
-  // --- Class tokens — responsive-aware ---
-  // Group all class tokens by breakpoint prefix so we can build per-property
-  // breakpointValues maps and detect overrides.
   const classValue = attributeValue(element, "class") ?? "";
   const groups = parseClassGroups(classValue);
 
-  // For each property, collect the utility value at every prefix that has one.
-  // We key by property so we emit one token per property, not one per class.
   const propertyMap = new Map<
     VisualStyleProperty,
     {
       property: VisualStyleProperty;
       confidence: number;
       breakpointValues: Partial<Record<TailwindBreakpointPrefix, string>>;
-      /** The raw token for the base occurrence (for backward-compat `token` field). */
       baseToken: string;
     }
   >();
@@ -2511,13 +2294,12 @@ function styleTokensFor(element: ParsedElement): StyleToken[] {
       if (!mapped) continue;
       const { property, confidence } = mapped;
 
-      // Resolve the display value the same way classStyleToken does.
       const resolvedValue =
         property === "display"
           ? parsed.utility === "hidden"
             ? "none"
             : parsed.utility
-          : parsed.utility; // utility without prefix, e.g. "text-sm"
+          : parsed.utility;
 
       const existing = propertyMap.get(property);
       if (existing) {
@@ -2536,35 +2318,35 @@ function styleTokensFor(element: ParsedElement): StyleToken[] {
 
   for (const entry of propertyMap.values()) {
     const baseValue = entry.breakpointValues["base"] ?? "";
-    // The full original token for the base occurrence (for backward compat).
     const rawBaseToken = entry.baseToken;
     const overriddenAt = Object.keys(entry.breakpointValues).filter(
       (p) => p !== "base",
     ) as TailwindBreakpointPrefix[];
 
-    tokens.push({
-      property: entry.property,
-      // `value` = the base utility string (backward-compatible).
-      value: baseValue || rawBaseToken,
-      token: rawBaseToken,
-      source: "class",
-      confidence: entry.confidence,
-      breakpointValues: { ...entry.breakpointValues },
-      overriddenAtPrefixes: overriddenAt.length > 0 ? overriddenAt : undefined,
-    });
+    const key = [
+      "class",
+      entry.property,
+      rawBaseToken,
+      entry.confidence,
+      ...allPrefixes.map((prefix) => entry.breakpointValues[prefix] ?? "\0"),
+    ].join("\n");
+    tokens.push(
+      sharedNodePart(sharedStyleTokens, key, () => ({
+        property: entry.property,
+        value: baseValue || rawBaseToken,
+        token: rawBaseToken,
+        source: "class",
+        confidence: entry.confidence,
+        breakpointValues: { ...entry.breakpointValues },
+        overriddenAtPrefixes:
+          overriddenAt.length > 0 ? overriddenAt : undefined,
+      })),
+    );
   }
 
-  return tokens;
+  return tokens.length === 0 ? inlineTokens : [...inlineTokens, ...tokens];
 }
 
-/**
- * Map a bare Tailwind utility (without any responsive prefix, e.g. `"text-sm"`
- * not `"md:text-sm"`) to the `VisualStyleProperty` it most likely controls.
- * Returns `null` when the utility is not recognised.
- *
- * This is called by both the legacy `classStyleToken` path and the new
- * responsive-aware `styleTokensFor` implementation.
- */
 function utilityToStyleProperty(
   utility: string,
 ): { property: VisualStyleProperty; confidence: number } | null {
@@ -2651,7 +2433,19 @@ function layoutFor(
             ? "stretch"
             : classes.has("items-baseline")
               ? "baseline"
-              : undefined);
+              : classes.has("place-items-start")
+                ? "start"
+                : classes.has("place-items-center")
+                  ? "center"
+                  : classes.has("place-items-end")
+                    ? "end"
+                    : classes.has("place-items-stretch")
+                      ? "stretch"
+                      : classes.has("place-items-baseline")
+                        ? "baseline"
+                        : classes.has("place-items-normal")
+                          ? "normal"
+                          : undefined);
   const justifyContent =
     style["justify-content"] ??
     (classes.has("justify-start")
@@ -2695,33 +2489,119 @@ function layoutFor(
   };
 }
 
-function textSnippetFor(html: string, element: ParsedElement): string | null {
+interface ElementTextRead {
+  text: string;
+  pendingSpace: boolean;
+  reusable: boolean;
+}
+
+const elementTextReads = new WeakMap<ParsedElement, ElementTextRead>();
+
+function readElementText(
+  html: string,
+  element: ParsedElement,
+  elements: readonly ParsedElement[],
+): ElementTextRead {
+  const cached = elementTextReads.get(element);
+  if (cached) return cached;
+  let text = "";
+  let pendingSpace = false;
+  let reusable = true;
+  const append = (run: string) => {
+    const collapsed = decodeBasicHtmlEntities(run).replace(/\s+/g, " ");
+    const trimmed = collapsed.trim();
+    if (!trimmed) {
+      if (collapsed) pendingSpace = true;
+      return;
+    }
+    if (text && (pendingSpace || collapsed.startsWith(" "))) text += " ";
+    text += trimmed;
+    pendingSpace = collapsed.endsWith(" ");
+  };
+  const end = element.contentEnd;
+  let index = element.contentStart;
+  let childAt = 0;
+  while (index < end && text.length <= 160) {
+    const open = html.indexOf("<", index);
+    if (open === -1 || open >= end) {
+      append(html.slice(index, end));
+      break;
+    }
+    append(html.slice(index, open));
+    pendingSpace = true;
+    let child: ParsedElement | undefined;
+    while (childAt < element.childIndexes.length) {
+      child = elements[element.childIndexes[childAt]!];
+      if (!child || child.start >= open) break;
+      childAt += 1;
+    }
+    if (child?.start === open && child.openEnd < end) {
+      childAt += 1;
+      const inner = child.selfClosing
+        ? null
+        : readElementText(html, child, elements);
+      if (inner?.reusable && child.contentEnd <= end) {
+        if (inner.text) {
+          text = text ? `${text} ${inner.text}` : inner.text;
+          pendingSpace = inner.pendingSpace;
+        }
+        index = child.contentEnd;
+      } else {
+        index = child.openEnd;
+      }
+      continue;
+    }
+    const tagEnd = findHtmlTagEnd(html, open, end);
+    if (tagEnd === -1) {
+      reusable = false;
+      break;
+    }
+    index = tagEnd;
+  }
+  const read = { text, pendingSpace, reusable };
+  elementTextReads.set(element, read);
+  return read;
+}
+
+function textSnippetFor(
+  html: string,
+  element: ParsedElement,
+  elements: readonly ParsedElement[],
+): string | null {
   if (element.selfClosing) return null;
-  const inner = html.slice(element.contentStart, element.contentEnd);
-  const text = collapseWhitespace(decodeBasicHtmlEntities(stripTags(inner)));
+  const { text } = readElementText(html, element, elements);
   if (!text) return null;
   return text.length > 160 ? `${text.slice(0, 157)}...` : text;
 }
 
-/**
- * Text this element paints itself, ignoring anything a child holds. A row of
- * dot + label + checkbox paints nothing, so it is a container even though its
- * tag is one that usually carries text.
- */
 function paintsOwnTextFor(
   html: string,
   element: ParsedElement,
   elements: readonly ParsedElement[],
 ): boolean {
   if (element.selfClosing) return false;
+  if (
+    element.childIndexes.length > 0 &&
+    element.childIndexes.every((childIndex) => {
+      const child = elements[childIndex];
+      return (
+        child?.tag === "span" &&
+        attributeValue(child, "data-agent-native-motion-text-unit") !== null
+      );
+    })
+  ) {
+    return true;
+  }
+  const paintsText = (from: number, to: number) =>
+    Boolean(html.slice(from, to).replace(UNPAINTED_SOURCE_RE, "").trim());
   let at = element.contentStart;
   for (const childIndex of element.childIndexes) {
     const child = elements[childIndex];
     if (!child) continue;
-    if (html.slice(at, child.start).trim()) return true;
+    if (paintsText(at, child.start)) return true;
     at = Math.max(at, child.end);
   }
-  return Boolean(html.slice(at, element.contentEnd).trim());
+  return paintsText(at, element.contentEnd);
 }
 
 function wholeTextStyleRootFor(
@@ -2738,7 +2618,7 @@ function wholeTextStyleRootFor(
     return false;
   }
   if (attributeValue(element, "data-an-primitive") === "text") {
-    return Boolean(textSnippetFor(html, element));
+    return Boolean(textSnippetFor(html, element, elements));
   }
   if (
     !paintsOwnTextFor(html, element, elements) &&
@@ -2746,7 +2626,7 @@ function wholeTextStyleRootFor(
   ) {
     return false;
   }
-  if (!textSnippetFor(html, element)) return false;
+  if (!textSnippetFor(html, element, elements)) return false;
 
   const stack = [...element.childIndexes];
   while (stack.length > 0) {
@@ -2757,7 +2637,6 @@ function wholeTextStyleRootFor(
   return true;
 }
 
-/** The `x-for` of the nearest enclosing template, for a node inside a repeat. */
 function repeatXForFor(
   element: ParsedElement,
   elements: readonly ParsedElement[],
@@ -2793,14 +2672,12 @@ function layerNameFor(
   if (semantic) return semantic;
 
   const textName = () => {
-    const text = textSnippetFor(html, element);
+    const text = textSnippetFor(html, element, elements);
     return text
       ? { name: truncateLayerName(text), source: "text" as const }
       : null;
   };
 
-  // A leaf is named by what it says; a container by what it is. Reversing this
-  // is how a wrapper ends up named after its entire subtree's text.
   if (element.childIndexes.length === 0) {
     const leafName = textName();
     if (leafName) return leafName;
@@ -2838,10 +2715,6 @@ function treeTypeForNode(
   if (node.dataAttributes["data-agent-native-group"] === "true") {
     return "group";
   }
-  // Canvas primitives (drawn shapes / board objects) carry their kind via
-  // data-an-primitive so the layers panel shows a true shape/text/frame icon
-  // instead of the generic code glyph. The marker wins over tag heuristics:
-  // these primitives are <div>s, which would otherwise classify as "element".
   const primitiveKind = node.dataAttributes["data-an-primitive"];
   if (primitiveKind) {
     if (primitiveKind === "text") return "text";
@@ -2860,23 +2733,16 @@ function treeTypeForNode(
     ) {
       return "ellipse";
     }
-    // SVG-based vector primitives each get their own type so the layers panel
-    // renders a true pen/line/arrow/polygon/star icon instead of falling
-    // through to the rectangle ("shape") glyph.
     if (primitiveKind === "path") return "vector";
     if (primitiveKind === "line") return "line";
     if (primitiveKind === "arrow") return "arrow";
     if (primitiveKind === "polygon") return "polygon";
     if (primitiveKind === "star") return "star";
-    // rectangle/rect and anything else still classify as a generic shape.
     return "shape";
   }
   if (IMAGE_LAYER_TAGS.has(node.tag)) return "image";
   if (SHAPE_LAYER_TAGS.has(node.tag)) return "shape";
-  // A node annotated as a component instance is always classified as "component"
-  // regardless of its tag — this is the canonical detection path.
   if (node.componentInstance) return "component";
-  // Form controls are leaf widgets with no design primitive to decompose into.
   if (COMPONENT_LAYER_TAGS.has(node.tag) && node.tag !== "button") {
     return "component";
   }
@@ -2887,8 +2753,6 @@ function treeTypeForNode(
     .filter((child): child is CodeLayerNode => Boolean(child));
 
   if (childNodes.length === 0) {
-    // A Text node's fill colours glyphs, not a background, so a painted or
-    // padded text leaf must be a frame or it loses its box (see buildSpec).
     if (node.textSnippet) {
       return facts.painted || facts.padded ? "frame" : "text";
     }
@@ -2897,6 +2761,7 @@ function treeTypeForNode(
     return "element";
   }
 
+  // keep in sync: isCodeLayerTextBlock in editor-chrome.bridge.ts mirrors this.
   if (
     TEXT_LAYER_TAGS.has(node.tag) &&
     !facts.painted &&
@@ -2925,11 +2790,6 @@ const TYPE_DISPLAY_NAMES: Partial<Record<CodeLayerTreeNodeType, string>> = {
   text: "Text",
 };
 
-/**
- * An element carrying only utility classes has no name of its own, and the tag
- * fallback describes the tag rather than what the element resolved to — every
- * bare `<div>` reads "Frame" whether it became a frame, a dot, or a divider.
- */
 function unnamedLayerName(
   node: CodeLayerNode,
   type: CodeLayerTreeNodeType,
@@ -2940,10 +2800,6 @@ function unnamedLayerName(
 }
 
 function isCollapsibleDocumentShellNode(node: CodeLayerTreeNode): boolean {
-  // A screen IS its document: the frame's box comes from the board and its
-  // paint from this <body>, and the inspector now shows both on the screen's
-  // own selection. Older screens stamped the screen title onto <body>, which
-  // exempted them here and listed the same object twice under one name.
   return node.tag === "html" || node.tag === "body";
 }
 
@@ -2958,13 +2814,13 @@ function compactCodeLayerTreeNodes(
   for (const node of nodes) {
     if (ancestors.has(node.id)) continue;
 
-    const nextAncestors = new Set(ancestors);
-    nextAncestors.add(node.id);
+    ancestors.add(node.id);
     const children = compactCodeLayerTreeNodes(
       node.children,
       nodesById,
-      nextAncestors,
+      ancestors,
     );
+    ancestors.delete(node.id);
     const compactedNode: CodeLayerTreeNode = { ...node, children };
     const promotedNodes = isCollapsibleDocumentShellNode(compactedNode)
       ? children
@@ -2981,21 +2837,6 @@ function compactCodeLayerTreeNodes(
 }
 
 function capabilitiesFor(element: ParsedElement): EditCapability[] {
-  const capabilities: EditCapability[] = [
-    {
-      kind: "style",
-      properties: [...STYLE_PROPERTIES],
-      confidence: 0.9,
-    },
-    {
-      kind: "class",
-      operations: ["add", "remove", "replace", "set"],
-      confidence: 0.88,
-    },
-  ];
-
-  // Responsive-class capability — detect which properties already carry
-  // breakpoint overrides so the inspector can surface override indicators.
   const classValue = attributeValue(element, "class") ?? "";
   const groups = parseClassGroups(classValue);
   const overriddenProps: string[] = [];
@@ -3009,48 +2850,61 @@ function capabilitiesFor(element: ParsedElement): EditCapability[] {
   for (const prefix of responsivePrefixes) {
     for (const rawToken of groups[prefix]) {
       const { utility } = parseClassToken(rawToken);
-      // Derive a property stem to use as the override indicator label.
       const stemPart = utility.split("-")[0];
       if (stemPart && !overriddenProps.includes(stemPart)) {
         overriddenProps.push(stemPart);
       }
     }
   }
-  // The prefix here is "base" as the default; callers that know the active
-  // frame width should use widthToPrefix() from responsive-classes.ts to
-  // determine the appropriate editing prefix.
-  capabilities.push({
-    kind: "responsive-class",
-    prefix: "base",
-    operations: ["add", "remove", "replace"],
-    overriddenProperties: overriddenProps,
-    confidence: 0.87,
-  });
-
-  if (!element.selfClosing) {
-    capabilities.push({
-      kind: "text",
-      operations: ["setTextContent"],
-      confidence: element.childIndexes.length === 0 ? 0.82 : 0.35,
-      reason:
-        element.childIndexes.length === 0
-          ? undefined
-          : "Text edits on mixed-content elements should be escalated.",
-    });
-  }
-
-  return capabilities;
+  const text = element.selfClosing
+    ? "none"
+    : element.childIndexes.length === 0
+      ? "leaf"
+      : "mixed";
+  return sharedNodePart(
+    sharedCapabilityLists,
+    `${text}\n${overriddenProps.join("\n")}`,
+    () => {
+      const capabilities: EditCapability[] = [
+        {
+          kind: "style",
+          properties: [...STYLE_PROPERTIES],
+          confidence: 0.9,
+        },
+        {
+          kind: "class",
+          operations: ["add", "remove", "replace", "set"],
+          confidence: 0.88,
+        },
+        {
+          kind: "responsive-class",
+          prefix: "base",
+          operations: ["add", "remove", "replace"],
+          overriddenProperties: overriddenProps,
+          confidence: 0.87,
+        },
+      ];
+      if (text !== "none") {
+        capabilities.push({
+          kind: "text",
+          operations: ["setTextContent"],
+          confidence: text === "leaf" ? 0.82 : 0.35,
+          reason:
+            text === "leaf"
+              ? undefined
+              : "Text edits on mixed-content elements should be escalated.",
+        });
+      }
+      return capabilities;
+    },
+  );
 }
 
-// Internal nodes of an <svg> (the <path>/<polygon>/<circle>/... geometry) are
-// rendering primitives, never selectable design layers. Projecting them adds a
-// meaningless expandable child to every pen vector / line / arrow / polygon /
-// star (and to any inline SVG icon). Treat the <svg> as a leaf: skip everything
-// that has an <svg> ancestor.
 function hasSvgAncestor(
   element: ParsedElement,
   elements: ParsedElement[],
 ): boolean {
+  let insideSvgResource = SVG_RESOURCE_TAGS.has(element.tag);
   const isBooleanOperand =
     element.tag === "svg" &&
     attributeValue(element, "data-an-primitive") === "boolean-operand";
@@ -3059,7 +2913,11 @@ function hasSvgAncestor(
   while (parentIndex !== undefined) {
     const parent = elements[parentIndex];
     if (!parent) break;
+    if (SVG_RESOURCE_TAGS.has(parent.tag)) insideSvgResource = true;
     if (parent.tag === "svg") {
+      if (attributeValue(parent, "data-an-primitive") === "pasted-svg") {
+        return insideSvgResource;
+      }
       if (
         isBooleanOperand &&
         attributeValue(parent, "data-an-primitive") === "boolean"
@@ -3074,31 +2932,137 @@ function hasSvgAncestor(
   return isBooleanOperand ? !insideBoolean : false;
 }
 
+function inlineStyleDiagnostic(
+  element: ParsedElement,
+): ProjectionDiagnostic | null {
+  const styleAttribute = getAttribute(element, "style");
+  if (!styleAttribute || typeof styleAttribute.value !== "string") return null;
+  const parsed = readStyleDeclarations(
+    decodeBasicHtmlEntities(styleAttribute.value),
+  );
+  if (!("invalid" in parsed)) return null;
+  return {
+    severity: "warning",
+    code: "invalid-inline-style",
+    message: parsed.invalid,
+    span: { start: styleAttribute.start, end: styleAttribute.end },
+  };
+}
+
+function projectedParentIndexFor(
+  element: ParsedElement,
+  elements: readonly ParsedElement[],
+  nodeIdByElementIndex: ReadonlyMap<number, string>,
+): number | undefined {
+  let at = element.parentIndex;
+  while (at !== undefined && !nodeIdByElementIndex.has(at)) {
+    at = elements[at]?.parentIndex;
+  }
+  return at;
+}
+
+function buildNodeForElement(
+  html: string,
+  element: ParsedElement,
+  elements: ParsedElement[],
+  nodeId: string,
+  nodeIdByElementIndex: ReadonlyMap<number, string>,
+): CodeLayerNode {
+  const parentIndex = projectedParentIndexFor(
+    element,
+    elements,
+    nodeIdByElementIndex,
+  );
+  const parent = parentIndex === undefined ? undefined : elements[parentIndex];
+  const parentId =
+    parentIndex === undefined
+      ? undefined
+      : nodeIdByElementIndex.get(parentIndex);
+  const selector = primarySelector(element, elements);
+  const path = pathSelector(element, elements);
+  const classes = classList(element);
+  const style = withVectorPaintStyle(
+    element,
+    elements,
+    parseStyle(attributeValue(element, "style")),
+  );
+  const dataAttributes = dataAttributeRecord(element);
+  const layerName = layerNameFor(html, element, elements);
+  // Paths share their ancestors' prefix until hashed; a Set would flatten
+  // every one into a full copy, so dedupe by comparison.
+  const selectors =
+    path === selector.selector ? [path] : [selector.selector, path];
+  for (const name of STABLE_NODE_ID_ATTRIBUTES) {
+    const value = dataAttributes[name];
+    if (!value) continue;
+    const stableSelector = `[${name}="${cssEscape(value)}"]`;
+    if (!selectors.includes(stableSelector)) selectors.push(stableSelector);
+  }
+
+  const node: CodeLayerNode = {
+    id: nodeId,
+    tag: element.tag,
+    layerName: layerName.name,
+    layerNameSource: layerName.source,
+    layerNameAttribute: layerName.attribute,
+    selector: selector.selector,
+    selectors,
+    path,
+    attributes: attributeRecord(element),
+    dataAttributes,
+    classes,
+    textSnippet: textSnippetFor(html, element, elements),
+    paintsOwnText: paintsOwnTextFor(html, element, elements),
+    wholeTextStyleRoot: wholeTextStyleRootFor(html, element, elements),
+    repeatXFor: repeatXForFor(element, elements),
+    style,
+    styleTokens: styleTokensFor(element),
+    parentId,
+    children: [],
+    layout: {
+      parentId,
+      parentSelector: parent
+        ? primarySelector(parent, elements).selector
+        : undefined,
+      ...layoutFor(element, parent),
+    },
+    capabilities: capabilitiesFor(element),
+    confidence: selector.confidence,
+    source: sourceSpanFor(element),
+  };
+
+  if (isComponentInstance(node)) {
+    const instance = instanceFromNode(node);
+    if (instance) node.componentInstance = instance;
+  }
+  return node;
+}
+
+function sourceSpanFor(element: ParsedElement): CodeLayerSourceSpan {
+  return {
+    start: element.start,
+    end: element.end,
+    openStart: element.start,
+    openEnd: element.openEnd,
+    contentStart: element.selfClosing ? undefined : element.contentStart,
+    contentEnd: element.selfClosing ? undefined : element.contentEnd,
+    closeStart: element.closeStart,
+    closeEnd: element.closeEnd,
+  };
+}
+
 function buildProjection(
   html: string,
   source: CodeLayerSource,
 ): ProjectionBuild {
-  // Tolerate non-string input from any caller (e.g. content not yet loaded):
-  // an empty projection is correct; crashing the editor is not.
   if (typeof html !== "string") html = "";
   const elements = parseHtmlElements(html);
   const nodeIdByElementIndex = new Map<number, string>();
   const nodes: CodeLayerNode[] = [];
   const diagnostics: ProjectionDiagnostic[] = [];
   for (const element of elements) {
-    const styleAttribute = getAttribute(element, "style");
-    if (!styleAttribute || typeof styleAttribute.value !== "string") continue;
-    try {
-      parseStyleDeclarations(styleAttribute.value);
-    } catch (error) {
-      if (!(error instanceof InvalidInlineStyleError)) throw error;
-      diagnostics.push({
-        severity: "warning",
-        code: "invalid-inline-style",
-        message: error.message,
-        span: { start: styleAttribute.start, end: styleAttribute.end },
-      });
-    }
+    const diagnostic = inlineStyleDiagnostic(element);
+    if (diagnostic) diagnostics.push(diagnostic);
   }
   const candidateNodeIdByElementIndex = new Map<number, string>();
   const candidateNodeIdCounts = new Map<string, number>();
@@ -3140,111 +3104,20 @@ function buildProjection(
     nodeIdByElementIndex.set(element.index, nodeId);
   }
 
-  // A transparent ancestor has no id, so its children would come back as
-  // roots. Re-parent them to the nearest ancestor that IS projected.
-  const projectedParentIndex = (element: ParsedElement): number | undefined => {
-    let at = element.parentIndex;
-    while (at !== undefined && !nodeIdByElementIndex.has(at)) {
-      at = elements[at]?.parentIndex;
-    }
-    return at;
-  };
-
   const elementByNodeId = new Map<string, ParsedElement>();
 
   for (const element of elements) {
     const nodeId = nodeIdByElementIndex.get(element.index);
     if (!nodeId) continue;
-
-    const parentIndex = projectedParentIndex(element);
-    const parent =
-      parentIndex === undefined ? undefined : elements[parentIndex];
-    const parentId =
-      parentIndex === undefined
-        ? undefined
-        : nodeIdByElementIndex.get(parentIndex);
-    const selector = primarySelector(element, elements);
-    const path = pathSelector(element, elements);
-    const classes = classList(element);
-    const style = withVectorPaintStyle(
-      element,
-      elements,
-      parseStyle(attributeValue(element, "style")),
+    nodes.push(
+      buildNodeForElement(
+        html,
+        element,
+        elements,
+        nodeId,
+        nodeIdByElementIndex,
+      ),
     );
-    const dataAttributes = dataAttributeRecord(element);
-    const layerName = layerNameFor(html, element, elements);
-    // Only alias attribute selectors that are actually STABLE, UNIQUE node
-    // identifiers (data-agent-native-node-id, data-code-layer-id, etc). Every
-    // other data-* attribute (e.g. data-an-primitive="frame", or the boolean
-    // data-agent-native-locked/hidden state flags) is shared by many/most
-    // nodes of the same kind, not a per-node identity marker. Aliasing those
-    // here previously let a single hidden/locked layer's `hiddenSelectors`/
-    // `lockedSelectors` (built from these aliases — see
-    // codeLayerSelectorAliases in design-editor/code-layer-state.ts) resolve
-    // to `[data-an-primitive="frame"]` and silently hide/lock EVERY frame-kind
-    // container in the document via applyHiddenSelectors' document-wide
-    // querySelectorAll, instead of only the one node the user actually hid or
-    // locked.
-    const selectors = Array.from(
-      new Set([
-        selector.selector,
-        path,
-        ...STABLE_NODE_ID_ATTRIBUTES.filter((name) => dataAttributes[name]).map(
-          (name) => `[${name}="${cssEscape(dataAttributes[name]!)}"]`,
-        ),
-      ]),
-    );
-
-    const node: CodeLayerNode = {
-      id: nodeId,
-      tag: element.tag,
-      layerName: layerName.name,
-      layerNameSource: layerName.source,
-      layerNameAttribute: layerName.attribute,
-      selector: selector.selector,
-      selectors,
-      path,
-      attributes: attributeRecord(element),
-      dataAttributes,
-      classes,
-      textSnippet: textSnippetFor(html, element),
-      paintsOwnText: paintsOwnTextFor(html, element, elements),
-      wholeTextStyleRoot: wholeTextStyleRootFor(html, element, elements),
-      repeatXFor: repeatXForFor(element, elements),
-      style,
-      styleTokens: styleTokensFor(element),
-      parentId,
-      children: [],
-      layout: {
-        parentId,
-        parentSelector: parent
-          ? primarySelector(parent, elements).selector
-          : undefined,
-        ...layoutFor(element, parent),
-      },
-      capabilities: capabilitiesFor(element),
-      confidence: selector.confidence,
-      source: {
-        start: element.start,
-        end: element.end,
-        openStart: element.start,
-        openEnd: element.openEnd,
-        contentStart: element.selfClosing ? undefined : element.contentStart,
-        contentEnd: element.selfClosing ? undefined : element.contentEnd,
-        closeStart: element.closeStart,
-        closeEnd: element.closeEnd,
-      },
-    };
-
-    // Detect component instances — nodes that carry data-agent-native-component.
-    // Populate the metadata so the canvas can outline component roots and the
-    // inspector can surface component-level controls.
-    if (isComponentInstance(node)) {
-      const instance = instanceFromNode(node);
-      if (instance) node.componentInstance = instance;
-    }
-
-    nodes.push(node);
     elementByNodeId.set(nodeId, element);
   }
 
@@ -3270,7 +3143,7 @@ function buildProjection(
   return {
     projection: {
       version: 1,
-      projectionId: `clp_${hashStable(`${source.kind}:${source.fileId ?? ""}:${source.filename ?? ""}:${html}`)}`,
+      projectionId: projectionIdFor(html, source),
       source,
       rootNodeIds: nodes
         .filter((node) => !node.parentId)
@@ -3280,6 +3153,283 @@ function buildProjection(
     },
     elementByNodeId,
     elements,
+    html,
+  };
+}
+
+function lastIndexStartingBefore(
+  elements: readonly ParsedElement[],
+  offset: number,
+): number {
+  let low = 0;
+  let high = elements.length - 1;
+  let found = -1;
+  while (low <= high) {
+    const mid = (low + high) >> 1;
+    if (elements[mid]!.start < offset) {
+      found = mid;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+  return found;
+}
+
+function sameAttributesIgnoringStyle(
+  previous: readonly ParsedAttribute[],
+  next: readonly ParsedAttribute[],
+): boolean {
+  const kept = (attributes: readonly ParsedAttribute[]) =>
+    attributes.filter((attribute) => attribute.lowerName !== "style");
+  const a = kept(previous);
+  const b = kept(next);
+  return (
+    a.length === b.length &&
+    a.every(
+      (attribute, index) =>
+        attribute.name === b[index]!.name &&
+        attribute.value === b[index]!.value,
+    )
+  );
+}
+
+// An edit inside one element's style attribute or one plain text run keeps the
+// element tree, so only the nodes it can reach are re-derived and every later
+// offset shifts by one delta. Anything else returns null for a full parse.
+interface StructurePreservingEdit {
+  prefix: number;
+  removedEnd: number;
+  delta: number;
+  target: ParsedElement;
+  nextAttributes?: ParsedAttribute[];
+}
+
+function classifyStructurePreservingEdit(
+  previous: ProjectionBuild,
+  html: string,
+): StructurePreservingEdit | null {
+  const before = previous.html;
+  if (before === html) return null;
+  const prefix = commonPrefixLength(before, html);
+  const suffix = commonSuffixLength(
+    before,
+    html,
+    Math.min(before.length, html.length) - prefix,
+  );
+  const removedEnd = before.length - suffix;
+  const inserted = html.slice(prefix, html.length - suffix);
+  const removed = before.slice(prefix, removedEnd);
+  if (/[<>]/.test(removed) || /[<>]/.test(inserted)) return null;
+  const delta = inserted.length - removed.length;
+  const elements = previous.elements;
+
+  const candidate = lastIndexStartingBefore(elements, prefix);
+  if (candidate < 0) return null;
+  const opening = elements[candidate]!;
+  // Their text is code, which only a full parse and validation can judge.
+  if (opening.tag === "script" || opening.tag === "style") return null;
+  let target: ParsedElement | undefined;
+  let nextAttributes: ParsedAttribute[] | undefined;
+  if (removedEnd <= opening.openEnd - 1) {
+    const nextOpenEnd = findHtmlTagEnd(html, opening.start);
+    if (nextOpenEnd !== opening.openEnd + delta) return null;
+    const nextRaw = html.slice(opening.start, nextOpenEnd);
+    const previousRaw = before.slice(opening.start, opening.openEnd);
+    const tagName = (raw: string) =>
+      raw.match(/^<\s*([A-Za-z][A-Za-z0-9:-]*)/)?.[1]?.toLowerCase();
+    if (
+      tagName(nextRaw) !== opening.tag ||
+      tagName(previousRaw) !== opening.tag ||
+      nextRaw.endsWith("/>") !== previousRaw.endsWith("/>") ||
+      opening.tag === "svg" ||
+      hasSvgAncestor(opening, elements)
+    ) {
+      return null;
+    }
+    nextAttributes = parseAttributes(nextRaw, opening.start);
+    if (!sameAttributesIgnoringStyle(opening.attributes, nextAttributes)) {
+      return null;
+    }
+    target = opening;
+  } else {
+    let container: ParsedElement | undefined = opening;
+    while (
+      container &&
+      (container.selfClosing ||
+        container.contentStart > prefix ||
+        container.contentEnd < removedEnd)
+    ) {
+      container =
+        container.parentIndex === undefined
+          ? undefined
+          : elements[container.parentIndex];
+    }
+    if (!container || RAW_TEXT_VISUAL_TAGS.has(container.tag)) return null;
+    let runStart = container.contentStart;
+    let runEnd = container.contentEnd;
+    for (const childIndex of container.childIndexes) {
+      const child = elements[childIndex]!;
+      if (child.end <= prefix) runStart = Math.max(runStart, child.end);
+      else if (child.start >= removedEnd)
+        runEnd = Math.min(runEnd, child.start);
+      else return null;
+    }
+    if (before.slice(runStart, runEnd).includes("<")) return null;
+    target = container;
+  }
+  return { prefix, removedEnd, delta, target, nextAttributes };
+}
+
+function incrementalProjectionBuild(
+  previous: ProjectionBuild,
+  html: string,
+  source: CodeLayerSource,
+): ProjectionBuild | null {
+  const edit = classifyStructurePreservingEdit(previous, html);
+  if (!edit) return null;
+  const { prefix, removedEnd, delta, target, nextAttributes } = edit;
+  const elements = previous.elements;
+
+  const containers = new Set<number>();
+  for (
+    let at: number | undefined = target.index;
+    at !== undefined;
+    at = elements[at]!.parentIndex
+  ) {
+    containers.add(at);
+  }
+  const shift = (offset: number) =>
+    offset >= removedEnd ? offset + delta : offset;
+  const shiftOptional = (offset: number | undefined) =>
+    offset === undefined ? undefined : shift(offset);
+  const nextElements: ParsedElement[] = new Array(elements.length);
+  for (const element of elements) {
+    if (element.end <= prefix && !containers.has(element.index)) {
+      nextElements[element.index] = element;
+      continue;
+    }
+    if (containers.has(element.index)) {
+      const openingEdit = element === target && nextAttributes !== undefined;
+      nextElements[element.index] = {
+        ...element,
+        openEnd: openingEdit ? shift(element.openEnd) : element.openEnd,
+        contentStart: openingEdit
+          ? shift(element.contentStart)
+          : element.contentStart,
+        contentEnd: shift(element.contentEnd),
+        end: shift(element.end),
+        closeStart: shiftOptional(element.closeStart),
+        closeEnd: shiftOptional(element.closeEnd),
+        attributes: openingEdit ? nextAttributes! : element.attributes,
+      };
+      continue;
+    }
+    if (element.start < removedEnd) return null;
+    nextElements[element.index] = {
+      ...element,
+      start: element.start + delta,
+      openEnd: element.openEnd + delta,
+      contentStart: element.contentStart + delta,
+      contentEnd: element.contentEnd + delta,
+      end: element.end + delta,
+      closeStart: shiftOptional(element.closeStart),
+      closeEnd: shiftOptional(element.closeEnd),
+      attributes: element.attributes.map((attribute) => ({
+        ...attribute,
+        start: attribute.start + delta,
+        end: attribute.end + delta,
+      })),
+    };
+  }
+
+  const nodeIdByElementIndex = new Map<number, string>();
+  for (const [nodeId, element] of previous.elementByNodeId) {
+    nodeIdByElementIndex.set(element.index, nodeId);
+  }
+  // A node reads its projected parent's style for layout, so a style edit also
+  // re-derives the target's projected children.
+  const rebuilt = new Set(containers);
+  const targetNodeId = nodeIdByElementIndex.get(target.index);
+  if (nextAttributes && targetNodeId) {
+    const targetNode = previous.projection.nodes.find(
+      (node) => node.id === targetNodeId,
+    );
+    for (const childId of targetNode?.children ?? []) {
+      rebuilt.add(previous.elementByNodeId.get(childId)!.index);
+    }
+  }
+
+  const elementByNodeId = new Map<string, ParsedElement>();
+  const nodes = previous.projection.nodes.map((node) => {
+    const index = previous.elementByNodeId.get(node.id)!.index;
+    const element = nextElements[index]!;
+    elementByNodeId.set(node.id, element);
+    if (rebuilt.has(index)) {
+      const next = buildNodeForElement(
+        html,
+        element,
+        nextElements,
+        node.id,
+        nodeIdByElementIndex,
+      );
+      next.children = node.children;
+      return next;
+    }
+    return element === elements[index]
+      ? node
+      : { ...node, source: sourceSpanFor(element) };
+  });
+
+  const targetDiagnostic = nextAttributes
+    ? inlineStyleDiagnostic(nextElements[target.index]!)
+    : null;
+  const diagnostics: ProjectionDiagnostic[] = [];
+  let placedTarget = !targetDiagnostic;
+  for (const diagnostic of previous.projection.diagnostics) {
+    const span = diagnostic.span;
+    const belongsToTarget =
+      nextAttributes !== undefined &&
+      diagnostic.code === "invalid-inline-style" &&
+      span !== undefined &&
+      span.start >= target.start &&
+      span.end <= target.openEnd;
+    if (belongsToTarget) continue;
+    if (!placedTarget && span && span.start > target.start) {
+      diagnostics.push(targetDiagnostic!);
+      placedTarget = true;
+    }
+    diagnostics.push(
+      span && span.start >= removedEnd
+        ? {
+            ...diagnostic,
+            span: { start: span.start + delta, end: span.end + delta },
+          }
+        : diagnostic,
+    );
+  }
+  if (!placedTarget) {
+    const trailing = diagnostics.findIndex(
+      (diagnostic) => diagnostic.code === "no-projectable-elements",
+    );
+    diagnostics.splice(
+      trailing === -1 ? diagnostics.length : trailing,
+      0,
+      targetDiagnostic!,
+    );
+  }
+
+  return {
+    projection: {
+      ...previous.projection,
+      projectionId: projectionIdFor(html, source),
+      source,
+      nodes,
+      diagnostics,
+    },
+    elementByNodeId,
+    elements: nextElements,
+    html,
   };
 }
 
@@ -3297,16 +3447,26 @@ function buildProjection(
  * id-keyed edit downstream would target the wrong node. The string is already
  * retained by the file/query cache, so the key costs a reference, not a copy.
  *
+ * Bounded by source size, not entry count: the editor projects every screen of
+ * a design in one pass, so any count below the screen count misses on every
+ * screen of the next pass. A cached build (projection plus parsed elements)
+ * retains about 8 bytes per source char, plus a few KB however small its
+ * document, so each entry is also charged a floor — an empty document would
+ * otherwise cost nothing and never evict.
+ *
  * Callers must treat the result as read-only — it is shared now. Every consumer
  * only reads (`find`/`filter`/`map`); `applyCodeLayer*`-style writers build new
  * HTML and re-project rather than editing a projection in place.
  */
-const PROJECTION_CACHE_MAX = 24;
-const projectionCache = new Map<string, CodeLayerProjection>();
+const PROJECTION_CACHE_MAX_CHARS = 12_000_000;
+const PROJECTION_CACHE_ENTRY_FLOOR_CHARS = 2_048;
+const projectionCache = new Map<string, Map<string, ProjectionBuild>>();
+let projectionCacheChars = 0;
 
-/** Every own field of the source, sorted, so adding a field to
- *  CodeLayerSource later cannot silently start returning a projection whose
- *  `.source` came from a different call. */
+function projectionCacheEntryChars(html: string, sourceKey: string): number {
+  return html.length + sourceKey.length + PROJECTION_CACHE_ENTRY_FLOOR_CHARS;
+}
+
 function projectionSourceKey(source: CodeLayerSource): string {
   const record = source as unknown as Record<string, unknown>;
   return Object.keys(source)
@@ -3324,32 +3484,258 @@ export function buildCodeLayerProjection(
   html: string,
   options: { source?: CodeLayerSource } = {},
 ): CodeLayerProjection {
-  // Defensive: callers (memos/effects) may project before content has loaded
-  // (e.g. `activeContent` is briefly undefined on first render). Projecting a
-  // non-string must yield an empty projection, never crash the editor.
-  const safeHtml = typeof html === "string" ? html : "";
-  const source = options.source ?? { kind: "inline-html" };
-  const key = `${projectionSourceKey(source)}\u0000${safeHtml}`;
-  const cached = projectionCache.get(key);
-  if (cached) {
-    // Re-insert so the Map's insertion order stays least-recently-used first.
-    projectionCache.delete(key);
-    projectionCache.set(key, cached);
-    return cached;
-  }
-  const projection = buildProjection(safeHtml, source).projection;
-  projectionCache.set(key, projection);
-  if (projectionCache.size > PROJECTION_CACHE_MAX) {
-    const oldest = projectionCache.keys().next();
-    if (!oldest.done) projectionCache.delete(oldest.value);
-  }
-  return projection;
+  return cachedProjectionBuild(html, options.source).projection;
 }
 
-/** Drops every cached projection. Exists for tests that assert projection
- *  identity/eviction; production has no reason to call it. */
+// A cached build, one lent by a source with the same node ids, or one patched
+// from a recent revision; null when only a full parse would produce it.
+function reusableProjectionBuild(
+  html: string,
+  source: CodeLayerSource,
+): ProjectionBuild | null {
+  const sourceKey = projectionSourceKey(source);
+  const bySource = projectionCache.get(html);
+  if (bySource) {
+    projectionCache.delete(html);
+    projectionCache.set(html, bySource);
+    const cached = bySource.get(sourceKey);
+    if (cached) {
+      bySource.delete(sourceKey);
+      bySource.set(sourceKey, cached);
+      return cached;
+    }
+  }
+  const build =
+    projectionBuildForSameNodeIds(bySource, html, source) ??
+    patchedProjectionBuild(nodeIdentityKey(source), html, source);
+  if (build) storeProjectionBuild(html, source, sourceKey, build);
+  return build;
+}
+
+function cachedProjectionBuild(
+  html: string,
+  sourceOption: CodeLayerSource | undefined,
+): ProjectionBuild {
+  const safeHtml = typeof html === "string" ? html : "";
+  const source = sourceOption ?? { kind: "inline-html" };
+  const reused = reusableProjectionBuild(safeHtml, source);
+  if (reused) return reused;
+  const build = buildProjection(safeHtml, source);
+  storeProjectionBuild(safeHtml, source, projectionSourceKey(source), build);
+  return build;
+}
+
+const pinnedDocumentsByOwner = new Map<string, ReadonlySet<string>>();
+
+// An open editor re-projects its screens from dozens of call sites and already
+// holds their projections, so evicting their builds frees little and costs a
+// full parse on the next read. The owner replaces its set as screens change.
+export function pinCodeLayerDocuments(
+  owner: string,
+  documents: Iterable<string>,
+): void {
+  const pinned = new Set(documents);
+  if (pinned.size > 0) pinnedDocumentsByOwner.set(owner, pinned);
+  else pinnedDocumentsByOwner.delete(owner);
+}
+
+function isPinnedDocument(html: string): boolean {
+  for (const pinned of pinnedDocumentsByOwner.values()) {
+    if (pinned.has(html)) return true;
+  }
+  return false;
+}
+
+function storeProjectionBuild(
+  html: string,
+  source: CodeLayerSource,
+  sourceKey: string,
+  build: ProjectionBuild,
+): void {
+  rememberRecentHtml(nodeIdentityKey(source), html);
+  projectionCache.set(
+    html,
+    (projectionCache.get(html) ?? new Map<string, ProjectionBuild>()).set(
+      sourceKey,
+      build,
+    ),
+  );
+  projectionCacheChars += projectionCacheEntryChars(html, sourceKey);
+  evict: for (const [oldestHtml, oldestBySource] of projectionCache) {
+    if (isPinnedDocument(oldestHtml)) continue;
+    for (const oldestSourceKey of oldestBySource.keys()) {
+      if (
+        projectionCacheChars <= PROJECTION_CACHE_MAX_CHARS ||
+        (oldestHtml === html && oldestSourceKey === sourceKey)
+      ) {
+        break evict;
+      }
+      oldestBySource.delete(oldestSourceKey);
+      projectionCacheChars -= projectionCacheEntryChars(
+        oldestHtml,
+        oldestSourceKey,
+      );
+    }
+    projectionCache.delete(oldestHtml);
+    forgetRecentHtml(oldestHtml);
+  }
+}
+
+function structurePreservingEditOf(
+  previous: string,
+  next: string,
+): { build: ProjectionBuild; edit: StructurePreservingEdit } | null {
+  const build = projectionCache.get(previous)?.values().next().value as
+    | ProjectionBuild
+    | undefined;
+  const edit = build && classifyStructurePreservingEdit(build, next);
+  return build && edit ? { build, edit } : null;
+}
+
+// True when `next` changes one style value or one plain text run of an already
+// projected `previous`: tags, every other attribute, and scripts are unchanged.
+export function isStructurePreservingEdit(
+  previous: string,
+  next: string,
+): boolean {
+  return structurePreservingEditOf(previous, next) !== null;
+}
+
+// Whether the edit `isStructurePreservingEdit` accepts changed an opening tag's
+// style (rather than a text run), and that element's attribute names.
+export function structurePreservingEditTarget(
+  previous: string,
+  next: string,
+): { openingTag: boolean; attributeNames: string[] } | null {
+  const found = structurePreservingEditOf(previous, next);
+  if (!found) return null;
+  return {
+    openingTag: found.edit.nextAttributes !== undefined,
+    attributeNames: found.edit.target.attributes.map((attr) => attr.lowerName),
+  };
+}
+
+// The nearest stable-id element around an edit the patcher accepts, with its
+// markup in `next`, so a live copy of `previous` can re-sync just that subtree.
+export function editedStableSourceElement(
+  previous: string,
+  next: string,
+): { nodeId: string; html: string } | null {
+  const found = structurePreservingEditOf(previous, next);
+  if (!found) return null;
+  const { build, edit } = found;
+  let stable: ParsedElement | undefined;
+  let inBody = false;
+  for (
+    let at: ParsedElement | undefined = edit.target;
+    at;
+    at =
+      at.parentIndex === undefined ? undefined : build.elements[at.parentIndex]
+  ) {
+    if (at.tag === "svg" || at.tag === "math" || at.tag === "template") {
+      return null;
+    }
+    if (at.tag === "body") inBody = true;
+    if (!stable && !inBody && attributeValue(at, "data-agent-native-node-id")) {
+      stable = at;
+    }
+  }
+  if (!stable || !inBody) return null;
+  return {
+    nodeId: attributeValue(stable, "data-agent-native-node-id")!,
+    html: next.slice(stable.start, stable.end + edit.delta),
+  };
+}
+
+// Several bases per identity, because history, snapshots, and edit
+// intermediates project under one file id between two user edits.
+const recentHtmlByIdentity = new Map<string, string[]>();
+const RECENT_HTML_IDENTITY_LIMIT = 64;
+const RECENT_HTML_PER_IDENTITY = 4;
+
+function patchedProjectionBuild(
+  identityKey: string,
+  html: string,
+  source: CodeLayerSource,
+): ProjectionBuild | null {
+  for (const recentHtml of recentHtmlByIdentity.get(identityKey) ?? []) {
+    for (const build of projectionCache.get(recentHtml)?.values() ?? []) {
+      if (nodeIdentityKey(build.projection.source) !== identityKey) continue;
+      const patched = incrementalProjectionBuild(build, html, source);
+      if (patched) return patched;
+      break;
+    }
+  }
+  return null;
+}
+
+// A recent document only helps while its build is cached; otherwise it is a
+// whole screen kept alive for nothing.
+function forgetRecentHtml(html: string): void {
+  for (const [identityKey, recent] of recentHtmlByIdentity) {
+    if (!recent.includes(html)) continue;
+    const kept = recent.filter((item) => item !== html);
+    if (kept.length > 0) recentHtmlByIdentity.set(identityKey, kept);
+    else recentHtmlByIdentity.delete(identityKey);
+  }
+}
+
+/** @internal — documents held for incremental patching, for leak tests. */
+export function _recentProjectionDocumentCountForTests(): number {
+  let count = 0;
+  for (const recent of recentHtmlByIdentity.values()) count += recent.length;
+  return count;
+}
+
+function rememberRecentHtml(identityKey: string, html: string): void {
+  const recent = (recentHtmlByIdentity.get(identityKey) ?? []).filter(
+    (item) => item !== html,
+  );
+  recent.unshift(html);
+  recent.length = Math.min(recent.length, RECENT_HTML_PER_IDENTITY);
+  recentHtmlByIdentity.delete(identityKey);
+  recentHtmlByIdentity.set(identityKey, recent);
+  if (recentHtmlByIdentity.size > RECENT_HTML_IDENTITY_LIMIT) {
+    recentHtmlByIdentity.delete(
+      recentHtmlByIdentity.keys().next().value as string,
+    );
+  }
+}
+
+function projectionIdFor(html: string, source: CodeLayerSource): string {
+  return `clp_${hashStable(`${source.kind}:${source.fileId ?? ""}:${source.filename ?? ""}:${html}`)}`;
+}
+
+// Node ids depend only on the source's identity key, so a build of the same
+// document under other source metadata can lend its parse instead of re-parsing.
+function projectionBuildForSameNodeIds(
+  bySource: Map<string, ProjectionBuild> | undefined,
+  html: string,
+  source: CodeLayerSource,
+): ProjectionBuild | null {
+  if (!bySource) return null;
+  const identityKey = nodeIdentityKey(source);
+  for (const build of bySource.values()) {
+    if (nodeIdentityKey(build.projection.source) !== identityKey) continue;
+    return {
+      ...build,
+      projection: {
+        ...build.projection,
+        projectionId: projectionIdFor(html, source),
+        source,
+      },
+    };
+  }
+  return null;
+}
+
 export function clearCodeLayerProjectionCache(): void {
   projectionCache.clear();
+  projectionCacheChars = 0;
+  recentHtmlByIdentity.clear();
+  pinnedDocumentsByOwner.clear();
+  parsedElementsCache.clear();
+  parsedElementsCacheChars = 0;
 }
 
 const TEXT_WRAP_SKIP_TAGS = new Set([
@@ -3360,12 +3746,6 @@ const TEXT_WRAP_SKIP_TAGS = new Set([
   "title",
 ]);
 
-/**
- * Give every painted or padded text leaf a real `<span>` child so a button
- * projects as a frame wrapping Text. Idempotent: a wrapped element is no
- * longer a leaf. Mixed content is skipped — wrapping the loose runs of
- * `<p>Hi <b>there</b></p>` would turn one sentence into three layers.
- */
 export function wrapBareTextLeavesInHtml(
   html: string,
   options: {
@@ -3422,6 +3802,128 @@ export function wrapBareTextLeavesInHtml(
     });
   }
   return { content, changed: true, wrapped: edits.length };
+}
+
+const FLATTENABLE_CHILD_TAGS = new Set([
+  "article",
+  "aside",
+  "blockquote",
+  "div",
+  "figure",
+  "footer",
+  "form",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "header",
+  "main",
+  "nav",
+  "ol",
+  "p",
+  "section",
+  "table",
+  "ul",
+]);
+
+/**
+ * Removes `<div>` wrappers that hold exactly one block-level child and carry
+ * no class, style, id, behavior, or name: they render nothing, yet each is a
+ * layer the user has to dig through. Inline children stay wrapped because the
+ * div is what puts them on their own line.
+ */
+// Selectors that match on tree shape: removing a wrapper would change what
+// they select, so any of them in the page's own CSS keeps every wrapper.
+const STRUCTURAL_SELECTOR = /[>+~]|:(?:nth-|first-|last-|only-|empty\b|has\()/;
+
+export function flattenRedundantWrappersInHtml(html: string): {
+  content: string;
+  removed: number;
+} {
+  const pageCss = [...html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)];
+  if (pageCss.some((match) => STRUCTURAL_SELECTOR.test(match[1] ?? ""))) {
+    return { content: html, removed: 0 };
+  }
+  // A linked stylesheet cannot be read here, so it may hold such selectors.
+  // Font stylesheets only declare @font-face.
+  const linkedStylesheets = [...html.matchAll(/<link\b[^>]*>/gi)].filter(
+    (match) =>
+      /\brel\s*=\s*["']?stylesheet\b/i.test(match[0]) &&
+      !/\bhref\s*=\s*["']?https:\/\/fonts\.googleapis\.com\//i.test(match[0]),
+  );
+  if (linkedStylesheets.length > 0) return { content: html, removed: 0 };
+  const elements = parseHtmlElements(html);
+  const ranges: Array<{ start: number; end: number }> = [];
+  for (const element of elements) {
+    if (element.tag !== "div" || element.selfClosing) continue;
+    if (element.parentIndex === undefined) continue;
+    if (element.closeStart === undefined || element.closeEnd === undefined) {
+      continue;
+    }
+    const bare = element.attributes.every(
+      (attribute) =>
+        attribute.lowerName === "data-agent-native-node-id" ||
+        ((attribute.lowerName === "class" || attribute.lowerName === "style") &&
+          (attribute.value === true || attribute.value.trim() === "")),
+    );
+    if (!bare || element.childIndexes.length !== 1) continue;
+    const child = elements[element.childIndexes[0]!];
+    if (!child || !FLATTENABLE_CHILD_TAGS.has(child.tag)) continue;
+    if (
+      html.slice(element.contentStart, child.start).trim() !== "" ||
+      html.slice(child.end, element.contentEnd).trim() !== ""
+    ) {
+      continue;
+    }
+    ranges.push(
+      { start: element.start, end: element.openEnd },
+      { start: element.closeStart, end: element.closeEnd },
+    );
+  }
+  if (ranges.length === 0) return { content: html, removed: 0 };
+  let content = html;
+  for (const range of ranges.sort((a, b) => b.start - a.start)) {
+    content = `${content.slice(0, range.start)}${content.slice(range.end)}`;
+  }
+  return { content, removed: ranges.length / 2 };
+}
+
+const STABLE_NODE_ID_ATTRIBUTE_RE =
+  /\sdata-agent-native-node-id\s*=\s*(?:"[^"]*"|'[^']*'|[^\s/>]+)/gi;
+
+export function hasCanonicalCodeLayerNodeIds(
+  html: string,
+  options: { source?: CodeLayerSource } = {},
+): boolean {
+  const safeHtml = typeof html === "string" ? html : "";
+  const elements =
+    reusableProjectionBuild(safeHtml, options.source ?? { kind: "inline-html" })
+      ?.elements ?? parseHtmlElements(safeHtml);
+  const usedIds = new Set<string>();
+  for (const element of elements) {
+    if (NON_VISUAL_TAGS.has(element.tag)) continue;
+    if (TRANSPARENT_TAGS.has(element.tag)) continue;
+    if (hasSvgAncestor(element, elements)) continue;
+    let existing: string | undefined;
+    for (const attr of element.attributes) {
+      if (
+        attr.lowerName === "data-agent-native-node-id" &&
+        typeof attr.value === "string"
+      ) {
+        existing = attr.value;
+      }
+    }
+    existing = existing?.trim();
+    if (!existing || usedIds.has(existing)) return false;
+    const openTag = html.slice(element.start, element.openEnd);
+    STABLE_NODE_ID_ATTRIBUTE_RE.lastIndex = 0;
+    if (!STABLE_NODE_ID_ATTRIBUTE_RE.test(openTag)) return false;
+    if (STABLE_NODE_ID_ATTRIBUTE_RE.test(openTag)) return false;
+    usedIds.add(existing);
+  }
+  return true;
 }
 
 export function ensureCodeLayerNodeIdsInHtml(
@@ -3531,10 +4033,7 @@ export function ensureCodeLayerNodeIdInHtml(
     selector?: string;
   } = {},
 ): { content: string; changed: boolean; nodeId?: string } {
-  const build = buildProjection(
-    html,
-    options.source ?? { kind: "inline-html" },
-  );
+  const build = cachedProjectionBuild(html, options.source);
   const resolution = resolveTarget(build, {
     nodeId: targetNodeId,
     ...(options.selector ? { selector: options.selector } : {}),
@@ -3617,7 +4116,95 @@ export function removeCodeLayerNodeFromHtml(
   const start = node.source.start;
   const end = node.source.end;
   if (start < 0 || end <= start || end > html.length) return null;
-  return `${html.slice(0, start)}${html.slice(end)}`;
+  return pruneDeletedNativeEffects(
+    html,
+    `${html.slice(0, start)}${html.slice(end)}`,
+  );
+}
+
+type CodeLayerTreeFields = Omit<CodeLayerTreeNode, "children">;
+
+// Keyed on dataAttributes, which the projection patcher keeps only for nodes
+// whose own data is unchanged; a node's type also reads its children's tags.
+const treeFieldsByNodeData = new WeakMap<object, CodeLayerTreeFields>();
+
+function treeFieldsFor(
+  node: CodeLayerNode,
+  nodesById: ReadonlyMap<string, CodeLayerNode>,
+): CodeLayerTreeFields {
+  const cached = treeFieldsByNodeData.get(node.dataAttributes);
+  if (cached?.id === node.id) return cached;
+  const componentName = node.componentInstance?.name;
+  const explicitLayerName =
+    node.layerNameSource === "attribute" ? node.layerName : undefined;
+  const type = treeTypeForNode(node, nodesById);
+  const fields: CodeLayerTreeFields = {
+    id: node.id,
+    name:
+      explicitLayerName ??
+      componentName ??
+      unnamedLayerName(node, type) ??
+      node.layerName,
+    type,
+    isNativeTextPrimitive: node.dataAttributes["data-an-primitive"] === "text",
+    isComponent: treeNodeIsComponent(node),
+    tag: node.tag,
+    selector: node.selector,
+    detail: `<${node.tag}>`,
+    layout: {
+      display: node.layout.display,
+      flexDirection: node.layout.flexDirection,
+      alignItems: node.layout.alignItems,
+      justifyContent: node.layout.justifyContent,
+      isFlexContainer: node.layout.isFlexContainer,
+      isGridContainer: node.layout.isGridContainer,
+      parentDisplay: node.layout.parentDisplay,
+    },
+    badge:
+      node.layerNameSource === "attribute" && node.layerNameAttribute
+        ? node.layerNameAttribute
+        : undefined,
+    renamable: node.source != null,
+  };
+  treeFieldsByNodeData.set(node.dataAttributes, fields);
+  return fields;
+}
+
+const treesByProjection = new WeakMap<
+  CodeLayerProjection,
+  CodeLayerTreeNode[]
+>();
+
+/**
+ * The tree for a projection, shared by every caller that does not mutate it.
+ * Rebuilding an equal tree per render leaves a copy behind in each render a
+ * closure still references.
+ */
+export function cachedCodeLayerTree(
+  projection: CodeLayerProjection,
+): CodeLayerTreeNode[] {
+  let tree = treesByProjection.get(projection);
+  if (!tree) {
+    tree = buildCodeLayerTree(projection);
+    treesByProjection.set(projection, tree);
+  }
+  return tree;
+}
+
+const nodesByIdByProjection = new WeakMap<
+  CodeLayerProjection,
+  ReadonlyMap<string, CodeLayerNode>
+>();
+
+export function cachedCodeLayerNodeById(
+  projection: CodeLayerProjection,
+): ReadonlyMap<string, CodeLayerNode> {
+  let nodeById = nodesByIdByProjection.get(projection);
+  if (!nodeById) {
+    nodeById = new Map(projection.nodes.map((node) => [node.id, node]));
+    nodesByIdByProjection.set(projection, nodeById);
+  }
+  return nodeById;
 }
 
 export function buildCodeLayerTree(
@@ -3627,42 +4214,7 @@ export function buildCodeLayerTree(
   const treeById = new Map<string, CodeLayerTreeNode>();
 
   for (const node of projection.nodes) {
-    const componentName = node.componentInstance?.name;
-    const explicitLayerName =
-      node.layerNameSource === "attribute" ? node.layerName : undefined;
-    const type = treeTypeForNode(node, nodesById);
-    treeById.set(node.id, {
-      id: node.id,
-      name:
-        explicitLayerName ??
-        componentName ??
-        unnamedLayerName(node, type) ??
-        node.layerName,
-      type,
-      isNativeTextPrimitive:
-        node.dataAttributes["data-an-primitive"] === "text",
-      isComponent: treeNodeIsComponent(node),
-      tag: node.tag,
-      selector: node.selector,
-      detail: `<${node.tag}>`,
-      layout: {
-        display: node.layout.display,
-        flexDirection: node.layout.flexDirection,
-        alignItems: node.layout.alignItems,
-        justifyContent: node.layout.justifyContent,
-        isFlexContainer: node.layout.isFlexContainer,
-        isGridContainer: node.layout.isGridContainer,
-      },
-      badge:
-        node.layerNameSource === "attribute" && node.layerNameAttribute
-          ? node.layerNameAttribute
-          : undefined,
-      // Safe rename persistence belongs in the caller's edit action. The
-      // preferred write target is data-agent-native-layer-name; projection is
-      // intentionally read-only and never mutates source by itself.
-      renamable: node.source != null,
-      children: [],
-    });
+    treeById.set(node.id, { ...treeFieldsFor(node, nodesById), children: [] });
   }
 
   const childIdsByParentId = new Map<string, Set<string>>();
@@ -3673,8 +4225,13 @@ export function buildCodeLayerTree(
         : undefined;
     const treeNode = treeById.get(node.id);
     if (!parent || !treeNode || parent.id === treeNode.id) continue;
-    // Inline runs inside a Text layer are formatting, not layers of their own.
-    if (parent.type === "text" && INLINE_TEXT_TAGS.has(node.tag)) continue;
+    if (
+      parent.type === "text" &&
+      INLINE_TEXT_TAGS.has(node.tag) &&
+      node.layerNameSource !== "attribute"
+    ) {
+      continue;
+    }
     const childIds = childIdsByParentId.get(parent.id) ?? new Set<string>();
     if (childIds.has(treeNode.id)) continue;
     childIds.add(treeNode.id);
@@ -3700,10 +4257,38 @@ export function buildCodeLayerTree(
 }
 
 function normalizeSelectorForMatch(selector: string): string {
-  return selector
-    .trim()
-    .replace(/\s*>\s*/g, " > ")
-    .replace(/\s+/g, " ");
+  selector = sourceEquivalentSelectorPath(selector);
+  let normalized = "";
+  let quote: string | null = null;
+  let escaped = false;
+  let bracketDepth = 0;
+  let parenDepth = 0;
+  for (const character of selector.trim()) {
+    if (quote) {
+      normalized += character;
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      normalized += character;
+      continue;
+    }
+    if (character === "[") bracketDepth += 1;
+    if (character === "]") bracketDepth -= 1;
+    if (character === "(") parenDepth += 1;
+    if (character === ")") parenDepth -= 1;
+    if (character === ">" && bracketDepth === 0 && parenDepth === 0) {
+      normalized = `${normalized.trimEnd()} > `;
+    } else if (/\s/.test(character) && bracketDepth === 0 && parenDepth === 0) {
+      if (normalized && !normalized.endsWith(" ")) normalized += " ";
+    } else {
+      normalized += character;
+    }
+  }
+  return normalized.trim();
 }
 
 function selectorPartTag(selectorPart: string): string | null {
@@ -3716,16 +4301,6 @@ function isDocumentRootSelectorPart(selectorPart: string): boolean {
   return tag === "html" || tag === "body";
 }
 
-// Removes positional `:nth-of-type(n)` suffixes from a selector. Runtime
-// bridge selectors fall back to `:nth-of-type` for elements without a durable
-// id, and that position is computed against the live (possibly Alpine-mutated)
-// DOM. When the stored source order differs, the positional index no longer
-// lines up. Dropping the suffix lets resolution fall back to the element's
-// stable signal (tag, classes, attributes, ancestor path).
-/**
- * True when every selector part that loses a `:nth-of-type` still carries a
- * class, id, or attribute qualifier of its own.
- */
 function positionStripKeepsEvidence(selector: string): boolean {
   return selector
     .split(">")
@@ -3800,12 +4375,186 @@ function unescapeCssAttributeValue(value: string): string {
   return value.replace(/\\"/g, '"').replace(/\\\\/g, "\\");
 }
 
+function splitCssListAtTopLevel(value: string): string[] | null {
+  const result: string[] = [];
+  let start = 0;
+  let quote: string | null = null;
+  let bracketDepth = 0;
+  let parenDepth = 0;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (!character) continue;
+    if (character === "\\") {
+      index += 1;
+      continue;
+    }
+    if (quote) {
+      if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      continue;
+    }
+    if (character === "[") bracketDepth += 1;
+    else if (character === "]") bracketDepth -= 1;
+    else if (bracketDepth === 0 && character === "(") parenDepth += 1;
+    else if (bracketDepth === 0 && character === ")") parenDepth -= 1;
+    if (bracketDepth < 0 || parenDepth < 0) return null;
+    if (character === "," && bracketDepth === 0 && parenDepth === 0) {
+      result.push(value.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+  if (quote || bracketDepth !== 0 || parenDepth !== 0) return null;
+  result.push(value.slice(start).trim());
+  return result;
+}
+
+function extractNotPseudoSelectors(
+  selector: string,
+): { selector: string; negatedSelectors: string[] } | null {
+  let remaining = "";
+  const negatedSelectors: string[] = [];
+  let quote: string | null = null;
+  let bracketDepth = 0;
+
+  for (let index = 0; index < selector.length; index += 1) {
+    const character = selector[index];
+    if (!character) continue;
+    if (character === "\\") {
+      remaining += character;
+      const escaped = selector[index + 1];
+      if (escaped) {
+        remaining += escaped;
+        index += 1;
+      }
+      continue;
+    }
+    if (quote) {
+      remaining += character;
+      if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      remaining += character;
+      continue;
+    }
+    if (character === "[") bracketDepth += 1;
+    else if (character === "]") bracketDepth -= 1;
+    if (bracketDepth < 0) return null;
+
+    if (
+      bracketDepth === 0 &&
+      selector.slice(index, index + 5).toLowerCase() === ":not("
+    ) {
+      let depth = 1;
+      let innerQuote: string | null = null;
+      let innerBracketDepth = 0;
+      let end = index + 5;
+      for (; end < selector.length; end += 1) {
+        const innerCharacter = selector[end];
+        if (!innerCharacter) continue;
+        if (innerCharacter === "\\") {
+          end += 1;
+          continue;
+        }
+        if (innerQuote) {
+          if (innerCharacter === innerQuote) innerQuote = null;
+          continue;
+        }
+        if (innerCharacter === '"' || innerCharacter === "'") {
+          innerQuote = innerCharacter;
+          continue;
+        }
+        if (innerCharacter === "[") innerBracketDepth += 1;
+        else if (innerCharacter === "]") innerBracketDepth -= 1;
+        else if (innerBracketDepth === 0 && innerCharacter === "(") {
+          depth += 1;
+        } else if (innerBracketDepth === 0 && innerCharacter === ")") {
+          depth -= 1;
+          if (depth === 0) break;
+        }
+      }
+      if (depth !== 0 || innerQuote || innerBracketDepth !== 0) return null;
+      const argumentsList = splitCssListAtTopLevel(
+        selector.slice(index + 5, end),
+      );
+      if (!argumentsList || argumentsList.some((value) => !value)) return null;
+      negatedSelectors.push(...argumentsList);
+      index = end;
+      continue;
+    }
+    remaining += character;
+  }
+  if (quote || bracketDepth !== 0) return null;
+  return { selector: remaining, negatedSelectors };
+}
+
+function isSupportedStaticSelector(selector: string): boolean {
+  const extracted = extractNotPseudoSelectors(selector);
+  if (!extracted) return false;
+  if (
+    extracted.negatedSelectors.some(
+      (nested) => !isSupportedStaticSelector(nested),
+    )
+  ) {
+    return false;
+  }
+  let base = extracted.selector.trim();
+  const nthOfType = base.match(/:nth-of-type\(\d+\)$/);
+  if (nthOfType?.index !== undefined) {
+    base = base.slice(0, nthOfType.index);
+  }
+  if (!base) return true;
+
+  if (base.startsWith("*")) {
+    base = base.slice(1);
+  } else {
+    const tag = base.match(/^[A-Za-z][A-Za-z0-9-]*/);
+    if (tag?.[0]) base = base.slice(tag[0].length);
+  }
+
+  while (base) {
+    const identifier = base.match(/^[.#][A-Za-z_][A-Za-z0-9_-]*/);
+    if (identifier?.[0]) {
+      base = base.slice(identifier[0].length);
+      continue;
+    }
+
+    const attribute = base.match(
+      /^\[([A-Za-z_][A-Za-z0-9_:.-]*)=(?:"(?:\\"|[^"])*"|'(?:\\'|[^'])*')\]/,
+    );
+    if (attribute?.[0]) {
+      base = base.slice(attribute[0].length);
+      continue;
+    }
+
+    return false;
+  }
+  return true;
+}
+
 function simpleSelectorMatchesElement(
   element: ParsedElement,
   selector: string,
 ): boolean {
   let remaining = selector.trim();
   if (!remaining) return false;
+
+  const extractedNotSelectors = extractNotPseudoSelectors(remaining);
+  if (!extractedNotSelectors) return true;
+  remaining = extractedNotSelectors.selector.trim() || "*";
+  for (const negatedSelector of extractedNotSelectors.negatedSelectors) {
+    if (
+      isSupportedStaticSelector(negatedSelector) &&
+      simpleSelectorMatchesElement(element, negatedSelector)
+    ) {
+      return false;
+    }
+  }
 
   const nthMatch = remaining.match(/:nth-of-type\((\d+)\)$/);
   if (nthMatch?.[1]) {
@@ -3818,16 +4567,9 @@ function simpleSelectorMatchesElement(
     return false;
   }
 
-  const idMatch = remaining.match(/#([A-Za-z_][A-Za-z0-9_-]*)/);
-  if (idMatch?.[1] && attributeValue(element, "id") !== idMatch[1]) {
-    return false;
-  }
-
-  const attributes = Array.from(
-    remaining.matchAll(
-      /\[([A-Za-z_][A-Za-z0-9_:.-]*)=(?:"((?:\\"|[^"])*)"|'((?:\\'|[^'])*)')\]/g,
-    ),
-  );
+  const attributeSelectorPattern =
+    /\[([A-Za-z_][A-Za-z0-9_:.-]*)=(?:"((?:\\"|[^"])*)"|'((?:\\'|[^'])*)')\]/g;
+  const attributes = Array.from(remaining.matchAll(attributeSelectorPattern));
   for (const match of attributes) {
     const name = match[1];
     if (!name) return false;
@@ -3835,9 +4577,18 @@ function simpleSelectorMatchesElement(
     if (attributeValue(element, name) !== expected) return false;
   }
 
+  const outsideAttributeValues = remaining.replace(
+    attributeSelectorPattern,
+    " ",
+  );
+  const idMatch = outsideAttributeValues.match(/#([A-Za-z_][A-Za-z0-9_-]*)/);
+  if (idMatch?.[1] && attributeValue(element, "id") !== idMatch[1]) {
+    return false;
+  }
+
   const classes = classList(element);
   const requiredClasses = Array.from(
-    remaining.matchAll(/\.([A-Za-z_][A-Za-z0-9_-]*)/g),
+    outsideAttributeValues.matchAll(/\.([A-Za-z_][A-Za-z0-9_-]*)/g),
     (match) => match[1],
   ).filter((value): value is string => Boolean(value));
   if (requiredClasses.some((className) => !classes.includes(className))) {
@@ -3849,14 +4600,15 @@ function simpleSelectorMatchesElement(
     idMatch ||
     attributes.length > 0 ||
     requiredClasses.length > 0 ||
-    nthMatch,
+    nthMatch ||
+    remaining === "*",
   );
 }
 
 function selectorPathMatchesElement(
   element: ParsedElement | undefined,
   selector: string,
-  elementByIndex: Map<number, ParsedElement>,
+  elements: readonly ParsedElement[],
 ): boolean {
   const parts = normalizeSelectorForMatch(selector)
     .split(" > ")
@@ -3876,28 +4628,56 @@ function selectorPathMatchesElement(
     current =
       current.parentIndex === undefined
         ? undefined
-        : elementByIndex.get(current.parentIndex);
+        : elements[current.parentIndex];
   }
   return true;
 }
 
-function nodeMatchesStableSourceId(
-  node: CodeLayerNode,
+const stableSourceIdIndexes = new WeakMap<
+  CodeLayerProjection,
+  Map<string, CodeLayerNode[]>
+>();
+
+// A node the caller's own projection names by stable id, found without a
+// parse; null when the id is missing or ambiguous.
+export function codeLayerNodeWithStableSourceId(
+  projection: CodeLayerProjection,
   sourceId: string,
-): boolean {
-  if (!sourceId) return false;
-  if (node.id === sourceId) return true;
-  for (const attribute of STABLE_NODE_ID_ATTRIBUTES) {
-    if (node.dataAttributes[attribute] === sourceId) return true;
+): CodeLayerNode | null {
+  const matches = nodesWithStableSourceId(projection, sourceId);
+  return matches.length === 1 ? matches[0]! : null;
+}
+
+function nodesWithStableSourceId(
+  projection: CodeLayerProjection,
+  sourceId: string,
+): CodeLayerNode[] {
+  let index = stableSourceIdIndexes.get(projection);
+  if (!index) {
+    index = new Map();
+    for (const node of projection.nodes) {
+      const ids = new Set([
+        node.id,
+        ...STABLE_NODE_ID_ATTRIBUTES.map((name) => node.dataAttributes[name]),
+        node.attributes.id,
+      ]);
+      for (const id of ids) {
+        if (typeof id !== "string" || !id) continue;
+        const nodes = index.get(id);
+        if (nodes) nodes.push(node);
+        else index.set(id, [node]);
+      }
+    }
+    stableSourceIdIndexes.set(projection, index);
   }
-  return node.attributes.id === sourceId;
+  return index.get(sourceId) ?? [];
 }
 
 function selectorMatches(
   node: CodeLayerNode,
   selector: string,
   element: ParsedElement | undefined,
-  elementByIndex: Map<number, ParsedElement>,
+  elements: readonly ParsedElement[],
 ): boolean {
   const normalizedSelector = normalizeSelectorForMatch(selector);
   const normalizedNodeSelectors = [
@@ -3917,7 +4697,7 @@ function selectorMatches(
   }
   if (
     selectorHasDirectPath &&
-    selectorPathMatchesElement(element, normalizedSelector, elementByIndex)
+    selectorPathMatchesElement(element, normalizedSelector, elements)
   ) {
     return true;
   }
@@ -3934,22 +4714,17 @@ function resolveTarget(
   target: EditIntentTarget,
 ): EditIntentResolution {
   const { projection, elementByNodeId } = build;
-  const elementByIndex = new Map(
-    build.elements.map((element) => [element.index, element]),
-  );
   const matchesForSelector = (value: string): CodeLayerNode[] =>
     projection.nodes.filter((node) => {
       return selectorMatches(
         node,
         value,
         elementByNodeId.get(node.id),
-        elementByIndex,
+        build.elements,
       );
     });
   if (target.nodeId) {
-    const matches = projection.nodes.filter((candidate) =>
-      nodeMatchesStableSourceId(candidate, target.nodeId ?? ""),
-    );
+    const matches = nodesWithStableSourceId(projection, target.nodeId);
     if (matches.length === 1 && matches[0]) {
       return { status: "resolved", node: matches[0] };
     }
@@ -3995,22 +4770,10 @@ function resolveTarget(
     };
   }
 
-  // Strict matching found nothing. Runtime selectors anchor unstamped elements
-  // with positional `:nth-of-type(n)` parts, which drift when the live DOM
-  // order differs from the stored source (reordered or runtime-inserted nodes).
-  // Retry once with the positional suffixes dropped so an element that is still
-  // unique by its tag/classes/attributes resolves instead of surfacing a hard
-  // "did not match" error. Genuinely ambiguous results stay a conflict rather
-  // than silently editing the wrong node.
   const positionTolerantSelector = stripPositionalNthOfType(selectorValue);
   if (positionTolerantSelector && positionTolerantSelector !== selectorValue) {
     const tolerantMatches = matchesForSelector(positionTolerantSelector);
     if (tolerantMatches.length === 1 && tolerantMatches[0]) {
-      // One match is not proof it is the right element. Dropping a position
-      // is only safe while the part keeps evidence of its own; a part that
-      // degrades to a bare tag was identified by position alone, so its
-      // "unique" match is a different sibling — a runtime clone resolving
-      // onto the one static row is the reachable case.
       if (!positionStripKeepsEvidence(selectorValue)) {
         return {
           status: "conflict",
@@ -4038,10 +4801,7 @@ export function resolveCodeLayerTarget(
   target: EditIntentTarget,
   options: { source?: CodeLayerSource } = {},
 ): { projection: CodeLayerProjection; resolution: EditIntentResolution } {
-  const build = buildProjection(
-    html,
-    options.source ?? { kind: "inline-html" },
-  );
+  const build = cachedProjectionBuild(html, options.source);
   return {
     projection: build.projection,
     resolution: resolveTarget(build, target),
@@ -4108,11 +4868,6 @@ function replaceOrInsertAttribute(
   return `${html.slice(0, insertAt)} ${name}="${escaped}"${html.slice(insertAt)}`;
 }
 
-/**
- * Migrate generated max-width class tokens in HTML without serializing the
- * document. The existing source parser skips opaque head/script/style text;
- * reverse attribute splices keep every other byte unchanged.
- */
 export function migrateMaxWidthClassBoundsInHtml(
   html: string,
   boundMap: ReadonlyMap<number, number | null>,
@@ -4168,7 +4923,47 @@ function setStyleValue(
   return serializeStyleDeclarations(declarations);
 }
 
+function lastDeclarationValue(
+  parsed: ParsedStyleDeclarations,
+  property: string,
+): string | undefined {
+  const key = cssPropertyKey(property);
+  const matches = parsed.declarations.filter(
+    (declaration) => cssPropertyKey(declaration.prop) === key,
+  );
+  return matches[matches.length - 1]?.value;
+}
+
+function withBorderAreaFallback(style: string, editedProperty: string): string {
+  const parsed = parseStyleDeclarations(style);
+  const clip = lastDeclarationValue(parsed, "background-clip") ?? "";
+  const plainSize = lastDeclarationValue(parsed, "background-size");
+  const aliasSize = lastDeclarationValue(parsed, "-webkit-background-size");
+  const hasFallback = aliasSize !== undefined;
+  const realSize =
+    editedProperty === "background-size"
+      ? plainSize
+      : (borderAreaSupportedBranch(aliasSize) ?? plainSize);
+  const index = borderAreaLayerIndex(clip);
+  if (index < 0 && !hasFallback) return style;
+  removeStyleDeclarations(parsed, [...BORDER_AREA_FALLBACK_PROPERTIES]);
+  if (index < 0) {
+    if (realSize) setStyleDeclaration(parsed, "background-size", realSize);
+    return serializeStyleDeclarations(parsed);
+  }
+  const fallback = borderAreaFallback(
+    lastDeclarationValue(parsed, "background-image") ?? "",
+    realSize ?? "auto",
+    index,
+  );
+  for (const [property, value] of Object.entries(fallback)) {
+    setStyleDeclaration(parsed, property, value);
+  }
+  return serializeStyleDeclarations(parsed);
+}
+
 const VECTOR_PAINT_PRIMITIVES = new Set([
+  "pasted-svg",
   "path",
   "line",
   "arrow",
@@ -4191,6 +4986,56 @@ const VECTOR_SHAPE_TAGS = new Set([
   "use",
 ]);
 
+function vectorShapeDescendants(
+  element: ParsedElement,
+  elements: ParsedElement[],
+): ParsedElement[] {
+  const pending = [...element.childIndexes].reverse();
+  const shapes: ParsedElement[] = [];
+  while (pending.length) {
+    const childIndex = pending.pop();
+    const child = childIndex === undefined ? undefined : elements[childIndex];
+    if (!child) continue;
+    if (VECTOR_SHAPE_TAGS.has(child.tag)) {
+      shapes.push(child);
+    } else if (child.tag === "g") {
+      for (let index = child.childIndexes.length - 1; index >= 0; index -= 1) {
+        const nestedIndex = child.childIndexes[index];
+        if (nestedIndex !== undefined) pending.push(nestedIndex);
+      }
+    }
+  }
+  return shapes;
+}
+
+function uniqueVectorShapeDescendant(
+  element: ParsedElement,
+  elements: ParsedElement[],
+): ParsedElement | null {
+  const shapes = vectorShapeDescendants(element, elements);
+  return shapes.length === 1 ? (shapes[0] ?? null) : null;
+}
+
+function vectorShapeOwnerSvg(
+  shape: ParsedElement,
+  elements: ParsedElement[],
+): ParsedElement | null {
+  let parentIndex = shape.parentIndex;
+  let nearestSvg: ParsedElement | null = null;
+  while (parentIndex !== undefined) {
+    const parent = elements[parentIndex];
+    if (!parent) return null;
+    if (parent.tag === "svg") {
+      if (attributeValue(parent, "data-an-primitive") === "pasted-svg") {
+        return parent;
+      }
+      nearestSvg ??= parent;
+    }
+    parentIndex = parent.parentIndex;
+  }
+  return nearestSvg;
+}
+
 const VECTOR_PAINT_PROPERTIES = [
   "fill",
   "fill-opacity",
@@ -4200,6 +5045,27 @@ const VECTOR_PAINT_PROPERTIES = [
 ] as const;
 
 const VECTOR_STROKE_POSITION = "data-an-vector-stroke-position";
+export const PEN_CORNER_RADIUS_ATTRIBUTE = "data-an-corner-radius";
+const VECTOR_STROKE_GRADIENT_PROPERTY = "--an-vector-stroke-gradient";
+const CSS_BORDER_GRADIENT_PROPERTY = "--an-css-border-gradient";
+const CSS_BORDER_SOLID_COLOR_PROPERTY = "--an-css-border-solid-color";
+
+function cssBorderShorthandParts(value: string | undefined) {
+  if (!value) return null;
+  const width = value.match(
+    /(?:^|\s)((?:thin|medium|thick|(?:\d*\.)?\d+(?:px|em|rem|pt|pc|in|cm|mm|q|ex|ch|vw|vh|vmin|vmax)?))(?=\s|$)/i,
+  )?.[1];
+  const style = value.match(/(?:^|\s)(solid)(?=\s|$)/i)?.[1];
+  if (!width || !style) return null;
+  const color = value
+    .replace(new RegExp(`(?:^|\\s)${width}(?=\\s|$)`, "i"), " ")
+    .replace(/(?:^|\s)solid(?=\s|$)/i, " ")
+    .trim();
+  return color ? { width, style, color } : null;
+}
+const VECTOR_STROKE_GRADIENT_MARKER = "data-an-vector-stroke-gradient";
+const VECTOR_FILL_GRADIENT_PROPERTY = "--an-vector-fill-gradient";
+const VECTOR_FILL_GRADIENT_MARKER = "data-an-vector-fill-gradient";
 const VECTOR_STROKE_OVERLAY = "data-an-vector-stroke-overlay";
 const VECTOR_STROKE_LOGICAL_WIDTH = "data-an-vector-logical-width";
 const VECTOR_STROKE_GENERATED_DEFS = "data-an-vector-stroke-defs";
@@ -4618,11 +5484,6 @@ function applyVectorStrokePositionEdit(
   return `${result.slice(0, insertAt)}${defs}${overlay}${result.slice(insertAt)}`;
 }
 
-/**
- * A drawn vector primitive's `<svg>` carries the geometry and its shape child
- * carries the paint, so fill/stroke aimed at the wrapper tints the bounding
- * box instead. Mirrored by `vectorPaintTarget` in editor-chrome.bridge.ts.
- */
 function vectorShapeChild(
   element: ParsedElement,
   elements: ParsedElement[],
@@ -4643,6 +5504,9 @@ function vectorShapeChild(
     kind !== "boolean-operand"
   ) {
     return null;
+  }
+  if (kind === "pasted-svg") {
+    return uniqueVectorShapeDescendant(element, elements);
   }
   for (const childIndex of element.childIndexes) {
     const child = elements[childIndex];
@@ -4680,19 +5544,31 @@ function vectorStrokeCanAlign(
   );
 }
 
-/**
- * Folds the shape child's paint onto the wrapper node. The child is skipped by
- * `hasSvgAncestor`, so the wrapper is the only layer a reader can address —
- * without this the inspector sees no fill and offers to add a `background`.
- */
 function withVectorPaintStyle(
   element: ParsedElement,
   elements: ParsedElement[],
   style: Record<string, string>,
 ): Record<string, string> {
+  if (
+    element.tag === "path" ||
+    element.tag === "polygon" ||
+    element.tag === "polyline" ||
+    element.tag === "ellipse" ||
+    element.tag === "circle" ||
+    element.tag === "rect" ||
+    element.tag === "line" ||
+    element.tag === "use"
+  ) {
+    const merged = { ...style };
+    for (const property of VECTOR_PAINT_PROPERTIES) {
+      const value = style[property] ?? attributeValue(element, property);
+      if (value) merged[property] = value;
+    }
+    return merged;
+  }
+  const kind = attributeValue(element, "data-an-primitive");
   const child = vectorShapeChild(element, elements);
   if (!child) return style;
-  const kind = attributeValue(element, "data-an-primitive");
   if (kind === "boolean-operand" || kind === "boolean") {
     const merged = { ...style };
     for (const [property, customProperty] of Object.entries(
@@ -4720,8 +5596,6 @@ function withVectorPaintStyle(
     : null;
   const merged = { ...style };
   for (const property of VECTOR_PAINT_PROPERTIES) {
-    // An inline declaration on the child outranks its presentation
-    // attribute, the same order the cascade resolves them when painting.
     const value =
       property.startsWith("stroke") && overlayStyle
         ? (overlayStyle[property] ?? attributeValue(overlay!, property))
@@ -4757,11 +5631,6 @@ function withVectorPaintStyle(
   return merged;
 }
 
-/**
- * Box paint that a vector wrapper must never carry: it paints the bounding
- * rectangle, and the inspector no longer edits these for a vector, so a value
- * left here is unreachable from the UI.
- */
 const VECTOR_WRAPPER_BOX_PAINT = new Set([
   "background",
   "background-color",
@@ -4773,15 +5642,15 @@ const VECTOR_WRAPPER_BOX_PAINT = new Set([
 ]);
 
 function clearVectorWrapperPaint(html: string, wrapper: ParsedElement): string {
-  const style = attributeValue(wrapper, "style");
+  const current = parseHtmlElements(html)[wrapper.index];
+  if (!current || current.start !== wrapper.start) return html;
+  const style = attributeValue(current, "style");
   if (!style) return html;
   const kept = parseStyleDeclarations(style);
   removeStyleDeclarations(kept, [...VECTOR_WRAPPER_BOX_PAINT]);
   const next = serializeStyleDeclarations(kept);
   if (next === style) return html;
-  // Safe against the child edit that just ran: the wrapper's open tag, and so
-  // its style attribute offsets, precede every child byte.
-  return replaceOrInsertAttribute(html, wrapper, "style", next);
+  return replaceOrInsertAttribute(html, current, "style", next);
 }
 
 function vectorPaintChild(
@@ -4794,8 +5663,6 @@ function vectorPaintChild(
     return null;
   }
   const elements = parsedElements ?? parseHtmlElements(html);
-  // childIndexes only address this array if it is the same parse the caller's
-  // element came from; a shifted index would repaint an unrelated element.
   const parsed = elements[element.index];
   if (!parsed || parsed.start !== element.start) return null;
   if (property.startsWith("stroke")) {
@@ -4807,7 +5674,691 @@ function vectorPaintChild(
   return vectorShapeChild(parsed, elements);
 }
 
+function splitGradientArguments(value: string): string[] | null {
+  const body = value.slice(value.indexOf("(") + 1, -1);
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let index = 0; index < body.length; index += 1) {
+    const character = body[index];
+    if (character === "(") depth += 1;
+    else if (character === ")") depth -= 1;
+    else if (character === "," && depth === 0) {
+      parts.push(body.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+  parts.push(body.slice(start).trim());
+  return parts.every(Boolean) ? parts : null;
+}
+
+function vectorStrokeGradientStops(value: string): FigmaSvgColorStop[] | null {
+  const normalized = value.trim();
+  const gradient = normalizeVectorStrokeGradient(normalized);
+  const parts = gradient ? splitGradientArguments(gradient.value) : null;
+  if (!gradient || !parts || parts.length < 2) return null;
+  if (gradient.kind === "radial") {
+    if (/^ellipse\s+closest-side\b/i.test(parts[0] ?? "")) return null;
+    return parseComputedRadialGradient(gradient.value)?.stops ?? null;
+  }
+
+  const first = parts[0] ?? "";
+  const hasHeader =
+    /^(?:to\s+(?:left|right|top|bottom)(?:\s+(?:left|right|top|bottom))?|[-+]?\d*\.?\d+deg)$/i.test(
+      first,
+    );
+  const stopParts = hasHeader ? parts.slice(1) : parts;
+  if (stopParts.length < 2) return null;
+  return (
+    parseComputedLinearGradient(
+      `linear-gradient(180deg, ${stopParts.join(", ")})`,
+    )?.stops ?? null
+  );
+}
+
+function vectorGradientBox(wrapper: ParsedElement) {
+  const style = parseStyle(attributeValue(wrapper, "style"));
+  const dimension = (value: string | null | undefined) => {
+    const match = value
+      ?.trim()
+      .match(/^([+]?(?:\d+(?:\.\d*)?|\.\d+))(?:px)?$/i);
+    const parsed = match ? Number(match[1]) : NaN;
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  };
+  const cssWidth =
+    dimension(style.width) ?? dimension(attributeValue(wrapper, "width"));
+  const cssHeight =
+    dimension(style.height) ?? dimension(attributeValue(wrapper, "height"));
+  if (!cssWidth || !cssHeight) return null;
+
+  const rawViewBox = attributeValue(wrapper, "viewBox");
+  const viewBox = rawViewBox
+    ?.trim()
+    .split(/[\s,]+/)
+    .map(Number);
+  if (
+    viewBox?.length === 4 &&
+    viewBox.every(Number.isFinite) &&
+    viewBox[2]! > 0 &&
+    viewBox[3]! > 0
+  ) {
+    const scaleX = viewBox[2]! / cssWidth;
+    const scaleY = viewBox[3]! / cssHeight;
+    if (Math.abs(scaleX - scaleY) > Math.max(scaleX, scaleY) * 0.001)
+      return null;
+    return {
+      x: viewBox[0]!,
+      y: viewBox[1]!,
+      width: viewBox[2]!,
+      height: viewBox[3]!,
+      cssWidth,
+      cssHeight,
+      scale: (scaleX + scaleY) / 2,
+    };
+  }
+  if (rawViewBox) return null;
+  return {
+    x: 0,
+    y: 0,
+    width: cssWidth,
+    height: cssHeight,
+    cssWidth,
+    cssHeight,
+    scale: 1,
+  };
+}
+
+function vectorStrokeGradientStopsForSvg(
+  stops: FigmaSvgColorStop[],
+): FigmaSvgColorStop[] | null {
+  if (
+    stops.some((stop) => {
+      return (
+        !parseCssColorExtended(stop.color) ||
+        !Number.isFinite(stop.offset) ||
+        stop.offset < 0 ||
+        stop.offset > 1
+      );
+    })
+  ) {
+    return null;
+  }
+  return stops;
+}
+
+function vectorLinearGradientAngle(
+  value: string,
+  width: number,
+  height: number,
+): number | null {
+  const first =
+    splitGradientArguments(value)?.[0]
+      ?.replace(/\bin\s+srgb\b/i, "")
+      .trim()
+      .toLowerCase() ?? "";
+  if (!first) return 180;
+  const sides = first.match(
+    /^to\s+(top|bottom|left|right)(?:\s+(top|bottom|left|right))?$/,
+  );
+  if (sides) {
+    const vertical = [sides[1], sides[2]].find(
+      (side) => side === "top" || side === "bottom",
+    );
+    const horizontal = [sides[1], sides[2]].find(
+      (side) => side === "left" || side === "right",
+    );
+    if (sides[2] && (!vertical || !horizontal)) return null;
+    if (!sides[2] && vertical && horizontal) return null;
+    if (vertical && horizontal) {
+      const dx = (horizontal === "right" ? 1 : -1) * width;
+      const dy = (vertical === "top" ? -1 : 1) * height;
+      return ((Math.atan2(dx, -dy) * 180) / Math.PI + 360) % 360;
+    }
+    if (first === "to top") return 0;
+    if (first === "to right") return 90;
+    if (first === "to bottom") return 180;
+    if (first === "to left") return 270;
+  }
+  const angle = first.match(/^([-+]?(?:\d+(?:\.\d*)?|\.\d+))(?:deg)?$/);
+  if (angle) return Number(angle[1]);
+  const firstStop = first.replace(/\s+[-+]?(?:\d+(?:\.\d*)?|\.\d+)%$/, "");
+  return parseCssColorExtended(firstStop) ? 180 : null;
+}
+
+function normalizeVectorStrokeGradient(value: string) {
+  const match = value.trim().match(/^(linear|radial)-gradient\((.*)\)$/is);
+  const parts = match ? splitGradientArguments(value.trim()) : null;
+  if (!match || !parts || parts.length < 2) return null;
+  const kind = match[1]!.toLowerCase();
+  const first = parts[0] ?? "";
+  const interpolation = first.match(/\bin\s+([a-z][a-z0-9-]*)\b/i);
+  if (interpolation && interpolation[1]?.toLowerCase() !== "srgb") {
+    return null;
+  }
+  const header = first.replace(/\bin\s+srgb\b/i, "").trim();
+  const normalizedParts = header ? [header, ...parts.slice(1)] : parts.slice(1);
+  return normalizedParts.length >= 2
+    ? { kind, value: `${kind}-gradient(${normalizedParts.join(", ")})` }
+    : null;
+}
+
+function vectorStrokeGradientId(
+  wrapper: ParsedElement,
+  elements: ParsedElement[],
+): string {
+  const nodeId = attributeValue(wrapper, "data-agent-native-node-id");
+  const baseId = `${nodeId || `vector-${wrapper.index}`}-stroke-gradient`;
+  const existingIds = new Set(
+    elements
+      .map((element) => attributeValue(element, "id"))
+      .filter((id): id is string => Boolean(id)),
+  );
+  if (!existingIds.has(baseId)) return baseId;
+  let suffix = 2;
+  while (existingIds.has(`${baseId}-${suffix}`)) suffix += 1;
+  return `${baseId}-${suffix}`;
+}
+
+function removeVectorStrokeGradientMarkup(
+  html: string,
+  wrapper: ParsedElement,
+  strokeValue: string | null,
+): string {
+  const elements = parseHtmlElements(html);
+  const current = elements[wrapper.index];
+  if (!current || current.start !== wrapper.start) return html;
+  const gradientId = strokeValue?.match(
+    /^url\(\s*(['"]?)#([^)'"\s]+)\1\s*\)$/i,
+  )?.[2];
+  if (!gradientId) return html;
+  const spans = current.childIndexes
+    .map((index) => elements[index])
+    .filter((child): child is ParsedElement => {
+      if (
+        !child ||
+        child.tag !== "defs" ||
+        getAttribute(child, VECTOR_STROKE_GRADIENT_MARKER) === undefined
+      ) {
+        return false;
+      }
+      return child.childIndexes.some((childIndex) => {
+        const definition = elements[childIndex];
+        return definition && attributeValue(definition, "id") === gradientId;
+      });
+    })
+    .map((child) => ({ start: child.start, end: child.end }));
+  let result = html;
+  for (const span of spans.sort((a, b) => b.start - a.start)) {
+    result = `${result.slice(0, span.start)}${result.slice(span.end)}`;
+  }
+  return result;
+}
+
+function applyVectorStrokeGradient(
+  html: string,
+  shape: ParsedElement,
+  value: string,
+): string | PatchResultStatus {
+  const elements = parseHtmlElements(html);
+  const currentShape = elements[shape.index];
+  const wrapper = currentShape
+    ? vectorShapeOwnerSvg(currentShape, elements)
+    : null;
+  const gradient = normalizeVectorStrokeGradient(value);
+  const stops = gradient ? vectorStrokeGradientStops(gradient.value) : null;
+  const svgStops = stops ? vectorStrokeGradientStopsForSvg(stops) : null;
+  if (
+    !currentShape ||
+    currentShape.start !== shape.start ||
+    !wrapper ||
+    wrapper.tag !== "svg" ||
+    !gradient ||
+    !svgStops
+  ) {
+    return "unsupported";
+  }
+  const initialShapes = vectorShapeDescendants(wrapper, elements);
+  const shapeIndex = initialShapes.indexOf(currentShape);
+  const isOverlay =
+    getAttribute(currentShape, VECTOR_STROKE_OVERLAY) !== undefined;
+  if (shapeIndex < 0) return "unsupported";
+  const nodeId = attributeValue(wrapper, "data-agent-native-node-id");
+  const kind = attributeValue(wrapper, "data-an-primitive");
+  if (!nodeId || (!kind && !vectorShapeChild(wrapper, elements))) {
+    return "unsupported";
+  }
+  let content = removeVectorStrokeGradientMarkup(
+    html,
+    wrapper,
+    vectorStyleValue(currentShape, "stroke"),
+  );
+  const refreshed = parseHtmlElements(content);
+  const nextWrapper = refreshed.find(
+    (candidate) => candidate.start === wrapper.start,
+  );
+  const nextShapes = nextWrapper
+    ? vectorShapeDescendants(nextWrapper, refreshed)
+    : [];
+  const target = nextWrapper
+    ? isOverlay
+      ? vectorStrokeOverlay(nextWrapper, refreshed)
+      : (nextShapes[shapeIndex] ?? null)
+    : null;
+  if (!nextWrapper || !target) return "unsupported";
+  const id = vectorStrokeGradientId(nextWrapper, refreshed);
+  const box = vectorGradientBox(nextWrapper);
+  if (!box) return "unsupported";
+  let gradientMarkup: string | null = null;
+  if (gradient.kind === "linear") {
+    const angle = vectorLinearGradientAngle(
+      gradient.value,
+      box.cssWidth,
+      box.cssHeight,
+    );
+    if (angle === null) return "unsupported";
+    gradientMarkup = buildLinearGradientDef(
+      escapeHtmlAttribute(id),
+      angle,
+      svgStops,
+      {
+        x: box.x,
+        y: box.y,
+        width: box.width,
+        height: box.height,
+      },
+    );
+  } else {
+    const radial = parseComputedRadialGradient(gradient.value);
+    if (!radial) return "unsupported";
+    const geometry = resolveRadialGradientGeometry(
+      radial,
+      box.cssWidth,
+      box.cssHeight,
+    );
+    const cx = box.x + geometry.cx * box.scale;
+    const cy = box.y + geometry.cy * box.scale;
+    const rx = geometry.rx * box.scale;
+    const ry = geometry.ry * box.scale;
+    gradientMarkup =
+      Math.abs(rx - ry) < 0.01
+        ? buildRadialGradientDef(escapeHtmlAttribute(id), svgStops, {
+            cx,
+            cy,
+            r: rx,
+          })
+        : buildRadialGradientDef(escapeHtmlAttribute(id), svgStops, {
+            cx,
+            cy,
+            rx,
+            ry,
+          });
+  }
+  if (!gradientMarkup) return "unsupported";
+  const defs = `<defs ${VECTOR_STROKE_GRADIENT_MARKER}="">${gradientMarkup}</defs>`;
+  content = `${content.slice(0, nextWrapper.openEnd)}${defs}${content.slice(nextWrapper.openEnd)}`;
+  const finalElements = parseHtmlElements(content);
+  const finalWrapper = finalElements.find(
+    (candidate) => candidate.start === wrapper.start,
+  );
+  const finalShapes = finalWrapper
+    ? vectorShapeDescendants(finalWrapper, finalElements)
+    : [];
+  const finalTarget = finalWrapper
+    ? isOverlay
+      ? vectorStrokeOverlay(finalWrapper, finalElements)
+      : (finalShapes[shapeIndex] ?? null)
+    : null;
+  if (!finalWrapper || !finalTarget) return "unsupported";
+  const authoredShapes = finalShapes.filter(
+    (candidate) => getAttribute(candidate, VECTOR_STROKE_OVERLAY) === undefined,
+  );
+  const gradientMetadataElement =
+    authoredShapes.length === 1 ? finalWrapper : finalTarget;
+  const strokeStyle = setStyleValue(
+    attributeValue(finalTarget, "style"),
+    "stroke",
+    `url(#${id})`,
+  );
+  const metadataStyle = setStyleValue(
+    gradientMetadataElement === finalTarget
+      ? strokeStyle
+      : attributeValue(gradientMetadataElement, "style"),
+    VECTOR_STROKE_GRADIENT_PROPERTY as VisualStyleProperty,
+    value.trim(),
+  );
+  if (gradientMetadataElement === finalTarget) {
+    return patchElementAttributes(content, [
+      {
+        element: finalTarget,
+        attributes: { style: metadataStyle },
+      },
+    ]);
+  }
+  return patchElementAttributes(content, [
+    {
+      element: finalTarget,
+      attributes: {
+        style: strokeStyle,
+      },
+    },
+    {
+      element: gradientMetadataElement,
+      attributes: { style: metadataStyle },
+    },
+  ]);
+}
+
+function removeVectorFillGradientMarkup(
+  html: string,
+  wrapper: ParsedElement,
+  fillValue: string | null,
+): string {
+  const elements = parseHtmlElements(html);
+  const current = elements[wrapper.index];
+  if (!current || current.start !== wrapper.start) return html;
+  const gradientId = fillValue?.match(
+    /^url\(\s*(['"]?)#([^)'"\s]+)\1\s*\)$/i,
+  )?.[2];
+  if (!gradientId) return html;
+  const spans = current.childIndexes
+    .map((index) => elements[index])
+    .filter((child): child is ParsedElement => {
+      if (
+        !child ||
+        child.tag !== "defs" ||
+        getAttribute(child, VECTOR_FILL_GRADIENT_MARKER) === undefined
+      ) {
+        return false;
+      }
+      return child.childIndexes.some((childIndex) => {
+        const definition = elements[childIndex];
+        return definition && attributeValue(definition, "id") === gradientId;
+      });
+    })
+    .map((child) => ({ start: child.start, end: child.end }));
+  let result = html;
+  for (const span of spans.sort((a, b) => b.start - a.start)) {
+    result = `${result.slice(0, span.start)}${result.slice(span.end)}`;
+  }
+  return result;
+}
+
+function vectorFillGradientId(
+  wrapper: ParsedElement,
+  elements: ParsedElement[],
+): string {
+  const nodeId = attributeValue(wrapper, "data-agent-native-node-id");
+  const baseId = `${nodeId || `vector-${wrapper.index}`}-fill-gradient`;
+  const existingIds = new Set(
+    elements
+      .map((element) => attributeValue(element, "id"))
+      .filter((id): id is string => Boolean(id)),
+  );
+  if (!existingIds.has(baseId)) return baseId;
+  let suffix = 2;
+  while (existingIds.has(`${baseId}-${suffix}`)) suffix += 1;
+  return `${baseId}-${suffix}`;
+}
+
+function applyVectorFillGradient(
+  html: string,
+  shape: ParsedElement,
+  value: string,
+): string | PatchResultStatus {
+  const elements = parseHtmlElements(html);
+  const currentShape = elements[shape.index];
+  const wrapper = currentShape
+    ? vectorShapeOwnerSvg(currentShape, elements)
+    : null;
+  const gradient = normalizeVectorStrokeGradient(value);
+  const stops = gradient ? vectorStrokeGradientStops(gradient.value) : null;
+  const svgStops = stops ? vectorStrokeGradientStopsForSvg(stops) : null;
+  if (
+    !currentShape ||
+    currentShape.start !== shape.start ||
+    !wrapper ||
+    wrapper.tag !== "svg" ||
+    !gradient ||
+    !svgStops
+  ) {
+    return "unsupported";
+  }
+  const shapes = vectorShapeDescendants(wrapper, elements);
+  const shapeIndex = shapes.indexOf(currentShape);
+  const nodeId = attributeValue(wrapper, "data-agent-native-node-id");
+  const kind = attributeValue(wrapper, "data-an-primitive");
+  if (
+    shapeIndex < 0 ||
+    !nodeId ||
+    (!kind && !vectorShapeChild(wrapper, elements))
+  ) {
+    return "unsupported";
+  }
+
+  let content = clearVectorFillGradientState(
+    html,
+    currentShape,
+    vectorStyleValue(currentShape, "fill"),
+  );
+  const refreshed = parseHtmlElements(content);
+  const nextWrapper = refreshed.find(
+    (candidate) => candidate.start === wrapper.start,
+  );
+  const nextShapes = nextWrapper
+    ? vectorShapeDescendants(nextWrapper, refreshed)
+    : [];
+  const target = nextShapes[shapeIndex] ?? null;
+  if (!nextWrapper || !target) return "unsupported";
+  const id = vectorFillGradientId(nextWrapper, refreshed);
+  const box = vectorGradientBox(nextWrapper);
+  if (!box) return "unsupported";
+  let gradientMarkup: string | null = null;
+  if (gradient.kind === "linear") {
+    const angle = vectorLinearGradientAngle(
+      gradient.value,
+      box.cssWidth,
+      box.cssHeight,
+    );
+    if (angle === null) return "unsupported";
+    gradientMarkup = buildLinearGradientDef(
+      escapeHtmlAttribute(id),
+      angle,
+      svgStops,
+      {
+        x: box.x,
+        y: box.y,
+        width: box.width,
+        height: box.height,
+      },
+    );
+  } else {
+    const radial = parseComputedRadialGradient(gradient.value);
+    if (!radial) return "unsupported";
+    const geometry = resolveRadialGradientGeometry(
+      radial,
+      box.cssWidth,
+      box.cssHeight,
+    );
+    const cx = box.x + geometry.cx * box.scale;
+    const cy = box.y + geometry.cy * box.scale;
+    const rx = geometry.rx * box.scale;
+    const ry = geometry.ry * box.scale;
+    gradientMarkup =
+      Math.abs(rx - ry) < 0.01
+        ? buildRadialGradientDef(escapeHtmlAttribute(id), svgStops, {
+            cx,
+            cy,
+            r: rx,
+          })
+        : buildRadialGradientDef(escapeHtmlAttribute(id), svgStops, {
+            cx,
+            cy,
+            rx,
+            ry,
+          });
+  }
+  if (!gradientMarkup) return "unsupported";
+  const fillDefs = nextWrapper.childIndexes
+    .map((index) => refreshed[index])
+    .find(
+      (child) =>
+        child?.tag === "defs" &&
+        getAttribute(child, VECTOR_FILL_GRADIENT_MARKER) !== undefined,
+    );
+  if (fillDefs?.closeStart !== undefined) {
+    content = `${content.slice(0, fillDefs.closeStart)}${gradientMarkup}${content.slice(fillDefs.closeStart)}`;
+  } else {
+    const defs = `<defs ${VECTOR_FILL_GRADIENT_MARKER}="">${gradientMarkup}</defs>`;
+    content = `${content.slice(0, nextWrapper.openEnd)}${defs}${content.slice(nextWrapper.openEnd)}`;
+  }
+  const finalElements = parseHtmlElements(content);
+  const finalWrapper = finalElements.find(
+    (candidate) => candidate.start === wrapper.start,
+  );
+  const finalTarget = finalWrapper
+    ? (vectorShapeDescendants(finalWrapper, finalElements)[shapeIndex] ?? null)
+    : null;
+  if (!finalWrapper || !finalTarget) return "unsupported";
+  const authoredShapes = vectorShapeDescendants(finalWrapper, finalElements);
+  const metadataElement =
+    authoredShapes.length === 1 ? finalWrapper : finalTarget;
+  const fillStyle = setStyleValue(
+    attributeValue(finalTarget, "style"),
+    "fill",
+    `url(#${id})`,
+  );
+  const metadataStyle = setStyleValue(
+    metadataElement === finalTarget
+      ? fillStyle
+      : attributeValue(metadataElement, "style"),
+    VECTOR_FILL_GRADIENT_PROPERTY as VisualStyleProperty,
+    value.trim(),
+  );
+  return patchElementAttributes(content, [
+    {
+      element: finalTarget,
+      attributes: { style: fillStyle },
+    },
+    {
+      element: metadataElement,
+      attributes: { style: metadataStyle },
+    },
+  ]);
+}
+
+function clearVectorFillGradientState(
+  html: string,
+  shape: ParsedElement,
+  previousFill: string | null,
+): string {
+  const elements = parseHtmlElements(html);
+  const currentShape = elements[shape.index];
+  const wrapper = currentShape
+    ? vectorShapeOwnerSvg(currentShape, elements)
+    : null;
+  if (!currentShape || currentShape.start !== shape.start || !wrapper) {
+    return html;
+  }
+  const shapes = vectorShapeDescendants(wrapper, elements);
+  const shapeIndex = shapes.indexOf(currentShape);
+  if (shapeIndex < 0) return html;
+  const withoutDefs = removeVectorFillGradientMarkup(
+    html,
+    wrapper,
+    previousFill,
+  );
+  const refreshed = parseHtmlElements(withoutDefs);
+  const nextWrapper = refreshed.find(
+    (candidate) => candidate.start === wrapper.start,
+  );
+  const nextShapes = nextWrapper
+    ? vectorShapeDescendants(nextWrapper, refreshed)
+    : [];
+  const selectedShape = nextShapes[shapeIndex];
+  if (!nextWrapper || !selectedShape) return withoutDefs;
+  const gradientId = previousFill?.match(
+    /^url\(\s*(['"]?)#([^)'"\s]+)\1\s*\)$/i,
+  )?.[2];
+  const metadataOwners = [nextWrapper, selectedShape];
+  if (gradientId) {
+    for (const candidate of nextShapes) {
+      if (
+        vectorStyleValue(candidate, "fill") === `url(#${gradientId})` &&
+        !metadataOwners.includes(candidate)
+      ) {
+        metadataOwners.push(candidate);
+      }
+    }
+  }
+  return patchElementAttributes(
+    withoutDefs,
+    metadataOwners.map((owner) => {
+      const style = parseStyle(attributeValue(owner, "style"));
+      delete style[VECTOR_FILL_GRADIENT_PROPERTY];
+      const nextStyle = serializeStyleDeclarations(
+        Object.entries(style).map(([property, value]) => ({ property, value })),
+      );
+      return {
+        element: owner,
+        attributes: { style: nextStyle || null },
+      };
+    }),
+  );
+}
+
+function clearVectorStrokeGradientState(
+  html: string,
+  shape: ParsedElement,
+  previousStroke: string | null,
+): string {
+  const elements = parseHtmlElements(html);
+  const currentShape = elements[shape.index];
+  const wrapper = currentShape
+    ? vectorShapeOwnerSvg(currentShape, elements)
+    : null;
+  if (!currentShape || currentShape.start !== shape.start || !wrapper) {
+    return html;
+  }
+  const shapes = vectorShapeDescendants(wrapper, elements);
+  const authoredShapes = shapes.filter(
+    (candidate) => getAttribute(candidate, VECTOR_STROKE_OVERLAY) === undefined,
+  );
+  const metadataOnWrapper = authoredShapes.length === 1;
+  const shapeIndex = shapes.indexOf(currentShape);
+  if (shapeIndex < 0) return html;
+  const withoutDefs = removeVectorStrokeGradientMarkup(
+    html,
+    wrapper,
+    previousStroke,
+  );
+  const refreshed = parseHtmlElements(withoutDefs);
+  const nextWrapper = refreshed.find(
+    (candidate) => candidate.start === wrapper.start,
+  );
+  const nextShapes = nextWrapper
+    ? vectorShapeDescendants(nextWrapper, refreshed)
+    : [];
+  const nextMetadataElement = metadataOnWrapper
+    ? nextWrapper
+    : (nextShapes[shapeIndex] ?? null);
+  if (!nextWrapper || !nextMetadataElement) return withoutDefs;
+  const style = parseStyle(attributeValue(nextMetadataElement, "style"));
+  delete style[VECTOR_STROKE_GRADIENT_PROPERTY];
+  const nextStyle = serializeStyleDeclarations(
+    Object.entries(style).map(([property, value]) => ({ property, value })),
+  );
+  return nextStyle
+    ? replaceOrInsertAttribute(
+        withoutDefs,
+        nextMetadataElement,
+        "style",
+        nextStyle,
+      )
+    : removeAttributeFromHtml(withoutDefs, nextMetadataElement, "style");
+}
+
 type StyleEditTargetRoute =
+  | { kind: "unsupported" }
   | { kind: "boolean-operand" }
   | { kind: "boolean-result" }
   | { kind: "released-svg" }
@@ -4816,7 +6367,7 @@ type StyleEditTargetRoute =
 
 type StyleEditTargetIntent = Pick<
   StyleEditIntent | StyleRemoveEditIntent,
-  "property"
+  "property" | "operation"
 >;
 
 function resolveStyleEditTargetRoute(
@@ -4839,6 +6390,25 @@ function resolveStyleEditTargetRoute(
     return { kind: "released-svg" };
   }
   const paintChild = vectorPaintChild(html, element, intent.property, elements);
+  const useTarget =
+    element.tag === "use"
+      ? element
+      : paintChild?.tag === "use"
+        ? paintChild
+        : null;
+  const isGeneratedStrokeOverlay =
+    intent.property.startsWith("stroke") &&
+    paintChild?.tag === "use" &&
+    getAttribute(paintChild, VECTOR_STROKE_OVERLAY) !== undefined;
+  if (useTarget && !isGeneratedStrokeOverlay) {
+    return { kind: "unsupported" };
+  }
+  if (
+    node.dataAttributes["data-an-primitive"] === "pasted-svg" &&
+    !paintChild
+  ) {
+    return { kind: "unsupported" };
+  }
   return paintChild
     ? { kind: "vector-paint", element: paintChild }
     : { kind: "ordinary", element };
@@ -4880,6 +6450,32 @@ function removeVectorEndpointMarkup(
   return result;
 }
 
+function applyLineSegmentEdit(
+  html: string,
+  wrapper: ParsedElement,
+  value: string,
+): string | PatchResultStatus {
+  const segment = parseLineSegment(value);
+  const elements = parseHtmlElements(html);
+  const current = elements[wrapper.index];
+  if (
+    !segment ||
+    !current ||
+    current.start !== wrapper.start ||
+    current.tag !== "svg"
+  ) {
+    return "unsupported";
+  }
+  const kind = attributeValue(current, "data-an-primitive");
+  if (kind !== "line" && kind !== "arrow") return "unsupported";
+  const path = vectorShapeChild(current, elements);
+  if (!path || path.tag !== "path") return "unsupported";
+  return patchElementAttributes(html, [
+    { element: current, attributes: { viewBox: lineSegmentViewBox(segment) } },
+    { element: path, attributes: { d: lineSegmentPathData(segment) } },
+  ]);
+}
+
 function applyVectorEndpointEdit(
   html: string,
   wrapper: ParsedElement,
@@ -4915,8 +6511,6 @@ function applyVectorEndpointEdit(
       ? { ...endpoints, startPoint: value }
       : { ...endpoints, endPoint: value };
 
-  // Remove generated/legacy marker definitions first. Reparse after this
-  // structural splice so every later attribute write uses fresh source spans.
   let content = removeVectorEndpointMarkup(html, currentWrapper, nodeId);
   const afterRemoval = parseHtmlElements(content);
   const nextWrapper = afterRemoval.find(
@@ -4979,6 +6573,162 @@ function applyStyleEdit(
   const normalized = normalizedSafeStyleValue(intent.property, intent.value);
   if (!normalized) return "unsupported";
   const { property, value } = normalized;
+  if (property === "fill-opacity") {
+    const opacityUpdate = updateOpenPenPathFillOpacity(html, element, value);
+    if (opacityUpdate.kind === "invalid") return "unsupported";
+    if (opacityUpdate.kind === "updated") {
+      return {
+        content: opacityUpdate.content,
+        capability: { kind: "style", properties: [property], confidence: 0.9 },
+      };
+    }
+  }
+  if (property === "border-color") {
+    const isGradient =
+      /^(?:repeating-)?(?:linear|radial|conic)-gradient\(/i.test(value);
+    if (isGradient) {
+      const gradient = normalizeVectorStrokeGradient(value);
+      const stops =
+        gradient?.kind === "linear"
+          ? vectorStrokeGradientStops(gradient.value)
+          : null;
+      const style = parseStyle(attributeValue(element, "style"));
+      const shorthand = cssBorderShorthandParts(style.border);
+      const radiusProperties = [
+        "border-radius",
+        "border-top-left-radius",
+        "border-top-right-radius",
+        "border-bottom-right-radius",
+        "border-bottom-left-radius",
+      ];
+      const hasSquareCorners = radiusProperties.every(
+        (property) =>
+          !style[property] ||
+          style[property] === "0" ||
+          style[property] === "0px",
+      );
+      const hasExistingGradient = Boolean(style[CSS_BORDER_GRADIENT_PROPERTY]);
+      const hasUniformBorder =
+        (style["border-width"] ?? shorthand?.width) &&
+        (style["border-style"] ?? shorthand?.style) === "solid" &&
+        (style[CSS_BORDER_SOLID_COLOR_PROPERTY] ||
+          style["border-color"] ||
+          shorthand?.color) &&
+        !Object.keys(style).some((name) =>
+          /^border-(?:top|right|bottom|left)(?:-(?:width|style|color))?$/.test(
+            name,
+          ),
+        );
+      if (
+        element.tag !== "div" ||
+        classList(element).length > 0 ||
+        !hasSquareCorners ||
+        !hasUniformBorder ||
+        !gradient ||
+        !stops ||
+        (style["border-image"] && !hasExistingGradient) ||
+        (style["border-image-source"] && !hasExistingGradient)
+      ) {
+        return "unsupported";
+      }
+      const originalColor =
+        style[CSS_BORDER_SOLID_COLOR_PROPERTY] ??
+        style["border-color"] ??
+        shorthand?.color;
+      let nextStyle = setStyleValue(
+        attributeValue(element, "style"),
+        CSS_BORDER_GRADIENT_PROPERTY as VisualStyleProperty,
+        gradient.value,
+      );
+      nextStyle = setStyleValue(
+        nextStyle,
+        CSS_BORDER_SOLID_COLOR_PROPERTY as VisualStyleProperty,
+        originalColor,
+      );
+      nextStyle = setStyleValue(
+        nextStyle,
+        "border-image-source" as VisualStyleProperty,
+        `var(${CSS_BORDER_GRADIENT_PROPERTY})`,
+      );
+      nextStyle = setStyleValue(
+        nextStyle,
+        "border-image-slice" as VisualStyleProperty,
+        "1",
+      );
+      nextStyle = setStyleValue(nextStyle, "border-color", "transparent");
+      return {
+        content: replaceOrInsertAttribute(html, element, "style", nextStyle),
+        capability: { kind: "style", properties: [property], confidence: 0.9 },
+      };
+    }
+    const style = parseStyle(attributeValue(element, "style"));
+    if (style[CSS_BORDER_GRADIENT_PROPERTY]) {
+      if (value.trim().toLowerCase() === "transparent") {
+        const nextStyle = setStyleValue(
+          attributeValue(element, "style"),
+          "border-image-source" as VisualStyleProperty,
+          "none",
+        );
+        return {
+          content: replaceOrInsertAttribute(html, element, "style", nextStyle),
+          capability: {
+            kind: "style",
+            properties: [property],
+            confidence: 0.9,
+          },
+        };
+      }
+      if (/^(?:repeating-)?(?:linear|radial|conic)-gradient\(/i.test(value)) {
+        return "unsupported";
+      }
+      const declarations = parseStyleDeclarations(
+        attributeValue(element, "style"),
+      );
+      removeStyleDeclarations(declarations, [
+        CSS_BORDER_GRADIENT_PROPERTY,
+        "border-image-source",
+        "border-image-slice",
+      ]);
+      let nextStyle = serializeStyleDeclarations(declarations);
+      const solidColor =
+        value.trim().toLowerCase() !== "transparent" &&
+        parseCssColorExtended(value)
+          ? value
+          : (style[CSS_BORDER_SOLID_COLOR_PROPERTY] ?? value);
+      nextStyle = setStyleValue(nextStyle, "border-color", solidColor);
+      const cleaned = parseStyleDeclarations(nextStyle);
+      removeStyleDeclarations(cleaned, [CSS_BORDER_SOLID_COLOR_PROPERTY]);
+      nextStyle = serializeStyleDeclarations(cleaned);
+      return {
+        content: replaceOrInsertAttribute(html, element, "style", nextStyle),
+        capability: { kind: "style", properties: [property], confidence: 0.9 },
+      };
+    }
+  }
+  if (property === "stroke") {
+    const gradient = applyVectorStrokeGradient(html, element, value);
+    if (gradient !== "unsupported") {
+      return {
+        content: gradient,
+        capability: { kind: "style", properties: [property], confidence: 0.9 },
+      };
+    }
+    if (/^(?:repeating-)?(?:linear|radial|conic)-gradient\(/i.test(value)) {
+      return "unsupported";
+    }
+  }
+  if (property === "fill") {
+    const gradient = applyVectorFillGradient(html, element, value);
+    if (gradient !== "unsupported") {
+      return {
+        content: gradient,
+        capability: { kind: "style", properties: [property], confidence: 0.9 },
+      };
+    }
+    if (/^(?:repeating-)?(?:linear|radial|conic)-gradient\(/i.test(value)) {
+      return "unsupported";
+    }
+  }
   if (isVectorEndpointProperty(property)) {
     const content = applyVectorEndpointEdit(html, element, property, value);
     if (content === "unsupported") return content;
@@ -4991,6 +6741,14 @@ function applyStyleEdit(
       },
     };
   }
+  if (property === LINE_SEGMENT_PROPERTY) {
+    const content = applyLineSegmentEdit(html, element, value);
+    if (content === "unsupported") return content;
+    return {
+      content,
+      capability: { kind: "style", properties: [property], confidence: 0.9 },
+    };
+  }
   if (property === "--an-vector-stroke-position") {
     const content = applyVectorStrokePositionEdit(html, element, value, intent);
     if (content === "unsupported") return content;
@@ -5001,6 +6759,36 @@ function applyStyleEdit(
         properties: [property],
         confidence: 0.9,
       },
+    };
+  }
+  if (
+    element.tag === "svg" &&
+    (property === "width" || property === "height") &&
+    importedVectorLetterboxes(element)
+  ) {
+    const stretched = replaceOrInsertAttribute(
+      html,
+      element,
+      "preserveAspectRatio",
+      "none",
+    );
+    const resized = applyStyleEdit(
+      stretched,
+      parseHtmlElements(stretched)[element.index]!,
+      intent,
+    );
+    return resized;
+  }
+  if (element.tag === "svg" && BORDER_RADIUS_PROPERTY.test(property)) {
+    const content = roundSvgVectorCorners(
+      html,
+      element.index,
+      property === "border-radius" ? value : null,
+    );
+    if (content === "unsupported") return content;
+    return {
+      content,
+      capability: { kind: "style", properties: [property], confidence: 0.9 },
     };
   }
   const alignedOverlay =
@@ -5018,12 +6806,37 @@ function applyStyleEdit(
       ? scaledSvgLength(logicalWidth, position === "center" ? 1 : 2)
       : logicalWidth;
   if (storedValue === null) return "unsupported";
-  const nextStyle = setStyleValue(
-    attributeValue(element, "style"),
+  const previousStroke =
+    property === "stroke" ? vectorStyleValue(element, "stroke") : null;
+  const previousFill =
+    property === "fill" ? vectorStyleValue(element, "fill") : null;
+  const nextStyle = withBorderAreaFallback(
+    setStyleValue(attributeValue(element, "style"), property, storedValue),
     property,
-    storedValue,
   );
   let content = replaceOrInsertAttribute(html, element, "style", nextStyle);
+  if (isCrossAxisAlignmentProperty(property)) {
+    content = reconcileGeneratedFlexAlignment(
+      content,
+      element,
+      cssPropertyKey(property) === "place-items"
+        ? "place-items-set"
+        : undefined,
+    );
+  }
+  if (property === "fill" || property === "stroke") {
+    content = removeAttributeFromHtml(
+      content,
+      parseHtmlElements(content)[element.index]!,
+      property,
+    );
+  }
+  if (property === "stroke" && value.trim().toLowerCase() !== "transparent") {
+    content = clearVectorStrokeGradientState(content, element, previousStroke);
+  }
+  if (property === "fill") {
+    content = clearVectorFillGradientState(content, element, previousFill);
+  }
   if (alignedOverlay && property === "stroke-width") {
     const current = parseHtmlElements(content)[element.index];
     if (!current) return "unsupported";
@@ -5072,6 +6885,295 @@ function applyStyleEdit(
   };
 }
 
+const OPEN_PEN_PATH_FILL_OPACITY = "data-an-open-fill-opacity";
+
+type OpenPenPathFillOpacitySnapshot = {
+  version: 2;
+  attributeValue: string | null;
+  restoreAttribute: boolean;
+  styleValue: string | null;
+  stylePriority: string;
+};
+
+type OpenPenPathFillOpacityUpdate =
+  | { kind: "unmarked" }
+  | { kind: "invalid" }
+  | { kind: "updated"; content: string };
+
+function readOpenPenPathFillOpacitySnapshot(
+  marker: string,
+  element: ParsedElement,
+): OpenPenPathFillOpacitySnapshot | null {
+  if (marker === "absent" || marker.startsWith("value:")) {
+    const opacity = parseStyleDeclarations(
+      attributeValue(element, "style") ?? "",
+    ).declarations.find(
+      (declaration) => cssPropertyKey(declaration.prop) === "fill-opacity",
+    );
+    return {
+      version: 2,
+      attributeValue:
+        marker === "absent" ? null : marker.slice("value:".length),
+      restoreAttribute: true,
+      styleValue: opacity?.value ?? null,
+      stylePriority: opacity?.important ? "important" : "",
+    };
+  }
+
+  let snapshot: unknown;
+  try {
+    snapshot = JSON.parse(marker);
+  } catch {
+    // coercion-ok: malformed persisted metadata is returned as invalid and rejected by the caller.
+    return null;
+  }
+  if (
+    typeof snapshot === "object" &&
+    snapshot !== null &&
+    "version" in snapshot &&
+    snapshot.version === 2 &&
+    "restoreAttribute" in snapshot &&
+    typeof snapshot.restoreAttribute === "boolean" &&
+    "attributeValue" in snapshot &&
+    (snapshot.attributeValue === null ||
+      typeof snapshot.attributeValue === "string") &&
+    "styleValue" in snapshot &&
+    (snapshot.styleValue === null || typeof snapshot.styleValue === "string") &&
+    "stylePriority" in snapshot &&
+    typeof snapshot.stylePriority === "string"
+  ) {
+    return snapshot as OpenPenPathFillOpacitySnapshot;
+  }
+  return null;
+}
+
+function updateOpenPenPathFillOpacity(
+  html: string,
+  element: ParsedElement,
+  value: string | null,
+): OpenPenPathFillOpacityUpdate {
+  if (element.tag !== "path") return { kind: "unmarked" };
+  const marker = attributeValue(element, OPEN_PEN_PATH_FILL_OPACITY);
+  if (marker === null) return { kind: "unmarked" };
+
+  const snapshot = readOpenPenPathFillOpacitySnapshot(marker, element);
+  if (!snapshot) return { kind: "invalid" };
+
+  const declaration = value
+    ? parseStyleDeclarations(`fill-opacity: ${value}`).declarations[0]
+    : undefined;
+  if (value && !declaration) return { kind: "invalid" };
+  return {
+    kind: "updated",
+    content: replaceOrInsertAttribute(
+      html,
+      element,
+      OPEN_PEN_PATH_FILL_OPACITY,
+      JSON.stringify({
+        ...snapshot,
+        styleValue: declaration?.value ?? null,
+        stylePriority: declaration?.important ? "important" : "",
+      }),
+    ),
+  };
+}
+
+function updateOpenPenPathFillOpacityAttribute(
+  element: ParsedElement,
+  value: string,
+): string | null | undefined {
+  if (element.tag !== "path") return undefined;
+  const marker = attributeValue(element, OPEN_PEN_PATH_FILL_OPACITY);
+  if (marker === null) return undefined;
+  const snapshot = readOpenPenPathFillOpacitySnapshot(marker, element);
+  if (!snapshot) return null;
+  return JSON.stringify({
+    ...snapshot,
+    attributeValue: value,
+    restoreAttribute: false,
+  });
+}
+
+const BORDER_RADIUS_PROPERTY = /^border(-[a-z]+)*-radius$/;
+const SOURCE_PATH_DATA_ATTRIBUTE = "data-an-source-d";
+
+function importedVectorLetterboxes(element: ParsedElement): boolean {
+  const has = (name: string) =>
+    element.attributes.some((attribute) => attribute.lowerName === name);
+  return (
+    has("data-figma-node-id") && has("viewbox") && !has("preserveaspectratio")
+  );
+}
+
+function roundSvgVectorCorners(
+  html: string,
+  svgIndex: number,
+  radiusValue: string | null,
+): string | "unsupported" {
+  const svg = parseHtmlElements(html)[svgIndex];
+  if (!svg) return "unsupported";
+  const style = parseStyleDeclarations(attributeValue(svg, "style"));
+  removeStyleDeclarations(style, [
+    "border-radius",
+    "border-top-left-radius",
+    "border-top-right-radius",
+    "border-bottom-right-radius",
+    "border-bottom-left-radius",
+  ]);
+  let content = replaceOrInsertAttribute(
+    html,
+    svg,
+    "style",
+    serializeStyleDeclarations(style),
+  );
+  if (radiusValue === null) return content;
+  const radius = /^\d+(\.\d+)?(px)?$/.test(radiusValue.trim())
+    ? Number.parseFloat(radiusValue)
+    : Number.NaN;
+  if (!Number.isFinite(radius)) return "unsupported";
+  const rounded =
+    attributeValue(
+      parseHtmlElements(content)[svgIndex]!,
+      "data-an-pen-nodes",
+    ) !== null
+      ? roundPenVectorPath(content, svgIndex, radius)
+      : roundImportedSvgPaths(content, svgIndex, radius);
+  if (rounded === "unsupported") return rounded;
+  return replaceOrInsertAttribute(
+    rounded,
+    parseHtmlElements(rounded)[svgIndex]!,
+    PEN_CORNER_RADIUS_ATTRIBUTE,
+    String(radius),
+  );
+}
+
+function roundPenVectorPath(
+  html: string,
+  svgIndex: number,
+  radius: number,
+): string | "unsupported" {
+  const elements = parseHtmlElements(html);
+  const svg = elements[svgIndex]!;
+  const penPath = parsePenNodes(attributeValue(svg, "data-an-pen-nodes")!);
+  const pathElement = svg.childIndexes
+    .map((index) => elements[index])
+    .find((child) => child?.tag === "path");
+  if (!penPath || !pathElement) return "unsupported";
+  const uniform = withoutVertexRadii(penPath);
+  const withPath = replaceOrInsertAttribute(
+    html,
+    pathElement,
+    "d",
+    serializeRoundedPenPath(uniform, radius),
+  );
+  return replaceOrInsertAttribute(
+    withPath,
+    parseHtmlElements(withPath)[svgIndex]!,
+    "data-an-pen-nodes",
+    serializePenNodes(uniform),
+  );
+}
+
+function roundImportedSvgPaths(
+  html: string,
+  svgIndex: number,
+  radius: number,
+): string | "unsupported" {
+  const elements = parseHtmlElements(html);
+  const svg = elements[svgIndex]!;
+  const viewBox = attributeValue(svg, "viewBox")
+    ?.trim()
+    .split(/[\s,]+/)
+    .map(Number);
+  const style = parseStyleDeclarations(attributeValue(svg, "style"));
+  const cssSize = (prop: string) => {
+    const value = style.declarations.find(
+      (declaration) => cssPropertyKey(declaration.prop) === prop,
+    )?.value;
+    return value && /^[\d.]+px$/.test(value.trim())
+      ? Number.parseFloat(value)
+      : null;
+  };
+  let viewBoxScale = 1;
+  if (viewBox?.length === 4 && viewBox[2]! > 0 && viewBox[3]! > 0) {
+    const width = cssSize("width");
+    const height = cssSize("height");
+    if (width === null || height === null) return "unsupported";
+    viewBoxScale = Math.sqrt((width / viewBox[2]!) * (height / viewBox[3]!));
+  }
+  const paths: ParsedElement[] = [];
+  const collect = (element: ParsedElement) => {
+    for (const childIndex of element.childIndexes) {
+      const child = elements[childIndex]!;
+      if (child.tag === "path") paths.push(child);
+      else if (child.tag === "g") collect(child);
+    }
+  };
+  collect(svg);
+  if (paths.length === 0) return "unsupported";
+
+  let content = html;
+  for (const { index } of paths) {
+    const current = parseHtmlElements(content);
+    const path = current[index]!;
+    let scale = viewBoxScale;
+    for (
+      let node: ParsedElement | undefined = path;
+      node && node.index !== svgIndex;
+      node =
+        node.parentIndex === undefined ? undefined : current[node.parentIndex]
+    ) {
+      const transformScale = svgTransformScale(
+        attributeValue(node, "transform"),
+      );
+      if (transformScale === null) return "unsupported";
+      scale *= transformScale;
+    }
+    const sourceD =
+      attributeValue(path, SOURCE_PATH_DATA_ATTRIBUTE) ??
+      attributeValue(path, "d");
+    const subpaths = sourceD ? parseSvgPathData(sourceD) : null;
+    if (!sourceD || !subpaths || !(scale > 0)) return "unsupported";
+    const d =
+      radius > 0
+        ? subpaths
+            .map((subpath) =>
+              serializeRoundedPenPath(subpath, radius / scale, 3),
+            )
+            .join(" ")
+        : sourceD;
+    content = replaceOrInsertAttribute(content, path, "d", d);
+    content = replaceOrInsertAttribute(
+      content,
+      parseHtmlElements(content)[index]!,
+      SOURCE_PATH_DATA_ATTRIBUTE,
+      sourceD,
+    );
+  }
+  return content;
+}
+
+function svgTransformScale(transform: string | null): number | null {
+  if (!transform?.trim()) return 1;
+  let scale = 1;
+  const functions = transform.matchAll(/([a-zA-Z]+)\s*\(([^)]*)\)/g);
+  for (const [, name, rawArgs] of functions) {
+    const args = rawArgs!
+      .trim()
+      .split(/[\s,]+/)
+      .map(Number);
+    if (args.some((arg) => !Number.isFinite(arg))) return null;
+    if (name === "scale") {
+      scale *= Math.sqrt(Math.abs(args[0]! * (args[1] ?? args[0]!)));
+    } else if (name === "matrix" && args.length === 6) {
+      scale *= Math.sqrt(Math.abs(args[0]! * args[3]! - args[1]! * args[2]!));
+    } else if (name !== "translate" && name !== "rotate") {
+      return null;
+    }
+  }
+  return scale;
+}
+
 function applyStyleRemoveEdit(
   html: string,
   element: ParsedElement,
@@ -5079,7 +7181,11 @@ function applyStyleRemoveEdit(
   route: StyleEditTargetRoute,
 ): { content: string; capability: EditCapability } | PatchResultStatus {
   const property = normalizeStyleProperty(intent.property);
-  if (!property || property === "--an-vector-stroke-position") {
+  if (
+    !property ||
+    property === "--an-vector-stroke-position" ||
+    property === LINE_SEGMENT_PROPERTY
+  ) {
     return "unsupported";
   }
   if (isVectorEndpointProperty(property)) {
@@ -5106,6 +7212,24 @@ function applyStyleRemoveEdit(
     return "unsupported";
   }
   const currentStyle = attributeValue(styleElement, "style");
+  if (property === "fill-opacity") {
+    const opacityUpdate = updateOpenPenPathFillOpacity(
+      html,
+      styleElement,
+      null,
+    );
+    if (opacityUpdate.kind === "invalid") return "unsupported";
+    if (opacityUpdate.kind === "updated") {
+      return {
+        content: opacityUpdate.content,
+        capability: { kind: "style", properties: [property], confidence: 0.9 },
+      };
+    }
+  }
+  const previousStroke =
+    property === "stroke" ? vectorStyleValue(styleElement, "stroke") : null;
+  const previousFill =
+    property === "fill" ? vectorStyleValue(styleElement, "fill") : null;
   if (currentStyle === null) {
     return {
       content: html,
@@ -5125,7 +7249,30 @@ function applyStyleRemoveEdit(
   let content = nextStyle.trim()
     ? replaceOrInsertAttribute(html, styleElement, "style", nextStyle)
     : removeAttributeFromHtml(html, styleElement, "style");
+  if (isCrossAxisAlignmentProperty(property)) {
+    content = reconcileGeneratedFlexAlignment(
+      content,
+      styleElement,
+      cssPropertyKey(property) === "place-items"
+        ? "place-items-remove"
+        : undefined,
+    );
+  }
   if (route.kind === "vector-paint") {
+    if (property === "stroke") {
+      content = clearVectorStrokeGradientState(
+        content,
+        styleElement,
+        previousStroke,
+      );
+    }
+    if (property === "fill") {
+      content = clearVectorFillGradientState(
+        content,
+        styleElement,
+        previousFill,
+      );
+    }
     content = clearVectorWrapperPaint(content, element);
   }
   return {
@@ -5301,7 +7448,6 @@ function patchElementAttributes(
   return result;
 }
 
-/** Patch attributes on projected nodes using the parser's exact attribute spans. */
 export function patchCodeLayerNodeAttributes(
   html: string,
   updates: Array<{
@@ -5326,7 +7472,6 @@ export function patchCodeLayerNodeAttributes(
   return patchElementAttributes(html, parsedUpdates);
 }
 
-/** Read an exact leaf text value through the parser spans used by edit intents. */
 export function readCodeLayerNodeTextContent(
   html: string,
   node: CodeLayerNode,
@@ -5401,8 +7546,6 @@ function applyBooleanOperandStyleEdit(
   ) {
     return "unsupported";
   }
-  // The inspector can include this companion edit before left/top because
-  // SVG operands under <defs> report a non-positioned computed style.
   if (property === "position" && intent.value.trim() !== "absolute") {
     return "unsupported";
   }
@@ -5740,10 +7883,6 @@ function applyClassEdit(
   };
 }
 
-// Same shape as the bridge's own attributeOverrides guard (editor-chrome.bridge.ts)
-// — alphanumeric/dash/colon/dot/underscore, must start with a letter, never an
-// `on*` event handler. URL-bearing values get a second scheme check below so a
-// general attribute edit cannot persist executable markup.
 const SAFE_ATTRIBUTE_NAME = /^(?!on)[a-zA-Z][a-zA-Z0-9:_.-]*$/;
 const URL_ATTRIBUTE_NAMES = new Set([
   "action",
@@ -5794,8 +7933,16 @@ function applyAttributeEdit(
     return "unsupported";
   }
   if (!isSafeAttributeValue(intent.name, intent.value)) return "unsupported";
+  const attributes: Record<string, string | null> = {
+    [intent.name]: intent.value,
+  };
+  if (intent.name.toLowerCase() === "fill-opacity") {
+    const marker = updateOpenPenPathFillOpacityAttribute(element, intent.value);
+    if (marker === null) return "unsupported";
+    if (marker !== undefined) attributes[OPEN_PEN_PATH_FILL_OPACITY] = marker;
+  }
   return {
-    content: replaceOrInsertAttribute(html, element, intent.name, intent.value),
+    content: patchElementAttributes(html, [{ element, attributes }]),
     capability: {
       kind: "attribute",
       operations: ["set"],
@@ -5877,12 +8024,6 @@ const BREAKPOINT_CASCADE: ReadonlyArray<TailwindBreakpointPrefix> = [
   "2xl",
 ];
 
-/**
- * Resolve the utilities EFFECTIVE at `prefix` for the given property `stem`,
- * following the Tailwind mobile-first cascade: an explicit override at
- * `prefix` wins; otherwise the nearest smaller breakpoint (down to base) with
- * a token for that stem is what actually renders there.
- */
 function effectivePropertyUtilities(
   className: string,
   prefix: TailwindBreakpointPrefix,
@@ -5913,7 +8054,6 @@ function applyResponsiveClassEdit(
   let nextClass: string;
   if (intent.operation === "remove") {
     if (!intent.stem) {
-      // stem is required for remove
       return "unsupported";
     }
     if (!isSafeClassToken(intent.stem)) return "unsupported";
@@ -5922,14 +8062,9 @@ function applyResponsiveClassEdit(
         ? removeMaxWidthPropertyClass(currentClass, maxWidthPx, intent.stem)
         : removePropertyClass(currentClass, intent.prefix, intent.stem);
   } else {
-    // "add" and "replace" both use the same replace-if-same-stem setter.
     if (!intent.utility) return "unsupported";
     if (!isSafeClassToken(intent.utility)) return "unsupported";
     if (intent.from && maxWidthPx === undefined) {
-      // `from` guard: the utility the caller expects to be effective at this
-      // prefix. On mismatch (stale selection / wrong element) reject instead
-      // of silently overwriting whatever is actually there. Max-width scopes
-      // skip the guard — the desktop-down cascade has no prefix analog.
       if (!isSafeClassToken(intent.from)) return "unsupported";
       const effective = effectivePropertyUtilities(
         currentClass,
@@ -5945,7 +8080,6 @@ function applyResponsiveClassEdit(
   }
 
   if (nextClass === currentClass) {
-    // No-op — nothing to patch.
     return {
       content: html,
       capability: {
@@ -5972,17 +8106,6 @@ function applyResponsiveClassEdit(
   };
 }
 
-/**
- * Apply a breakpoint-style edit intent: persist (or remove) one raw CSS
- * declaration for the element inside the managed
- * `<style data-agent-native-breakpoints>` block, scoped to
- * `@media (max-width: <maxWidthPx>px)`.
- *
- * The rule targets the element's `data-agent-native-node-id`; when the
- * element doesn't carry one yet it is stamped first (stable hash of the
- * node's identity, mirroring `ensureCodeLayerNodeIdsInHtml`), so the media
- * rule and the element stay linked across future edits.
- */
 function applyBreakpointStyleEdit(
   html: string,
   element: ParsedElement,
@@ -5991,19 +8114,17 @@ function applyBreakpointStyleEdit(
 ): { content: string; capability: EditCapability } | PatchResultStatus {
   const property = normalizeStyleProperty(intent.property);
   if (!property) return "unsupported";
-  // Endpoint choices change SVG marker definitions and shape attributes as a
-  // unit. A media-scoped custom property cannot express that structural
-  // rewrite, so reject the write instead of persisting a value that renders
-  // without its marker DOM.
   if (isVectorEndpointProperty(property)) return "unsupported";
+  if (property === LINE_SEGMENT_PROPERTY) return "unsupported";
+  if (element.tag === "svg" && BORDER_RADIUS_PROPERTY.test(property)) {
+    return "unsupported";
+  }
   if (!Number.isFinite(intent.maxWidthPx) || intent.maxWidthPx <= 0) {
     return "unsupported";
   }
   const maxWidthPx = Math.round(intent.maxWidthPx);
   const operation = intent.operation ?? "set";
 
-  // Resolve the stable node id, stamping one when missing so the managed
-  // rule has a durable anchor.
   const existingId = attributeValue(
     element,
     "data-agent-native-node-id",
@@ -6012,8 +8133,6 @@ function applyBreakpointStyleEdit(
   let content = html;
   if (!existingId) {
     if (content.includes(`data-agent-native-node-id="${nodeId}"`)) {
-      // Extremely unlikely hash collision with another stamped node — derive
-      // a distinct id from the element's source span.
       nodeId = `an-${hashStable(`${nodeId}:${element.start}:${element.end}`)}`;
     }
     content = replaceOrInsertAttribute(
@@ -6063,7 +8182,6 @@ function applyBreakpointStyleEdit(
       },
     };
   } catch {
-    // setBreakpointMediaDeclaration throws on unsafe property/value.
     return "unsupported";
   }
 }
@@ -6073,6 +8191,7 @@ function applyMoveNodeEdit(
   element: ParsedElement,
   anchor: ParsedElement,
   intent: MoveNodeEditIntent,
+  sourceParent: ParsedElement | undefined,
   destinationParent?: ParsedElement,
   moveLayout?: {
     destinationIsFlow?: boolean;
@@ -6106,7 +8225,12 @@ function applyMoveNodeEdit(
     sourceParentIndex !== destinationParent.index;
   const rawFragment = html.slice(element.start, element.end);
   const fragment = entersNewParent
-    ? prepareMovedFragmentForParent(rawFragment, destinationParent, moveLayout)
+    ? prepareMovedFragmentForParent(
+        rawFragment,
+        sourceParent,
+        destinationParent,
+        moveLayout,
+      )
     : rawFragment;
   const withoutTarget = `${html.slice(0, element.start)}${html.slice(
     element.end,
@@ -6122,16 +8246,18 @@ function applyMoveNodeEdit(
     element.start < rawInsertAt ? rawInsertAt - removedLength : rawInsertAt;
 
   if (insertAt < 0 || insertAt > withoutTarget.length) return "conflict";
-  // A node spliced into a template's markup range lands in a detached
-  // fragment: it renders nowhere and no querySelector pass can reach it
-  // again. moveNodeBetweenDocuments redirects past the template for the same
-  // reason; here there is no destination to fall back to.
   if (isOffsetInsideTemplateInterior(withoutTarget, insertAt)) {
     return "unsupported";
   }
 
+  const content = `${withoutTarget.slice(0, insertAt)}${fragment}${withoutTarget.slice(insertAt)}`;
   return {
-    content: `${withoutTarget.slice(0, insertAt)}${fragment}${withoutTarget.slice(insertAt)}`,
+    content: entersNewParent
+      ? pinFixedFlexSiblingsOnOverflow(
+          content,
+          (candidate) => candidate.start === insertAt,
+        )
+      : content,
     capability: {
       kind: "structure",
       operations: ["moveNode"],
@@ -6140,11 +8266,6 @@ function applyMoveNodeEdit(
   };
 }
 
-/**
- * Whether children of this element participate in normal flex/grid flow.
- * Inline style is authoritative for inspector-created auto layout; the class
- * checks cover authored Tailwind/utility layouts in standalone Alpine files.
- */
 function isFlowLayoutContainer(element: ParsedElement | undefined): boolean {
   if (!element) return false;
   const display = parseStyle(attributeValue(element, "style")).display;
@@ -6172,15 +8293,9 @@ function isOutOfFlowElement(element: ParsedElement): boolean {
   });
 }
 
-/**
- * A Figma auto-layout drop makes the moved layer a flow child. Carrying its
- * former `position:absolute` offsets into the new flex/grid parent leaves it
- * visually detached from ordering, gap, and alignment even though the layer
- * tree says it was reparented. Normalize only the moved fragment's root; its
- * descendants keep their own positioning contexts unchanged.
- */
 function prepareMovedFragmentForParent(
   fragment: string,
+  sourceParent: ParsedElement | undefined,
   destinationParent: ParsedElement | undefined,
   moveLayout?: {
     destinationIsFlow?: boolean;
@@ -6196,19 +8311,266 @@ function prepareMovedFragmentForParent(
     moveLayout?.destinationIsFlow ?? isFlowLayoutContainer(destinationParent);
   if (destinationIsFlow) {
     if (moveLayout?.sourceWasIgnoredInFlow) return fragment;
-    return stripAbsolutePositioningFromChild(
+    const inFlow = stripAbsolutePositioningFromChild(
       fragment,
       fragmentRoot,
       moveLayout?.forceRootIntoFlow ?? false,
     );
+    return keepFlexItemSizeInNewParent(
+      inFlow,
+      flexAxisOf(sourceParent),
+      flexAxisOf(destinationParent),
+    );
   }
-  // Mirror image: entering a non-flow (absolute/freeform) parent, or the
-  // document root, strips any leftover flex/grid-item-only styling instead —
-  // see stripFlexItemStylingFromChild's doc comment.
   return stripFlexItemStylingFromChild(fragment, fragmentRoot);
 }
 
-/** Generate a fresh unique data-agent-native-node-id value not already in the set. */
+type FlexAxis = "row" | "column";
+
+function flexAxisOf(element: ParsedElement | undefined): FlexAxis | null {
+  if (!element) return null;
+  const style = parseStyle(attributeValue(element, "style"));
+  const classes = new Set(classList(element));
+  const display =
+    style.display ??
+    (classes.has("flex") || classes.has("inline-flex") ? "flex" : undefined);
+  if (display !== "flex" && display !== "inline-flex") return null;
+  const direction =
+    style["flex-direction"] ??
+    (classes.has("flex-col") || classes.has("flex-col-reverse")
+      ? "column"
+      : "row");
+  return direction.startsWith("column") ? "column" : "row";
+}
+
+interface FlexItemSizing {
+  grow: number;
+  shrink: number;
+  basis: string;
+}
+
+function parseFlexShorthand(value: string): FlexItemSizing | null {
+  const tokens = value.trim().toLowerCase().split(/\s+/);
+  if (tokens.length === 1 && tokens[0] === "none") {
+    return { grow: 0, shrink: 0, basis: "auto" };
+  }
+  if (tokens.length === 1 && tokens[0] === "auto") {
+    return { grow: 1, shrink: 1, basis: "auto" };
+  }
+  if (tokens.length === 1 && tokens[0] === "initial") {
+    return { grow: 0, shrink: 1, basis: "auto" };
+  }
+  const numbers: number[] = [];
+  let basis: string | undefined;
+  for (const token of tokens) {
+    if (basis !== undefined) return null;
+    if (numbers.length < 2 && /^\d*\.?\d+$/.test(token)) {
+      numbers.push(Number(token));
+    } else if (/^(?:auto|content|\d*\.?\d+[a-z%]*)$/.test(token)) {
+      basis = token;
+    } else {
+      return null;
+    }
+  }
+  if (numbers.length === 0) return { grow: 1, shrink: 1, basis: basis! };
+  return {
+    grow: numbers[0]!,
+    shrink: numbers[1] ?? 1,
+    basis: basis ?? "0%",
+  };
+}
+
+// Matches the inspector's Fixed mode: a px main-axis size never shrinks, and a
+// px basis carried from another main axis would size the wrong dimension.
+function keepFlexItemSizeInNewParent(
+  fragment: string,
+  sourceAxis: FlexAxis | null,
+  destinationAxis: FlexAxis | null,
+): string {
+  if (!destinationAxis) return fragment;
+  const root = parseHtmlElements(fragment).find(
+    (element) => element.parentIndex === undefined,
+  );
+  if (!root) return fragment;
+  const declarations = parseStyleDeclarations(attributeValue(root, "style"));
+  const sizing: FlexItemSizing = { grow: 0, shrink: 1, basis: "auto" };
+  let usesShorthand = false;
+  for (const declaration of declarations.declarations) {
+    const property = cssPropertyKey(declaration.prop);
+    if (property === "flex") {
+      const parsed = parseFlexShorthand(declaration.value);
+      if (!parsed) return fragment;
+      Object.assign(sizing, parsed);
+      usesShorthand = true;
+    } else if (property === "flex-grow" || property === "flex-shrink") {
+      const value = Number(declaration.value);
+      if (!Number.isFinite(value)) return fragment;
+      sizing[property === "flex-grow" ? "grow" : "shrink"] = value;
+    } else if (property === "flex-basis") {
+      sizing.basis = declaration.value.trim().toLowerCase();
+    }
+  }
+  if (sizing.grow > 0) return fragment;
+
+  const style = parseStyle(attributeValue(root, "style"));
+  const sizeProperty = (axis: FlexAxis) =>
+    axis === "row" ? "width" : "height";
+  const basisPx = parsePixelLength(sizing.basis);
+  let changed = false;
+  if (basisPx !== null && sourceAxis !== destinationAxis) {
+    const sourceSize = sourceAxis ? sizeProperty(sourceAxis) : null;
+    if (sourceSize && (!style[sourceSize] || style[sourceSize] === "auto")) {
+      setStyleDeclaration(declarations, sourceSize, sizing.basis);
+    }
+    sizing.basis = "auto";
+    changed = true;
+  }
+  const fixedMainSize =
+    parsePixelLength(style[sizeProperty(destinationAxis)]) !== null ||
+    parsePixelLength(sizing.basis) !== null;
+  if (fixedMainSize && sizing.shrink !== 0) {
+    sizing.shrink = 0;
+    changed = true;
+  }
+  if (!changed) return fragment;
+
+  if (usesShorthand) {
+    removeStyleDeclarations(declarations, [
+      "flex-grow",
+      "flex-shrink",
+      "flex-basis",
+    ]);
+    setStyleDeclaration(
+      declarations,
+      "flex",
+      `${sizing.grow} ${sizing.shrink} ${sizing.basis}`,
+    );
+  } else {
+    if (sizing.basis === "auto" && style["flex-basis"]) {
+      setStyleDeclaration(declarations, "flex-basis", "auto");
+    }
+    if (sizing.shrink === 0)
+      setStyleDeclaration(declarations, "flex-shrink", "0");
+  }
+  return replaceOrInsertAttribute(
+    fragment,
+    root,
+    "style",
+    serializeStyleDeclarations(declarations),
+  );
+}
+
+const NON_LAYOUT_TAGS = new Set([
+  "script",
+  "style",
+  "template",
+  "link",
+  "meta",
+]);
+
+function authoredFlexMainSize(
+  element: ParsedElement,
+  axis: FlexAxis,
+): number | null {
+  const style = parseStyle(attributeValue(element, "style"));
+  const basis =
+    style["flex-basis"] ??
+    (style.flex ? parseFlexShorthand(style.flex)?.basis : undefined);
+  return (
+    parsePixelLength(basis) ??
+    parsePixelLength(style[axis === "row" ? "width" : "height"])
+  );
+}
+
+function flexMainAxisInset(style: Record<string, string>, axis: FlexAxis) {
+  const [top = "0", right = top, bottom = top, left = right] = (
+    style.padding ?? ""
+  )
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  const start =
+    axis === "row"
+      ? (style["padding-left"] ?? left)
+      : (style["padding-top"] ?? top);
+  const end =
+    axis === "row"
+      ? (style["padding-right"] ?? right)
+      : (style["padding-bottom"] ?? bottom);
+  return (parsePixelLength(start) ?? 0) + (parsePixelLength(end) ?? 0);
+}
+
+function flexMainAxisGap(style: Record<string, string>, axis: FlexAxis) {
+  const [rowGap, columnGap = rowGap] = (style.gap ?? "").trim().split(/\s+/);
+  const gap =
+    axis === "row"
+      ? (style["column-gap"] ?? columnGap)
+      : (style["row-gap"] ?? rowGap);
+  return parsePixelLength(gap) ?? 0;
+}
+
+// A fixed size never shrinks, so once a flex parent's authored main size can
+// no longer hold its in-flow children, every px-sized sibling is pinned too.
+function pinFixedFlexSiblingsOnOverflow(
+  html: string,
+  isChanged: (element: ParsedElement) => boolean,
+): string {
+  const elements = parseHtmlElements(html);
+  const changed = elements.find(isChanged);
+  if (!changed || changed.parentIndex === undefined) return html;
+  if (isOutOfFlowElement(changed)) return html;
+  const parent = elements[changed.parentIndex]!;
+  const axis = flexAxisOf(parent);
+  if (!axis) return html;
+  const parentStyle = parseStyle(attributeValue(parent, "style"));
+  const mainSize = parsePixelLength(
+    parentStyle[axis === "row" ? "width" : "height"],
+  );
+  if (mainSize === null) return html;
+  const available =
+    parentStyle["box-sizing"] === "border-box"
+      ? mainSize - flexMainAxisInset(parentStyle, axis)
+      : mainSize;
+  const items = parent.childIndexes
+    .map((index) => elements[index]!)
+    .filter(
+      (item) =>
+        !NON_LAYOUT_TAGS.has(item.tag) &&
+        !isOutOfFlowElement(item) &&
+        parseStyle(attributeValue(item, "style")).display !== "none",
+    );
+  const needed =
+    items.reduce(
+      (sum, item) => sum + (authoredFlexMainSize(item, axis) ?? 0),
+      0,
+    ) +
+    flexMainAxisGap(parentStyle, axis) * Math.max(0, items.length - 1);
+  if (needed <= available) return html;
+
+  let next = html;
+  for (const item of [...items].sort((a, b) => b.start - a.start)) {
+    if (item.index === changed.index) continue;
+    const fragment = keepFlexItemSizeInNewParent(
+      next.slice(item.start, item.end),
+      axis,
+      axis,
+    );
+    next = `${next.slice(0, item.start)}${fragment}${next.slice(item.end)}`;
+  }
+  return next;
+}
+
+export function pinFixedFlexSiblingsOfNode(
+  html: string,
+  nodeId: string,
+): string {
+  return pinFixedFlexSiblingsOnOverflow(
+    html,
+    (element) =>
+      attributeValue(element, "data-agent-native-node-id") === nodeId,
+  );
+}
+
 function freshNodeId(usedIds: Set<string>, basis: string): string {
   const base = `an-${hashStable(basis)}`;
   let value = base;
@@ -6221,10 +8583,6 @@ function freshNodeId(usedIds: Set<string>, basis: string): string {
   return value;
 }
 
-/**
- * Strip the given CSS property names from an inline style attribute value.
- * Returns the new style string (may be empty if all declarations were removed).
- */
 function stripStyleProperties(
   styleValue: string | null,
   propertiesToRemove: string[],
@@ -6235,26 +8593,6 @@ function stripStyleProperties(
   return serializeStyleDeclarations(parsed);
 }
 
-/** Absolute-positioning properties stripped when converting a child to auto-layout flow. */
-const AUTO_LAYOUT_STRIP_PROPS = [
-  "position",
-  "left",
-  "top",
-  "right",
-  "bottom",
-  "inset",
-] as const;
-
-/**
- * Flex/grid-item-only properties stripped when a fragment leaves auto-layout
- * flow for a non-flow (absolute/freeform) destination parent — the mirror
- * image of AUTO_LAYOUT_STRIP_PROPS. Mirrors FLEX_ITEM_INLINE_PROPS in
- * editor-chrome.bridge.ts's prepareFlowMembersForAbsoluteDrop and
- * FLEX_ITEM_PROPS in DesignEditor.tsx's setAbsolutePositioningForNodeInHtml
- * (the same-document/canvas-drag persistence paths for this exact leak);
- * this is the moveNodeBetweenDocuments seam other reparent flows (e.g. a
- * Layers-panel cross-screen move) go through instead.
- */
 const FLEX_ITEM_STRIP_PROPS = [
   "flex",
   "flex-grow",
@@ -6264,10 +8602,6 @@ const FLEX_ITEM_STRIP_PROPS = [
   "order",
 ] as const;
 
-/**
- * Properties whose old flow placement would be counted twice after a direct
- * child is pinned to its measured position inside a new relative wrapper.
- */
 const MEASURED_FLOW_REBASE_STRIP_PROPS = [
   "position",
   "left",
@@ -6294,28 +8628,94 @@ const MEASURED_FLOW_REBASE_STRIP_PROPS = [
   "margin-inline-end",
 ] as const;
 
-/**
- * Strip absolute-positioning properties from a child's inline style, applying
- * the edit directly to the html string at the child element's source spans.
- * Returns the updated html string.
- */
+function layoutNodeFromParsed(
+  element: ParsedElement,
+  rect: LayoutRect | null = null,
+  box: LayoutBoxModel | null = null,
+): LayoutNodeInput {
+  const styles: Record<string, string> = {};
+  for (const [property, value] of Object.entries(
+    parseStyle(attributeValue(element, "style")),
+  )) {
+    styles[camelCssProperty(property)] = value
+      .replace(/\s*!important\s*$/i, "")
+      .trim();
+  }
+  return {
+    id: attributeValue(element, "data-agent-native-node-id"),
+    tagName: element.tag,
+    primitiveKind:
+      attributeValue(element, "data-an-primitive") ??
+      attributeValue(element, "data-agent-native-primitive") ??
+      undefined,
+    styles,
+    classes: classList(element),
+    rect,
+    box,
+  };
+}
+
+function camelCssProperty(property: string): string {
+  return property.startsWith("--")
+    ? property
+    : property.replace(/-([a-z])/g, (_, letter: string) =>
+        letter.toUpperCase(),
+      );
+}
+
+function kebabCssProperty(property: string): string {
+  return property.startsWith("--")
+    ? property
+    : property.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+}
+
+function applyLayoutStylePatch(
+  declarations: ParsedStyleDeclarations,
+  patch: LayoutStylePatch,
+): void {
+  const removals = Object.keys(patch)
+    .filter((property) => patch[property] === null)
+    .map(kebabCssProperty);
+  if (removals.length > 0) removeStyleDeclarations(declarations, removals);
+  for (const [property, value] of Object.entries(patch)) {
+    if (value !== null) {
+      setStyleDeclaration(declarations, kebabCssProperty(property), value);
+    }
+  }
+}
+
 function stripAbsolutePositioningFromChild(
   html: string,
   child: ParsedElement,
   forceRootIntoFlow = false,
+  renderedSize?: { width: number; height: number; box?: LayoutBoxModel },
 ): string {
   const currentStyle = attributeValue(child, "style");
+  const declarations = parseStyleDeclarations(currentStyle ?? "");
+  const joinPatch = joinFlowPatch(
+    layoutNodeFromParsed(
+      child,
+      renderedSize
+        ? {
+            x: 0,
+            y: 0,
+            width: renderedSize.width,
+            height: renderedSize.height,
+          }
+        : null,
+      renderedSize?.box ?? null,
+    ),
+  );
+  // Without a measurement an inset-sized child cannot keep its size in flow;
+  // it stays absolute inside the frame rather than collapsing.
+  if (joinPatch === null) return html;
+  applyLayoutStylePatch(declarations, joinPatch);
   const isFrame =
     (
       attributeValue(child, "data-an-primitive") ||
       attributeValue(child, "data-agent-native-primitive")
     )?.toLowerCase() === "frame";
-  const strippedStyle = currentStyle
-    ? stripStyleProperties(currentStyle, [...AUTO_LAYOUT_STRIP_PROPS])
-    : "";
-  let nextStyle = strippedStyle;
   if (isFrame || forceRootIntoFlow) {
-    const declarations = parseStyleDeclarations(strippedStyle);
     for (const [property, value] of [
       ["position", "relative !important"],
       ["left", "auto !important"],
@@ -6325,22 +8725,17 @@ function stripAbsolutePositioningFromChild(
     ]) {
       setStyleDeclaration(declarations, property, value);
     }
-    nextStyle = serializeStyleDeclarations(declarations);
   }
   let nextHtml =
     currentStyle || isFrame || forceRootIntoFlow
-      ? replaceOrInsertAttribute(html, child, "style", nextStyle)
+      ? replaceOrInsertAttribute(
+          html,
+          child,
+          "style",
+          serializeStyleDeclarations(declarations),
+        )
       : html;
 
-  // Source-backed Alpine/Tailwind designs commonly express positioning as
-  // utility classes instead of inline CSS. Once the layer moves into a new
-  // flex/grid parent, those utilities would keep it out of flow even though
-  // the Layers tree shows it as a child. Remove only position-mode utilities;
-  // inset utilities can remain because they are inert for a statically
-  // positioned flex/grid item, and preserving them avoids needless source
-  // churn if the user later makes the layer absolute again.
-  // Re-find THE CHILD: this also runs against whole documents (see
-  // applyAutoLayout), where the reparse's root is the container, not the child.
   const reparsed = parseHtmlElements(nextHtml);
   const childNodeId = attributeValue(child, "data-agent-native-node-id");
   const reparsedChild =
@@ -6370,31 +8765,12 @@ function stripAbsolutePositioningFromChild(
   return nextHtml;
 }
 
-/**
- * Strip flex/grid-item-only inline properties (flex-grow/shrink/basis,
- * align-self, order, the flex shorthand) from a child's inline style. Called
- * when a fragment leaves auto-layout flow for a non-flow destination parent —
- * these properties only mean anything inside a flex/grid container, so
- * leaving them on an absolute/freeform element is dead (and misleading)
- * source clutter that would silently reactivate with a stale value if the
- * element were ever reparented back into flow. No-ops harmlessly when the
- * child never had any of these set.
- */
 function stripFlexItemStylingFromChild(
   html: string,
   child: ParsedElement,
 ): string {
   const currentStyle = attributeValue(child, "style");
   if (!currentStyle) return html;
-  // Cheap presence check before touching anything: stripStyleProperties round
-  // -trips through parseStyleDeclarations/serializeStyleDeclarations, which
-  // normalizes formatting (adds "; " separators and a space after each
-  // colon) even when nothing actually needs removing. The overwhelming
-  // majority of moves into a non-flow destination involve a fragment that
-  // was never a flex/grid item, so unconditionally rewriting its style
-  // attribute would silently reformat unrelated, untouched authored CSS on
-  // every such move — exactly the kind of source churn this substrate is
-  // supposed to avoid. Only rewrite when there's actually something to strip.
   const declarations = parseStyleDeclarations(currentStyle);
   const hasFlexItemProp = declarations.declarations.some((decl) =>
     (FLEX_ITEM_STRIP_PROPS as readonly string[]).includes(
@@ -6410,11 +8786,6 @@ function stripFlexItemStylingFromChild(
   );
 }
 
-/**
- * Pin a flow child to its measured border-box position inside a relative
- * wrapper. Margins and inset values contributed to the measured position in
- * the old parent, so retaining them would offset the child a second time.
- */
 function rebaseMeasuredFlowChild(
   html: string,
   child: ParsedElement,
@@ -6434,16 +8805,6 @@ function rebaseMeasuredFlowChild(
   );
 }
 
-/**
- * L7: sequential "<baseName> N" naming. Counts existing layer names already
- * matching "<baseName>" or "<baseName> <number>" in the projection (via
- * data-agent-native-layer-name / layerName) and returns the next unused
- * name in that sequence, so repeated grouping doesn't leave multiple
- * ambiguous same-named layers. Figma names a plain ⌘G group "Group" but an
- * auto-layout wrap (Shift+A) "Frame" — same wrapper mechanics, different
- * default name — so the base name is threaded in by the caller rather than
- * hardcoded here.
- */
 function nextSequentialWrapperName(
   nodes: CodeLayerNode[],
   baseName: string,
@@ -6482,42 +8843,52 @@ interface AbsoluteUnionBounds {
   height: number;
 }
 
-/**
- * L7: computes the union bounding box of a set of sibling elements, but only
- * when EVERY element is absolutely positioned with pixel left/top/width/
- * height. Returns null otherwise (mixed/flow children have no meaningful
- * bounding box without an actual layout pass — the wrapper falls back to a
- * plain flow div in that case).
- */
+interface AbsoluteUnionGeometry extends AbsoluteUnionBounds {
+  /**
+   * Members anchored by right/bottom, %, calc() or utility classes. Their
+   * authored offsets mean nothing inside the new wrapper, so they are pinned
+   * at their measured box instead of rebased.
+   */
+  measuredMembers: Map<ParsedElement, AbsoluteUnionBounds>;
+}
+
 function computeAbsoluteUnionBounds(
   elements: ParsedElement[],
-  /**
-   * Live-rendered width/height fallback, keyed by exact parsed element
-   * identity, for a target whose inline style carries
-   * position/left/top but omits width/height (auto-sized content, e.g. a
-   * Text-tool node sized by its text rather than an explicit box). Never
-   * overrides an explicit inline width/height — only fills the gap that
-   * would otherwise return null and leave the wrapper with no geometry at
-   * all (a frame that doesn't enclose its own content).
-   */
   sizeHints?: ReadonlyMap<ParsedElement, WrapNodeSizeHint>,
-): AbsoluteUnionBounds | null {
+): AbsoluteUnionGeometry | null {
   let minLeft = Infinity;
   let minTop = Infinity;
   let maxRight = -Infinity;
   let maxBottom = -Infinity;
+  const measuredMembers = new Map<ParsedElement, AbsoluteUnionBounds>();
 
   for (const element of elements) {
     const style = parseStyle(attributeValue(element, "style"));
-    if (style.position !== "absolute") return null;
-    const left = parsePixelLength(style.left);
-    const top = parsePixelLength(style.top);
     const hint = sizeHints?.get(element);
+    if (style.position !== "absolute" && !hint?.outOfFlow) return null;
+    const authoredLeft = parsePixelLength(style.left);
+    const authoredTop = parsePixelLength(style.top);
     const width = parsePixelLength(style.width) ?? hint?.width ?? null;
     const height = parsePixelLength(style.height) ?? hint?.height ?? null;
-    if (left === null || top === null || width === null || height === null) {
-      return null;
+    if (width === null || height === null) return null;
+    let left = authoredLeft;
+    let top = authoredTop;
+    if (
+      (left === null || top === null) &&
+      hint &&
+      Number.isFinite(hint.left) &&
+      Number.isFinite(hint.top)
+    ) {
+      left = hint.left!;
+      top = hint.top!;
+      measuredMembers.set(element, {
+        left,
+        top,
+        width: hint.width,
+        height: hint.height,
+      });
     }
+    if (left === null || top === null) return null;
     minLeft = Math.min(minLeft, left);
     minTop = Math.min(minTop, top);
     maxRight = Math.max(maxRight, left + width);
@@ -6534,10 +8905,24 @@ function computeAbsoluteUnionBounds(
   }
 
   return {
-    left: minLeft,
-    top: minTop,
-    width: maxRight - minLeft,
-    height: maxBottom - minTop,
+    ...wholePixelBounds(minLeft, minTop, maxRight, maxBottom),
+    measuredMembers,
+  };
+}
+
+function wholePixelBounds(
+  minLeft: number,
+  minTop: number,
+  maxRight: number,
+  maxBottom: number,
+): AbsoluteUnionBounds {
+  const left = Math.round(minLeft);
+  const top = Math.round(minTop);
+  return {
+    left,
+    top,
+    width: Math.round(maxRight) - left,
+    height: Math.round(maxBottom) - top,
   };
 }
 
@@ -6548,13 +8933,6 @@ interface SelectionBackgroundRectangle {
   padding: { top: number; right: number; bottom: number; left: number };
 }
 
-/**
- * A painted rectangle can be the visual background of a Shift+A selection.
- * Figma turns that layer into the frame itself, but only when it is the
- * bottom-most selected sibling and fully contains every other selected layer.
- * Partial overlaps stay ordinary auto-layout children so selecting two
- * arbitrary shapes never changes their identity or stacking semantics.
- */
 function findSelectionBackgroundRectangle(
   targetElements: ParsedElement[],
   nodeByElement: ReadonlyMap<ParsedElement, CodeLayerNode>,
@@ -6779,12 +9157,6 @@ function promoteSelectionBackgroundRectangle(
   return `${result.slice(0, insertAt)}${promoted}${result.slice(insertAt)}`;
 }
 
-/**
- * Compute a measured union for targets that currently participate in their
- * parent's flow. The wrapper stays in that flow slot, so its parent-relative
- * origin is deliberately not written to the wrapper; only its dimensions are
- * persisted and each direct child is rebased into that local origin.
- */
 function computeMeasuredFlowBounds(
   elements: ParsedElement[],
   sizeHints?: ReadonlyMap<ParsedElement, WrapNodeSizeHint>,
@@ -6824,20 +9196,9 @@ function computeMeasuredFlowBounds(
     return null;
   }
 
-  return {
-    left: minLeft,
-    top: minTop,
-    width: maxRight - minLeft,
-    height: maxBottom - minTop,
-  };
+  return wholePixelBounds(minLeft, minTop, maxRight, maxBottom);
 }
 
-/**
- * Origin-only variant: an auto-layout wrapper hugs its children, so it needs
- * where the selection starts but not how big it is. Absolutely positioned text
- * routinely has left/top and no width/height, and demanding all four sent it
- * back to the parent's flow origin.
- */
 function computeAbsoluteUnionOrigin(
   elements: ParsedElement[],
 ): { left: number; top: number } | null {
@@ -6853,13 +9214,9 @@ function computeAbsoluteUnionOrigin(
     minTop = Math.min(minTop, top);
   }
   if (!Number.isFinite(minLeft) || !Number.isFinite(minTop)) return null;
-  return { left: minLeft, top: minTop };
+  return { left: Math.round(minLeft), top: Math.round(minTop) };
 }
 
-/**
- * GROUP: wrap targetted sibling elements (sharing a common parent) in a new
- * <div> wrapper. Targets must all share the same parent element.
- */
 function applyWrapNodes(
   html: string,
   build: ProjectionBuild,
@@ -6869,15 +9226,9 @@ function applyWrapNodes(
   | PatchResultStatus {
   const { autoLayout = false } = intent;
   const wrapperIsFrame = autoLayout || intent.wrapperKind === "frame";
-  // A UI selection is unique, but action/tool callers and stale multi-select
-  // state can repeat an id. Extracting/removing the same source span twice
-  // corrupts the surrounding document and duplicates the node inside the new
-  // wrapper. Normalize at the deterministic edit boundary.
   const targetIds = Array.from(new Set(intent.targetIds));
   if (targetIds.length === 0) return "unsupported";
 
-  // Resolve selected projection identities exactly; the authored ID fallback
-  // is only for legacy callers whose ID is unique in this projection.
   const targetElements: ParsedElement[] = [];
   const nodeByElement = new Map<ParsedElement, CodeLayerNode>();
   const sizeHintsByElement = new Map<ParsedElement, WrapNodeSizeHint>();
@@ -6913,29 +9264,11 @@ function applyWrapNodes(
     if (hint) sizeHintsByElement.set(el, hint);
   }
 
-  // All targets must share the same parent.
   const parentIndexes = new Set(targetElements.map((el) => el.parentIndex));
   if (parentIndexes.size !== 1) return "unsupported";
 
-  // Sort targets by their source position (ascending).
   targetElements.sort((a, b) => a.start - b.start);
 
-  // L6: targets no longer need to be sibling-index-CONTIGUOUS. The removal +
-  // single-reinsertion-point algorithm below extracts every target
-  // (regardless of gaps) and re-inserts them together at the topmost
-  // target's stacking position — the LAST one in source order, since later
-  // source position paints on top for plain siblings with no z-index. A
-  // non-adjacent same-parent selection (e.g. sibling indexes 0, 2, 4) closes
-  // its own gaps naturally: the un-selected siblings that were between them
-  // (1, 3) end up adjacent to each other once the targets are pulled out,
-  // and the targets end up adjacent to each other inside the new wrapper.
-  // This matches Figma's group behavior: the group lands at the z-position
-  // of its topmost selected child, not its bottommost.
-
-  // Shift+A treats a painted rectangle that contains the rest of the
-  // selection as the frame's background. Reuse that source element so the
-  // promoted frame keeps the rectangle's identity and fill. Frame selection
-  // and ordinary grouping remain on the generic wrapper path.
   const backgroundPromotion = autoLayout
     ? findSelectionBackgroundRectangle(
         targetElements,
@@ -6981,7 +9314,6 @@ function applyWrapNodes(
     }
   }
 
-  // Collect existing node ids so we can generate a unique one.
   const usedIds = new Set(
     build.projection.nodes.flatMap((n) => {
       const id = n.dataAttributes["data-agent-native-node-id"];
@@ -6994,23 +9326,11 @@ function applyWrapNodes(
     `wrap:${targetElements.map((el) => el.start).join(":")}`,
   );
 
-  // L7: sequential naming — an auto-layout wrap (Shift+A) reads as a Figma
-  // "Frame", a plain wrap (⌘G) as a "Group"; count existing same-named
-  // layers already in the projection so repeated wraps don't produce
-  // multiple ambiguous layers with the same bare name.
   const wrapperLayerName = nextSequentialWrapperName(
     build.projection.nodes,
     wrapperIsFrame ? "Frame" : "Group",
   );
 
-  // L7: when EVERY target is absolutely positioned with pixel left/top (and
-  // ideally width/height), give the wrapper real computed geometry — the
-  // union bounding box of its children — instead of a zero-geometry static
-  // div. This matches Figma: grouping absolutely-positioned layers produces
-  // a group frame sized/positioned to fit them, not a layout-only wrapper.
-  // Falls back to the previous flow/auto-layout wrapper when any child isn't
-  // absolutely positioned (there is no meaningful bounding box to compute
-  // without a layout pass).
   const targetGeometry = computeAbsoluteUnionBounds(
     targetElements,
     sizeHintsByElement,
@@ -7026,24 +9346,30 @@ function applyWrapNodes(
       ? computeMeasuredFlowBounds(targetElements, sizeHintsByElement)
       : null;
 
-  // Collect the source fragments for all targets.
   const fragments = targetElements.map((el) => {
     let frag = html.slice(el.start, el.end);
     if (autoLayout) {
-      // We need a ParsedElement that reflects the fragment's own positions.
-      // Re-parse the fragment to find the root element and strip its style.
       const fragElements = parseHtmlElements(frag);
       const root = fragElements.find((fe) => fe.parentIndex === undefined);
       if (root) {
-        frag = stripAbsolutePositioningFromChild(frag, root);
+        frag = stripAbsolutePositioningFromChild(
+          frag,
+          root,
+          false,
+          sizeHintsByElement.get(el),
+        );
       }
     } else if (targetGeometry) {
-      // Rebase each child's left/top from the old parent's coordinate space
-      // into the new wrapper's coordinate space (wrapper now sits at the
-      // union's top-left origin).
       const fragElements = parseHtmlElements(frag);
       const root = fragElements.find((fe) => fe.parentIndex === undefined);
-      if (root) {
+      const measured = targetGeometry.measuredMembers.get(el);
+      if (root && measured) {
+        frag = pinMeasuredAbsoluteChild(frag, root, {
+          ...measured,
+          left: measured.left - targetGeometry.left,
+          top: measured.top - targetGeometry.top,
+        });
+      } else if (root) {
         frag = rebaseChildOffset(
           frag,
           root,
@@ -7067,10 +9393,8 @@ function applyWrapNodes(
     return frag;
   });
 
-  // An auto-layout wrapper takes the union's origin but no width/height, so
-  // it hugs its children the way Figma's does. Omitting the origin drops the
-  // wrapper at the parent's flow start and teleports the selection to 0,0.
-  const autoLayoutStyle = "display: flex; flex-direction: column; gap: 8px";
+  const autoLayoutStyle =
+    "display: flex; flex-direction: column; align-items: flex-start; gap: 8px";
   const autoLayoutOrigin = autoLayout
     ? (targetGeometry ?? computeAbsoluteUnionOrigin(targetElements))
     : null;
@@ -7100,24 +9424,14 @@ function applyWrapNodes(
   const wrapperClose = `</div>`;
   const wrapperContent = `${wrapperOpen}${fragments.join("")}${wrapperClose}`;
 
-  // Build the replacement: remove all targets from html (back to front) then
-  // insert the wrapper at the LAST target's position — targetElements is
-  // sorted ascending by source position, so the last entry is the topmost in
-  // stacking order. Inserting there (rather than at the first/bottommost
-  // target) is what leaves an un-selected sibling that sat between the
-  // targets (e.g. Green between Red and Blue) BELOW the new group, matching
-  // Figma. Sort by position descending to remove safely.
   const sorted = [...targetElements].sort((a, b) => b.start - a.start);
   const lastTargetStart = targetElements[targetElements.length - 1]!.start;
 
-  // Remove all targets from the html (back to front).
   let result = html;
   for (const el of sorted) {
     result = `${result.slice(0, el.start)}${result.slice(el.end)}`;
   }
 
-  // Re-compute lastTargetStart relative to the modified string: every other
-  // target removed before it shifts it left by its own length.
   let bytesRemovedBefore = 0;
   for (const el of targetElements) {
     if (el.start < lastTargetStart) {
@@ -7531,28 +9845,50 @@ function applyBooleanSubtract(
   };
 }
 
-/** Parse a CSS length like "12px" into a finite pixel number, else null. */
 function parsePixelLength(value: string | undefined): number | null {
   if (!value) return null;
-  const match = /^(-?[\d.]+)px$/.exec(value.trim());
+  const match = /^(-?[\d.]+)px$|^([-+]?0*\.?0+)$/.exec(value.trim());
   if (!match) return null;
-  const parsed = Number(match[1]);
+  const parsed = Number(match[1] ?? match[2]);
   return Number.isFinite(parsed) ? parsed : null;
 }
 
 function formatMeasuredPixel(value: number): string {
-  return `${Number(value.toFixed(4))}px`;
+  return `${Math.round(value)}px`;
 }
 
-/**
- * Rebase a single child element's `left`/`top` inline-style offsets by the
- * given deltas (adding the unwrapped wrapper's own offset so the child keeps
- * its absolute screen position once reparented into the wrapper's parent).
- * No-ops (returns html unchanged) when the child isn't absolutely positioned
- * with a pixel offset — non-absolute children have no coordinate space to
- * rebase, and non-pixel units (%, calc(), var()) can't be safely combined
- * without a layout pass.
- */
+function pinMeasuredAbsoluteChild(
+  html: string,
+  child: ParsedElement,
+  box: AbsoluteUnionBounds,
+): string {
+  const declarations = parseStyleDeclarations(attributeValue(child, "style"));
+  const authored = parseStyle(attributeValue(child, "style"));
+  removeStyleDeclarations(declarations, ["inset"]);
+  setStyleDeclaration(declarations, "position", "absolute");
+  setStyleDeclaration(declarations, "margin", "0");
+  setStyleDeclaration(declarations, "left", formatMeasuredPixel(box.left));
+  setStyleDeclaration(declarations, "top", formatMeasuredPixel(box.top));
+  setStyleDeclaration(declarations, "right", "auto");
+  setStyleDeclaration(declarations, "bottom", "auto");
+  if (parsePixelLength(authored.width) === null) {
+    setStyleDeclaration(declarations, "width", formatMeasuredPixel(box.width));
+  }
+  if (parsePixelLength(authored.height) === null) {
+    setStyleDeclaration(
+      declarations,
+      "height",
+      formatMeasuredPixel(box.height),
+    );
+  }
+  return replaceOrInsertAttribute(
+    html,
+    child,
+    "style",
+    serializeStyleDeclarations(declarations),
+  );
+}
+
 function rebaseChildOffset(
   html: string,
   child: ParsedElement,
@@ -7569,12 +9905,16 @@ function rebaseChildOffset(
     nextStyle = setStyleValue(
       nextStyle,
       "left",
-      `${currentLeft + deltaLeftPx}px`,
+      `${Math.round(currentLeft + deltaLeftPx)}px`,
     );
   }
   const currentTop = parsePixelLength(style.top);
   if (currentTop !== null && deltaTopPx !== 0) {
-    nextStyle = setStyleValue(nextStyle, "top", `${currentTop + deltaTopPx}px`);
+    nextStyle = setStyleValue(
+      nextStyle,
+      "top",
+      `${Math.round(currentTop + deltaTopPx)}px`,
+    );
   }
   if (nextStyle === (currentStyle ?? "")) return html;
   return replaceOrInsertAttribute(html, child, "style", nextStyle);
@@ -7674,8 +10014,6 @@ function parseBooleanTransformList(
       name === "translatex" ||
       name === "translatey"
     ) {
-      // Translation is copied to each released shape. Percentages would
-      // resolve against each operand's box instead of the Boolean result.
       if (args.includes("%") || /calc\s*\(/i.test(args)) return null;
       if (
         !/^[+-]?(?:[\d.]+(?:e[+-]?\d+)?(?:px)?)(?:\s+[+-]?(?:[\d.]+(?:e[+-]?\d+)?(?:px)?))?$/i.test(
@@ -8025,8 +10363,6 @@ function releaseBooleanRoot(
     (operand): operand is string => operand !== null,
   );
   if (releasedMarkup.length !== operands.length) return "unsupported";
-  // Keep the operands in their original base-then-cutter order. The complete
-  // defs/mask/use scaffold is removed with the Boolean root.
   return {
     content: `${html.slice(0, element.start)}${releasedMarkup.join("")}${html.slice(element.end)}`,
     capability: {
@@ -8079,23 +10415,12 @@ function applyUnwrap(
   }
   if (booleanOperandFor(element)) return "unsupported";
   if (element.selfClosing || element.contentStart >= element.contentEnd) {
-    // Nothing to unwrap from an empty/void element.
     return "unsupported";
   }
   if (element.childIndexes.length === 0) {
-    // Leaf node (text-only or otherwise childless): there is nothing to
-    // "release" as children, and splicing raw inner content into the parent
-    // would destroy this element's own identity (tag/attrs/styles).
     return "unsupported";
   }
 
-  // If the wrapper has a measured flow origin or is positioned with pixel
-  // left/top, rebase each direct child's own absolute left/top before
-  // splicing, so children keep their absolute screen position once
-  // reparented. Re-parse the wrapper's inner HTML in isolation so child
-  // element spans are relative to that fragment (matches how
-  // replaceOrInsertAttribute below operates on the fragment, not the outer
-  // document offsets).
   const wrapperStyle = parseStyle(attributeValue(element, "style"));
   const wrapperLeft = parsePixelLength(wrapperStyle.left);
   const wrapperTop = parsePixelLength(wrapperStyle.top);
@@ -8115,9 +10440,6 @@ function applyUnwrap(
 
   let innerContent = html.slice(element.contentStart, element.contentEnd);
   if (shouldRebase) {
-    // A relative wrapper contributes both its normal-flow origin and its
-    // authored inset. Dropping either term shifts children when the wrapper
-    // is removed and they become siblings of the original flow parent.
     const deltaLeftPx =
       (measuredGroupLeft ?? 0) + (hasPositionedOffset ? (wrapperLeft ?? 0) : 0);
     const deltaTopPx =
@@ -8126,8 +10448,6 @@ function applyUnwrap(
     const directChildren = fragmentElements.filter(
       (fe) => fe.parentIndex === undefined,
     );
-    // Apply back-to-front so earlier offsets in the fragment stay valid as
-    // later ones are rewritten.
     for (const child of [...directChildren].sort((a, b) => b.start - a.start)) {
       innerContent = rebaseChildOffset(
         innerContent,
@@ -8138,7 +10458,6 @@ function applyUnwrap(
     }
   }
 
-  // Replace the whole element (start..end) with its inner content.
   const result = `${html.slice(0, element.start)}${innerContent}${html.slice(element.end)}`;
 
   return {
@@ -8151,15 +10470,8 @@ function applyUnwrap(
   };
 }
 
-/**
- * CONVERT: toggle auto-layout (display:flex) on an existing container.
- */
-/** Whether an existing min-width/min-height already preserves `extent` px. */
-function holdsOpen(value: string, extent: number): boolean {
-  const trimmed = value.trim();
-  if (!/^[\d.]+px$/i.test(trimmed)) return !/^0[a-z%]*$/i.test(trimmed);
-  return Number.parseFloat(trimmed) >= extent;
-}
+const GENERATED_FLEX_ALIGNMENT_ATTRIBUTE =
+  "data-agent-native-generated-flex-align-items";
 
 function applyAutoLayout(
   html: string,
@@ -8178,46 +10490,60 @@ function applyAutoLayout(
   const element = build.elementByNodeId.get(node.id);
   if (!element) return "conflict";
 
+  const childRects = intent.childRects ?? {};
+  const frameNode = layoutNodeFromParsed(element);
+  // The projection, not the inline style alone, knows whether a class or
+  // stylesheet already lays this frame out.
+  const model = readLayoutModel({
+    node: {
+      ...frameNode,
+      styles: {
+        ...frameNode.styles,
+        display: node.layout.isGridContainer
+          ? "grid"
+          : node.layout.isFlexContainer
+            ? "flex"
+            : "block",
+      },
+      resolvedSize: {
+        horizontal: intent.containerRect?.width ?? null,
+        vertical: intent.containerRect?.height ?? null,
+      },
+    },
+    // Without the parent, a full-width section reads as Hug and would be
+    // pinned to a px width when auto layout is removed.
+    parent:
+      element.parentIndex === undefined
+        ? null
+        : {
+            display: node.layout.parentDisplay || "block",
+            ...(node.layout.parentFlexDirection
+              ? { flexDirection: node.layout.parentFlexDirection }
+              : {}),
+          },
+    children: {
+      status: "read",
+      looseText: false,
+      complete: true,
+      children: element.childIndexes.flatMap((index) => {
+        const child = build.elements[index];
+        if (!child) return [];
+        const id = attributeValue(child, "data-agent-native-node-id");
+        const measured = id ? childRects[id] : undefined;
+        return [
+          layoutNodeFromParsed(child, measured ?? null, measured?.box ?? null),
+        ];
+      }),
+    },
+  });
+
   if (!enabled) {
-    const childRects = intent.childRects;
-    const hasRects = !!childRects && Object.keys(childRects).length > 0;
-    if (!hasRects) return "needsAgent";
-    const currentStyle = attributeValue(element, "style");
-    const declarations = parseStyleDeclarations(currentStyle);
-    const setOnContainer = (property: string, value: string) => {
-      setStyleDeclaration(declarations, property, value);
-    };
-    setOnContainer("display", "block");
-    if (hasRects) {
-      // Absolute children resolve against the nearest positioned ancestor, so
-      // a static container would let them escape to the page.
-      const position = effectiveStyleDeclarations(declarations).find(
-        (d) => cssPropertyKey(d.prop) === "position",
-      );
-      if (!position || position.value === "static") {
-        setOnContainer("position", "relative");
-      }
-      // With every child absolute the content box is empty, so a hug-sized
-      // container collapses and overflow:hidden then hides what we just pinned.
-      const rect = intent.containerRect;
-      if (rect) {
-        for (const [property, value] of [
-          ["min-width", rect.width],
-          ["min-height", rect.height],
-        ] as const) {
-          const existing = effectiveStyleDeclarations(declarations).find(
-            (d) => cssPropertyKey(d.prop) === property,
-          );
-          // `min-height: 0` is the standard flex idiom and holds nothing open.
-          // Only a px minimum at least as large as the measured extent does.
-          if (existing && !holdsOpen(existing.value, value)) {
-            setOnContainer(property, `${Math.round(value)}px`);
-          } else if (!existing) {
-            setOnContainer(property, `${Math.round(value)}px`);
-          }
-        }
-      }
-    }
+    const write = writeLayoutChange(model, { kind: "disable-auto-layout" });
+    if (write.status !== "ok") return "needsAgent";
+    const declarations = parseStyleDeclarations(
+      attributeValue(element, "style"),
+    );
+    applyLayoutStylePatch(declarations, write.frame);
     let result = replaceOrInsertAttribute(
       html,
       element,
@@ -8235,29 +10561,17 @@ function applyAutoLayout(
         : undefined) ??
       updatedElements.find((fe) => fe.start === element.start);
     if (updatedTarget) {
-      // Reverse order keeps earlier offsets valid as each write shifts the rest.
       for (const childIndex of [...updatedTarget.childIndexes].reverse()) {
         const child = updatedElements[childIndex];
-        if (!child) continue;
-        const childId = attributeValue(child, "data-agent-native-node-id");
-        const rect = childId ? childRects[childId] : undefined;
-        if (!rect) continue;
+        const childId = child
+          ? attributeValue(child, "data-agent-native-node-id")
+          : null;
+        const childPatch = childId ? write.children.get(childId) : undefined;
+        if (!child || !childPatch) continue;
         const childDecls = parseStyleDeclarations(
           attributeValue(child, "style"),
         );
-        const setOnChild = (property: string, value: string) => {
-          setStyleDeclaration(childDecls, property, value);
-        };
-        // The measured rect is a border box placed by its margin edge, so a
-        // content-box child would grow by its padding and a margin would shift
-        // it off the position we just measured.
-        setOnChild("box-sizing", "border-box");
-        setOnChild("margin", "0");
-        setOnChild("position", "absolute");
-        setOnChild("left", `${Math.round(rect.x)}px`);
-        setOnChild("top", `${Math.round(rect.y)}px`);
-        setOnChild("width", `${Math.round(rect.width)}px`);
-        setOnChild("height", `${Math.round(rect.height)}px`);
+        applyLayoutStylePatch(childDecls, childPatch);
         result = replaceOrInsertAttribute(
           result,
           child,
@@ -8285,12 +10599,6 @@ function applyAutoLayout(
     };
   }
 
-  // Enable auto-layout: set display:flex + direction + gap on the container.
-  // Apply all three style properties in a single mutation against the already-
-  // resolved element so that elements with no stable data attributes or HTML id
-  // are handled correctly.  Re-parsing after each individual property write
-  // caused a silent no-op for those elements because the re-parse-based element
-  // finder could not locate them after the first write changed the style attr.
   const currentStyle = attributeValue(element, "style");
   let declarations = parseStyleDeclarations(currentStyle);
   const setOrReplace = (prop: string, val: string) => {
@@ -8298,18 +10606,44 @@ function applyAutoLayout(
   };
   const containerStyles = intent.containerStyles;
   const writtenProperties: VisualStyleProperty[] = [];
+  const declared: Array<[VisualStyleProperty, string]> = [];
   if (containerStyles) {
-    const declared: Array<[VisualStyleProperty, string]> = [];
     for (const [rawProperty, rawValue] of Object.entries(containerStyles)) {
       const property = normalizeStyleProperty(rawProperty);
-      // All or nothing: a half-written flow (a display without its tracks) is
-      // a layout nobody asked for, and it would report as applied.
       if (!property || !isSafeStyleValue(property, rawValue)) {
         return "needsAgent";
       }
       declared.push([property, rawValue.trim()]);
     }
     if (declared.length === 0) return "needsAgent";
+  }
+
+  const declaresAlignItems = declared.some(
+    ([property]) => cssPropertyKey(property) === "align-items",
+  );
+  const generatedFlexAlignment = attributeValue(
+    element,
+    GENERATED_FLEX_ALIGNMENT_ATTRIBUTE,
+  );
+  const currentAlignItems = effectiveStyleDeclarations(declarations).find(
+    (declaration) => cssPropertyKey(declaration.prop) === "align-items",
+  );
+  const generatedFlexAlignmentWasPresent =
+    generatedFlexAlignment !== null &&
+    currentAlignItems !== undefined &&
+    !currentAlignItems.important &&
+    currentAlignItems.value
+      .replace(/\s*!important\s*$/i, "")
+      .trim()
+      .toLowerCase() === generatedFlexAlignment.trim().toLowerCase();
+  let nextGeneratedFlexAlignment: string | null = null;
+  let removedGeneratedFlexAlignment = false;
+  if (generatedFlexAlignmentWasPresent && !declaresAlignItems) {
+    removeStyleDeclarations(declarations, ["align-items"]);
+    removedGeneratedFlexAlignment = true;
+  }
+
+  if (containerStyles) {
     for (const [property, value] of declared) {
       setOrReplace(property, value);
       writtenProperties.push(property);
@@ -8320,20 +10654,46 @@ function applyAutoLayout(
     setOrReplace("gap", gap);
     writtenProperties.push("display", "flex-direction", "gap");
   }
-  let result = replaceOrInsertAttribute(
-    html,
-    element,
-    "style",
-    serializeStyleDeclarations(declarations),
-  );
+  if (
+    removedGeneratedFlexAlignment &&
+    nextGeneratedFlexAlignment === null &&
+    !writtenProperties.includes("align-items")
+  ) {
+    writtenProperties.push("align-items");
+  }
+  const effectiveDeclarations = effectiveStyleDeclarations(declarations);
+  const hasAuthoredCrossAxisAlignment =
+    effectiveDeclarations.some((declaration) =>
+      isCrossAxisAlignmentProperty(declaration.prop),
+    ) ||
+    (!generatedFlexAlignmentWasPresent &&
+      node.layout.alignItems !== undefined) ||
+    hasCrossAxisAlignmentUtilityClass(element) ||
+    stylesheetMaySetAlignItems(html, element, build.elements);
+  const displayValue = effectiveDeclarations
+    .find((declaration) => cssPropertyKey(declaration.prop) === "display")
+    ?.value.replace(/\s*!important\s*$/i, "")
+    .trim()
+    .toLowerCase();
+  const isFlexContainer = displayValue
+    ? displayValue === "flex" || displayValue === "inline-flex"
+    : node.layout.isFlexContainer;
+  if (isFlexContainer && !hasAuthoredCrossAxisAlignment) {
+    setOrReplace("align-items", "flex-start");
+    nextGeneratedFlexAlignment = "flex-start";
+    writtenProperties.push("align-items");
+  }
+  let result = patchElementAttributes(html, [
+    {
+      element,
+      attributes: {
+        style: serializeStyleDeclarations(declarations),
+        [GENERATED_FLEX_ALIGNMENT_ATTRIBUTE]: nextGeneratedFlexAlignment,
+      },
+    },
+  ]);
 
-  // Strip absolute positioning from direct children.
-  // Re-parse to get up-to-date child element positions after the style mutation.
   const updatedElements = parseHtmlElements(result);
-  // Locate the target element in the updated parse.  Prefer stable data
-  // attributes and HTML id; fall back to matching by original source position
-  // (safe because the container open-tag length only changed by the style attr
-  // rewrite, which shifts nothing before element.start).
   const stableAttrPairs: Array<[string, string]> = [];
   for (const attrName of STABLE_NODE_ID_ATTRIBUTES) {
     const v = attributeValue(element, attrName);
@@ -8352,19 +10712,33 @@ function applyAutoLayout(
     if (htmlIdValue) {
       return elements.find((fe) => attributeValue(fe, "id") === htmlIdValue);
     }
-    // Fallback: match by original start position.  The container's start offset
-    // is unchanged because only its open-tag content (style attr) was modified.
     return elements.find((fe) => fe.start === element.start);
   };
   const updatedTarget = findElementInParsed(updatedElements);
 
-  if (updatedTarget) {
-    // Process children in reverse order so offsets stay valid.
+  // Changing direction, gap or alignment on a frame that already lays out
+  // must not drag its intentionally absolute children (badges, overlays)
+  // into flow; only the freeform → auto layout transition does that.
+  if (updatedTarget && model.frame.mode === "none") {
     const childIndexes = [...updatedTarget.childIndexes].reverse();
     for (const childIndex of childIndexes) {
       const child = updatedElements[childIndex];
       if (!child) continue;
-      result = stripAbsolutePositioningFromChild(result, child);
+      const childId = attributeValue(child, "data-agent-native-node-id");
+      const rect = childId ? childRects[childId] : undefined;
+      result = stripAbsolutePositioningFromChild(result, child, false, rect);
+    }
+  }
+  if (!isFlowLayoutContainer(element)) {
+    const columnElements = parseHtmlElements(result);
+    const columnTarget = findElementInParsed(columnElements);
+    if (columnTarget && flexAxisOf(columnTarget) === "column") {
+      for (const childIndex of [...columnTarget.childIndexes].reverse()) {
+        result = keepBlockChildFillingWidth(
+          result,
+          columnElements[childIndex]!,
+        );
+      }
     }
   }
 
@@ -8426,6 +10800,810 @@ function applyAutoLayout(
   };
 }
 
+function isCrossAxisAlignmentProperty(property: string): boolean {
+  const key = cssPropertyKey(property);
+  return key === "align-items" || key === "place-items";
+}
+
+function reconcileGeneratedFlexAlignment(
+  html: string,
+  element: ParsedElement,
+  placeItemsAction?: "place-items-set" | "place-items-remove",
+): string {
+  let updatedElement = parseHtmlElements(html)[element.index];
+  if (!updatedElement) return html;
+  const generatedValue = attributeValue(
+    updatedElement,
+    GENERATED_FLEX_ALIGNMENT_ATTRIBUTE,
+  );
+  if (placeItemsAction && generatedValue !== null) {
+    const declarations = parseStyleDeclarations(
+      attributeValue(updatedElement, "style"),
+    );
+    const alignItems = declarations.declarations.filter(
+      (declaration) => cssPropertyKey(declaration.prop) === "align-items",
+    );
+    const currentAlignItems = effectiveStyleDeclarations(declarations).find(
+      (declaration) => cssPropertyKey(declaration.prop) === "align-items",
+    );
+    const isGeneratedAlignment =
+      currentAlignItems !== undefined &&
+      !currentAlignItems.important &&
+      currentAlignItems.value.trim().toLowerCase() ===
+        generatedValue.trim().toLowerCase();
+    let updateStyle = false;
+    let keepMarker = true;
+
+    if (placeItemsAction === "place-items-set") {
+      if (isGeneratedAlignment) {
+        currentAlignItems.remove();
+        updateStyle = true;
+      }
+    } else if (isGeneratedAlignment && currentAlignItems) {
+      if (alignItems.some((declaration) => declaration !== currentAlignItems)) {
+        currentAlignItems.remove();
+        updateStyle = true;
+        keepMarker = false;
+      }
+    } else if (!currentAlignItems) {
+      const elements = parseHtmlElements(html);
+      const displayMode = effectiveDisplayMode(
+        html,
+        updatedElement,
+        elements,
+        declarations,
+      );
+      const hasAuthoredAlignment =
+        hasCrossAxisAlignmentUtilityClass(updatedElement) ||
+        stylesheetMaySetAlignItems(html, updatedElement, elements);
+      if (displayMode === "non-flex") {
+        keepMarker = false;
+      } else if (displayMode === "flex" && !hasAuthoredAlignment) {
+        setStyleDeclaration(declarations, "align-items", generatedValue);
+        updateStyle = true;
+      } else if (displayMode === "flex") {
+        keepMarker = false;
+      }
+    } else {
+      keepMarker = false;
+    }
+
+    if (updateStyle) {
+      const nextStyle = serializeStyleDeclarations(declarations);
+      html = nextStyle.trim()
+        ? replaceOrInsertAttribute(html, updatedElement, "style", nextStyle)
+        : removeAttributeFromHtml(html, updatedElement, "style");
+      updatedElement = parseHtmlElements(html)[element.index];
+    }
+    if (keepMarker) return html;
+  }
+  return updatedElement
+    ? removeAttributeFromHtml(
+        html,
+        updatedElement,
+        GENERATED_FLEX_ALIGNMENT_ATTRIBUTE,
+      )
+    : html;
+}
+
+function hasCrossAxisAlignmentUtilityClass(element: ParsedElement): boolean {
+  return classList(element).some((className) => {
+    if (/(?:^|:)!?\[(?:align-items|place-items):/i.test(className)) {
+      return true;
+    }
+    const variants = className.split(":");
+    const utility = variants[variants.length - 1]?.replace(/^!/, "");
+    return utility?.startsWith("items-") || utility?.startsWith("place-items-");
+  });
+}
+
+type CssSpecificity = readonly [number, number, number, number];
+
+type DisplayCascadeCandidate = {
+  value: string;
+  important: boolean;
+  specificity: CssSpecificity;
+  sourceOrder: number;
+  source: "inline" | "stylesheet" | "utility";
+};
+
+type DisplayMode = "flex" | "non-flex" | "unknown";
+
+const DISPLAY_UTILITY_VALUES: Readonly<Record<string, string>> = {
+  block: "block",
+  contents: "contents",
+  flex: "flex",
+  "flow-root": "flow-root",
+  grid: "grid",
+  hidden: "none",
+  inline: "inline",
+  "inline-block": "inline-block",
+  "inline-flex": "inline-flex",
+  "inline-grid": "inline-grid",
+  "list-item": "list-item",
+  table: "table",
+};
+
+function effectiveDisplayMode(
+  html: string,
+  target: ParsedElement,
+  elements: readonly ParsedElement[],
+  inlineStyle: ParsedStyleDeclarations,
+): DisplayMode {
+  const candidates: DisplayCascadeCandidate[] = effectiveStyleDeclarations(
+    inlineStyle,
+  )
+    .filter((declaration) => cssPropertyKey(declaration.prop) === "display")
+    .map((declaration, sourceOrder) => ({
+      value: declaration.value,
+      important: declaration.important,
+      specificity: [1, 0, 0, 0] as const,
+      sourceOrder,
+      source: "inline",
+    }));
+  const stylesheet = stylesheetPropertyValues(html, target, elements, [
+    "display",
+  ]);
+  const hasInlineImportantDisplay = candidates.some(
+    (candidate) => candidate.important,
+  );
+  if (stylesheet.unknown && !hasInlineImportantDisplay) return "unknown";
+  candidates.push(...stylesheet.declarations);
+
+  const classCandidates: DisplayCascadeCandidate[] = [];
+  for (const token of classList(target)) {
+    const parsed = parseClassToken(token);
+    const variantUtility = parsed.utility.slice(
+      parsed.utility.lastIndexOf(":") + 1,
+    );
+    const important = variantUtility.startsWith("!");
+    const utility = important ? variantUtility.slice(1) : variantUtility;
+    const value = DISPLAY_UTILITY_VALUES[utility];
+    if (!value) {
+      if (/^\[display\s*:/i.test(utility)) {
+        return "unknown";
+      }
+      continue;
+    }
+    if (parsed.prefix !== "base" || parsed.utility.includes(":")) {
+      return "unknown";
+    }
+    classCandidates.push({
+      value,
+      important,
+      specificity: [0, 0, 1, 0],
+      sourceOrder: classCandidates.length,
+      source: "utility",
+    });
+  }
+  candidates.push(...classCandidates);
+
+  for (let leftIndex = 0; leftIndex < candidates.length; leftIndex += 1) {
+    const left = candidates[leftIndex];
+    if (!left) continue;
+    for (
+      let rightIndex = leftIndex + 1;
+      rightIndex < candidates.length;
+      rightIndex += 1
+    ) {
+      const right = candidates[rightIndex];
+      if (
+        !right ||
+        left.value.trim().toLowerCase() === right.value.trim().toLowerCase()
+      ) {
+        continue;
+      }
+      if (
+        left.important === right.important &&
+        compareCssSpecificity(left.specificity, right.specificity) === 0 &&
+        (left.source === "utility" || right.source === "utility")
+      ) {
+        return "unknown";
+      }
+    }
+  }
+
+  let winner: DisplayCascadeCandidate | undefined;
+  for (const candidate of candidates) {
+    if (!winner) {
+      winner = candidate;
+      continue;
+    }
+    if (candidate.important !== winner.important) {
+      if (candidate.important) winner = candidate;
+      continue;
+    }
+    const specificity = compareCssSpecificity(
+      candidate.specificity,
+      winner.specificity,
+    );
+    if (
+      specificity > 0 ||
+      (specificity === 0 && candidate.sourceOrder > winner.sourceOrder)
+    ) {
+      winner = candidate;
+    }
+  }
+
+  if (!winner) return "non-flex";
+  const value = normalizeDisplayValue(winner.value);
+  if (value === null) return "unknown";
+  return value === "flex" || value === "inline-flex" ? "flex" : "non-flex";
+}
+
+function compareCssSpecificity(
+  left: CssSpecificity,
+  right: CssSpecificity,
+): number {
+  for (let index = 0; index < left.length; index += 1) {
+    const difference = left[index]! - right[index]!;
+    if (difference !== 0) return difference;
+  }
+  return 0;
+}
+
+function normalizeDisplayValue(value: string): string | null {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized || /\b(?:var|env|attr)\s*\(/.test(normalized)) return null;
+  if (
+    ["flex", "inline-flex", "block flex", "inline flex"].includes(normalized)
+  ) {
+    return "flex";
+  }
+  if (
+    [
+      "block flow",
+      "block flow-root",
+      "block grid",
+      "block list-item",
+      "block math",
+      "block table",
+      "block",
+      "contents",
+      "flow-root",
+      "grid",
+      "inline",
+      "inline flow",
+      "inline flow-root",
+      "inline grid",
+      "inline-block",
+      "inline-grid",
+      "inline list-item",
+      "inline math",
+      "inline table",
+      "inline-table",
+      "list-item",
+      "math",
+      "none",
+      "ruby",
+      "ruby-base",
+      "ruby-base-container",
+      "ruby-text",
+      "ruby-text-container",
+      "run-in",
+      "table",
+      "table-caption",
+      "table-cell",
+      "table-column",
+      "table-column-group",
+      "table-footer-group",
+      "table-header-group",
+      "table-row",
+      "table-row-group",
+    ].includes(normalized)
+  ) {
+    return normalized;
+  }
+  return null;
+}
+
+function stylesheetMaySetAlignItems(
+  html: string,
+  target: ParsedElement,
+  elements: readonly ParsedElement[],
+): boolean {
+  const result = stylesheetPropertyValues(html, target, elements, [
+    "align-items",
+    "place-items",
+  ]);
+  return result.unknown || result.values.length > 0;
+}
+
+function stylesheetPropertyValues(
+  html: string,
+  target: ParsedElement,
+  elements: readonly ParsedElement[],
+  properties: readonly string[],
+): {
+  unknown: boolean;
+  values: string[];
+  declarations: DisplayCascadeCandidate[];
+} {
+  const values: string[] = [];
+  const declarations: DisplayCascadeCandidate[] = [];
+  let unknown = false;
+  let sourceOrder = 0;
+  const tagRe =
+    /<!--[\s\S]*?-->|<![A-Za-z][^>]*>|<\/?\s*([A-Za-z][A-Za-z0-9:-]*)\b/g;
+  let match: RegExpExecArray | null;
+  while ((match = tagRe.exec(html))) {
+    let raw = match[0];
+    if (raw.startsWith("<!")) continue;
+    const tagEnd = findHtmlTagEnd(html, match.index);
+    raw = html.slice(match.index, tagEnd === -1 ? html.length : tagEnd);
+    tagRe.lastIndex = match.index + raw.length;
+    const tag = match[1]?.toLowerCase();
+    if (!tag || raw.startsWith("</")) continue;
+
+    const inTemplate =
+      (tag === "style" || tag === "link") &&
+      isOffsetInsideTemplateInterior(html, match.index);
+    if (tag === "link") {
+      if (inTemplate) continue;
+      const attributes = parseAttributes(raw, match.index);
+      const rel = attributes.find((attribute) => attribute.lowerName === "rel");
+      const href = attributes.find(
+        (attribute) => attribute.lowerName === "href",
+      );
+      const media = attributes.find(
+        (attribute) => attribute.lowerName === "media",
+      );
+      const relValue =
+        rel && typeof rel.value === "string"
+          ? decodeBasicHtmlEntities(rel.value).toLowerCase()
+          : "";
+      const mediaValue = media
+        ? typeof media.value === "string"
+          ? decodeBasicHtmlEntities(media.value)
+          : ""
+        : null;
+      const hrefValue =
+        typeof href?.value === "string"
+          ? decodeBasicHtmlEntities(href.value).trim()
+          : "";
+      if (
+        relValue.split(/\s+/).includes("stylesheet") &&
+        hrefValue !== "" &&
+        stylesheetHrefCanLoad(hrefValue) &&
+        !isGoogleFontsStylesheet(hrefValue) &&
+        !attributes.some((attribute) => attribute.lowerName === "disabled") &&
+        (mediaValue === null || mediaQueryListMayMatchScreen(mediaValue))
+      ) {
+        return { unknown: true, values, declarations };
+      }
+      continue;
+    }
+
+    if (tag === "style") {
+      const close = findClosingTag(html, "style", match.index + raw.length);
+      const mediaAttribute = parseAttributes(raw, match.index).find(
+        (attribute) => attribute.lowerName === "media",
+      );
+      const mediaValue = mediaAttribute
+        ? typeof mediaAttribute.value === "string"
+          ? decodeBasicHtmlEntities(mediaAttribute.value)
+          : ""
+        : null;
+      const mediaCanApply =
+        mediaValue === null || mediaQueryListMayMatchScreen(mediaValue);
+      const mediaIsUnconditionallyActive =
+        mediaValue === null ||
+        mediaQueryListDefinitelyMatchesScreen(mediaValue);
+      if (!inTemplate && mediaCanApply) {
+        const css = html.slice(
+          match.index + raw.length,
+          close?.closeStart ?? html.length,
+        );
+        try {
+          const stylesheet = parseCss(css, { map: false });
+          let importedStylesheet = false;
+          stylesheet.walkAtRules("import", () => {
+            importedStylesheet = true;
+          });
+          if (importedStylesheet) {
+            return { unknown: true, values, declarations };
+          }
+          stylesheet.walkRules((rule) => {
+            if (!stylesheetRuleMayApplyOnScreen(rule)) return;
+            let winningSpecificity: CssSpecificity | undefined;
+            let uncertainSelector = false;
+            for (const selector of rule.selectors) {
+              const specificity = stylesheetSelectorSpecificity(selector);
+              if (!specificity) {
+                if (
+                  stylesheetSelectorMayMatchElement(selector, target, elements)
+                ) {
+                  uncertainSelector = true;
+                }
+                continue;
+              }
+              if (
+                stylesheetSelectorMayMatchElement(selector, target, elements) &&
+                (!winningSpecificity ||
+                  compareCssSpecificity(specificity, winningSpecificity) > 0)
+              ) {
+                winningSpecificity = specificity;
+              }
+            }
+            for (const declaration of rule.nodes ?? []) {
+              const declarationOrder = sourceOrder;
+              sourceOrder += 1;
+              if (
+                declaration.type !== "decl" ||
+                !properties.includes(cssPropertyKey(declaration.prop))
+              ) {
+                continue;
+              }
+              if (!uncertainSelector && !winningSpecificity) continue;
+              values.push(declaration.value);
+              if (
+                uncertainSelector ||
+                stylesheetRuleHasUnknownCascade(rule) ||
+                !mediaIsUnconditionallyActive
+              ) {
+                unknown = true;
+                continue;
+              }
+              if (winningSpecificity) {
+                declarations.push({
+                  value: declaration.value,
+                  important: declaration.important,
+                  specificity: winningSpecificity,
+                  sourceOrder: declarationOrder,
+                  source: "stylesheet",
+                });
+              }
+            }
+          });
+        } catch (error) {
+          if (!(error instanceof CssSyntaxError)) throw error;
+          const propertyPattern = properties.join("|");
+          if (
+            new RegExp(`@import\\b|\\b(?:${propertyPattern})\\s*:`, "i").test(
+              css,
+            )
+          ) {
+            unknown = true;
+          }
+        }
+      }
+      tagRe.lastIndex = close?.closeEnd ?? html.length;
+      continue;
+    }
+
+    if (["script", "textarea", "title", "noscript"].includes(tag)) {
+      const close = findClosingTag(html, tag, match.index + raw.length);
+      tagRe.lastIndex = close?.closeEnd ?? html.length;
+    }
+  }
+  return { unknown, values, declarations };
+}
+
+function stylesheetSelectorSpecificity(
+  selector: string,
+): CssSpecificity | null {
+  const normalized = normalizeSelectorForMatch(selector);
+  if (!normalized) return null;
+  let ids = 0;
+  let classes = 0;
+  let elements = 0;
+  let canStartType = true;
+
+  for (let index = 0; index < normalized.length; ) {
+    const character = normalized[index];
+    if (!character) return null;
+    if (character === ">" || /\s/.test(character)) {
+      canStartType = true;
+      index += 1;
+      continue;
+    }
+    if (character === "[") {
+      const attribute = normalized
+        .slice(index)
+        .match(
+          /^\[[A-Za-z_][A-Za-z0-9_:.-]*=(?:"(?:\\.|[^"])*"|'(?:\\.|[^'])*')\]/,
+        );
+      if (!attribute) return null;
+      classes += 1;
+      canStartType = false;
+      index += attribute[0].length;
+      continue;
+    }
+    if (character === "#" || character === ".") {
+      const identifier = normalized
+        .slice(index + 1)
+        .match(/^[A-Za-z_][A-Za-z0-9_-]*/)?.[0];
+      if (!identifier) return null;
+      if (character === "#") ids += 1;
+      else classes += 1;
+      canStartType = false;
+      index += identifier.length + 1;
+      continue;
+    }
+    if (character === "*") {
+      if (!canStartType) return null;
+      canStartType = false;
+      index += 1;
+      continue;
+    }
+    if (character === ":") return null;
+    if (canStartType && /[A-Za-z]/.test(character)) {
+      const tag = normalized.slice(index).match(/^[A-Za-z][A-Za-z0-9:-]*/)?.[0];
+      if (!tag) return null;
+      elements += 1;
+      canStartType = false;
+      index += tag.length;
+      continue;
+    }
+    return null;
+  }
+  return [0, ids, classes, elements];
+}
+
+function stylesheetRuleHasUnknownCascade(rule: Rule): boolean {
+  let parent = rule.parent;
+  while (parent) {
+    if (parent.type === "atrule") {
+      if (parent.name.toLowerCase() !== "media") return true;
+      const media = parent.params.trim().toLowerCase();
+      if (!["all", "screen", "not print"].includes(media)) return true;
+    }
+    const ancestor = parent.parent;
+    parent = ancestor && ancestor.type !== "document" ? ancestor : undefined;
+  }
+  return false;
+}
+
+function stylesheetHrefCanLoad(href: string): boolean {
+  try {
+    return new URL(href, "https://design.invalid").protocol !== "javascript:";
+  } catch {
+    // coercion-ok: Invalid hrefs cannot identify a loadable stylesheet.
+    return false;
+  }
+}
+
+function isGoogleFontsStylesheet(href: string): boolean {
+  try {
+    const url = new URL(href, "https://design.invalid");
+    return (
+      url.hostname.toLowerCase() === "fonts.googleapis.com" &&
+      (url.pathname === "/css" || url.pathname === "/css2")
+    );
+  } catch {
+    // coercion-ok: Invalid hrefs are non-matches in this predicate.
+    return false;
+  }
+}
+
+function stylesheetRuleMayApplyOnScreen(rule: Rule): boolean {
+  let parent = rule.parent;
+  while (parent) {
+    if (
+      parent.type === "atrule" &&
+      parent.name.toLowerCase() === "media" &&
+      !mediaQueryListMayMatchScreen(parent.params)
+    ) {
+      return false;
+    }
+    const ancestor = parent.parent;
+    parent = ancestor && ancestor.type !== "document" ? ancestor : undefined;
+  }
+  return true;
+}
+
+function mediaQueryListMayMatchScreen(params: string): boolean {
+  const queries = splitCssListAtTopLevel(params);
+  if (!queries) return true;
+  return queries.some((query) => {
+    let remaining = query.trim();
+    if (!remaining) return true;
+
+    const negated = /^not\b/i.test(remaining);
+    if (negated) remaining = remaining.replace(/^not\b\s*/i, "");
+    else remaining = remaining.replace(/^only\b\s*/i, "");
+
+    const mediaTypeMatch = remaining.match(/^([A-Za-z][A-Za-z0-9-]*)\b/);
+    if (!mediaTypeMatch) return true;
+    const mediaType = mediaTypeMatch[1]?.toLowerCase();
+    if (!mediaType) return true;
+    const hasCondition =
+      remaining.slice(mediaTypeMatch[0].length).trim() !== "";
+    if (negated && hasCondition) return true;
+    if (mediaType === "print" || mediaType === "speech") return negated;
+    if (mediaType === "screen" || mediaType === "all") return !negated;
+    return true;
+  });
+}
+
+function mediaQueryListDefinitelyMatchesScreen(params: string): boolean {
+  const queries = splitCssListAtTopLevel(params);
+  if (!queries) return false;
+  return queries.some((query) => {
+    let remaining = query.trim().toLowerCase();
+    if (!remaining) return false;
+
+    const negated = /^not\b/.test(remaining);
+    if (negated) remaining = remaining.replace(/^not\b\s*/, "");
+    else remaining = remaining.replace(/^only\b\s*/, "");
+
+    const mediaType = remaining.match(/^([a-z][a-z0-9-]*)\b/)?.[1];
+    if (!mediaType || remaining.slice(mediaType.length).trim() !== "") {
+      return false;
+    }
+    if (mediaType === "all" || mediaType === "screen") return !negated;
+    if (mediaType === "print" || mediaType === "speech") return negated;
+    return false;
+  });
+}
+
+function stylesheetSelectorMayMatchElement(
+  selector: string,
+  target: ParsedElement,
+  elements: readonly ParsedElement[],
+): boolean {
+  const normalized = normalizeSelectorForMatch(selector);
+  if (!normalized) return false;
+
+  const parts: Array<{
+    selector: string;
+    relation: "child" | "descendant" | null;
+  }> = [];
+  let current = "";
+  let relation: "child" | "descendant" | null = null;
+  let quote: string | null = null;
+  let bracketDepth = 0;
+  let parenDepth = 0;
+
+  const pushPart = (): boolean => {
+    const value = current.trim();
+    if (!value) return false;
+    parts.push({ selector: value, relation });
+    current = "";
+    relation = null;
+    return true;
+  };
+
+  for (const character of normalized) {
+    if (quote) {
+      current += character;
+      if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      current += character;
+      continue;
+    }
+    if (character === "[") bracketDepth += 1;
+    if (character === "]") bracketDepth -= 1;
+    if (character === "(") parenDepth += 1;
+    if (character === ")") parenDepth -= 1;
+    if (bracketDepth < 0 || parenDepth < 0) return true;
+
+    if (bracketDepth === 0 && parenDepth === 0) {
+      if (character === ">") {
+        if (current.trim() && !pushPart()) return true;
+        if (relation === "child") return true;
+        relation = "child";
+        continue;
+      }
+      if (character === "+" || character === "~") return true;
+      if (/\s/.test(character)) {
+        if (current.trim()) {
+          pushPart();
+          relation ??= "descendant";
+        }
+        continue;
+      }
+    }
+    current += character;
+  }
+  if (quote || bracketDepth !== 0 || parenDepth !== 0) return true;
+  if (current.trim()) pushPart();
+  if (relation !== null || parts.length === 0) return true;
+  if (parts.some((part) => !isSupportedStaticSelector(part.selector))) {
+    return true;
+  }
+
+  const matchesAt = (element: ParsedElement, index: number): boolean => {
+    const part = parts[index];
+    if (
+      !part ||
+      (part.selector !== "*" &&
+        !simpleSelectorMatchesElement(element, part.selector))
+    ) {
+      return false;
+    }
+    if (index === 0) return true;
+
+    const previousIndex = index - 1;
+    if (part.relation === "child") {
+      const parent =
+        element.parentIndex === undefined
+          ? undefined
+          : elements[element.parentIndex];
+      return parent ? matchesAt(parent, previousIndex) : false;
+    }
+
+    let parentIndex = element.parentIndex;
+    while (parentIndex !== undefined) {
+      const parent = elements[parentIndex];
+      if (!parent) break;
+      if (matchesAt(parent, previousIndex)) return true;
+      parentIndex = parent.parentIndex;
+    }
+    return false;
+  };
+
+  const lastPart = parts[parts.length - 1];
+  if (!lastPart) return false;
+  if (
+    lastPart.selector !== "*" &&
+    !simpleSelectorMatchesElement(target, lastPart.selector)
+  ) {
+    return false;
+  }
+  return matchesAt(target, parts.length - 1);
+}
+
+const BLOCK_LEVEL_TAGS = new Set([
+  "address",
+  "article",
+  "aside",
+  "blockquote",
+  "div",
+  "dl",
+  "fieldset",
+  "figure",
+  "footer",
+  "form",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "header",
+  "main",
+  "nav",
+  "ol",
+  "p",
+  "pre",
+  "section",
+  "table",
+  "ul",
+]);
+
+// In block flow an auto-width child with an auto inline margin still fills the
+// line; in a flex column the auto margin shrinks it to fit-content instead.
+function keepBlockChildFillingWidth(
+  html: string,
+  child: ParsedElement,
+): string {
+  const style = parseStyle(attributeValue(child, "style"));
+  const display =
+    style.display ?? (BLOCK_LEVEL_TAGS.has(child.tag) ? "block" : "inline");
+  if (!["block", "flex", "grid", "flow-root"].includes(display)) return html;
+  if (style.width && style.width !== "auto") return html;
+  if (isOutOfFlowElement(child)) return html;
+  const [top = "0", right = top, , left = right] = (style.margin ?? "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  const marginLeft = style["margin-left"] ?? left;
+  const marginRight = style["margin-right"] ?? right;
+  if (marginLeft !== "auto" && marginRight !== "auto") return html;
+  const declarations = parseStyleDeclarations(attributeValue(child, "style"));
+  setStyleDeclaration(declarations, "width", "100%");
+  return replaceOrInsertAttribute(
+    html,
+    child,
+    "style",
+    serializeStyleDeclarations(declarations),
+  );
+}
+
 function findAfterNode(
   projection: CodeLayerProjection,
   before: CodeLayerNode,
@@ -8475,11 +11653,6 @@ function applyVisualEditUnsafe(
       ),
     };
   }
-  // See moveNodeBetweenDocuments' twin guard: a URL-backed screen stores its
-  // route, not a document, and every edit below concatenates against `html`.
-  // Callers only ever check `status`, so refusing here turns ~40 gesture and
-  // action call sites into "nothing happened" instead of a screen silently
-  // unbound from the running app.
   if (isStandaloneHttpUrl(html)) {
     return {
       content: html,
@@ -8494,7 +11667,7 @@ function applyVisualEditUnsafe(
     };
   }
 
-  const initial = buildProjection(html, source);
+  const initial = cachedProjectionBuild(html, source);
 
   const structureTargets =
     intent.kind === "wrapNodes" || intent.kind === "booleanSubtract"
@@ -8553,16 +11726,9 @@ function applyVisualEditUnsafe(
     };
   }
 
-  // --- Structural intents that don't resolve a single target node ---
-
   if (intent.kind === "wrapNodes") {
     const wrapEdit = applyWrapNodes(html, initial, intent);
     if (typeof wrapEdit === "string") {
-      // L6: a distinct, specific message per failure kind instead of one
-      // generic "group failed" toast — the previous single message
-      // ("...share a common parent element") was misleadingly shown even
-      // when the real cause was an empty selection or an unresolvable node,
-      // making it hard for the user to tell what to fix.
       const message =
         wrapEdit === "unsupported"
           ? intent.targetIds.length === 0
@@ -8577,9 +11743,6 @@ function applyVisualEditUnsafe(
         },
       };
     }
-    // Component structure validation requires this intermediate transform to
-    // change only the canonical main span. Propagation installs the document
-    // runtime after that boundary has been validated for every linked copy.
     const nextContent = options.allowMainComponentStructure
       ? wrapEdit.content
       : ensureGroupRuntime(wrapEdit.content);
@@ -8710,8 +11873,6 @@ function applyVisualEditUnsafe(
     };
   }
 
-  // --- Target-resolved intents (style / class / textContent / moveNode) ---
-
   const resolution = resolveTarget(initial, intent.target);
   if (resolution.status !== "resolved" || !resolution.node) {
     return {
@@ -8811,7 +11972,9 @@ function applyVisualEditUnsafe(
       intent,
       initial.elements,
     );
-    if (intent.operation === "remove") {
+    if (route.kind === "unsupported") {
+      edit = "unsupported";
+    } else if (intent.operation === "remove") {
       edit = applyStyleRemoveEdit(html, element, intent, route);
     } else if (route.kind === "boolean-operand") {
       edit = applyBooleanOperandStyleEdit(
@@ -8924,8 +12087,6 @@ function applyVisualEditUnsafe(
         ),
       };
     }
-    // Compute the expected post-move openStart so findAfterNode can locate the
-    // moved node even when its nodeId changes (position-based id).
     const rawInsertAt =
       intent.placement === "before"
         ? anchorElement.start
@@ -8946,6 +12107,9 @@ function applyVisualEditUnsafe(
       element,
       anchorElement,
       intent,
+      element.parentIndex === undefined
+        ? undefined
+        : initial.elements[element.parentIndex],
       destinationParent,
       options.moveNode,
     );
@@ -9001,7 +12165,6 @@ export function applyVisualEdit(
   intent: EditIntent,
   options: {
     source?: CodeLayerSource;
-    /** Only the atomic linked-component action may publish this transform. */
     allowMainComponentStructure?: boolean;
     moveNode?: {
       destinationIsFlow?: boolean;
@@ -9028,11 +12191,6 @@ export type VisualStyleBatchResult =
   | { status: "fallback" }
   | { status: "failed"; editIndex: number; reason: string };
 
-/**
- * Internal fast path for one gesture's ordinary inline CSS edits. Semantic
- * vector targets return `fallback` so callers can replay the whole gesture
- * through `applyVisualEdit` and retain its specialized routing.
- */
 export function applyOrdinaryVisualStyleBatch(
   html: string,
   edits: readonly {
@@ -9051,7 +12209,7 @@ export function applyOrdinaryVisualStyleBatch(
     return { status: "fallback" };
   }
 
-  const initial = buildProjection(html, source);
+  const initial = cachedProjectionBuild(html, source);
   const updatesByElement = new Map<
     number,
     { element: ParsedElement; style: string; values: Map<string, string> }
@@ -9136,46 +12294,33 @@ export function applyOrdinaryVisualStyleBatch(
     status: "applied",
     content: patchElementAttributes(
       html,
-      [...updatesByElement.values()].map((update) => ({
-        element: update.element,
-        attributes: { style: update.style },
-      })),
+      [...updatesByElement.values()].map((update) => {
+        const editsAlignment = [...update.values.keys()].some(
+          isCrossAxisAlignmentProperty,
+        );
+        return {
+          element: update.element,
+          attributes: {
+            style: update.style,
+            ...(editsAlignment
+              ? { [GENERATED_FLEX_ALIGNMENT_ATTRIBUTE]: null }
+              : {}),
+          },
+        };
+      }),
     ),
   };
 }
 
-/**
- * Attributes injected by the editor at runtime that must NOT appear in
- * on-disk source files. These are stripped before any write-back so that
- * the saved file stays clean and matches what a developer would author.
- *
- * - `data-agent-native-node-id` — stable selection id stamped by the editor.
- * - `data-agent-native-layer-name` is intentionally kept: it is a
- *   developer-authored attribute (the canonical layer-name hint) and is
- *   useful in committed source.  Only ephemeral runtime stamps are removed.
- */
-const EDITOR_ONLY_ATTRIBUTES: readonly string[] = ["data-agent-native-node-id"];
+const EDITOR_ONLY_ATTRIBUTES: readonly string[] = [
+  "data-agent-native-node-id",
+  GENERATED_FLEX_ALIGNMENT_ATTRIBUTE,
+];
 
-/**
- * Strip editor-only runtime attributes from an HTML string, returning clean
- * source suitable for writing back to disk.
- *
- * Currently removes `data-agent-native-node-id` (and any future attributes
- * listed in EDITOR_ONLY_ATTRIBUTES). The function operates on the raw HTML
- * string with a regex that handles both quoted forms and unquoted values, and
- * is safe to apply to already-clean source (idempotent).
- *
- * @param html  The raw HTML string, potentially containing editor stamps.
- * @returns     A new string with all editor-only attributes removed.
- */
 export function stripEditorOnlyAttributes(html: string): string {
   if (!html || typeof html !== "string") return html ?? "";
   let result = html;
   for (const attr of EDITOR_ONLY_ATTRIBUTES) {
-    // Match the attribute with optional surrounding whitespace. The value may
-    // be double-quoted, single-quoted, or unquoted (no spaces / > chars).
-    // A leading \s+ is required so we only strip the attribute name+value pair
-    // and leave surrounding markup intact.
     const re = new RegExp(
       `\\s+${attr.replace(/-/g, "\\-")}\\s*=\\s*(?:"[^"]*"|'[^']*'|[^\\s"'=><\`]+)`,
       "gi",
@@ -9203,33 +12348,10 @@ export interface MoveNodeBetweenDocumentsResult {
   destHtml: string;
   status: "applied" | "unsupported";
   message?: string;
-  /**
-   * The data-agent-native-node-id of the moved node in destHtml.
-   * May differ from the original nodeId when a collision caused a re-stamp.
-   * Only present when status is "applied".
-   */
   movedNodeId?: string;
-  /**
-   * Finding 8: true when the requested anchor placement fell inside a
-   * `<template>` interior and the insert was redirected to a real DOM slot
-   * instead (immediately after the enclosing template's `</template>` when
-   * that could be located, otherwise the pre-existing doc-end/body-end
-   * fallback). Hosts can use this to toast a "landed near, not exactly
-   * where you dropped it" notice instead of the previous fully silent
-   * teleport. Only meaningful when status is "applied" and an anchor was
-   * requested.
-   */
   anchorRedirected?: boolean;
 }
 
-/**
- * Move a node from sourceHtml into destHtml by stable ID or unique authored
- * selectors. ID-less source and destination nodes are stamped before the move
- * so later edits can resolve them durably. Omitting an anchor explicitly
- * appends to the body; a requested but unresolved anchor fails atomically.
- * Any node ids in the moved subtree that already exist in destHtml are
- * re-stamped to stay unique. No external dependencies.
- */
 export function moveNodeBetweenDocuments(
   sourceHtml: string,
   destHtml: string,
@@ -9246,13 +12368,6 @@ export function moveNodeBetweenDocuments(
   const originalSourceHtml = sourceHtml;
   const originalDestHtml = destHtml;
 
-  // A URL-backed (localhost/fusion) screen stores its route URL as content,
-  // not a document. Both branches below end in string concatenation against
-  // `destHtml`, so a URL destination yields "http://host/<div …>" — a screen
-  // permanently unbound from the running app, with no parse error anywhere.
-  // Refusing HERE and not only at the persist gate matters: callers move
-  // several files in one gesture and write the source screens first, so a
-  // late refusal would delete the node from its source and land it nowhere.
   if (isStandaloneHttpUrl(destHtml) || isStandaloneHttpUrl(sourceHtml)) {
     return {
       sourceHtml,
@@ -9262,7 +12377,9 @@ export function moveNodeBetweenDocuments(
     };
   }
 
-  const sourceBuild = buildProjection(sourceHtml, { kind: "inline-html" });
+  const sourceBuild = cachedProjectionBuild(sourceHtml, {
+    kind: "inline-html",
+  });
   const sourceResolution = resolveTarget(sourceBuild, {
     ...(nodeId ? { nodeId } : {}),
     ...(sourceSelector ? { selector: sourceSelector } : {}),
@@ -9280,7 +12397,7 @@ export function moveNodeBetweenDocuments(
 
   const hasRequestedAnchor = Boolean(anchorNodeId || anchorSelector);
   const destBuild = hasRequestedAnchor
-    ? buildProjection(destHtml, { kind: "inline-html" })
+    ? cachedProjectionBuild(destHtml, { kind: "inline-html" })
     : null;
   const anchorResolution =
     hasRequestedAnchor && destBuild
@@ -9360,7 +12477,6 @@ export function moveNodeBetweenDocuments(
   const resolvedNodeId = sourceIdentity.nodeId;
   const resolvedAnchorNodeId = destIdentity?.nodeId;
 
-  // --- Locate the identified source and destination elements ---
   const sourceElements = parseHtmlElements(sourceHtml);
   const sourceTarget = sourceElements.find(
     (el) => attributeValue(el, "data-agent-native-node-id") === resolvedNodeId,
@@ -9385,10 +12501,8 @@ export function moveNodeBetweenDocuments(
     sourceWasIgnoredInFlow,
   };
 
-  // --- Extract the subtree fragment ---
   let fragment = sourceHtml.slice(sourceTarget.start, sourceTarget.end);
 
-  // --- Collect all existing node ids in destHtml to avoid collisions ---
   const destElements = parseHtmlElements(destHtml);
   const destUsedIds = new Set<string>(
     destElements
@@ -9396,14 +12510,6 @@ export function moveNodeBetweenDocuments(
       .filter((v): v is string => v !== null),
   );
 
-  // --- Re-stamp any colliding node ids in the fragment ---
-  // We do this by parsing the fragment as its own HTML and replacing ids.
-  // Replacements are tracked PER ATTRIBUTE OCCURRENCE, not in an
-  // old-id -> new-id map: malformed/generated source can already contain the
-  // same stable id more than once. Mapping by the old string would assign the
-  // same replacement to every duplicate and leave the destination ambiguous
-  // after a cross-screen move (selection and undo would then target whichever
-  // duplicate happened to resolve first).
   const fragElements = parseHtmlElements(fragment);
   const remapEdits: Array<{ start: number; end: number; value: string }> = [];
   let movedNodeId = resolvedNodeId;
@@ -9429,19 +12535,15 @@ export function moveNodeBetweenDocuments(
     if (fragEl.parentIndex === undefined) movedNodeId = nextId;
   }
 
-  // Apply id remaps to the fragment (back to front by attribute position).
   if (remapEdits.length > 0) {
-    // Apply back to front.
     remapEdits.sort((a, b) => b.start - a.start);
     for (const edit of remapEdits) {
       fragment = `${fragment.slice(0, edit.start)}${edit.value}${fragment.slice(edit.end)}`;
     }
   }
 
-  // --- Remove node from sourceHtml ---
   const nextSourceHtml = `${sourceHtml.slice(0, sourceTarget.start)}${sourceHtml.slice(sourceTarget.end)}`;
 
-  // --- Insert fragment into destHtml ---
   let nextDestHtml: string;
   let anchorRedirected = false;
 
@@ -9467,15 +12569,6 @@ export function moveNodeBetweenDocuments(
           : anchor.selfClosing
             ? anchor.end
             : anchor.contentEnd;
-    // Never splice into a <template> interior — it renders nowhere and is
-    // unselectable afterward (see isOffsetInsideTemplateInterior doc above).
-    // Finding 8: redirect to immediately AFTER the ENCLOSING outer
-    // </template> when it can be located — still a guaranteed-safe real-DOM
-    // slot, just a sibling of the template instead of a jump all the way to
-    // the end of <body>/the document. Falls back to the old doc-end/body-end
-    // behavior only if the enclosing template's close somehow can't be
-    // resolved (defense-in-depth for a guard that should always agree with
-    // itself here).
     const enclosingTemplate = findEnclosingTemplateClose(destHtml, insertAt);
     if (enclosingTemplate) {
       insertAt = enclosingTemplate.closeEnd;
@@ -9497,37 +12590,34 @@ export function moveNodeBetweenDocuments(
           : destElements[anchor.parentIndex];
     fragment = prepareMovedFragmentForParent(
       fragment,
+      sourceParent,
       destinationParent,
       fragmentMoveLayout,
     );
-    nextDestHtml = `${destHtml.slice(0, insertAt)}${fragment}${destHtml.slice(insertAt)}`;
+    nextDestHtml = pinFixedFlexSiblingsOnOverflow(
+      `${destHtml.slice(0, insertAt)}${fragment}${destHtml.slice(insertAt)}`,
+      (candidate) => candidate.start === insertAt,
+    );
   } else {
-    // Default: find <body> and append inside it, or append at end of doc.
     const bodyEl = destElements.find((el) => el.tag === "body");
     let insertAt = bodyEl
       ? bodyEl.selfClosing
         ? bodyEl.end
         : bodyEl.contentEnd
       : destHtml.length;
-    // Same template-interior guard as the anchored branch above — a
-    // miscomputed bodyEl.contentEnd (or a body that itself is only reachable
-    // through a template, e.g. a fragment being treated as a full document)
-    // must never land inside template markup.
     if (isOffsetInsideTemplateInterior(destHtml, insertAt)) {
       insertAt = destHtml.length;
     }
-    // Appending inside <body> makes the moved node a flow child of the body,
-    // exactly like the anchored `placement: "inside"` branch above. When the
-    // destination body is a flex/grid container, carrying the fragment's
-    // former absolute offsets along would leave it visually detached from
-    // the body's ordering/gap/alignment, so run the same normalization
-    // (prepareMovedFragmentForParent no-ops for non-flow bodies).
     fragment = prepareMovedFragmentForParent(
       fragment,
+      sourceParent,
       bodyEl,
       fragmentMoveLayout,
     );
-    nextDestHtml = `${destHtml.slice(0, insertAt)}${fragment}${destHtml.slice(insertAt)}`;
+    nextDestHtml = pinFixedFlexSiblingsOnOverflow(
+      `${destHtml.slice(0, insertAt)}${fragment}${destHtml.slice(insertAt)}`,
+      (candidate) => candidate.start === insertAt,
+    );
   }
 
   return {

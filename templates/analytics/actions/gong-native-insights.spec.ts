@@ -37,27 +37,8 @@ describe("gong-native-insights", () => {
     });
   });
 
-  it("requires approval before an explicitly authorized paid request", () => {
-    expect(typeof action.needsApproval).toBe("function");
-    if (typeof action.needsApproval !== "function") return;
-
-    expect(
-      action.needsApproval({
-        operation: "ask_account",
-        allowCreditRequest: true,
-      }),
-    ).toBe(true);
-    expect(
-      action.needsApproval({
-        operation: "ask_account",
-        allowCreditRequest: false,
-      }),
-    ).toBe(false);
-    expect(action.needsApproval({ allowCreditRequest: true })).toBe(false);
-  });
-
   it("lists native schemas without consuming a semantic request", async () => {
-    await expect(action.run({ arguments: {} })).resolves.toMatchObject({
+    await expect(action.run({})).resolves.toMatchObject({
       connected: true,
       creditRequests: 0,
       operations: [
@@ -68,85 +49,35 @@ describe("gong-native-insights", () => {
         },
       ],
     });
-    expect(callMcpToolMock).not.toHaveBeenCalled();
-  });
-
-  it("passes one consolidated request to the connected Gong operation", async () => {
-    callMcpToolMock.mockResolvedValue({ answer: "Renewal risk is pricing." });
-
-    await expect(
-      action.run({
-        operation: "ask_account",
-        allowCreditRequest: true,
-        arguments: { account: "Acme", question: "Summarize renewal risk" },
-      }),
-    ).resolves.toMatchObject({
-      source: "gong-native-mcp",
-      operation: "ask_account",
-      creditRequests: 1,
-      result: { answer: "Renewal risk is pricing." },
-    });
-    expect(callMcpToolMock).toHaveBeenCalledOnce();
-    expect(callMcpToolMock).toHaveBeenCalledWith("org_gong", "ask_account", {
-      account: "Acme",
-      question: "Summarize renewal risk",
-    });
-  });
-
-  it("does not spend a request without explicit credit authorization", async () => {
-    await expect(
-      action.run({
-        operation: "ask_account",
-        allowCreditRequest: false,
-        arguments: { account: "Acme" },
-      }),
-    ).resolves.toMatchObject({
-      blocked: true,
-      creditRequests: 0,
-      evidenceFallbackAction: "gong-calls",
+    expect(listVisibleMcpToolsMock).toHaveBeenCalledWith({
+      providerId: "gong",
     });
     expect(callMcpToolMock).not.toHaveBeenCalled();
     expect(readGongNativeInsightsPolicy).not.toHaveBeenCalled();
   });
 
-  it("does not spend a request while the workspace policy is disabled", async () => {
-    readGongNativeInsightsPolicy.mockResolvedValue({
-      enabled: false,
-      configured: true,
-      scope: "workspace",
-      updatedAt: "2026-07-17T12:00:00.000Z",
-    });
-
+  it("rejects execution arguments instead of silently listing", async () => {
     await expect(
       action.run({
         operation: "ask_account",
         allowCreditRequest: true,
         arguments: { account: "Acme" },
-      }),
-    ).resolves.toMatchObject({
-      blocked: true,
-      blockedBy: "workspace-policy",
-      creditRequests: 0,
-      evidenceFallbackAction: "gong-calls",
-    });
+      } as never),
+    ).rejects.toThrow(/run-gong-native-insight/);
+    expect(listVisibleMcpToolsMock).not.toHaveBeenCalled();
     expect(callMcpToolMock).not.toHaveBeenCalled();
   });
 
-  it("returns the evidence fallback when Gong native MCP is unavailable", async () => {
-    listVisibleMcpToolsMock.mockResolvedValue([]);
+  it("is not grounding evidence because it reads no customer data", () => {
+    expect(action.grounding).not.toBe(true);
+  });
 
-    await expect(
-      action.run({
-        operation: "generate_brief",
-        allowCreditRequest: true,
-        arguments: {},
-      }),
-    ).resolves.toMatchObject({
-      connected: false,
-      creditRequests: 0,
-      evidenceFallbackAction: "gong-calls",
-      error: expect.stringContaining("No official Gong"),
+  it("is a free read that points paid requests at run-gong-native-insight", async () => {
+    expect(action.readOnly).toBe(true);
+    expect(action.needsApproval).toBeUndefined();
+    expect(action.tool.parameters?.properties ?? {}).toEqual({});
+    await expect(action.run({})).resolves.toMatchObject({
+      executionAction: "run-gong-native-insight",
     });
-    expect(callMcpToolMock).not.toHaveBeenCalled();
   });
 });

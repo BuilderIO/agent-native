@@ -69,7 +69,6 @@ function integration(type: FormIntegration["type"]): FormIntegration {
   };
 }
 
-/** Pull the trailing context block's mrkdwn text out of a Slack payload. */
 function contextText(p: ReturnType<typeof buildSlackPayload>): string {
   const ctx = p.blocks.find((b) => b.type === "context") as
     | { elements: Array<{ text: string }> }
@@ -124,7 +123,6 @@ describe("buildSlackPayload page context", () => {
       ),
     );
     expect(text).toContain("App: Plan");
-    // The page is legible inline (host+path as link text), not hidden behind "open".
     expect(text).toContain(
       "Page: <https://plan.agent-native.com/plans/plan-abc123|plan.agent-native.com/plans/plan-abc123>",
     );

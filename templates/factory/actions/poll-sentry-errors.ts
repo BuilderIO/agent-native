@@ -28,6 +28,7 @@ import { mergeTriageMetadata } from "../server/triage/metadata.js";
 import {
   hasTriageSourceChanged,
   statusAfterTriageSourceUpdate,
+  triageSourceUpsertGuard,
 } from "../server/triage/review-state.js";
 import { createSentryClient } from "../server/triage/sentry-client.js";
 
@@ -91,9 +92,6 @@ export default defineAction({
     if (cursor !== null && Number.isNaN(cursor)) {
       throw new Error("Stored Sentry polling cursor is not a valid timestamp.");
     }
-    // Reconcile every bounded result by its stable Sentry issue id. Frequency
-    // ordering is not a safe timestamp cursor: an older issue can re-enter the
-    // top page after its frequency changes.
     for (const issue of issues) {
       const firstSeen = Date.parse(issue.firstSeen);
       if (Number.isNaN(firstSeen))
@@ -140,6 +138,7 @@ export default defineAction({
         }
         const metadata = mergeTriageMetadata(existing?.metadataJson ?? "{}", {
           kind: "sentry_issue",
+          sentryOrgSlug,
           sentryIssueId: issue.id,
           shortId: issue.shortId,
           culprit: issue.culprit,
@@ -202,6 +201,7 @@ export default defineAction({
               updatedAt,
               factoryId,
             },
+            setWhere: triageSourceUpsertGuard(existing, status, now),
           });
       }
 
@@ -252,9 +252,6 @@ export default defineAction({
           inboxLimit,
           added,
           updated,
-          // No authorFiltered: Sentry issues carry no author to filter on, and
-          // reporting 0 would read as "nothing was excluded" rather than "not
-          // applicable here".
           newlyObserved: added,
           truncated: added + updated < observedIssues.length,
           itemIds: addedIds,

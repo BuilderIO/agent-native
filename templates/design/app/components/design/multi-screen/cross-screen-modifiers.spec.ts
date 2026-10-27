@@ -1,10 +1,17 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  crossScreenDragStartedAt,
+  crossScreenIgnoreAutoLayoutAfterWindowBlur,
+  crossScreenSKeyHeldFromTimes,
+  crossScreenSKeyTimesAfterKeyChange,
+  crossScreenReleaseModifiers,
+  isCrossScreenModifierFromActiveSourceIframe,
   isCrossScreenIgnoreAutoLayoutHeldAtRelease,
   mergeCrossScreenReleaseModifiers,
   seedCrossScreenSKeyTimesAtStart,
   shouldClearCrossScreenSKeyTimesOnWindowBlur,
+  type CrossScreenModifierState,
   type CrossScreenSKeyTimes,
 } from "./cross-screen-modifiers";
 
@@ -22,6 +29,11 @@ const timesAfterBlur = (
     : times;
 
 describe("cross-screen Ignore Auto Layout release timing", () => {
+  it("clears an idle S override on blur but preserves an active drag", () => {
+    expect(crossScreenIgnoreAutoLayoutAfterWindowBlur(true, false)).toBe(false);
+    expect(crossScreenIgnoreAutoLayoutAfterWindowBlur(true, true)).toBe(true);
+  });
+
   it("seeds a source-held S before host keyup can be observed", () => {
     expect(seedCrossScreenSKeyTimesAtStart(true, withoutTimes(), 100)).toEqual({
       downAt: 100,
@@ -42,6 +54,20 @@ describe("cross-screen Ignore Auto Layout release timing", () => {
     ).toBe(false);
   });
 
+  it("keeps source keyup timestamps ordered against the source drag start", () => {
+    const startedAt = crossScreenDragStartedAt(100, 150);
+    const seeded = seedCrossScreenSKeyTimesAtStart(
+      true,
+      withoutTimes(),
+      startedAt,
+    );
+    const released = crossScreenSKeyTimesAfterKeyChange(seeded, false, 120);
+
+    expect(released).toEqual({ downAt: 100, upAt: 120 });
+    expect(crossScreenSKeyHeldFromTimes(released)).toBe(false);
+    expect(crossScreenDragStartedAt(undefined, 150)).toBe(150);
+  });
+
   it("leaves a source-without-S gesture unchanged", () => {
     const times = { downAt: null, upAt: 90 };
     expect(seedCrossScreenSKeyTimesAtStart(false, times, 100)).toBe(times);
@@ -53,7 +79,103 @@ describe("cross-screen Ignore Auto Layout release timing", () => {
     ).toEqual({ downAt: 100, upAt: null });
   });
 
-  it("lets release modifiers replace only fields present at release", () => {
+  it("records Ignore Auto Layout key changes from the source iframe", () => {
+    const started = crossScreenSKeyTimesAfterKeyChange(
+      withoutTimes(),
+      true,
+      100,
+    );
+    expect(started).toEqual({ downAt: 100, upAt: null });
+    expect(
+      isCrossScreenIgnoreAutoLayoutHeldAtRelease(120, started, false),
+    ).toBe(true);
+
+    const released = crossScreenSKeyTimesAfterKeyChange(started, false, 130);
+    expect(released).toEqual({ downAt: 100, upAt: 130 });
+    expect(crossScreenSKeyHeldFromTimes(started)).toBe(true);
+    expect(crossScreenSKeyHeldFromTimes(released)).toBe(false);
+    expect(
+      isCrossScreenIgnoreAutoLayoutHeldAtRelease(140, released, false),
+    ).toBe(false);
+  });
+
+  it("accepts only modifier messages from the active source iframe", () => {
+    expect(
+      isCrossScreenModifierFromActiveSourceIframe(
+        "source-screen::bp-390",
+        "source-screen::bp-390",
+      ),
+    ).toBe(true);
+    expect(
+      isCrossScreenModifierFromActiveSourceIframe(
+        "source-screen::bp-390",
+        "source-screen",
+      ),
+    ).toBe(false);
+    expect(
+      isCrossScreenModifierFromActiveSourceIframe(
+        "source-screen::bp-390",
+        "source-screen::bp-768",
+      ),
+    ).toBe(false);
+    expect(
+      isCrossScreenModifierFromActiveSourceIframe(undefined, "source-screen"),
+    ).toBe(false);
+  });
+
+  it("ignores stale key transitions that arrive after a newer change", () => {
+    const released = crossScreenSKeyTimesAfterKeyChange(
+      crossScreenSKeyTimesAfterKeyChange(withoutTimes(), true, 120),
+      false,
+      140,
+    );
+    const stalePressed = crossScreenSKeyTimesAfterKeyChange(
+      released,
+      true,
+      130,
+    );
+    expect(stalePressed).toBe(released);
+    expect(crossScreenSKeyHeldFromTimes(stalePressed)).toBe(false);
+    expect(
+      isCrossScreenIgnoreAutoLayoutHeldAtRelease(150, released, true),
+    ).toBe(false);
+
+    const pressed = crossScreenSKeyTimesAfterKeyChange(
+      withoutTimes(),
+      true,
+      160,
+    );
+    const staleReleased = crossScreenSKeyTimesAfterKeyChange(
+      pressed,
+      false,
+      150,
+    );
+    expect(staleReleased).toBe(pressed);
+    expect(crossScreenSKeyHeldFromTimes(staleReleased)).toBe(true);
+    expect(
+      isCrossScreenIgnoreAutoLayoutHeldAtRelease(170, pressed, false),
+    ).toBe(true);
+  });
+
+  it("lets release modifiers override stale cached values in both directions", () => {
+    const cached: CrossScreenModifierState = {
+      metaKey: false,
+      ctrlKey: false,
+      ignoreAutoLayout: false,
+      forceNestedAutoLayout: false,
+    };
+    expect(
+      mergeCrossScreenReleaseModifiers(cached, {
+        metaKey: true,
+        ignoreAutoLayout: true,
+        forceNestedAutoLayout: true,
+      }),
+    ).toEqual({
+      metaKey: true,
+      ctrlKey: false,
+      ignoreAutoLayout: true,
+      forceNestedAutoLayout: true,
+    });
     expect(
       mergeCrossScreenReleaseModifiers(
         {
@@ -62,14 +184,73 @@ describe("cross-screen Ignore Auto Layout release timing", () => {
           ignoreAutoLayout: true,
           forceNestedAutoLayout: true,
         },
-        { ignoreAutoLayout: false },
+        {
+          metaKey: false,
+          ctrlKey: true,
+          ignoreAutoLayout: false,
+          forceNestedAutoLayout: false,
+        },
       ),
     ).toEqual({
-      metaKey: true,
-      ctrlKey: false,
+      metaKey: false,
+      ctrlKey: true,
       ignoreAutoLayout: false,
-      forceNestedAutoLayout: true,
+      forceNestedAutoLayout: false,
     });
+  });
+
+  it.each([
+    [true, { metaKey: true, ctrlKey: false }, false, true],
+    [true, { metaKey: false, ctrlKey: true }, true, false],
+    [false, { metaKey: false, ctrlKey: true }, false, true],
+    [false, { metaKey: true, ctrlKey: true }, false, false],
+  ])(
+    "maps platform modifier state at release",
+    (isApplePlatform, event, ignoreAutoLayout, forceNestedAutoLayout) => {
+      expect(
+        crossScreenReleaseModifiers(isApplePlatform, event, ignoreAutoLayout),
+      ).toMatchObject({ ignoreAutoLayout, forceNestedAutoLayout });
+    },
+  );
+
+  it("requires Control without Command for Apple Ignore Auto Layout", () => {
+    expect(
+      crossScreenReleaseModifiers(
+        true,
+        { metaKey: false, ctrlKey: true },
+        false,
+      ),
+    ).toMatchObject({ ignoreAutoLayout: true, forceNestedAutoLayout: false });
+    expect(
+      crossScreenReleaseModifiers(true, { metaKey: true, ctrlKey: true }, true),
+    ).toMatchObject({ ignoreAutoLayout: false, forceNestedAutoLayout: false });
+  });
+
+  it("leaves the non-Apple S-key state to the shared release timeline", () => {
+    expect(
+      crossScreenReleaseModifiers(
+        false,
+        { metaKey: false, ctrlKey: false },
+        undefined,
+      ),
+    ).toEqual({
+      metaKey: false,
+      ctrlKey: false,
+      forceNestedAutoLayout: false,
+    });
+    const sourceHeld = crossScreenSKeyTimesAfterKeyChange(
+      withoutTimes(),
+      true,
+      100,
+    );
+    expect(
+      isCrossScreenIgnoreAutoLayoutHeldAtRelease(
+        140,
+        sourceHeld,
+        false,
+        undefined,
+      ),
+    ).toBe(true);
   });
 
   it("uses S state at source-end creation, regardless of keyup delivery order", () => {
@@ -95,6 +276,25 @@ describe("cross-screen Ignore Auto Layout release timing", () => {
       isCrossScreenIgnoreAutoLayoutHeldAtRelease(
         120,
         { downAt: null, upAt: 130 },
+        true,
+      ),
+    ).toBe(true);
+  });
+
+  it("uses host mouseup Control state over stale drag modifiers", () => {
+    expect(
+      isCrossScreenIgnoreAutoLayoutHeldAtRelease(
+        140,
+        withoutTimes(),
+        true,
+        false,
+      ),
+    ).toBe(false);
+    expect(
+      isCrossScreenIgnoreAutoLayoutHeldAtRelease(
+        140,
+        withoutTimes(),
+        false,
         true,
       ),
     ).toBe(true);

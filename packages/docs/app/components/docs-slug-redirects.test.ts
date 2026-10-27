@@ -80,4 +80,36 @@ describe("resolveFragmentRedirect", () => {
       ),
     ).toBe("#new-design-system");
   });
+
+  it("sends removed Other Platforms anchors to the deployment targets", () => {
+    expect(resolveFragmentRedirect("deployment", "#aws-lambda")).toBe(
+      "#supported-deployment-targets",
+    );
+    expect(resolveFragmentRedirect("deployment", "#deno-deploy")).toBe(
+      "#supported-deployment-targets",
+    );
+  });
+
+  it("sends old AWS Amplify section anchors to their new sections", () => {
+    const expected: Record<string, string> = {
+      "#build-with-nitro": "#step-4-add-amplifys-build-settings",
+      "#runtime-variables-and-cli": "#step-2-configure-environment-secrets",
+      "#configure-the-app": "#step-2-configure-environment-secrets",
+      "#cloudfront-caching": "#caching",
+      "#streaming-requests": "#stream-agent-responses",
+      "#verify-the-deployment": "#step-6-open-the-app",
+    };
+    for (const [fragment, target] of Object.entries(expected)) {
+      expect(resolveFragmentRedirect("aws-amplify", fragment)).toBe(target);
+    }
+  });
+
+  it("leaves the deployment page's own section anchors alone", () => {
+    expect(
+      resolveFragmentRedirect("deployment", "#whats-next"),
+    ).toBeUndefined();
+    expect(
+      resolveFragmentRedirect("deployment", "#persistent-database"),
+    ).toBeUndefined();
+  });
 });

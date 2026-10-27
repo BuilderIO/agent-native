@@ -1,3 +1,5 @@
+import type { AppActivitySummary } from "./app-activity";
+
 export const MAX_BROWSER_DIAGNOSTIC_CONSOLE_LOGS = 400;
 export const MAX_BROWSER_DIAGNOSTIC_NETWORK_REQUESTS = 400;
 export const MAX_BROWSER_DIAGNOSTIC_INTERACTION_EVENTS = 800;
@@ -8,6 +10,9 @@ export const MAX_BROWSER_DIAGNOSTIC_TIMELINE_EVENTS =
 export const MAX_BROWSER_DIAGNOSTIC_MESSAGE_LENGTH = 2_000;
 export const MAX_BROWSER_DIAGNOSTIC_TARGET_LENGTH = 200;
 export const MAX_BROWSER_DIAGNOSTIC_URL_LENGTH = 1_000;
+// Console and network entries from up to this long before a recording started
+// carry negative elapsedMs. Anything further back is dropped by the extension.
+export const BROWSER_DIAGNOSTIC_LOOKBACK_MS = 30_000;
 
 const SECRET_KEY_FRAGMENT =
   "(?:authorization|cookie|set[-_]?cookie|token|secret|password|passwd|pwd|api[-_]?key|apikey|session|credential)";
@@ -26,8 +31,13 @@ const UNQUOTED_SECRET_VALUE_RE = new RegExp(
   "gi",
 );
 
+const SECRET_KEY_RE = new RegExp(SECRET_KEY_FRAGMENT, "i");
+
+export function isSecretDiagnosticKey(key: string): boolean {
+  return SECRET_KEY_RE.test(key);
+}
+
 export interface RedactBrowserDiagnosticStringOptions {
-  /** Redact every query value. Use for URL fields; leave off for console text. */
   redactQueryValues?: boolean;
 }
 
@@ -82,6 +92,7 @@ export interface BrowserDiagnosticConsoleLog {
   level: BrowserDiagnosticConsoleLevel;
   message: string;
   stack?: string;
+  tabId?: number;
 }
 
 export interface BrowserDiagnosticNetworkRequest {
@@ -95,6 +106,7 @@ export interface BrowserDiagnosticNetworkRequest {
   ok?: boolean;
   durationMs: number;
   error?: string;
+  tabId?: number;
 }
 
 export type BrowserDiagnosticInteractionKind =
@@ -163,6 +175,7 @@ export interface BrowserDiagnosticsSummary {
 export interface BrowserDiagnosticsData extends BrowserDiagnosticsSnapshot {
   summary: BrowserDiagnosticsSummary;
   timeline?: BrowserDiagnosticTimelineEvent[];
+  appActivity?: AppActivitySummary | null;
 }
 
 function safeArray(value: string | null | undefined): unknown[] {
@@ -212,6 +225,7 @@ export function normalizeBrowserDiagnosticConsoleLog(
     level,
     message,
     ...(stack ? { stack } : {}),
+    ...(typeof entry.tabId === "number" ? { tabId: entry.tabId } : {}),
   };
 }
 
@@ -248,6 +262,7 @@ export function normalizeBrowserDiagnosticNetworkRequest(
     ...(typeof entry.ok === "boolean" ? { ok: entry.ok } : {}),
     durationMs,
     ...(error ? { error } : {}),
+    ...(typeof entry.tabId === "number" ? { tabId: entry.tabId } : {}),
   };
 }
 
@@ -336,6 +351,40 @@ export function buildBrowserDiagnosticTimeline({
     .sort((a, b) => a.event.elapsedMs - b.event.elapsedMs || a.order - b.order)
     .slice(0, MAX_BROWSER_DIAGNOSTIC_TIMELINE_EVENTS)
     .map(({ event }) => event);
+}
+
+// Indices (entries are in time order) in the order they are worth keeping
+// when a list must shrink: failures, then recording and lookback entries in
+// turns, newest first. Any prefix gives lookback at most half of the room
+// left after failures, and either side takes room the other cannot fill.
+export function diagnosticKeepOrder<T extends { elapsedMs: number }>(
+  entries: readonly T[],
+  isFailure: (entry: T) => boolean,
+): number[] {
+  const newestFirst = entries.map((_, index) => index).reverse();
+  const failures = newestFirst.filter((index) => isFailure(entries[index]));
+  const rest = newestFirst.filter((index) => !isFailure(entries[index]));
+  const recording = rest.filter((index) => entries[index].elapsedMs >= 0);
+  const lookback = rest.filter((index) => entries[index].elapsedMs < 0);
+  const turns: number[] = [];
+  for (
+    let turn = 0;
+    turn < Math.max(recording.length, lookback.length);
+    turn++
+  ) {
+    if (turn < recording.length) turns.push(recording[turn]);
+    if (turn < lookback.length) turns.push(lookback[turn]);
+  }
+  return [...failures, ...turns];
+}
+
+export function compactDiagnosticEntries<T extends { elapsedMs: number }>(
+  entries: readonly T[],
+  max: number,
+  isFailure: (entry: T) => boolean,
+): T[] {
+  const kept = new Set(diagnosticKeepOrder(entries, isFailure).slice(0, max));
+  return entries.filter((_, index) => kept.has(index));
 }
 
 export function summarizeBrowserDiagnostics(

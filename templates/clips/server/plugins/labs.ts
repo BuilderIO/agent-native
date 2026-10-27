@@ -1,4 +1,4 @@
-import { createLabsPlugin } from "@agent-native/core/server";
+import { createLabsPlugin } from "@agent-native/core/labs/server";
 
 import { CLIPS_LABS } from "../../shared/labs.js";
 

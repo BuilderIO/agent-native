@@ -70,6 +70,7 @@ it("restores both deleted screens into the surviving variant set", async () => {
       .mockResolvedValueOnce({ id: "restored-a" }),
   };
   const queryClient = {
+    cancelQueries: vi.fn(async () => []),
     invalidateQueries: vi.fn(),
     setQueryData: vi.fn(),
   };
@@ -118,8 +119,6 @@ it("restores both deleted screens into the surviving variant set", async () => {
     pendingVisualStyleUndoStackRef: ref([]),
     queryClient,
     redoOrderRef,
-    selectionRedoStackRef: ref([]),
-    selectionUndoStackRef: ref([]),
     setActiveFileId: vi.fn(),
     setOverviewSelectedScreenIds: vi.fn(),
     setSelectedLayerIdsState: vi.fn(),

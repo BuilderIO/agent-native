@@ -1,8 +1,39 @@
+function builderAppToolLabels(
+  labels: Record<string, string>,
+): Record<string, string> {
+  const withFormerNames: Record<string, string> = { ...labels };
+  for (const [name, label] of Object.entries(labels)) {
+    withFormerNames[name.replace("builder", "fusion")] = label;
+  }
+  return withFormerNames;
+}
+
 const TOOL_DISPLAY_NAMES: Record<string, string> = {
   "delete-file": "remove screen",
   "get-design-snapshot": "get screen snapshot",
   "edit-design": "edit screen",
+  // Design's Builder app tools. The "fusion" names are from before the
+  // rename and still appear in saved chats.
+  ...builderAppToolLabels({
+    "send-builder-message": "ask Builder",
+    "apply-builder-edits": "apply edits with Builder",
+    "list-builder-edits": "list Builder edits",
+    "queue-builder-edit": "queue an edit for Builder",
+    "create-builder-app": "create app",
+    "add-builder-screens": "add app screens",
+    "sync-builder-app": "sync app",
+    "push-builder-app": "push app",
+    "deploy-builder-app": "deploy app",
+    "get-builder-deploy-status": "check deploy status",
+  }),
 };
+
+/** A tool's display name, when it has one other than its humanized id. */
+export function toolDisplayName(
+  toolName: string | undefined,
+): string | undefined {
+  return TOOL_DISPLAY_NAMES[(toolName ?? "").trim()];
+}
 
 export function humanizeToolName(toolName: string | undefined): string {
   const raw = (toolName ?? "").trim();
@@ -26,14 +57,6 @@ export function humanizeToolName(toolName: string | undefined): string {
   return (name || "tool").toLowerCase();
 }
 
-/**
- * A tool row's label, translated when the app ships a string for this action.
- *
- * Without a catalog entry the label is derived from the action name itself
- * (`get-case` reads "get case"), which leaves every non-English app with
- * English rows it cannot translate. Apps add `agentChat.toolLabels.<action>`;
- * the derived name stays the fallback, so nothing changes until they do.
- */
 export function toolLabel(
   translate: (key: string, options?: Record<string, unknown>) => string,
   toolName: string | undefined,
@@ -159,14 +182,12 @@ function hasActiveDelegatedAgentActivity(part: ToolDisplayPart): boolean {
   );
 }
 
-/** True when a tool has not reported a result and the stream did not mark it unknown. */
 export function isToolCallInFlight(part: ToolDisplayPart): boolean {
   if (part.type !== "tool-call") return false;
   if (part.result !== undefined || part.outcome === "unknown") return false;
   return part.activity !== true || isDelegatedAgentToolCall(part);
 }
 
-/** True when the UI must not present this tool as finished. */
 export function isToolCallActive(part: ToolDisplayPart): boolean {
   if (isToolCallInFlight(part)) return true;
   return (
@@ -196,12 +217,6 @@ function callAgentTarget(part: ToolDisplayPart): string | null {
   }
 }
 
-/**
- * `call-agent` emits both its ordinary tool row and a richer `agent:<name>`
- * progress row. Keep the ordinary part in message state for tool completion
- * and history, but let presentation code suppress it once the richer row is
- * available.
- */
 export function isCallAgentToolCallShadowed(
   parts: readonly ToolDisplayPart[],
   index: number,

@@ -82,12 +82,6 @@ import {
 
 const RECORDING_TITLE = "Feedback on the landing page rewrite";
 
-// The panel body is drawn as skeleton lines rather than sentences. Whichever
-// tab is showing — Comments or Transcript — it is a stack of wrapped text rows,
-// and abstracting it keeps the illustration about the share menu instead of
-// inviting the reader to read fake feedback. Each entry is one segment, and its
-// numbers are the widths of that segment's wrapped lines, so the last line of
-// each runs short the way real text does.
 const TRANSCRIPT_SKELETON: number[][] = [
   [100, 64],
   [100, 100, 46],
@@ -97,74 +91,38 @@ const TRANSCRIPT_SKELETON: number[][] = [
   [100, 58],
 ];
 
-// The page is laid out at desktop width so the real `lg:` layout applies.
-// Below `lg` the product moves the transcript panel under the player, which is
-// a different screen than the one this depicts. The height stops just under
-// the player, so the crop ends on the frame rather than on the title block.
 const DESIGN_WIDTH = 1120;
 const DESIGN_HEIGHT = 470;
 
-// Scale is set from type size, not from the box: the product renders its body
-// copy at 14px and the illustration has to read at 18px, so everything is
-// magnified by that ratio. The consequence is intentional — the page is far
-// wider than the card, so it is anchored right to keep the share popover and
-// transcript panel whole while the player runs off the left edge under the
-// fade. Fitting the whole page in instead is what made the UI too small to
-// read as a product screenshot.
 const UI_TEXT_PX = 14;
 const ILLUSTRATION_TEXT_PX = 18;
 const SCALE = ILLUSTRATION_TEXT_PX / UI_TEXT_PX;
 const MOBILE_SCALE = 0.9;
 
-// The section background this crop sits on (app/routes/templates.clips.tsx),
-// so the crop dissolves into it rather than ending on a visible edge. A CSS
-// variable rather than a literal because that section now follows the docs
-// site's light/dark toggle instead of staying pinned dark.
 const FADE_COLOR = "var(--b-bg-page)";
 
 const CLIPS_PAGE_MOCK_CSS = [
   ".clips-page-mock { width: 100%; }",
 
-  // The app palette and the share-control override live in ClipsShareUi,
-  // which holds the single copy shared with the bare variant.
   ".clips-page-mock-page { " + CLIPS_APP_PALETTE + " }",
   "html.light .clips-page-mock-page { " + CLIPS_APP_PALETTE_LIGHT + " }",
   CLIPS_SHARE_UI_CSS,
 
-  // The recording page is held back so the open share menu reads as the
-  // subject of the illustration. The popover is a sibling of this wrapper, so
-  // it keeps full contrast; the page behind it recedes toward its own
-  // background rather than toward the section, which is why the opacity sits
-  // on the app and not on a scrim over the whole crop.
   ".clips-page-mock-app { opacity: 0.55; }",
 
   ".clips-page-mock-crop { position: relative; width: 100%; overflow: hidden; border-radius: 0 12px 12px 0; }",
   `.clips-page-mock-crop { height: ${Math.round(DESIGN_HEIGHT * SCALE)}px; }`,
   `.clips-page-mock-page { position: absolute; top: 0; right: 0; width: ${DESIGN_WIDTH}px; height: ${DESIGN_HEIGHT}px; transform-origin: top right; transform: scale(${SCALE}); }`,
 
-  // Wide enough that the cut edge reads as a dissolve rather than a visible
-  // seam: a short ramp left a hard line where the fade ended and the app's
-  // own (unfaded) background took over.
   `.clips-page-mock-fade { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(to right, ${FADE_COLOR} 0%, ${FADE_COLOR} 6%, transparent 48%); }`,
 
   `@media (max-width: 768px) { .clips-page-mock-crop { height: ${Math.round(
     DESIGN_HEIGHT * MOBILE_SCALE,
   )}px; } .clips-page-mock-page { transform: scale(${MOBILE_SCALE}); } }`,
 
-  // The popover's shadow has to separate it from a near-black page in dark
-  // mode, so it is heavier than `shadow-md` and fully opaque. That same
-  // opaque black reads as a smudge in light mode, where the page behind it is
-  // pale, so it is cut down to a faint contact shadow instead.
   ".clips-page-mock-menu-shadow { box-shadow: 1px 1px 70px 0 rgba(0, 0, 0, 1); }",
   "html.light .clips-page-mock-menu-shadow { box-shadow: 1px 1px 70px 0 rgba(0, 0, 0, 0.1); }",
 
-  // Mirrors the real popover's own open animation (Radix's zoom-in-95 +
-  // fade-in from `data-[state=open]`), replayed on scroll instead of on
-  // click since nothing here is actually clickable. `top right` is the
-  // trigger's corner under `align="end"`, so the menu grows out from the
-  // button rather than from its own centre. Toggling the reveal class off
-  // when the illustration scrolls out (see the component) lets it replay
-  // rather than only ever opening once.
   ".clips-page-mock-menu-anim { opacity: 0; transform: scale(0.95) translateY(-4px); transform-origin: top right; transition: opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1), transform 0.7s cubic-bezier(0.22, 1, 0.36, 1); }",
   ".clips-page-mock-menu-anim.clips-menu-reveal-in { opacity: 1; transform: scale(1) translateY(0); }",
   "@media (scripting: none) { .clips-page-mock-menu-anim { opacity: 1; transform: none; } }",

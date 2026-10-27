@@ -114,12 +114,6 @@ describe("boundedCleanup", () => {
     ).resolves.toBeUndefined();
   });
 
-  // Regression: a "recovery" block that unconditionally awaits a native
-  // cleanup invoke (e.g. hide_recording_chrome, show_popover) with only
-  // `.catch(() => {})` hangs forever if that invoke never settles — turning
-  // one stuck native call into a permanently frozen UI that only an app
-  // restart clears. boundedCleanup must give up after its timeout regardless
-  // of whether the underlying operation ever resolves.
   it("gives up on a cleanup invoke that never settles", async () => {
     vi.useFakeTimers();
     try {

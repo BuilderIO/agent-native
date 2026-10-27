@@ -4,17 +4,22 @@ export const parityMatrix: ParityRow[] = [
   {
     id: "sidebar.personal-recent-visits",
     surface: "sidebar",
-    label: "Read personal Recent entries and record foreground visits",
+    label:
+      "Read personal Recent entries, record foreground visits, and remove an entry from Recent",
     uiEntrypoints: [
       "app/components/sidebar/PersonalSidebarSections.tsx",
       "app/hooks/use-content-recent.ts",
     ],
     durableEffect:
-      "Per-user Recent stores bounded Page destinations and one destination per Database with its latest visited View, then resolves current labels under current access.",
+      "Per-user Recent stores bounded Page destinations and one destination per Database with its latest visited View, then resolves current labels and the requester's pinned state under current access. Removing an entry forgets only that visit.",
     uiImplementation:
-      "Recent reads use the shared Action; successful foreground navigation records a visit through the UI-only Action.",
+      "Recent reads use the shared Action; successful foreground navigation records a visit through the UI-only Action; the Recent row menu removes an entry through the shared Action and pins through update-document.",
     status: "action-backed",
-    actions: ["get-content-recent", "record-content-visit"],
+    actions: [
+      "get-content-recent",
+      "record-content-visit",
+      "remove-content-recent",
+    ],
     exception:
       "record-content-visit is hidden with agentTool: false so agent reads and edits cannot manufacture human visit history.",
     reliabilityRisk: "none",
@@ -48,36 +53,43 @@ export const parityMatrix: ParityRow[] = [
     testCoverage: "covered",
     followUpPR: "Bound local-file sidebar inventory",
     coverageRefs: [
-      "actions/content-navigation-bounds.test.ts",
       "actions/query-content-database-items.navigation.db.test.ts",
+      "actions/get-content-database.favorites-order.db.test.ts",
+      "actions/document-trash-mcp.db.test.ts",
       "app/hooks/use-content-database.test.ts",
     ],
   },
   {
     id: "sidebar.document-tree-crud",
     surface: "sidebar",
-    label: "Create, delete, move, favorite, list, search, and open pages",
+    label:
+      "Create, rename, duplicate, delete, move, favorite, list, search, and open pages",
     uiEntrypoints: [
       "app/components/sidebar/DocumentSidebar.tsx",
       "app/components/sidebar/DocumentTreeItem.tsx",
+      "app/components/sidebar/SidebarRowActions.tsx",
+      "app/components/sidebar/MovePageDialog.tsx",
       "app/components/editor/DocumentToolbar.tsx",
       "app/hooks/use-documents.ts",
     ],
     durableEffect:
       "Document tree rows and document metadata are created, updated, deleted, moved, searched, or read.",
     uiImplementation:
-      "Sidebar and hooks call document actions with optimistic cache updates for visible responsiveness.",
+      "Sidebar and hooks call document actions with optimistic cache updates for visible responsiveness; failed slash insertions roll back only an unchanged resource created by the caller; the shared sidebar row menu renames, duplicates a page with its sub-pages beside the original, moves within or between spaces (warning that access changes first), trashes, and reads last-edit activity through the same Actions.",
     status: "action-backed",
     actions: [
       "create-document",
       "clone-creative-context-document",
       "delete-document",
+      "duplicate-page",
       "get-document",
+      "get-document-activity",
       "list-trashed-documents",
       "list-documents",
       "move-document",
       "permanently-delete-document",
       "restore-document",
+      "rollback-created-slash-document",
       "search-documents",
       "update-document",
     ],
@@ -90,7 +102,9 @@ export const parityMatrix: ParityRow[] = [
       "actions/content-database-lifecycle.db.test.ts",
       "actions/database-setup.db.test.ts",
       "actions/database-setup-mcp.db.test.ts",
+      "actions/document-trash-mcp.db.test.ts",
       "actions/_local-file-documents.test.ts",
+      "actions/rollback-created-slash-document.test.ts",
     ],
     evalScenarioIds: ["document-search-edit"],
   },
@@ -129,6 +143,7 @@ export const parityMatrix: ParityRow[] = [
     coverageRefs: [
       "actions/list-content-trash.db.test.ts",
       "actions/content-trash-purge.db.test.ts",
+      "actions/document-trash-mcp.db.test.ts",
       "app/components/editor/trash-preview-content.test.ts",
       "app/hooks/content-action-refresh.trash.test.ts",
     ],
@@ -236,6 +251,8 @@ export const parityMatrix: ParityRow[] = [
     label: "Edit document title, body, icon, image alt text, and precise text",
     uiEntrypoints: [
       "app/components/editor/DocumentEditor.tsx",
+      "app/components/editor/PageDraftRecovery.tsx",
+      "app/components/editor/VisualEditor.tsx",
       "app/components/editor/DocumentDatabase.tsx",
       "app/components/editor/extensions/ImageBlock.tsx",
       "app/components/editor/SlashCommandMenu.tsx",
@@ -243,25 +260,99 @@ export const parityMatrix: ParityRow[] = [
     durableEffect:
       "Document content, title, icon, image metadata, and text replacements are saved to the same document source.",
     uiImplementation:
-      "The editor autosaves through update-document; agents can use update-document, edit-document, pull-document, and media-specific helpers.",
+      "The editor autosaves through update-document, checks browser save receipts after interrupted delivery, seeds an empty live editor from the saved body, and takes a newer saved body into open live editors exactly once; agents can use update-document, edit-document, pull-document, and media-specific helpers.",
     status: "action-backed",
     actions: [
+      "adopt-document-snapshot",
+      "convert-page-to-live-copy-if-due",
       "edit-document",
+      "get-document-save-attempt",
       "pull-document",
+      "record-editor-merge",
+      "record-editor-mount",
+      "record-live-body-parity",
+      "seed-document-collab",
       "set-image-alt-text",
+      "set-live-body-switch",
       "transcribe-media",
       "update-document",
     ],
-    exception: null,
+    exception:
+      "Save-attempt receipt lookup, live collaboration seeding and snapshot adoption, editor mount and merge counts, the flag-gated live-body parity count, and the per-page switch for the flag-gated live-copy writer and its backfill on an editor's open are browser-only editor support actions hidden from agent tools with agentTool: false.",
     reliabilityRisk: "none",
     spinePriority: "P0",
     testCoverage: "covered",
     followUpPR: null,
     coverageRefs: [
       "actions/content-database-lifecycle.db.test.ts",
+      "actions/update-document.db.test.ts",
       "actions/_local-file-documents.test.ts",
+      "actions/record-editor-merge.test.ts",
+      "actions/record-editor-mount.test.ts",
+      "app/components/editor/editor-merge-telemetry.test.ts",
+      "app/components/editor/editor-mount-telemetry.test.ts",
+      "app/components/editor/VisualEditor.merge-telemetry.test.tsx",
+      "app/components/editor/VisualEditor.mount-telemetry.test.tsx",
+      "server/live-copy/live-copy.test.ts",
+      "server/live-copy/backfill.db.test.ts",
     ],
     evalScenarioIds: ["document-search-edit"],
+  },
+  {
+    id: "editor.private-image-icons",
+    surface: "editor",
+    label:
+      "Reuse private uploaded image icons on pages, properties, and callouts",
+    uiEntrypoints: [
+      "app/components/editor/EmojiPicker.tsx",
+      "app/components/editor/extensions/NotionExtensions.tsx",
+      "app/components/icons/private-icon-assets.ts",
+    ],
+    durableEffect:
+      "Private image assets stay outside SQL; authorized element references store asset IDs and are checked against the current page or property before serving the image.",
+    uiImplementation:
+      "The icon picker reads owned assets through list-private-icon-assets; page and property actions validate assignments, and callouts authorize private asset references through register-private-callout-icon before editing the live body.",
+    status: "action-backed",
+    actions: ["list-private-icon-assets", "register-private-callout-icon"],
+    exception:
+      "Uploading an image and serving its binary bytes use file-upload and non-JSON routes; durable assignment uses the shared actions.",
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "server/lib/private-icon-references.db.test.ts",
+      "app/components/icons/private-icon-assets.test.ts",
+    ],
+  },
+  {
+    id: "editor.breadcrumbs-and-link-targets",
+    surface: "editor",
+    label:
+      "Show page breadcrumbs and peer menus, and resolve page-link blocks and local-source reference previews",
+    uiEntrypoints: [
+      "app/components/editor/DocumentEditor.tsx",
+      "app/components/editor/DocumentToolbar.tsx",
+      "app/components/editor/extensions/NotionExtensions.tsx",
+      "app/components/editor/ContentReferencePreview.tsx",
+      "app/hooks/use-content-links.ts",
+    ],
+    durableEffect: null,
+    uiImplementation:
+      "Breadcrumbs read the bounded active-item navigation context and load peer menus from the Files navigation page when opened; page-link blocks and reference previews resolve only their own targets instead of listing the workspace.",
+    status: "action-backed",
+    actions: ["resolve-content-links"],
+    exception:
+      "resolve-content-links is hidden with agentTool: false because it only resolves link targets for rendering; agents read linked pages with get-document and search-documents.",
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/resolve-content-links.db.test.ts",
+      "app/hooks/use-content-links.test.ts",
+      "app/components/editor/DocumentToolbar.breadcrumb.test.tsx",
+    ],
   },
   {
     id: "editor.suggested-edits",
@@ -373,6 +464,28 @@ export const parityMatrix: ParityRow[] = [
     followUpPR: null,
     coverageRefs: ["actions/_local-file-documents.test.ts"],
     evalScenarioIds: ["local-file-source-truth"],
+  },
+  {
+    id: "header.import-markdown-files",
+    surface: "header",
+    label: "Import Markdown files as pages and undo the import",
+    uiEntrypoints: [
+      "app/components/editor/DocumentToolbar.tsx",
+      "app/components/editor/VisualEditor.tsx",
+      "app/components/editor/ContentImportDialog.tsx",
+    ],
+    durableEffect:
+      "Imported pages with an import History entry, provenance, and the original file; undo moves unedited imports to Trash.",
+    uiImplementation:
+      "The page menu and a dropped .md file open one dialog that previews with dryRun, applies, and offers Undo through the import actions.",
+    status: "action-backed",
+    actions: ["import-content", "undo-content-import"],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: ["actions/import-content.db.test.ts"],
   },
   {
     id: "sharing.os-reveal-local-source",
@@ -496,6 +609,7 @@ export const parityMatrix: ParityRow[] = [
       "duplicate-database-items",
       "duplicate-database-item",
       "update-database-items",
+      "patch-database-items",
       "migrate-content-database-rows",
       "manage-content-database-migration",
       "move-database-item",
@@ -509,11 +623,15 @@ export const parityMatrix: ParityRow[] = [
     coverageRefs: [
       "actions/database-row-batch-actions.db.test.ts",
       "actions/upsert-database-item-by-key.db.test.ts",
+      "actions/patch-database-items.db.test.ts",
       "actions/migrate-content-database-rows.db.test.ts",
       "actions/content-database-block-actions.db.test.ts",
       "parity/__tests__/database-row-batch-reliability.test.ts",
     ],
-    evalScenarioIds: ["database-bulk-row-reliability"],
+    evalScenarioIds: [
+      "database-bulk-row-reliability",
+      "database-distinct-row-patches",
+    ],
   },
   {
     id: "database.private-preview-drafts",
@@ -563,6 +681,7 @@ export const parityMatrix: ParityRow[] = [
       "get-content-database-personal-view",
       "list-document-properties",
       "reorder-document-property",
+      "search-content-database-rows",
       "set-document-property",
       "update-content-database-personal-view",
       "update-content-database-view",
@@ -581,6 +700,32 @@ export const parityMatrix: ParityRow[] = [
     evalScenarioIds: ["database-source-scope"],
   },
   {
+    id: "database.change-webhooks",
+    surface: "database",
+    label:
+      "Register, list, and remove webhooks that send a signed event when a property changes or a comment is created or resolved",
+    uiEntrypoints: [],
+    durableEffect:
+      "content_webhooks stores the URL, scope, event filter, and a reference to the signing secret in app secrets; each change writes content_webhook_deliveries rows in the same transaction, which are sent right after commit and retried by the recurring sweep with the same event ID. Only edits to a value send property.changed: deleting a property, a type change that clears values, deleting rows or pages, imports, source syncs, and row migrations send no events.",
+    uiImplementation:
+      "No UI yet: agents and MCP clients manage webhooks through the actions; a settings panel would call the same actions.",
+    status: "action-backed",
+    actions: [
+      "create-content-webhook",
+      "list-content-webhooks",
+      "delete-content-webhook",
+    ],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/content-webhooks.db.test.ts",
+      "server/lib/content-webhook-signature.test.ts",
+    ],
+  },
+  {
     id: "source-sync.database-source-bindings",
     surface: "source-sync",
     label:
@@ -589,7 +734,12 @@ export const parityMatrix: ParityRow[] = [
       "app/components/editor/DocumentDatabase.tsx",
       "app/components/editor/DocumentProperties.tsx",
       "app/components/editor/database/DatabaseView.tsx",
+      "app/components/editor/database/GitHubLinkDialog.tsx",
+      "app/components/editor/database/GitHubSourcePanel.tsx",
+      "app/components/editor/database/GitHubSourceStatusLine.tsx",
+      "app/components/editor/database/GitHubUnlinkDialog.tsx",
       "app/hooks/use-content-database.ts",
+      "app/hooks/use-github-folder.ts",
     ],
     durableEffect:
       "Mounted database source metadata, fields, source role, join keys, and source-field/property bindings are stored and refreshed.",
@@ -601,13 +751,17 @@ export const parityMatrix: ParityRow[] = [
       "attach-content-database-source",
       "bind-content-database-source-field",
       "change-content-database-source-role",
+      "check-github-connection",
+      "create-github-collection",
       "disconnect-content-database-source",
       "get-content-database-source",
+      "link-github-folder",
       "list-builder-cms-models",
       "list-notion-database-sources",
       "preview-content-database-source-attach",
       "refresh-content-database-source",
       "suggest-source-join-key",
+      "sync-github-folder",
     ],
     exception: null,
     reliabilityRisk: "none",
@@ -617,7 +771,15 @@ export const parityMatrix: ParityRow[] = [
     coverageRefs: [
       "actions/bind-content-database-source-field.db.test.ts",
       "actions/content-database-source-actions.test.ts",
+      "actions/github-source.db.test.ts",
       "actions/resync-content-database-source.db.test.ts",
+      "app/components/editor/database/DatabaseView.github-sources.ui.test.tsx",
+      "app/components/editor/database/GitHubLinkDialog.ui.test.tsx",
+      "app/components/editor/database/GitHubSourcePanel.ui.test.tsx",
+      "app/components/editor/database/GitHubSourceStatusLine.ui.test.tsx",
+      "app/components/editor/database/github-availability.test.ts",
+      "app/hooks/use-github-folder.test.ts",
+      "app/lib/github-link-dialog.test.ts",
     ],
     evalScenarioIds: ["database-source-scope"],
   },
@@ -887,23 +1049,26 @@ export const parityMatrix: ParityRow[] = [
     id: "comments.ai-intents",
     surface: "comments",
     label:
-      "Ask AI to reply, propose a suggestion, or apply an edit and resolve feedback",
+      "Mention AI in a comment to reply, suggest an edit, or apply it and resolve feedback, then undo an applied change",
     uiEntrypoints: [
       "app/components/editor/CommentsSidebar.tsx",
       "app/components/editor/comment-ai.tsx",
     ],
     durableEffect:
-      "Intent-bound requests retain their feedback and document revisions, dispatch one scoped agent run, and persist the resulting reply, suggestion, or verified edit receipt.",
+      "Requests retain the submitted mode, selected provider and model, source feedback, and document revisions. Auto persists one classified intent before a separately scoped execution run records the reply, suggestion, or verified edit receipt. An applied edit keeps a bounded before/after preview, and its requester can reverse the exact edits and reopen the thread.",
     uiImplementation:
-      "Comment thread controls start a request through the shared action surface; the scoped agent can call only the context action and the operation bound to the selected intent.",
+      "A structured AI recipient in the Comment composer starts the request through the shared action surface. Auto classification can submit only a finite intent; execution can call only the context action and the operation bound to that persisted intent.",
     status: "action-backed",
     actions: [
       "apply-comment-ai-request",
       "create-comment-ai-suggestion",
       "get-comment-ai-context",
       "list-comment-ai-requests",
+      "reconcile-comment-ai-session",
       "reply-to-comment-ai-request",
       "start-comment-ai-request",
+      "submit-comment-ai-classification",
+      "undo-comment-ai-request",
     ],
     exception: null,
     reliabilityRisk: "none",
@@ -912,9 +1077,59 @@ export const parityMatrix: ParityRow[] = [
     followUpPR: null,
     coverageRefs: [
       "actions/comment-ai-flow.test.ts",
+      "actions/undo-comment-ai-request.db.test.ts",
       "app/components/editor/comment-ai.test.tsx",
       "server/lib/comment-ai-progress.test.ts",
     ],
+  },
+  {
+    id: "comments.email-preferences",
+    surface: "comments",
+    label:
+      "Read and turn the current user's comment, reply, and mention emails on or off",
+    uiEntrypoints: [
+      "app/components/settings/notification-settings.tsx",
+      "app/routes/_app.settings.tsx",
+    ],
+    durableEffect:
+      "The per-user content-user-prefs setting stores emailNotifications, which the comment senders read before emailing each recipient.",
+    uiImplementation:
+      "Settings reads the preference and saves the switch optimistically, with rollback, through the same Actions the agent calls.",
+    status: "action-backed",
+    actions: [
+      "get-content-notification-prefs",
+      "update-content-notification-prefs",
+    ],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/content-notification-prefs.test.ts",
+      "app/components/settings/notification-settings.test.tsx",
+    ],
+  },
+  {
+    id: "comments.reactions",
+    surface: "comments",
+    label: "React to a comment or reply with an emoji, or remove your reaction",
+    uiEntrypoints: [
+      "app/components/editor/CommentEntry.tsx",
+      "app/components/editor/CommentReactions.tsx",
+    ],
+    durableEffect:
+      "One row per person, emoji, and comment in document_comment_reactions; list-comments returns per-comment counts with the viewer's own reactions, and deleting a comment removes its reactions.",
+    uiImplementation:
+      "The reaction chips and add-reaction picker call react-to-comment with an optimistic update, and agents use the same action.",
+    status: "action-backed",
+    actions: ["react-to-comment", "list-comments"],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: ["actions/react-to-comment.db.test.ts"],
   },
   {
     id: "comments.threads",
@@ -940,6 +1155,28 @@ export const parityMatrix: ParityRow[] = [
     spinePriority: "P0",
     testCoverage: "seeded",
     followUpPR: null,
+  },
+  {
+    id: "comments.collection-overview",
+    surface: "comments",
+    label:
+      "See which Collection rows and Property values have open comments, and read every row's threads at once",
+    uiEntrypoints: [
+      "app/components/editor/database/database-item-comments.tsx",
+      "app/components/editor/property-comments.tsx",
+    ],
+    durableEffect:
+      "Collection reads return each readable row's open-thread count and per-Property counts; list-content-database-comments returns every readable row's threads with their text or Property target.",
+    uiImplementation:
+      "Table rows and cells show counts from the Collection read and open the row's Comments; agents read all threads through list-content-database-comments.",
+    status: "action-backed",
+    actions: ["list-content-database-comments", "add-comment"],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: ["actions/content-database-comments.db.test.ts"],
   },
   {
     id: "versions.history-and-restore",

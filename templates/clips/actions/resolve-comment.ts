@@ -1,11 +1,3 @@
-/**
- * Toggle or set the resolved state on a comment.
- *
- * Usage:
- *   pnpm action resolve-comment --id=<id>             # toggle
- *   pnpm action resolve-comment --id=<id> --resolved=true
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
@@ -14,7 +6,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { isRecordingExpiredForViewer } from "../server/lib/recording-page-access.js";
+import { assertCommentAccess } from "../server/lib/comment-access.js";
 import { sameOwnerEmail } from "../server/lib/recordings.js";
 
 const cliBoolean = z.preprocess((value) => {
@@ -47,19 +39,7 @@ export default defineAction({
       throw new Error("Sign in required to resolve comments.");
     }
 
-    const access = await assertAccess(
-      "recording",
-      existing.recordingId,
-      "viewer",
-    );
-    if (
-      isRecordingExpiredForViewer({
-        expiresAt: (access.resource as { expiresAt?: string }).expiresAt,
-        viewerIsOwner: access.role === "owner",
-      })
-    ) {
-      throw new ForbiddenError("Recording has expired");
-    }
+    await assertCommentAccess(existing.recordingId);
 
     if (!sameOwnerEmail(existing.authorEmail, userEmail)) {
       try {

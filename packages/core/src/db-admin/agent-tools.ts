@@ -1,16 +1,5 @@
-/**
- * Dev-only agent tools for the database admin.
- *
- * These mirror the HTTP routes and call the SAME `operations.ts` functions, so
- * the agent can introspect and edit the full database during local development.
- * They are spread into the DEV actions surface ONLY (never `prodActions`) and
- * the dev surface itself is gated to dev + localhost upstream.
- *
- * Complex params (sort / filters / inserts / updates / deletes / params) are
- * accepted as JSON strings and parsed here, matching how the framework's other
- * structured CLI-style tools accept JSON-encoded arguments.
- */
 import type { ActionEntry } from "../agent/production-agent.js";
+import { frameworkMcpTools } from "../mcp/framework-tools.js";
 import {
   applyMutations,
   getRows,
@@ -34,7 +23,7 @@ function parseJson<T>(value: unknown, field: string): T | undefined {
 }
 
 export function createDbAdminAgentTools(): Record<string, ActionEntry> {
-  return {
+  return frameworkMcpTools({
     "db-admin-tables": {
       tool: {
         description:
@@ -198,5 +187,5 @@ export function createDbAdminAgentTools(): Record<string, ActionEntry> {
         }
       },
     },
-  };
+  });
 }

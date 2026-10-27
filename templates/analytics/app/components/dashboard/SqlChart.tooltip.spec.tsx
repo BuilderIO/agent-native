@@ -4,7 +4,9 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@agent-native/core/client/hooks", () => ({
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
+  getBrowserTabId: () => "test-tab",
   useDemoModeStatus: () => ({
     enabled: false,
     forced: false,
@@ -139,5 +141,25 @@ describe("ChartTooltip", () => {
       ),
     ).toEqual(["v:12", "v:8"]);
     expect(tooltip?.firstElementChild?.className).toContain("font-semibold");
+  });
+
+  it("wraps a long category label instead of cutting it off", async () => {
+    const label =
+      "very-long-subdomain.enterprise-intranet.examplecorp.internal";
+    await act(async () => {
+      root.render(
+        <ChartTooltip
+          active
+          label={label}
+          payload={[{ name: "count", value: 12, color: "#10b981" }]}
+        />,
+      );
+    });
+
+    const labelRow = [
+      ...document.body.querySelectorAll<HTMLElement>('[role="tooltip"] div'),
+    ].find((node) => node.textContent === label);
+    expect(labelRow?.className).toContain("break-words");
+    expect(labelRow?.className).not.toContain("truncate");
   });
 });

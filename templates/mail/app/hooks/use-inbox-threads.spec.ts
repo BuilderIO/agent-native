@@ -1,16 +1,31 @@
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 
+// Snapshot ids start from the page-load clock; these cases spell ids from 0.
+vi.hoisted(() => {
+  vi.useFakeTimers({ now: 0, toFake: ["Date"] });
+});
+
 import {
+  type InboxSyncAccountProgress,
+  type InboxOverview,
   applyInboxMutationOverlay,
   adjustInboxThreadUnreadOptimistic,
   cancelInboxThreadsQueries,
   clearInboxThreadRemoval,
   findInboxThreadIdByMessageId,
   INBOX_THREADS_QUERY_KEY,
+  inboxOverviewQueryKey,
+  inboxSyncRefetchInterval,
   inboxThreadsHasNextPage,
+  keepInboxProgressOrder,
+  keepLatestInboxSnapshot,
+  inboxThreadsRefetchInterval,
+  isUnauthorizedError,
+  mergeOptimisticInboxTabCounts,
   markInboxThreadReadOptimistic,
   mergeInboxThreadPages,
+  publishInboxOverview,
   removeInboxThreadsOptimistic,
   retainInboxMutationTargets,
   resolveInboxTabId,
@@ -20,6 +35,302 @@ import {
   snapshotInboxThreads,
   toggleInboxThreadsStarOptimistic,
 } from "./use-inbox-threads";
+
+vi.useRealTimers();
+
+describe("isUnauthorizedError", () => {
+  it("is true for a 401 or 403 action error", () => {
+    expect(isUnauthorizedError({ status: 401 })).toBe(true);
+    expect(isUnauthorizedError({ status: 403 })).toBe(true);
+  });
+
+  it("is false for other statuses, and for no error", () => {
+    expect(isUnauthorizedError({ status: 404 })).toBe(false);
+    expect(isUnauthorizedError({ status: 500 })).toBe(false);
+    expect(isUnauthorizedError(null)).toBe(false);
+    expect(isUnauthorizedError(new Error("network down"))).toBe(false);
+  });
+});
+
+describe("inboxThreadsRefetchInterval", () => {
+  it("stops the poll once the last error is a 401 or 403", () => {
+    expect(
+      inboxThreadsRefetchInterval({ state: { error: { status: 401 } } }),
+    ).toBe(false);
+    expect(
+      inboxThreadsRefetchInterval({ state: { error: { status: 403 } } }),
+    ).toBe(false);
+  });
+
+  it("keeps polling at the fast interval for a non-auth error, e.g. a 500", () => {
+    expect(
+      inboxThreadsRefetchInterval({ state: { error: { status: 500 } } }),
+    ).toBe(20_000);
+  });
+
+  it("leaves progress polling to sync-inbox while keeping list reads idle", () => {
+    expect(
+      inboxThreadsRefetchInterval({
+        state: { error: null, data: { syncing: true } },
+      }),
+    ).toBe(20_000);
+  });
+
+  it("polls at the idle interval once sync settles", () => {
+    expect(
+      inboxThreadsRefetchInterval({
+        state: { error: null, data: { syncing: false } },
+      }),
+    ).toBe(20_000);
+  });
+});
+
+describe("inboxSyncRefetchInterval", () => {
+  const progress = (
+    overrides: Partial<InboxSyncAccountProgress> = {},
+  ): InboxSyncAccountProgress => ({
+    accountEmail: "first@example.com",
+    state: "initial",
+    lastSyncedAt: null,
+    changed: false,
+    pushGeneration: 4,
+    lastPushGeneration: 4,
+    pushPending: false,
+    ...overrides,
+  });
+
+  it("continues initial sync every three seconds and idles once ready", () => {
+    expect(
+      inboxSyncRefetchInterval({
+        state: { error: null, data: { accounts: [progress()] } },
+      }),
+    ).toBe(3_000);
+    expect(
+      inboxSyncRefetchInterval({
+        state: {
+          error: null,
+          data: {
+            accounts: [progress({ state: "ready" })],
+          },
+        },
+      }),
+    ).toBe(20_000);
+  });
+
+  it("chains another step immediately when a step changed rows or a push is pending", () => {
+    expect(
+      inboxSyncRefetchInterval({
+        state: {
+          error: null,
+          data: { accounts: [progress({ changed: true })] },
+        },
+      }),
+    ).toBe(1);
+    expect(
+      inboxSyncRefetchInterval({
+        state: {
+          error: null,
+          data: {
+            accounts: [
+              progress({
+                pushGeneration: 5,
+                pushPending: true,
+                pushBumped: true,
+              }),
+            ],
+          },
+        },
+      }),
+    ).toBe(1);
+  });
+
+  it("honors the cooldown retry-after for returned statuses and 429 errors", () => {
+    expect(
+      inboxSyncRefetchInterval({
+        state: {
+          error: null,
+          data: {
+            accounts: [progress({ retryAfterSeconds: 47 })],
+          },
+        },
+      }),
+    ).toBe(47_000);
+    expect(
+      inboxSyncRefetchInterval({
+        state: {
+          error: {
+            statusCode: 429,
+            errorCode: "gmail_quota_cooldown",
+            details: { retryAfterSeconds: 61 },
+          },
+        },
+      }),
+    ).toBe(61_000);
+  });
+
+  it("keeps healthy accounts on their own cadence and ignores failed push status", () => {
+    expect(
+      inboxSyncRefetchInterval({
+        state: {
+          error: null,
+          data: {
+            accounts: [
+              progress({ retryAfterSeconds: 47 }),
+              progress({ accountEmail: "second@example.com" }),
+            ],
+          },
+        },
+      }),
+    ).toBe(3_000);
+    expect(
+      inboxSyncRefetchInterval({
+        state: {
+          error: null,
+          data: {
+            accounts: [
+              progress({ retryAfterSeconds: 47 }),
+              progress({
+                accountEmail: "second@example.com",
+                state: "error",
+                pushPending: true,
+              }),
+            ],
+          },
+        },
+      }),
+    ).toBe(47_000);
+    expect(
+      inboxSyncRefetchInterval({
+        state: {
+          error: null,
+          data: {
+            accounts: [
+              progress({
+                state: "needs_reauth",
+                pushPending: true,
+                pushBumped: false,
+              }),
+            ],
+          },
+        },
+      }),
+    ).toBe(20_000);
+  });
+
+  it("does not immediately loop when a push remains pending without a new bump", () => {
+    expect(
+      inboxSyncRefetchInterval({
+        state: {
+          error: null,
+          data: {
+            accounts: [
+              progress({
+                pushPending: true,
+                pushBumped: false,
+              }),
+            ],
+          },
+        },
+      }),
+    ).toBe(3_000);
+  });
+
+  it("keeps unchanged historical backfill on the idle cadence", () => {
+    expect(
+      inboxSyncRefetchInterval({
+        state: {
+          error: null,
+          data: {
+            accounts: [progress({ state: "ready", backfillPending: true })],
+          },
+        },
+      }),
+    ).toBe(20_000);
+  });
+});
+
+describe("shared inbox overview snapshots", () => {
+  it("keeps the newest tab counts in one account-scoped cache across tab switches", () => {
+    const qc = new QueryClient();
+    const accounts = ["steve@example.com"];
+    const queryKey = inboxOverviewQueryKey(accounts);
+    const snapshot = (clientSnapshotId: number, totals: number[]) => ({
+      tabs: ["important", "automated", "pitch"].map((id, index) => ({
+        id,
+        kind: "label" as const,
+        name: id,
+        total: totals[index]!,
+        unread: 0,
+      })),
+      syncing: false,
+      accounts: [],
+      labels: [],
+      clientSnapshotId,
+    });
+
+    publishInboxOverview(qc, accounts, snapshot(4, [2, 36, 2]));
+    expect(
+      qc.getQueryData<InboxOverview>(queryKey)?.tabs.map((tab) => tab.total),
+    ).toEqual([2, 36, 2]);
+
+    publishInboxOverview(qc, accounts, snapshot(3, [1, 35, 1]));
+    expect(
+      qc.getQueryData<InboxOverview>(queryKey)?.tabs.map((tab) => tab.total),
+    ).toEqual([2, 36, 2]);
+
+    publishInboxOverview(qc, accounts, snapshot(5, [3, 36, 2]));
+    expect(
+      qc.getQueryData<InboxOverview>(queryKey)?.tabs.map((tab) => tab.total),
+    ).toEqual([3, 36, 2]);
+    expect(
+      inboxOverviewQueryKey(["STEVE@example.com", "other@example.com"]),
+    ).toEqual(
+      inboxOverviewQueryKey(["other@example.com", "steve@example.com"]),
+    );
+  });
+
+  it("applies optimistic count deltas to the shared active-tab snapshot", () => {
+    const tab = (id: string, total: number, unread: number) => ({
+      id,
+      kind: "label" as const,
+      name: id,
+      total,
+      unread,
+    });
+    const overview = {
+      tabs: [tab("important", 4, 3), tab("automated", 36, 8)],
+      clientSnapshotId: 4,
+    };
+    const base = {
+      activeTabId: "important",
+      tabs: [tab("important", 2, 2), tab("automated", 36, 8)],
+      clientSnapshotId: 4,
+    };
+    const projected = {
+      activeTabId: "important",
+      tabs: [tab("important", 1, 1), tab("automated", 36, 8)],
+      clientSnapshotId: 4,
+    };
+
+    expect(mergeOptimisticInboxTabCounts(overview, base, projected)).toEqual([
+      tab("important", 3, 2),
+      tab("automated", 36, 8),
+    ]);
+    expect(
+      mergeOptimisticInboxTabCounts(overview, base, {
+        ...projected,
+        activeTabId: "automated",
+      }),
+    ).toBe(overview.tabs);
+    expect(
+      mergeOptimisticInboxTabCounts(
+        { ...overview, clientSnapshotId: 5 },
+        { ...base, clientSnapshotId: 3 },
+        { ...projected, clientSnapshotId: 3 },
+      ),
+    ).toBe(overview.tabs);
+  });
+});
 
 describe("resolveInboxTabId", () => {
   it("returns undefined with no params so the server defaults to its first tab", () => {
@@ -31,6 +342,9 @@ describe("resolveInboxTabId", () => {
       "important",
     );
     expect(resolveInboxTabId(new URLSearchParams("tab=other"))).toBe("other");
+    expect(resolveInboxTabId(new URLSearchParams("tab=__inbox_all__"))).toBe(
+      "__inbox_all__",
+    );
   });
 
   it("maps the legacy `label` param to a tab id", () => {
@@ -120,6 +434,63 @@ function visibleResult(qc: QueryClient) {
   return applyInboxMutationOverlay(qc, raw as any);
 }
 
+describe("keepLatestInboxSnapshot", () => {
+  it("keeps a confirmed newer response when an older request resolves last", () => {
+    const stale = seedResult({
+      clientSnapshotId: 1,
+      items: [seedResult().items[0]],
+      total: 1,
+    });
+    const confirmed = seedResult({
+      clientSnapshotId: 2,
+      items: [seedResult().items[1]],
+      total: 1,
+    });
+
+    expect(keepLatestInboxSnapshot(stale as any, confirmed as any)).toBe(
+      confirmed,
+    );
+    expect(keepLatestInboxSnapshot(confirmed as any, stale as any)).toBe(
+      confirmed,
+    );
+  });
+});
+
+describe("keepInboxProgressOrder", () => {
+  it("keeps shown threads in place as the final sync snapshot appends older rows", () => {
+    const first = seedResult().items[0];
+    const second = seedResult().items[1];
+    const third = { ...first, id: "m3", threadId: "t3" };
+    const current = {
+      ...seedResult({
+        items: [first, second],
+        clientSnapshotId: 1,
+      }),
+      syncing: true,
+    };
+    const incoming = {
+      ...seedResult({
+        items: [
+          { ...second, unreadCount: 1, isRead: false },
+          { ...first, unreadCount: 0, isRead: true },
+          third,
+        ],
+        clientSnapshotId: 2,
+      }),
+      syncing: false,
+    };
+
+    const merged = keepInboxProgressOrder(current as any, incoming as any);
+
+    expect(merged.items.map((item) => item.threadId)).toEqual([
+      "t1",
+      "t2",
+      "t3",
+    ]);
+    expect(merged.items[1]).toMatchObject({ isRead: false, unreadCount: 1 });
+  });
+});
+
 describe("removeInboxThreadsOptimistic", () => {
   it("resolves message ids to the action cache's thread key", () => {
     const qc = makeClient(seedResult());
@@ -141,7 +512,6 @@ describe("removeInboxThreadsOptimistic", () => {
       total: 2,
       unread: 1,
     });
-    // Other tabs are left alone — we can't know their membership client-side.
     expect(result.tabs.find((t) => t.id === "other")).toMatchObject({
       total: 1,
       unread: 1,
@@ -231,7 +601,6 @@ describe("adjustInboxThreadUnreadOptimistic", () => {
     const item = result.items.find((i) => i.id === "m1")!;
     expect(item.unreadCount).toBe(1);
     expect(item.isRead).toBe(false);
-    // No boundary crossed (still unread) — tab count untouched.
     expect(result.tabs.find((t) => t.id === "important")?.unread).toBe(2);
   });
 
@@ -301,12 +670,10 @@ describe("adjustInboxThreadUnreadOptimistic", () => {
       }),
     );
 
-    // Reading an already-read message must not push unreadCount negative.
     adjustInboxThreadUnreadOptimistic(qc, "t1", -1);
 
     let result = visibleResult(qc);
     expect(result.items.find((i) => i.id === "m1")?.unreadCount).toBe(0);
-    // No change means no crossing — tab count untouched.
     expect(result.tabs.find((t) => t.id === "important")?.unread).toBe(2);
 
     const fullUnreadClient = makeClient(
@@ -324,7 +691,6 @@ describe("adjustInboxThreadUnreadOptimistic", () => {
       }),
     );
 
-    // Marking unread past messageCount must clamp at messageCount, not exceed it.
     adjustInboxThreadUnreadOptimistic(fullUnreadClient, "t1", 1);
 
     result = visibleResult(fullUnreadClient);
@@ -370,6 +736,44 @@ describe("inboxThreadsHasNextPage", () => {
     expect(inboxThreadsHasNextPage(100, 250)).toBe(true);
   });
 
+  it("stops at the offset cap even when older rows exist", () => {
+    expect(
+      inboxThreadsHasNextPage(2_000, 2_500, {
+        complete: false,
+        lastPageLength: 50,
+        pageSize: 50,
+        reachedCap: true,
+      }),
+    ).toBe(false);
+    expect(inboxThreadsHasNextPage(1_950, 2_500, { reachedCap: false })).toBe(
+      true,
+    );
+  });
+
+  it("stops at the cap when a lower-bound total still reports a full last page", () => {
+    expect(
+      inboxThreadsHasNextPage(2_000, 2_500, {
+        complete: false,
+        lastPageLength: 50,
+        pageSize: 50,
+        totalIsLowerBound: true,
+      }),
+    ).toBe(false);
+    expect(
+      inboxThreadsHasNextPage(1_950, 2_500, {
+        complete: false,
+        lastPageLength: 50,
+        pageSize: 50,
+        totalIsLowerBound: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("stops at the cap when an unread-only total counts rows past it", () => {
+    expect(inboxThreadsHasNextPage(2_000, 2_100)).toBe(false);
+    expect(inboxThreadsHasNextPage(1_950, 2_100)).toBe(true);
+  });
+
   it("is false once every row is loaded", () => {
     expect(inboxThreadsHasNextPage(250, 250)).toBe(false);
   });
@@ -380,6 +784,42 @@ describe("inboxThreadsHasNextPage", () => {
 
   it("is false for an empty tab", () => {
     expect(inboxThreadsHasNextPage(0, 0)).toBe(false);
+  });
+
+  it("probes beyond a lower-bound count while the last page is full", () => {
+    expect(
+      inboxThreadsHasNextPage(100, 100, {
+        complete: false,
+        lastPageLength: 50,
+        pageSize: 50,
+        totalIsLowerBound: true,
+      }),
+    ).toBe(true);
+    expect(
+      inboxThreadsHasNextPage(100, 100, {
+        complete: false,
+        lastPageLength: 0,
+        pageSize: 50,
+        totalIsLowerBound: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("stops at the hydrated page frontier while a provider total is incomplete", () => {
+    expect(
+      inboxThreadsHasNextPage(50, 250, {
+        complete: false,
+        lastPageLength: 0,
+        pageSize: 50,
+      }),
+    ).toBe(false);
+    expect(
+      inboxThreadsHasNextPage(50, 250, {
+        complete: false,
+        lastPageLength: 50,
+        pageSize: 50,
+      }),
+    ).toBe(true);
   });
 });
 
@@ -422,7 +862,6 @@ describe("snapshotInboxThreads / restoreInboxThreadsOptimistic", () => {
     const snapshot = snapshotInboxThreads(qc);
     const mutationId = removeInboxThreadsOptimistic(qc, new Set(["t1"]));
 
-    // Sanity: the optimistic write actually landed before we roll it back.
     expect(visibleResult(qc).items.map((i) => i.id)).toEqual(["m2"]);
 
     clearInboxThreadRemoval(qc, "t1", [mutationId]);
@@ -467,7 +906,6 @@ describe("synced inbox mutation consistency", () => {
       unreadCount: 1,
     });
 
-    // Keep the second mutation alive until its server evidence arrives.
     expect(readId).toMatch(/^inbox-mutation-/);
   });
 

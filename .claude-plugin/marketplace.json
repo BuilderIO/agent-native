@@ -9,7 +9,7 @@
       "description": "Open and operate granted Agent-Native apps through Dispatch MCP, with inline app surfaces and current browser screen state.",
       "source": "./.agents/plugins/agent-native",
       "autoUpdate": true,
-      "homepage": "https://dispatch.agent-native.com",
+      "homepage": "https://dispatch.agent-native.com/?utm_source=claude-plugins&utm_medium=referral&utm_content=marketplace-homepage",
       "keywords": [
         "agent-native",
         "agent-native",
@@ -24,7 +24,7 @@
       "description": "Create rich interactive visual plans, recaps, and repo-native visual docs with diagrams, file maps, annotated code and diffs, API/schema summaries, feedback, and HTML export.",
       "source": "./.agents/plugins/agent-native-visual-plans",
       "autoUpdate": true,
-      "homepage": "https://plan.agent-native.com",
+      "homepage": "https://plan.agent-native.com/?utm_source=claude-plugins&utm_medium=referral&utm_content=marketplace-homepage",
       "keywords": [
         "agent-native",
         "visual-plans",
@@ -39,7 +39,7 @@
       "description": "Explore, compare, iterate, and export interactive UI design prototypes from the Design app.",
       "source": "./.agents/plugins/agent-native-design",
       "autoUpdate": true,
-      "homepage": "https://design.agent-native.com",
+      "homepage": "https://design.agent-native.com/?utm_source=claude-plugins&utm_medium=referral&utm_content=marketplace-homepage",
       "keywords": [
         "agent-native",
         "design",
@@ -51,10 +51,10 @@
     {
       "name": "agent-native-turn-into-app",
       "displayName": "Turn Into App",
-      "description": "Turn visible project context, a proven thread, skill, or workflow into a runnable Agent-Native app. On Claude or ChatGPT Web, it hands a bounded source brief to Builder through Dispatch; local code agents can build and verify in a workspace.",
+      "description": "Turn a thread, skill, spreadsheet, or Claude/ChatGPT project into a visual Agent-Native app. Local code agents build, run, and screenshot-review it; Claude and ChatGPT on the web hand a bounded source brief to Builder through Dispatch.",
       "source": "./.agents/plugins/agent-native-turn-into-app",
       "autoUpdate": true,
-      "homepage": "https://dispatch.agent-native.com",
+      "homepage": "https://dispatch.agent-native.com/?utm_source=claude-plugins&utm_medium=referral&utm_content=marketplace-homepage",
       "keywords": [
         "agent-native",
         "turn-into-app",

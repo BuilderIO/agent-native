@@ -1,5 +1,6 @@
 /**
- * Embedded canvas gesture bridge — injected into every canvas iframe.
+ * Embedded canvas gesture bridge — injected into every Edit canvas iframe. Interact's document carries only the theme and links bridges.
+ * Its Interact-mode guards remain as defense in depth.
  *
  * A screen preview is a real iframe, so wheel and pointer-drag events never
  * bubble to the canvas underneath. In embedded mode we forward bounded wheel
@@ -9,15 +10,27 @@
  *
  * Runtime placeholder (replaced by DesignCanvas.tsx before injection):
  *   __EMBEDDED_WHEEL_FORWARDING_ENABLED__  — boolean literal "true"/"false"
- *   __EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__ — boolean literal; true only
- *     when the editor-chrome bridge is absent (Interact mode)
+ *   __EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__ — boolean literal controlling
+ *     Space hotkey relay to the host; local Space-pan is always available
  *   __EDITING_SAFETY_ENABLED__ — boolean literal; true outside Interact mode
  *     to freeze authored motion and block native link/form navigation
+ *   __INTERACTION_MODE__ — boolean literal; true while Interact owns the
+ *     page. Every gesture below is then inert: the wheel, the middle button,
+ *     Space and a drag are the page's own, so none is cancelled or forwarded
  *
  * Protocol (iframe → parent, only when enabled):
  *
  *   { type: 'embedded-canvas-wheel', deltaX, deltaY, deltaZ, deltaMode,
- *     clientX, clientY, ctrlKey, metaKey, shiftKey, altKey }
+ *     clientX, clientY, ctrlKey, metaKey, shiftKey, altKey, steps, seq }
+ *
+ *   Until the host answers the last one with 'embedded-canvas-wheel-read'
+ *   and its `seq`, later wheels fold into one pending message per kind of
+ *   step, with deltas summed over `steps` wheels (at most 32 per message),
+ *   so a host that falls behind doesn't work through a queue of stale steps
+ *   after the fingers stop. At most 16 steps wait; wheels past that are
+ *   dropped. A
+ *   host that hasn't answered in 100 ms (1 s once it has answered before) is
+ *   sent the next step anyway.
  *
  *   { type: 'embedded-canvas-pan', phase: 'start'|'move'|'end'|'cancel',
  *     pointerId, button, buttons, clientX, clientY, movementX, movementY,
@@ -26,9 +39,11 @@
  * Protocol (parent → iframe):
  *
  *   { type: 'embedded-canvas-pan-mode', leftButtonEnabled }
+ *   { type: 'embedded-canvas-wheel-read', seq }
  *   { type: 'embedded-canvas-gesture-mode', wheelEnabled,
  *     spaceKeyForwardingEnabled }
  *   { type: 'embedded-canvas-pan-cancel' }
+ *   { type: 'set-interaction-mode', interact }
  *
  * Rules:
  *   • No import/require of any module (DOM globals only).
@@ -38,13 +53,16 @@
 declare var __EMBEDDED_WHEEL_FORWARDING_ENABLED__: boolean;
 declare var __EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__: boolean;
 declare var __EDITING_SAFETY_ENABLED__: boolean;
+declare var __INTERACTION_MODE__: boolean;
 
 (function () {
   var wheelEnabled = __EMBEDDED_WHEEL_FORWARDING_ENABLED__;
   var spaceKeyForwardingEnabled = __EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__;
   var editingSafetyEnabled = __EDITING_SAFETY_ENABLED__;
+  var interactionMode = __INTERACTION_MODE__;
   var leftButtonEnabled = false;
   var temporarySpacePanEnabled = false;
+  var forwardedSpaceKeyDown = false;
   var activePointerId: number | null = null;
   var activeButton: 0 | 1 | null = null;
   var captureTarget: Element | null = null;
@@ -57,6 +75,29 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
   var lastShiftKey = false;
   var lastAltKey = false;
   var freezeStyle: HTMLStyleElement | null = null;
+  type ForwardedWheel = {
+    deltaX: number;
+    deltaY: number;
+    deltaZ: number;
+    deltaMode: number;
+    clientX: number;
+    clientY: number;
+    ctrlKey: boolean;
+    metaKey: boolean;
+    shiftKey: boolean;
+    altKey: boolean;
+    steps: number;
+    // A zoom wheel the host reads as a mouse notch rather than a pinch.
+    notch: boolean;
+  };
+  // Folded steps waiting for the host in arrival order: a new one for each
+  // change of kind and every 32 wheels, and at most 16.
+  var pendingWheels: ForwardedWheel[] = [];
+  var wheelAwaitingHost = false;
+  var wheelReadTimer: number | null = null;
+  // The id of the last step sent; the host echoes it when it reads the step.
+  var wheelSeq = 0;
+  var hostAnswersWheels = false;
 
   function syncEditingSafetyStyle(): void {
     var currentStyle =
@@ -96,8 +137,6 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
   }
 
   function stopNativeInteraction(e: Event): void {
-    // A fling's wheel events are not cancelable; cancelling one logs a browser
-    // Intervention per event and scrolls anyway.
     if (e.cancelable) e.preventDefault();
     e.stopPropagation();
     if (e.stopImmediatePropagation) e.stopImmediatePropagation();
@@ -121,17 +160,71 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
     } catch {}
   }
 
+  function sendWheel(wheel: ForwardedWheel): void {
+    wheelSeq += 1;
+    wheelAwaitingHost = true;
+    if (wheelReadTimer !== null) window.clearTimeout(wheelReadTimer);
+    // A host that never answers (the single-screen view reads pinches from the
+    // zoom bridge instead) still gets the folded wheels, a few times a second.
+    // One that has answered is waited on for up to a second, so slow frames
+    // don't let a second step through; past that the answer is taken as lost.
+    wheelReadTimer = window.setTimeout(
+      sendNextWheel,
+      hostAnswersWheels ? 1000 : 100,
+    );
+    postToParent({
+      type: "embedded-canvas-wheel",
+      deltaX: wheel.deltaX,
+      deltaY: wheel.deltaY,
+      deltaZ: wheel.deltaZ,
+      deltaMode: wheel.deltaMode,
+      clientX: wheel.clientX,
+      clientY: wheel.clientY,
+      ctrlKey: wheel.ctrlKey,
+      metaKey: wheel.metaKey,
+      shiftKey: wheel.shiftKey,
+      altKey: wheel.altKey,
+      steps: wheel.steps,
+      seq: wheelSeq,
+    });
+  }
+
+  function sendNextWheel(): void {
+    if (wheelReadTimer !== null) {
+      window.clearTimeout(wheelReadTimer);
+      wheelReadTimer = null;
+    }
+    wheelAwaitingHost = false;
+    var next = pendingWheels.shift();
+    if (next) sendWheel(next);
+  }
+
+  function onWheelRead(seq: unknown): void {
+    // An answer to a step the timer already gave up on frees nothing: the
+    // step sent after it is still unread.
+    if (seq !== wheelSeq) return;
+    hostAnswersWheels = true;
+    sendNextWheel();
+  }
+
+  function resetWheelForwarding(): void {
+    if (wheelReadTimer !== null) {
+      window.clearTimeout(wheelReadTimer);
+      wheelReadTimer = null;
+    }
+    wheelAwaitingHost = false;
+    pendingWheels = [];
+  }
+
   function onWheel(e: WheelEvent): void {
-    // Zoom forwards whatever the pan flag says: the flag only arrives by
-    // postMessage and a document swap strands it, while the zoom bridge cancels
-    // ctrl/meta wheel here regardless — so gating it makes the gesture vanish.
+    if (interactionMode) return;
     var zoomIntent = !!(e.ctrlKey || e.metaKey);
     if (!wheelEnabled && !zoomIntent) return;
     stopNativeInteraction(e);
-    postToParent({
-      type: "embedded-canvas-wheel",
+    var deltaY = clamp(e.deltaY, 240);
+    var wheel: ForwardedWheel = {
       deltaX: clamp(e.deltaX, 240),
-      deltaY: clamp(e.deltaY, 240),
+      deltaY: deltaY,
       deltaZ: clamp(e.deltaZ, 240),
       deltaMode: e.deltaMode,
       clientX: clamp(e.clientX, 100000),
@@ -140,7 +233,46 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
       metaKey: !!e.metaKey,
       shiftKey: !!e.shiftKey,
       altKey: !!e.altKey,
-    });
+      steps: 1,
+      // MAX_PINCH_DELTA_PX in core's zoom-gesture.
+      notch: zoomIntent && Math.abs(deltaY) >= 40,
+    };
+    if (!wheelAwaitingHost) {
+      sendWheel(wheel);
+      return;
+    }
+    var pending =
+      pendingWheels.length > 0 ? pendingWheels[pendingWheels.length - 1] : null;
+    // The host bounds a step's pan by 32 wheels' worth, so a longer wait
+    // queues further steps rather than folding travel it would clip. It
+    // picks a zoom step's curve by its average wheel, so pinch-sized and
+    // notch-sized wheels stay apart, and notches fold only in one direction
+    // so their average stays a notch.
+    if (
+      pending &&
+      pending.steps < 32 &&
+      pending.deltaMode === wheel.deltaMode &&
+      pending.ctrlKey === wheel.ctrlKey &&
+      pending.metaKey === wheel.metaKey &&
+      pending.shiftKey === wheel.shiftKey &&
+      pending.altKey === wheel.altKey &&
+      pending.notch === wheel.notch &&
+      (!wheel.notch || Math.sign(pending.deltaY) === Math.sign(wheel.deltaY))
+    ) {
+      pending.deltaX += wheel.deltaX;
+      pending.deltaY += wheel.deltaY;
+      pending.deltaZ += wheel.deltaZ;
+      pending.clientX = wheel.clientX;
+      pending.clientY = wheel.clientY;
+      pending.steps += 1;
+      return;
+    }
+    // A pinch turning into a scroll is a new kind of step: queue it behind
+    // the folded one rather than mix the two. A host that leaves 16 steps
+    // unread has stopped keeping up, and more would only play out after the
+    // fingers stop.
+    if (pendingWheels.length >= 16) return;
+    pendingWheels.push(wheel);
   }
 
   function shouldStartPan(e: PointerEvent): boolean {
@@ -197,7 +329,9 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
   }
 
   function onPointerDown(e: PointerEvent): void {
-    if (activePointerId !== null || !shouldStartPan(e)) return;
+    if (interactionMode || activePointerId !== null || !shouldStartPan(e)) {
+      return;
+    }
     activePointerId = e.pointerId;
     activeButton = e.button === 1 ? 1 : 0;
     suppressClick = true;
@@ -253,9 +387,17 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
     );
   }
 
+  function shouldLetEditorChromeHandleSpace(): boolean {
+    return (
+      !spaceKeyForwardingEnabled &&
+      editingSafetyEnabled &&
+      !!document.querySelector("[data-agent-native-editor-chrome-host]")
+    );
+  }
+
   function onKeyDown(e: KeyboardEvent): void {
     if (
-      !spaceKeyForwardingEnabled ||
+      interactionMode ||
       e.key !== " " ||
       e.code !== "Space" ||
       e.metaKey ||
@@ -267,8 +409,13 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
       return;
     }
     temporarySpacePanEnabled = true;
+    if (shouldLetEditorChromeHandleSpace()) {
+      if (e.cancelable) e.preventDefault();
+      return;
+    }
     stopNativeInteraction(e);
-    if (e.repeat) return;
+    if (e.repeat || !spaceKeyForwardingEnabled) return;
+    forwardedSpaceKeyDown = true;
     postToParent({
       type: "design-hotkey",
       key: e.key,
@@ -282,14 +429,20 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
   }
 
   function onKeyUp(e: KeyboardEvent): void {
-    if (!spaceKeyForwardingEnabled || e.key !== " " || e.code !== "Space") {
-      return;
-    }
+    if (e.key !== " " || e.code !== "Space") return;
     var wasTemporarySpacePanEnabled = temporarySpacePanEnabled;
     temporarySpacePanEnabled = false;
-    if (!wasTemporarySpacePanEnabled && isTypingTarget(e.target)) return;
+    var wasSpaceKeyForwarded = forwardedSpaceKeyDown;
+    forwardedSpaceKeyDown = false;
+    if (!wasTemporarySpacePanEnabled && !wasSpaceKeyForwarded) return;
+    if (shouldLetEditorChromeHandleSpace() && !wasSpaceKeyForwarded) {
+      if (e.cancelable) e.preventDefault();
+      return;
+    }
     stopNativeInteraction(e);
-    postToParent({ type: "design-hotkey-up", key: e.key, code: e.code });
+    if (wasSpaceKeyForwarded) {
+      postToParent({ type: "design-hotkey-up", key: e.key, code: e.code });
+    }
   }
 
   function onHostMessage(e: MessageEvent): void {
@@ -299,20 +452,43 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
       cancelActivePan();
       return;
     }
+    if (e.data.type === "embedded-canvas-wheel-read") {
+      onWheelRead(e.data.seq);
+      return;
+    }
     if (e.data.type === "embedded-canvas-pan-mode") {
       leftButtonEnabled = !!e.data.leftButtonEnabled;
+      return;
+    }
+    if (e.data.type === "set-interaction-mode") {
+      interactionMode = e.data.interact === true;
+      if (interactionMode) {
+        resetWheelForwarding();
+        cancelActivePan();
+        if (forwardedSpaceKeyDown) {
+          forwardedSpaceKeyDown = false;
+          postToParent({ type: "design-hotkey-up", key: " ", code: "Space" });
+        }
+      }
       return;
     }
     if (e.data.type === "embedded-canvas-gesture-mode") {
       wheelEnabled = !!e.data.wheelEnabled;
       spaceKeyForwardingEnabled = !!e.data.spaceKeyForwardingEnabled;
-      // Live-updatable so entering/leaving Interact does not change this
-      // script's text. The host keys its bridge registration on a hash of the
-      // script, so baking the mode in meant every Interact toggle minted a new
-      // key, forced a re-register, and left the canvas on "Preparing editable
-      // preview..." until that round trip finished.
       if (typeof e.data.editingSafetyEnabled === "boolean") {
-        editingSafetyEnabled = e.data.editingSafetyEnabled;
+        var nextEditingSafetyEnabled = e.data.editingSafetyEnabled;
+        if (editingSafetyEnabled && !nextEditingSafetyEnabled) {
+          cancelActivePan();
+          if (forwardedSpaceKeyDown) {
+            forwardedSpaceKeyDown = false;
+            postToParent({
+              type: "design-hotkey-up",
+              key: " ",
+              code: "Space",
+            });
+          }
+        }
+        editingSafetyEnabled = nextEditingSafetyEnabled;
         syncEditingSafetyStyle();
       }
     }
@@ -344,11 +520,6 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
   }
 
   function onWindowBlur(): void {
-    // Moving focus from an iframe gesture into the parent canvas can blur the
-    // child window while the top-level Design window is still active. The
-    // parent separately sends embedded-canvas-pan-cancel on a real top-level
-    // blur; this local guard handles page/tab hiding without killing that
-    // intentional in-app focus transfer.
     if (document.visibilityState === "hidden") cancelActivePan();
   }
 

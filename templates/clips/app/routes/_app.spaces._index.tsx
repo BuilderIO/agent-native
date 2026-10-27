@@ -98,7 +98,6 @@ export default function SpacesIndexRoute() {
             content={
               canManageOrg ? (
                 <Button onClick={() => setCreateOpen(true)} size="sm">
-                  <IconPlus />
                   {createSpaceLabel}
                 </Button>
               ) : null

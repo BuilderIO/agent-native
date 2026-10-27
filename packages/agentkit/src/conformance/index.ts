@@ -2,10 +2,10 @@ import type {
   AgentCapabilities,
   AgentEvent,
   AgentMessage,
+  AgentRunStartResult,
   AgentRunSnapshot,
   AgentThreadSnapshot,
   AgentTransport,
-  StartRunResult,
 } from "../protocol/index.js";
 import {
   AGENTKIT_PROTOCOL_VERSION,
@@ -53,15 +53,10 @@ interface AgentKitConformanceSharedOptions {
 export type AgentKitConformanceOptions = AgentKitConformanceSharedOptions &
   (
     | {
-        /** Runs the baseline contract against an already-created transport. */
         transport: AgentTransport;
         createTransport?: never;
       }
     | {
-        /**
-         * Creates isolated transports for deterministic lifecycle scenarios.
-         * Use this full profile for adapters and remote transport releases.
-         */
         createTransport: AgentKitConformanceTransportFactory;
         transport?: never;
       }
@@ -311,7 +306,6 @@ function assertLifecycleCompleteness(
   return ["rich lifecycle replay", "rich lifecycle snapshot"];
 }
 
-/** Key order is not part of a JSON value, so comparison must not depend on it. */
 function canonicalJson(value: unknown): string {
   return JSON.stringify(value, (_key, nested) => {
     if (
@@ -329,12 +323,6 @@ function canonicalJson(value: unknown): string {
   });
 }
 
-/**
- * Every domain event must survive the AG-UI wire and come back identical, and
- * the frame in between must be one a stock AG-UI client can parse. Checking
- * both together is the point: a profile that round-trips through frames only
- * Builder can read would pass the first half and deliver no interoperability.
- */
 function assertAgUiWireCompatibility(
   events: readonly AgentEvent[],
   context: { threadId: string; runId: string },
@@ -676,15 +664,21 @@ async function startScenarioRun(input: {
   scenario: AgentKitConformanceScenario;
   threadId: string;
   messages?: AgentMessage[];
-}): Promise<StartRunResult> {
+}): Promise<AgentRunStartResult> {
   const started = await input.transport.startRun({
     threadId: input.threadId,
     messages: conformanceMessages(input.scenario, input.messages),
     metadata: { "x-agentkit-conformance-scenario": input.scenario },
   });
+  if (!started.runId) {
+    throw new AgentKitConformanceError("startRun must return a stable runId.");
+  }
   assert(started.runId.length > 0, "startRun must return a stable runId.");
   if (started.capabilities) parseAgentCapabilities(started.capabilities);
-  return started;
+  return {
+    runId: started.runId,
+    ...(started.capabilities ? { capabilities: started.capabilities } : {}),
+  };
 }
 
 async function assertRunSnapshot(
@@ -1305,6 +1299,13 @@ async function assertQueueIdentity(input: {
     "Successful steering must remove the exact queued item.",
   );
 
+  if (promoted && "alreadyRemoved" in promoted) {
+    throw new Error("Queue item was removed before promotion completed.");
+  }
+  if (promoted && "delivery" in promoted) {
+    throw new Error("An idle thread must promote the queue item directly.");
+  }
+
   if (promoted) {
     const events = await collect(
       transport.subscribeToRun({ threadId, runId: promoted.runId }),
@@ -1381,11 +1382,6 @@ async function assertTerminalFailure(input: {
   return events.length;
 }
 
-/**
- * Runs provider-neutral invariants against an AgentKit transport. Supplying a
- * scenario factory executes cancellation, disconnect, reconnect, isolation,
- * approval, queue, and failure paths against fresh deterministic backends.
- */
 export async function assertAgentTransportConformance(
   options: AgentKitConformanceOptions,
 ): Promise<AgentKitConformanceReport> {

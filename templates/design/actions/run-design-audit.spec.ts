@@ -20,10 +20,6 @@ import {
   extractRootTokens,
 } from "./run-design-audit.js";
 
-// ---------------------------------------------------------------------------
-// design-system adherence
-// ---------------------------------------------------------------------------
-
 const KIT = JSON.stringify({
   colors: { primary: "#00eaff", background: "#0c0d12" },
   typography: { headingFont: "Space Grotesk", bodyFont: "Inter" },
@@ -107,10 +103,6 @@ describe("checkDesignSystemAdherence", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// extractRootTokens
-// ---------------------------------------------------------------------------
-
 describe("extractRootTokens", () => {
   it("parses custom properties from a :root block", () => {
     const html = `<style>:root { --color-accent: #0EA5E9; --radius-md: 0.5rem; }</style>`;
@@ -136,10 +128,6 @@ describe("extractRootTokens", () => {
     expect(extractRootTokens(html)).toEqual({ "--a": "1" });
   });
 });
-
-// ---------------------------------------------------------------------------
-// checkTokenDrift
-// ---------------------------------------------------------------------------
 
 const withRoot = (tokens: Record<string, string>) =>
   `<style>:root { ${Object.entries(tokens)
@@ -224,10 +212,6 @@ describe("checkTokenDrift", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// checkRenderBlockingOverlays
-// ---------------------------------------------------------------------------
-
 describe("checkRenderBlockingOverlays", () => {
   const head = `<head><script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"></script><script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script></head>`;
 
@@ -255,10 +239,6 @@ describe("checkRenderBlockingOverlays", () => {
     expect(findings).toEqual([]);
   });
 });
-
-// ---------------------------------------------------------------------------
-// checkTapTargets (sanity — exercised more fully via apply-a11y-fix.spec.ts)
-// ---------------------------------------------------------------------------
 
 describe("checkTapTargets", () => {
   it("flags a tiny interactive element", () => {

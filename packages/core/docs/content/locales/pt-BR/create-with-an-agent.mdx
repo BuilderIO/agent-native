@@ -1,0 +1,161 @@
+---
+title: "Crie um app com um agente de IA"
+description: "Entregue um único prompt ao Claude, ChatGPT, Codex, Cursor ou outro agente de IA e deixe que ele crie e inicie um novo app Agent-Native para você."
+---
+
+# Crie um app com um agente de IA
+
+Você pode pedir a um agente de IA que crie o seu app Agent-Native. Você cola um prompt, o agente executa os comandos de configuração e mostra um app em execução quando termina.
+
+Se preferir digitar os comandos você mesmo, siga [Primeiros passos](/docs/getting-started).
+
+## Antes de começar
+
+- Um agente de IA que consiga executar comandos de terminal, como Claude Code, Codex ou Cursor. Agentes que só conversam, como ChatGPT ou Claude na web, ainda podem ajudar. Veja [Agentes que não executam comandos](#chat-only-agents).
+- [Node.js](https://nodejs.org) 22.22 ou posterior.
+- Uma pasta vazia onde o novo app possa ficar.
+
+Você não precisa de uma chave de API para criar o app. Só precisa de uma quando quiser que o agente do próprio app responda a você. Veja [Conecte um LLM](/docs/getting-started#connect-an-llm).
+
+## Cole este prompt
+
+Abra o seu agente na pasta vazia e cole o prompt abaixo. Troque `my-app` na primeira linha pelo nome que você quiser. Você só precisa trocar uma vez.
+
+```markdown
+Crie um novo app Agent-Native em uma nova pasta chamada my-app e
+inicie-o. Use esse nome onde um passo abaixo disser APP_NAME.
+
+1. Verifique se o Node.js está na versão 22.22 ou posterior e se o
+   pnpm está disponível. Se o pnpm estiver faltando, execute
+   `corepack enable`. Se o corepack
+   também não estiver disponível, execute `npm install -g pnpm`. Se
+   o Node.js for muito antigo, pare e me avise em vez de instalá-lo.
+2. Execute este comando:
+   npx --yes @agent-native/core@latest create APP_NAME \
+    --standalone --template chat
+3. Na nova pasta APP_NAME, execute `pnpm install`.
+4. Leia APP_NAME/AGENTS.md para saber como o app está organizado.
+5. Inicie o app com `pnpm dev` e mantenha-o rodando em segundo plano.
+6. Leia a URL local que o `pnpm dev` exibe. Verifique se ela
+   responde, por exemplo com `curl -I <url>`. Não abra um navegador e
+   não use ferramentas de navegador headless. Eu mesmo abrirei o app.
+7. Mostre-me o resultado. Diga a URL local e a resposta que você
+   recebeu dela. Não diga apenas que a configuração está concluída.
+
+Regras:
+
+- Não invente chaves de API nem me peça para colá-las. Conectar um
+  LLM é opcional e eu mesmo vou fazer isso.
+- Não exiba segredos de nenhum arquivo .env.
+- Se um comando falhar, mostre-me o erro e o que você tentou. Não
+  o esconda.
+```
+
+## O que o agente deve fazer
+
+Uma boa execução termina com estes resultados, e você mesmo pode conferir cada um deles:
+
+- Uma nova pasta de app, chamada `my-app` a menos que você a tenha trocado, que contém `actions/`, `app/` e um arquivo `AGENTS.md`.
+- `pnpm dev` em execução sem erros.
+- Uma URL local, geralmente `http://localhost:8080`, que o agente verificou que responde.
+
+Depois abra a URL local no seu próprio navegador. Na tela de Boas-vindas, escolha **Continue as local dev**. A página Get started aparece.
+
+Se algum deles estiver faltando, peça ao agente que mostre o último comando que executou e a saída dele.
+
+<Callout tone="info">
+
+Se os comandos falharem com erros de dependências peer, uma cópia antiga de um pacote no cache do npx pode ser a causa. Peça ao agente que execute `npx clear-npx-cache` e tente de novo.
+
+</Callout>
+
+## Escolha a configuração certa para o seu agente
+
+| Tipo de agente            | Exemplos                                              | Como funciona                                                |
+| ------------------------- | ----------------------------------------------------- | ------------------------------------------------------------ |
+| Agentes de terminal e IDE | Claude Code, Codex, Cursor, GitHub Copilot no VS Code | Cole o prompt. O agente executa todos os comandos para você. |
+| Agentes só de chat        | ChatGPT, Claude na web                                | Peça os comandos e depois execute-os você mesmo.             |
+
+### Agentes que não executam comandos {#chat-only-agents}
+
+Um agente só de chat não consegue abrir um terminal, então não consegue criar o app. Cole o prompt mesmo assim e adicione esta linha no início:
+
+```markdown
+Você não consegue executar comandos. Me dê cada comando para
+executar no meu terminal, um de cada vez, e espere eu contar o que
+aconteceu antes de seguir em frente.
+```
+
+O agente guia você pelos mesmos passos e ajuda se algo der errado.
+
+## Seu agente e o agente do app
+
+Dois agentes podem trabalhar no seu app, e eles fazem tarefas diferentes.
+
+- **O seu próprio agente** é aquele em que você colou o prompt, como Claude Code, Codex ou Cursor. Ele fica fora do app, no seu terminal ou editor.
+- **O agente do app** é o chat que já vem embutido no app. Você o abre no navegador enquanto o app está em execução.
+
+|                                    | Seu próprio agente (fora do app)                                                                                                                  | O agente do app (dentro do app)                                                                                         |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Onde você o usa                    | No seu terminal ou editor                                                                                                                         | No chat do app, no navegador                                                                                            |
+| Em que ele trabalha                | Nos arquivos do seu projeto                                                                                                                       | Nos dados do app e na tela que você está vendo                                                                          |
+| O que ele pode fazer               | Criar o projeto, instalar pacotes, executar `pnpm dev`, escrever e alterar ações, páginas e tabelas do banco de dados, e preparar uma implantação | Chamar as ações do app como ferramentas, ler e atualizar os dados do app e responder perguntas sobre o que está na tela |
+| Precisa de um LLM conectado ao app | Não, ele usa o próprio modelo                                                                                                                     | Sim. Veja [Conecte um LLM](/docs/getting-started#connect-an-llm)                                                        |
+| Melhor para                        | Construir e alterar o app                                                                                                                         | Usar o app e fazer o trabalho do dia a dia                                                                              |
+
+O seu próprio agente constrói o app. O agente do app o faz funcionar. Quando o seu próprio agente adiciona uma ação, o agente do app pode chamá-la na hora, porque os dois usam a mesma ação.
+
+### Ajude o seu próprio agente a construir bem
+
+O app gerado é configurado para que o seu próprio agente trabalhe bem nele sem instruções extras.
+
+- `AGENTS.md`, na raiz do app, diz a um agente como o app está organizado e quais regras seguir.
+- `.agents/skills/` reúne guias curtos para tarefas comuns, como adicionar um recurso ou escrever uma ação.
+- A documentação da sua versão exata do framework vem junto com o app. Um agente pode pesquisá-la com `pnpm action docs-search --query "<topic>"`.
+
+Quando você pedir algo novo, pode dizer ao agente que leia isso primeiro. Por exemplo: "Leia o AGENTS.md e a skill correspondente antes de mudar qualquer coisa."
+
+Para que o seu próprio agente use as ferramentas de um app em execução em vez do código dele, veja [Agentes externos](/docs/external-agents).
+
+## Peça a sua primeira mudança
+
+Com o app em execução, peça ao seu agente uma pequena mudança e veja-o trabalhar. Aqui estão alguns exemplos:
+
+```markdown
+Adicione uma ação chamada list-notes que retorne uma lista vazia e
+mostre-a em uma nova página /notes.
+```
+
+```markdown
+Mude a ação hello para que ela cumprimente as pessoas com "Welcome"
+em vez de "Hello" e depois chame-a para Alex para confirmar.
+```
+
+```markdown
+Leia a documentação sobre como implantar um app e depois me diga
+quais passos preciso seguir para colocar este app no ar.
+```
+
+O agente altera as mesmas ações que a UI e o agente do próprio app usam. Esse modelo de ações compartilhado é o motivo de uma mudança aparecer em todos os lugares. [Conceitos-chave](/docs/key-concepts) explica como tudo se encaixa.
+
+## Próximos passos
+
+<Cards>
+
+### [Primeiros passos](/docs/getting-started)
+
+Crie o mesmo app manualmente e aprenda como uma ação funciona.
+
+### [Agentes externos](/docs/external-agents)
+
+Conecte Claude, ChatGPT, Codex ou Cursor a um app que já está em execução.
+
+### [Ações](/docs/actions-overview)
+
+Defina as capacidades que tanto a sua UI quanto os seus agentes usam.
+
+### [Implante um app](/docs/deploy-an-app)
+
+Passe do desenvolvimento local para um banco de dados real e um host compatível.
+
+</Cards>

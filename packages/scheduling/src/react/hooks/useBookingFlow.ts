@@ -1,13 +1,3 @@
-/**
- * useBookingFlow — the Booker state machine.
- *
- * Stages: "pick-date" → "pick-slot" → "fill-form" → "success"
- * (plus "error" for any step's failure).
- *
- * Persistence: stores the current selection in a tuple that can be mirrored
- * to URL query params and `application_state.booker-state` so both the agent
- * and a page refresh see the same state.
- */
 import { useState, useCallback } from "react";
 
 import type { Slot } from "../../shared/index.js";

@@ -1,5 +1,6 @@
 import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import { frameworkMcpTool } from "../mcp/framework-tools.js";
 import {
   executeSandboxCode,
   type SandboxCodeEvaluator,
@@ -13,20 +14,12 @@ const MAX_OUTPUT_CHARS = 100_000;
 const DEFAULT_MAX_TOOL_CALLS = 32;
 const MAX_TOOL_CALLS = 128;
 
-/**
- * Create the bounded read-only orchestration tool.
- *
- * This deliberately has a separate registry entry from run-code. The latter
- * retains its existing workspace staging and background-execution contract;
- * this entry is for short fan-out, reduction, and aggregation over tools that
- * the host can prove are read-only for the supplied arguments.
- */
 export function createToolOrchestrationEntry(
   getActions: () => Record<string, ActionEntry>,
   options: { evaluator?: SandboxCodeEvaluator } = {},
 ): ActionEntry {
   const evaluator = options.evaluator ?? "node";
-  return {
+  return frameworkMcpTool({
     readOnly: true,
     allowInPlanMode: false,
     timeoutMs: MAX_TIMEOUT_MS,
@@ -105,7 +98,7 @@ export function createToolOrchestrationEntry(
       });
       return formatResult(result, timeoutMs, maxOutputChars);
     },
-  };
+  });
 }
 
 function formatResult(

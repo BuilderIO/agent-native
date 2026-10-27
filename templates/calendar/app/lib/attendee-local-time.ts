@@ -1,18 +1,3 @@
-/**
- * Format and resolve per-attendee local times for an event start.
- *
- * Resolution priority for an attendee's IANA timezone:
- * 1. Self attendee (`attendee.self` or email matches accountEmail) →
- *    the browser timezone, so an event owner's timezone is never shown as
- *    the signed-in user's local time
- * 2. Optional `attendee.timeZone` on the attendee object
- * 3. User-stored override from the `attendee-timezones` setting map
- * 4. The event start timezone for the organizer when no more specific zone is
- *    available
- *
- * When no timezone is known, returns null — never invent a zone.
- */
-
 export type AttendeeTimezoneSource = {
   email: string;
   self?: boolean;
@@ -24,9 +9,7 @@ export type ResolveAttendeeTimezoneInput = {
   attendee: AttendeeTimezoneSource;
   accountEmail?: string;
   eventStartTimeZone?: string;
-  /** email (lowercased) → IANA timezone overrides from user settings */
   overrides?: Record<string, string>;
-  /** Browser/local fallback for the self attendee when the event has no zone */
   browserTimeZone?: string;
 };
 
@@ -94,10 +77,6 @@ export function resolveAttendeeTimeZone(
   return null;
 }
 
-/**
- * Formats an event start instant in a given IANA timezone as a short local
- * time label, e.g. "6:30 AM EDT".
- */
 export function formatAttendeeLocalTime(
   startIso: string,
   timeZone: string,

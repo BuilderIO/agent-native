@@ -34,6 +34,10 @@ export default function LibraryFolderRoute() {
   return (
     <LibraryGrid
       view="library"
+      // Everything filed here, screenshots included: the Screenshots section
+      // only lists loose ones, so a folder is the one place a filed
+      // screenshot shows up.
+      kind="all"
       folderId={folderId}
       emptyKind="folder"
       title={folder?.name ?? t("navigation.folder")}

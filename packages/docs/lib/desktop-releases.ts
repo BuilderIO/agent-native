@@ -3,10 +3,6 @@ import { createError } from "h3";
 const RELEASES_URL_BASE =
   "https://api.github.com/repos/BuilderIO/agent-native/releases";
 const PER_PAGE = 100;
-// GitHub rejects release-list requests beyond page 10 at this page size.
-// Channel-specific releases are newest-first, so a current release is found
-// before this fallback boundary; never turn the upstream 422 into a route
-// failure by requesting an unsupported page.
 const MAX_RELEASE_PAGES = 10;
 const CACHE_FRESH_MS = 5 * 60_000;
 
@@ -175,8 +171,6 @@ function belongsToChannel(
 
   const tag = release.tag_name;
   if (channel === "production") {
-    // Production releases are deliberately exact semver tags. This excludes
-    // both Nightly prereleases and legacy auto-build tags such as v0.1.7-42.
     return !release.prerelease && /^v\d+\.\d+\.\d+$/.test(tag);
   }
 
@@ -203,8 +197,6 @@ async function findLatestDesktopRelease(
         best = release;
       }
     }
-    // GitHub returns releases newest-first. Once this page has a published
-    // desktop release, older pages cannot contain a newer candidate.
     if (best) return best;
     if (batch.length < PER_PAGE) break;
   }

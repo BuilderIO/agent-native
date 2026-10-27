@@ -1,12 +1,3 @@
-/**
- * Read-only observability helpers for the integration task queue.
- *
- * Lives in its own file so it stays out of `pending-tasks-store.ts`, which is
- * actively being edited by the agent that owns the queue itself. These
- * Queue reads never expose payloads or user text. The helper first runs the
- * additive schema guard so older deployments gain the dispatch diagnostic
- * columns before the SELECTs execute.
- */
 import { getDbExec } from "../db/client.js";
 import { ensureA2AContinuationsTable } from "./a2a-continuations-store.js";
 import { ensurePendingTasksTable } from "./pending-tasks-store.js";
@@ -84,11 +75,6 @@ function stringValue(value: unknown, fallback = ""): string {
   return JSON.stringify(value) ?? fallback;
 }
 
-/**
- * Get a snapshot of the integration task queue health.
- *
- * Safe to call before the pending-tasks store has initialized the schema.
- */
 export async function getTaskQueueStats(
   scope: TaskQueueStatsScope,
 ): Promise<TaskQueueStats> {
@@ -104,7 +90,6 @@ export async function getTaskQueueStats(
   const scopeArgs = [scope.ownerEmail, scope.orgId, scope.orgId];
 
   try {
-    // Status counts (pending, processing) — only need the live ones.
     const liveCounts = await client.execute({
       sql: `SELECT status, COUNT(*) AS c FROM integration_pending_tasks
             WHERE ${scopeSql}
@@ -122,9 +107,6 @@ export async function getTaskQueueStats(
       else if (status === "processing") processing = count;
     }
 
-    // Last-hour completion + failure counts. updated_at is the most reliable
-    // column — completed_at can be null on failed tasks, and created_at would
-    // miss tasks queued >1h ago that just finished now.
     const lastHourCounts = await client.execute({
       sql: `SELECT status, COUNT(*) AS c FROM integration_pending_tasks
             WHERE ${scopeSql}
@@ -142,7 +124,6 @@ export async function getTaskQueueStats(
       else if (status === "failed") failedLastHour = count;
     }
 
-    // Oldest pending task — used to surface stuck queues.
     let oldestPendingAgeSeconds = 0;
     if (pending > 0) {
       const oldest = await client.execute({
@@ -163,8 +144,6 @@ export async function getTaskQueueStats(
       }
     }
 
-    // Recent failures, capped at 5 — enough to spot patterns without
-    // blowing up the response payload.
     const failures = await client.execute({
       sql: `SELECT id, platform, error_message, attempts FROM integration_pending_tasks
             WHERE ${scopeSql}

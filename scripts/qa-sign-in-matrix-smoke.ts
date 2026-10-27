@@ -59,14 +59,11 @@ const qaPassword = "local-dev-account";
 const SIGN_IN_ENTRY_PATH = "/sign-in";
 const SIGN_IN_LEGACY_ENTRY_PATH = "/_agent-native/sign-in";
 
-/** The protected route the anonymous visitor asks for, query and hash included. */
 const PROTECTED_ROUTE = "/settings/general";
 
 interface RunningApp {
   origin: string;
-  /** `""` for the root deploy, `/chatapp` for the base-path deploy. */
   basePath: string;
-  /** `origin + basePath` — what a user would call "the app URL". */
   appUrl: string;
   child: ChildProcessWithoutNullStreams;
   logs: string[];
@@ -74,15 +71,9 @@ interface RunningApp {
 }
 
 interface ViteReloadTracker {
-  /** Wall-clock ms when the latest Vite full-page reload log chunk arrived. */
   lastReloadAt: number;
 }
 
-/**
- * Assert core has been built once, rather than rebuilding it here: a rebuild
- * would make this smoke fail for whatever else happens to be mid-edit in the
- * tree, which is not what it is testing.
- */
 function requireCoreBuild(): void {
   const dist = path.join(repoRoot, "packages/core/dist/cli/index.js");
   if (fs.existsSync(dist)) return;
@@ -103,16 +94,10 @@ function appEnv(appUrl: string, basePath: string, dataDir: string) {
   return {
     ...process.env,
     APP_NAME: "chat",
-    // This smoke launches Vite directly rather than through `pnpm run`, so
-    // provide the package identity that first-party home resolution normally
-    // gets from the package-manager environment.
     npm_package_name: "chat",
     APP_URL: appUrl,
     BETTER_AUTH_URL: appUrl,
     NODE_ENV: "development",
-    // Without this the loopback dev auto-session signs the "anonymous"
-    // visitor in before the gate ever runs, and every assertion below
-    // silently tests nothing.
     AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT: "1",
     AUTH_SKIP_EMAIL_VERIFICATION: "1",
     AUTH_MAGIC_LINK: "0",
@@ -138,7 +123,6 @@ async function waitForReady(appUrl: string, logs: string[]): Promise<void> {
         redirect: "manual",
         signal: AbortSignal.timeout(2_000),
       });
-      // 401 is the expected anonymous answer and still proves the server is up.
       if (response.status < 500) return;
       lastError = `HTTP ${response.status}`;
     } catch (err) {
@@ -163,10 +147,6 @@ async function startApp(basePath: string): Promise<RunningApp> {
   const logs: string[] = [];
   const viteReload: ViteReloadTracker = { lastReloadAt: 0 };
   cleanGeneratedFiles();
-  // Vite directly, not `pnpm dev`: `agent-native dev` is a passthrough to this
-  // same binary, the template's `dev` script adds `--open` (which would launch
-  // a real browser on the developer's machine), and a pnpm wrapper would leave
-  // an orphan holding the port between the two deploys.
   const child = spawn(
     path.join(templateDir, "node_modules/.bin/vite"),
     ["--host", "127.0.0.1", "--port", String(appPort), "--strictPort"],
@@ -174,8 +154,6 @@ async function startApp(basePath: string): Promise<RunningApp> {
       cwd: templateDir,
       env: appEnv(appUrl, basePath, dataDir),
       stdio: ["ignore", "pipe", "pipe"],
-      // Vite starts Nitro as a child. Own the whole tree so the next base-path
-      // deployment cannot accidentally talk to a surviving prior server.
       detached: true,
     },
   );
@@ -198,9 +176,6 @@ async function startApp(basePath: string): Promise<RunningApp> {
   const running = { origin, basePath, appUrl, child, logs, viteReload };
   try {
     await waitForReady(appUrl, logs);
-    // Prove the server answering is THIS deploy. A leftover process from the
-    // previous base path answers `ping` perfectly well, and every assertion
-    // below would then re-test the surface that already passed.
     const doc = await (await fetch(`${appUrl}${SIGN_IN_ENTRY_PATH}`)).text();
     const authData = doc.match(
       /<script type="application\/json" id="agent-native-auth-data">([\s\S]*?)<\/script>/,
@@ -226,7 +201,6 @@ async function startApp(basePath: string): Promise<RunningApp> {
   }
 }
 
-/** Wait until Vite's cold dependency optimization can no longer reload the page. */
 async function waitForViteDepsQuiet(
   viteReload: ViteReloadTracker,
   logs: string[],
@@ -286,8 +260,6 @@ async function stopApp(running: RunningApp): Promise<void> {
     new Promise<void>((resolve) => setTimeout(resolve, 5_000)),
   ]);
   signalProcessTree(running.child, "SIGKILL");
-  // The next deploy reuses this port with a different base path, so it must be
-  // genuinely free before we start — not merely "the wrapper exited".
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
     if (await portIsFree()) return;
@@ -297,8 +269,6 @@ async function stopApp(running: RunningApp): Promise<void> {
 }
 
 async function launchBrowser(): Promise<Browser> {
-  // CI installs only the bundled headless shell, so asking for the Chrome
-  // channel there is a guaranteed failed launch before the fallback.
   const channel =
     process.env.PLAYWRIGHT_CHANNEL ||
     (process.env.CI || process.env.GITHUB_ACTIONS ? "" : "chrome");
@@ -330,7 +300,6 @@ async function launchBrowser(): Promise<Browser> {
   }
 }
 
-/** Decode a `c` continuation the way the shipped runtime does. */
 function decodeToken(token: string): string {
   let b64 = token.replace(/-/g, "+").replace(/_/g, "/");
   while (b64.length % 4 !== 0) b64 += "=";
@@ -371,10 +340,6 @@ function isNavigationInterruption(error: unknown): boolean {
   );
 }
 
-/**
- * Navigate and let the page settle, then report every main-frame URL it passed
- * through. A return-path loop shows up here as repeated auth-entry entries.
- */
 async function navigateAndSettle(
   page: Page,
   url: string,
@@ -416,8 +381,6 @@ async function navigateAndSettle(
         viteReload.lastReloadAt > reloadAtStart &&
         attempt < 3
       ) {
-        // A dependency optimizer reload can emit the same auth-entry URL
-        // twice. Re-run after it settles so a real auth loop remains visible.
         seen.length = 0;
         continue;
       }
@@ -432,13 +395,6 @@ async function navigateAndSettle(
   return seen;
 }
 
-/**
- * Ask for a protected route until the client gate answers.
- *
- * Retried rather than waited on: a cold Vite dep-optimize triggers full page
- * reloads that restart the session query, so a single long wait can expire
- * mid-reload on a fresh checkout while the gate itself is fine.
- */
 async function reachSignIn(
   page: Page,
   url: string,
@@ -498,7 +454,6 @@ async function signInThroughTheRealForm(
   await page.click("#signup-form button[type=submit]");
 }
 
-/** Surfaces 1 and 2: top-level app at root, and under a non-root base path. */
 async function runDeploySuite(
   context: BrowserContext,
   app: RunningApp,
@@ -507,8 +462,6 @@ async function runDeploySuite(
   const page = await context.newPage();
   const protectedPath = `${app.basePath}${PROTECTED_ROUTE}`;
 
-  // 1. Anonymous visitor to a protected route reaches sign-in with a
-  //    continuation for THAT route.
   const gateUrl = await reachSignIn(
     page,
     `${app.origin}${protectedPath}`,
@@ -527,8 +480,6 @@ async function runDeploySuite(
     protectedPath,
     `[${label}] the continuation must round-trip the exact requested route, query and hash included`,
   );
-  // Opacity is what makes nesting structurally impossible: nothing downstream
-  // can mistake the token for a redirect target and re-wrap it.
   assert.ok(
     !/[/?:]|%2F/i.test(token),
     `[${label}] the continuation must be opaque, not a re-encoded URL: ${token}`,
@@ -539,15 +490,10 @@ async function runDeploySuite(
     `[${label}] new producers must not emit the legacy ?return= grammar`,
   );
 
-  // 2. Signing in through the real login document lands back on that route.
   await signInThroughTheRealForm(page, app.viteReload, app.logs);
   await page.waitForURL((url) => pathnameOf(url.toString()) === protectedPath, {
     timeout: 60_000,
   });
-  // The protected app is the first route that loads its full client graph.
-  // Vite may finish dependency optimization after the redirect, and a
-  // reload during the forged-continuation checks can interrupt the signed-in
-  // session probe and leave the page at sign-in.
   await waitForViteDepsQuiet(app.viteReload, app.logs);
   assert.equal(
     fullPathOf(page.url()),
@@ -555,7 +501,6 @@ async function runDeploySuite(
     `[${label}] sign-in must resume the original route, not the app root`,
   );
 
-  // 3. A signed-in visitor at an auth entry path does not loop.
   for (const entry of [
     "/login",
     "/signup",
@@ -585,8 +530,6 @@ async function runDeploySuite(
     );
   }
 
-  // 4. A forged continuation cannot nest, leave the origin, or escape the base
-  //    path into a sibling app on the same host.
   const forged: Array<[string, string]> = [
     ["nested sign-in", encodeToken(`${app.basePath}${SIGN_IN_ENTRY_PATH}`)],
     [
@@ -601,8 +544,6 @@ async function runDeploySuite(
     ["not a token at all", "https://evil.example/pwned"],
   ];
   for (const [name, badToken] of forged) {
-    // A root deploy has no base path, so "sibling app" is a legitimate
-    // in-app route there and is only an escape under a base path.
     if (name === "sibling app" && !app.basePath) continue;
     const target = `${app.origin}${app.basePath}${SIGN_IN_ENTRY_PATH}?c=${encodeURIComponent(badToken)}`;
     const visited = await navigateAndSettle(
@@ -613,10 +554,6 @@ async function runDeploySuite(
       app.logs,
     );
     const landed = pathnameOf(page.url());
-    // The trail separates the two failures this assertion can catch: a
-    // continuation that was accepted (the visitor moved somewhere it should
-    // not have) from a session probe that never answered (the visitor never
-    // moved at all). Without it both read as "stuck at sign-in".
     const trail = visited.map((url) => fullPathOf(url)).join(" -> ");
     assert.equal(
       isAuthEntryPath(landed, app.basePath),

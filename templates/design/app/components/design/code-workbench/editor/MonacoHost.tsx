@@ -32,12 +32,6 @@ export interface MonacoHostProps {
   commandContext: WorkbenchCommandContext;
 }
 
-/**
- * Single IStandaloneCodeEditor instance for the editor group. One model per
- * open tab lives in the shared model-registry; this component only swaps
- * `setModel` + view state on tab switch, so cursor/scroll/folds persist per
- * tab like real VS Code editor groups.
- */
 export function MonacoHost({
   editorRef,
   selectedNodeId,
@@ -59,7 +53,6 @@ export function MonacoHost({
   commandsRef.current = commands;
   commandContextRef.current = commandContext;
 
-  // Create the editor once.
   useEffect(() => {
     ensureMonacoEnvironment();
     if (!hostRef.current || editorRef.current) return;
@@ -91,14 +84,6 @@ export function MonacoHost({
     });
     editorRef.current = editor;
 
-    // Safety net: Monaco's own Cmd+S binding (if any) is not guaranteed, and
-    // the root's capture-phase keydown handler already dispatches workbench
-    // commands before Monaco sees them — this addCommand is a belt-and-
-    // braces fallback for save specifically. It goes through the same
-    // `workbench.save` command (via runCommand) as every other invocation
-    // path, not a bare `api.save()` call, so a failed save (stale version,
-    // missing local write consent, network error) still surfaces a toast /
-    // consent-retry here instead of failing silently.
     editor.addCommand(
       monacoModule.KeyMod.CtrlCmd | monacoModule.KeyCode.KeyS,
       () => {
@@ -113,10 +98,6 @@ export function MonacoHost({
       },
     );
 
-    // Workbench-level shortcuts (Quick Open, Command Palette, Search,
-    // Explorer, sidebar toggle, tab navigation) must also work while Monaco
-    // has focus — Monaco swallows keydown otherwise, so register editor
-    // commands that call back into the same dispatcher the root uses.
     const editorKeyDownDisposable = editor.onKeyDown(
       (event: monaco.IKeyboardEvent) => {
         const handled = dispatchKeybinding(
@@ -139,7 +120,6 @@ export function MonacoHost({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Theme: watch documentElement class (light/dark) and reapply on change.
   useEffect(() => {
     const updateTheme = () => {
       const nextTheme = readCodeWorkbenchTheme(hostRef.current);
@@ -169,9 +149,6 @@ export function MonacoHost({
     monacoModule.editor.setTheme(defineWorkbenchMonacoTheme(theme));
   }, [theme, editorRef]);
 
-  // Active tab change: save view state for the outgoing model, set the
-  // incoming model (creating lazily from the buffer if needed), restore its
-  // view state, and focus.
   const activeUri = state.activeUri;
   const activeBuffer = activeUri ? state.buffers[activeUri] : null;
   useEffect(() => {
@@ -188,8 +165,6 @@ export function MonacoHost({
     }
     const entry = modelRegistry.get(activeUri);
     if (!entry) {
-      // Buffer still loading; wait for the next render once the model
-      // registry has an entry (store.loadBuffer creates it on read success).
       return;
     }
     if (editor.getModel() !== entry.model) {
@@ -211,12 +186,6 @@ export function MonacoHost({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeUri, activeBuffer?.readonly, activeBuffer?.loading, editorRef]);
 
-  // Dirty tracking is owned by the store (subscribed at model creation), not
-  // here — models are created async after their tab appears, so a tab-list
-  // keyed subscription would miss freshly loaded buffers.
-
-  // Selection reveal: find data-agent-native-node-id / data-code-layer-id /
-  // selector in the active model's content and reveal+select the match.
   useEffect(() => {
     const editor = editorRef.current;
     if (!editor || !activeUri) return;

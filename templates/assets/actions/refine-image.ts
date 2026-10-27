@@ -3,6 +3,10 @@ import type { ActionRunContext } from "@agent-native/core/action";
 import { z } from "zod";
 
 import { parseJson } from "../server/lib/json.js";
+import {
+  ASSETS_VARIATION_GRID_RENDERER,
+  projectAssetVariationResult,
+} from "../shared/action-ui.js";
 import { ASPECT_RATIOS, IMAGE_MODELS, IMAGE_SIZES } from "../shared/api.js";
 import {
   getAssetOrThrow,
@@ -14,6 +18,11 @@ import { resolveLiveBatchContinuation } from "./variant-slots.js";
 export default defineAction({
   description:
     "Refine a generated image by assetId using feedback. Preserves lineage by using the prior image as a reference and linking the new candidate to the source asset.",
+  chatUI: {
+    renderer: ASSETS_VARIATION_GRID_RENDERER,
+    when: (args, result) => projectAssetVariationResult(args, result) !== null,
+    projectResult: projectAssetVariationResult,
+  },
   schema: z.object({
     assetId: z.string(),
     feedback: z.string().min(1),

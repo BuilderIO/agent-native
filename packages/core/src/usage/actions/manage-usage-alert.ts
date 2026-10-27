@@ -23,11 +23,15 @@ export default defineAction({
     appId: z.string().trim().max(200).nullable().optional(),
     unit: z.enum(["usd", "builder-credits", "tokens"]).optional(),
     period: z.enum(["day", "month"]).optional(),
-    /** Display units: dollars, Builder credits, or raw tokens. */
     limit: z.number().finite().positive().max(9_000_000_000_000).optional(),
     channels: z.array(channel).min(1).optional(),
     enabled: z.boolean().optional(),
   }),
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async (
     { operation, scope, ruleId, appId, unit, period, limit, channels, enabled },
     ctx,

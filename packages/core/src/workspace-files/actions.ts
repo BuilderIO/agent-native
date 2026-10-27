@@ -3,6 +3,7 @@ import { z } from "zod";
 import { ACTION_CHAT_UI_WORKSPACE_FILE_RENDERER } from "../action-ui.js";
 import { defineAction } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import { frameworkMcpTools } from "../mcp/framework-tools.js";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -67,9 +68,6 @@ export const showWorkspaceFileAction = defineAction({
       throw new Error(`Workspace file not found: "${path}"`);
     }
 
-    // The card only ever renders name/size/type + a download link — it never
-    // inlines file content — so every content type, binary included, is safe
-    // to show here.
     return { file: toWorkspaceFileCard(file) };
   },
 });
@@ -78,7 +76,7 @@ export function createWorkspaceFileActionEntries(): Record<
   string,
   ActionEntry
 > {
-  return {
+  return frameworkMcpTools({
     "show-workspace-file": showWorkspaceFileAction,
-  };
+  });
 }

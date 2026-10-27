@@ -33,7 +33,6 @@ export default defineAction({
       .limit(1);
     if (!session) throw new Error("Generation session not found.");
     await requireLibrary(session.libraryId);
-    // Same rule as the session list: reading one by id is not a way around it.
     const scope = await resolveDraftReadScope([session.libraryId]);
     if (!canReadSession(scope, session)) {
       throw new Error("Generation session not found.");
@@ -69,6 +68,7 @@ export default defineAction({
         ? db
             .select()
             .from(schema.assetTemplates)
+            // guard:allow-unscoped — templateAccess enforces direct template shares and inherited access to its Brand Kit before the preset is returned.
             .where(
               and(
                 eq(schema.assetTemplates.id, session.presetId),
@@ -89,8 +89,6 @@ export default defineAction({
             .where(inArray(schema.assetGenerationRuns.id, runIds))
         : Promise.resolve([]),
     ]);
-    // A session created before the draft rule can still reference candidates
-    // and runs the caller does not own; they stay out of the payload.
     const visibleAssets = assets.filter((asset) =>
       canReadDraftAsset(scope, asset),
     );

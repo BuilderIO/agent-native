@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   CollabBaseVersionConflictError,
   applyTextToYDoc,
@@ -10,7 +10,11 @@ import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
+import { designChangeResource } from "../server/lib/design-change-resource.js";
+import {
+  checkpointSkippedResultField,
+  snapshotDesignBeforeAgentEdit,
+} from "../server/lib/design-versions.js";
 import {
   affectedRowCount,
   getDesignSourceMutationExec,
@@ -23,15 +27,21 @@ import {
   withSourceFileWriteLock,
   writeInlineSourceFile,
 } from "../server/source-workspace.js";
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import { assertDesignHtmlEditIntegrity } from "../shared/html-integrity.js";
+import { assertHubSpotEmailFrameContent } from "../shared/hubspot-email-authoring.js";
+import { isHubSpotEmailHtml } from "../shared/hubspot-email.js";
 import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
-import { sourceContentHash } from "../shared/source-workspace.js";
+import {
+  applySourceContentPatch,
+  sourceContentHash,
+  type SourceContentPatch,
+} from "../shared/source-workspace.js";
+import {
+  assertDesignWidgetWriteScope,
+  designWidgetWriteDesignId,
+} from "./widget-write-scope.js";
 
-// TEMPORARY diagnostic — remove once we've read a few real conflicts in prod.
-// Conflicts are benign 409s the framework no longer error-logs, so they are
-// otherwise invisible in Netlify. Every remaining one should be a genuine
-// concurrent writer now that core's ydoc-manager re-checks the stored version
-// instead of answering from whatever this instance loaded first.
 function logSaveConflictDebug(
   event: string,
   detail: Record<string, unknown>,
@@ -39,10 +49,32 @@ function logSaveConflictDebug(
   console.warn(`[update-file:debug] ${event}`, detail);
 }
 
-// 404 via statusCode (NOT status — the action route only reads statusCode) so
-// the client save-outbox treats a gone file as terminal and drops it, instead
-// of looping a masked 500. Used at every missing-file guard, including the
-// post-lock rereads a concurrent delete can hit.
+function contentChangedConflict(): Error & { statusCode?: number } {
+  const conflict = new Error(
+    "File changed since it was read. Re-read the file and retry.",
+  ) as Error & { statusCode?: number };
+  conflict.statusCode = 409;
+  return conflict;
+}
+
+function contentFromPatch(
+  liveContent: string,
+  expectedVersionHash: string,
+  patch: SourceContentPatch,
+): string {
+  const liveHash = sourceContentHash(liveContent);
+  if (liveHash === patch.resultHash) return liveContent;
+  if (liveHash !== expectedVersionHash) throw contentChangedConflict();
+  const content = applySourceContentPatch(liveContent, patch);
+  if (sourceContentHash(content) !== patch.resultHash) {
+    fail("The content patch did not produce its result hash.", {
+      errorCode: "content_patch_mismatch",
+      statusCode: 422,
+    });
+  }
+  return content;
+}
+
 function fileNotFound(id: string): Error & { statusCode?: number } {
   const err = new Error(`File not found: ${id}`) as Error & {
     statusCode?: number;
@@ -51,35 +83,6 @@ function fileNotFound(id: string): Error & { statusCode?: number } {
   return err;
 }
 
-/**
- * Returns `{ id, updated: true }` on success, matching the pre-existing
- * contract — callers that only check `result.updated === true` see no
- * behavior change.
- *
- * `skippedStaleMirror?: true` is added to the result ONLY in the narrow
- * SQL-mirror-only staleness case: `content` was provided, `syncCollab` was
- * explicitly `false`, a live collaboration document exists for this file,
- * and the caller's `expectedVersionHash` matches NEITHER the live collab
- * text, NOR the `content` being written (an own edit that raced ahead via
- * Yjs), NOR the current SQL mirror content. A caller whose hash matches the
- * current mirror is the mirror column's own lineage (mirror-lineage rescue):
- * it proceeds instead of skipping, advancing the mirror while the client
- * remains responsible for its CRDT operations.
- * In the genuinely-stale case the content column is intentionally left
- * untouched (the live
- * collab document remains the source of truth) while any `filename`/
- * `fileType` updates in the same call still apply, and the action returns
- * success instead of throwing. The field is omitted (not `false`) in every
- * other case, so existing callers that don't check for it observe no
- * difference. When `expectedVersionHash` is omitted entirely, or the hash
- * matches, or `syncCollab` is left at its default `true`, or no collab state
- * exists yet for the file, this skip path never triggers.
- *
- * Versioned browser saves additionally return `versionHash` for the content
- * that remains persisted. `skippedStaleOperation?: true` means an equal or
- * newer revision from that same browser tab was already accepted, so this
- * late request was treated as an idempotent content no-op.
- */
 export default defineAction({
   description:
     "Update an existing file in a design project. " +
@@ -89,6 +92,20 @@ export default defineAction({
     .object({
       id: z.string().describe("File ID to update"),
       content: z.string().optional().describe("Updated file content"),
+      contentPatch: z
+        .object({
+          start: z.number().int().nonnegative(),
+          deleteCount: z.number().int().nonnegative(),
+          text: z.string(),
+          resultHash: z.string().min(1),
+        })
+        .optional()
+        .describe(
+          "Editor-only; agents send content instead. One splice applied to " +
+            "the live content whose sourceContentHash is expectedVersionHash. " +
+            "resultHash is the sourceContentHash of the content the splice " +
+            "produces.",
+        ),
       filename: z.string().optional().describe("New filename"),
       fileType: z
         .enum(["html", "css", "jsx", "asset"])
@@ -111,12 +128,13 @@ export default defineAction({
         .string()
         .optional()
         .describe(
-          "Optional optimistic-concurrency guard for content updates: the " +
+          "Optimistic-concurrency guard for content updates: the " +
             "sourceContentHash of the live content this write was computed " +
             "from (same semantics as apply-source-edit / read-source-file). " +
             "When provided and the file changed since that read, the write " +
             "fails loud instead of silently merging a stale full document " +
-            "into the collaboration state.",
+            "into the collaboration state. Required for content updates from " +
+            "a scoped Design widget.",
         ),
       operationSource: z
         .string()
@@ -150,6 +168,31 @@ export default defineAction({
               ? ["operationSource"]
               : ["operationRevision"],
         });
+      }
+      if (value.contentPatch !== undefined) {
+        if (value.content !== undefined || value.identityOnly === true) {
+          ctx.addIssue({
+            code: "custom",
+            message:
+              "contentPatch replaces content and cannot be an identity-only update.",
+            path: ["contentPatch"],
+          });
+        }
+        if (!value.expectedVersionHash) {
+          ctx.addIssue({
+            code: "custom",
+            message: "contentPatch requires expectedVersionHash.",
+            path: ["expectedVersionHash"],
+          });
+        }
+        if (value.syncCollab === false) {
+          ctx.addIssue({
+            code: "custom",
+            message:
+              "contentPatch cannot be combined with syncCollab: false. Send the full content for a write that skips collaboration sync.",
+            path: ["syncCollab"],
+          });
+        }
       }
       if (value.identityOnly === true) {
         if (value.content === undefined || !value.expectedVersionHash) {
@@ -194,7 +237,8 @@ export default defineAction({
   run: async (
     {
       id,
-      content,
+      content: requestedContent,
+      contentPatch,
       filename,
       fileType,
       syncCollab,
@@ -205,7 +249,6 @@ export default defineAction({
     },
     context,
   ) => {
-    // Path traversal guard on filename
     if (
       filename &&
       (filename.includes("..") ||
@@ -215,10 +258,10 @@ export default defineAction({
       throw new Error("Invalid filename: path traversal not allowed");
     }
 
+    const widgetDesignId = designWidgetWriteDesignId(context, "update-file");
     const db = getDb();
     const now = new Date().toISOString();
 
-    // Look up the file to get its designId for access check
     const [file] = await db
       .select({
         id: schema.designFiles.id,
@@ -237,6 +280,9 @@ export default defineAction({
       .where(
         and(
           eq(schema.designFiles.id, id),
+          ...(widgetDesignId
+            ? [eq(schema.designFiles.designId, widgetDesignId)]
+            : []),
           accessFilter(schema.designs, schema.designShares),
         ),
       )
@@ -247,12 +293,26 @@ export default defineAction({
       throw fileNotFound(id);
     }
 
+    assertDesignWidgetWriteScope(file.designId, context, {
+      actionName: "update-file",
+      content: requestedContent ?? contentPatch?.text,
+      expectedVersionHash,
+      syncCollab,
+    });
+
     await assertAccess("design", file.designId, "editor");
-    await snapshotDesignBeforeAgentEdit(file.designId, context);
+    const checkpoint = await snapshotDesignBeforeAgentEdit(
+      file.designId,
+      context,
+      { allowCheckpointFailureSkip: true },
+    );
+    const checkpointField = checkpointSkippedResultField(checkpoint);
+    const writesContent =
+      requestedContent !== undefined || contentPatch !== undefined;
 
     if (identityOnly === true) {
       if (
-        content === undefined ||
+        requestedContent === undefined ||
         !expectedVersionHash ||
         filename !== undefined ||
         fileType !== undefined ||
@@ -268,13 +328,23 @@ export default defineAction({
       const write = await writeInlineSourceFile({
         designId: file.designId,
         file,
-        content,
+        content: requestedContent,
         expectedVersionHash,
         identityOnly: true,
         operationSource,
         operationRevision,
       });
-      return { id, updated: true, versionHash: write.versionHash };
+      return {
+        id,
+        designId: file.designId,
+        updated: true,
+        versionHash: write.versionHash,
+        _receipt: designOutputWriteReceipt(
+          file.designId,
+          write.changed ? 1 : 0,
+        ),
+        ...checkpointField,
+      };
     }
 
     // Optimistic-concurrency guard (cross-pipeline write-race fix): a content
@@ -305,7 +375,9 @@ export default defineAction({
     let skippedStaleMirror = false;
     let skippedStaleOperation = false;
     let exactOperationAlreadyPersisted = false;
+    let outputChanged = false;
     let persistedVersionHash: string | undefined;
+    let persistedUpdatedAt: string | undefined;
 
     const runMutation = (lease?: PreparedYDocMutationLease) =>
       withDesignSourceMutationTransaction(file.designId, async (tx) => {
@@ -313,10 +385,13 @@ export default defineAction({
         for (let attempt = 0; attempt < 4; attempt += 1) {
           skippedStaleMirror = false;
           skippedStaleOperation = false;
+          outputChanged = false;
           exactOperationAlreadyPersisted = false;
+          persistedUpdatedAt = undefined;
           const [persistedFile] = await tx
             .select({
               content: schema.designFiles.content,
+              filename: schema.designFiles.filename,
               fileType: schema.designFiles.fileType,
               contentOperationSource: schema.designFiles.contentOperationSource,
               contentOperationRevision:
@@ -328,10 +403,12 @@ export default defineAction({
             .where(eq(schema.designFiles.id, id))
             .limit(1);
           if (!persistedFile) {
-            // Delete-race: the row passed the access check but is gone now.
-            // Same 404 as the outer guard, not a bare 500 the outbox retries.
             throw fileNotFound(id);
           }
+
+          outputChanged =
+            (filename !== undefined && filename !== persistedFile.filename) ||
+            (fileType !== undefined && fileType !== persistedFile.fileType);
 
           const persistedContentHash = sourceContentHash(persistedFile.content);
           persistedVersionHash = persistedContentHash;
@@ -350,7 +427,7 @@ export default defineAction({
               );
             }
             liveContent = readPreparedSourceText(lease);
-          } else if (content !== undefined) {
+          } else if (writesContent) {
             collabExists = await hasCollabState(id);
             liveContent = (
               await readLiveSourceFile({
@@ -362,6 +439,17 @@ export default defineAction({
           } else {
             liveContent = persistedFile.content;
           }
+          const content =
+            contentPatch && expectedVersionHash
+              ? contentFromPatch(liveContent, expectedVersionHash, contentPatch)
+              : requestedContent;
+          assertHubSpotEmailFrameContent({
+            content: content ?? liveContent,
+            fileType: fileType ?? persistedFile.fileType ?? "html",
+            previousContent: isHubSpotEmailHtml(liveContent)
+              ? liveContent
+              : persistedFile.content,
+          });
           if (content !== undefined) {
             assertDesignHtmlEditIntegrity({
               previousContent: liveContent,
@@ -370,9 +458,6 @@ export default defineAction({
                 fileType ?? persistedFile.fileType ?? file.fileType ?? "html",
             });
           }
-          // Applicability belongs to the guard, which cheaply short-circuits
-          // when neither side carries a lock. Gating on the REQUEST's fileType
-          // let a content-only save add a lock the live document never had.
           if (content !== undefined && context?.caller !== "frontend") {
             assertLockedLayersPreserved(liveContent, content);
           }
@@ -386,11 +471,6 @@ export default defineAction({
             persistedFile.contentOperationSource === operationSource &&
             typeof persistedFile.contentOperationRevision === "number";
 
-          // A pagehide keepalive can overtake the older normal fetch for this
-          // same tab. Once the newer revision has committed, the late request is
-          // an idempotent no-op regardless of its stale expectedVersionHash. Do
-          // this before the content hash guard so request arrival order cannot
-          // turn a correct latest save into a conflict or overwrite.
           if (
             sameOperationSource &&
             requestedOperationRevision !== null &&
@@ -398,11 +478,6 @@ export default defineAction({
               persistedFile.contentOperationRevision!
           ) {
             skippedStaleOperation = true;
-            // The SQL CAS may have committed before the separate collab apply
-            // failed. A retry of that exact operation must be allowed to finish
-            // convergence; an older revision must remain a strict no-op. Require
-            // both persisted hashes to prove the requested content is exactly
-            // what this operation committed before re-running any side effect.
             exactOperationAlreadyPersisted =
               requestedOperationRevision ===
                 persistedFile.contentOperationRevision &&
@@ -411,20 +486,11 @@ export default defineAction({
               persistedFile.contentOperationResultHash === persistedContentHash;
           }
 
-          // SQL-mirror-only skip path: when the caller explicitly opted OUT of
-          // collab sync (syncCollab: false) and supplied an expectedVersionHash
-          // that no longer matches the LIVE collab text, and a live collab doc
-          // actually exists for this file, the caller's `content` was computed
-          // from a base that a live editor has since moved past. Overwriting the
-          // SQL mirror column with that stale content here would silently regress
-          // it out from under the live document (which stays the source of
-          // truth) the next time it's read back out of SQL. Skip the content
-          // write instead of throwing: filename/fileType updates in the same call
-          // still proceed, and the caller gets `skippedStaleMirror: true` back
-          // instead of a thrown error, because they explicitly said they weren't
-          // trying to sync into collab in the first place. Every other
-          // expectedVersionHash combination (syncCollab true/default, or no live
-          // collab state, or a matching hash, or no hash at all) is UNCHANGED.
+          // A versioned mirror-only save still needs a conflict when a live
+          // editor moved past its base. Returning a successful skipped result
+          // would let the save queue acknowledge content that was never stored.
+          // Keep the legacy unversioned mirror-tip behavior below; queued editor
+          // saves carry an operation source and revision and take the loud path.
           //
           // Own-edit false-positive fix: a single client's own edit reaches the
           // live collab doc via TWO independent, unordered paths — the Yjs
@@ -451,10 +517,11 @@ export default defineAction({
               liveContent !== content &&
               sourceContentHash(liveContent) !== expectedVersionHash
             ) {
-              if (syncCollab === false && collabExists) {
-                // A delayed client transport does not invalidate the SQL lineage.
-                // Preserve the mirror CAS, but keep CRDT authorship with the client:
-                // its original deltas can still arrive after this HTTP save.
+              if (
+                syncCollab === false &&
+                collabExists &&
+                !hasVersionedContentOperation
+              ) {
                 if (persistedContentHash !== expectedVersionHash) {
                   skipContentWrite = true;
                   skippedStaleMirror = true;
@@ -470,14 +537,7 @@ export default defineAction({
                   liveContentHash: sourceContentHash(liveContent),
                   persistedMirrorHash: persistedContentHash,
                 });
-                // 409 (statusCode), not a bare 500: an expected optimistic-
-                // concurrency outcome the framework returns verbatim and the client
-                // rebases from, instead of a Sentry-captured fault + retry storm.
-                const conflict = new Error(
-                  "File changed since it was read. Re-read the file and retry.",
-                ) as Error & { statusCode?: number };
-                conflict.statusCode = 409;
-                throw conflict;
+                throw contentChangedConflict();
               }
             }
           }
@@ -485,6 +545,9 @@ export default defineAction({
           const updates: Record<string, unknown> = { updatedAt: now };
           if (content !== undefined && !skipContentWrite) {
             updates.content = content;
+            outputChanged =
+              outputChanged ||
+              sourceContentHash(content) !== sourceContentHash(liveContent);
             persistedVersionHash = sourceContentHash(content);
             if (
               operationSource !== undefined &&
@@ -494,9 +557,6 @@ export default defineAction({
               updates.contentOperationRevision = operationRevision;
               updates.contentOperationResultHash = persistedVersionHash;
             } else {
-              // An unversioned writer starts a different lineage. Clearing the
-              // browser operation marker prevents a later request from treating
-              // stale transport metadata as proof that no writer intervened.
               updates.contentOperationSource = null;
               updates.contentOperationRevision = null;
               updates.contentOperationResultHash = null;
@@ -505,12 +565,6 @@ export default defineAction({
           if (filename !== undefined) updates.filename = filename;
           if (fileType !== undefined) updates.fileType = fileType;
 
-          // The JS lock above is intentionally fast but process-local. Versioned
-          // browser writes also need a database CAS so two serverless instances
-          // cannot both validate the same snapshot and let the later SQL update
-          // clobber the winner. If another instance moves any part of the content
-          // lineage first, rowsAffected is zero and this request fails with a
-          // typed conflict; the prepared lease is never reused for a retry.
           const requiresContentCas =
             hasVersionedContentOperation && !skipContentWrite;
           const contentCasWhere = requiresContentCas
@@ -537,12 +591,6 @@ export default defineAction({
               )
             : undefined;
 
-          // When a durable collaboration row already exists, mirror-only saves
-          // still need to claim it before changing SQL. This no-op CAS locks
-          // the live version in this transaction, so a peer edit either happens
-          // afterward or maps to a typed conflict instead of being overwritten
-          // by the mirror. Keep absent rows SQL-only until a real collab writer
-          // creates them.
           if (
             content !== undefined &&
             !syncCollab &&
@@ -572,9 +620,6 @@ export default defineAction({
           let updateResult: unknown;
 
           if (filename !== undefined) {
-            // The surrounding design-scoped transaction already holds the
-            // advisory lock, so collision validation and the guarded update share
-            // one serialized boundary.
             const [collision] = await tx
               .select({ id: schema.designFiles.id })
               .from(schema.designFiles)
@@ -652,8 +697,6 @@ export default defineAction({
             }
           }
 
-          // Only the declared server writer authors CRDT operations. A mirror-only
-          // save must not duplicate a delayed client's insertions.
           const shouldConvergePersistedRetry =
             exactOperationAlreadyPersisted && syncCollab;
           if (
@@ -673,6 +716,7 @@ export default defineAction({
             .update(schema.designs)
             .set({ updatedAt: now })
             .where(eq(schema.designs.id, file.designId));
+          persistedUpdatedAt = now;
           return;
         }
         logSaveConflictDebug("retry-exhausted", {
@@ -690,10 +734,12 @@ export default defineAction({
       });
 
     try {
-      await (content !== undefined
+      await (writesContent
         ? withPreparedSourceFileMutation(
             id,
-            syncCollab ? "agent" : undefined,
+            syncCollab
+              ? context?.requestHeaders?.get("x-request-source") || "agent"
+              : undefined,
             runMutation,
           )
         : withSourceFileWriteLock(id, runMutation));
@@ -707,16 +753,43 @@ export default defineAction({
     }
 
     if (skippedStaleMirror) {
-      return { id, updated: true, skippedStaleMirror: true };
+      return {
+        id,
+        designId: file.designId,
+        updated: true,
+        skippedStaleMirror: true,
+        _receipt: designOutputWriteReceipt(
+          file.designId,
+          outputChanged ? 1 : 0,
+        ),
+        ...checkpointField,
+      };
     }
     if (operationSource !== undefined && operationRevision !== undefined) {
       return {
         id,
+        designId: file.designId,
         updated: true,
         ...(skippedStaleOperation ? { skippedStaleOperation: true } : {}),
         versionHash: persistedVersionHash,
+        _receipt: designOutputWriteReceipt(
+          file.designId,
+          outputChanged ? 1 : 0,
+        ),
+        ...(persistedUpdatedAt ? { updatedAt: persistedUpdatedAt } : {}),
+        ...checkpointField,
       };
     }
-    return { id, updated: true };
+    return {
+      id,
+      designId: file.designId,
+      updated: true,
+      _receipt: designOutputWriteReceipt(file.designId, outputChanged ? 1 : 0),
+      ...checkpointField,
+    };
   },
+  // A call that threw has no result, and the input names only the file, so
+  // its change reaches the caller alone; naming the design would need a read.
+  changeResource: (_input, result) =>
+    designChangeResource(result?.designId, result),
 });

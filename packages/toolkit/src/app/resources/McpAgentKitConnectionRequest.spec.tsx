@@ -1,0 +1,754 @@
+// @vitest-environment happy-dom
+
+import { openOAuthPopup } from "@agent-native/core/client/oauth-popup";
+import {
+  clearMcpConnectionResume,
+  consumeMcpConnectionResume,
+  getPendingMcpConnectionResume,
+  notifyMcpConnectionComplete,
+  saveMcpConnectionResume,
+} from "@agent-native/core/client/resources/mcp-connection-resume";
+import React, { act } from "react";
+import { createRoot } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { dispatchApiKeysHref } from "../org/workspace-app-links.js";
+import {
+  McpAgentKitConnectionRequestCard,
+  McpAgentKitConnectionResume,
+} from "./McpAgentKitConnectionRequest.js";
+
+const popupState = vi.hoisted(() => ({ popup: null as unknown }));
+let localStorageDescriptor: PropertyDescriptor | undefined;
+let sessionStorageDescriptor: PropertyDescriptor | undefined;
+
+function createMemoryStorage(): Storage {
+  const values = new Map<string, string>();
+  return {
+    get length() {
+      return values.size;
+    },
+    clear() {
+      values.clear();
+    },
+    getItem(key) {
+      return values.get(key) ?? null;
+    },
+    key(index) {
+      return [...values.keys()][index] ?? null;
+    },
+    removeItem(key) {
+      values.delete(key);
+    },
+    setItem(key, value) {
+      values.set(String(key), String(value));
+    },
+  };
+}
+
+beforeEach(() => {
+  sessionStorageDescriptor = Object.getOwnPropertyDescriptor(
+    window,
+    "sessionStorage",
+  );
+  Object.defineProperty(window, "sessionStorage", {
+    configurable: true,
+    value: createMemoryStorage(),
+  });
+  localStorageDescriptor = Object.getOwnPropertyDescriptor(
+    window,
+    "localStorage",
+  );
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: createMemoryStorage(),
+  });
+});
+
+afterEach(() => {
+  clearMcpConnectionResume();
+  window.sessionStorage.clear();
+  window.localStorage.clear();
+  if (sessionStorageDescriptor) {
+    Object.defineProperty(window, "sessionStorage", sessionStorageDescriptor);
+  } else {
+    Reflect.deleteProperty(window, "sessionStorage");
+  }
+  if (localStorageDescriptor) {
+    Object.defineProperty(window, "localStorage", localStorageDescriptor);
+  } else {
+    Reflect.deleteProperty(window, "localStorage");
+  }
+  vi.restoreAllMocks();
+  vi.unstubAllEnvs();
+});
+
+vi.mock("@agent-native/core/client/oauth-popup", () => ({
+  openOAuthPopup: vi.fn(() => popupState.popup as Window | null),
+}));
+
+vi.mock("../org/workspace-app-links.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../org/workspace-app-links.js")>();
+  return {
+    ...actual,
+    useOrgSwitcherAppLinks: () => ({
+      apps: [],
+      isWorkspace: false,
+      isLoading: false,
+      dispatchHref: "",
+      dispatchAllAppsHref: "",
+      dispatchVaultHref: "",
+      dispatchResourcesHref: "",
+    }),
+  };
+});
+
+vi.mock("../agentkit/react/components.js", async () => {
+  const { createElement } = await import("react");
+  return {
+    AgentConnectionRequestCard: ({
+      request,
+      retry,
+      onConnect,
+    }: {
+      request: { provider: string; status: string };
+      retry?: boolean;
+      onConnect?: () => void | boolean | Promise<void | boolean>;
+    }) => {
+      if (request.status === "connected" || request.status === "declined") {
+        return null;
+      }
+      return createElement(
+        "button",
+        {
+          type: "button",
+          "data-status": request.status,
+          onClick: () => void onConnect?.(),
+        },
+        `${retry ? "Try again" : "Connect"} ${request.provider}`,
+      );
+    },
+  };
+});
+
+describe("McpAgentKitConnectionRequestCard", () => {
+  it("keeps an unknown provider request visible without trusting its setup data", () => {
+    const container = document.createElement("div");
+    const root = createRoot(container);
+
+    act(() => {
+      root.render(
+        <McpAgentKitConnectionRequestCard
+          provider="untrusted-provider"
+          target={{
+            threadId: "thread-1",
+            runId: "run-1",
+            requestId: "request-1",
+          }}
+          onConnected={() => undefined}
+          onDeclined={() => undefined}
+          fallback={<div data-unsupported-provider="">Setup unavailable</div>}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector("[data-unsupported-provider]"),
+    ).not.toBeNull();
+    act(() => root.unmount());
+  });
+
+  it("declines an explicitly requested integration hidden by host exclusion", async () => {
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    const onDeclined = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <McpAgentKitConnectionRequestCard
+          provider="slack"
+          excludedIntegrationIds={["SLACK"]}
+          target={{
+            threadId: "thread-1",
+            runId: "run-1",
+            requestId: "request-1",
+          }}
+          onConnected={() => undefined}
+          onDeclined={onDeclined}
+          fallback={<div data-excluded-provider="">Handled by host</div>}
+        />,
+      );
+    });
+
+    expect(container.querySelector("[data-excluded-provider]")).not.toBeNull();
+    expect(container.textContent).toContain("Handled by host");
+    expect(onDeclined).toHaveBeenCalledOnce();
+    await act(async () => root.unmount());
+  });
+
+  it("does not decline an excluded request again after remount", async () => {
+    const target = {
+      threadId: "thread-1",
+      runId: "run-1",
+      requestId: "request-1",
+    };
+    const onDeclined = vi.fn();
+    const firstContainer = document.createElement("div");
+    const firstRoot = createRoot(firstContainer);
+
+    await act(async () => {
+      firstRoot.render(
+        <McpAgentKitConnectionRequestCard
+          provider="slack"
+          excludedIntegrationIds={["slack"]}
+          target={target}
+          onConnected={() => undefined}
+          onDeclined={onDeclined}
+          fallback={<div data-excluded-provider="">Handled by host</div>}
+        />,
+      );
+    });
+
+    expect(onDeclined).toHaveBeenCalledOnce();
+    await act(async () => firstRoot.unmount());
+
+    const remountedContainer = document.createElement("div");
+    const remountedRoot = createRoot(remountedContainer);
+    await act(async () => {
+      remountedRoot.render(
+        <McpAgentKitConnectionRequestCard
+          provider="slack"
+          excludedIntegrationIds={["slack"]}
+          target={target}
+          onConnected={() => undefined}
+          onDeclined={onDeclined}
+          fallback={<div data-excluded-provider="">Handled by host</div>}
+        />,
+      );
+    });
+
+    expect(onDeclined).toHaveBeenCalledOnce();
+    expect(
+      remountedContainer.querySelector("[data-excluded-provider]"),
+    ).not.toBeNull();
+    await act(async () => remountedRoot.unmount());
+
+    const nextRequestContainer = document.createElement("div");
+    const nextRequestRoot = createRoot(nextRequestContainer);
+    await act(async () => {
+      nextRequestRoot.render(
+        <McpAgentKitConnectionRequestCard
+          provider="slack"
+          excludedIntegrationIds={["slack"]}
+          target={{ ...target, requestId: "request-2" }}
+          onConnected={() => undefined}
+          onDeclined={onDeclined}
+          fallback={<div data-excluded-provider="">Handled by host</div>}
+        />,
+      );
+    });
+
+    expect(onDeclined).toHaveBeenCalledTimes(2);
+    await act(async () => nextRequestRoot.unmount());
+  });
+
+  it("uses an in-memory marker when session storage is unavailable", async () => {
+    vi.spyOn(window.sessionStorage, "getItem").mockImplementation(() => {
+      throw new DOMException("Storage is unavailable.", "SecurityError");
+    });
+    vi.spyOn(window.sessionStorage, "setItem").mockImplementation(() => {
+      throw new DOMException("Storage is unavailable.", "SecurityError");
+    });
+
+    const target = {
+      threadId: "storage-unavailable-thread",
+      runId: "storage-unavailable-run",
+      requestId: "storage-unavailable-request",
+    };
+    const onDeclined = vi.fn();
+    const firstContainer = document.createElement("div");
+    const firstRoot = createRoot(firstContainer);
+
+    await act(async () => {
+      firstRoot.render(
+        <McpAgentKitConnectionRequestCard
+          provider="slack"
+          excludedIntegrationIds={["slack"]}
+          target={target}
+          onConnected={() => undefined}
+          onDeclined={onDeclined}
+        />,
+      );
+    });
+    expect(onDeclined).toHaveBeenCalledOnce();
+    await act(async () => firstRoot.unmount());
+
+    const remountedContainer = document.createElement("div");
+    const remountedRoot = createRoot(remountedContainer);
+    await act(async () => {
+      remountedRoot.render(
+        <McpAgentKitConnectionRequestCard
+          provider="slack"
+          excludedIntegrationIds={["slack"]}
+          target={target}
+          onConnected={() => undefined}
+          onDeclined={onDeclined}
+        />,
+      );
+    });
+
+    expect(onDeclined).toHaveBeenCalledOnce();
+    await act(async () => remountedRoot.unmount());
+  });
+
+  it("allows retrying a host-excluded request after decline fails", async () => {
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    let finishRetry = () => {};
+    const onDeclined = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Request could not be declined."))
+      .mockImplementationOnce(
+        () => new Promise<void>((resolve) => (finishRetry = resolve)),
+      );
+
+    await act(async () => {
+      root.render(
+        <McpAgentKitConnectionRequestCard
+          provider="slack"
+          excludedIntegrationIds={["SLACK"]}
+          target={{
+            threadId: "thread-1",
+            runId: "run-1",
+            requestId: "request-1",
+          }}
+          onConnected={() => undefined}
+          onDeclined={onDeclined}
+          fallback={<div data-excluded-provider="">Handled by host</div>}
+        />,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(container.querySelector('[role="alert"]')).not.toBeNull();
+
+    const retryButton = container.querySelector(
+      '[role="alert"] button',
+    ) as HTMLButtonElement | null;
+    expect(retryButton?.textContent).toContain("Retry");
+    await act(async () => {
+      retryButton?.click();
+      await Promise.resolve();
+    });
+
+    expect(onDeclined).toHaveBeenCalledTimes(2);
+    expect(retryButton?.disabled).toBe(true);
+    expect(container.querySelector('[role="alert"]')).not.toBeNull();
+    await act(async () => {
+      finishRetry();
+      await Promise.resolve();
+    });
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(container.querySelector("[data-excluded-provider]")).not.toBeNull();
+    await act(async () => root.unmount());
+  });
+
+  it("keeps the request alive in a popup and resumes it on OAuth completion", async () => {
+    window.sessionStorage.clear();
+    vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
+    window.history.replaceState(
+      {},
+      "",
+      "/dispatch/chat/thread-1?tab=docs#selected",
+    );
+    vi.mocked(openOAuthPopup).mockClear();
+    const locationAssign = vi.fn();
+    const popup = {
+      closed: false,
+      location: { assign: locationAssign },
+      close: vi.fn(),
+    };
+    popupState.popup = popup;
+    const onConnected = vi.fn();
+    const target = {
+      threadId: "thread-1",
+      runId: "run-1",
+      requestId: "request-1",
+    };
+    const container = document.createElement("div");
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        <>
+          <McpAgentKitConnectionRequestCard
+            provider="google_drive"
+            reason="connect"
+            appId="dispatch"
+            source={{
+              id: "google_drive",
+              kind: "workspace_connection",
+              label: "Google Drive",
+            }}
+            target={target}
+            onConnected={onConnected}
+            onDeclined={() => undefined}
+          />
+          <McpAgentKitConnectionResume
+            onResume={() => onConnected()}
+            onMessageResume={() => undefined}
+          />
+        </>,
+      );
+    });
+    const button = container.querySelector("button");
+    await act(async () => button?.click());
+
+    expect(openOAuthPopup).toHaveBeenCalledWith({
+      features: "width=640,height=760",
+    });
+    const oauthUrl = new URL(
+      locationAssign.mock.calls[0]![0],
+      window.location.origin,
+    );
+    expect(oauthUrl.pathname).toContain(
+      "/connections/oauth/google_drive/start",
+    );
+    expect(oauthUrl.searchParams.get("appId")).toBe("dispatch");
+    expect(oauthUrl.searchParams.get("scope")).toBe("user");
+    const returnPath = oauthUrl.searchParams.get("return");
+    expect(returnPath).toContain(
+      "/_agent-native/oauth/popup?complete=workspace-connection&resume=",
+    );
+    expect(returnPath).not.toContain("#selected");
+    expect(consumeMcpConnectionResume()).toBeNull();
+    const completionId = new URL(
+      returnPath!,
+      window.location.origin,
+    ).searchParams.get("resume");
+    expect(completionId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agent-native:workspace-connection-complete" },
+          origin: "https://untrusted.example",
+          source: popup as unknown as MessageEventSource,
+        }),
+      );
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agent-native:workspace-connection-complete" },
+          origin: window.location.origin,
+          source: null,
+        }),
+      );
+      await Promise.resolve();
+    });
+    expect(onConnected).not.toHaveBeenCalled();
+
+    act(() => root.unmount());
+    expect(popup.close).not.toHaveBeenCalled();
+    const resumedRoot = createRoot(container);
+    await act(async () => {
+      notifyMcpConnectionComplete(completionId!);
+      resumedRoot.render(
+        <McpAgentKitConnectionResume
+          onResume={() => onConnected()}
+          onMessageResume={() => undefined}
+        />,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(onConnected).toHaveBeenCalledOnce();
+    act(() => resumedRoot.unmount());
+  });
+
+  it("keeps a granted connection request pending until the user retries", async () => {
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    vi.mocked(openOAuthPopup).mockClear();
+    const locationAssign = vi.fn();
+    const popup = {
+      opener: window,
+      location: { assign: locationAssign },
+      close: vi.fn(),
+    } as unknown as Window;
+    const open = vi
+      .spyOn(window, "open")
+      .mockReturnValueOnce(null)
+      .mockReturnValue(popup);
+    const onConnected = vi.fn();
+
+    act(() => {
+      root.render(
+        <McpAgentKitConnectionRequestCard
+          provider="google_drive"
+          reason="grant"
+          appId="dispatch"
+          source={{
+            id: "google_drive",
+            kind: "workspace_connection",
+            label: "Google Drive",
+          }}
+          target={{
+            threadId: "thread-1",
+            runId: "run-1",
+            requestId: "request-1",
+          }}
+          onConnected={onConnected}
+          onDeclined={() => undefined}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Connect google_drive");
+    expect(openOAuthPopup).not.toHaveBeenCalled();
+    await act(async () => container.querySelector("button")?.click());
+    expect(open).toHaveBeenCalledWith("", "_blank");
+    expect(onConnected).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("Connect google_drive");
+
+    await act(async () => container.querySelector("button")?.click());
+    expect(open).toHaveBeenCalledTimes(2);
+    expect(popup.opener).toBeNull();
+    expect(locationAssign).toHaveBeenCalledWith(dispatchApiKeysHref([]));
+    expect(container.textContent).toContain("Try again google_drive");
+    expect(onConnected).not.toHaveBeenCalled();
+    await act(async () => container.querySelector("button")?.click());
+    expect(onConnected).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      root.render(
+        <McpAgentKitConnectionRequestCard
+          provider="google_drive"
+          reason="grant"
+          status="connected"
+          appId="dispatch"
+          source={{
+            id: "google_drive",
+            kind: "workspace_connection",
+            label: "Google Drive",
+          }}
+          target={{
+            threadId: "thread-1",
+            runId: "run-1",
+            requestId: "request-1",
+          }}
+          onConnected={onConnected}
+          onDeclined={() => undefined}
+        />,
+      );
+    });
+    expect(container.querySelector("button")).toBeNull();
+
+    await act(async () => {
+      root.render(
+        <McpAgentKitConnectionRequestCard
+          provider="google_drive"
+          reason="grant"
+          status="failed"
+          appId="dispatch"
+          source={{
+            id: "google_drive",
+            kind: "workspace_connection",
+            label: "Google Drive",
+          }}
+          target={{
+            threadId: "thread-1",
+            runId: "run-1",
+            requestId: "request-1",
+          }}
+          onConnected={onConnected}
+          onDeclined={() => undefined}
+        />,
+      );
+    });
+    expect(container.querySelector("button")?.getAttribute("data-status")).toBe(
+      "failed",
+    );
+    await act(async () => container.querySelector("button")?.click());
+    expect(open).toHaveBeenCalledTimes(3);
+    expect(onConnected).toHaveBeenCalledOnce();
+    await act(async () => container.querySelector("button")?.click());
+    expect(onConnected).toHaveBeenCalledTimes(2);
+    act(() => root.unmount());
+    open.mockRestore();
+  });
+
+  it("keeps non-OAuth workspace requests pending until the user retries", async () => {
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    vi.mocked(openOAuthPopup).mockClear();
+    const locationAssign = vi.fn();
+    const popup = {
+      opener: window,
+      location: { assign: locationAssign },
+      close: vi.fn(),
+    } as unknown as Window;
+    const open = vi.spyOn(window, "open").mockReturnValue(popup);
+    const onConnected = vi.fn();
+
+    act(() => {
+      root.render(
+        <McpAgentKitConnectionRequestCard
+          provider="slack"
+          appId="dispatch"
+          source={{
+            id: "slack",
+            kind: "workspace_connection",
+            label: "Slack",
+          }}
+          target={{
+            threadId: "thread-1",
+            runId: "run-1",
+            requestId: "request-1",
+          }}
+          onConnected={onConnected}
+          onDeclined={() => undefined}
+          fallback={<div data-unsupported-provider="">Setup unavailable</div>}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Connect slack");
+    expect(openOAuthPopup).not.toHaveBeenCalled();
+    await act(async () => container.querySelector("button")?.click());
+    expect(open).toHaveBeenCalledWith("", "_blank");
+    expect(popup.opener).toBeNull();
+    expect(locationAssign).toHaveBeenCalledWith(dispatchApiKeysHref([]));
+    expect(onConnected).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("Try again slack");
+    await act(async () => container.querySelector("button")?.click());
+    expect(onConnected).toHaveBeenCalledOnce();
+    act(() => root.unmount());
+    open.mockRestore();
+  });
+
+  it("passes terminal request state through to the shared card", () => {
+    const container = document.createElement("div");
+    const root = createRoot(container);
+
+    act(() => {
+      root.render(
+        <McpAgentKitConnectionRequestCard
+          provider="google_drive"
+          reason="connect"
+          status="declined"
+          appId="dispatch"
+          source={{
+            id: "google_drive",
+            kind: "workspace_connection",
+            label: "Google Drive",
+          }}
+          target={{
+            threadId: "thread-1",
+            runId: "run-1",
+            requestId: "request-1",
+          }}
+          onConnected={() => undefined}
+          onDeclined={() => undefined}
+        />,
+      );
+    });
+
+    expect(container.querySelector("button")).toBeNull();
+    act(() => root.unmount());
+  });
+
+  it("resumes a prose-inferred connection request through the host thread", async () => {
+    window.sessionStorage.clear();
+    window.history.replaceState({}, "", "/chat/thread-1");
+    expect(saveMcpConnectionResume("Retry the Slack request.")).toBe(true);
+    const onMessageResume = vi.fn();
+    const container = document.createElement("div");
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        <McpAgentKitConnectionResume
+          onResume={() => undefined}
+          onMessageResume={onMessageResume}
+        />,
+      );
+    });
+
+    expect(onMessageResume).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Retry the Slack request." }),
+    );
+    act(() => root.unmount());
+  });
+});
+
+describe("McpAgentKitConnectionResume after a failed attempt", () => {
+  const target = { threadId: "thread-1", runId: "run-1", requestId: "req-1" };
+  let root: ReturnType<typeof createRoot> | undefined;
+
+  afterEach(() => {
+    if (root) act(() => root?.unmount());
+    root = undefined;
+    window.sessionStorage.clear();
+  });
+
+  async function mount(onResume: () => void | Promise<void>) {
+    if (root) act(() => root?.unmount());
+    const container = document.createElement("div");
+    root = createRoot(container);
+    await act(async () => {
+      root?.render(<McpAgentKitConnectionResume onResume={onResume} />);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    return container;
+  }
+
+  it("drops the failure notice when the next resume attempt starts", async () => {
+    window.sessionStorage.clear();
+    window.history.replaceState({}, "", "/chat/thread-1");
+    expect(saveMcpConnectionResume("Restore the request.", target)).toBe(true);
+    let finishRetry = () => {};
+    const onResume = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockImplementationOnce(
+        () => new Promise<void>((resolve) => (finishRetry = resolve)),
+      );
+    const container = await mount(onResume);
+    expect(container.querySelector('[role="alert"]')).not.toBeNull();
+    expect(getPendingMcpConnectionResume()).not.toBeNull();
+
+    await act(async () => {
+      notifyMcpConnectionComplete();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(onResume).toHaveBeenCalledTimes(2);
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(getPendingMcpConnectionResume()).not.toBeNull();
+
+    await act(async () => {
+      finishRetry();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(getPendingMcpConnectionResume()).toBeNull();
+  });
+
+  it("still clears the record after a successful resume", async () => {
+    window.sessionStorage.clear();
+    window.history.replaceState({}, "", "/chat/thread-1");
+    expect(saveMcpConnectionResume("Restore the request.", target)).toBe(true);
+    const onResume = vi.fn().mockResolvedValue(undefined);
+
+    const container = await mount(onResume);
+
+    expect(onResume).toHaveBeenCalledOnce();
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(getPendingMcpConnectionResume()).toBeNull();
+    await mount(onResume);
+    expect(onResume).toHaveBeenCalledOnce();
+  });
+});

@@ -1,0 +1,116 @@
+---
+title: "邮件：收件箱、搜索与自动化"
+description: "在邮件中阅读、搜索和分类你的 Gmail 收件箱 — 键盘快捷键、批量清理、自动分类规则、原生 Gmail 过滤器，以及线程上的 CRM 上下文。"
+---
+
+# 收件箱、搜索与自动化
+
+本页涵盖 [邮件](/docs/template-mail) 中日常的收件箱工作：阅读和分类邮件，跨每一个已连接的账户进行搜索，批量清理，以及两种自动化重复性分类工作的方式。本文面向所有使用邮件的人，而不仅仅是开发者。
+
+## 阅读与分类
+
+不碰鼠标，也能在收件箱中穿梭。只有当你拥有 Builder 访问权限或保存了个人密钥时，优先级排序才可用。使用以下键盘快捷键：
+
+| 钥匙      | 行动                       |
+| --------- | -------------------------- |
+| `J`       | 下一封电子邮件             |
+| `K`       | 上一封电子邮件             |
+| `Up/Down` | 与J/K相同                  |
+| `Enter`   | 打开重点电子邮件           |
+| `E`       | 存档电子邮件或线程         |
+| `D`       | 将电子邮件或线程放入垃圾箱 |
+| `S`       | 加星标或取消加星标         |
+| `R`       | 回复                       |
+| `U`       | 切换已读/未读              |
+| `C`       | 撰写新电子邮件             |
+| `/`       | 焦点搜索栏                 |
+| `Cmd+K`   | 打开命令面板               |
+| `G I`     | 转到收件箱                 |
+| `G S`     | 转到已加星标               |
+| `G T`     | 转到已发送                 |
+| `G D`     | 转到草稿                   |
+| `G A`     | 转到存档                   |
+| `Esc`     | 关闭线程/清除搜索          |
+
+快捷键能做的每一件事，你也可以直接开口向代理提出要求："存档一周以上的所有 Netlify 机器人邮件"、"给 Priya 发来的任何邮件加星标"、"把这个线程里的所有邮件都标记为已读"。
+
+## 跨每一个已连接的收件箱进行搜索
+
+在搜索栏中输入，或者直接问代理——一次查询会同时搜索所有已连接的 Gmail 账户，而不只是恰好打开的那个标签页。如果你连接了个人和工作账户，"查找来自 Acme 的发票"会同时检查这两个账户。
+
+## 批量操作清理收件箱
+
+存档、加星标和标记已读都可以针对你真实连接的 Gmail 账户批量执行——选中多条消息（或者让代理对"所有这些"进行操作），邮件会按账户批量处理这些请求，而不是每条消息发起一次调用。此外还提供一个单独的基于日期的清理功能（"存档所有 30 天以上的邮件"）以及一个视图的 JSON 导出功能，但这两者目前都只针对本地演示邮箱运行，而不是已连接的 Gmail 账户。在 Gmail 发生变化之后，邮件会阻止较旧或已取消的响应覆盖较新的结果。
+
+要清空一个账户里大量积压的未读邮件，请使用"把所有未读邮件都标记为已读"，而不要让代理逐个打开并标记每一段对话——邮件会把它作为一次经过校验的批量操作来执行，并报告实际发生变化的邮件数量。
+
+## 自动分类规则与原生 Gmail 过滤器
+
+邮件提供了两种截然不同的方式来自动处理收到的邮件——请刻意做出选择：
+
+<Callout tone="info">
+
+**自动化规则**使用 AI，将新邮件与你用简单英语写下的条件（"来自新闻通讯"、"主题包含 invoice"）进行匹配，并应用一个操作（标签、存档、标记已读、加星标、放入垃圾箱）。它们在邮件内部大约每分钟自动运行一次。
+
+**Gmail 过滤器**是 Gmail 自身原生的机制——它们在 Gmail 内部运行，在自动化规则看到这条消息之前就已经生效，并使用 Gmail 精确的搜索语法（`from:`、`older_than:`、附件、大小等等）。即便邮件应用没有打开，它们也会持续生效。
+
+当一条规则可以用 Gmail 自己的条件来表达时，使用 Gmail 过滤器；当条件需要做出判断时（"如果这看起来像是一封推销邮件"），使用自动化规则。
+
+</Callout>
+
+<Diagram id="doc-block-mail4" title="自动化规则的生命周期" summary={"你用简单语言描述的一条规则，会按照固定的时间间隔针对新的入站邮件运行，并自动应用它的操作。"}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-node">
+    你描述一条规则<br /><small class="diagram-muted"
+      >"来自新闻通讯" → 存档</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">新的入站邮件</span
+    ><small class="diagram-muted">每分钟检查一次</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    AI 匹配条件<br /><small class="diagram-muted">针对每条规则、每条消息</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    应用操作<br /><small class="diagram-muted"
+      >标签 · 存档 · 标记已读 · 加星标 · 放入垃圾箱</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## 线程上的 CRM 上下文
+
+打开一个线程，邮件的联系人侧边栏就能显示发件人的 CRM 上下文。目前只有 HubSpot 实现了端到端的连接——问代理"这是谁，他们有哪些正在进行的交易"，它就会从你配置的 HubSpot 账户中查找这位联系人，以及最多 5 笔关联的交易和最多 5 张关联的工单。
+
+Gong、Pylon 和 Apollo 会出现在同一个侧边栏面板中，但前提是你已经在设置中添加了它们的 API 密钥，而且仅作为一个只读的侧边栏视图——目前代理还不能把一通 Gong 通话记录或一张 Pylon 工单拉进聊天，只有 HubSpot 可以。
+
+## 接下来
+
+- [**起草、排程与草稿队列**](/docs/template-mail-drafts-and-queue) — 回复你刚刚分类过的邮件
+- [**与 Agent 对话**](/docs/template-mail-agent) — 按任务分类的提示，以及何时需要超出预设操作范围寻求代理帮助
+- [**开发者指南**](/docs/template-mail-developers) — 支撑本页内容的完整 action 清单
+- [**邮件概览**](/docs/template-mail) — 返回应用概览

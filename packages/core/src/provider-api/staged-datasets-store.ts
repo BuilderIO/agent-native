@@ -1,100 +1,108 @@
-/**
- * Scratch storage for staged provider-API datasets.
- *
- * Rows are stored as JSON text. Aggregation is done in TypeScript server-side
- * rather than via JSON SQL fragments. See `staged-datasets-aggregate.ts`.
- *
- * Storage caps:
- *   - MAX_ROWS_PER_APP: 200 000 rows
- *   - MAX_BYTES_PER_APP: 50 MB (approximate, measured as raw JSON text length)
- *
- * Scoping: datasets are owned by (app_id, owner_email) so different apps or
- * different users never share or cross-read each other's scratch data.
- */
+import { createHash } from "node:crypto";
 
 import { getDbExec, type DbExec } from "../db/client.js";
-import { ensureTableExists, ensureIndexExists } from "../db/ddl-guard.js";
+import {
+  ensureColumnExists,
+  ensureTableExists,
+  ensureIndexExists,
+} from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
+import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 
-// ---------------------------------------------------------------------------
-// Caps
-// ---------------------------------------------------------------------------
-export const MAX_ROWS_PER_APP = 200_000;
-export const MAX_BYTES_PER_APP = 50 * 1024 * 1024; // 50 MB
+export const MAX_ROWS_PER_OWNER = 200_000;
+export const MAX_BYTES_PER_OWNER = 50 * 1024 * 1024;
+export const MAX_ROWS_PER_APP = 2_000_000;
+export const MAX_BYTES_PER_APP = 500 * 1024 * 1024;
+const DAY_MS = 24 * 60 * 60 * 1000;
+export const STAGED_DATASET_MAX_AGE_MS = 14 * DAY_MS;
+const INSERT_BATCH_ROWS = 500;
+const INSERT_BATCH_BYTES = 1024 * 1024;
 
-// ---------------------------------------------------------------------------
-// Table initialisation
-// ---------------------------------------------------------------------------
+export const stagedDatasetsStore = defineStore({
+  id: "staged_datasets",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const integerType = "BIGINT";
+        const createDatasetsSql = `
+          CREATE TABLE IF NOT EXISTS staged_datasets (
+            id TEXT NOT NULL,
+            app_id TEXT NOT NULL,
+            owner_email TEXT NOT NULL,
+            name TEXT NOT NULL,
+            columns TEXT NOT NULL,
+            row_count ${integerType} NOT NULL DEFAULT 0,
+            byte_size ${integerType} NOT NULL DEFAULT 0,
+            byte_size_utf8_updated_at ${integerType},
+            created_at ${integerType} NOT NULL,
+            updated_at ${integerType} NOT NULL,
+            PRIMARY KEY (id)
+          )
+        `;
+        const createRowsSql = `
+          CREATE TABLE IF NOT EXISTS staged_dataset_rows (
+            dataset_id TEXT NOT NULL,
+            row_index ${integerType} NOT NULL,
+            row_data TEXT NOT NULL,
+            PRIMARY KEY (dataset_id, row_index)
+          )
+        `;
+        await ensureTableExists("staged_datasets", createDatasetsSql);
+        await ensureTableExists("staged_dataset_rows", createRowsSql);
+        await ensureColumnExists(
+          "staged_datasets",
+          "byte_size_utf8_updated_at",
+          `ALTER TABLE staged_datasets ADD COLUMN IF NOT EXISTS byte_size_utf8_updated_at ${integerType}`,
+        );
+      },
+    },
+    {
+      name: "widen-bigint",
+      run: async () => {
+        await widenIntColumnsToBigInt("staged_datasets", [
+          "row_count",
+          "byte_size",
+          "created_at",
+          "updated_at",
+        ]);
+        await widenIntColumnsToBigInt("staged_dataset_rows", ["row_index"]);
+      },
+    },
+    {
+      name: "indexes",
+      run: async () => {
+        await ensureIndexExists(
+          "staged_datasets_scope_idx",
+          `CREATE INDEX IF NOT EXISTS staged_datasets_scope_idx ON staged_datasets (app_id, owner_email)`,
+        );
+        await ensureIndexExists(
+          "staged_dataset_rows_dataset_idx",
+          `CREATE INDEX IF NOT EXISTS staged_dataset_rows_dataset_idx ON staged_dataset_rows (dataset_id)`,
+        );
+      },
+    },
+    {
+      name: "removed-markers",
+      run: async () => {
+        await ensureColumnExists(
+          "staged_datasets",
+          "removed_at",
+          `ALTER TABLE staged_datasets ADD COLUMN IF NOT EXISTS removed_at BIGINT`,
+        );
+        await ensureColumnExists(
+          "staged_datasets",
+          "removed_reason",
+          `ALTER TABLE staged_datasets ADD COLUMN IF NOT EXISTS removed_reason TEXT`,
+        );
+      },
+    },
+  ],
+});
 
-let _initPromise: Promise<void> | undefined;
-
-export async function ensureTables(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const db = getDbExec();
-      const integerType = "BIGINT";
-      const createDatasetsSql = `
-        CREATE TABLE IF NOT EXISTS staged_datasets (
-          id TEXT NOT NULL,
-          app_id TEXT NOT NULL,
-          owner_email TEXT NOT NULL,
-          name TEXT NOT NULL,
-          columns TEXT NOT NULL,
-          row_count ${integerType} NOT NULL DEFAULT 0,
-          byte_size ${integerType} NOT NULL DEFAULT 0,
-          created_at ${integerType} NOT NULL,
-          updated_at ${integerType} NOT NULL,
-          PRIMARY KEY (id)
-        )
-      `;
-      const createRowsSql = `
-        CREATE TABLE IF NOT EXISTS staged_dataset_rows (
-          dataset_id TEXT NOT NULL,
-          row_index ${integerType} NOT NULL,
-          row_data TEXT NOT NULL,
-          PRIMARY KEY (dataset_id, row_index)
-        )
-      `;
-      await ensureTableExists("staged_datasets", createDatasetsSql);
-      await ensureTableExists("staged_dataset_rows", createRowsSql);
-      await widenPostgresIntegerColumns(db);
-      await ensureIndexExists(
-        "staged_datasets_scope_idx",
-        `CREATE INDEX IF NOT EXISTS staged_datasets_scope_idx ON staged_datasets (app_id, owner_email)`,
-      );
-      await ensureIndexExists(
-        "staged_dataset_rows_dataset_idx",
-        `CREATE INDEX IF NOT EXISTS staged_dataset_rows_dataset_idx ON staged_dataset_rows (dataset_id)`,
-      );
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+export function ensureTables(): Promise<void> {
+  return stagedDatasetsStore.ready();
 }
-
-async function widenPostgresIntegerColumns(db: DbExec): Promise<void> {
-  const statements = [
-    `ALTER TABLE staged_datasets ALTER COLUMN row_count TYPE BIGINT USING row_count::bigint`,
-    `ALTER TABLE staged_datasets ALTER COLUMN byte_size TYPE BIGINT USING byte_size::bigint`,
-    `ALTER TABLE staged_datasets ALTER COLUMN created_at TYPE BIGINT USING created_at::bigint`,
-    `ALTER TABLE staged_datasets ALTER COLUMN updated_at TYPE BIGINT USING updated_at::bigint`,
-    `ALTER TABLE staged_dataset_rows ALTER COLUMN row_index TYPE BIGINT USING row_index::bigint`,
-  ];
-  for (const sql of statements) {
-    try {
-      await db.execute(sql);
-    } catch {
-      // Best-effort compatibility for older deployments. Widening is
-      // non-destructive; if a database role cannot ALTER, the later write will
-      // still surface the real DB error.
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 export interface StagedDatasetMeta {
   id: string;
@@ -108,27 +116,140 @@ export interface StagedDatasetMeta {
   updatedAt: number;
 }
 
+/**
+ * A dataset the store removed on its own, to make room under a quota or after
+ * `STAGED_DATASET_MAX_AGE_MS` without a write. Its metadata row stays behind as
+ * a marker so a reader can say so instead of reporting an unknown id.
+ */
+export class StagedDatasetRemovedError extends Error {
+  readonly code = "staged_dataset_removed";
+
+  constructor(
+    readonly datasetId: string,
+    readonly reason: "capacity" | "stale",
+  ) {
+    super(
+      reason === "stale"
+        ? `Staged dataset ${datasetId} was removed after ${STAGED_DATASET_MAX_AGE_MS / DAY_MS} days without an update. Stage it again.`
+        : `Staged dataset ${datasetId} was removed to make room for newer staged data. Stage it again.`,
+    );
+    this.name = "StagedDatasetRemovedError";
+  }
+}
+
+function removedError(row: Record<string, unknown>): StagedDatasetRemovedError {
+  return new StagedDatasetRemovedError(
+    row.id as string,
+    row.removed_reason === "stale" ? "stale" : "capacity",
+  );
+}
+
+/**
+ * What readers compare to tell that a dataset was replaced mid-read. The write
+ * time alone could repeat if an id is deleted and recreated within one
+ * millisecond, so the shape of the data is part of the token.
+ */
+export function stagedDatasetVersion(
+  meta: Pick<StagedDatasetMeta, "updatedAt" | "rowCount" | "byteSize">,
+): string {
+  return `${meta.updatedAt}.${meta.rowCount}.${meta.byteSize}`;
+}
+
 export interface UpsertDatasetOptions {
   id: string;
   appId: string;
   ownerEmail: string;
   name: string;
-  /** All rows to store; replaces any existing rows. */
   rows: Record<string, unknown>[];
   columns: string[];
-  /** When true, append rows instead of replacing. */
   append?: boolean;
+  /**
+   * An older id for the same app, owner, and name. A dataset still stored
+   * under it is removed in the same transaction, so a re-stage replaces it
+   * instead of leaving a second copy that counts against the owner's quota.
+   */
+  supersedes?: string;
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function generateId(): string {
   return `ds_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-/** Derive column names from a set of rows (first 20 rows surveyed). */
+/**
+ * The id a named staging request writes to. Readable prefix plus a hash of the
+ * unsanitized app, owner, and name: sanitizing and truncating alone let
+ * `a.b@x.com` and `a_b@x.com`, or two long names with a shared prefix, land on
+ * one id, where the second writer was refused or silently replaced the first.
+ */
+export function stagedDatasetId(scope: {
+  appId: string;
+  ownerEmail: string;
+  name: string;
+}): string {
+  const digest = createHash("sha256")
+    .update(JSON.stringify([scope.appId, scope.ownerEmail, scope.name]))
+    .digest("hex")
+    .slice(0, 16);
+  const label = scope.name.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 48);
+  return `ds_${label}_${digest}`;
+}
+
+/** The id `stageAs` requests used before ids carried a hash. */
+export function legacyStagedDatasetId(scope: {
+  appId: string;
+  ownerEmail: string;
+  name: string;
+}): string {
+  return `ds_${scope.appId}_${scope.ownerEmail}_${scope.name}`
+    .replace(/[^a-zA-Z0-9_-]/g, "_")
+    .slice(0, 80);
+}
+
+// The app-wide backstop spans owners, so one writer per app plans, evicts, and
+// writes at a time, and an explicit delete takes the same lock so it cannot land between a
+// writer's eviction plan and its deletes.
+async function lockStagedDatasetApp(tx: DbExec, appId: string): Promise<void> {
+  await tx.execute({
+    sql: `SELECT pg_advisory_xact_lock(hashtext(?))`,
+    args: [`staged-datasets:${appId}`],
+  });
+}
+
+// Runs on every write, not only over-quota ones, so data nobody has touched in
+// the max age stops counting against anyone before it is needed. The markers
+// left behind keep zero counts, so a writer that predates them does not charge
+// them to the quota, and they expire after another max age.
+async function removeStaleStagedDatasets(
+  tx: DbExec,
+  appId: string,
+  writingId: string,
+  now: number,
+  staleBefore: number,
+): Promise<void> {
+  await tx.execute({
+    sql: `UPDATE staged_datasets SET removed_at = ?, removed_reason = 'stale', row_count = 0, byte_size = 0 WHERE app_id = ? AND removed_at IS NULL AND updated_at < ? AND id <> ?`,
+    args: [now, appId, staleBefore, writingId],
+  });
+  await tx.execute({
+    sql: `DELETE FROM staged_dataset_rows WHERE dataset_id IN (SELECT id FROM staged_datasets WHERE app_id = ? AND removed_at = ?)`,
+    args: [appId, now],
+  });
+  await tx.execute({
+    sql: `DELETE FROM staged_datasets WHERE app_id = ? AND removed_at < ? AND id <> ?`,
+    args: [appId, staleBefore, writingId],
+  });
+}
+
+async function backfillLegacyByteSizes(
+  tx: DbExec,
+  appId: string,
+): Promise<void> {
+  await tx.execute({
+    sql: `UPDATE staged_datasets AS dataset SET byte_size = legacy.byte_size, byte_size_utf8_updated_at = dataset.updated_at FROM (SELECT previous.id, COALESCE(SUM(OCTET_LENGTH(staged_row.row_data)), 0)::BIGINT AS byte_size FROM staged_datasets AS previous LEFT JOIN staged_dataset_rows AS staged_row ON staged_row.dataset_id = previous.id WHERE previous.app_id = ? AND previous.byte_size_utf8_updated_at IS DISTINCT FROM previous.updated_at GROUP BY previous.id) AS legacy WHERE dataset.id = legacy.id`,
+    args: [appId],
+  });
+}
+
 export function deriveColumns(rows: Record<string, unknown>[]): string[] {
   const seen = new Set<string>();
   for (const row of rows.slice(0, 20)) {
@@ -137,36 +258,117 @@ export function deriveColumns(rows: Record<string, unknown>[]): string[] {
   return Array.from(seen);
 }
 
-// ---------------------------------------------------------------------------
-// Scope check
-// ---------------------------------------------------------------------------
-
-async function getAppRowCount(appId: string): Promise<number> {
-  const db = getDbExec();
-  const { rows } = await db.execute({
-    sql: `SELECT COALESCE(SUM(row_count), 0) as total FROM staged_datasets WHERE app_id = ?`,
-    args: [appId],
-  });
-  return Number(rows[0]?.total ?? 0);
+export interface StagedDatasetEvictionCandidate {
+  id: string;
+  owner_email: string;
+  byte_size: number;
+  row_count: number;
+  updated_at: number;
 }
-
-async function getAppByteSize(appId: string): Promise<number> {
-  const db = getDbExec();
-  const { rows } = await db.execute({
-    sql: `SELECT COALESCE(SUM(byte_size), 0) as total FROM staged_datasets WHERE app_id = ?`,
-    args: [appId],
-  });
-  return Number(rows[0]?.total ?? 0);
-}
-
-// ---------------------------------------------------------------------------
-// Write
-// ---------------------------------------------------------------------------
 
 /**
- * Create or replace a staged dataset.  Returns metadata including the
- * resolved dataset ID (generated when not supplied in options).
+ * Picks which datasets of an app to drop so a write fits. Datasets older than
+ * `staleBefore` always go (any owner); then the writer's own datasets, then
+ * other owners', least recently written first, until both caps hold. `fits` is
+ * false when dropping every candidate still leaves the write over a cap, in
+ * which case callers must evict nothing.
  */
+export function selectStagedDatasetsToEvict(options: {
+  candidates: StagedDatasetEvictionCandidate[];
+  ownerEmail: string;
+  projectedBytes: number;
+  projectedRows: number;
+  staleBefore?: number;
+  maxBytes?: number;
+  maxRows?: number;
+}): { evictIds: string[]; fits: boolean } {
+  const maxBytes = options.maxBytes ?? MAX_BYTES_PER_APP;
+  const maxRows = options.maxRows ?? MAX_ROWS_PER_APP;
+  const staleBefore = options.staleBefore ?? 0;
+  const rank = (c: StagedDatasetEvictionCandidate) =>
+    c.updated_at < staleBefore
+      ? 0
+      : c.owner_email === options.ownerEmail
+        ? 1
+        : 2;
+  let bytes = options.projectedBytes;
+  let rows = options.projectedRows;
+  const evictIds: string[] = [];
+  const ordered = [...options.candidates].sort(
+    (a, b) => rank(a) - rank(b) || a.updated_at - b.updated_at,
+  );
+  for (const candidate of ordered) {
+    const stale = rank(candidate) === 0;
+    if (!stale && bytes <= maxBytes && rows <= maxRows) break;
+    evictIds.push(candidate.id);
+    bytes -= candidate.byte_size;
+    rows -= candidate.row_count;
+  }
+  return { evictIds, fits: bytes <= maxBytes && rows <= maxRows };
+}
+
+export type StagedDatasetEvictionPlan =
+  | { fits: true; evictIds: string[] }
+  | { fits: false; cap: "owner" | "app" };
+
+/**
+ * Plans the evictions a write needs. Each owner has a quota, and only the
+ * writer's own datasets are evicted to keep the writer inside it, so one
+ * user's analysis never removes another user's data. The app-wide backstop is
+ * the one place other owners' datasets can go: after the writer's own, least
+ * recently written first. `candidates` are the app's stored datasets other
+ * than the one being written.
+ */
+export function planStagedDatasetEviction(options: {
+  candidates: StagedDatasetEvictionCandidate[];
+  ownerEmail: string;
+  writeBytes: number;
+  writeRows: number;
+}): StagedDatasetEvictionPlan {
+  const sum = (
+    list: StagedDatasetEvictionCandidate[],
+    key: "byte_size" | "row_count",
+  ) => list.reduce((total, c) => total + c[key], 0);
+  const own = options.candidates.filter(
+    (c) => c.owner_email === options.ownerEmail,
+  );
+  const ownerPlan = selectStagedDatasetsToEvict({
+    candidates: own,
+    ownerEmail: options.ownerEmail,
+    projectedBytes: sum(own, "byte_size") + options.writeBytes,
+    projectedRows: sum(own, "row_count") + options.writeRows,
+    maxBytes: MAX_BYTES_PER_OWNER,
+    maxRows: MAX_ROWS_PER_OWNER,
+  });
+  if (!ownerPlan.fits) return { fits: false, cap: "owner" };
+  const evicted = new Set(ownerPlan.evictIds);
+  const remaining = options.candidates.filter((c) => !evicted.has(c.id));
+  const appPlan = selectStagedDatasetsToEvict({
+    candidates: remaining,
+    ownerEmail: options.ownerEmail,
+    projectedBytes: sum(remaining, "byte_size") + options.writeBytes,
+    projectedRows: sum(remaining, "row_count") + options.writeRows,
+  });
+  if (!appPlan.fits) return { fits: false, cap: "app" };
+  return { fits: true, evictIds: [...ownerPlan.evictIds, ...appPlan.evictIds] };
+}
+
+function prepareDatasetRows(
+  rows: Record<string, unknown>[],
+  columns: string[],
+) {
+  const serialized = rows.map((row) => JSON.stringify(row));
+  return {
+    rows,
+    serialized,
+    byteSize: serialized.reduce(
+      (sum, value) => sum + Buffer.byteLength(value, "utf8"),
+      0,
+    ),
+    columns: columns.length ? columns : deriveColumns(rows),
+  };
+}
+
 export async function upsertStagedDataset(
   options: UpsertDatasetOptions,
 ): Promise<StagedDatasetMeta> {
@@ -175,122 +377,228 @@ export async function upsertStagedDataset(
   const now = Date.now();
   const id = options.id || generateId();
 
-  // If appending, load existing rows first.
-  let existingRows: Record<string, unknown>[] = [];
-  if (options.append) {
-    existingRows = await getStagedDatasetRows({
-      id,
-      appId: options.appId,
-      ownerEmail: options.ownerEmail,
+  // An append builds on the rows stored at the moment it holds the app lock, so
+  // it is prepared inside the transaction below; anything else is prepared here
+  // to keep the lock short.
+  const upfront = options.append
+    ? null
+    : prepareDatasetRows(options.rows, options.columns);
+
+  const outcome = await withDbTransaction(db, async (tx) => {
+    // Totals, eviction and the write all happen under this lock in this
+    // transaction: nothing is planned against a stale snapshot, and a failure
+    // rolls the evictions back with the write.
+    await lockStagedDatasetApp(tx, options.appId);
+    // A caller-chosen or legacy id can still name another owner's dataset, and
+    // the id-keyed write below would replace its rows in place.
+    const { rows: idOwner } = await tx.execute({
+      sql: `SELECT id, app_id, owner_email, updated_at, removed_at, removed_reason FROM staged_datasets WHERE id = ?`,
+      args: [id],
     });
-  }
+    if (
+      idOwner[0] &&
+      (idOwner[0].app_id !== options.appId ||
+        idOwner[0].owner_email !== options.ownerEmail)
+    ) {
+      throw new Error(
+        `Staged dataset id ${id} belongs to another owner. Use a different name.`,
+      );
+    }
+    let prepared = upfront;
+    if (!prepared) {
+      // Appending to a removed dataset would store the new rows as if they
+      // were the whole dataset.
+      if (idOwner[0]?.removed_at != null) throw removedError(idOwner[0]);
+      // The owner check above passed, so a stored dataset under this id is
+      // this writer's.
+      const existing = idOwner[0]
+        ? (
+            await tx.execute({
+              sql: `SELECT row_data FROM staged_dataset_rows WHERE dataset_id = ? ORDER BY row_index ASC`,
+              args: [id],
+            })
+          ).rows.map(
+            (r) => JSON.parse(r.row_data as string) as Record<string, unknown>,
+          )
+        : [];
+      prepared = prepareDatasetRows(
+        [...existing, ...options.rows],
+        options.columns,
+      );
+    }
+    const { rows: allRows, serialized, byteSize } = prepared;
+    // Readers verify a dataset did not change mid-read by comparing this value,
+    // so a replacement has to move it even inside the same millisecond or on a
+    // clock behind the previous writer's.
+    const writtenAt = Math.max(now, Number(idOwner[0]?.updated_at ?? 0) + 1);
+    // Matched on owner and name so a legacy id that truncation shared with
+    // another dataset is never removed on this writer's behalf.
+    let supersededId: string | undefined;
+    if (options.supersedes && options.supersedes !== id) {
+      const { rows: legacy } = await tx.execute({
+        sql: `SELECT id FROM staged_datasets WHERE id = ? AND app_id = ? AND owner_email = ? AND name = ?`,
+        args: [
+          options.supersedes,
+          options.appId,
+          options.ownerEmail,
+          options.name,
+        ],
+      });
+      if (legacy.length > 0) {
+        supersededId = options.supersedes;
+      }
+    }
+    const staleBefore = now - STAGED_DATASET_MAX_AGE_MS;
+    await removeStaleStagedDatasets(tx, options.appId, id, now, staleBefore);
+    // The timestamp marker lets older writers be corrected without rescanning
+    // stored payloads on every write. Returning a quota failure commits this
+    // one-time normalization and the stale cleanup above, but evicts nothing.
+    await backfillLegacyByteSizes(tx, options.appId);
+    const excluded = supersededId ? [id, supersededId] : [id];
+    const excludedSql = excluded.map(() => " AND id <> ?").join("");
+    const { rows: totals } = await tx.execute({
+      sql: `SELECT COALESCE(SUM(row_count), 0) AS app_rows, COALESCE(SUM(byte_size), 0) AS app_bytes, COALESCE(SUM(CASE WHEN owner_email = ? THEN row_count ELSE 0 END), 0) AS owner_rows, COALESCE(SUM(CASE WHEN owner_email = ? THEN byte_size ELSE 0 END), 0) AS owner_bytes FROM staged_datasets WHERE app_id = ? AND removed_at IS NULL${excludedSql}`,
+      args: [
+        options.ownerEmail,
+        options.ownerEmail,
+        options.appId,
+        ...excluded,
+      ],
+    });
+    const total = (key: string) => Number(totals[0]?.[key] ?? 0);
+    let evictIds: string[] = [];
 
-  const allRows = options.append
-    ? [...existingRows, ...options.rows]
-    : options.rows;
+    if (
+      total("owner_rows") + allRows.length > MAX_ROWS_PER_OWNER ||
+      total("owner_bytes") + byteSize > MAX_BYTES_PER_OWNER ||
+      total("app_rows") + allRows.length > MAX_ROWS_PER_APP ||
+      total("app_bytes") + byteSize > MAX_BYTES_PER_APP
+    ) {
+      const { rows: peers } = await tx.execute({
+        sql: `SELECT id, owner_email, byte_size, row_count, updated_at FROM staged_datasets WHERE app_id = ? AND removed_at IS NULL${excludedSql}`,
+        args: [options.appId, ...excluded],
+      });
+      const eviction = planStagedDatasetEviction({
+        candidates: peers.map((r) => ({
+          id: r.id as string,
+          owner_email: r.owner_email as string,
+          byte_size: Number(r.byte_size),
+          row_count: Number(r.row_count),
+          updated_at: Number(r.updated_at),
+        })),
+        ownerEmail: options.ownerEmail,
+        writeBytes: byteSize,
+        writeRows: allRows.length,
+      });
+      if (!eviction.fits) {
+        const scope = eviction.cap === "owner" ? "per user" : "per app";
+        const maxRows =
+          eviction.cap === "owner" ? MAX_ROWS_PER_OWNER : MAX_ROWS_PER_APP;
+        const maxBytes =
+          eviction.cap === "owner" ? MAX_BYTES_PER_OWNER : MAX_BYTES_PER_APP;
+        return {
+          error:
+            allRows.length > maxRows
+              ? `Staged dataset cap exceeded: this dataset alone has ${allRows.length} rows ` +
+                `(limit ${maxRows} ${scope}). Stage fewer rows.`
+              : `Staged dataset byte cap exceeded: this dataset alone is ` +
+                `${(byteSize / 1024 / 1024).toFixed(1)} MB ` +
+                `(limit ${maxBytes / 1024 / 1024} MB ${scope}). ` +
+                `Stage fewer rows or columns.`,
+        };
+      }
+      evictIds = eviction.evictIds;
+    }
 
-  // Check caps (net new count after this write).
-  const currentAppRows = await getAppRowCount(options.appId);
-  const currentDatasetRows = options.append
-    ? existingRows.length
-    : await (async () => {
-        const { rows } = await db.execute({
-          sql: `SELECT row_count FROM staged_datasets WHERE id = ?`,
-          args: [id],
-        });
-        return Number(rows[0]?.row_count ?? 0);
-      })();
-  const netNewRows = allRows.length - currentDatasetRows;
-  if (currentAppRows + netNewRows > MAX_ROWS_PER_APP) {
-    throw new Error(
-      `Staged dataset cap exceeded: this app already has ${currentAppRows} rows stored ` +
-        `(limit ${MAX_ROWS_PER_APP}). Delete older datasets before staging more data.`,
-    );
-  }
+    if (supersededId) {
+      await tx.execute({
+        sql: `DELETE FROM staged_dataset_rows WHERE dataset_id = ?`,
+        args: [supersededId],
+      });
+      await tx.execute({
+        sql: `DELETE FROM staged_datasets WHERE id = ? AND app_id = ?`,
+        args: [supersededId, options.appId],
+      });
+    }
+    for (const victimId of evictIds) {
+      await tx.execute({
+        sql: `DELETE FROM staged_dataset_rows WHERE dataset_id = ?`,
+        args: [victimId],
+      });
+      await tx.execute({
+        sql: `UPDATE staged_datasets SET removed_at = ?, removed_reason = 'capacity', row_count = 0, byte_size = 0 WHERE id = ? AND app_id = ?`,
+        args: [now, victimId, options.appId],
+      });
+    }
 
-  // Serialize rows and measure byte size.
-  const serialized = allRows.map((row) => JSON.stringify(row));
-  const byteSize = serialized.reduce((sum, s) => sum + s.length, 0);
-
-  const currentAppBytes = await getAppByteSize(options.appId);
-  const existingDatasetBytes = options.append
-    ? await (async () => {
-        const { rows } = await db.execute({
-          sql: `SELECT byte_size FROM staged_datasets WHERE id = ?`,
-          args: [id],
-        });
-        return Number(rows[0]?.byte_size ?? 0);
-      })()
-    : 0;
-  const netNewBytes = byteSize - existingDatasetBytes;
-  if (currentAppBytes + netNewBytes > MAX_BYTES_PER_APP) {
-    throw new Error(
-      `Staged dataset byte cap exceeded: this app already stores ` +
-        `${(currentAppBytes / 1024 / 1024).toFixed(1)} MB (limit 50 MB). ` +
-        `Delete older datasets before staging more data.`,
-    );
-  }
-
-  const columns = options.columns.length
-    ? options.columns
-    : deriveColumns(allRows);
-  const columnsJson = JSON.stringify(columns);
-
-  await withDbTransaction(db, async (tx) => {
-    // Delete old rows and insert the replacement row set atomically with the
-    // metadata update so a failed batch cannot leave an empty or partial dataset.
     await tx.execute({
       sql: `DELETE FROM staged_dataset_rows WHERE dataset_id = ?`,
       args: [id],
     });
 
-    const BATCH = 500;
-    for (let i = 0; i < serialized.length; i += BATCH) {
-      const slice = serialized.slice(i, i + BATCH);
-      for (let j = 0; j < slice.length; j++) {
-        await tx.execute({
-          sql: `INSERT INTO staged_dataset_rows (dataset_id, row_index, row_data) VALUES (?, ?, ?)`,
-          args: [id, i + j, slice[j]],
-        });
+    // The app lock is held across these inserts, so they go in multi-row
+    // statements: one round trip per batch, not per row, keeps a large stage
+    // from holding every same-app stage and delete for minutes.
+    for (let start = 0; start < serialized.length; ) {
+      let end = start;
+      let bytes = 0;
+      while (
+        end < serialized.length &&
+        end - start < INSERT_BATCH_ROWS &&
+        (end === start ||
+          bytes + Buffer.byteLength(serialized[end]!, "utf8") <=
+            INSERT_BATCH_BYTES)
+      ) {
+        bytes += Buffer.byteLength(serialized[end]!, "utf8");
+        end += 1;
       }
+      const slice = serialized.slice(start, end);
+      await tx.execute({
+        sql: `INSERT INTO staged_dataset_rows (dataset_id, row_index, row_data) VALUES ${slice
+          .map(() => "(?, ?, ?)")
+          .join(", ")}`,
+        args: slice.flatMap((data, offset) => [id, start + offset, data]),
+      });
+      start = end;
     }
 
-    await tx.execute({
-      sql: `INSERT INTO staged_datasets (id, app_id, owner_email, name, columns, row_count, byte_size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, columns=EXCLUDED.columns, row_count=EXCLUDED.row_count, byte_size=EXCLUDED.byte_size, updated_at=EXCLUDED.updated_at`,
+    const result = await tx.execute({
+      sql: `INSERT INTO staged_datasets (id, app_id, owner_email, name, columns, row_count, byte_size, byte_size_utf8_updated_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, columns=EXCLUDED.columns, row_count=EXCLUDED.row_count, byte_size=EXCLUDED.byte_size, byte_size_utf8_updated_at=EXCLUDED.byte_size_utf8_updated_at, updated_at=EXCLUDED.updated_at, removed_at=NULL, removed_reason=NULL WHERE staged_datasets.app_id = EXCLUDED.app_id AND staged_datasets.owner_email = EXCLUDED.owner_email`,
       args: [
         id,
         options.appId,
         options.ownerEmail,
         options.name,
-        columnsJson,
+        JSON.stringify(prepared.columns),
         allRows.length,
         byteSize,
+        writtenAt,
         now,
-        now,
+        writtenAt,
       ],
     });
+    if (result.rowsAffected === 0) {
+      throw new Error("A staged dataset with this ID already exists.");
+    }
+    return { updatedAt: writtenAt, prepared };
   });
+
+  if ("error" in outcome) throw new Error(outcome.error);
+  const { updatedAt, prepared } = outcome;
 
   return {
     id,
     appId: options.appId,
     ownerEmail: options.ownerEmail,
     name: options.name,
-    columns,
-    rowCount: allRows.length,
-    byteSize,
+    columns: prepared.columns,
+    rowCount: prepared.rows.length,
+    byteSize: prepared.byteSize,
     createdAt: now,
-    updatedAt: now,
+    updatedAt,
   };
 }
 
-// ---------------------------------------------------------------------------
-// Read
-// ---------------------------------------------------------------------------
-
-/**
- * Fetch all rows for a dataset, asserting scope (appId + ownerEmail).
- */
 export async function getStagedDatasetRows(options: {
   id: string;
   appId: string;
@@ -298,12 +606,12 @@ export async function getStagedDatasetRows(options: {
 }): Promise<Record<string, unknown>[]> {
   await ensureTables();
   const db = getDbExec();
-  // Scope check
   const { rows: meta } = await db.execute({
-    sql: `SELECT id FROM staged_datasets WHERE id = ? AND app_id = ? AND owner_email = ?`,
+    sql: `SELECT id, removed_at, removed_reason FROM staged_datasets WHERE id = ? AND app_id = ? AND owner_email = ?`,
     args: [options.id, options.appId, options.ownerEmail],
   });
   if (meta.length === 0) return [];
+  if (meta[0].removed_at != null) throw removedError(meta[0]);
 
   const { rows } = await db.execute({
     sql: `SELECT row_data FROM staged_dataset_rows WHERE dataset_id = ? ORDER BY row_index ASC`,
@@ -314,9 +622,6 @@ export async function getStagedDatasetRows(options: {
   );
 }
 
-/**
- * Get dataset metadata (no rows), asserting scope.
- */
 export async function getStagedDatasetMeta(options: {
   id: string;
   appId: string;
@@ -325,16 +630,14 @@ export async function getStagedDatasetMeta(options: {
   await ensureTables();
   const db = getDbExec();
   const { rows } = await db.execute({
-    sql: `SELECT id, app_id, owner_email, name, columns, row_count, byte_size, created_at, updated_at FROM staged_datasets WHERE id = ? AND app_id = ? AND owner_email = ?`,
+    sql: `SELECT id, app_id, owner_email, name, columns, row_count, byte_size, created_at, updated_at, removed_at, removed_reason FROM staged_datasets WHERE id = ? AND app_id = ? AND owner_email = ?`,
     args: [options.id, options.appId, options.ownerEmail],
   });
   if (rows.length === 0) return null;
+  if (rows[0].removed_at != null) throw removedError(rows[0]);
   return rowToMeta(rows[0]);
 }
 
-/**
- * List all datasets scoped to (appId, ownerEmail), newest first.
- */
 export async function listStagedDatasets(options: {
   appId: string;
   ownerEmail: string;
@@ -342,15 +645,11 @@ export async function listStagedDatasets(options: {
   await ensureTables();
   const db = getDbExec();
   const { rows } = await db.execute({
-    sql: `SELECT id, app_id, owner_email, name, columns, row_count, byte_size, created_at, updated_at FROM staged_datasets WHERE app_id = ? AND owner_email = ? ORDER BY updated_at DESC`,
+    sql: `SELECT id, app_id, owner_email, name, columns, row_count, byte_size, created_at, updated_at FROM staged_datasets WHERE app_id = ? AND owner_email = ? AND removed_at IS NULL ORDER BY updated_at DESC`,
     args: [options.appId, options.ownerEmail],
   });
   return rows.map(rowToMeta);
 }
-
-// ---------------------------------------------------------------------------
-// Delete
-// ---------------------------------------------------------------------------
 
 export async function deleteStagedDataset(options: {
   id: string;
@@ -359,29 +658,20 @@ export async function deleteStagedDataset(options: {
 }): Promise<boolean> {
   await ensureTables();
   const db = getDbExec();
-  // Scope check
-  const { rows: meta } = await db.execute({
-    sql: `SELECT id FROM staged_datasets WHERE id = ? AND app_id = ? AND owner_email = ?`,
-    args: [options.id, options.appId, options.ownerEmail],
-  });
-  if (meta.length === 0) return false;
-
-  const result = await withDbTransaction(db, async (tx) => {
+  return withDbTransaction(db, async (tx) => {
+    await lockStagedDatasetApp(tx, options.appId);
+    const removed = await tx.execute({
+      sql: `DELETE FROM staged_datasets WHERE id = ? AND app_id = ? AND owner_email = ?`,
+      args: [options.id, options.appId, options.ownerEmail],
+    });
+    if (removed.rowsAffected === 0) return false;
     await tx.execute({
       sql: `DELETE FROM staged_dataset_rows WHERE dataset_id = ?`,
       args: [options.id],
     });
-    return tx.execute({
-      sql: `DELETE FROM staged_datasets WHERE id = ? AND app_id = ? AND owner_email = ?`,
-      args: [options.id, options.appId, options.ownerEmail],
-    });
+    return true;
   });
-  return result.rowsAffected > 0;
 }
-
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
 
 function rowToMeta(row: Record<string, unknown>): StagedDatasetMeta {
   return {
@@ -414,7 +704,6 @@ async function withDbTransaction<T>(
   }
 }
 
-/** Reset the init promise (only used in tests). */
 export function _resetInitPromiseForTests(): void {
-  _initPromise = undefined;
+  stagedDatasetsStore.reset();
 }

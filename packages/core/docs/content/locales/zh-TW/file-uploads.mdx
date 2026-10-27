@@ -126,6 +126,8 @@ description: "為正式環境設定持久的檔案上傳儲存空間，可使用
 
 此框架已內建一個支援 S3 相容儲存空間的提供者（AWS S3、Cloudflare R2、MinIO 及類似服務）。您可以透過環境變數，或側邊欄的引導檢查清單來連接它，不需要撰寫任何程式碼。請參閱 [Onboarding](/docs/onboarding)。
 
+設定、引導檢查清單和 Clips 的 Video storage 顯示的都是同一個儲存表單。它會將 `S3_*` 的值儲存為工作區密鑰，只有組織擁有者和管理員可以儲存或清除這些值。除非已註冊的 `s3` 提供者設定了 `publicBaseUrlOptional: true`，否則 Public URL 為必填（Clips 有設定，因為它透過簽署請求讀回錄製內容）。**Clear credentials** 會先要求確認，然後刪除所有已儲存的儲存金鑰。現有檔案會保留在儲存貯體中。代理程式透過 `get-file-storage` 和 `manage-file-storage` 動作完成相同的操作。
+
 只有在需要使用不同種類的後端時，才需要註冊自訂提供者。以下範例會使用 `fetch()` 透過一般的 HTTP API 上傳檔案：
 
 ```ts filename="server/plugins/file-upload.ts"

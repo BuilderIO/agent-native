@@ -1,22 +1,5 @@
 import { Extension, Node, mergeAttributes } from "@tiptap/core";
 
-/**
- * Fidelity extensions that let the TipTap schema losslessly represent the
- * Notion-flavored-Markdown features the sync converter (`shared/nfm.ts`) needs:
- *
- *   - Block colors (`{color="red"}`) on paragraphs, headings, quotes, table
- *     cells/rows.
- *   - Visual indentation (Notion lets any block be a child of another). We model
- *     it as an `indent` attribute on paragraphs/headings, set by Tab — matching
- *     Notion, where Tab indents a block rather than turning it into a quote.
- *   - Synced blocks as a real container node so their children round-trip
- *     instead of being dropped (the previous atom modelling silently lost the
- *     synced content, risking deletion on push).
- *
- * These keep the editor's ProseMirror JSON a faithful mirror of the Notion
- * block tree so `docToNfm(editor.getJSON())` is byte-stable.
- */
-
 const COLOR_TYPES = [
   "paragraph",
   "heading",
@@ -27,6 +10,12 @@ const COLOR_TYPES = [
 ];
 const INDENT_TYPES = ["paragraph", "heading"];
 const MAX_INDENT = 12;
+
+export function blockColorClass(color: string) {
+  return color.endsWith("_bg")
+    ? `content-block-bg content-block-bg--${color.slice(0, -3)}`
+    : `content-block-color content-block-color--${color}`;
+}
 
 export const NotionBlockColor = Extension.create({
   name: "notionBlockColor",
@@ -41,13 +30,9 @@ export const NotionBlockColor = Extension.create({
             renderHTML: (attributes) => {
               if (!attributes.color) return {};
               const color = String(attributes.color);
-              const isBg = color.endsWith("_bg");
-              const base = isBg ? color.slice(0, -3) : color;
               return {
                 "data-notion-color": color,
-                class: isBg
-                  ? `notion-block-bg notion-block-bg--${base}`
-                  : `notion-block-color notion-block-color--${base}`,
+                class: blockColorClass(color),
               };
             },
           },
@@ -122,10 +107,6 @@ export const NotionBlockIndentAttr = Extension.create({
   },
 });
 
-/**
- * A synced block container. Children are real editor blocks so the synced
- * content round-trips to/from Notion instead of being discarded.
- */
 export const NotionSyncedBlock = Node.create({
   name: "notionSyncedBlock",
   group: "block",
@@ -152,7 +133,7 @@ export const NotionSyncedBlock = Node.create({
         "data-synced-reference": HTMLAttributes.isReference
           ? "true"
           : undefined,
-        class: "notion-synced-block",
+        class: "content-synced-block",
       }),
       0,
     ];

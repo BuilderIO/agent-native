@@ -24,6 +24,7 @@ import type {
   ContentDatabaseViewType,
   DocumentProperty,
 } from "../shared/api.js";
+import { normalizeContentDatabaseItemLayout } from "../shared/database-item-layout.js";
 import {
   databaseColumnWraps,
   databaseFrozenColumnIds,
@@ -235,9 +236,6 @@ export function documentContentPreview(content: string) {
   };
 }
 
-/** Shape written by the editor's `content-selection.ts` client helper. Kept
- *  as a local structural type (rather than imported from `app/`) since
- *  actions are server-only and app-state values are untrusted input anyway. */
 interface ContentSelectionAppState {
   documentId?: unknown;
   collapsed?: unknown;
@@ -247,12 +245,6 @@ interface ContentSelectionAppState {
   heading?: unknown;
 }
 
-/**
- * Build the `selection` screen section from the raw `content-selection`
- * app-state value, or return null when there is nothing usable — no value,
- * malformed value, or a selection left over from a document that isn't the
- * one currently open (the tab navigated away without clearing it in time).
- */
 export function buildSelectionScreenSection(
   selection: unknown,
   openDocumentId: string | undefined,
@@ -791,6 +783,17 @@ export function databaseCurrentViewSnapshot(
       "preview",
     formQuestions:
       arrayValue(nav.databaseFormQuestions) ?? activeView?.formQuestions ?? [],
+    ...(viewType === "list"
+      ? {
+          // An explicit null is a reset to default rows that may not be saved yet.
+          itemLayout:
+            nav.databaseItemLayout === null
+              ? null
+              : (normalizeContentDatabaseItemLayout(nav.databaseItemLayout) ??
+                activeView?.itemLayout ??
+                null),
+        }
+      : {}),
     visibleItemCount:
       numberValue(nav.databaseVisibleItemCount) ??
       response.pagination?.returnedItems ??
@@ -828,9 +831,11 @@ export default defineAction({
     const localFilesState = await readAppState("local-files");
     const contentSpaceState = await readAppState("content-space");
     const selectionState = await readAppStateForCurrentTab("content-selection");
+    const importState = await readAppStateForCurrentTab("content-import");
 
     const screen: Record<string, unknown> = {};
     if (navigation) screen.navigation = navigation;
+    if (importState) screen.contentImport = importState;
     if (suggestionMode) screen.suggestionMode = suggestionMode;
     if (contentSpaceState) screen.contentSpace = contentSpaceState;
 

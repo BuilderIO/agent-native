@@ -60,7 +60,7 @@ export function ReactionsTray({
   function fire(emoji: string) {
     if (disabled || savingEmoji === emoji) return;
     const id = ++idc;
-    const left = 10 + Math.random() * 80; // random horizontal variance within tray
+    const left = 10 + Math.random() * 80;
     setFloats((f) => [...f, { id, emoji, left }]);
     setTimeout(() => {
       setFloats((f) => f.filter((x) => x.id !== id));
@@ -107,7 +107,7 @@ export function ReactionsTray({
             <Button
               type="button"
               variant="ghost"
-              size="icon"
+              size="icon-sm"
               onClick={() => fire(emoji)}
               disabled={disabled || savingEmoji === emoji}
               aria-label={
@@ -120,7 +120,7 @@ export function ReactionsTray({
               data-reaction-count={reactionCounts[emoji] ?? 0}
               data-reaction-saved={savedEmoji === emoji}
               className={cn(
-                "relative size-8 rounded-full text-base transition-[background-color,transform,box-shadow] hover:scale-110 sm:size-9 sm:text-xl",
+                "relative rounded-full text-base transition-[background-color,transform,box-shadow] hover:scale-110 sm:size-9 sm:text-xl",
                 savedEmoji === emoji &&
                   "bg-accent shadow-[0_0_0_2px_hsl(var(--primary)/0.35)]",
                 savingEmoji === emoji && "animate-pulse",

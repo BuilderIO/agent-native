@@ -14,10 +14,6 @@ export function isDashboardReportScreenshot(search: string): boolean {
   return new URLSearchParams(search).get("reportScreenshot") === "1";
 }
 
-/**
- * The server verifies this scoped token on every action. This only prevents
- * the client session gate from redirecting an otherwise authorized capture.
- */
 export function hasDashboardReportEmbedToken(
   search: string,
   storedEmbedToken?: string | null,

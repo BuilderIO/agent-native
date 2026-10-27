@@ -1,11 +1,3 @@
-/**
- * Export Clips transcripts to Brain's signed ingest endpoint.
- *
- * Configure the destination with scoped credentials:
- *   - BRAIN_INGEST_URL: Brain generic ingest endpoint
- *   - BRAIN_INGEST_TOKEN: per-source bearer token
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { resolveCredential } from "@agent-native/core/credentials";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
@@ -19,6 +11,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { writeBrainExportState } from "../server/lib/brain-export-state.js";
+import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import {
   getActiveOrganizationId,
   getCurrentOwnerEmail,
@@ -612,10 +605,8 @@ export default defineAction({
   }),
   run: async (args) => {
     if (args.recordingId) {
-      const access = await assertAccess(
-        "recording",
-        args.recordingId,
-        "editor",
+      const access = assertRecordingNotExpired(
+        await assertAccess("recording", args.recordingId, "editor"),
       );
       const destinationResult = await resolveBrainDestination();
       if (!destinationResult.destination) {

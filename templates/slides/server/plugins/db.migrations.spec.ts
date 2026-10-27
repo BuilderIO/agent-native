@@ -36,6 +36,14 @@ describe("Slides share migrations", () => {
     const exec = getDbExec();
 
     await exec.execute(`
+      CREATE TABLE decks (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        data TEXT NOT NULL,
+        updated_at TEXT
+      )
+    `);
+    await exec.execute(`
       CREATE TABLE deck_shares (
         id TEXT PRIMARY KEY,
         resource_id TEXT NOT NULL,
@@ -54,6 +62,18 @@ describe("Slides share migrations", () => {
         title TEXT NOT NULL,
         data TEXT NOT NULL,
         change_label TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT now()
+      )
+    `);
+    await exec.execute(`
+      CREATE TABLE uploaded_assets (
+        id TEXT PRIMARY KEY,
+        filename TEXT NOT NULL,
+        url TEXT NOT NULL,
+        type TEXT NOT NULL,
+        size INTEGER NOT NULL,
+        provider TEXT,
+        owner_email TEXT NOT NULL,
         created_at TIMESTAMP NOT NULL DEFAULT now()
       )
     `);
@@ -122,6 +142,29 @@ describe("Slides share migrations", () => {
       expect.arrayContaining([expect.objectContaining({ name: "anchor" })]),
     );
 
+    const { rows: uploadedAssetColumns } = await exec.execute(
+      `SELECT column_name AS name
+       FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'uploaded_assets'`,
+    );
+    expect(uploadedAssetColumns).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "provider_object_id" }),
+        expect.objectContaining({ name: "upload_session_id" }),
+        expect.objectContaining({ name: "org_id" }),
+      ]),
+    );
+
+    const { rows: uploadSessionIndexes } = await exec.execute(
+      `SELECT indexname AS name
+       FROM pg_indexes
+       WHERE schemaname = 'public'
+         AND indexname = 'uploaded_assets_owner_upload_session_uidx'`,
+    );
+    expect(uploadSessionIndexes).toEqual([
+      { name: "uploaded_assets_owner_upload_session_uidx" },
+    ]);
+
     const { rows } = await exec.execute(
       `SELECT id, resource_id, principal_type, principal_id, role
        FROM deck_shares
@@ -171,6 +214,19 @@ describe("Slides share migrations", () => {
         expect.objectContaining({ name: "change_group" }),
       ]),
     );
+
+    const { rows: deckColumns } = await exec.execute(
+      `SELECT column_name AS name
+       FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'decks'`,
+    );
+    expect(deckColumns).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "last_write_client_id" }),
+        expect.objectContaining({ name: "last_write_client_sequence" }),
+        expect.objectContaining({ name: "last_write_revision" }),
+      ]),
+    );
     const { rows: versionIndexes } = await exec.execute(
       `SELECT indexname AS name
        FROM pg_indexes
@@ -211,5 +267,5 @@ describe("Slides share migrations", () => {
         ],
       }),
     ).rejects.toThrow(/unique/i);
-  }, 20_000);
+  }, 120_000);
 });

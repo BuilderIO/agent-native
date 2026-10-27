@@ -1,22 +1,248 @@
 ---
 title: "AWS Amplify"
-description: "Localized pointer to the Nitro aws_amplify preset."
+description: "スタンドアロンの Agent-Native アプリを、Git リポジトリから AWS Amplify Hosting にデプロイします。"
 ---
-
-<!-- i18n-docs-ignore -->
 
 # AWS Amplify
 
-Read the [English AWS Amplify guide](/docs/aws-amplify) for build steps,
-persistent database configuration, and CloudFront caching.
+<Badge label="Beta" color="orange" icon="rocket" />
 
-The deployment must use a persistent PostgreSQL database. Configure `DATABASE_URL`
-and `BETTER_AUTH_SECRET` in the provider environment. The Nitro preset is
-`aws_amplify`.
+AWS Amplify Hosting が Git リポジトリからアプリをビルドしてホストしてくれるため、サーバーを用意したり動かし続けたりする必要はありません。Amplify はアプリの静的ファイルを CloudFront 経由で配信し、ページと API のためにアプリのサーバーを実行します。また、Amplify はアプリに HTTPS 対応の公開アドレスを割り当てます。
 
-The framework uses Nitro's Node.js 24 compute runtime and
-`AMPLIFY_MONOREPO_APP_ROOT=templates/calendar` for the calendar monorepo build.
+このガイドでは、スタンドアロン アプリを 1 つ、ゼロからデプロイする手順を説明します。アプリを作成して Git リポジトリにプッシュし、本番用のデータベースと認証シークレットを用意し、データベースを準備し、Amplify のビルド設定を追加してから、Amplify アプリを作成します。
 
-The English guide also documents generated runtime environment handling, safe
-CLI map merging, AWS CLI commands, the optional response-streaming Lambda
-origin, and streaming keepalive behavior.
+<Callout tone="info">
+
+Node.js `22.22+` が必要です。
+
+</Callout>
+
+AWS アカウントと、GitHub、GitLab、Bitbucket、AWS CodeCommit のいずれかにあるリポジトリも必要です。このガイドのコマンドは自分のコンピューター上で実行してください。アプリのビルドと実行は、Amplify がリポジトリから行います。
+
+## ステップ 1: アプリを作成する {#step-1-create-the-app}
+
+新しいスタンドアロン アプリを作成します。以下の例では Chat テンプレートからアプリを作成していますが、どのテンプレートから始めてもかまいません。アプリのフォルダーに移動し、依存関係をインストールします。`corepack enable` はアプリが想定する `pnpm` のバージョンを有効にするため、`pnpm` を自分でインストールする必要はありません。
+
+```bash
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
+```
+
+必要に応じて、`my-app` を自分のアプリ名に置き換えてください。このガイドの以降の手順は、アプリのフォルダー内にいることを前提としています。
+
+Amplify は Git リポジトリからアプリをビルドするため、先に進む前に、アプリのフォルダーを新しいリポジトリにプッシュしてください。ステップ 4 でもう 1 つファイルを追加し、もう一度プッシュします。
+
+<Callout tone="info">
+
+これらのコマンドがピア依存関係のエラーで失敗する場合は、npx キャッシュ内の古いパッケージが原因の可能性があります。`npx clear-npx-cache` を実行してキャッシュを消去してから、もう一度コマンドを実行してください。
+
+</Callout>
+
+## ステップ 2: 環境シークレットを設定する {#step-2-configure-environment-secrets}
+
+アプリは本番用の設定を環境変数から読み取ります。
+
+| 変数                 | 必須   | 用途                                                 |
+| -------------------- | ------ | ---------------------------------------------------- |
+| `DATABASE_URL`       | はい   | アプリを PostgreSQL データベースに接続する           |
+| `BETTER_AUTH_SECRET` | はい   | ユーザー セッションに署名する                        |
+| `BETTER_AUTH_URL`    | いいえ | ユーザーがアプリにアクセスする公開アドレスを設定する |
+
+以下の export により、このシェルで後続のコマンドが動作するようになります。デプロイする前に、同じ変数をホストのプロジェクトまたはサービスの環境設定にも保存してください。Amplify に保存する方法はステップ 5 で説明します。
+
+<Callout tone="warning">
+
+Amplify は環境変数をビルドには渡しますが、実行中のサーバーには渡しません。変数を利用できるようにするため、Agent-Native のビルドはアプリが宣言した変数をサーバー バンドル内の `.env` ファイルに書き込みます。アプリのデプロイ成果物にアクセスできる人は誰でもこのファイルを読めるため、AWS アカウント内でそれらにアクセスできる人を制限してください。
+
+</Callout>
+
+### データベース URL {#database-url}
+
+ローカル開発中、`DATABASE_URL` が設定されていない場合、アプリはデータをローカル データベースに保存します。デプロイしたアプリには、デプロイ後もデータを保持する本物の PostgreSQL データベースが必要です。Amplify はリクエスト間でファイルを保持しないため、データベースは Amplify の外に置く必要があります。プロバイダーから接続文字列をコピーし、export します。
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+[Amazon RDS for PostgreSQL](/docs/aws-rds) を含め、各プロバイダーで接続文字列を確認する場所は、[データベース プロバイダー ガイド](/docs/neon)で説明しています。
+
+<Callout tone="warning">
+
+Neon、Supabase、Amazon RDS などの永続的な PostgreSQL プロバイダーを選択してください。
+
+</Callout>
+
+### 認証シークレット {#auth-secret}
+
+この値は一度だけ生成し、デプロイ間で変更しないでください。
+
+アプリは `BETTER_AUTH_SECRET` を使ってユーザー セッションに署名します。この値が変わると、サインイン中のすべてのユーザーがサインアウトされます。以下のコマンドでランダムな値を生成します。
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+生成した値は、パスワード マネージャーなど、安全な場所に保存してください。デプロイのたびに同じ値を使用します。
+
+### 公開 URL {#public-url}
+
+省略可能です。カスタム ドメイン、リバース プロキシ、または固定の公開オリジンを必要とする認証や OAuth のフローを使う場合に設定します。
+
+`BETTER_AUTH_URL` は、ユーザーがアプリにアクセスする公開アドレスです。設定しない場合、アプリは受信したリクエストごとに自身のアドレスを判断します。Amplify が割り当てるアドレスでは通常それで問題ありませんが、カスタム ドメインを接続する場合は、サインイン リンクや OAuth のリダイレクトがそのドメインを使うように設定してください。
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## ステップ 3: マイグレーション {#step-3-migrate}
+
+マイグレーションは、アプリに必要なテーブルをデータベースに作成し、更新します。最初のデプロイの前にこれを実行してください。
+
+```bash
+pnpm migrate:production
+```
+
+このコマンドは自分のコンピューター上で実行され、ステップ 2 で export した `DATABASE_URL` を使って本番データベースに接続します。アプリをアップグレードした後は、新しいバージョンをデプロイする前にもう一度実行してください。
+
+## ステップ 4: Amplify のビルド設定を追加する {#step-4-add-amplifys-build-settings}
+
+アプリのルート フォルダーの `package.json` と同じ場所に `amplify.yml` という名前のファイルを作成し、次の内容をコピーします。
+
+```yaml filename="amplify.yml"
+version: 1
+frontend:
+  phases:
+    preBuild:
+      commands:
+        - nvm install 24
+        - corepack enable
+        - pnpm install
+    build:
+      commands:
+        - NITRO_PRESET=aws_amplify pnpm build
+  artifacts:
+    baseDirectory: .amplify-hosting
+    files:
+      - "**/*"
+```
+
+このファイルは、アプリのビルド方法を Amplify に伝えます。
+
+- **preBuild** では、ビルドを Node.js 24 に切り替え、アプリの `pnpm` のバージョンを有効にして、依存関係をインストールします。
+- **build** では、Amplify Hosting が想定する形式である `NITRO_PRESET=aws_amplify` でアプリをビルドします。
+- **artifacts** では、ビルドが作成する `.amplify-hosting` フォルダーをデプロイするよう Amplify に指示します。
+
+ビルドは、Amplify が必要とするものをすべてこのフォルダーに書き込みます。
+
+<FileTree
+  id="aws-amplify-build-output"
+  entries={[
+    {
+      path: ".amplify-hosting/static/",
+      note: "CloudFront 経由で配信されるアプリの静的ファイル。",
+    },
+    {
+      path: ".amplify-hosting/compute/default/server.js",
+      note: "Amplify のコンピューティング上でアプリのサーバーを起動する。",
+    },
+    {
+      path: ".amplify-hosting/compute/default/.env",
+      note: "ビルド時にコピーされる、アプリが宣言した変数。",
+    },
+    {
+      path: ".amplify-hosting/deploy-manifest.json",
+      note: "静的ファイルは静的ホストに、それ以外のリクエストはすべてサーバーに送る。",
+    },
+  ]}
+/>
+
+`amplify.yml` をコミットし、リポジトリにプッシュします。
+
+## ステップ 5: Amplify アプリを作成する {#step-5-create-the-amplify-app}
+
+[Amplify コンソール](https://console.aws.amazon.com/amplify/)でアプリを作成します。
+
+<Steps>
+
+### リポジトリを接続する
+
+**Deploy an app** を選びます。**Start building with Amplify** ページで Git プロバイダーを選び、**Next** を選びます。初回は、リポジトリを読み取る権限を Amplify が求めます。
+
+### ブランチを選ぶ
+
+**Add repository branch** ページで、ステップ 1 のリポジトリとブランチを選び、**Next** を選びます。
+
+### ビルド設定を確認する
+
+**App settings** ページでは、Amplify が `amplify.yml` からビルド設定を読み取ります。**Build output directory** が `.amplify-hosting` になっていることを確認してください。**Create and use a new service role** を選びます。
+
+### 環境変数を追加する
+
+**Advanced settings** で、ステップ 2 で export した値を使って `DATABASE_URL` と `BETTER_AUTH_SECRET` を追加します。`BETTER_AUTH_URL` を設定した場合は、同じ方法で追加してください。その後、**Next** を選びます。
+
+### デプロイする
+
+**Review** ページで **Save and deploy** を選びます。
+
+</Steps>
+
+## ステップ 6: アプリを開く {#step-6-open-the-app}
+
+最初のビルドには数分かかります。その進行状況は Amplify コンソールで確認できます。完了したら、`https://main.d1m7bkiki6tdw1.amplifyapp.com` のような形式のアプリのアドレスを開き、最初のアカウントを作成します。
+
+その後、次の点を確認してください。
+
+- ホーム ページが読み込まれる。
+- `/assets/` 配下のファイルが読み込まれる。これは静的ファイルが配信されていることを示します。
+- サインインでき、作成したデータが再読み込み後も残っている。
+
+## 更新をデプロイする {#deploy-updates}
+
+Amplify は、ステップ 5 で選んだブランチにプッシュするたびにビルドと再デプロイを行います。新しいバージョンをリリースするには、先にマイグレーションを実行してからプッシュします。
+
+```bash
+pnpm migrate:production
+
+git push
+```
+
+ビルドは環境変数をサーバー バンドルにコピーするため、変数の変更は次のビルドの後にのみ反映されます。Amplify コンソールで変数を変更した後は、コミットをプッシュするか、最新のビルドを再デプロイしてください。
+
+## キャッシュ {#caching}
+
+Amplify は CloudFront 経由でアプリを配信します。アプリの公開ページ シェルは次の `Cache-Control` ヘッダーを送信し、Amplify はそれに従います。
+
+```txt
+public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600
+```
+
+CloudFront はシェルを 10 分間新しい状態として保持し、新しいコピーを取得している間は古いコピーを配信でき、エラー時にもそれを配信できます。個人データはページが開いた後にブラウザーで読み込まれるため、共有シェルに含まれることはありません。静的ファイルは最大 1 年間キャッシュされ、新しいデプロイのたびに Amplify のキャッシュはクリアされます。
+
+Amplify のデフォルト設定である **Remove cookies from cache key** はオンのままにしてください。`customHttp.yml` にグローバルな `Cache-Control` ルールを追加しないでください。プライベート ルートの `no-store` ヘッダーを上書きしてしまう可能性があるためです。シェルのキャッシュを短くしたりオフにしたりするには、`AGENT_NATIVE_SSR_CACHE` を設定します。ポリシーの詳細は [SSR キャッシュ](/docs/ssr-caching)で説明しています。
+
+## エージェントの応答をストリーミングする {#stream-agent-responses}
+
+Amplify の CloudFront 経路では応答の小さなチャンクが保留されることがあるため、エージェントのチャットの返信が 1 語ずつではなく、まとまって届くことがあります。それらを直接ストリーミングするために、Agent-Native はチャット ストリームだけを配信する別の Lambda 関数を追加できます。
+
+```bash
+npx agent-native amplify-stream \
+  --amplify-app-id your-amplify-app-id \
+  --branch main \
+  --region us-east-1 \
+  --env-file .env
+```
+
+このコマンドは、ストリーミング対応の関数 URL と 15 分のタイムアウトを持つ Node.js 24 の Lambda 関数として、チャット ストリームをビルドします。関数のアドレスを Amplify のブランチに保存し、新しいリリースを開始します。ブラウザーはそれ以外のすべてには引き続き Amplify アプリを使い、チャットのリクエストだけを関数に送ります。
+
+このコマンドは `--env-file` で渡したファイルからアプリの変数を読み取るため、そのファイルには Amplify アプリと同じ `DATABASE_URL`、`BETTER_AUTH_SECRET`、その他の値が必要です。また、Lambda、IAM、Amplify を管理できる AWS CLI の認証情報も必要です。リリースを開始せずにアドレスだけを保存するには、`--skip-release` を追加します。ストリーム関数が利用できない場合、チャットは通常の Amplify のルートにフォールバックします。
+
+## 次のステップ {#whats-next}
+
+- [**SSR キャッシュ**](/docs/ssr-caching) - デフォルトのキャッシュ ポリシーとその変更方法
+- [**デプロイ環境変数**](/docs/deployment-environment-variables) - 本番設定の完全な一覧
+- [**デプロイ**](/docs/deployment) - ホスティング ターゲットと前提条件を比較する

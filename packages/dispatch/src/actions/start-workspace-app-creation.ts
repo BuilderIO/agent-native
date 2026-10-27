@@ -22,7 +22,6 @@ const attachmentSchema = z.discriminatedUnion("type", [
     name: z.string().min(1),
     dataUrl: z.string(),
     text: z.string().optional(),
-    size: z.number().int().nonnegative(),
     id: z.string().min(1),
   }),
   z.object({

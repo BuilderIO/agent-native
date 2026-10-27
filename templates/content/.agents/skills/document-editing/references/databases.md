@@ -42,11 +42,17 @@ summaries for the visible rows, plus row count and total row count, so agents
 can tell whether the user is looking at the full collection or a constrained
 slice and can refer to the same rows and cells the user can currently scan;
 for calendar and timeline views this summary is limited to rows in the
-current visible date window plus rows shown in the "No date" section. When
+current visible date window plus rows shown in the "No date" section. Each
+cell summary carries display `text` (cut at 200 characters with
+`textTruncated: true`) and carries `value` only when it differs from that
+text; read the row with `get-content-database` for full values. The row cap
+shrinks to keep the whole navigation state under 48 KB, and
+`databaseVisibleItemLimit` reports the cap actually applied. When
 footer calculations are active, navigation state also includes
 `databaseCalculationResults` with the visible result text for each calculated
 column. When table rows are selected, navigation state also includes
-`databaseSelectedItemCount` and `databaseSelectedItems`, and
+`databaseSelectedItemCount` and `databaseSelectedItems` (under the same
+row cap), and
 `view-screen.databaseCurrentView` mirrors that selected row summary.
 `view-screen` exposes the same slice as `databaseCurrentView` alongside the
 full collection payload. Its row property summaries should mirror the active
@@ -82,7 +88,7 @@ stable IDs identify edits. Sparse patches preserve omitted fields, and empty
 lists explicitly clear supported settings.
 
 Ordinary setup supports stored property types, additive options, metadata edits,
-the existing text natural key, and table presentation. It refuses destructive
+the existing text natural key, table presentation, and list row layouts. It refuses destructive
 type/option changes, source-managed schema edits, and relationship/computed-field
 authoring. Source status is readable, but this surface does not define joins,
 row unions, source bindings, or write-mode changes. Discovery of a source-backed
@@ -114,12 +120,37 @@ Each additional Blocks field stores its own content in
 `document_block_field_contents`, keyed by `(document_id, property_id)`, so no
 two Blocks fields ever share content — adding a second Blocks field creates a
 new, empty, independent field. On the page: one Blocks field renders
-chromeless (no header, just the body); two or more each show their name as a
-header and are collapsible and reorderable (the surviving lone field keeps
-its stored name). In table views a Blocks column shows a word count (e.g.
-"412 words"), not the body. A Blocks field can only be deleted from the
-collection view's column menu (not from the page body); deleting the last
-Blocks field warns that it removes the body for every object of the type.
+chromeless (no header, just the body); two or more show as a row of tabs that
+sticks to the top while scrolling.
+
+People rarely say "Blocks field". They say tabs, page tabs, document tabs, or
+sections, or name one by its field ("the Notes tab"). Each of those is a Blocks
+field: "add a tab" means adding a `blocks` property with
+`configure-document-property`, "rename the Notes tab" means renaming that
+property, and "what's in my Notes tab" means reading that field. Fields are
+defined on the collection, so adding, renaming, or deleting one changes it on
+every row. Say so before doing it for someone who asked about one page.
+
+Each tab shows the field's name and word count, tabs reorder by dragging, and a
+dot marks a tab that changed since this browser last showed it. People who can
+change the collection's properties also get "+" after the last tab, which adds
+a Blocks field and opens it with its name ready to type, and a menu with Rename
+and Delete on each tab (click the open tab, right-click any tab, or press F2 on
+one to rename it). Only one field shows at a time, but every field's editor
+stays open. `/page/<id>?field=<propertyId>`
+opens a given tab (no `field` means the first), so `navigate` with that path
+shows a person a specific field, and `navigation` reports the open tab as
+`fieldId`. Each tab has its own comments: text selected in a tab is commented
+there, the comment margin shows only the open tab's threads, and each tab shows
+its open-comment count. Opening a comment from the Comments panel or a link
+switches to its tab, and the panel groups and filters threads by tab when the
+page has two or more Blocks fields. Agents pass `fieldId` to `add-comment` (see
+Comments in SKILL.md). The surviving lone field
+keeps its stored name when fields are deleted back down to one. In table views a
+Blocks column shows a word count (e.g. "412 words"), not the body. A Blocks
+field is renamed or deleted from its tab's menu or the collection view's column
+menu. Deleting one can't be undone and removes its text from every row; the
+tab's confirmation warns when the field is the page body.
 
 For one-block agent edits, call `list-content-database-blocks` with the exact
 space, collection, backing document, membership row, row document, and property
@@ -143,17 +174,75 @@ timeline, and form views saved in `content_databases.view_config_json`. Each
 view has its own stacked sorts, type-aware filters with an all/any match
 mode, per-view hidden property IDs, column widths, and (for table, list,
 gallery, and board views) grouping property or (for calendar/timeline views)
-date property: text-like fields can use contains/exact/empty filters, numbers
-support comparisons, dates support before/after, and checkboxes support
-checked/unchecked. Users can reorder stacked sort and filter conditions from
-the collection toolbar menus, and sort priority follows the same top-to-bottom
-order shown in the menu.
+date property: text-like fields can use contains, does not contain, is, is
+not, starts with, ends with, and empty filters (all ignore case), numbers
+support comparisons, dates support is, before, after, on or before, on or
+after, between, and is within (and is not, for rules that already use it), and
+checkboxes support checked/unchecked.
+Users can reorder stacked sort and filter conditions from the collection
+toolbar menus, and sort priority follows the same top-to-bottom order shown in
+the menu. "Does not contain" matches rows with an empty value; starts with and
+ends with do not. A text filter with no value is ignored.
+
+Date filter values are `YYYY-MM-DD`, an ISO date and time
+(`YYYY-MM-DDTHH:mm`, with optional seconds and an optional offset such as `Z`
+or `+02:00`), or a relative token. Other formats, such as `10/22/2026` or
+`2026-10`, are not read.
+`equals`, `does_not_equal`, `before`, `after`, `on_or_before`, `on_or_after`,
+and each end of a `between` pair accept `today`, `tomorrow`, or `yesterday`;
+`is_within` takes a relative range, as Notion's does: `past_<n>_<unit>`,
+`next_<n>_<unit>`, or `this_<unit>`, where n is a whole number from 1 to 999
+and the unit is `day`, `week`, `month`, or `year`, singular when n is 1 and
+plural otherwise (`past_7_days`, `next_1_week`, `past_2_months`,
+`this_year`). Either number reads, but write the fitting one. Ranges are
+whole calendar days counting today: `past_7_days` is today and the six days
+before it, `next_1_month` runs from today through the day before the same date
+next month, and a month or year that lands past a shorter month's end takes
+that month's last day: a month back from 31 March starts on 1 March, and a
+month on from 31 January runs through 28 February. `this_day` is today,
+`this_week` runs Sunday to Saturday, and `this_month` and `this_year` are the
+calendar month and year. Store the token, not a date: it is resolved each time
+the view is read, in the caller's time zone (the browser's, or the
+`x-user-timezone` request header on the server, falling back to the server's
+zone). Dates still take `does_not_equal`, though the UI's date menu offers it
+only to a rule that already uses it. `update-content-database-view`
+and `update-content-database-personal-view` reject an unknown `is_within`
+token and a date they cannot read, such as `2026-02-30`, in every form they
+accept; an empty value or an unfinished `between` end still saves, and such a
+filter is skipped when rows are read until it's filled in. Only filters
+a save adds or changes are checked, so a view still holding an unreadable date
+from before these checks saves with other edits. Each view is compared with its
+own saved filters, and a new one, such as a duplicated view, with every view's.
+
+When either the filter value or a row's value has no time, they are compared
+by calendar day. A value without a time covers its whole day and is compared
+with the date a row's value is written on, so "on or before today" includes a
+row due at 18:00 today and created/edited times fall on their UTC date. A row
+without a time is compared with the day a timed value falls on in the caller's
+time zone. When both have a time, they are compared as moments. A time written
+without an offset, like a date property's `2026-10-22T18:00`, is a wall-clock
+time read in the caller's time zone, so a filter means the same moment in the
+browser and on the server. A wall-clock time a daylight-saving change skips
+moves forward by the change, and one it repeats is the first of the two. A
+`between` whose start comes after its end is read the other way round.
+
+Filters can be grouped. Rules with `filterGroupId: "advanced"` and no parent
+form the UI's advanced filter; rules with `parentFilterGroupId: "advanced"` and
+their own `filterGroupId` (the UI uses `advanced-<id>`) form a group nested one
+level inside it. The view's `filterMode` combines ungrouped rules with each
+top-level group as one member. A group's And/Or lives on its rules:
+`filterGroupMode` is the mode of the rule's `filterGroupId`, and
+`parentFilterGroupMode` (nested rules only) is the mode of its parent. Write a
+group's mode onto every rule in it; the first rule that stores one wins, and a
+group with none inherits the view's `filterMode`. `update-content-database-view`
+rejects a group mode on a rule without the matching group ID.
 
 New rows created from a filtered UI view inherit simple editable equality and
 checkbox filters as initial property values, resolving option labels back to
 stable option IDs for select, status, and multi-select filters, so a row
 created under "Status is Published" remains visible instead of immediately
-disappearing. Agents can mirror that behavior by passing
+disappearing. A date "is today" (or tomorrow/yesterday) filter seeds that
+day; ranges and the other text and date operators seed nothing. Agents can mirror that behavior by passing
 the discovered property IDs in `propertyValues` to `add-database-item`. The
 action also requires the exact space/collection/backing-page target, current
 schema revision, and a caller-stable idempotency key. Filter
@@ -163,7 +252,10 @@ option from the typed query, and property settings can rename option labels
 or change option colors while preserving stable option IDs. Option-backed
 filter value pickers are searchable, can create a new option from the typed
 query, and can be cleared without removing the whole filter row. Date
-properties use date inputs, and number properties use numeric inputs.
+filters, and each end of a `between` range, choose an exact date or a relative
+day; a value with a time is edited as text so the time isn't dropped.
+`is_within` chooses Past, This, or Next, a count for Past and Next, and a
+unit, and number properties use numeric inputs.
 
 Column header menus can add or clear column sorts, add or replace type-aware
 quick filters (including checked/unchecked for checkbox fields), clear
@@ -198,6 +290,23 @@ view body. The collection Properties menu can search fields and show or hide
 all fields for the current view, and it includes a New property control for
 adding fields without returning to the table header. The New property picker
 supports searching property types by label or machine name.
+
+List views can save an item layout (`itemLayout`) that decides what each row
+shows: a start slot (page icon, a checkbox property, a status property, or
+nothing), the title weight, line 2 (a text, URL, or non-body Blocks property,
+or with `source: "page"` the first lines of each row's page, clamped to 1-3
+lines), and ordered property IDs for line 3 and the end of the row; end values
+move under the title on narrow screens and empty values take no space. While
+any list view shows page text, collection reads give each item an `excerpt`
+with the start of its page as plain text; other collections leave page bodies
+out of row reads. Ticking a row's checkbox writes the property through
+`set-document-property` and strikes the title through without moving the row.
+A view without `itemLayout` keeps the default rows. Agents update it with an
+`update-content-database-view` `update` patch on the list view: pass
+`itemLayoutPreset` (`checklist`, `reminders`, `tracker`, `digest`, or
+`default`), sparse `itemLayout` slots (omitted slots keep their value), or
+`itemLayout: null` to restore the default rows. List views accept only name,
+icon, and these layout fields on this path.
 
 In unconstrained table views, row drag handles can reorder collection item
 pages through `move-database-item`; pass both `databaseId` and `itemId` so the
@@ -269,7 +378,7 @@ property definition.
 Use `create-content-database`, `create-inline-content-database`,
 `get-content-database`, `list-trashed-content-databases`,
 `restore-content-database`, `add-database-item`, `update-database-item`,
-`upsert-database-item-by-key`, `duplicate-database-item`,
+`patch-database-items`, `upsert-database-item-by-key`, `duplicate-database-item`,
 `duplicate-database-items`, `remove-database-items`, `move-database-item`,
 `update-content-database-view`, `list-document-properties`,
 `configure-document-property`, `set-document-property`,
@@ -304,7 +413,12 @@ its persisted revision, read the rows again and build a fresh plan.
 When targeting more than one collection row, call `duplicate-database-items` or
 `remove-database-items` once with a native JSON array of `itemIds` or
 `documentIds`. Do not loop `duplicate-database-item` or `delete-document` for
-multi-row duplicate or membership-removal requests. Removing a row from a
+multi-row duplicate or membership-removal requests. To give several existing
+rows different values, such as a distinct rank per row, call
+`patch-database-items` once with up to 250 rows, each carrying its own item ID,
+document ID, row revision, and sparse patch from the same fresh read. The batch
+writes every row or none; after a conflict, reread only the rows its error
+lists. Do not loop `update-database-item` for multi-row edits. Removing a row from a
 collection preserves its Page, descendants, other collection memberships, and
 unrelated property values.
 

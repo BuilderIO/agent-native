@@ -1,49 +1,35 @@
-/**
- * HTTP route handlers for collaborative editing.
- *
- * Mounted under /_agent-native/collab/ by the collab plugin.
- */
-
 import {
   defineEventHandler,
   setResponseStatus,
   setResponseHeader,
   getRouterParam,
   getQuery,
+  getRequestHeader,
 } from "h3";
 import type { H3Event } from "h3";
+import * as Y from "yjs";
 
-import { readBody } from "../server/h3-helpers.js";
+import { readCollabBody } from "./payload.js";
 import { uint8ArrayToBase64, base64ToUint8Array } from "./storage.js";
 import * as manager from "./ydoc-manager.js";
 import { searchAndReplace as doSearchAndReplace } from "./ydoc-manager.js";
 
-/** Default maximum payload size (2 MB). Overridden by plugin via event.context. */
-const DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
-
-function getMaxPayloadBytes(event: H3Event): number {
-  return (event.context as any)?._collabMaxPayloadBytes ?? DEFAULT_MAX_BYTES;
-}
-
 /**
- * Check the serialized body length against the configured limit.
- * Returns true if within limits; sets 413 status and returns false otherwise.
+ * The client's state vector, or null when it is not one. A vector is a flat
+ * list of clocks, read in one pass and bounded by the URL, so reading it
+ * here is not the document decode live copies keep off this thread.
  */
-function enforcePayloadLimit(event: H3Event, body: unknown): boolean {
-  const maxBytes = getMaxPayloadBytes(event);
-  const encoded = typeof body === "string" ? body : JSON.stringify(body ?? "");
-  if (encoded.length > maxBytes) {
-    setResponseStatus(event, 413);
-    return false;
+function readStateVector(encoded: string): Uint8Array | null {
+  try {
+    const stateVector = base64ToUint8Array(encoded);
+    Y.decodeStateVector(stateVector);
+    return stateVector;
+    // coercion-ok: null is this reader's typed "not a state vector"; the route answers 400
+  } catch {
+    return null;
   }
-  return true;
 }
 
-/**
- * GET /_agent-native/collab/:docId/state
- *
- * Returns full Yjs document state as base64 for initial client load.
- */
 export const getCollabState = defineEventHandler(async (event: H3Event) => {
   setResponseHeader(event, "Cache-Control", "private, no-store");
   const docId = getRouterParam(event, "docId");
@@ -55,34 +41,39 @@ export const getCollabState = defineEventHandler(async (event: H3Event) => {
   const query = getQuery(event);
   const encodedStateVector =
     typeof query.stateVector === "string" ? query.stateVector : null;
-  let state: Uint8Array;
-  if (encodedStateVector) {
+  let activityBaseline:
+    | { status: "ready"; version: number; cursor: string }
+    | { status: "unavailable" }
+    | undefined;
+  if (getRequestHeader(event, "x-agent-native-poll-baseline") === "1") {
     try {
-      state = await manager.getIncUpdate(
-        docId,
-        base64ToUint8Array(encodedStateVector),
-      );
+      const { getCurrentPollBaseline } = await import("../server/poll.js");
+      activityBaseline = {
+        status: "ready",
+        ...(await getCurrentPollBaseline()),
+      };
     } catch {
-      setResponseStatus(event, 400);
-      return { error: "stateVector must be base64-encoded" };
+      activityBaseline = { status: "unavailable" };
     }
+  }
+  let state: Uint8Array;
+  if (encodedStateVector !== null) {
+    const stateVector = readStateVector(encodedStateVector);
+    if (!stateVector) {
+      setResponseStatus(event, 400);
+      return { error: "stateVector must be a base64-encoded Yjs state vector" };
+    }
+    state = await manager.getIncUpdate(docId, stateVector);
   } else {
     state = await manager.getState(docId);
   }
   return {
     docId,
     state: uint8ArrayToBase64(state),
+    ...(activityBaseline ? { activityBaseline } : {}),
   };
 });
 
-/**
- * POST /_agent-native/collab/:docId/update
- *
- * Client sends a Yjs update (base64). Server applies it, persists, and
- * emits a change event so other clients pick it up via polling.
- *
- * Body: { update: string (base64), requestSource?: string }
- */
 export const postCollabUpdate = defineEventHandler(async (event: H3Event) => {
   const docId = getRouterParam(event, "docId");
   if (!docId) {
@@ -90,10 +81,7 @@ export const postCollabUpdate = defineEventHandler(async (event: H3Event) => {
     return { error: "docId required" };
   }
 
-  const rawBody = await readBody(event);
-  if (!enforcePayloadLimit(event, rawBody)) {
-    return { error: "Payload too large" };
-  }
+  const rawBody = await readCollabBody(event);
   const { update, requestSource } = rawBody as {
     update?: string;
     requestSource?: string;
@@ -105,19 +93,11 @@ export const postCollabUpdate = defineEventHandler(async (event: H3Event) => {
   }
 
   const binary = base64ToUint8Array(update);
-  await manager.applyUpdate(docId, binary, requestSource);
+  const outcome = await manager.applyUpdate(docId, binary, requestSource);
 
-  return { ok: true };
+  return outcome ? { ok: true, ...outcome } : { ok: true };
 });
 
-/**
- * POST /_agent-native/collab/:docId/text
- *
- * Agent sends full text content. Server computes diff against current
- * Yjs state and applies minimal operations.
- *
- * Body: { text: string, fieldName?: string, requestSource?: string }
- */
 export const postCollabText = defineEventHandler(async (event: H3Event) => {
   const docId = getRouterParam(event, "docId");
   if (!docId) {
@@ -125,10 +105,7 @@ export const postCollabText = defineEventHandler(async (event: H3Event) => {
     return { error: "docId required" };
   }
 
-  const rawBody = await readBody(event);
-  if (!enforcePayloadLimit(event, rawBody)) {
-    return { error: "Payload too large" };
-  }
+  const rawBody = await readCollabBody(event);
   const { text, fieldName, requestSource } = rawBody as {
     text?: string;
     fieldName?: string;
@@ -150,14 +127,6 @@ export const postCollabText = defineEventHandler(async (event: H3Event) => {
   return { ok: true, text: result };
 });
 
-/**
- * POST /_agent-native/collab/:docId/search-replace
- *
- * Search-and-replace text in the Y.XmlFragment (ProseMirror tree).
- * Produces minimal Yjs operations for cursor-preserving updates.
- *
- * Body: { find: string, replace: string, requestSource?: string }
- */
 export const postCollabSearchReplace = defineEventHandler(
   async (event: H3Event) => {
     const docId = getRouterParam(event, "docId");
@@ -166,10 +135,7 @@ export const postCollabSearchReplace = defineEventHandler(
       return { error: "docId required" };
     }
 
-    const rawBody = await readBody(event);
-    if (!enforcePayloadLimit(event, rawBody)) {
-      return { error: "Payload too large" };
-    }
+    const rawBody = await readCollabBody(event);
     const { find, replace, requestSource } = rawBody as {
       find?: string;
       replace?: string;

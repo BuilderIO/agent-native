@@ -12,7 +12,7 @@ import {
 
 export default defineAction({
   description:
-    "Write durable Brain knowledge. Evidence quotes must be exact substrings of captures; company-tier writes may become approval proposals.",
+    "Write durable Brain knowledge. Evidence quotes must be exact substrings of captures.",
   schema: z.object({
     knowledgeId: z
       .string()
@@ -38,7 +38,6 @@ export default defineAction({
       .string()
       .optional()
       .describe("Existing knowledge item this entry replaces"),
-    proposalMode: z.enum(["auto", "always", "never"]).default("auto"),
     rationale: z.string().optional(),
     redactions: z.preprocess(
       parseJsonCliInput,
@@ -48,7 +47,7 @@ export default defineAction({
       .boolean()
       .default(false)
       .describe(
-        "When true, mirror approved/published knowledge to context/company-brain/... workspace resources.",
+        "When true, mirror published knowledge to context/company-brain/... workspace resources.",
       ),
   }),
   run: async (args) => writeKnowledgeRecord(args),

@@ -1,27 +1,6 @@
-/**
- * Server-side Yjs document manager with LRU caching and SQL persistence.
- *
- * Performance notes:
- * - `getDoc()` loads the state blob from the DB on cache miss, then keeps the
- *   Y.Doc in memory. A cache hit still costs one version-column SELECT: this
- *   process is one of many serverless instances, so a doc cached here can be
- *   arbitrarily far behind a peer instance's writes, and a read that skips
- *   the check returns old text that looks current. The blob is re-read only
- *   when that version actually moved.
- * - Mutations no longer call `applyStoredState()` unconditionally on every
- *   write. The defensive re-read from the DB happens only inside
- *   `persistMergedState` (needed for the CAS version read), not as a
- *   separate SELECT before applying the new update. This removes the
- *   redundant double-read that the previous implementation performed on
- *   every write even on a hot cache.
- * - Compaction: when the stored blob is >4x the freshly encoded state, the
- *   GC'd encoding is stored instead (removes accumulated Yjs tombstones,
- *   preventing unbounded blob growth without any background jobs).
- */
-
 import * as Y from "yjs";
 
-import type { DbExec } from "../db/client.js";
+import { getDbExec, type DbExec } from "../db/client.js";
 import { emitCollabUpdate } from "./emitter.js";
 import {
   applyJsonDiff,
@@ -31,11 +10,40 @@ import {
   type PatchOp,
 } from "./json-to-yjs.js";
 import {
+  SNAPSHOT_ADOPTION_MAP,
+  type LiveCopyCatchUp,
+} from "./live-copy-tasks.js";
+import {
+  applyLiveCopyUpdate,
+  assertLiveCopy,
+  assertOwnTransaction,
+  commitLiveCopy,
+  editLiveCopyState,
+  liveCopiesDefined,
+  liveCopyBindingFor,
+  LiveCopyError,
+  persistLiveCopyCall,
+  readLiveCopyState,
+  readStoredLiveCopy,
+  liveCopyWriteRefused,
+  refuseLiveCopyWrite,
+  sameStamp,
+  seedLiveCopyState,
+  type LiveCopyBinding,
+  type LiveCopyOutcome,
+  type StoredLiveCopy,
+} from "./live-copy.js";
+import {
+  collabStateDigest,
+  ensureTable,
   loadYDocRecord,
   loadYDocRecordWithClient,
+  loadYDocStamp,
   loadYDocVersion,
+  saveYDocState as saveStoredYDocState,
   trySaveYDocState,
   trySaveYDocStateWithClient,
+  type YDocStamp,
 } from "./storage.js";
 import { uint8ArrayToBase64 } from "./storage.js";
 import { applyTextToYDoc, initYDocWithText } from "./text-to-yjs.js";
@@ -43,11 +51,6 @@ import { searchAndReplaceInYXml, extractTextFromYXml } from "./xml-ops.js";
 
 const DEFAULT_FIELD = "content";
 
-/**
- * A peer committed between a caller's base validation and this write's CAS.
- * Its own error type so a caller can map it to a retryable conflict instead of
- * mistaking it for invalid content.
- */
 export class CollabBaseVersionConflictError extends Error {
   constructor(message: string) {
     super(message);
@@ -57,12 +60,6 @@ export class CollabBaseVersionConflictError extends Error {
 
 const MAX_CACHE = 50;
 
-/**
- * Auto-presence: any agent-sourced write produces visible presence and
- * lingering edit attribution without the calling action having to wire
- * agentEnterDocument/agentLeaveDocument itself. Dynamic import avoids a
- * static cycle (agent-presence.ts imports searchAndReplace from this module).
- */
 function touchAgentPresence(
   docId: string,
   requestSource: string | undefined,
@@ -78,10 +75,6 @@ function touchAgentPresence(
     });
 }
 
-/**
- * Compute a small "what changed" descriptor from a text diff by trimming the
- * common prefix/suffix. Used for lingering edit highlights client-side.
- */
 export function computeTextEditDescriptor(
   oldText: string,
   newText: string,
@@ -108,39 +101,22 @@ export function computeTextEditDescriptor(
   return { kind: "doc" };
 }
 
-/**
- * Compaction ratio threshold. When the stored state byte count exceeds
- * COMPACTION_RATIO × the freshly encoded state, write the compact form
- * (strips accumulated tombstones). A value of 4 means: compact when the
- * stored blob is 4× larger than necessary.
- */
 const COMPACTION_RATIO = 4;
 
 interface CacheEntry {
   doc: Y.Doc;
   lastAccess: number;
-  /**
-   * The `_collab_docs.version` this cached doc is known to contain, or `null`
-   * when a write landed whose resulting version this process never learned.
-   * `null` must force a full reload — treating it as "current" is what makes
-   * a peer instance's writes invisible.
-   */
   syncedVersion: number | null;
 }
 
 const _cache = new Map<string, CacheEntry>();
 const _writeLocks = new Map<string, Promise<void>>();
-// Coalesces concurrent staleness checks for the same docId so a burst of
-// readers costs one version SELECT rather than one each.
+/** Writes holding or waiting for each document's lock. */
+const _writesPending = new Map<string, number>();
 const _refreshLocks = new Map<string, Promise<void>>();
-// Coalesces concurrent cache-miss loads for the same docId. Without this, two
-// simultaneous getDoc() callers both miss the cache, both build a Y.Doc and
-// apply stored state, and the second _cache.set silently orphans the first
-// doc (a memory leak that grows with concurrent read traffic).
 const _loadLocks = new Map<string, Promise<Y.Doc>>();
 
 export interface PreparedYDocMutationLease {
-  /** Isolated clone. Mutations stay invisible until the outer transaction commits. */
   doc: Y.Doc;
   baseVersion: number | null;
   persist(transaction: DbExec, textSnapshot: string): Promise<void>;
@@ -148,7 +124,6 @@ export interface PreparedYDocMutationLease {
 
 function evictIfNeeded(): void {
   if (_cache.size <= MAX_CACHE) return;
-  // Evict least-recently-accessed entry
   let oldest: string | null = null;
   let oldestTime = Infinity;
   for (const [id, entry] of _cache) {
@@ -164,10 +139,20 @@ function evictIfNeeded(): void {
   }
 }
 
+/**
+ * Runs `fn` alone among this instance's writes to `docId`. A live copy's
+ * writes queue here, ahead of its runner, so the runner's own queue never
+ * sees them; the binding bounds them instead.
+ */
 async function withDocWriteLock<T>(
   docId: string,
   fn: () => Promise<T>,
+  refusePath?: string,
 ): Promise<T> {
+  // A write takes its place in line before its first await, so writes keep
+  // their call order and a slow `appliesTo` cannot let a burst past the bound.
+  const ahead = _writesPending.get(docId) ?? 0;
+  _writesPending.set(docId, ahead + 1);
   const previous = _writeLocks.get(docId) ?? Promise.resolve();
   let release!: () => void;
   const current = new Promise<void>((resolve) => {
@@ -175,132 +160,133 @@ async function withDocWriteLock<T>(
   });
   const chained = previous.catch(() => {}).then(() => current);
   _writeLocks.set(docId, chained);
+  // Not in `finally`: a refused write releases while earlier writes still run.
+  void chained.then(() => {
+    if (_writeLocks.get(docId) === chained) _writeLocks.delete(docId);
+  });
 
-  await previous.catch(() => {});
   try {
+    if (liveCopiesDefined()) {
+      const binding = await liveCopyBindingFor(docId);
+      // Refused outright, not as a full queue a retry could get past.
+      if (binding && refusePath !== undefined) {
+        throw liveCopyWriteRefused(docId, refusePath);
+      }
+      // Before waiting: from a binding's persist, which runs in its commit's
+      // transaction, this write would wait on the lock that commit holds.
+      if (binding) assertOwnTransaction(docId, "This write");
+      if (binding && ahead > binding.maxWaitingWrites) {
+        throw new LiveCopyError(
+          "build_failed",
+          docId,
+          `Live copy ${docId} already has ${binding.maxWaitingWrites} writes waiting; try again shortly.`,
+          { reason: "queue_full" },
+        );
+      }
+    }
+    await previous.catch(() => {});
+    // Checked under the lock so a binding defined while this write waited
+    // still refuses it.
+    if (refusePath !== undefined) {
+      const refusal = refuseLiveCopyWrite(docId, refusePath);
+      if (refusal) await refusal;
+    }
     return await fn();
   } finally {
     release();
-    if (_writeLocks.get(docId) === chained) {
-      _writeLocks.delete(docId);
-    }
+    const pending = (_writesPending.get(docId) ?? 1) - 1;
+    if (pending > 0) _writesPending.set(docId, pending);
+    else _writesPending.delete(docId);
   }
 }
 
-/**
- * Serialize a caller-owned SQL transaction with Yjs writes. The callback
- * mutates an isolated clone and persists it through its transaction. Only a
- * successfully resolved callback replaces the shared cache and broadcasts.
- */
 export async function withPreparedYDocMutation<T>(
   docId: string,
   requestSource: string | undefined,
   run: (lease: PreparedYDocMutationLease) => Promise<T>,
 ): Promise<T> {
-  return withDocWriteLock(docId, async () => {
-    const current = await getDocForWrite(docId);
-    const latest = await loadYDocRecord(docId);
-    if (latest?.state.length) Y.applyUpdate(current, latest.state);
+  return withDocWriteLock(
+    docId,
+    async () => {
+      const current = await getDocForWrite(docId);
+      const latest = await loadYDocRecord(docId);
+      if (latest?.state.length) Y.applyUpdate(current, latest.state);
 
-    const candidate = new Y.Doc();
-    Y.applyUpdate(candidate, Y.encodeStateAsUpdate(current));
-    const baseVector = Y.encodeStateVector(candidate);
-    const baseVersion = latest?.version ?? null;
-    let persisted = false;
-    const lease: PreparedYDocMutationLease = {
-      doc: candidate,
-      baseVersion,
-      persist: async (transaction, textSnapshot) => {
-        if (persisted) {
-          throw new Error("Prepared Yjs mutation was already persisted");
-        }
-        const saved = await trySaveYDocStateWithClient(
-          transaction,
-          docId,
-          Y.encodeStateAsUpdate(candidate),
-          textSnapshot,
-          baseVersion,
-        );
-        if (!saved) {
-          throw new CollabBaseVersionConflictError(
-            `Document ${docId} changed while the prepared mutation was committing.`,
-          );
-        }
-        persisted = true;
-      },
-    };
-
-    try {
-      const result = await run(lease);
-      if (!persisted) {
-        candidate.destroy();
-        return result;
-      }
-      const update = Y.encodeStateAsUpdate(candidate, baseVector);
-      const previous = _cache.get(docId);
-      previous?.doc.destroy();
-      _cache.set(docId, {
+      const candidate = new Y.Doc();
+      Y.applyUpdate(candidate, Y.encodeStateAsUpdate(current));
+      const baseVector = Y.encodeStateVector(candidate);
+      const baseVersion = latest?.version ?? null;
+      let persisted = false;
+      const lease: PreparedYDocMutationLease = {
         doc: candidate,
-        lastAccess: Date.now(),
-        syncedVersion: baseVersion === null ? 0 : baseVersion + 1,
-      });
-      evictIfNeeded();
-      if (update.length > 0) {
-        emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
+        baseVersion,
+        persist: async (transaction, textSnapshot) => {
+          if (persisted) {
+            throw new Error("Prepared Yjs mutation was already persisted");
+          }
+          const saved = await trySaveYDocStateWithClient(
+            transaction,
+            docId,
+            Y.encodeStateAsUpdate(candidate),
+            textSnapshot,
+            baseVersion,
+          );
+          if (!saved) {
+            throw new CollabBaseVersionConflictError(
+              `Document ${docId} changed while the prepared mutation was committing.`,
+            );
+          }
+          persisted = true;
+        },
+      };
+
+      try {
+        const result = await run(lease);
+        if (!persisted) {
+          candidate.destroy();
+          return result;
+        }
+        const update = Y.encodeStateAsUpdate(candidate, baseVector);
+        const previous = _cache.get(docId);
+        previous?.doc.destroy();
+        _cache.set(docId, {
+          doc: candidate,
+          lastAccess: Date.now(),
+          syncedVersion: baseVersion === null ? 0 : baseVersion + 1,
+        });
+        evictIfNeeded();
+        if (update.length > 0) {
+          emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
+        }
+        return result;
+      } catch (error) {
+        candidate.destroy();
+        throw error;
       }
-      return result;
-    } catch (error) {
-      candidate.destroy();
-      throw error;
-    }
-  });
+    },
+    "withPreparedYDocMutation",
+  );
 }
 
-/**
- * Build state to persist. If the stored blob is significantly larger than
- * the freshly encoded state, store the compact (GC'd) form instead to
- * prevent unbounded blob growth from accumulated tombstones.
- */
 function buildStateToStore(doc: Y.Doc, storedByteCount: number): Uint8Array {
   const encoded = Y.encodeStateAsUpdate(doc);
   if (
     storedByteCount > 0 &&
     storedByteCount > encoded.length * COMPACTION_RATIO
   ) {
-    // Stored blob is much larger than needed — return the GC'd encoding.
     return encoded;
   }
   return encoded;
 }
 
-/**
- * Persist the merged doc state with CAS retry on conflict.
- *
- * REMOVED: the unconditional `applyStoredState()` that was called on every
- * write path before this function. The only DB read is the `loadYDocRecord`
- * call here — needed to get the CAS version and merge any concurrent writes
- * from OTHER processes. Within this process, the in-memory doc is already
- * up-to-date because mutations are serialized by withDocWriteLock.
- */
 async function persistMergedState(
   docId: string,
   doc: Y.Doc,
   getTextSnapshot: () => string,
   validateTextSnapshot?: (snapshot: string) => void,
-  /**
-   * The row version a caller's base was validated against. Supplied only by
-   * whole-document writers: their `newText` is built on that exact base, so a
-   * peer commit arriving before this CAS must surface as a conflict rather
-   * than be merged with — the merge would silently absorb the other edit and
-   * still pass a syntax check.
-   */
   validatedBaseVersion?: number | null,
 ): Promise<void> {
   for (let attempt = 0; attempt < 5; attempt++) {
-    // One DB read per persist attempt. On first attempt this is the only read
-    // on the write path (previously there was an unconditional second read
-    // before the update was applied). On retry attempts it re-reads to get the
-    // latest version after a CAS conflict.
     const latest = await loadYDocRecord(docId);
     if (validatedBaseVersion !== undefined) {
       const currentVersion = latest?.version ?? null;
@@ -325,9 +311,6 @@ async function persistMergedState(
       expectedVersion,
     );
     if (saved) {
-      // trySaveYDocState inserts at version 0 and otherwise bumps by one.
-      // Recording it keeps the next read on a single version SELECT instead
-      // of re-fetching the blob this process just wrote.
       noteCachedVersion(
         docId,
         doc,
@@ -337,25 +320,11 @@ async function persistMergedState(
     }
   }
 
-  // Exhausting the CAS means a peer kept winning the row — pinned or not. The
-  // old fallback saved unconditionally and returned normally, so the caller
-  // saw a clean success over someone else's clobbered edit.
   throw new CollabBaseVersionConflictError(
     `Document ${docId} kept changing while the edit was being applied; the write was not saved.`,
   );
 }
 
-/**
- * Record the row version a just-persisted doc now matches. `null` means the
- * write's resulting version is unknown, so the next read must reload rather
- * than assume this process is current.
- */
-/**
- * The row version the cached doc currently reflects, or `undefined` when this
- * process cannot prove one — an evicted entry, or a write whose resulting
- * version was never learned. Callers that pin a base must refuse rather than
- * guess.
- */
 function cachedVersionFor(
   docId: string,
   doc: Y.Doc,
@@ -374,13 +343,6 @@ function noteCachedVersion(
   if (entry?.doc === doc) entry.syncedVersion = version;
 }
 
-/**
- * Merge any state written by another process into a cached doc. Costs one
- * version-column read; the state blob is fetched only when the version moved.
- * Yjs merges are idempotent, so re-applying our own state is safe — the bug
- * this closes is the opposite one, a reader that never re-checks and answers
- * from a doc a peer instance moved past minutes ago.
- */
 async function mergeNewerStoredState(
   docId: string,
   entry: CacheEntry,
@@ -390,8 +352,6 @@ async function mergeNewerStoredState(
 
   const refresh = (async () => {
     const storedVersion = await loadYDocVersion(docId);
-    // No row: nothing durable to merge. Anything already in this doc is a
-    // local write that has not been persisted yet, so keep it.
     if (storedVersion === null) return;
     if (entry.syncedVersion === storedVersion) return;
 
@@ -409,17 +369,11 @@ async function mergeNewerStoredState(
   }
 }
 
-/**
- * Get or load a Yjs document by ID. Creates a new empty doc if none exists.
- */
-/** Cold-load path shared by both entry points. */
 async function loadDoc(docId: string): Promise<Y.Doc> {
   const inFlight = _loadLocks.get(docId);
   if (inFlight) return inFlight;
 
   const load = (async () => {
-    // Re-check the cache: a concurrent writer (or loader) may have populated it
-    // between our miss above and acquiring this load slot.
     const reCached = _cache.get(docId);
     if (reCached) {
       reCached.lastAccess = Date.now();
@@ -431,11 +385,6 @@ async function loadDoc(docId: string): Promise<Y.Doc> {
     if (record && record.state.length > 0) {
       Y.applyUpdate(doc, record.state);
     }
-    // A peer can commit between that read and publishing this entry, and the
-    // coherence check above only runs on the NEXT read — so this request would
-    // answer from text that was already stale, which is the exact failure the
-    // check exists to prevent. Re-read until the version stops moving; Yjs
-    // merges are additive, so each pass only adds what a peer committed.
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const storedVersion = await loadYDocVersion(docId);
       if (storedVersion === (record?.version ?? null)) break;
@@ -462,15 +411,7 @@ async function loadDoc(docId: string): Promise<Y.Doc> {
   }
 }
 
-/**
- * The write path's doc. It deliberately skips the peer-state refresh that
- * `getDoc` performs: a mutation diffs `newText` against this text, and a base
- * that has just absorbed a peer's edit turns that diff into an explicit
- * deletion of it. `persistMergedState` merges the peer during the CAS instead,
- * where both edits survive — and skipping the probe saves a round trip on
- * every write.
- */
-export async function getDocForWrite(docId: string): Promise<Y.Doc> {
+async function getDocForWrite(docId: string): Promise<Y.Doc> {
   const cached = _cache.get(docId);
   if (cached) {
     cached.lastAccess = Date.now();
@@ -479,43 +420,69 @@ export async function getDocForWrite(docId: string): Promise<Y.Doc> {
   return loadDoc(docId);
 }
 
-/**
- * A mutation applies its diff to the cached doc and only then persists. Until
- * that CAS lands the write may still be rejected and the doc released, so a
- * read that slips in between would serve content that never becomes durable.
- * Readers wait for the write in flight rather than observe it.
- */
 async function awaitPendingWrite(docId: string): Promise<void> {
   const pending = _writeLocks.get(docId);
   if (pending) await pending.catch(() => {});
 }
 
-export async function getDoc(docId: string): Promise<Y.Doc> {
+type ReadTarget =
+  | { kind: "doc"; doc: Y.Doc }
+  | { kind: "live"; binding: LiveCopyBinding };
+
+async function readTarget(docId: string): Promise<ReadTarget> {
+  // A live copy is read from SQL, never from a write in flight here, so it
+  // skips the write lock: a binding's persist runs under that lock and may
+  // read its own document.
+  if (liveCopiesDefined()) {
+    const binding = await liveCopyBindingFor(docId);
+    if (binding) return { kind: "live", binding };
+  }
   await awaitPendingWrite(docId);
+  // Looked up again: the write waited for may have made it a live copy.
+  const binding = await liveCopyBindingFor(docId);
+  if (binding) return { kind: "live", binding };
   const cached = _cache.get(docId);
   if (cached) {
     cached.lastAccess = Date.now();
     await mergeNewerStoredState(docId, cached);
-    return cached.doc;
+    return { kind: "doc", doc: cached.doc };
   }
+  return { kind: "doc", doc: await loadDoc(docId) };
+}
 
-  return loadDoc(docId);
+/** The cached document, for callers that only read it. */
+async function readDoc(docId: string, path: string): Promise<Y.Doc> {
+  const target = await readTarget(docId);
+  if (target.kind === "doc") return target.doc;
+  throw new LiveCopyError(
+    "read_refused",
+    docId,
+    `Document ${docId} is a live copy, which is never decoded on the request thread, so ${path} cannot read it; use readLiveCopy or getState.`,
+    { reason: path },
+  );
+}
+
+/** Refuses live copies with `read_refused`; read those with `readLiveCopy`. */
+export async function getDoc(docId: string): Promise<Y.Doc> {
+  return readDoc(docId, "getDoc");
 }
 
 /**
- * Apply a binary Yjs update (from a client) to a document.
- * Persists the result and emits a change event.
+ * Commits a client update. Once any live copy is defined, the result says
+ * whether the app's rows were derived from it; with none defined it is
+ * undefined, as before live copies existed.
  */
 export async function applyUpdate(
   docId: string,
   update: Uint8Array,
   requestSource?: string,
-): Promise<void> {
+): Promise<LiveCopyOutcome | undefined> {
   return withDocWriteLock(docId, async () => {
+    const liveCopy = await liveCopyBindingFor(docId);
+    if (liveCopy) {
+      return commitLiveCopyUpdate(liveCopy, docId, update, requestSource);
+    }
     const doc = await getDocForWrite(docId);
-    // The cached doc is already up-to-date from the initial load or a previous
-    // write in this process. No redundant applyStoredState() here — cross-
-    // process writes are merged inside persistMergedState when needed.
     Y.applyUpdate(doc, update);
 
     await persistMergedState(docId, doc, () =>
@@ -523,241 +490,1009 @@ export async function applyUpdate(
     );
 
     emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
+    return liveCopiesDefined()
+      ? { liveCopy: "not_derived", liveCopyReason: "not_live_copy" }
+      : undefined;
   });
 }
 
+const LIVE_COPY_COMMIT_ATTEMPTS = 5;
+
+// An empty Yjs update: no structs, no deletions.
+const EMPTY_STATE = new Uint8Array([0, 0]);
+const EMPTY_CATCH_UP: LiveCopyCatchUp = {
+  stateVector: new Uint8Array([0]),
+  deletions: EMPTY_STATE,
+};
+
+interface LiveCopyCacheEntry {
+  /** Bytes are valid only for the binding that checked them. */
+  binding: LiveCopyBinding;
+  state: Uint8Array;
+  catchUp: LiveCopyCatchUp;
+  /** The row the bytes came from; null when the copy was absent. */
+  stamp: YDocStamp | null;
+  /** derive(state); null when the copy is absent or unseeded. */
+  text: string | null;
+  lastAccess: number;
+}
+
+// Live copies are cached as validated bytes, never as a Y.Doc.
+const _liveCopyCache = new Map<string, LiveCopyCacheEntry>();
+
+/** Caches the bytes `stored` holds; null caches an absent copy. */
+async function cacheLiveCopyState(
+  binding: LiveCopyBinding,
+  docId: string,
+  stored: { state: Uint8Array; version: number } | null,
+  catchUp: LiveCopyCatchUp,
+  text: string | null,
+): Promise<LiveCopyCacheEntry> {
+  const entry: LiveCopyCacheEntry = {
+    binding,
+    state: stored && stored.state.length > 0 ? stored.state : EMPTY_STATE,
+    catchUp,
+    stamp: stored && {
+      version: stored.version,
+      digest: await collabStateDigest(stored.state),
+    },
+    text,
+    lastAccess: Date.now(),
+  };
+  const stale = _cache.get(docId);
+  if (stale) {
+    stale.doc.destroy();
+    _cache.delete(docId);
+  }
+  _liveCopyCache.set(docId, entry);
+  evictLiveCopyCache();
+  return entry;
+}
+
+function evictLiveCopyCache(): void {
+  if (_liveCopyCache.size <= MAX_CACHE) return;
+  let oldest: string | null = null;
+  let oldestTime = Infinity;
+  for (const [id, entry] of _liveCopyCache) {
+    if (entry.lastAccess < oldestTime) {
+      oldestTime = entry.lastAccess;
+      oldest = id;
+    }
+  }
+  if (oldest) _liveCopyCache.delete(oldest);
+}
+
+function servedState(state: Uint8Array): Uint8Array {
+  return state.length > 0 ? state.slice() : EMPTY_STATE.slice();
+}
+
 /**
- * Apply a text change to a document. Computes the minimal diff and
- * converts it to Yjs operations.
- *
- * Returns the text snapshot after the update.
+ * The cached entry while the row still holds the bytes it was cached from.
+ * The digest matters as much as the version: a row deleted and inserted
+ * again, by any instance, starts back at version 0.
  */
+function cachedLiveCopy(
+  binding: LiveCopyBinding,
+  docId: string,
+  stamp: YDocStamp | null,
+): LiveCopyCacheEntry | undefined {
+  const cached = _liveCopyCache.get(docId);
+  if (cached?.binding !== binding || !sameStamp(cached.stamp, stamp)) {
+    return undefined;
+  }
+  cached.lastAccess = Date.now();
+  return cached;
+}
+
+/** Cache misses being filled, shared by readers that saw the same row. */
+const _liveCopyLoads = new Map<
+  string,
+  {
+    binding: LiveCopyBinding;
+    stamp: YDocStamp | null;
+    load: Promise<LiveCopyCacheEntry>;
+  }
+>();
+
+/**
+ * The stored copy to change. When this instance cached the stored row, its
+ * bytes are used instead of re-reading it; the tasks get a copy, so a
+ * refused or conflicting attempt never touches the cache.
+ */
+async function loadLiveCopyState(
+  binding: LiveCopyBinding,
+  docId: string,
+): Promise<StoredLiveCopy> {
+  const cached = cachedLiveCopy(binding, docId, await loadYDocStamp(docId));
+  if (cached) {
+    return cached.stamp === null
+      ? { kind: "absent" }
+      : { kind: "stored", state: cached.state, ...cached.stamp };
+  }
+  return readStoredLiveCopy(binding, getDbExec(), docId);
+}
+
+function stampOf(stored: StoredLiveCopy): YDocStamp | null {
+  return stored.kind === "absent"
+    ? null
+    : { version: stored.version, digest: stored.digest };
+}
+
+/**
+ * The bytes a live copy serves to editors. A version this instance has not
+ * seen is checked in the runner first, so malformed state fails here instead
+ * of reaching an editor as an empty or broken document.
+ */
+async function liveCopyStateForRead(
+  binding: LiveCopyBinding,
+  docId: string,
+): Promise<LiveCopyCacheEntry> {
+  await ensureTable();
+  const stamp = await loadYDocStamp(docId);
+  const cached = cachedLiveCopy(binding, docId, stamp);
+  if (cached) return cached;
+  // One runner task per row, however many editors open it at once; the
+  // load reads the row again, so a joiner never gets older bytes than it saw.
+  const pending = _liveCopyLoads.get(docId);
+  if (pending?.binding === binding && sameStamp(pending.stamp, stamp)) {
+    return pending.load;
+  }
+  const load = loadLiveCopyForRead(binding, docId).finally(() => {
+    if (_liveCopyLoads.get(docId)?.load === load) _liveCopyLoads.delete(docId);
+  });
+  _liveCopyLoads.set(docId, { binding, stamp, load });
+  return load;
+}
+
+async function loadLiveCopyForRead(
+  binding: LiveCopyBinding,
+  docId: string,
+): Promise<LiveCopyCacheEntry> {
+  const stored = await readStoredLiveCopy(binding, getDbExec(), docId);
+  if (stored.kind === "absent") {
+    return cacheLiveCopyState(binding, docId, null, EMPTY_CATCH_UP, null);
+  }
+  const read = await readLiveCopyState(binding, docId, stored.state, true);
+  return cacheLiveCopyState(
+    binding,
+    docId,
+    stored,
+    read.catchUp,
+    read.kind === "live" ? read.text : null,
+  );
+}
+
+async function commitLiveCopyUpdate(
+  binding: LiveCopyBinding,
+  docId: string,
+  update: Uint8Array,
+  requestSource: string | undefined,
+): Promise<LiveCopyOutcome> {
+  assertOwnTransaction(docId, "applyUpdate");
+  await ensureTable();
+  for (let attempt = 0; attempt < LIVE_COPY_COMMIT_ATTEMPTS; attempt += 1) {
+    const stored = await loadLiveCopyState(binding, docId);
+    const result = await applyLiveCopyUpdate(
+      binding,
+      docId,
+      stored.kind === "absent" ? null : stored.state,
+      update,
+    );
+    if (result.kind === "unchanged") return { liveCopy: "unchanged" };
+    const previousVersion = stored.kind === "absent" ? null : stored.version;
+    const version = previousVersion === null ? 0 : previousVersion + 1;
+    const outcome = await commitLiveCopy(
+      binding,
+      {
+        docId,
+        origin: "update",
+        previousVersion,
+        version,
+        text: result.text,
+        state: result.state,
+        ...(requestSource ? { requestSource } : {}),
+      },
+      stampOf(stored),
+    );
+    if (!outcome) continue;
+    await cacheLiveCopyState(
+      binding,
+      docId,
+      { state: result.state, version },
+      result.catchUp,
+      result.text,
+    );
+    emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
+    return outcome;
+  }
+  throw new LiveCopyError(
+    "version_conflict",
+    docId,
+    `Live copy ${docId} kept changing while the update was being committed; it was not saved.`,
+    { reason: String(LIVE_COPY_COMMIT_ATTEMPTS) },
+  );
+}
+
+export type LiveCopyRead =
+  | { kind: "absent" }
+  | { kind: "unseeded"; version: number; state: Uint8Array }
+  | { kind: "live"; version: number; state: Uint8Array; text: string };
+
+/**
+ * The stored live copy and derive(state). Absent (no row), unseeded (a row
+ * with nothing in the field, including a zero-byte state) and malformed
+ * (throws `malformed_state`) are never conflated.
+ */
+export async function readLiveCopy(
+  binding: LiveCopyBinding,
+  docId: string,
+): Promise<LiveCopyRead> {
+  await assertLiveCopy(binding, docId);
+  const { stamp, state, text } = await liveCopyStateForRead(binding, docId);
+  if (stamp === null) return { kind: "absent" };
+  if (text === null) {
+    return {
+      kind: "unseeded",
+      version: stamp.version,
+      state: servedState(state),
+    };
+  }
+  return {
+    kind: "live",
+    version: stamp.version,
+    state: servedState(state),
+    text,
+  };
+}
+
+export interface MutateLiveCopyOptions {
+  /**
+   * The name of an edit in the runner's module
+   * (`defineLiveCopyTasks({ edits })`). It runs in the runner and is re-run
+   * against fresh state after each version conflict.
+   */
+  edit: string;
+  /** Passed to the edit. */
+  input?: unknown;
+  requestSource?: string;
+  maxAttempts?: number;
+  /**
+   * Writes this call's own rows (say, claiming the suggestion the edit
+   * applies) in the transaction that commits the edit, after the binding's
+   * persist and before `_collab_docs`, so they commit or roll back together.
+   * When the edit changes nothing it runs in a transaction of its own. A
+   * throw reaches the caller and nothing is published. Re-run on each
+   * version-conflict attempt.
+   */
+  persist?(tx: DbExec, change: LiveCopyCallChange): Promise<void>;
+}
+
+export interface LiveCopyCallChange {
+  changed: boolean;
+  /** The version this call leaves stored. */
+  version: number;
+  /** derive(state) at that version. */
+  text: string;
+}
+
+export interface LiveCopyMutationResult extends LiveCopyOutcome {
+  changed: boolean;
+  /** The stored version after the call; an unchanged edit leaves it as is. */
+  version: number;
+  state: Uint8Array;
+  /** derive(state). */
+  text: string;
+  /** What this call added to the state it edited. Empty when unchanged. */
+  update: Uint8Array;
+  attempts: number;
+}
+
+/**
+ * Applies a named edit to a seeded live copy and commits it with its derived
+ * text, retrying on `_collab_docs.version` conflicts. Throws `not_seeded`
+ * for an absent or unseeded copy; seed it with `seedLiveCopy` first.
+ */
+export async function mutateLiveCopy(
+  binding: LiveCopyBinding,
+  docId: string,
+  options: MutateLiveCopyOptions,
+): Promise<LiveCopyMutationResult> {
+  const maxAttempts = options.maxAttempts ?? LIVE_COPY_COMMIT_ATTEMPTS;
+  if (!Number.isSafeInteger(maxAttempts) || maxAttempts < 1) {
+    throw new RangeError(
+      "mutateLiveCopy maxAttempts must be a positive integer",
+    );
+  }
+  if (typeof options.edit !== "string") {
+    throw new TypeError(
+      "mutateLiveCopy edit must name an edit in the runner's module",
+    );
+  }
+  const callPersist = options.persist;
+  if (callPersist !== undefined && typeof callPersist !== "function") {
+    throw new TypeError("mutateLiveCopy persist must be a function");
+  }
+  // Refused before joining the line: a caller's transaction waiting in it
+  // could hold rows the write ahead needs to commit.
+  assertOwnTransaction(docId, "mutateLiveCopy");
+  return withDocWriteLock(docId, async () => {
+    // In line, so a slow appliesTo cannot reorder writes or unbound them.
+    await assertLiveCopy(binding, docId);
+    await ensureTable();
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const stored = await loadLiveCopyState(binding, docId);
+      if (stored.kind === "absent") {
+        throw new LiveCopyError(
+          "not_seeded",
+          docId,
+          `Live copy ${docId} is absent; seed it before editing.`,
+          { reason: "absent" },
+        );
+      }
+      const result = await editLiveCopyState(
+        binding,
+        docId,
+        stored.state,
+        options.edit,
+        options.input,
+      );
+      if (result.kind === "unchanged") {
+        if (
+          callPersist &&
+          !(await persistLiveCopyCall(
+            binding,
+            docId,
+            { version: stored.version, digest: stored.digest },
+            (tx) =>
+              callPersist(tx, {
+                changed: false,
+                version: stored.version,
+                text: result.text,
+              }),
+          ))
+        ) {
+          continue;
+        }
+        return {
+          changed: false,
+          liveCopy: "unchanged",
+          version: stored.version,
+          state: servedState(stored.state),
+          text: result.text,
+          update: new Uint8Array(0),
+          attempts: attempt,
+        };
+      }
+      const version = stored.version + 1;
+      const outcome = await commitLiveCopy(
+        binding,
+        {
+          docId,
+          origin: "mutation",
+          previousVersion: stored.version,
+          version,
+          text: result.text,
+          state: result.state,
+          ...(options.requestSource
+            ? { requestSource: options.requestSource }
+            : {}),
+        },
+        stampOf(stored),
+        callPersist &&
+          ((tx) =>
+            callPersist(tx, { changed: true, version, text: result.text })),
+      );
+      if (!outcome) continue;
+      await cacheLiveCopyState(
+        binding,
+        docId,
+        { state: result.state, version },
+        result.catchUp,
+        result.text,
+      );
+      emitCollabUpdate(
+        docId,
+        uint8ArrayToBase64(result.update),
+        options.requestSource,
+      );
+      touchAgentPresence(docId, options.requestSource, {
+        descriptor: { kind: "doc" },
+      });
+      return {
+        ...outcome,
+        changed: true,
+        version,
+        state: result.state.slice(),
+        text: result.text,
+        update: result.update,
+        attempts: attempt,
+      };
+    }
+    throw new LiveCopyError(
+      "version_conflict",
+      docId,
+      `Live copy ${docId} kept changing during ${maxAttempts} edit attempts; the edit was not saved.`,
+      { reason: String(maxAttempts) },
+    );
+  });
+}
+
+export interface SeedLiveCopyOptions {
+  /** Passed to the seed handler in the runner's module. */
+  source: string;
+  requestSource?: string;
+}
+
+export interface LiveCopySeedResult extends LiveCopyOutcome {
+  seeded: boolean;
+  version: number;
+  state: Uint8Array;
+  /** derive(state). */
+  text: string;
+}
+
+/**
+ * Seeds an absent or unseeded live copy from `source`. A live copy that
+ * already has content comes back unchanged with `seeded: false`; malformed
+ * stored state throws `malformed_state` and is never overwritten.
+ */
+export async function seedLiveCopy(
+  binding: LiveCopyBinding,
+  docId: string,
+  options: SeedLiveCopyOptions,
+): Promise<LiveCopySeedResult> {
+  assertOwnTransaction(docId, "seedLiveCopy");
+  return withDocWriteLock(docId, async () => {
+    await assertLiveCopy(binding, docId);
+    await ensureTable();
+    for (let attempt = 0; attempt < LIVE_COPY_COMMIT_ATTEMPTS; attempt += 1) {
+      const stored = await loadLiveCopyState(binding, docId);
+      const result = await seedLiveCopyState(
+        binding,
+        docId,
+        stored.kind === "absent" ? null : stored.state,
+        options.source,
+      );
+      if (result.kind === "live") {
+        if (stored.kind === "absent") {
+          throw new LiveCopyError(
+            "build_failed",
+            docId,
+            `The seed task for ${docId} called an absent copy live.`,
+            { reason: "invalid_output" },
+          );
+        }
+        return {
+          seeded: false,
+          liveCopy: "unchanged",
+          version: stored.version,
+          state: servedState(stored.state),
+          text: result.text,
+        };
+      }
+      const previousVersion = stored.kind === "absent" ? null : stored.version;
+      const version = previousVersion === null ? 0 : previousVersion + 1;
+      const outcome = await commitLiveCopy(
+        binding,
+        {
+          docId,
+          origin: "seed",
+          previousVersion,
+          version,
+          text: result.text,
+          state: result.state,
+          ...(options.requestSource
+            ? { requestSource: options.requestSource }
+            : {}),
+        },
+        stampOf(stored),
+      );
+      if (!outcome) continue;
+      await cacheLiveCopyState(
+        binding,
+        docId,
+        { state: result.state, version },
+        result.catchUp,
+        result.text,
+      );
+      emitCollabUpdate(
+        docId,
+        uint8ArrayToBase64(result.update),
+        options.requestSource,
+      );
+      return {
+        ...outcome,
+        seeded: true,
+        version,
+        state: result.state.slice(),
+        text: result.text,
+      };
+    }
+    throw new LiveCopyError(
+      "version_conflict",
+      docId,
+      `Live copy ${docId} kept changing while its seed was being committed.`,
+      { reason: String(LIVE_COPY_COMMIT_ATTEMPTS) },
+    );
+  });
+}
+
+function assertXmlFragmentSeed(seedUpdate: Uint8Array): void {
+  const candidate = new Y.Doc();
+  try {
+    const decoded = Y.decodeUpdate(seedUpdate);
+    if (decoded.ds.clients.size > 0) {
+      throw new Error("Initial XmlFragment seed cannot contain deletions");
+    }
+    Y.applyUpdate(candidate, seedUpdate);
+    const fragment = candidate.getXmlFragment("default");
+    if (
+      candidate.share.size !== 1 ||
+      !candidate.share.has("default") ||
+      isEmptyXmlSeedTarget(fragment)
+    ) {
+      throw new Error(
+        "Initial XmlFragment seed must contain only a nonempty default fragment",
+      );
+    }
+  } finally {
+    candidate.destroy();
+  }
+}
+
+function isEmptyXmlSeedTarget(fragment: Y.XmlFragment): boolean {
+  if (fragment.length === 0) return true;
+  if (fragment.length !== 1) return false;
+  const first = fragment.get(0);
+  if (!(first instanceof Y.XmlElement) || first.nodeName !== "paragraph") {
+    return false;
+  }
+  for (let index = 0; index < first.length; index += 1) {
+    const child = first.get(index);
+    if (!(child instanceof Y.XmlText) || child.toString().length > 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
+export async function seedXmlFragmentIfEmpty(
+  docId: string,
+  seedUpdate: Uint8Array,
+  requestSource?: string,
+): Promise<{ seeded: boolean; state: Uint8Array }> {
+  // Once a live copy exists, decode only after the lock's refusal check, so
+  // a covered document never integrates a seed on this thread.
+  const validateInLock = liveCopiesDefined();
+  if (!validateInLock) assertXmlFragmentSeed(seedUpdate);
+
+  return withDocWriteLock(
+    docId,
+    async () => {
+      if (validateInLock) assertXmlFragmentSeed(seedUpdate);
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const stored = await loadYDocRecord(docId);
+        const committed = new Y.Doc();
+        try {
+          if (stored?.state.length) Y.applyUpdate(committed, stored.state);
+          const fragment = committed.getXmlFragment("default");
+          if (!isEmptyXmlSeedTarget(fragment)) {
+            return { seeded: false, state: Y.encodeStateAsUpdate(committed) };
+          }
+
+          const beforeVector = Y.encodeStateVector(committed);
+          if (fragment.length === 1) fragment.delete(0, 1);
+          Y.applyUpdate(committed, seedUpdate);
+          if (isEmptyXmlSeedTarget(fragment)) {
+            throw new Error(
+              "Initial XmlFragment seed did not populate the default fragment",
+            );
+          }
+          const state = Y.encodeStateAsUpdate(committed);
+          const committedUpdate = Y.encodeStateAsUpdate(
+            committed,
+            beforeVector,
+          );
+          const textSnapshot =
+            committed.getText(DEFAULT_FIELD).toString() ||
+            extractTextFromYXml(fragment);
+          const saved = await trySaveYDocState(
+            docId,
+            state,
+            textSnapshot,
+            stored?.version ?? null,
+          );
+          if (!saved) continue;
+
+          releaseDoc(docId);
+          emitCollabUpdate(
+            docId,
+            uint8ArrayToBase64(committedUpdate),
+            requestSource,
+          );
+          return { seeded: true, state };
+        } finally {
+          committed.destroy();
+        }
+      }
+      throw new CollabBaseVersionConflictError(
+        `Document ${docId} kept changing while its initial XmlFragment seed was being committed.`,
+      );
+    },
+    "seedXmlFragmentIfEmpty",
+  );
+}
+
+export type SnapshotAdoptionStatus =
+  | "adopted"
+  | "already-adopted"
+  | "rebase"
+  | "stale";
+
+function adoptedRevisionOf(doc: Y.Doc): string | null {
+  const revision = doc.getMap(SNAPSHOT_ADOPTION_MAP).get("revision");
+  return typeof revision === "string" ? revision : null;
+}
+
+function adoptedBodyOf(doc: Y.Doc): string | null {
+  const body = doc.getMap(SNAPSHOT_ADOPTION_MAP).get("body");
+  return typeof body === "string" ? body : null;
+}
+
+/** Whether `whole` already holds every insert and deletion in `part`. */
+function holdsAll(whole: Y.Doc, part: Y.Doc): boolean {
+  const merged = new Y.Doc();
+  try {
+    Y.applyUpdate(merged, Y.encodeStateAsUpdate(whole));
+    Y.applyUpdate(merged, Y.encodeStateAsUpdate(part));
+    return Y.equalSnapshots(Y.snapshot(merged), Y.snapshot(whole));
+  } finally {
+    merged.destroy();
+  }
+}
+
+/**
+ * Takes a saved-body snapshot into the live doc at most once per revision.
+ * Every open editor proposes the same change, and without one arbiter each
+ * editor's inserts survive the merge, so the text appears once per editor.
+ *
+ * `adoptionUpdate` is the proposing editor's whole doc with the snapshot
+ * taken in. A proposal built before the server took in another revision is
+ * refused with `rebase`: its inserts would land beside that revision's. So is
+ * one built on a doc missing live edits the server holds, which would put an
+ * edit in a second time, or delete one the proposal never saw.
+ *
+ * `body` is the saved body at `revision`. The doc keeps it next to the
+ * revision, so an editor that never saw that revision can still plan the next
+ * one against it rather than against its own unsaved typing.
+ */
+export async function adoptSnapshotOnce(
+  docId: string,
+  adoptionUpdate: Uint8Array,
+  revision: string,
+  options: {
+    isCurrent?: () => Promise<boolean> | boolean;
+    body?: string;
+    requestSource?: string;
+  } = {},
+): Promise<{
+  status: SnapshotAdoptionStatus;
+  state: Uint8Array;
+  adoptedRevision: string | null;
+  adoptedBody: string | null;
+}> {
+  if (!revision) throw new Error("A snapshot revision is required");
+  const proposal = new Y.Doc();
+  try {
+    Y.applyUpdate(proposal, adoptionUpdate);
+    if (proposal.store.pendingStructs || proposal.store.pendingDs) {
+      throw new Error(
+        "Snapshot adoption update must hold the proposing editor's whole doc",
+      );
+    }
+    return await adoptProposal(
+      docId,
+      proposal,
+      adoptionUpdate,
+      revision,
+      options,
+    );
+  } finally {
+    proposal.destroy();
+  }
+}
+
+async function adoptProposal(
+  docId: string,
+  proposal: Y.Doc,
+  adoptionUpdate: Uint8Array,
+  revision: string,
+  options: {
+    isCurrent?: () => Promise<boolean> | boolean;
+    body?: string;
+    requestSource?: string;
+  },
+): Promise<{
+  status: SnapshotAdoptionStatus;
+  state: Uint8Array;
+  adoptedRevision: string | null;
+  adoptedBody: string | null;
+}> {
+  const baseRevision = adoptedRevisionOf(proposal);
+  return withDocWriteLock(
+    docId,
+    async () => {
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const stored = await loadYDocRecord(docId);
+        const committed = new Y.Doc();
+        try {
+          if (stored?.state.length) Y.applyUpdate(committed, stored.state);
+          const adoptedRevision = adoptedRevisionOf(committed);
+          const answer = (status: SnapshotAdoptionStatus) => ({
+            status,
+            state: Y.encodeStateAsUpdate(committed),
+            adoptedRevision,
+            adoptedBody: adoptedBodyOf(committed),
+          });
+          if (adoptedRevision === revision) return answer("already-adopted");
+          if (
+            adoptedRevision !== baseRevision ||
+            !holdsAll(proposal, committed)
+          ) {
+            return answer("rebase");
+          }
+          // The saved body can move on once this check passes; the newer
+          // revision is then proposed against this one, which is in the doc.
+          if (options.isCurrent && !(await options.isCurrent())) {
+            return answer("stale");
+          }
+
+          const beforeVector = Y.encodeStateVector(committed);
+          committed.transact(() => {
+            Y.applyUpdate(committed, adoptionUpdate);
+            const marker = committed.getMap(SNAPSHOT_ADOPTION_MAP);
+            marker.set("revision", revision);
+            if (options.body === undefined) marker.delete("body");
+            else marker.set("body", options.body);
+          });
+          if (committed.store.pendingStructs || committed.store.pendingDs) {
+            throw new Error(
+              "Snapshot adoption update depends on state the server does not have",
+            );
+          }
+          const state = Y.encodeStateAsUpdate(committed);
+          const committedUpdate = Y.encodeStateAsUpdate(
+            committed,
+            beforeVector,
+          );
+          const textSnapshot =
+            committed.getText(DEFAULT_FIELD).toString() ||
+            extractTextFromYXml(committed.getXmlFragment("default"));
+          const saved = await trySaveYDocState(
+            docId,
+            state,
+            textSnapshot,
+            stored?.version ?? null,
+          );
+          if (!saved) continue;
+
+          releaseDoc(docId);
+          emitCollabUpdate(
+            docId,
+            uint8ArrayToBase64(committedUpdate),
+            options.requestSource,
+          );
+          return {
+            status: "adopted",
+            state,
+            adoptedRevision: revision,
+            adoptedBody: options.body ?? null,
+          };
+        } finally {
+          committed.destroy();
+        }
+      }
+      throw new CollabBaseVersionConflictError(
+        `Document ${docId} kept changing while a saved snapshot was being adopted.`,
+      );
+    },
+    "adoptSnapshotOnce",
+  );
+}
+
 export async function applyText(
   docId: string,
   newText: string,
   fieldName: string = DEFAULT_FIELD,
   requestSource?: string,
   options: {
-    /**
-     * Validate the converged text this diff will be computed FROM, inside the
-     * write lock. A caller that checked the live text before calling has no
-     * protection against a peer process committing in between: `newText` is a
-     * whole document computed from the older base, so applying it would
-     * overwrite the other writer rather than conflict. Reject here to keep
-     * that a loud, retryable conflict.
-     *
-     * Supplying this also pins the row version the base was read at: the
-     * persistence CAS then rejects a peer commit that lands before the write
-     * (CollabBaseVersionConflictError) rather than merging with it, since the
-     * merge would absorb the other edit and still pass a syntax check.
-     */
     validateBase?: (base: string) => void;
-    /**
-     * Validate the fully converged text after cross-process Yjs updates have
-     * merged, but before the state is persisted or broadcast. A rejected
-     * candidate is discarded from this process's cache so the next read
-     * reloads the last durable state instead of leaking an uncommitted merge.
-     */
     validateSnapshot?: (snapshot: string) => void;
   } = {},
 ): Promise<string> {
-  return withDocWriteLock(docId, async () => {
-    const doc = await getDocForWrite(docId);
-    // getDoc has just merged any peer state and recorded the row version that
-    // merge corresponds to. Both are read here with no await between them, so
-    // the validated text and the pinned version describe the same state — a
-    // separate version query could straddle a peer commit and pair stale text
-    // with the peer's newer version.
-    const validatedBaseVersion = options.validateBase
-      ? cachedVersionFor(docId, doc)
-      : undefined;
-    const oldText = doc.getText(fieldName).toString();
-    if (options.validateBase && validatedBaseVersion === undefined) {
-      throw new CollabBaseVersionConflictError(
-        `Document ${docId} has no known base version to validate against; re-read the file and retry.`,
-      );
-    }
-    options.validateBase?.(oldText);
-    const update = applyTextToYDoc(doc, fieldName, newText, "server");
+  return withDocWriteLock(
+    docId,
+    async () => {
+      const doc = await getDocForWrite(docId);
+      const validatedBaseVersion = options.validateBase
+        ? cachedVersionFor(docId, doc)
+        : undefined;
+      const oldText = doc.getText(fieldName).toString();
+      if (options.validateBase && validatedBaseVersion === undefined) {
+        throw new CollabBaseVersionConflictError(
+          `Document ${docId} has no known base version to validate against; re-read the file and retry.`,
+        );
+      }
+      options.validateBase?.(oldText);
+      const update = applyTextToYDoc(doc, fieldName, newText, "server");
 
-    if (update.length === 0) {
-      const snapshot = doc.getText(fieldName).toString();
+      if (update.length === 0) {
+        const snapshot = doc.getText(fieldName).toString();
+        try {
+          options.validateSnapshot?.(snapshot);
+        } catch (error) {
+          releaseDoc(docId);
+          throw error;
+        }
+        return snapshot;
+      }
+
       try {
-        options.validateSnapshot?.(snapshot);
+        await persistMergedState(
+          docId,
+          doc,
+          () => doc.getText(fieldName).toString(),
+          options.validateSnapshot,
+          validatedBaseVersion,
+        );
       } catch (error) {
         releaseDoc(docId);
         throw error;
       }
-      return snapshot;
-    }
 
-    try {
-      await persistMergedState(
-        docId,
-        doc,
-        () => doc.getText(fieldName).toString(),
-        options.validateSnapshot,
-        validatedBaseVersion,
-      );
-    } catch (error) {
-      // The rejected diff, and any cross-process state merged during the CAS
-      // read, now live only in this cached Y.Doc. Destroy it before throwing:
-      // neither the rejected update nor a compensating rollback should ever be
-      // persisted or emitted. Gating this on validateSnapshot left a pinned
-      // caller's rejected mutation cached forever, so the next successful
-      // write folded peer state on top of durably-rejected content.
-      releaseDoc(docId);
-      throw error;
-    }
-
-    emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
-    touchAgentPresence(docId, requestSource, {
-      descriptor: computeTextEditDescriptor(oldText, newText),
-    });
-    return doc.getText(fieldName).toString();
-  });
+      emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
+      touchAgentPresence(docId, requestSource, {
+        descriptor: computeTextEditDescriptor(oldText, newText),
+      });
+      return doc.getText(fieldName).toString();
+    },
+    "applyText",
+  );
 }
 
-/**
- * Search-and-replace text within a Y.XmlFragment (ProseMirror tree).
- * Produces minimal Yjs operations for cursor-preserving updates.
- *
- * Returns whether the text was found and the binary update.
- */
 export async function searchAndReplace(
   docId: string,
   find: string,
   replace: string,
   requestSource?: string,
 ): Promise<{ found: boolean; update: Uint8Array }> {
-  return withDocWriteLock(docId, async () => {
-    const doc = await getDocForWrite(docId);
-    const fragment = doc.getXmlFragment("default");
+  return withDocWriteLock(
+    docId,
+    async () => {
+      const doc = await getDocForWrite(docId);
+      const fragment = doc.getXmlFragment("default");
 
-    // Capture the update produced by the transaction
-    let update: Uint8Array = new Uint8Array(0);
-    const handler = (u: Uint8Array) => {
-      update = u;
-    };
-    doc.on("update", handler);
+      let update: Uint8Array = new Uint8Array(0);
+      const handler = (u: Uint8Array) => {
+        update = u;
+      };
+      doc.on("update", handler);
 
-    let found = false;
-    doc.transact(() => {
-      found = searchAndReplaceInYXml(fragment, find, replace);
-    }, "agent");
+      let found = false;
+      doc.transact(() => {
+        found = searchAndReplaceInYXml(fragment, find, replace);
+      }, "agent");
 
-    doc.off("update", handler);
+      doc.off("update", handler);
 
-    if (!found || update.length === 0) {
-      return { found: false, update: new Uint8Array(0) };
-    }
+      if (!found || update.length === 0) {
+        return { found: false, update: new Uint8Array(0) };
+      }
 
-    await persistMergedState(docId, doc, () => extractTextFromYXml(fragment));
-    emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
-    touchAgentPresence(docId, requestSource, {
-      descriptor: {
-        kind: "text",
-        quote: (replace || find).slice(0, 120),
-      },
-    });
+      await persistMergedState(docId, doc, () => extractTextFromYXml(fragment));
+      emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
+      touchAgentPresence(docId, requestSource, {
+        descriptor: {
+          kind: "text",
+          quote: (replace || find).slice(0, 120),
+        },
+      });
 
-    return { found: true, update };
-  });
+      return { found: true, update };
+    },
+    "searchAndReplace",
+  );
 }
 
-/**
- * Get the current text content of a document field.
- */
 export async function getText(
   docId: string,
   fieldName: string = DEFAULT_FIELD,
 ): Promise<string> {
-  const doc = await getDoc(docId);
+  const doc = await readDoc(docId, "getText");
   return doc.getText(fieldName).toString();
 }
 
-/**
- * Get the full document state as a Uint8Array.
- */
 export async function getState(docId: string): Promise<Uint8Array> {
-  const doc = await getDoc(docId);
-  return Y.encodeStateAsUpdate(doc);
+  const target = await readTarget(docId);
+  if (target.kind === "doc") return Y.encodeStateAsUpdate(target.doc);
+  return (await liveCopyStateForRead(target.binding, docId)).state.slice();
 }
 
-/**
- * Get an incremental update relative to a client's state vector.
- */
 export async function getIncUpdate(
   docId: string,
   clientStateVector: Uint8Array,
 ): Promise<Uint8Array> {
-  const doc = await getDoc(docId);
-  return Y.encodeStateAsUpdate(doc, clientStateVector);
+  const target = await readTarget(docId);
+  if (target.kind === "doc") {
+    return Y.encodeStateAsUpdate(target.doc, clientStateVector);
+  }
+  const { state, catchUp } = await liveCopyStateForRead(target.binding, docId);
+  // Diffing against the client's vector would decode the copy on this
+  // thread. A client at the same vector lacks at most deletions; any other
+  // gets the whole state, which Yjs applies idempotently.
+  return sameBytes(clientStateVector, catchUp.stateVector)
+    ? catchUp.deletions.slice()
+    : state.slice();
 }
 
-/**
- * Seed a document from existing text content (for migration).
- * Only seeds if no collab state exists yet.
- */
+function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
+  return a.length === b.length && a.every((byte, index) => byte === b[index]);
+}
+
 export async function seedFromText(
   docId: string,
   text: string,
   fieldName: string = DEFAULT_FIELD,
   client?: DbExec,
 ): Promise<void> {
-  return withDocWriteLock(docId, async () => {
-    const existing = client
-      ? await loadYDocRecordWithClient(client, docId)
-      : await loadYDocRecord(docId);
-    if (existing && existing.state.length > 0) return; // Already seeded
-    const expectedVersion = existing ? existing.version : null;
+  return withDocWriteLock(
+    docId,
+    async () => {
+      const existing = client
+        ? await loadYDocRecordWithClient(client, docId)
+        : await loadYDocRecord(docId);
+      if (existing && existing.state.length > 0) return;
+      const expectedVersion = existing ? existing.version : null;
 
-    const { doc, state } = initYDocWithText(fieldName, text);
-    let saved: boolean;
-    try {
-      saved = client
-        ? await trySaveYDocStateWithClient(
-            client,
-            docId,
-            state,
-            text,
-            expectedVersion,
-          )
-        : await trySaveYDocState(docId, state, text, expectedVersion);
-    } catch (error) {
-      doc.destroy();
-      throw error;
-    }
-    if (!saved) {
+      const { doc, state } = initYDocWithText(fieldName, text);
+      let saved: boolean;
+      try {
+        saved = client
+          ? await trySaveYDocStateWithClient(
+              client,
+              docId,
+              state,
+              text,
+              expectedVersion,
+            )
+          : await trySaveYDocState(docId, state, text, expectedVersion);
+      } catch (error) {
+        doc.destroy();
+        throw error;
+      }
+      if (!saved) {
+        releaseDoc(docId);
+        doc.destroy();
+        return;
+      }
+
       releaseDoc(docId);
-      doc.destroy();
-      return;
-    }
+      if (client) {
+        doc.destroy();
+        return;
+      }
 
-    releaseDoc(docId);
-    // A caller-owned transaction may still roll back after this function
-    // returns, so never publish its uncommitted doc into the process cache.
-    if (client) {
-      doc.destroy();
-      return;
-    }
-
-    // Cache the doc
-    evictIfNeeded();
-    _cache.set(docId, {
-      doc,
-      lastAccess: Date.now(),
-      syncedVersion: existing ? existing.version + 1 : 0,
-    });
-  });
+      evictIfNeeded();
+      _cache.set(docId, {
+        doc,
+        lastAccess: Date.now(),
+        syncedVersion: existing ? existing.version + 1 : 0,
+      });
+    },
+    "seedFromText",
+  );
 }
 
-// ─── Structured JSON Operations ─────────────────────────────────────
-
-/**
- * Apply a full JSON update to a document. Computes the minimal diff
- * and converts it to Yjs operations on Y.Map/Y.Array.
- */
 export async function applyJson(
   docId: string,
   newJson: any,
@@ -765,68 +1500,63 @@ export async function applyJson(
   _type: "map" | "array" = "map",
   requestSource?: string,
 ): Promise<void> {
-  return withDocWriteLock(docId, async () => {
-    const doc = await getDocForWrite(docId);
-    const update = applyJsonDiff(doc, fieldName, newJson, "server");
+  return withDocWriteLock(
+    docId,
+    async () => {
+      const doc = await getDocForWrite(docId);
+      const update = applyJsonDiff(doc, fieldName, newJson, "server");
 
-    if (update.length === 0) return;
+      if (update.length === 0) return;
 
-    // Snapshot the doc's actual post-merge state, not the caller-supplied
-    // `newJson` — persistMergedState may re-apply newer DB state to resolve
-    // concurrent writes, so `newJson` can be stale. Matches applyPatchOps.
-    await persistMergedState(docId, doc, () =>
-      JSON.stringify(yDocToJson(doc, fieldName)),
-    );
+      await persistMergedState(docId, doc, () =>
+        JSON.stringify(yDocToJson(doc, fieldName)),
+      );
 
-    emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
-    touchAgentPresence(docId, requestSource, { descriptor: { kind: "doc" } });
-  });
+      emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
+      touchAgentPresence(docId, requestSource, { descriptor: { kind: "doc" } });
+    },
+    "applyJson",
+  );
 }
 
-/**
- * Apply surgical JSON patch operations to a document.
- */
 export async function applyPatchOps(
   docId: string,
   ops: PatchOp[],
   fieldName: string = "data",
   requestSource?: string,
 ): Promise<void> {
-  return withDocWriteLock(docId, async () => {
-    const doc = await getDocForWrite(docId);
-    const update = applyJsonPatch(doc, fieldName, ops, "server");
+  return withDocWriteLock(
+    docId,
+    async () => {
+      const doc = await getDocForWrite(docId);
+      const update = applyJsonPatch(doc, fieldName, ops, "server");
 
-    if (update.length === 0) return;
+      if (update.length === 0) return;
 
-    await persistMergedState(docId, doc, () =>
-      JSON.stringify(yDocToJson(doc, fieldName)),
-    );
+      await persistMergedState(docId, doc, () =>
+        JSON.stringify(yDocToJson(doc, fieldName)),
+      );
 
-    emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
-    touchAgentPresence(docId, requestSource, {
-      descriptor: {
-        kind: "paths",
-        paths: ops.slice(0, 5).map((op) => op.path),
-      },
-    });
-  });
+      emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
+      touchAgentPresence(docId, requestSource, {
+        descriptor: {
+          kind: "paths",
+          paths: ops.slice(0, 5).map((op) => op.path),
+        },
+      });
+    },
+    "applyPatchOps",
+  );
 }
 
-/**
- * Get the current JSON state of a document field.
- */
 export async function getJson(
   docId: string,
   fieldName: string = "data",
 ): Promise<any> {
-  const doc = await getDoc(docId);
+  const doc = await readDoc(docId, "getJson");
   return yDocToJson(doc, fieldName);
 }
 
-/**
- * Seed a document from existing JSON content (for migration).
- * Only seeds if no collab state exists yet.
- */
 export async function seedFromJson(
   docId: string,
   json: any,
@@ -834,62 +1564,79 @@ export async function seedFromJson(
   type: "map" | "array" = "map",
   client?: DbExec,
 ): Promise<void> {
-  return withDocWriteLock(docId, async () => {
-    const existing = client
-      ? await loadYDocRecordWithClient(client, docId)
-      : await loadYDocRecord(docId);
-    if (existing && existing.state.length > 0) return; // Already seeded
-    const expectedVersion = existing ? existing.version : null;
+  return withDocWriteLock(
+    docId,
+    async () => {
+      const existing = client
+        ? await loadYDocRecordWithClient(client, docId)
+        : await loadYDocRecord(docId);
+      if (existing && existing.state.length > 0) return;
+      const expectedVersion = existing ? existing.version : null;
 
-    const { doc, state } = initYDocWithJson(fieldName, json, type);
-    let saved: boolean;
-    try {
-      saved = client
-        ? await trySaveYDocStateWithClient(
-            client,
-            docId,
-            state,
-            JSON.stringify(json),
-            expectedVersion,
-          )
-        : await trySaveYDocState(
-            docId,
-            state,
-            JSON.stringify(json),
-            expectedVersion,
-          );
-    } catch (error) {
-      doc.destroy();
-      throw error;
-    }
-    if (!saved) {
+      const { doc, state } = initYDocWithJson(fieldName, json, type);
+      let saved: boolean;
+      try {
+        saved = client
+          ? await trySaveYDocStateWithClient(
+              client,
+              docId,
+              state,
+              JSON.stringify(json),
+              expectedVersion,
+            )
+          : await trySaveYDocState(
+              docId,
+              state,
+              JSON.stringify(json),
+              expectedVersion,
+            );
+      } catch (error) {
+        doc.destroy();
+        throw error;
+      }
+      if (!saved) {
+        releaseDoc(docId);
+        doc.destroy();
+        return;
+      }
+
       releaseDoc(docId);
-      doc.destroy();
-      return;
-    }
+      if (client) {
+        doc.destroy();
+        return;
+      }
 
-    releaseDoc(docId);
-    // See seedFromText: a transaction-owned seed becomes cacheable only after
-    // its commit, when the route reads the now-durable state.
-    if (client) {
-      doc.destroy();
-      return;
-    }
-
-    // Cache the doc
-    evictIfNeeded();
-    _cache.set(docId, {
-      doc,
-      lastAccess: Date.now(),
-      syncedVersion: existing ? existing.version + 1 : 0,
-    });
-  });
+      evictIfNeeded();
+      _cache.set(docId, {
+        doc,
+        lastAccess: Date.now(),
+        syncedVersion: existing ? existing.version + 1 : 0,
+      });
+    },
+    "seedFromJson",
+  );
 }
 
-/**
- * Release a document from the in-memory cache.
- */
+/** Overwrites a document's stored state and text. Refuses live copies. */
+export function saveYDocState(
+  docId: string,
+  state: Uint8Array,
+  textSnapshot: string,
+): Promise<void> {
+  if (!liveCopiesDefined()) {
+    return saveStoredYDocState(docId, state, textSnapshot);
+  }
+  // Refused under the lock: checked outside it, a seed that makes the
+  // document a live copy could land between the check and this overwrite.
+  return withDocWriteLock(
+    docId,
+    () => saveStoredYDocState(docId, state, textSnapshot),
+    "saveYDocState",
+  );
+}
+
 export function releaseDoc(docId: string): void {
+  _liveCopyCache.delete(docId);
   const entry = _cache.get(docId);
   if (entry) {
     entry.doc.destroy();

@@ -34,8 +34,6 @@ describe("stripDiagnosticSnippets", () => {
   });
 
   it("removes multiple fenced blocks non-greedily and leaves surrounding text untouched", () => {
-    // The wrapper always leaves the close marker on its own line; a marker
-    // followed by more text on the same line is echoed content, not a fence.
     const text = `keep1\n${wrapDiagnosticSnippet("a")}\nkeep2\n${wrapDiagnosticSnippet("b\nc")}\nkeep3`;
 
     expect(stripDiagnosticSnippets(text)).toBe("keep1\n\nkeep2\n\nkeep3");

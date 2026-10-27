@@ -1,18 +1,4 @@
 #!/usr/bin/env node
-/**
- * Generate the declared-configuration table from `appConfigSchema`.
- *
- * The point of step 9 in `plans/core-configuration-attack-plan.md`: adding an
- * environment variable by hand costs entries in several files, so declaring a
- * field has to cost less than that or nobody will. This writes the table for
- * every declared field, so a new field documents itself.
- *
- * The surrounding prose in the target file is hand-written and stays that way —
- * only the block between the markers is owned here.
- *
- * `--check` verifies the block is current without writing, which is what
- * `pnpm guard:config-docs` runs in CI.
- */
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -33,12 +19,6 @@ function formatDefault(value: unknown): string {
   return `\`${JSON.stringify(value)}\``;
 }
 
-/**
- * Pad every cell to its column's widest, separator row included. oxfmt
- * reformats markdown tables this way, so emitting anything narrower makes
- * `guard:config-docs` and `oxfmt --check` disagree forever: the generator
- * rewrites the padding out, the formatter puts it back.
- */
 function renderRows(header: string[], body: string[][]): string[] {
   const widths = header.map((_, column) =>
     Math.max(

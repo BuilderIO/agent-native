@@ -9,5 +9,8 @@ export default defineAction({
   schema: z.object({}),
   http: { method: "GET" },
   readOnly: true,
+  // Its record read resolves provider scope without the caller's identity,
+  // so it stays off MCP and A2A, full catalog included.
+  mcpTool: false,
   run: () => getCrmOverview(),
 });

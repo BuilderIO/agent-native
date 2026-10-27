@@ -1,32 +1,20 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  managedReviewSkillAlignment,
   managedReviewSkillAlignmentMarkers,
   syncManagedReviewSkillAlignment,
 } from "./review-skill-alignment.js";
 
 describe("Factory review skill alignment", () => {
-  it("adds the current feedback contract without replacing custom prompt text", () => {
+  it("adds the current review contract without replacing custom prompt text", () => {
     const prompt = syncManagedReviewSkillAlignment(
       "Custom operator instruction.",
-      "factory-slack-feedback",
+      "factory-pr-governance",
     );
     const markers = managedReviewSkillAlignmentMarkers();
 
     expect(prompt).toContain("Custom operator instruction.");
-    expect(prompt).toContain("answered clarifications");
-    expect(prompt).toContain("@agent-native Fixed, In progress, or");
-    expect(prompt).toContain("Clarification needed");
-    expect(prompt).toContain("reaction: eyes");
-    expect(prompt).toContain("MUST pass");
-    expect(prompt).toContain("already has eyes 👀");
-    expect(prompt).not.toContain("robot_face");
-    expect(prompt).not.toContain("Do not pass reaction eyes");
-    expect(prompt).toContain("alreadyClaimed: true");
-    expect(prompt).toContain("clearBug` may be");
-    expect(prompt).not.toContain("with `clearBug: false`, omit reaction");
-    expect(prompt).not.toContain("that action adds 👀");
+    expect(prompt).toContain("ultra-scary gate");
     expect(prompt.indexOf(markers.start)).toBeGreaterThan(-1);
     expect(prompt.indexOf(markers.end)).toBeGreaterThan(
       prompt.indexOf(markers.start),
@@ -46,13 +34,13 @@ describe("Factory review skill alignment", () => {
     expect(second).toContain("Keep this prompt.");
     expect(second).toContain("Custom suffix.");
     expect(second).toContain("Alice (`3mdistal`)");
+    expect(second).toContain("Shomix (shomix, GitHub user ID 100691266)");
+    expect(second).toMatch(
+      /Match both the login\s+and immutable GitHub author ID/,
+    );
+    expect(second).toMatch(/across app and\s+framework areas/);
+    expect(second).toContain("independent human review");
+    expect(second).toContain("MCP iframe sandboxing, CSP, HTML sanitization");
     expect(second).not.toContain("old contract");
-  });
-
-  it("adds the babysit contract without review-prs governance text", () => {
-    const alignment = managedReviewSkillAlignment("factory-pr-babysit");
-    expect(alignment).toContain("propose-pr-babysit-status");
-    expect(alignment).toContain("defer");
-    expect(alignment).not.toContain("ultra-scary gate");
   });
 });

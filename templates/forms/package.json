@@ -18,7 +18,9 @@
   },
   "dependencies": {
     "@agent-native/core": "workspace:*",
+    "@agent-native/otel": "workspace:*",
     "@agent-native/toolkit": "workspace:*",
+    "@electric-sql/pglite": "^0.5.8",
     "@fontsource-variable/inter": "^5.2.8",
     "@hookform/resolvers": "^5.2.2",
     "@radix-ui/react-accordion": "^1.2.12",
@@ -77,7 +79,7 @@
     "@types/node": "^24.2.1",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
-    "@vitejs/plugin-react-swc": "^4.0.0",
+    "@vitejs/plugin-react-swc": "^4.3.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",

@@ -1,16 +1,13 @@
 import {
-  AgentSidebar,
-  focusAgentChat,
   isAgentChatHomeHandoffActive,
-  isAssistantChatHistoryVersion,
   navigateWithAgentChatViewTransition,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
-  type AssistantChatHistoryConfig,
-  type AssistantChatHistoryVersion,
 } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
+import { AgentSidebar, focusAgentChat } from "@agent-native/toolkit/app/chat";
+import { isSettingsPathname } from "@agent-native/toolkit/app/settings";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
@@ -34,11 +31,6 @@ interface LayoutProps {
 
 const SIDEBAR_COLLAPSE_KEY = "chat.sidebar.collapsed";
 
-/**
- * Routes whose page renders its own toolbar. Layout still wraps these with the
- * left Sidebar and agent surfaces but skips the global Header so they don't
- * double-stack chrome.
- */
 function routeOwnsToolbar(pathname: string): boolean {
   return (
     pathname === "/chat" ||
@@ -59,6 +51,9 @@ export function Layout({ children }: LayoutProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const isChatRoute =
     location.pathname === "/chat" || location.pathname.startsWith("/chat/");
+  // Settings brings its own navigation, header, and agent toggle, so it
+  // renders full width.
+  const isSettingsRoute = isSettingsPathname(location.pathname);
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
     storageKey: "chat",
     activePath: location.pathname,
@@ -72,51 +67,6 @@ export function Layout({ children }: LayoutProps) {
       "product-feedback"
     );
   }, [location.pathname, location.search]);
-  const factoryChatHistory = useMemo<
-    AssistantChatHistoryConfig | undefined
-  >(() => {
-    if (!factoryId) return undefined;
-    return {
-      list: {
-        action: "list-factory-graph-versions",
-        args: { factoryId, limit: 50 },
-        getVersions: (result: unknown) => {
-          if (!result || typeof result !== "object") return [];
-          const versions = (result as { versions?: unknown }).versions;
-          if (!Array.isArray(versions)) return [];
-          return versions.flatMap((version, index) => {
-            if (!isAssistantChatHistoryVersion(version)) return [];
-            const previous = versions[index + 1];
-            if (!isAssistantChatHistoryVersion(previous)) return [];
-            const chatContext = (
-              version as AssistantChatHistoryVersion & {
-                chatContext?: {
-                  threadId?: string;
-                  runId?: string;
-                  turnId?: string;
-                };
-              }
-            ).chatContext;
-            return [
-              {
-                ...previous,
-                createdAt: version.createdAt,
-                editable: Boolean(chatContext),
-                ...(chatContext ? { chatContext } : {}),
-              },
-            ];
-          });
-        },
-      },
-      restore: {
-        action: "restore-factory-graph-version",
-        args: (version: AssistantChatHistoryVersion) => ({
-          factoryId,
-          versionId: version.id,
-        }),
-      },
-    };
-  }, [factoryId]);
   const factoryScope = factoryId
     ? { type: "factory" as const, id: factoryId }
     : undefined;
@@ -193,7 +143,7 @@ export function Layout({ children }: LayoutProps) {
             <IconMenu2 className="h-4 w-4" />
           </button>
         </div>
-      ) : (
+      ) : isSettingsRoute ? null : (
         <Header onOpenMobileSidebar={() => setMobileSidebarOpen(true)} />
       )}
       <main className="agent-native-app-main min-w-0 flex-1 overflow-y-auto overscroll-contain">
@@ -205,12 +155,14 @@ export function Layout({ children }: LayoutProps) {
   return (
     <HeaderActionsProvider>
       <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
-        <div className="agent-layout-left-drawer hidden md:block">
-          <Sidebar
-            collapsed={sidebarCollapsed}
-            onCollapsedChange={setSidebarCollapsed}
-          />
-        </div>
+        {isSettingsRoute ? null : (
+          <div className="agent-layout-left-drawer hidden md:block">
+            <Sidebar
+              collapsed={sidebarCollapsed}
+              onCollapsedChange={setSidebarCollapsed}
+            />
+          </div>
+        )}
         <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
           <SheetContent side="left" className="p-0 w-[260px]">
             <SheetTitle className="sr-only">
@@ -234,7 +186,6 @@ export function Layout({ children }: LayoutProps) {
             storageKey="chat"
             browserTabId={TAB_ID}
             scope={factoryScope}
-            chatHistory={factoryChatHistory}
             openOnChatRunning={chatHomeHandoffActive}
             onFullscreenRequest={openAskAgentFullscreen}
             emptyStateText={t("chat.inspectEmptyState")}

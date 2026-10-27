@@ -5,12 +5,6 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 
-/**
- * The object types a connection mirrors. An unreadable blob is not reported as
- * "mirrors nothing": the settings UI would then render an empty target picker,
- * which is indistinguishable from a correctly configured CRM that happens to
- * have no objects.
- */
 function parseObjectTypes(connectionId: string, raw: string): string[] {
   let parsed: unknown;
   try {

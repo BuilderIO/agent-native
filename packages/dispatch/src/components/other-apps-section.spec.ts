@@ -25,6 +25,7 @@ describe("other app search", () => {
         name: "Slides",
         description: "Create presentations",
         url: "https://slides.agent-native.com",
+        source: "custom",
       },
     ],
     workspaceApps: [],

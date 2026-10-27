@@ -6,14 +6,6 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { requireCrmScope } from "./_crm-action-utils.js";
 
-/**
- * Everything here is derived from the auth session — there is no per-user CRM
- * configuration to author, and none should be introduced. "Who am I in this
- * CRM" is answered from the mirrored owner attribution on the records the caller
- * already owns.
- */
-
-/** Records scanned to build the book of business before the answer is partial. */
 const MAX_BOOK_SCAN = 500;
 const MAX_TASK_SCAN = 200;
 const MAX_QUEUE_SCAN = 100;
@@ -57,16 +49,6 @@ interface ConnectionHealth {
   lastError: string | null;
 }
 
-/**
- * Resolve the caller's provider owner identity from their own mirrored records.
- *
- * The four non-resolved outcomes are deliberately DIFFERENT values. "No provider
- * connection", "connected but nothing attributes you to an owner", "the mirror
- * is stale because a connection is broken", and "you appear under two owner ids"
- * all render as an empty owner slot if they are flattened, and the third one is
- * the dangerous case: it would let a broken connection look exactly like an
- * empty book of business.
- */
 function resolveWorkspaceOwner(input: {
   connections: ConnectionHealth[];
   records: OwnedRecord[];
@@ -207,8 +189,6 @@ export default defineAction({
       .where(accessFilter(schema.crmConnections, schema.crmConnectionShares))
       .limit(MAX_QUEUE_SCAN);
 
-    // The book of business is what the caller OWNS, not everything they can
-    // see — a shared org-wide record is somebody else's work.
     const records: OwnedRecord[] = await db
       .select({
         id: schema.crmRecords.id,
@@ -236,8 +216,6 @@ export default defineAction({
       .orderBy(desc(schema.crmRecords.updatedAt))
       .limit(MAX_BOOK_SCAN + 1);
 
-    // A truncated scan is not a completed one: the counts below would be a
-    // confident understatement, so say so instead of rounding it off.
     const bookComplete = records.length <= MAX_BOOK_SCAN;
     const scanned = bookComplete ? records : records.slice(0, MAX_BOOK_SCAN);
 

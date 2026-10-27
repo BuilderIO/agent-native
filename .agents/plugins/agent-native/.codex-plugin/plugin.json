@@ -2,8 +2,11 @@
   "name": "agent-native",
   "version": "1.0.0+codex.8e8e4d55970a",
   "description": "Open and operate granted Agent-Native apps through Dispatch MCP, with inline app surfaces and current browser screen state.",
-  "author": { "name": "Agent-Native", "url": "https://agent-native.com" },
-  "homepage": "https://dispatch.agent-native.com",
+  "author": {
+    "name": "Agent-Native",
+    "url": "https://agent-native.com/?utm_source=codex-plugins&utm_medium=referral&utm_content=plugin-author"
+  },
+  "homepage": "https://dispatch.agent-native.com/?utm_source=codex-plugins&utm_medium=referral&utm_content=plugin-homepage",
   "license": "MIT",
   "keywords": [
     "agent-native",
@@ -21,7 +24,7 @@
     "developerName": "Agent-Native",
     "category": "Productivity",
     "capabilities": ["Interactive", "Read", "Write"],
-    "websiteURL": "https://dispatch.agent-native.com",
+    "websiteURL": "https://dispatch.agent-native.com/?utm_source=codex-plugins&utm_medium=referral&utm_content=plugin-website",
     "defaultPrompt": [
       "Open Agent-Native where useful",
       "Use Agent-Native for app-backed workflows",

@@ -4,10 +4,6 @@ function seenStorageKey(appKey: string): string {
   return `an:changelog-seen:${appKey}`;
 }
 
-/**
- * Reads the first release heading without loading the full changelog parser.
- * The full parser stays behind the command-menu dialog's lazy boundary.
- */
 export function getChangelogLatestId(
   markdown: string | undefined,
 ): string | undefined {
@@ -26,11 +22,6 @@ export function getChangelogLatestId(
   );
 }
 
-/**
- * Tracks the latest release a user has already seen (per browser, via
- * localStorage). Returns whether there's an unseen release and a `markSeen`
- * callback to clear the indicator once the changelog is opened.
- */
 export function useChangelogSeen(
   appKey: string,
   latestId: string | undefined,
@@ -57,9 +48,6 @@ export function useChangelogSeen(
     }
   }, [appKey, latestId]);
 
-  // Don't flag "unseen" until hydrated, and never on a first-ever visit (no
-  // stored value) — only once the user has seen *something* and a newer
-  // release appears. This avoids nagging brand-new users.
   const unseen =
     hydrated && !!latestId && seenId !== null && seenId !== latestId;
 

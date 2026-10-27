@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   CREATABLE_DOCUMENT_PROPERTY_TYPES,
-  DEFAULT_BLOCKS_FIELD_NAME,
   EDITABLE_DOCUMENT_PROPERTY_TYPES,
   blocksRenderMode,
   blocksStorageTarget,
@@ -77,7 +76,6 @@ describe("document properties", () => {
       end: "2026-05-29T16:00",
       includeTime: true,
     });
-    // Builder CMS date fields arrive as epoch-millis numbers.
     const epochResult = normalizePropertyValue(
       "date",
       Date.parse("2026-05-28T15:30:00.000Z"),
@@ -198,7 +196,6 @@ describe("document properties", () => {
         URL: "site.com/blog/foo/",
       }),
     ).toBe("/blog/foo");
-    // The canonical case: host-qualified and relative URLs collapse to one key.
     expect(
       evaluatePropertyFormula('replace(striphost({URL}), "/blog/", "")', {
         URL: "https://site.com/blog/foo",
@@ -225,10 +222,8 @@ describe("document properties", () => {
     expect(evaluateNormalizationFormula("lower({slug})", { slug: "FOO" })).toBe(
       "foo",
     );
-    // Empty result collapses to null so empty keys never match each other.
     expect(evaluateNormalizationFormula("trim({k})", { k: "   " })).toBeNull();
     expect(evaluateNormalizationFormula("", { k: "x" })).toBeNull();
-    // A broken regex pattern fails as a null key rather than a garbage literal.
     expect(
       evaluateNormalizationFormula('regexextract({k}, "(", 1)', { k: "foo" }),
     ).toBeNull();
@@ -324,7 +319,6 @@ describe("Blocks property type", () => {
       serializePropertyOptions({ blocks: { primary: false } }),
     );
     expect(isPrimaryBlocksField(additional)).toBe(false);
-    // A Blocks field with no options is treated as non-primary.
     expect(isPrimaryBlocksField({})).toBe(false);
   });
 
@@ -333,12 +327,29 @@ describe("Blocks property type", () => {
     expect(countWords(null)).toBe(0);
     expect(countWords("one two three")).toBe(3);
     expect(countWords("# Heading with five words here")).toBe(5);
-    // List markers and emphasis punctuation are stripped; the bracketed link
-    // text and its URL each remain as tokens (a, b, c, bold, italic, link, url).
     expect(
       countWords("- a\n- b\n- c\n\n**bold** _italic_ [link](https://x.com)"),
     ).toBe(7);
     expect(countWords("```\ncode block ignored\n```\nreal words here")).toBe(3);
+  });
+
+  it("doesn't count stored markup as words", () => {
+    expect(countWords("<empty-block/>\n<empty-block/>\none two")).toBe(2);
+    expect(countWords("one<br>two<br/>three")).toBe(3);
+    expect(countWords("<span>\tindented line</span>")).toBe(2);
+  });
+
+  it("counts prose that only looks like a tag", () => {
+    // "a <b and c> d", saved with its angle brackets escaped.
+    expect(countWords("a \\<b and c\\> d")).toBe(5);
+    // "x\<b y", with both the backslash and the bracket escaped.
+    expect(countWords("x\\\\\\<b y")).toBe(2);
+  });
+
+  it("doesn't count markup that follows a backslash written in prose", () => {
+    // "C:\" then a red word, saved as an escaped backslash and a <span>.
+    expect(countWords('C:\\\\<span color="red">drive</span>')).toBe(2);
+    expect(countWords("foo\\\\<br>bar")).toBe(2);
   });
 
   it("formats a word count for table cells", () => {
@@ -362,7 +373,6 @@ describe("Blocks property type", () => {
     expect(
       isOnlyBlocksFieldDeletion({ type: "blocks", blocksFieldCount: 2 }),
     ).toBe(false);
-    // Deleting a non-Blocks property never triggers the body warning.
     expect(
       isOnlyBlocksFieldDeletion({ type: "text", blocksFieldCount: 1 }),
     ).toBe(false);
@@ -382,7 +392,6 @@ describe("Blocks property type", () => {
     const documentBody = "PRIMARY body content";
     const blockFieldContent = "ADDITIONAL field content";
 
-    // Primary reads from the body, never from the additional store.
     expect(
       resolveBlocksFieldValue({
         options: { blocks: { primary: true } },
@@ -391,7 +400,6 @@ describe("Blocks property type", () => {
       }),
     ).toBe(documentBody);
 
-    // An additional field reads from its own store, never from the body.
     expect(
       resolveBlocksFieldValue({
         options: { blocks: { primary: false } },
@@ -400,8 +408,6 @@ describe("Blocks property type", () => {
       }),
     ).toBe(blockFieldContent);
 
-    // A brand-new additional field (no stored content yet) is empty — NOT the
-    // body. This is the core "second Blocks field is empty & independent" rule.
     expect(
       resolveBlocksFieldValue({
         options: { blocks: { primary: false } },
@@ -410,7 +416,6 @@ describe("Blocks property type", () => {
       }),
     ).toBe("");
 
-    // Editing the additional field does not change what the primary resolves to.
     const editedBlockFieldContent = "edited additional content";
     expect(
       resolveBlocksFieldValue({
@@ -419,9 +424,5 @@ describe("Blocks property type", () => {
         blockFieldContent: editedBlockFieldContent,
       }),
     ).toBe(documentBody);
-  });
-
-  it("uses 'Content' as the default seeded Blocks field name", () => {
-    expect(DEFAULT_BLOCKS_FIELD_NAME).toBe("Content");
   });
 });

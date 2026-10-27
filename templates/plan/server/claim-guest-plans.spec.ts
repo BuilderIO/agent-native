@@ -1,9 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// defineEventHandler just wraps the handler; return it as-is so we can invoke it.
 vi.mock("h3", () => ({ defineEventHandler: (fn: unknown) => fn }));
 
-// Capture the query fragments structurally instead of executing real SQL.
 vi.mock("drizzle-orm", () => ({
   and: (...args: unknown[]) => ({ op: "and", args }),
   eq: (col: unknown, val: unknown) => ({ op: "eq", col, val }),
@@ -17,7 +15,6 @@ const updateSpy = vi.fn();
 const setSpy = vi.fn();
 const whereSpy = vi.fn();
 
-// Track calls per table so tests can inspect plans vs planVersions separately.
 const dbRecorder = {
   update: (table: unknown) => {
     updateSpy(table);
@@ -93,11 +90,8 @@ describe("claim-guest-plans middleware", () => {
     getSessionMock.mockResolvedValue({ email: "real@user.com" });
     await (handler as (e: never) => Promise<void>)(EVENT);
 
-    // Both plans and planVersions must be re-keyed.
     expect(updateSpy).toHaveBeenCalledTimes(2);
-    // ownerEmail set to the real account on both tables.
     expect(setSpy).toHaveBeenCalledWith({ ownerEmail: "real@user.com" });
-    // First WHERE: scoped to THIS guest's rows and never org-scoped (real) plans.
     expect(whereSpy).toHaveBeenCalledWith({
       op: "and",
       args: [
@@ -105,7 +99,6 @@ describe("claim-guest-plans middleware", () => {
         { op: "isNull", col: "plans.org_id" },
       ],
     });
-    // Second WHERE: planVersions scoped to the guest email only.
     expect(whereSpy).toHaveBeenCalledWith({
       op: "eq",
       col: "plan_versions.owner_email",
@@ -140,7 +133,6 @@ describe("claim-guest-plans middleware", () => {
     await expect(
       (handler as (e: never) => Promise<void>)(EVENT),
     ).resolves.toBeUndefined();
-    // Cookie is preserved so the next authenticated request retries the claim.
     expect(clearGuestAuthorCookieMock).not.toHaveBeenCalled();
   });
 });

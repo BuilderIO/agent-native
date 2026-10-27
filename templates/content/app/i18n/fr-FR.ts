@@ -2,6 +2,170 @@ import { commentAttributionMessagesByLocale } from "../../shared/comment-attribu
 import { buildMessagesForLocale } from "../i18n-data";
 
 const database = {
+  fitToWidth: "Ajuster à la largeur",
+  githubLinkTitle: "Lier un dossier GitHub",
+  githubNewCollectionTitle: "Nouvelle collection à partir d’un dossier GitHub",
+  githubLinkDescription:
+    "Les documents du dossier apparaissent ici sous forme de pages en lecture seule et se mettent à jour d’eux-mêmes quand les fichiers changent sur GitHub.",
+  githubNewCollectionDescription:
+    "Content crée une collection qui porte le nom du dossier. Ses documents y apparaissent sous forme de pages en lecture seule et se mettent à jour d’eux-mêmes quand les fichiers changent sur GitHub.",
+  githubLinkUrlLabel: "Lien du dossier GitHub",
+  githubLinkUrlHelp:
+    "Sur GitHub, ouvrez le dossier et copiez l’adresse depuis votre navigateur.",
+  githubLinkCheck: "Vérifier le dossier",
+  githubLinkReading: "Lecture du dossier sur GitHub…",
+  githubConnectChecking: "Vérification de votre connexion GitHub…",
+  githubConnectPrompt:
+    "Connectez votre compte GitHub pour que Content puisse lire vos dossiers.",
+  githubConnect: "Connecter GitHub",
+  githubPreviewPagesOne: "1 page",
+  githubPreviewPages: "{{count}} pages",
+  githubPreviewPagesUpTo: "Jusqu’à {{count}} pages",
+  githubLinkMore: "{{count}} autres",
+  githubLinkNoFiles:
+    "Ce dossier ne contient aucun fichier Markdown (.md), il n’y a donc rien à afficher.",
+  githubPreviewColumnsOne: "1 colonne",
+  githubPreviewColumns: "{{count}} colonnes",
+  githubLinkNoColumns:
+    "Ces fichiers n’ont pas d’informations en haut, donc chaque page reçoit seulement son titre.",
+  githubLinkNotShownOne: "1 fichier ne s’affiche pas encore.",
+  githubLinkNotShown: "{{count}} fichiers ne s’affichent pas encore.",
+  githubLinkPicturesWaiting:
+    "Les images de ces fichiers ne s’afficheront pas tant qu’un administrateur de l’espace de travail n’aura pas configuré le stockage de fichiers.",
+  githubShowDetails: "Afficher les détails",
+  githubHideDetails: "Masquer les détails",
+  githubDetailsPages: "Pages",
+  githubDetailsColumns: "Colonnes",
+  githubDetailsColumnsSampled:
+    "Lues dans les {{count}} premiers fichiers sur {{total}}. Les autres peuvent ajouter des colonnes.",
+  githubDetailsNotShown: "Pas encore affichés",
+  githubDetailsFrom: "Provenance",
+  githubDetailsBranchVersion: "Branche {{branch}} · version {{commit}}",
+  githubYes: "Oui",
+  githubNo: "Non",
+  githubSkipMdx: "Utilise MDX, que Content ne peut pas encore afficher",
+  githubSkipTooLarge: "Trop volumineux pour être affiché dans Content",
+  githubSkipNotText: "Pas un fichier texte lisible par Content",
+  githubLinkSubmitOne: "Lier 1 page",
+  githubLinkSubmit: "Lier {{count}} pages",
+  githubLinkSubmitUpTo: "Lier jusqu’à {{count}} pages",
+  githubLinking: "Liaison en cours…",
+  githubLinkingProgressOne: "Récupération d’une page depuis GitHub…",
+  githubLinkingProgress: "Récupération de {{count}} pages depuis GitHub…",
+  githubLinkedToastOne: "Dossier lié. 1 page de {{folder}} est arrivée.",
+  githubLinkedToast:
+    "Dossier lié. {{count}} pages de {{folder}} sont arrivées.",
+  githubLinkedPartialToast:
+    "Dossier lié. {{done}} pages sur {{total}} sont arrivées ; les autres arrivent d’ici une minute.",
+  githubLinkedSyncFailed:
+    "{{folder}} est lié, mais les pages n’ont pas encore pu être récupérées.",
+  githubLinkInvalidUrl:
+    "Ce n’est pas un lien vers un dossier GitHub. Sur GitHub, ouvrez le dossier et copiez l’adresse depuis votre navigateur.",
+  githubLinkFileUrl: "C’est un lien vers un seul fichier.",
+  githubLinkUseFolder: "Utiliser le dossier « {{folder}} »",
+  githubLinkRepositoryNotFound:
+    "Impossible d’ouvrir « {{repo}} ». Vérifiez l’orthographe, ou assurez-vous que votre compte GitHub peut le voir.",
+  githubLinkBranchNotFound:
+    "Il n’y a pas de branche « {{branch}} » dans {{repo}}. Vérifiez le lien.",
+  githubLinkFolderNotFound:
+    "Il n’y a pas de dossier « {{folder}} » dans {{repo}}. Vérifiez le lien.",
+  githubLinkForbidden:
+    "Votre compte GitHub ne peut pas ouvrir « {{repo}} ». Demandez l’accès à son propriétaire.",
+  githubLinkTooLarge:
+    "Ce dossier contient plus de {{max}} fichiers. Choisissez un dossier plus petit à l’intérieur.",
+  githubLinkUnavailable:
+    "Impossible de joindre GitHub pour le moment. Réessayez dans une minute.",
+  githubLinkBlockedHasRows:
+    "Cette collection contient maintenant des pages, donc un dossier GitHub ne peut plus la remplir.",
+  githubLinkBlockedLinked:
+    "Cette collection reçoit déjà ses pages d’une autre app.",
+  githubLinkBlockedSystem:
+    "Cette collection ne peut pas afficher de dossier GitHub.",
+  githubNewCollectionInstead: "Nouvelle collection depuis GitHub",
+  githubRowAvailable: "Afficher ici les documents d’un dossier GitHub",
+  githubRowConnectFirst: "Connectez d’abord votre compte GitHub",
+  githubRowEmptyOnly: "Uniquement pour les collections vides",
+  githubRowOtherSource: "Reçoit déjà ses pages de {{source}}",
+  githubRowFiles: "Non disponible pour Fichiers",
+  githubRowSystem: "Non disponible pour cette collection",
+  githubRowEditorsOnly: "Réservé aux éditeurs",
+  githubRowLinked: "Dossier {{folder}} · Mis à jour {{time}}",
+  githubRowLinkedNotUpdated: "Dossier {{folder}} · Pas encore mis à jour",
+  githubRowUnavailableWhileLinked:
+    "Non disponible tant que la collection est liée à GitHub",
+  githubExplainHasPagesOne:
+    "Un dossier GitHub remplit une collection entière, il lui faut donc une collection sans pages. Celle-ci contient 1 page.",
+  githubExplainHasPages:
+    "Un dossier GitHub remplit une collection entière, il lui faut donc une collection sans pages. Celle-ci contient {{count}} pages.",
+  githubExplainOtherSource:
+    "Une collection reçoit ses pages d’un seul endroit. Celle-ci utilise {{source}}.",
+  githubExplainFiles:
+    "La collection Fichiers ne peut pas afficher de dossier GitHub.",
+  githubExplainSystem:
+    "Cette collection ne peut pas afficher de dossier GitHub.",
+  githubExplainEditorsOnly:
+    "Seules les personnes qui peuvent modifier cette collection peuvent lier un dossier GitHub. Demandez un accès en modification à son propriétaire.",
+  githubExplainLinked:
+    "Les pages de cette collection viennent de GitHub. Dissociez le dossier pour utiliser une autre source.",
+  githubDetailFolder: "Dossier",
+  githubDetailBranch: "Branche",
+  githubDetailVersion: "Version",
+  githubDetailUpdated: "Dernière mise à jour",
+  githubCheckForUpdates: "Rechercher des mises à jour",
+  githubOpenFolder: "Ouvrir dans GitHub",
+  githubUnlinkFolder: "Dissocier le dossier…",
+  githubUnlinkTitle: "Dissocier ce dossier GitHub ?",
+  githubUnlinkBodyOne:
+    "La page reste ici et devient une page normale que vous pouvez modifier. Les modifications sur GitHub n’arriveront plus. Pour lier à nouveau ce dossier plus tard, vous utiliserez une nouvelle collection.",
+  githubUnlinkBody:
+    "Les {{count}} pages restent ici et deviennent des pages normales que vous pouvez modifier. Les modifications sur GitHub n’arriveront plus. Pour lier à nouveau ce dossier plus tard, vous utiliserez une nouvelle collection.",
+  githubUnlink: "Dissocier",
+  githubUnlinking: "Dissociation…",
+  githubUnlinkedToast:
+    "Dossier dissocié. Vos pages sont conservées et vous pouvez maintenant les modifier.",
+  githubUnlinkFailed: "Impossible de dissocier le dossier",
+  githubFromFolder: "Depuis le dossier {{folder}} sur GitHub",
+  githubFromRepo: "Depuis {{repo}} sur GitHub",
+  githubUpdatedAgo: "Dernière mise à jour : {{time}}",
+  githubJustNow: "à l’instant",
+  githubNotUpdatedYet: "Pas encore de mise à jour",
+  githubEditOnGitHub: "Modifier sur GitHub",
+  githubDetails: "Détails",
+  githubNotShownOne: "1 fichier non affiché",
+  githubNotShown: "{{count}} fichiers non affichés",
+  githubNotShownHeading: "Non affichés",
+  githubShowingAsOf: "Pages affichées telles qu’elles étaient {{time}}.",
+  githubSyncingProgress:
+    "Récupération des modifications : {{done}} fichiers sur {{total}}",
+  githubPicturesWaiting:
+    "Certaines images ne s’afficheront pas tant qu’un administrateur de l’espace de travail n’aura pas configuré le stockage de fichiers.",
+  githubPicturesNotSaved:
+    "Certaines images n’ont pas pu être enregistrées dans le stockage de fichiers. Chaque synchronisation réessaie.",
+  githubReconnect: "Reconnecter GitHub",
+  githubProblemConnection:
+    "Mises à jour arrêtées : GitHub vous demande de vous reconnecter.",
+  githubProblemForbidden:
+    "Mises à jour arrêtées : votre compte GitHub ne peut plus ouvrir ce dépôt. Demandez l’accès à son propriétaire.",
+  githubProblemRepositoryNotFound:
+    "Mises à jour arrêtées : le dépôt a été déplacé, renommé ou rendu privé.",
+  githubProblemBranchNotFound:
+    "Mises à jour arrêtées : la branche « {{branch}} » n’existe plus sur GitHub.",
+  githubProblemFolderNotFound:
+    "Mises à jour arrêtées : le dossier « {{folder}} » n’existe plus sur cette branche.",
+  githubProblemPaused:
+    "Les mises à jour sont en pause pour un moment. Elles reprendront d’elles-mêmes.",
+  githubProblemTooLarge:
+    "Mises à jour arrêtées : le dossier contient maintenant plus de {{max}} fichiers.",
+  githubProblemStorageUnavailable:
+    "Les images ne s’afficheront pas tant qu’un administrateur de l’espace de travail n’aura pas configuré le stockage de fichiers.",
+  githubAlreadyUpToDate: "À jour.",
+  githubSyncedToastOne: "Mise à jour terminée. 1 page a changé.",
+  githubSyncedToast: "Mise à jour terminée. {{count}} pages ont changé.",
+  githubSyncPartialToast:
+    "Mise à jour : {{done}} fichiers sur {{total}} pour l’instant.",
+  githubSyncBusy:
+    "Une recherche de mises à jour est déjà en cours. Les modifications s’afficheront quand elle sera terminée.",
+  emptyCollectionSourceHint: "Ou remplissez-la depuis une source",
   formChecked: "Coché",
   formChooseOption: "Choisir une option",
   formDescription:
@@ -25,6 +189,39 @@ const database = {
   formSubmitted: "Réponse envoyée",
   formSubmittedDescription: "La nouvelle page de collection est prête.",
   formSubmitting: "Envoi...",
+  listRows: "Lignes",
+  listRowsDescription:
+    "Choisissez un préréglage, ou ce qu’affiche chaque partie d’une ligne.",
+  listRowsEdit: "Modifier les lignes",
+  listRowsDone: "Terminé",
+  listRowsEditOnList: "Modifier dans la liste",
+  listRowsEditHint: "Cliquez sur une partie d’une ligne pour la modifier.",
+  listRowsPresetDefault: "Par défaut",
+  listRowsPresetChecklist: "Liste de contrôle",
+  listRowsPresetReminders: "Rappels",
+  listRowsPresetTracker: "Suivi",
+  listRowsPresetDigest: "Résumé",
+  listRowsNeedsCheckbox: "Nécessite une propriété case à cocher",
+  listRowsNeedsStatus: "Nécessite une propriété statut",
+  listRowsStart: "Début",
+  listRowsTitle: "Titre",
+  listRowsLine2: "Ligne 2",
+  listRowsLine3: "Ligne 3",
+  listRowsEnd: "Fin",
+  listRowsEndHint: "Passe sous le titre sur les écrans étroits.",
+  listRowsChangeSlot: "Modifier {{slot}}",
+  listRowsAddSlot: "Ajouter {{slot}}",
+  listRowsPageIcon: "Icône de page",
+  listRowsCheckbox: "Case à cocher",
+  listRowsStatus: "Statut",
+  listRowsRegular: "Normal",
+  listRowsMedium: "Moyen",
+  listRowsBold: "Gras",
+  listRowsNothing: "Rien",
+  listRowsPageText: "Texte de la page",
+  listRowsOneLine: "1 ligne",
+  listRowsLineCount: "{{count}} lignes",
+  listRowsNoStatus: "Aucun statut",
   addARowTo: "Ajouter une ligne à…",
   addASource: "Ajouter une source",
   aField: "un champ",
@@ -248,6 +445,65 @@ const database = {
   unfreezeColumns: "Libérer les colonnes",
   selectAllLoadedRows: "Sélectionner toutes les lignes chargées",
   clearSelectedRows: "Désélectionner les lignes",
+  filterOperatorContains: "Contient",
+  filterOperatorDoesNotContain: "Ne contient pas",
+  filterOperatorStartsWith: "Commence par",
+  filterOperatorEndsWith: "Se termine par",
+  filterOperatorIs: "Est",
+  filterOperatorIsNot: "N'est pas",
+  filterOperatorGreaterThan: "Supérieur à",
+  filterOperatorLessThan: "Inférieur à",
+  filterOperatorGreaterThanOrEqual: "Supérieur ou égal à",
+  filterOperatorLessThanOrEqual: "Inférieur ou égal à",
+  filterOperatorBefore: "Avant",
+  filterOperatorAfter: "Après",
+  filterOperatorOnOrBefore: "Antérieur ou égal à",
+  filterOperatorOnOrAfter: "Postérieur ou égal à",
+  filterOperatorBetween: "Entre",
+  filterOperatorIsWithin: "Se situe dans",
+  filterOperatorIsEmpty: "Est vide",
+  filterOperatorIsNotEmpty: "N'est pas vide",
+  filterOperatorChecked: "Coché",
+  filterOperatorUnchecked: "Non coché",
+  filterDateExact: "Date exacte",
+  filterDateToday: "Aujourd'hui",
+  filterDateTomorrow: "Demain",
+  filterDateYesterday: "Hier",
+  filterDatePast: "Passé",
+  filterDateThis: "En cours",
+  filterDateNext: "À venir",
+  filterDateDays_zero: "jours",
+  filterDateDays_one: "jour",
+  filterDateDays_two: "jours",
+  filterDateDays_few: "jours",
+  filterDateDays_many: "jours",
+  filterDateDays_other: "jours",
+  filterDateWeeks_zero: "semaines",
+  filterDateWeeks_one: "semaine",
+  filterDateWeeks_two: "semaines",
+  filterDateWeeks_few: "semaines",
+  filterDateWeeks_many: "semaines",
+  filterDateWeeks_other: "semaines",
+  filterDateMonths_zero: "mois",
+  filterDateMonths_one: "mois",
+  filterDateMonths_two: "mois",
+  filterDateMonths_few: "mois",
+  filterDateMonths_many: "mois",
+  filterDateMonths_other: "mois",
+  filterDateYears_zero: "années",
+  filterDateYears_one: "année",
+  filterDateYears_two: "années",
+  filterDateYears_few: "années",
+  filterDateYears_many: "années",
+  filterDateYears_other: "années",
+  filterDatePastRange: "Depuis {{count}} {{unit}}",
+  filterDateNextRange: "D'ici {{count}} {{unit}}",
+  filterDateThisWeek: "Cette semaine",
+  filterDateThisMonth: "Ce mois-ci",
+  filterDateThisYear: "Cette année",
+  filterDateRangeValue: "{{start}} au {{end}}",
+  filterChooseDates: "Choisir des dates",
+  filterChooseOption: "Choisir une option",
 };
 
 const databaseExactEnglish = {
@@ -266,7 +522,7 @@ const databaseExactEnglish = {
     "Analizando ambos orígenes para encontrar una clave compartida",
   bodyDiff: "Diferencia del cuerpo",
   builderIsntConnectedGoBackToConnectYour:
-    "Builder no está conectado. Vuelve para conectar tu cuenta primero.",
+    "Builder n’est pas connecté. Revenez en arrière et utilisez d’abord Builder.io.",
   calendarBy: "Calendario por",
   checkingBuilderConnection: "Comprobando conexión de Builder",
   clearAll: "Borrar todo",
@@ -278,7 +534,7 @@ const databaseExactEnglish = {
   collapseAllGroups: "Contraer todos los grupos",
   collapseAll: "Contraer todo",
   connectYourBuilderAccountToBrowseItsSpaces:
-    "Conecta tu cuenta de Builder para explorar sus espacios y modelos.",
+    "Utilisez votre compte Builder pour parcourir ses espaces et modèles.",
   connectedSources: "Fuentes conectadas",
   couldntSyncRetry: "No se pudo sincronizar · Reintentar",
   countAll: "Contar todo",
@@ -363,7 +619,7 @@ const databaseExactEnglish = {
   sortRowsBy: "Ordenar filas por",
   startDate: "Fecha de inicio",
   thisDatabaseIsLocalConnectASourceToMapIts:
-    "Esta colección es local. Conecta una fuente para mapear sus columnas a estas filas.",
+    "Importez dans cette collection des pages d’une autre app.",
   thisPropertyHasNoOptionsYet: "Esta propiedad aún no tiene opciones.",
   thisSourceIsNoLongerConnected: "Esta fuente ya no está conectada.",
 };
@@ -420,6 +676,9 @@ const localFiles = {
 };
 
 const editor = {
+  githubSourceReadOnly:
+    "Lecture seule. Cette page suit un fichier dans GitHub et se met à jour après chaque push.",
+  githubSourceOpenFile: "Ouvrir dans GitHub",
   textColor: "Couleur du texte",
   backgroundColor: "Couleur d’arrière-plan",
   defaultColor: "Par défaut",
@@ -435,13 +694,23 @@ const editor = {
     purple: "Violet",
     pink: "Rose",
     red: "Rouge",
+    defaultText: "Texte par défaut",
+    defaultBackground: "Arrière-plan par défaut",
+    textChoice: "Texte : {{color}}",
+    backgroundChoice: "Arrière-plan : {{color}}",
+  },
+  blockMenu: {
+    label: "Actions du bloc",
+    duplicate: "Dupliquer",
+    delete: "Supprimer",
+    insertBelow: "Insérer un bloc en dessous",
   },
   noDocumentSelected: "Aucun document sélectionné",
   registryBlockLoadError:
     "Impossible de charger le bloc {{type}} : {{message}}",
   registryBlockUnreadable: "La source enregistrée du bloc est illisible.",
-  blocksFieldRevisionConflict:
-    "Ce champ de blocs a été modifié ailleurs. Votre modification n’a pas été enregistrée ; la dernière version est maintenant affichée.",
+  blocksFieldEditMovedToEnd:
+    "Ce champ de blocs a aussi été modifié ailleurs. Le texte que vous avez saisi au même endroit a été déplacé à la fin du champ.",
   reconcileConflict:
     "Cette page a été modifiée ailleurs. Vos modifications ne sont pas encore enregistrées.",
   reconcileFailed:
@@ -466,7 +735,7 @@ const editor = {
   pageBodySyncingDescription:
     "La modification est suspendue jusqu'à la fin de la synchronisation du contenu de la page, afin de ne pas écraser le contenu existant.",
   creatingDatabase: "Création d'une collection intégrée...",
-  databaseCreated: "Collection intégrée créée",
+  databaseCreated: "Collection créée",
   emptyBlockPlaceholder: "Appuyez sur « / » pour afficher les commandes",
   describeWhatToGenerate: "Décrivez ce qu'il faut générer...",
   enterToSubmit: "Entrez pour soumettre",
@@ -533,6 +802,7 @@ const editor = {
     imageDownloadStarted: "Le téléchargement de l'image a commencé.",
     imageLinkHint: "Fonctionne avec n'importe quelle image du Web",
     imagePreview: "Aperçu de l'image",
+    imageUnavailable: "Image non disponible",
     imageView: "Vue des images",
     link: "Lien",
     loadingAssetsPicker: "Chargement du sélecteur d'actifs",
@@ -667,6 +937,34 @@ const editor = {
     pageCount_few: "Pages {{count}}",
     pageCount_many: "Pages {{count}}",
     pageCount_other: "Pages {{count}}",
+    back: "Retour",
+    relatedDatabase: "Base de données liée",
+    searchDatabases: "Rechercher des bases de données",
+    thisDatabase: "Cette base de données",
+    noDatabases: "Aucune base de données trouvée",
+    searchPages: "Rechercher des pages",
+    noMatchingPages: "Aucune page correspondante",
+    removeRelation: "Retirer {{name}}",
+    openPage: "Ouvrir {{name}}",
+    unavailablePage: "Page indisponible",
+    unavailablePageCount_zero: "{{count}} indisponible(s)",
+    unavailablePageCount_one: "{{count}} indisponible(s)",
+    unavailablePageCount_two: "{{count}} indisponible(s)",
+    unavailablePageCount_few: "{{count}} indisponible(s)",
+    unavailablePageCount_many: "{{count}} indisponible(s)",
+    unavailablePageCount_other: "{{count}} indisponible(s)",
+    noRelatedDatabase: "Aucune base de données liée configurée",
+    linkAPage: "Lier ou créer une page…",
+    createPage: "Créer « {{name}} »",
+    reorderRelation: "Réordonner {{name}}",
+    selectMore: "En sélectionner d’autres",
+    selectAPage: "Sélectionner une page",
+    selectedCount_zero: "{{count}} sélectionnée(s)",
+    selectedCount_one: "{{count}} sélectionnée(s)",
+    selectedCount_two: "{{count}} sélectionnée(s)",
+    selectedCount_few: "{{count}} sélectionnée(s)",
+    selectedCount_many: "{{count}} sélectionnée(s)",
+    selectedCount_other: "{{count}} sélectionnée(s)",
     pasteFileOrMediaLink: "Coller un fichier ou un lien multimédia",
     personOrEmail: "Personne ou email",
     propertyMenuFor: "Menu Propriétés pour {{name}}",
@@ -717,6 +1015,10 @@ const editor = {
     collapsibleBlockDescription: "Bloc pliable",
     database: "Collection",
     databaseDescription: "Collection intégrée dans cette page",
+    collectionInline: "Collection — intégrée",
+    collectionInlineDescription: "Ajouter une collection dans cette page",
+    collectionFullPage: "Collection — pleine page",
+    collectionFullPageDescription: "Créer une collection enfant et la lier ici",
     divider: "Diviseur",
     dividerDescription: "Règle horizontale",
     generate: "Générer",
@@ -792,6 +1094,7 @@ const editor = {
     notifications: "Notifications [fr-FR]",
     notionSync: "Synchronisation des notions",
     openInNotion: "Ouvrir dans Notion",
+    openInAgentNative: "Ouvrir dans Agent-Native",
     orgCanFindAndView:
       "Tout le monde dans votre organisation peut trouver et consulter",
     orgLinkCanView:
@@ -828,6 +1131,13 @@ const editor = {
 
 const rawLiterals = {
   editor: {
+    iconPickerIcons: "Icônes",
+    iconPickerEmoji: "Emoji",
+    iconPickerRecent: "Récents",
+    iconPickerColors: "Couleurs",
+    iconPickerDefault: "Par défaut",
+    iconPickerUpload: "Importer",
+    iconPickerUploading: "Importation…",
     suggestionCreateFailed: "Impossible de créer la suggestion",
     suggestionsCount: "{{count}} suggestions",
     acceptSuggestion: "Accepter",
@@ -872,7 +1182,37 @@ const rawLiterals = {
     contentSpace: "Espace Content",
     addChild: "Ajouter un enfant",
     addChildTo: "Ajouter un enfant à {{title}}",
+    collapseItem: "Réduire {{title}}",
+    removeFromRecent: "Retirer des Récents",
+    copyLink: "Copier le lien",
+    openInNewTab: "Ouvrir dans un nouvel onglet",
+    rename: "Renommer",
+    duplicate: "Dupliquer",
+    moveTo: "Déplacer vers",
+    moveToTrash: "Placer dans la corbeille",
+    lastEditedBy: "Dernière modification par {{name}}",
+    lastEdited: "Dernière modification",
+    pageName: "Nom de la page",
+    movePageTo: "Déplacer « {{title}} » vers",
+    topLevel: "Niveau supérieur",
+    noMatchingPages: "Aucune page correspondante",
+    failedRenamePage: "Impossible de renommer la page",
+    failedDuplicatePage: "Impossible de dupliquer la page",
+    duplicatedFromLastSave:
+      "La dernière version enregistrée a été copiée ; les modifications récentes non enregistrées n'ont pas été incluses.",
+    chooseSpace: "Choisir un espace de travail",
+    moveToSpaceTitle: "Déplacer vers {{space}} ?",
+    moveToSpaceWarningShared:
+      "Tout le monde dans {{space}} pourra voir « {{title}} » et ses sous-pages. Le partage actuel et le lien public sont supprimés, et vous en devenez propriétaire.",
+    moveToSpaceWarningPrivate:
+      "« {{title}} » et ses sous-pages seront privées pour vous dans {{space}}. Le partage actuel et le lien public sont supprimés, et vous en devenez propriétaire.",
+    back: "Retour",
+    movePage: "Déplacer",
+    movedToSpace: "« {{title}} » déplacée vers {{space}}",
+    failedRemoveFromRecent: "Impossible de retirer des Récents",
+    expandItem: "Développer {{title}}",
     database: "Collection",
+    collection: "Collection",
     databasePermanentlyDeleted: "Collection supprimée définitivement",
     databaseRestored: "Collection restaurée",
     deleteDatabaseNamedPermanently: "Supprimer définitivement {{title}}",
@@ -908,8 +1248,6 @@ const rawLiterals = {
 const landing = {
   previousPageUnavailable:
     "Votre page précédente n’est plus disponible. Nous avons donc ouvert la page de bienvenue.",
-  requestedPageUnavailable:
-    "Cette page n’est pas accessible à votre compte. Nous avons donc ouvert la page de bienvenue.",
   saveFailed: "Votre emplacement n’a pas pu être enregistré",
   workspaceWelcomeUnavailableTitle: "Rien n’est encore ouvert ici",
   workspaceWelcomeUnavailableDescription:
@@ -922,6 +1260,11 @@ const comments = {
   replyCount_one: "{{count}} réponse",
   replyCount_many: "{{count}} réponses",
   replyCount_other: "{{count}} réponses",
+  stackCollapse: "Réduire",
+  stackShowAll_one: "Afficher {{count}} commentaire ici",
+  stackShowAll_many: "Afficher les {{count}} commentaires ici",
+  stackShowAll_other: "Afficher les {{count}} commentaires ici",
+  stackMore: "+{{count}} autres",
   commentActions: "Actions du commentaire",
   checkSaved: "Vérifier le commentaire enregistré",
   edit: "Modifier",
@@ -934,12 +1277,32 @@ const comments = {
   hideIndicators: "Masquer les commentaires et surlignages",
   showIndicators: "Afficher les commentaires et surlignages",
   unanchored: "Surlignage indisponible",
+  propertyEmpty: "Vide",
+  propertyRemoved: "{{name}} (supprimée)",
+  propertyWas: "avant : {{value}}",
+  commentOnProperty: "Commenter {{name}}",
+  openPropertyComments_one: "{{count}} commentaire ouvert sur {{name}}",
+  openPropertyComments_many: "{{count}} commentaires ouverts sur {{name}}",
+  openPropertyComments_other: "{{count}} commentaires ouverts sur {{name}}",
+  openRowComments_one: "{{count}} commentaire ouvert sur {{title}}",
+  openRowComments_many: "{{count}} commentaires ouverts sur {{title}}",
+  openRowComments_other: "{{count}} commentaires ouverts sur {{title}}",
+  openRow: "Ouvrir la ligne",
   suggestions: "Suggestions",
   suggestionAdd: "Ajouter",
   suggestionDelete: "Supprimer",
   suggestionWith: "par",
   suggestionReplace: "Remplacer",
   suggestionDetails: "Détails de la suggestion",
+  proposalEditCount_one: "{{count}} modification",
+  proposalEditCount_many: "{{count}} modifications",
+  proposalEditCount_other: "{{count}} modifications",
+  acceptRemaining: "Accepter le reste",
+  rejectRemaining: "Rejeter le reste",
+  acceptAll: "Tout accepter",
+  rejectAll: "Tout rejeter",
+  suggestionReviewReadOnly:
+    "Seules les personnes qui peuvent modifier cette page peuvent accepter ou rejeter ses suggestions.",
   typeFilter: "Type",
   statusFilter: "Statut",
   authorFilter: "Personne",
@@ -951,6 +1314,10 @@ const comments = {
   accepted: "Acceptés",
   rejected: "Refusés",
   noFilteredComments: "Aucun commentaire correspondant.",
+  tabFilter: "Onglet",
+  allTabs: "Tous les onglets",
+  fieldRemoved: "{{name}} (supprimé)",
+  pageBody: "Corps de la page",
 };
 
 const reviewDiscussions = {
@@ -1016,8 +1383,31 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    widgetLoadStalled: "En attente de {{stage}}. Requête : {{action}}.",
+    widgetDocumentLoadStage: "le contenu de la page enregistrée",
+    widgetDraftCheckStage: "la récupération du brouillon de page",
+    widgetEditorInitStage: "l’initialisation de l’éditeur de texte enrichi",
+    iconPickerIcons: "Icônes",
+    iconPickerEmoji: "Emoji",
+    iconPickerRecent: "Récents",
+    iconPickerColors: "Couleurs",
+    iconPickerDefault: "Par défaut",
+    iconPickerUpload: "Importer",
+    iconPickerUploading: "Importation…",
     suggestionAmendmentEmpty:
       "Cette modification correspond à la page actuelle. Refusez la suggestion pour la supprimer.",
+    suggestionUnplaceable:
+      "Le texte autour de cette suggestion a changé, elle ne peut donc pas être appliquée. Elle reste en attente : refusez-la ou proposez à nouveau la modification.",
+    proposalUnplaceable:
+      "L’une de ces suggestions ne peut pas être appliquée, car le texte autour d’elle a changé : aucune n’a donc été appliquée. Elles restent toutes en attente : acceptez-les ou refusez-les une par une.",
+    suggestionAcceptFailed: "Impossible d’accepter la suggestion",
+    suggestionRejectFailed: "Impossible de refuser la suggestion",
+    proposalAcceptFailed: "Impossible d’accepter les suggestions",
+    proposalRejectFailed: "Impossible de refuser les suggestions",
+    suggestionDecisionReverted:
+      "Elle est de nouveau en attente. Tout ce que vous avez saisi depuis est conservé.",
+    proposalDecisionReverted:
+      "Elles sont de nouveau en attente. Tout ce que vous avez saisi depuis est conservé.",
     suggestionAmendmentFailed: "Impossible d’enregistrer la suggestion",
     suggestionAmendmentResolved:
       "Cette suggestion a été modifiée ailleurs. Votre brouillon non enregistré est toujours ici.",
@@ -1042,6 +1432,29 @@ const exactEnglish = {
     },
     toolbar: {
       info: "Informations",
+      copyLink: "Copier le lien",
+      copyForPeople: "Copier pour les personnes",
+      copyForAgents: "Copier pour les agents",
+      whoHasAccess: "Qui a accès",
+      sharePeople: "Personnes",
+      shareAgents: "Agents",
+      copyAgentPrompt: "Copier les instructions pour l’agent",
+      openInClaude: "Ouvrir dans Claude",
+      openInClaudeCode: "Ouvrir dans Claude Code",
+      openInCodex: "Ouvrir dans Codex",
+      connectContent: "Connecter Content",
+      otherAgents: "Autres agents",
+      agentCopyAccessNote:
+        "Les agents peuvent utiliser Content MCP avec vos autorisations actuelles",
+      temporaryAgentLink: "Lien temporaire pour agent",
+      privateLinkCanView:
+        "Seules les personnes autorisées peuvent consulter ce lien",
+      publicLinkCanView: "Toute personne disposant du lien peut le consulter",
+      copiedAgentPrompt: "Instructions pour l'agent copiées",
+      couldNotCopyAgentPrompt:
+        "Impossible de copier les instructions pour l’agent",
+      agentPrompt:
+        "Lis ce document Content : {{documentUrl}}\n\nUtilise une connexion Content MCP disponible pour {{mcpUrl}} afin d’appeler get-document avec l’identifiant « {{documentId}} ». Une page accessible au public peut aussi être lue directement.\n\nSi un accès authentifié est nécessaire et que Content MCP est indisponible ou déconnecté, demande-moi de le connecter et de m’authentifier. Configuration de la connexion : {{connectUrl}}. Guide officiel : {{docsUrl}}\n\nAprès ma confirmation que la connexion est prête, réessaie de lire le document avec les autorisations existantes de mon compte. Si la lecture authentifiée est refusée, indique-moi ce résultat.",
       closeUtilityPanel: "Fermer le panneau",
       exportCsv: "Exporter en CSV",
       exportDatabase: "Exporter la collection",
@@ -1065,6 +1478,7 @@ const exactEnglish = {
       exportedCsv: "CSV exporté",
       copiedPageLink: "Lien de la page copié",
       copyPageLink: "Copier le lien de la page",
+      createShareableCopy: "Créer une copie partageable",
       couldNotCopyLink: "Impossible de copier le lien",
       clipboardAccessUnavailable:
         "L'accès au presse-papiers n'est pas disponible dans ce navigateur.",
@@ -1100,6 +1514,7 @@ const history = {
   historyGroupAgent: "Exécution de l’agent",
   historyGroupHuman: "Session de modification",
   historyGroupLegacy: "Modifications antérieures",
+  historyGroupGitHub: "Synchronisé depuis GitHub",
   historyGroupOperation: "Opération",
   historyGroupRestore: "Restauration",
   historyLoadError: "Impossible de charger l’historique des versions.",
@@ -1123,6 +1538,16 @@ const history = {
 };
 
 const overrides = {
+  close: "Fermer",
+  setup: {
+    providerStatusUnavailable: "Impossible de confirmer que l’IA est prête.",
+  },
+  onboarding: {
+    fileStorage: {
+      title: "Connecter un stockage pour envoyer des fichiers",
+      statusUnavailable: "L’état du stockage des fichiers est indisponible.",
+    },
+  },
   database: {
     ...database,
     ...databaseExactEnglish,
@@ -1170,6 +1595,7 @@ const overrides = {
   localFiles: localFiles,
   root: {
     commandContent: "Contenu",
+    loadingContent: "Chargement du contenu",
     commandSearchDocuments: "Rechercher des documents",
     searchSince: "Depuis le {{date}}",
     searchModifiedSince: "Modifié depuis le {{date}}",
@@ -1226,15 +1652,14 @@ const overrides = {
   },
   settings: {
     title: "Paramètres",
-    description: "Préférences de langue et d’espace de travail pour Content.",
-    emailNotifications: "Notifications par e-mail",
-    emailNotificationsDescription:
-      "Recevez un e-mail lorsqu’une personne commente, répond ou vous mentionne dans votre document.",
     saveFailed: "Échec de l’enregistrement",
-    languageTitle: "Langue",
-    languageDescription:
-      "Choisissez la langue de l’interface. Cette préférence est enregistrée dans votre compte.",
-    languageLabel: "Langue de l’interface",
+    notificationsEmail: "E-mail",
+    commentsRepliesMentions: "Commentaires, réponses et mentions",
+    commentsRepliesMentionsDescription:
+      "Lorsque quelqu’un commente ou répond dans votre document, ou vous mentionne.",
+    retry: "Réessayer",
+    mcpAbout:
+      "Connectez Content à Claude, ChatGPT, Cursor ou toute app d’IA compatible MCP. Cette app peut alors travailler dans Content pour vous : rechercher, rédiger et modifier des documents. Elle ne voit que ce que vous pouvez voir.",
     workspaceTitle: "Espace de travail",
     workspaceDescription:
       "Gérez les collaborateurs et l’accès aux documents partagés.",
@@ -1249,6 +1674,18 @@ const overrides = {
     labCreativeContext: "Contexte créatif",
     labCreativeContextDescription:
       "Connectez et réutilisez un contexte de référence gouverné dans Content.",
+    labSlashAdvancedCode: "Blocs de code avancés",
+    labSlashAdvancedCodeDescription:
+      "Ajoutez des blocs de code et d’onglets de code au menu slash.",
+    labSlashLayouts: "Blocs de mise en page",
+    labSlashLayoutsDescription:
+      "Ajoutez des blocs HTML personnalisés et des onglets au menu slash.",
+    labSlashVisuals: "Blocs visuels",
+    labSlashVisualsDescription:
+      "Ajoutez des diagrammes, Mermaid et des maquettes au menu slash.",
+    labSlashDeveloperDocs: "Blocs de documentation technique",
+    labSlashDeveloperDocsDescription:
+      "Ajoutez des blocs d’API et de documentation technique au menu slash.",
   },
   chat: {
     publicEmptyState: "Posez-moi une question sur ce document",
@@ -1262,6 +1699,12 @@ const overrides = {
   },
   empty: {
     noPageTitle: "Aucune page sélectionnée",
+    pageNoAccess: "Vous n’avez pas accès à cette page",
+    pageMissing: "Cette page n’existe pas",
+    pageInTrash: "Cette page est dans la corbeille",
+    pageInTrashAskOwner: "Demandez au propriétaire de la restaurer.",
+    openTrash: "Ouvrir la corbeille",
+    goToMyPages: "Aller à mes pages",
     noPageDescription:
       "Sélectionnez une page dans la barre latérale ou créez-en une.",
     newPage: "Nouvelle page",
@@ -1269,6 +1712,13 @@ const overrides = {
     genericError: "Une erreur est survenue",
   },
   editor: {
+    iconPickerIcons: "Icônes",
+    iconPickerEmoji: "Emoji",
+    iconPickerRecent: "Récents",
+    iconPickerColors: "Couleurs",
+    iconPickerDefault: "Par défaut",
+    iconPickerUpload: "Importer",
+    iconPickerUploading: "Importation…",
     ...editor,
     sourceComponent: {
       defaultTitle: "Composant source",
@@ -1296,15 +1746,66 @@ const overrides = {
     searchLanguages: "Rechercher des langages...",
     noBlocksFields:
       "Aucun champ Blocks. Ajoutez-en un depuis le menu des propriétés.",
-    reorderField: "Réordonner {{name}}",
-    toggleField: "Basculer {{name}}",
+    addBlockField: "Ajouter un champ",
+    blockFieldChanged: "Modifié depuis votre dernière consultation",
+    blockFieldTabs: "Champs",
+    blockFieldOpenComments_one: "{{count}} commentaire ouvert",
+    blockFieldOpenComments_many: "{{count}} commentaires ouverts",
+    blockFieldOpenComments_other: "{{count}} commentaires ouverts",
+    blockFieldMenu: "Options de {{name}}",
+    blockFieldMenuScope: "Partagé par toutes les lignes de cette collection",
+    blockFieldName: "Nom du champ",
+    renameBlockField: "Renommer",
+    renameBlockFieldFailed: "Impossible de renommer le champ",
+    deleteBlockField: "Supprimer",
+    deleteBlockFieldFailed: "Impossible de supprimer le champ",
+    deleteBlockFieldQuestion: "Supprimer « {{name}} » ?",
+    deleteBlockFieldDescription:
+      "« {{name}} » et son texte seront supprimés de toutes les lignes de cette collection. Cette action est irréversible.",
+    deleteBlockFieldBodyWarning:
+      "« {{name}} » est le corps de la page : le texte principal de chaque ligne sera aussi supprimé.",
   },
   comments: {
     add: "Ajouter un commentaire...",
     cancel: "Annuler",
+    discardCommentQuestion: "Abandonner le commentaire ?",
+    discardReplyQuestion: "Abandonner la réponse ?",
+    discardEditQuestion: "Abandonner les modifications ?",
+    discardDescription: "Ce que vous avez écrit sera perdu.",
+    discardEditDescription: "Votre commentaire restera tel quel.",
+    discard: "Abandonner",
+    keepEditing: "Continuer à modifier",
     submit: "Commenter",
     askAi: "Demander à l'IA",
     aiBadge: "IA",
+    agentBadge: "Agent",
+    addEmoji: "Ajouter un emoji",
+    mentionSomeone: "Mentionner quelqu’un",
+    mentionPeople: "Personnes",
+    mentionPeopleLoadFailed: "Impossible de charger les personnes.",
+    mentionAgents: "Agents",
+    identityPerson: "Personne",
+    identityModel: "Modèle",
+    identityEffort: "Effort",
+    identityRan: "Exécuté",
+    identityNotRecorded: "Non enregistré",
+    identityOpenRun: "Ouvrir l’exécution",
+    identityRoleOwner: "Propriétaire",
+    identityRoleAdmin: "Administrateur",
+    identityRoleMember: "Membre",
+    commentTitle: "Commentaire",
+    suggestionTitle: "Suggestion",
+    close: "Fermer",
+    showEarlierReplies: "Afficher les réponses précédentes",
+    replyAction: "Répondre",
+    panelTabs: "Panneaux de la page",
+    aiAuto: "Automatique",
+    aiModel: "Modèle d’IA",
+    aiRemoveRecipient: "Supprimer le destinataire IA",
+    aiSend: "Envoyer à l’IA",
+    aiSendShort: "Envoyer",
+    aiResponseMode: "Réponse",
+    aiChooseSendMode: "Choisir le mode d’envoi IA",
     aiSuggestChanges: "Suggérer des modifications",
     aiUnavailable: "Indisponible",
     aiReplyInThread: "Répondre dans le fil",
@@ -1317,9 +1818,37 @@ const overrides = {
     aiReplied: "L’IA a répondu",
     aiSuggestionReady: "Examiner la suggestion",
     aiChangesApplied: "Modifications appliquées",
+    aiAppliedAndResolved: "Appliqué et résolu",
+    aiChangeUndone: "Modification annulée",
+    aiUndo: "Annuler",
+    aiDone: "Terminé",
+    aiMoreChanges: "+{{count}} de plus",
+    suggestionReplaced: "Remplacée",
+    suggestionWithdrawn: "Retirée",
+    suggestedChange: "Modification suggérée",
+    aiUndoUnavailable:
+      "Le texte supprimé ne peut pas être rétabli automatiquement",
+    aiUndoFailed: "Impossible d’annuler la modification",
+    aiResolvedByAi: "Résolu par l’IA",
     aiNeedsReview: "À examiner",
     aiFailed: "La demande à l’IA a échoué",
     retry: "Réessayer",
+    aiQueued: "L’IA est en attente…",
+    aiRefreshing: "L’IA vérifie la dernière version de la page…",
+    aiCancelled: "La demande à l’IA a été arrêtée",
+    aiStop: "Arrêter",
+    aiStopping: "Arrêt en cours…",
+    aiReplyToAi: "Répondre à l’IA",
+    aiReplyingToAi: "Réponse à l’IA",
+    aiOpenConversation: "Ouvrir la conversation IA",
+    aiConversationPrefill: "Continuer cette conversation de commentaires…",
+    aiConversationUnavailable: "Cette conversation IA est indisponible.",
+    aiFollowUpYou: "Vous",
+    aiFollowUpIncomplete: "Cette réponse s’est arrêtée avant la fin.",
+    aiRequestCouldNotBeConfirmed: "La demande d’IA n’a pas pu être confirmée",
+    aiFollowUpCouldNotBeConfirmed: "Le suivi de l’IA n’a pas pu être confirmé",
+    aiRequestStopCouldNotBeConfirmed:
+      "La demande d’IA n’a pas pu être arrêtée, car l’envoi n’a pas été confirmé",
     sourceComment: "Commentaire source",
     resolve: "Résoudre",
     resolved: "Résolus ({{count}})",
@@ -1339,6 +1868,11 @@ const overrides = {
     resize: "Redimensionner la barre latérale",
     expand: "Développer la barre latérale",
     failedCreatePage: "Échec de la création de la page",
+    failedCreatePageDraftDescription:
+      "Votre brouillon est enregistré dans ce navigateur. Vous pouvez réessayer de créer la page ou supprimer le brouillon.",
+    discardFailedCreatePageQuestion: "Annuler la création en attente ?",
+    discardFailedCreatePageDescription:
+      "Cela efface la création en attente et tout brouillon non enregistré. Si la page a déjà été enregistrée, elle restera dans votre espace de travail.",
     failedDeletePage: "Échec de la suppression de la page",
     failedPermanentDeletePage: "Échec de la suppression définitive de la page",
     failedRestorePage: "Échec de la restauration de la page",

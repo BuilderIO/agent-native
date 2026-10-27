@@ -19,6 +19,8 @@ beforeEach(() => {
     filePath: "/tmp/deck.pptx",
     filename: "deck.pptx",
     slideCount: 3,
+    downloadUrl:
+      "https://workspace.example.test/slides/api/exports/deck.pptx?deckId=deck-1&includeNotes=true",
   });
 });
 
@@ -37,7 +39,7 @@ describe("export-google-slides", () => {
       includeNotes: true,
     });
     expect(result.downloadUrl).toBe(
-      "https://workspace.example.test/slides/api/exports/deck.pptx",
+      "https://workspace.example.test/slides/api/exports/deck.pptx?deckId=deck-1&includeNotes=true",
     );
     expect(result.googleSlidesImportDialogUrl).toBe(
       "https://docs.google.com/presentation/u/0/?usp=import",

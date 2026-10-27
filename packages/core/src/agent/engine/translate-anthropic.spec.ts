@@ -1,7 +1,10 @@
 import Ajv2020 from "ajv/dist/2020.js";
 import { describe, it, expect } from "vitest";
+import { z } from "zod";
 
+import { defineAction } from "../../action.js";
 import { dbExecToolParameters } from "../../scripts/db/tool-schemas.js";
+import { actionsToEngineTools } from "../production-agent.js";
 import {
   createProviderToolNameMap,
   PROVIDER_TOOL_NAME_MAX_LENGTH,
@@ -72,8 +75,71 @@ describe("engineToolsToAnthropic", () => {
     });
     expect(result[0].input_schema).not.toHaveProperty("oneOf");
     expect(result[0].input_schema).not.toHaveProperty("allOf");
+    expect(result[0].input_schema.required).toEqual(["maybe"]);
     expect(inputSchema).toHaveProperty("oneOf");
     expect(inputSchema).toHaveProperty("allOf");
+  });
+
+  it("flattens a union action schema instead of dropping its parameters", () => {
+    const branches = [
+      z.object({
+        conversationId: z.string(),
+        kind: z.literal("doc"),
+        docId: z.string(),
+      }),
+      z.object({
+        conversationId: z.string(),
+        kind: z.literal("app"),
+        appId: z.string(),
+      }),
+    ] as const;
+
+    for (const schema of [
+      z.union(branches),
+      z.discriminatedUnion("kind", branches),
+    ]) {
+      const tools = actionsToEngineTools({
+        probe: defineAction({
+          description: "Open a surface",
+          schema,
+          run: async () => "ok",
+        }),
+      });
+      expect(tools.map((tool) => tool.name)).toEqual(["probe"]);
+      const inputSchema = engineToolsToAnthropic(tools)[0]!
+        .input_schema as Record<string, any>;
+
+      for (const key of ["anyOf", "oneOf", "allOf"]) {
+        expect(inputSchema).not.toHaveProperty(key);
+      }
+      expect(inputSchema.type).toBe("object");
+      expect(Object.keys(inputSchema.properties).sort()).toEqual([
+        "appId",
+        "conversationId",
+        "docId",
+        "kind",
+      ]);
+      expect([...inputSchema.required].sort()).toEqual([
+        "conversationId",
+        "kind",
+      ]);
+      expect(JSON.stringify(inputSchema.properties.kind)).toMatch(
+        /"doc".*"app"/,
+      );
+    }
+  });
+
+  it("passes a plain object schema through unchanged", () => {
+    const inputSchema: EngineTool["inputSchema"] = {
+      type: "object",
+      properties: { q: { type: "string" } },
+      required: ["q"],
+    };
+    const [tool] = engineToolsToAnthropic([
+      { name: "search", description: "Search", inputSchema },
+    ]);
+
+    expect(tool!.input_schema).toBe(inputSchema);
   });
 
   it("narrows db-exec to statements for Anthropic compatibility", () => {
@@ -149,7 +215,6 @@ describe("engineMessagesToAnthropic", () => {
     const result = engineMessagesToAnthropic(messages);
     expect(result).toHaveLength(1);
     expect(result[0].role).toBe("user");
-    // Single text part should coerce to a string for Anthropic
     const content = result[0].content;
     const textPart = Array.isArray(content)
       ? (content as any[]).find((p: any) => p.type === "text")
@@ -185,7 +250,10 @@ describe("engineMessagesToAnthropic", () => {
     expect(replay[0]).toMatchObject({
       type: "tool_result",
       tool_use_id: "tc-1",
-      content: "Interrupted before this tool returned a result.",
+      content: expect.stringMatching(
+        /^Interrupted before this tool returned a result\. Its outcome is UNKNOWN: the tool may have run\. Verify the current state before repeating any write\.$/,
+      ),
+      is_error: true,
     });
   });
 
@@ -298,6 +366,493 @@ describe("engineMessagesToAnthropic", () => {
     expect(tr).not.toHaveProperty("tool_input");
   });
 
+  it("renames duplicate provider call ids together with their tool results", () => {
+    const messages: EngineMessage[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "reused-call-id",
+            name: "create-deck",
+            input: { id: "first" },
+          },
+          {
+            type: "tool-call",
+            id: "reused-call-id",
+            name: "create-deck",
+            input: { id: "second" },
+          },
+          {
+            type: "tool-call",
+            id: "reused-call-id-2",
+            name: "create-deck",
+            input: { id: "third" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "reused-call-id",
+            toolName: "create-deck",
+            toolInput: '{"id":"second"}',
+            content: "Second deck saved",
+          },
+          {
+            type: "tool-result",
+            toolCallId: "reused-call-id",
+            toolName: "create-deck",
+            toolInput: '{"id":"first"}',
+            content: "First deck saved",
+          },
+          {
+            type: "tool-result",
+            toolCallId: "reused-call-id-2",
+            toolName: "create-deck",
+            toolInput: '{"id":"third"}',
+            content: "Third deck saved",
+          },
+        ],
+      },
+    ];
+
+    const result = engineMessagesToAnthropic(messages);
+    const toolUses = (result[0]!.content as any[]).filter(
+      (part: any) => part.type === "tool_use",
+    );
+    const toolResults = (result[1]!.content as any[]).filter(
+      (part: any) => part.type === "tool_result",
+    );
+
+    expect(toolUses.map((part: any) => [part.id, part.input.id])).toEqual([
+      ["reused-call-id", "first"],
+      ["reused-call-id-3", "second"],
+      ["reused-call-id-2", "third"],
+    ]);
+    expect(
+      toolResults.map((part: any) => [part.tool_use_id, part.content]),
+    ).toEqual([
+      ["reused-call-id", "First deck saved"],
+      ["reused-call-id-3", "Second deck saved"],
+      ["reused-call-id-2", "Third deck saved"],
+    ]);
+  });
+
+  it("uses a unique provider id when a result input was normalized", () => {
+    const messages: EngineMessage[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "normalized-call",
+            name: "update-record",
+            input: { label: "Draft" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "normalized-call",
+            toolName: "update-record",
+            toolInput: '{"label":"Normalized draft"}',
+            content: "Updated",
+          },
+        ],
+      },
+    ];
+
+    const result = engineMessagesToAnthropic(messages);
+    const toolResult = (result[1]!.content as any[]).find(
+      (part: any) => part.type === "tool_result",
+    );
+
+    expect(toolResult).toMatchObject({
+      tool_use_id: "normalized-call",
+      content: "Updated",
+    });
+  });
+
+  it("uses tool names to pair reused ids when their inputs match", () => {
+    const messages: EngineMessage[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "shared-call-id",
+            name: "create-first",
+            input: { title: "Same" },
+          },
+          {
+            type: "tool-call",
+            id: "shared-call-id",
+            name: "create-second",
+            input: { title: "Same" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "shared-call-id",
+            toolName: "create-second",
+            toolInput: '{"title":"Same"}',
+            content: "Second created",
+          },
+          {
+            type: "tool-result",
+            toolCallId: "shared-call-id",
+            toolName: "create-first",
+            toolInput: '{"title":"Same"}',
+            content: "First created",
+          },
+        ],
+      },
+    ];
+
+    const result = engineMessagesToAnthropic(messages);
+    const toolUses = (result[0]!.content as any[]).filter(
+      (part: any) => part.type === "tool_use",
+    );
+    const toolResults = (result[1]!.content as any[]).filter(
+      (part: any) => part.type === "tool_result",
+    );
+
+    expect(toolUses.map((part: any) => [part.id, part.name])).toEqual([
+      ["shared-call-id", "create-first"],
+      ["shared-call-id-2", "create-second"],
+    ]);
+    expect(
+      toolResults.map((part: any) => [part.tool_use_id, part.content]),
+    ).toEqual([
+      ["shared-call-id", "First created"],
+      ["shared-call-id-2", "Second created"],
+    ]);
+  });
+
+  it("leaves results unmatched when a reused id is still ambiguous", () => {
+    const messages: EngineMessage[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "ambiguous-call-id",
+            name: "create-record",
+            input: { title: "Same" },
+          },
+          {
+            type: "tool-call",
+            id: "ambiguous-call-id",
+            name: "create-record",
+            input: { title: "Same" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "ambiguous-call-id",
+            toolName: "create-record",
+            toolInput: '{"title":"Same"}',
+            content: "Created",
+          },
+        ],
+      },
+    ];
+
+    const result = backfillEngineMessagesToolResults(messages);
+    const content = result[1]!.content;
+    const toolResults = content.filter((part) => part.type === "tool-result");
+
+    expect(toolResults).toHaveLength(2);
+    expect(
+      toolResults.every((part) => part.type === "tool-result" && part.isError),
+    ).toBe(true);
+    expect(
+      toolResults.every(
+        (part) =>
+          part.type === "tool-result" &&
+          typeof part.content === "string" &&
+          part.content.includes("Its outcome is UNKNOWN"),
+      ),
+    ).toBe(true);
+    expect(content.at(-1)).toMatchObject({ type: "text" });
+  });
+
+  it("pairs identical legacy calls and results one to one in order", () => {
+    const messages: EngineMessage[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "duplicate-call-id",
+            name: "create-record",
+            input: { title: "Same" },
+          },
+          {
+            type: "tool-call",
+            id: "duplicate-call-id",
+            name: "create-record",
+            input: { title: "Same" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "duplicate-call-id",
+            toolName: "create-record",
+            toolInput: '{"title":"Same"}',
+            content: "First created",
+          },
+          {
+            type: "tool-result",
+            toolCallId: "duplicate-call-id",
+            toolName: "create-record",
+            toolInput: '{"title":"Same"}',
+            content: "Second created",
+          },
+        ],
+      },
+    ];
+
+    const result = backfillEngineMessagesToolResults(messages);
+    const toolResults = result[1]!.content.filter(
+      (part) => part.type === "tool-result",
+    );
+
+    expect(
+      toolResults.map((part) =>
+        part.type === "tool-result" ? [part.toolCallId, part.content] : [],
+      ),
+    ).toEqual([
+      ["duplicate-call-id", "First created"],
+      ["duplicate-call-id-2", "Second created"],
+    ]);
+  });
+
+  it("pairs reused identical calls by execution step identity", () => {
+    const messages: EngineMessage[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "shared-call-id",
+            name: "create-record",
+            input: { title: "Same" },
+            executionStepId: "step-one",
+          },
+          {
+            type: "tool-call",
+            id: "shared-call-id",
+            name: "create-record",
+            input: { title: "Same" },
+            executionStepId: "step-two",
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "shared-call-id",
+            toolName: "create-record",
+            toolInput: '{"title":"Same"}',
+            executionStepId: "step-two",
+            content: "Second created",
+          },
+          {
+            type: "tool-result",
+            toolCallId: "shared-call-id",
+            toolName: "create-record",
+            toolInput: '{"title":"Same"}',
+            executionStepId: "step-one",
+            content: "First created",
+          },
+        ],
+      },
+    ];
+
+    const result = engineMessagesToAnthropic(messages);
+    const toolUses = (result[0]!.content as any[]).filter(
+      (part: any) => part.type === "tool_use",
+    );
+    const toolResults = (result[1]!.content as any[]).filter(
+      (part: any) => part.type === "tool_result",
+    );
+
+    expect(toolUses.map((part: any) => [part.id, part.input.title])).toEqual([
+      ["shared-call-id", "Same"],
+      ["shared-call-id-2", "Same"],
+    ]);
+    expect(
+      toolResults.map((part: any) => [part.tool_use_id, part.content]),
+    ).toEqual([
+      ["shared-call-id", "First created"],
+      ["shared-call-id-2", "Second created"],
+    ]);
+    expect(JSON.stringify(result)).not.toContain("Its outcome is UNKNOWN");
+  });
+
+  it("does not fall back to a different identified call when a result step is unknown", () => {
+    const messages: EngineMessage[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "known-call-id",
+            name: "create-record",
+            input: { title: "Same" },
+            executionStepId: "known-step",
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "known-call-id",
+            toolName: "create-record",
+            toolInput: '{"title":"Same"}',
+            executionStepId: "unknown-step",
+            content: "Unmatched result",
+          },
+        ],
+      },
+    ];
+
+    const result = backfillEngineMessagesToolResults(messages);
+    const content = result[1]!.content;
+
+    expect(content).toContainEqual(
+      expect.objectContaining({
+        type: "tool-result",
+        toolCallId: "known-call-id",
+        isError: true,
+        content: expect.stringContaining("Its outcome is UNKNOWN"),
+      }),
+    );
+    expect(content).toContainEqual(
+      expect.objectContaining({
+        type: "text",
+        text: expect.stringContaining("Unmatched result"),
+      }),
+    );
+  });
+
+  it("does not use a legacy call for an unknown result step when inputs differ", () => {
+    const messages: EngineMessage[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "legacy-call-id",
+            name: "create-record",
+            input: { title: "Original" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "legacy-call-id",
+            toolName: "create-record",
+            toolInput: '{"title":"Different"}',
+            executionStepId: "unknown-step",
+            content: "Unmatched result",
+          },
+        ],
+      },
+    ];
+
+    const result = backfillEngineMessagesToolResults(messages);
+    const content = result[1]!.content;
+
+    expect(content).toContainEqual(
+      expect.objectContaining({
+        type: "tool-result",
+        toolCallId: "legacy-call-id",
+        isError: true,
+        content: expect.stringContaining("Its outcome is UNKNOWN"),
+      }),
+    );
+    expect(content).toContainEqual(
+      expect.objectContaining({
+        type: "text",
+        text: expect.stringContaining("Unmatched result"),
+      }),
+    );
+  });
+
+  it("does not use a legacy call for an unknown result step when inputs match", () => {
+    const messages: EngineMessage[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "legacy-call-id",
+            name: "create-record",
+            input: { title: "Same" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "legacy-call-id",
+            toolName: "create-record",
+            toolInput: '{"title":"Same"}',
+            executionStepId: "unknown-step",
+            content: "Unmatched result",
+          },
+        ],
+      },
+    ];
+
+    const result = backfillEngineMessagesToolResults(messages);
+    const content = result[1]!.content;
+
+    expect(content).toContainEqual(
+      expect.objectContaining({
+        type: "tool-result",
+        toolCallId: "legacy-call-id",
+        isError: true,
+        content: expect.stringContaining("Its outcome is UNKNOWN"),
+      }),
+    );
+    expect(content).toContainEqual(
+      expect.objectContaining({
+        type: "text",
+        text: expect.stringContaining("Unmatched result"),
+      }),
+    );
+  });
+
   it("backfills tool_name and tool_input from the matching tool_use when omitted", () => {
     const messages: EngineMessage[] = [
       { role: "user", content: [{ type: "text", text: "ping" }] },
@@ -361,13 +916,17 @@ describe("engineMessagesToAnthropic", () => {
 
     const anthropic = engineMessagesToBuilderGatewayAnthropic(messages);
     const replay = anthropic[2].content as any[];
+    const backfilled = backfillEngineMessagesToolResults(messages);
+
+    expect(backfilled[2]?.content[0]).toMatchObject({ isError: true });
 
     expect(replay[0]).toMatchObject({
       type: "tool_result",
       tool_use_id: "history_tc_1",
       tool_name: "chat-history",
       tool_input: '{"action":"search"}',
-      content: "Interrupted before this tool returned a result.",
+      content: expect.stringContaining("Its outcome is UNKNOWN"),
+      is_error: true,
     });
     expect(replay[1]).toMatchObject({
       type: "text",
@@ -518,7 +1077,6 @@ describe("tool-result images", () => {
     const messages = withImages([
       { url: "https://cdn.example.com/shot.png", label: "tab" },
     ]);
-    // Blank the toolName so the backfill rebuilds the part.
     (messages[2].content[0] as any).toolName = "";
     (messages[2].content[0] as any).toolInput = "";
     const filled = backfillEngineMessagesToolResults(messages);
@@ -604,8 +1162,6 @@ describe("redacted thinking blocks survive the round trip", () => {
       { type: "redacted_thinking", data: "ENCRYPTED_PAYLOAD" },
       { type: "text", text: "Done." },
     ] as any);
-    // Anthropic wants the whole thinking sequence back inside a tool-use turn,
-    // so an unreadable block still has to survive normalization.
     expect(parts).toEqual([
       { type: "thinking", text: "", redactedData: "ENCRYPTED_PAYLOAD" },
       { type: "text", text: "Done." },
@@ -635,9 +1191,6 @@ describe("redacted thinking blocks survive the round trip", () => {
 });
 describe("unsendable thinking blocks", () => {
   it("drops an unsigned thinking block rather than sending an empty signature", () => {
-    // An empty signature is rejected by the native API, which kills the whole
-    // request — a turn that streamed fine dies on a provider error that points
-    // nowhere near the cause.
     const replayed = engineMessagesToAnthropic([
       {
         role: "assistant",
@@ -663,8 +1216,6 @@ describe("unsendable thinking blocks", () => {
   });
 
   it("keeps the Builder gateway path unchanged", () => {
-    // The gateway's tolerance for an unsigned thinking block is unverified, so
-    // that path is deliberately left as it was.
     const replayed = engineMessagesToBuilderGatewayAnthropic([
       {
         role: "assistant",

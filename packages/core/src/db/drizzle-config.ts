@@ -1,15 +1,18 @@
+import fs from "node:fs";
+
 import { defineConfig, type Config } from "drizzle-kit";
 
+import { getAppConfig } from "../app-config/index.js";
+import {
+  getIsolatedTestDatabaseUrl,
+  isProcessAlive,
+  pgliteProcessLockPath,
+  readPgliteProcessLockOwner,
+} from "./client.js";
+
 export interface CreateDrizzleConfigOptions {
-  /** Path to the Drizzle schema file. Defaults to `./server/db/schema.ts`. */
   schema?: string;
-  /** Output directory for generated migrations. Defaults to `./server/db/migrations`. */
   out?: string;
-  /**
-   * Connection URL for drizzle-kit, taking precedence over the app's
-   * environment variables. Pass the direct endpoint when the pooled URL is
-   * not permitted to run DDL.
-   */
   url?: string;
 }
 
@@ -27,6 +30,60 @@ function isDrizzlePushInvocation(): boolean {
   return /\bdrizzle-kit\s+push\b/.test(lifecycleScript);
 }
 
+const DRIZZLE_KIT_COMMANDS = new Set([
+  "generate",
+  "migrate",
+  "push",
+  "pull",
+  "introspect",
+  "studio",
+  "check",
+  "up",
+  "drop",
+  "export",
+]);
+const PGLITE_EXCLUSIVE_COMMANDS = new Set([
+  "migrate",
+  "push",
+  "pull",
+  "introspect",
+  "studio",
+]);
+
+function drizzleKitCommandAfterBin(tokens: string[]): string | undefined {
+  const bin = tokens.findIndex((t) => /\bdrizzle-kit\b/.test(t));
+  if (bin === -1) return undefined;
+  return tokens.slice(bin + 1).find((t) => DRIZZLE_KIT_COMMANDS.has(t));
+}
+
+function isPgliteExclusiveDrizzleInvocation(): boolean {
+  const argv = process.argv.map((a) => a.toLowerCase());
+  const argvCommand = drizzleKitCommandAfterBin(argv);
+  if (argvCommand) return PGLITE_EXCLUSIVE_COMMANDS.has(argvCommand);
+  const lifecycleScript = (
+    process.env.npm_lifecycle_script ||
+    process.env.npm_lifecycle_event ||
+    ""
+  ).toLowerCase();
+  const scriptCommand = drizzleKitCommandAfterBin(
+    lifecycleScript.split(/\s+/).filter(Boolean),
+  );
+  return scriptCommand ? PGLITE_EXCLUSIVE_COMMANDS.has(scriptCommand) : false;
+}
+
+function assertPgliteNotOpenInAnotherProcess(dataDir: string): void {
+  if (dataDir === "memory://") return;
+  const lockPath = pgliteProcessLockPath(dataDir);
+  if (!fs.existsSync(lockPath)) return;
+  const { pid } = readPgliteProcessLockOwner(fs, lockPath, dataDir);
+  if (pid === process.pid || !isProcessAlive(pid)) return;
+  throw new Error(
+    `PGlite database directory "${dataDir}" is open in the running dev server (pid ${pid}). ` +
+      "Running drizzle-kit against it from another process corrupts it. " +
+      "Use `agent-native db-migrate` (the starter's `pnpm db:migrate`), which applies migrations through the dev server, or stop the dev server first.",
+  );
+}
+
 function isNeonUrl(url: string): boolean {
   return /(?:^|\.)neon\.tech(?:[/:?]|$)/i.test(url);
 }
@@ -37,7 +94,9 @@ function pgliteDataDirFromUrl(url: string): string {
   if (!dataDir || dataDir === "/") return "./data/pglite";
   if (
     dataDir === "memory" ||
+    dataDir === "memory:" ||
     dataDir === "/memory" ||
+    dataDir === "/memory:" ||
     dataDir === ":memory:" ||
     dataDir === "/:memory:" ||
     dataDir === "memory://"
@@ -47,16 +106,19 @@ function pgliteDataDirFromUrl(url: string): string {
   return dataDir;
 }
 
-/** Create the Postgres drizzle-kit config used by every template. */
 export function createDrizzleConfig(
   opts: CreateDrizzleConfigOptions = {},
 ): Config {
   const { schema = "./server/db/schema.ts", out = "./server/db/migrations" } =
     opts;
-  const appName = process.env.APP_NAME?.toUpperCase().replace(/-/g, "_");
+  const app = getAppConfig().app;
+  const appName = (app.workspaceId || app.name)
+    ?.toUpperCase()
+    .replace(/-/g, "_");
   const explicitUrl = opts.url?.trim();
   const url =
     explicitUrl ||
+    getIsolatedTestDatabaseUrl() ||
     (appName && process.env[`${appName}_DATABASE_URL`]) ||
     process.env.DATABASE_URL ||
     "pglite:./data/pglite";
@@ -92,6 +154,9 @@ export function createDrizzleConfig(
   }
 
   const isPglite = url.toLowerCase().startsWith("pglite:");
+  if (isPglite && isPgliteExclusiveDrizzleInvocation()) {
+    assertPgliteNotOpenInAnotherProcess(pgliteDataDirFromUrl(url));
+  }
   return defineConfig({
     schema,
     out,

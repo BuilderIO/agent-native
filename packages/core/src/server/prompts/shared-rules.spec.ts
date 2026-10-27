@@ -5,6 +5,28 @@ import { buildFrameworkCore } from "./framework-core.js";
 import { RESPONSE_TYPOGRAPHY_GUIDANCE, sharedRule8 } from "./shared-rules.js";
 
 describe("shared framework prompt rules", () => {
+  it("keeps image generation local when available and permits exclusive peer capabilities", () => {
+    for (const prompt of [buildFrameworkCore(), buildFrameworkCoreCompact()]) {
+      expect(prompt).toContain("Image generation: use local when available");
+      expect(prompt).toContain(
+        "use Assets for requested brand-library media or a needed capability only it has",
+      );
+    }
+  });
+
+  it("keeps peer delegation necessary and local artifact authorship in both prompts", () => {
+    for (const prompt of [buildFrameworkCore(), buildFrameworkCoreCompact()]) {
+      expect(prompt).toContain(
+        "Default to local. Delegate only on request or for peer-exclusive data, credentials, or capability",
+      );
+      expect(prompt).toContain(
+        "availability or optional enrichment alone is insufficient.",
+      );
+      expect(prompt).toContain("Keep authorship here.");
+      expect(prompt).toContain("never local actions or self-calls");
+    }
+  });
+
   it("keeps generated response emphasis intentional in full and compact prompts", () => {
     expect(RESPONSE_TYPOGRAPHY_GUIDANCE).toContain(
       "do not use bold or italics as routine emphasis",
@@ -14,6 +36,14 @@ describe("shared framework prompt rules", () => {
     );
     expect(buildFrameworkCore()).toContain(RESPONSE_TYPOGRAPHY_GUIDANCE);
     expect(buildFrameworkCoreCompact()).toContain(RESPONSE_TYPOGRAPHY_GUIDANCE);
+  });
+
+  it("keeps action-card narration concise in full and compact prompts", () => {
+    for (const prompt of [buildFrameworkCore(), buildFrameworkCoreCompact()]) {
+      expect(prompt).toContain(
+        "When an action card already summarizes a result, add only context or next steps instead of repeating its fields.",
+      );
+    }
   });
 
   it("teaches provider API fallback and corpus-first coverage generically", () => {

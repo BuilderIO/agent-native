@@ -1,11 +1,10 @@
 const messages = {
+  composer: {
+    removeAttachment: "Supprimer {{name}}",
+    removeReference: "Supprimer la référence {{name}}",
+  },
   settings: {
     title: "Paramètres",
-    description: "Préférences de langue et d’espace de travail pour cette app.",
-    languageTitle: "Langue",
-    languageDescription:
-      "Choisissez la langue de l’interface. Cette préférence est enregistrée dans votre compte.",
-    languageLabel: "Langue de l’interface",
     workspaceTitle: "Espace de travail",
     workspaceDescription:
       "Gérez les membres, l’accès de l’organisation et les préférences partagées.",
@@ -18,9 +17,9 @@ const messages = {
   },
   chat: {
     archiveChat: "Archiver le chat",
-    archiveFailed: "Échec de l’archivage",
+    archiveFailed: "Impossible d'archiver le chat.",
     chats: "Discussions",
-    composerPlaceholder: "Demandez à l’agent...",
+    composerPlaceholder: "Posez votre question",
     emptyState: "Posez-moi une question",
     heroDescription:
       "Demandez à l’agent d’inspecter, d’expliquer ou de modifier cette app.",
@@ -30,18 +29,40 @@ const messages = {
     inspectSuggestionCapabilities: "Que peut faire cette app ?",
     inspectSuggestionHello: "Aidez-moi à démarrer",
     newChat: "Nouveau chat",
-    optionsFor: "Options pour",
+    optionsFor: "Options du chat pour {{title}}",
     pinChat: "Épingler le chat",
     pinned: "Épinglés",
     recents: "Récents",
+    retryPreviousRequest:
+      "Réessaie ma demande précédente maintenant que le fournisseur du modèle est connecté.",
+    invalidHandoffOptions:
+      "Le prompt a été enregistré comme brouillon, mais ses paramètres de chat n'ont pas pu être restaurés. Vérifiez le prompt, le contexte et le modèle avant de le renvoyer.",
+    recoveryDraftUnsaved:
+      "Ces modifications du brouillon ne sont pas enregistrées. Si vous rechargez cette conversation, vous risquez de les perdre.",
+    retryAttachmentUnavailable:
+      "Chat ne peut pas rouvrir cette pièce jointe pour réessayer. Ajoutez une URL de fichier accessible, puis réessayez.",
     renameChat: "Renommer le chat",
-    renameFailed: "Échec du renommage",
-    renameThread: "Renommer le fil",
+    renameFailed: "Impossible de renommer le chat.",
+    renameThread: "Renommer {{title}}",
     suggestionActions: "Montrez-moi les actions disponibles",
     suggestionCapabilities: "Que peut faire cette app ?",
     suggestionCustomize: "Aidez-moi à personnaliser cette app",
     unpinChat: "Désépingler le chat",
     untitledChat: "Chat sans titre",
+  },
+  home: {
+    composerPlaceholder: "Appelle l’action hello pour Alex",
+    communityTitle: "Rejoignez-nous",
+    docsAddAction: "Ajouter une action",
+    docsAddPage: "Ajouter une page",
+    docsGettingStarted: "Premiers pas",
+    docsKeyConcepts: "Concepts clés",
+    docsTitle: "Documentation",
+    editHint:
+      "Modifiez {{file}}, enregistrez, puis redemandez pour voir le nouveau message.",
+    lead: "L’interface de votre app et son agent partagent les mêmes actions.",
+    leadTry: "Demandez à l’agent d’appeler l’action hello.",
+    title: "Commencer",
   },
   navigation: {
     chat: "Chat",
@@ -49,6 +70,7 @@ const messages = {
     database: "Base de données",
     expandSidebar: "Développer la barre latérale",
     extensions: "Rallonges",
+    home: "Accueil",
     navigation: "Navigation",
     navigationDescription: "Navigation principale",
     observability: "Observabilité",

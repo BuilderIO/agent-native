@@ -6,12 +6,21 @@ import {
   buildAgentDiscoveryPayload,
   buildAgentHttpToolManifest,
   buildRecommendedFrames,
+  CLIPS_WEBMCP_TOOL_DEFINITIONS,
   formatAgentTimestamp,
   safeJsonForHtml,
   toAgentTranscriptSegments,
 } from "./agent-context";
 
 describe("agent clip context helpers", () => {
+  it("tells agents not to retry unsupported frame sources", () => {
+    const frameTool = CLIPS_WEBMCP_TOOL_DEFINITIONS.find(
+      (tool) => tool.name === "clips-get-frame",
+    );
+
+    expect(frameTool?.description).toContain("must not be retried");
+  });
+
   it("tells an agent to wait when a shared clip is still uploading", () => {
     const payload = buildAgentDiscoveryPayload({
       recordingId: "rec-1",
@@ -33,11 +42,33 @@ describe("agent clip context helpers", () => {
       "clips-get-context",
       "clips-get-transcript",
       "clips-get-frame",
+      "clips-get-frames",
     ]);
     expect(payload.http.tools.map((tool) => tool.name)).toEqual([
       "clips-get-context",
       "clips-get-transcript",
     ]);
+  });
+
+  it("does not offer frame inspection for a failed recording", () => {
+    const payload = buildAgentDiscoveryPayload({
+      recordingId: "rec-1",
+      title: "Clip",
+      status: "failed",
+      agentContextUrl:
+        "https://clips.example.com/api/agent-context.json?id=rec-1",
+    });
+
+    expect(payload.agentReadiness).toMatchObject({
+      state: "failed",
+      instruction: expect.stringContaining("frames are unavailable"),
+    });
+    expect(payload.instructions).toContain("Do not request frame URLs again");
+    expect(
+      payload.http.tools.some((tool) =>
+        tool.name.startsWith("clips-get-frame"),
+      ),
+    ).toBe(false);
   });
 
   it("scopes private agent access tokens separately from media tokens", () => {
@@ -55,12 +86,19 @@ describe("agent clip context helpers", () => {
         "https://clips.example.com/api/agent-context.json?id=rec-1",
     });
 
-    expect(payload.instructions).toContain("this works without a browser");
+    expect(payload.instructions).toContain("Use apis.transcript");
+    expect(payload.instructions).toContain("keep the clip id");
+    expect(payload.instructions).toContain("For any non-2xx response");
+    expect(payload.instructions).toContain(
+      "fetch each recommendedFrames[].url",
+    );
+    expect(payload.instructions).toContain("choose Share with agents");
     expect(payload.webmcp.instructions).toContain(
       "For browser-independent access from any HTTP client",
     );
+    expect(payload.webmcp.instructions).toContain("For any non-2xx response");
     expect(payload.webmcp.instructions).toContain(
-      "For a complete transcript, use the HTTP apis.transcript URL",
+      "Read the complete transcript from apis.transcript",
     );
     expect(payload.webmcp.instructions).toContain("bounded read-only access");
     expect(payload.webmcp.instructions).toContain(
@@ -87,6 +125,13 @@ describe("agent clip context helpers", () => {
           "https://clips.example.com/api/agent-frame.jpg?id=rec-1&atMs={atMs}",
         responseType: "image/jpeg",
       },
+      {
+        name: "clips-get-frames",
+        method: "GET",
+        endpoint:
+          "https://clips.example.com/api/agent-frames.jpg?id=rec-1&startMs={startMs}&endMs={endMs}&fps={fps}",
+        responseType: "image/jpeg",
+      },
     ]);
   });
 
@@ -108,6 +153,31 @@ describe("agent clip context helpers", () => {
     expect(manifest.tools[2].endpoint).toContain("atMs={atMs}");
   });
 
+  it("lists the frame sheet only when the clip has one", () => {
+    const manifest = buildAgentHttpToolManifest({
+      contextUrl: "https://clips.example.com/api/agent-context.json?id=rec-1",
+      transcriptUrl:
+        "https://clips.example.com/api/agent-transcript.json?id=rec-1",
+      frameUrlTemplate:
+        "https://clips.example.com/api/agent-frame.jpg?id=rec-1&atMs={timestampMs}",
+      frameSheetUrlTemplate:
+        "https://clips.example.com/api/agent-frames.jpg?id=rec-1&startMs={startMs}&endMs={endMs}&fps={fps}",
+    });
+
+    expect(manifest.tools.map((tool) => tool.name)).toEqual([
+      "clips-get-context",
+      "clips-get-transcript",
+      "clips-get-frame",
+      "clips-get-frames",
+    ]);
+    expect(manifest.tools[3].parameters).toMatchObject({
+      required: ["startMs"],
+      properties: {
+        fps: { maximum: 60 },
+      },
+    });
+  });
+
   it("builds shareable agent API URLs with base path and token", () => {
     const urls = buildAgentApiUrls("rec 1", {
       origin: "https://clips.example.com/",
@@ -121,11 +191,17 @@ describe("agent clip context helpers", () => {
     expect(urls.transcriptUrl).toBe(
       "https://clips.example.com/app/api/agent-transcript.json?id=rec+1&agent_access=tok",
     );
+    expect(urls.appActivityUrl).toBe(
+      "https://clips.example.com/app/api/agent-app-activity.json?id=rec+1&agent_access=tok",
+    );
     expect(urls.frameUrlTemplate).toBe(
       "https://clips.example.com/app/api/agent-frame.jpg?id=rec+1&agent_access=tok&atMs={timestampMs}",
     );
     expect(urls.frameUrl(1234)).toBe(
       "https://clips.example.com/app/api/agent-frame.jpg?id=rec+1&agent_access=tok&atMs=1234",
+    );
+    expect(urls.frameSheetUrlTemplate).toBe(
+      "https://clips.example.com/app/api/agent-frames.jpg?id=rec+1&agent_access=tok&startMs={startMs}&endMs={endMs}&fps={fps}",
     );
   });
 
@@ -161,10 +237,60 @@ describe("agent clip context helpers", () => {
     });
 
     expect(frames.map((frame) => frame.atMs)).toEqual([
-      0, 30_000, 60_000, 75_000, 90_000,
+      350, 30_000, 60_000, 75_000, 90_000,
     ]);
     expect(frames[1].reason).toBe("chapter: Demo");
     expect(frames[3].reason).toBe("transcript: important screen");
+  });
+
+  it("keeps the 25/50/75% marks when a dense transcript fills the early clip", () => {
+    const segments = Array.from({ length: 40 }, (_, i) => ({
+      startMs: 4_000 + i * 4_000,
+      endMs: 6_000 + i * 4_000,
+      text: `line ${i}`,
+    }));
+
+    const frames = buildRecommendedFrames({
+      durationMs: 1_800_000,
+      segments,
+    });
+
+    expect(frames.map((frame) => frame.reason)).toEqual(
+      expect.arrayContaining(["25% mark", "50% mark", "75% mark"]),
+    );
+  });
+
+  it("keeps the duration marks when early chapters would fill every slot", () => {
+    const chapters = Array.from({ length: 15 }, (_, i) => ({
+      startMs: 10_000 + i * 1_000_000,
+      title: `Chapter ${i}`,
+    }));
+
+    const frames = buildRecommendedFrames({
+      durationMs: 36_000_000,
+      chapters,
+    });
+
+    expect(frames).toHaveLength(10);
+    expect(frames.map((frame) => frame.reason)).toEqual(
+      expect.arrayContaining(["25% mark", "50% mark", "75% mark"]),
+    );
+  });
+
+  it("does not reserve mark slots when it can only return one frame", () => {
+    const frames = buildRecommendedFrames({
+      durationMs: 1_800_000,
+      chapters: [{ startMs: 60_000, title: "Intro" }],
+      maxFrames: 1,
+    });
+
+    expect(frames.map((frame) => frame.reason)).toEqual(["opening frame"]);
+  });
+
+  it("opens on 350 ms, not the often-black first frame", () => {
+    const [first] = buildRecommendedFrames({ durationMs: 60_000 });
+
+    expect(first).toMatchObject({ atMs: 350, reason: "opening frame" });
   });
 
   it("escapes JSON embedded in SSR HTML", () => {

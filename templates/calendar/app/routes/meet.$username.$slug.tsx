@@ -1,12 +1,12 @@
+import { bookingOgLoader } from "@/lib/booking-og-loader.server";
 import BookingPage from "@/pages/BookingPage";
 
-import { bookingOgLoader, bookingOgMeta } from "./booking-og-meta";
+import { bookingOgMeta } from "./booking-og-meta";
 
 export const loader = bookingOgLoader;
 
 export const meta = bookingOgMeta;
 
-// Legacy public booking page. BookingPage canonicalizes this to /book/:username/:slug.
 export default function MeetBookingRoute() {
   return <BookingPage />;
 }

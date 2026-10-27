@@ -1,0 +1,184 @@
+---
+title: "मौजूदा ऐप्स को Core 0.198.0 पर अपग्रेड करें"
+description: "Core 0.198.0 माइग्रेशन, Toolkit imports, वैकल्पिक peer packages और जाँच के लिए चरण-दर-चरण निर्देश।"
+---
+
+# मौजूदा ऐप्स को Core 0.198.0 पर अपग्रेड करें
+
+मौजूदा ऐप को Core 0.198.0 पर लाने के लिए यह निर्देश अपनाएँ। कमांड ऐप या
+workspace के root से चलाएँ और शुरू करने से पहले ऐसा source-control diff रखें
+जिसकी समीक्षा की जा सके। दूरस्थ deployment settings अलग से जाँचें: CLI स्थानीय
+environment files पढ़ सकती है, लेकिन remote environments या database में रखी
+feature settings नहीं देख सकती।
+
+## 1. Upgrade और import codemods का preview देखें
+
+Core 0.198.0 के साथ आने वाली CLI चलाएँ, ताकि उसी release का migration manifest
+लोड हो:
+
+    npx @agent-native/core@0.198.0 upgrade --codemods --dry-run
+
+ऐप में Core 0.198.0 इंस्टॉल होने के बाद यही preview स्थानीय CLI binary से भी उपलब्ध है:
+
+    npx agent-native upgrade --codemods --dry-run
+
+`--codemods` कमांड `ts-morph` का उपयोग करती है। अगर ऐप से यह पैकेज पहले से resolve नहीं होता, तो पहले इसे development dependency के रूप में इंस्टॉल करें: `pnpm add -D ts-morph`।
+
+`--codemods` समर्थित import बदलाव डिफ़ॉल्ट रूप से लागू करती है। आगे बढ़ने से पहले प्रस्तावित
+dependency बदलाव, file diff और warnings देखने के लिए `--dry-run` जोड़ें। अब `--yes` की ज़रूरत नहीं है।
+
+Codemod सक्रिय Core और Toolkit migration manifests का उपयोग करता है। यह केवल .ts
+और .tsx files देखता है (declaration files, generated files और dependency
+directories छोड़कर) और समर्थित import तथा re-export specifiers बदलता है।
+अलग-अलग modules में जाने वाले named exports के लिए यह declaration को symbol के
+अनुसार बाँट सकता है और aliases तथा type-only imports बनाए रखता है। यह सरल CSS
+@import paths भी बदलता है और resolved rewrite से package सीमा पार होने पर missing
+dependency जोड़ता है।
+
+डायग्नोस्टिक CommonJS `require()` और dynamic `import()` forms भी detect करता है। जब पुराने module का एक ही नया destination हो, तो codemod literal `import()` calls को rewrite करता है। `require()` और वे dynamic imports जिन्हें symbols के अनुसार बाँटना पड़ता है, warning के साथ unchanged रहते हैं। रिपोर्ट में दिए गए नए destination का उपयोग करके उन्हें बदलें, फिर Vite या `agent-native doctor` दोबारा चलाएँ। CSS `@import url(...)` paths पर codemod quoted और unquoted दोनों रूपों में काम करता है।
+
+यह call sites नहीं बदलता और files नहीं ले जाता। Unresolved और planned moves
+warnings के साथ वैसे ही रहते हैं। यह default, namespace, side-effect या star
+imports/exports को विभाजित नहीं कर सकता; symbol-level CSS imports नहीं बाँटे जा सकते। इन मामलों की manual review करें।
+Removed exports के लिए code change चाहिए हो सकता है; CLI warning में दिए गए
+migration guide का पालन करें।
+
+Preview पूरे upgrade plan को भी दिखाता है: upgrade रोकने वाले framework
+overrides या patches, लंबित @agent-native/\* version bumps, local config से
+पहचाने गए feature dependencies, package-manager install, scaffold skills refresh
+और root package में typecheck script होने पर typecheck। Command package specs को
+registry के मौजूदा latest पर ले जाता है और install द्वारा resolve किए गए
+versions को pin करता है। इसे तभी चलाएँ जब 0.198.0 आपका इच्छित current release
+हो; बाद में exact version चाहिए तो resolved pins जाँचें।
+
+## 2. Toolkit और वैकल्पिक पैकेज की पुष्टि करें
+
+`@agent-native/toolkit/*` में स्थानांतरित imports के लिए `@agent-native/toolkit` चाहिए। समर्थित और resolved import या export को Toolkit में ले जाने पर codemod Toolkit जोड़ता है। यदि ऐप Toolkit export का उपयोग करता है और dependency नहीं जोड़ी गई, तो Core 0.198.0 से मेल खाने वाला Toolkit संस्करण इंस्टॉल करें:
+
+    pnpm add @agent-native/toolkit@0.198.0
+    # npm install @agent-native/toolkit@0.198.0
+    # yarn add @agent-native/toolkit@0.198.0
+
+### अपग्रेड CLI द्वारा चुनी गई dependencies
+
+स्थानीय environment की जाँच मेल खाने पर CLI ये dependencies जोड़ता है। PGlite के लिए यह पहले normalized app name वाला `${APP_NAME}_DATABASE_URL`, फिर `DATABASE_URL` जाँचता है; URL अनुपस्थित हो या `pglite:` से शुरू हो तो PGlite चुनता है। यह remote environments या database में रखी feature settings नहीं देख सकता, इसलिए production और preview की अलग से जाँच करें।
+
+| फ़ीचर                                | वैकल्पिक पैकेज               | संस्करण             | CLI द्वारा जाँची जाने वाली स्थानीय सेटिंग                                                 |
+| ------------------------------------ | ---------------------------- | ------------------- | ----------------------------------------------------------------------------------------- |
+| PGlite डेटाबेस                       | @electric-sql/pglite         | ^0.5.8              | normalized `${APP_NAME}_DATABASE_URL`, फिर `DATABASE_URL`; अनुपस्थित या `pglite:` से शुरू |
+| सर्वर Sentry                         | @sentry/node                 | ^10.60.0 या ^11.0.0 | `SENTRY_SERVER_DSN`, `SENTRY_DSN`, या Sentry key tuple                                    |
+| ब्राउज़र Sentry                      | @sentry/browser              | ^10.60.0 या ^11.0.0 | Client Sentry DSN, `SENTRY_DSN`, या key tuple                                             |
+| बिल्ड के समय Sentry source-map अपलोड | @sentry/vite-plugin          | ^5.4.0              | `SENTRY_AUTH_TOKEN`, organization और project सेट हैं                                      |
+| SSO प्रमाणीकरण                       | @better-auth/sso             | 1.7.6               | `AUTH_SSO` enabled है                                                                     |
+| SCIM प्रमाणीकरण                      | @better-auth/scim            | 1.7.6               | `AUTH_SCIM` enabled है                                                                    |
+| Amplitude                            | @amplitude/analytics-browser | ^2.45.8             | `VITE_AMPLITUDE_API_KEY` सेट है                                                           |
+| Microsoft Teams                      | botframework-connector       | ^4.23.3             | `MICROSOFT_TEAMS_APP_ID` और `MICROSOFT_TEAMS_APP_PASSWORD` सेट हैं                        |
+
+### उपयोग किए जाने वाले फ़ीचर के लिए runtime peers
+
+CLI इन peers का अनुमान नहीं लगाता। ऐप जिन फ़ीचर्स का उपयोग करता है, उनके पैकेज जोड़ें और स्थानीय तथा deployed सेटिंग जाँचें। AI SDK engine को `ai` और चुने गए provider का पैकेज चाहिए:
+
+| फ़ीचर                                                       | वैकल्पिक पैकेज                                                                                   | संस्करण          |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ---------------- |
+| AI SDK engine                                               | ai                                                                                               | >=6              |
+| Anthropic, Cohere, Google, Groq, Mistral या OpenAI provider | @ai-sdk/anthropic, @ai-sdk/cohere, @ai-sdk/google, @ai-sdk/groq, @ai-sdk/mistral, @ai-sdk/openai | >=3 each         |
+| OpenRouter provider                                         | @openrouter/ai-sdk-provider                                                                      | >=2              |
+| Ollama provider                                             | ai-sdk-ollama                                                                                    | >=3              |
+| Context X-Ray में सटीक Anthropic token गणना                 | @anthropic-ai/tokenizer                                                                          | ^0.0.4           |
+| Builder design-system indexing types                        | @builder.io/ai-utils                                                                             | ^0.84.0          |
+| Jev के लिए सीधे TypeSafe AI अनुरोध                          | @typesafe-ai/sdk                                                                                 | ^0.6.0           |
+| Office दस्तावेज़ ingestion                                  | officeparser; mammoth                                                                            | ^7.3.0; ^1.12.0  |
+| Spreadsheet ingestion                                       | xlsx                                                                                             | ^0.18.5          |
+| PowerPoint ingestion                                        | jszip; fast-xml-parser                                                                           | ^3.10.1; ^5.10.1 |
+| मीडिया metadata और image transformations                    | sharp                                                                                            | ^0.35.3          |
+| Social preview / Open Graph SVG rendering                   | @resvg/resvg-js                                                                                  | ^2.6.2           |
+| Browser session replay recording                            | @rrweb/record                                                                                    | ^2.1.0           |
+| OpenTelemetry tracing integration                           | @opentelemetry/api                                                                               | ^1.9.1           |
+| LaunchDarkly server-side feature flags                      | @launchdarkly/node-server-sdk                                                                    | ^9.13.6          |
+| Embedded terminal sessions                                  | node-pty; ws                                                                                     | >=1; >=8         |
+| Extension HTML formatting                                   | prettier                                                                                         | ^3.8.3           |
+| पहले-पक्ष के template स्रोत में खोज                         | @agent-native/core-corpus                                                                        | 0.198.0          |
+
+**Core के साथ पहले से शामिल:** Web-to-Markdown पेज extraction में `linkedom`, `@mozilla/readability` और `turndown` का उपयोग होता है। Core इन्हें सामान्य package dependencies के रूप में देता है, इसलिए इन्हें अलग से जोड़ने की ज़रूरत नहीं है। Vite, React Router, Tailwind और Drizzle Kit जैसे build/framework peers इस तालिका में app features नहीं हैं; इन्हें ऐप के framework setup के अनुरूप रखें।
+
+पहले-पक्ष के template स्रोत में खोज के लिए, उसी version का corpus package development dependency के रूप में जोड़ें: `pnpm add -D @agent-native/core-corpus@0.198.0`।
+
+## 3. Upgrade लागू करें
+
+Preview देखने और feature packages की पुष्टि के बाद versioned CLI से योजना लागू
+करें। यह तब ज़रूरी है जब app में अभी Core 0.196 या पुरानी CLI हो, क्योंकि उसमें
+पुराना migration manifest होता है:
+
+    npx @agent-native/core@0.198.0 upgrade --codemods
+
+App में Core 0.198.0 इंस्टॉल होने के बाद यही command local CLI से उपलब्ध है:
+
+    npx agent-native upgrade --codemods
+
+दोनों में से कोई भी invocation योग्य @agent-native/\* dependency specs अपडेट
+करता है, पहचानी गई feature dependencies align करता है, package manager चलाता
+है, resolved Agent-Native versions pin करता है, समर्थित codemods लागू करता है,
+scaffold skills refresh करता है और root typecheck script मौजूद होने पर चलाता है।
+केवल codemods लागू करने के लिए दूसरी upgrade command न चलाएँ। Warnings और
+app-level errors app code में ठीक करें; framework overrides या patches न जोड़ें।
+
+## 4. परिणाम की जाँच करें
+
+पूरा diff देखें, खासकर छोड़ी गई codemod warnings और dependency versions, फिर
+चलाएँ:
+
+    npx @agent-native/core@0.198.0 upgrade check
+    npx agent-native doctor
+    pnpm typecheck
+
+Doctor डिफ़ॉल्ट रूप से `migration-manifest` और `feature-dependencies` जाँच चलाता
+है। यह पुराने imports और local configuration से पहचाने गए features के लिए missing
+optional peers दिखाता है। यह remote deployment settings या database में रखी
+feature settings नहीं देख सकता, इसलिए उनकी अलग से पुष्टि करें।
+
+npm या Yarn के लिए समकक्ष typecheck command चलाएँ। ऐप के test और build scripts
+मौजूद हों तो चलाएँ, आम तौर पर `pnpm test` और `pnpm build`। वैकल्पिक peer table में
+local और deployed feature settings शामिल होने की पुष्टि करें। नीचे की table में
+पुराने imports खोजें; बचे हुए results intentional होने चाहिए, manifest द्वारा
+unsupported होने चाहिए, या warning से स्पष्ट होने चाहिए।
+
+## पुराने paths और प्रतिनिधि destinations
+
+Migration manifest symbols के अनुसार mapping करता है; एक पुराने module के
+exports अलग-अलग destinations पर जा सकते हैं। यह table उदाहरण देती है, सभी
+मूव हुए symbols नहीं।
+
+| पुराने path और symbols                                                                                                           | नया path                                                                                                                                                            |
+| -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| @agent-native/core/client/settings                                                                                               | @agent-native/toolkit/app/settings                                                                                                                                  |
+| @agent-native/core/client/agent-chat: AgentPanel, AgentSidebar, AgentChatHome, AgentChatSurface                                  | @agent-native/toolkit/app/chat                                                                                                                                      |
+| @agent-native/core/client: useSendToAgentChat                                                                                    | @agent-native/toolkit/app/chat                                                                                                                                      |
+| @agent-native/core/client/chat: useSendToAgentChat                                                                               | @agent-native/toolkit/app/chat                                                                                                                                      |
+| @agent-native/core/client/agent-chat: useSendToAgentChat                                                                         | @agent-native/toolkit/app/chat                                                                                                                                      |
+| @agent-native/core/client/agent-chat: guided-question exports                                                                    | @agent-native/toolkit/app/chat/agentkit-chat                                                                                                                        |
+| @agent-native/core/client/changelog: ChangelogDialog, ChangelogSettingsCard                                                      | @agent-native/toolkit/app/changelog                                                                                                                                 |
+| @agent-native/core/client/org: OrgSwitcher, BuilderCreditNotice                                                                  | @agent-native/toolkit/app/org                                                                                                                                       |
+| @agent-native/core/client/org: TeamPage                                                                                          | @agent-native/toolkit/app/org/TeamPage                                                                                                                              |
+| @agent-native/core/client/org: OrgInfo, DomainMatchOrg, OrgInvitationSummary                                                     | @agent-native/core/org/types                                                                                                                                        |
+| @agent-native/core/client/setup-connections: BuilderConnectCard, SetupConnectionsPage                                            | @agent-native/toolkit/app/setup-connections                                                                                                                         |
+| @agent-native/core/client/setup-connections: FileStorageSetupPopover                                                             | @agent-native/toolkit/app/chat/FileStorageSetupPopover                                                                                                              |
+| @agent-native/core/client/setup-connections: settings, onboarding, resources और integrations के UI exports                       | @agent-native/toolkit/app/settings, @agent-native/toolkit/app/onboarding, @agent-native/toolkit/app/resources और @agent-native/toolkit/app/integrations में विभाजित |
+| @agent-native/core/client/host: buildAgentNativeExtensionHtml, normalizeAgentNativeExtensionSandbox                              | @agent-native/toolkit/app/extensions/portable-extension                                                                                                             |
+| @agent-native/core/client/ui: shared UI exports; feedback exports                                                                | @agent-native/toolkit/app/shared; @agent-native/toolkit/app/feedback                                                                                                |
+| @agent-native/core/client/ui: buildSignInReturnHref                                                                              | @agent-native/core/client/sign-in-return                                                                                                                            |
+| @agent-native/core/blocks: client registry, renderers और editors; server block types और registration                             | @agent-native/toolkit/app/blocks; @agent-native/core/blocks/server                                                                                                  |
+| @agent-native/core/client/hooks: AppProviders, AppProvidersProps                                                                 | @agent-native/toolkit/app/providers                                                                                                                                 |
+| @agent-native/core/client: composer और voice symbols, जिनमें PromptComposer और TiptapComposer शामिल हैं                          | @agent-native/toolkit/app/chat                                                                                                                                      |
+| @agent-native/core/client/components/ui/{dialog,dropdown-menu,hover-card,popover,sheet,tooltip}                                  | @agent-native/toolkit/ui/{dialog,dropdown-menu,hover-card,popover,sheet,tooltip}                                                                                    |
+| @agent-native/core/client/editor और @agent-native/core/client/rich-markdown-editor: RegistryBlockDataProvider                    | @agent-native/toolkit/app/blocks                                                                                                                                    |
+| @agent-native/core/client/editor और @agent-native/core/client/rich-markdown-editor: अन्य editor exports                          | @agent-native/toolkit/editor                                                                                                                                        |
+| @agent-native/core/client/editor और @agent-native/core/client/rich-markdown-editor: uploadEditorImage                            | @agent-native/core/client/uploads                                                                                                                                   |
+| @agent-native/core/client/components/{AgentPresenceChip,PresenceBar,LiveCursorOverlay,RecentEditHighlights,RemoteSelectionRings} | @agent-native/toolkit/collab-ui                                                                                                                                     |
+| @agent-native/core/styles/agent-native.css                                                                                       | @agent-native/toolkit/styles.css                                                                                                                                    |
+| @agent-native/core/styles/agent-conversation.css                                                                                 | @agent-native/toolkit/app/styles/agent-conversation.css                                                                                                             |
+| @agent-native/core/styles/chat-history-list.css                                                                                  | @agent-native/toolkit/app/styles/chat-history-list.css                                                                                                              |
+| @agent-native/agentkit/react/styles.css                                                                                          | @agent-native/toolkit/app/agentkit/react/styles.css                                                                                                                 |
+| @agent-native/agentkit/react और इसके React subpaths                                                                              | @agent-native/toolkit/app/agentkit                                                                                                                                  |
+
+Canonical source URL:
+[upgrading-core-ui.mdx](https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-core-ui.mdx).

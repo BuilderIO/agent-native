@@ -1,4 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { runWithoutExecutionFence } from "../../../packages/core/src/agent/execution-fence.js";
+import { executeAgentToolCall } from "../../../packages/core/src/agent/production-agent.js";
+import { withMigrationRuntime } from "../../../packages/core/src/db/migrations.js";
+import { settingsStore } from "../../../packages/core/src/settings/store.js";
 
 const requireWorkspaceMemberMock = vi.hoisted(() => vi.fn());
 const workspaceMemberIdentityFromContextMock = vi.hoisted(() => vi.fn());
@@ -15,8 +20,8 @@ vi.mock("@agent-native/core/server", () => ({
   buildDeepLink: vi.fn(() => "/factory"),
 }));
 
-vi.mock("@agent-native/core/action", () => ({
-  defineAction: (definition: unknown) => definition,
+vi.mock("@agent-native/core/action", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/action")>()),
   fail: (message: string, options: { statusCode?: number } = {}): never => {
     const error = new Error(message) as Error & {
       actionContractError: true;
@@ -31,7 +36,7 @@ vi.mock("@agent-native/core/action", () => ({
   },
 }));
 
-vi.mock("../server/factory-graph/store.js", () => ({
+vi.mock("../server/lib/factory-definitions.js", () => ({
   readFactoryDefinition: readFactoryDefinitionMock,
 }));
 
@@ -49,6 +54,11 @@ vi.mock("../server/connectors/credentials.js", () => ({
   assertFactoryConnectorReady: assertFactoryConnectorReadyMock,
   VaultUnavailableError: class VaultUnavailableError extends Error {},
 }));
+
+beforeAll(async () => {
+  await import("./create-factory-automation.js");
+  await withMigrationRuntime(() => settingsStore.ready());
+}, 120_000);
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -70,6 +80,76 @@ beforeEach(() => {
 });
 
 describe("create-factory-automation", () => {
+  it.each(["mcp", "a2a"] as const)(
+    "pauses a tool over %s before creation and binds approval to exact input",
+    async (networkProtocol) => {
+      const { default: action } =
+        await import("./create-factory-automation.js");
+      const input = {
+        factoryId: "support-triage",
+        displayName: "GitHub watch",
+        source: "github",
+        repository: "example/project",
+      };
+      const call = (args = input, approvedToolCalls?: string[]) =>
+        runWithoutExecutionFence(() =>
+          executeAgentToolCall({
+            actions: { "create-factory-automation": action },
+            name: "create-factory-automation",
+            callId: "create-factory",
+            input: args,
+            caller: "tool",
+            networkProtocol,
+            ownerEmail: "owner@example.com",
+            approvedToolCalls,
+            consumeApproval: async () => true,
+          }),
+        );
+      const paused = await call();
+      expect(paused.status).toBe("approval_required");
+      expect(createFactoryAutomationMock).not.toHaveBeenCalled();
+      if (paused.status !== "approval_required")
+        throw new Error("Missing approval");
+      expect(
+        (
+          await call({ ...input, displayName: "Different job" }, [
+            paused.approvalKey,
+          ])
+        ).status,
+      ).toBe("approval_required");
+      expect(createFactoryAutomationMock).not.toHaveBeenCalled();
+      expect((await call(input, [paused.approvalKey])).status).toBe(
+        "completed",
+      );
+      expect(createFactoryAutomationMock).toHaveBeenCalledOnce();
+      expect(createFactoryAutomationMock.mock.calls[0][4]).toMatchObject({
+        caller: "tool",
+        networkProtocol,
+      });
+    },
+  );
+
+  it.each(["frontend", "tool"] as const)(
+    "allows ordinary %s creation",
+    async (caller) => {
+      const { default: action } =
+        await import("./create-factory-automation.js");
+      if (typeof action.needsApproval !== "function")
+        throw new Error("Missing approval gate");
+      expect(await action.needsApproval({}, { caller } as never)).toBe(false);
+      await action.run(
+        {
+          factoryId: "support-triage",
+          displayName: "Watch",
+          source: "github",
+          repository: "example/project",
+        },
+        { caller, userEmail: "owner@example.com" },
+      );
+      expect(createFactoryAutomationMock).toHaveBeenCalledOnce();
+    },
+  );
+
   it("rejects include mode with empty author ids", async () => {
     const { default: action } = await import("./create-factory-automation.js");
     await expect(
@@ -110,6 +190,94 @@ describe("create-factory-automation", () => {
     expect(createFactoryAutomationMock).not.toHaveBeenCalled();
   });
 
+  it("does not force a findings channel onto GitHub or Sentry jobs", async () => {
+    const { default: action } = await import("./create-factory-automation.js");
+    await action.run(
+      {
+        factoryId: "support-triage",
+        displayName: "GitHub issue watch",
+        source: "github",
+        repository: "BuilderIO/agent-native",
+      },
+      { userEmail: "owner@example.com" },
+    );
+    await action.run(
+      {
+        factoryId: "support-triage",
+        displayName: "Sentry watch",
+        source: "sentry",
+        sentryOrgSlug: "acme",
+        sentryProjectSlug: "web",
+      },
+      { userEmail: "owner@example.com" },
+    );
+
+    for (const call of createFactoryAutomationMock.mock.calls) {
+      expect(call[3]).toMatchObject({
+        config: { slackChannelId: null, slackChannelName: null },
+      });
+    }
+  });
+
+  it("checks only the source's connection for an enabled GitHub job", async () => {
+    const { default: action } = await import("./create-factory-automation.js");
+    await action.run(
+      {
+        factoryId: "support-triage",
+        displayName: "GitHub issue watch",
+        source: "github",
+        repository: "BuilderIO/agent-native",
+        enabled: true,
+      },
+      { userEmail: "owner@example.com" },
+    );
+
+    expect(assertFactoryConnectorReadyMock).toHaveBeenCalledTimes(1);
+    expect(assertFactoryConnectorReadyMock).toHaveBeenCalledWith(
+      "github",
+      "owner@example.com",
+      expect.objectContaining({ orgId: "org-1", verb: "creating" }),
+    );
+  });
+
+  it("no longer offers the templates that were retired with their jobs", async () => {
+    const { default: action } = await import("./create-factory-automation.js");
+    const base = {
+      factoryId: "support-triage",
+      displayName: "Watch",
+      source: "slack",
+    };
+
+    for (const template of [
+      "slack-feedback",
+      "github-issues",
+      "pr-babysit",
+      "sentry-errors",
+    ]) {
+      expect(action.schema.safeParse({ ...base, template }).success).toBe(
+        false,
+      );
+    }
+    for (const template of ["blank", "pr-governance"]) {
+      expect(action.schema.safeParse({ ...base, template }).success).toBe(true);
+    }
+  });
+
+  it("does not require a findings destination for PR governance jobs", async () => {
+    const { default: action } = await import("./create-factory-automation.js");
+    const result = await action.run(
+      {
+        factoryId: "support-triage",
+        displayName: "PR governance",
+        source: "github",
+        template: "pr-governance",
+        repository: "BuilderIO/agent-native",
+      },
+      { userEmail: "owner@example.com" },
+    );
+    expect(result).toMatchObject({ ok: true, source: "github" });
+  });
+
   it("creates a Slack job with a work limit", async () => {
     const { default: action } = await import("./create-factory-automation.js");
     const result = await action.run(
@@ -117,7 +285,6 @@ describe("create-factory-automation", () => {
         factoryId: "support-triage",
         displayName: "Slack feedback",
         source: "slack",
-        template: "slack-feedback",
         slackChannelId: "C123",
         workLimit: 3,
       },
@@ -140,6 +307,7 @@ describe("create-factory-automation", () => {
           slackChannelId: "C123",
         }),
       }),
+      { userEmail: "owner@example.com" },
     );
     expect(assertFactoryConnectorReadyMock).not.toHaveBeenCalled();
   });
@@ -195,7 +363,7 @@ describe("create-factory-automation", () => {
     expect(createFactoryAutomationMock).not.toHaveBeenCalled();
   });
 
-  it("opens Automations when the agent creates a job", async () => {
+  it("opens Settings, where scheduler health shows, when the agent creates a job", async () => {
     const { default: action } = await import("./create-factory-automation.js");
     await action.run(
       {
@@ -208,7 +376,7 @@ describe("create-factory-automation", () => {
     );
     expect(writeAppStateForCurrentTabMock).toHaveBeenCalledWith("navigate", {
       view: "factory",
-      path: "/factory?factoryId=support-triage&tab=automations&automationId=resource-1",
+      path: "/factory?factoryId=support-triage&tab=settings",
       _writeId: expect.any(String),
     });
   });

@@ -64,6 +64,12 @@ async function findUsernameOwner(username: string): Promise<string | null> {
   return row?.ownerEmail ?? null;
 }
 
+export function getBookingUsernameOwner(
+  username: string,
+): Promise<string | null> {
+  return findUsernameOwner(username);
+}
+
 async function chooseAvailableUsername(
   base: string,
   ownerEmail: string,

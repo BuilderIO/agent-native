@@ -7,27 +7,31 @@ import { fileURLToPath } from "node:url";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { readDesignEditorSource } from "./read-design-editor-source";
+
 const requireFromDesign = createRequire(
   path.resolve(process.cwd(), "package.json"),
 );
 const { chromium } = requireFromDesign("@playwright/test");
 const { transformSync } = requireFromDesign("esbuild");
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const SOURCE =
-  process.env.SPACE_DESIGN_EDITOR_SOURCE ||
-  path.resolve(HERE, "../DesignEditor.tsx");
+const SOURCE_OVERRIDE = process.env.SPACE_DESIGN_EDITOR_SOURCE;
 const TOOL_STATE = path.join(HERE, "tool-state.ts");
 const START = "const handleWindowKeyDown = (event: KeyboardEvent) => {";
 const END = 'window.addEventListener("keydown", handleWindowKeyDown';
 const HELPER_START = "export function resolveSpaceForwardTransition(";
 const HELPER_END = "export function isSingleScreenAnnotationTool";
 
-function extractHandlers(sourcePath: string): string {
-  const source = readFileSync(sourcePath, "utf8");
+function extractHandlers(): string {
+  const source = SOURCE_OVERRIDE
+    ? readFileSync(SOURCE_OVERRIDE, "utf8")
+    : readDesignEditorSource();
   const start = source.indexOf(START);
   const end = source.indexOf(END, start);
   if (start < 0 || end < 0)
-    throw new Error(`Space handlers not found in ${sourcePath}`);
+    throw new Error(
+      `Space handlers not found in ${SOURCE_OVERRIDE ?? "DesignEditor"}`,
+    );
   return transformSync(source.slice(start, end), { loader: "tsx" }).code;
 }
 
@@ -48,14 +52,14 @@ function loadTransitionHelper(sourcePath: string) {
   ) => unknown;
 }
 
-describe("DesignEditor forwarded Space source handler", () => {
+describe("DesignEditor Space source handler", () => {
   let browser: any;
   let page: any;
   let handlerSource: string;
   let transitionHelper: (...args: unknown[]) => unknown;
 
   beforeAll(async () => {
-    handlerSource = extractHandlers(SOURCE);
+    handlerSource = extractHandlers();
     transitionHelper = loadTransitionHelper(TOOL_STATE);
     browser = await chromium.launch({ headless: true });
     page = await browser.newPage();
@@ -64,21 +68,38 @@ describe("DesignEditor forwarded Space source handler", () => {
   afterAll(async () => browser?.close());
 
   async function run(
-    events: Array<{ type: string; repeat?: boolean; drag?: boolean }>,
+    events: Array<{
+      type: string;
+      repeat?: boolean;
+      drag?: boolean;
+      target?: "layer-row";
+    }>,
+    canEditDesign = true,
+    interact = false,
   ) {
     return page.evaluate(
       ({
         handlerSource,
         helperSource,
         events,
+        canEditDesign,
+        interact,
       }: {
         handlerSource: string;
         helperSource: string;
-        events: Array<{ type: string; repeat?: boolean; drag?: boolean }>;
+        events: Array<{
+          type: string;
+          repeat?: boolean;
+          drag?: boolean;
+          target?: "layer-row";
+        }>;
+        canEditDesign: boolean;
+        interact: boolean;
       }) => {
         const spaceForwardArmedRef = { current: false };
+        const interactOwnsSpaceRef = { current: interact };
         const activeEditorDragRef = { current: false };
-        const canEditDesignRef = { current: true };
+        const canEditDesignRef = { current: canEditDesign };
         const spacePanStashedToolRef: { current: string | null } = {
           current: null,
         };
@@ -97,6 +118,15 @@ describe("DesignEditor forwarded Space source handler", () => {
         const broadcastSpaceHeldToIframes = (held: boolean) =>
           broadcasts.push(held);
         const isDesignHotkeyEditableTarget = () => false;
+        const isKeyboardShortcutsDialogTarget = () => false;
+        const rowButton = document.createElement("button");
+        rowButton.setAttribute("data-layer-row-button", "");
+        document.body.append(rowButton);
+        const isNativeKeyboardActivationTarget = (target: EventTarget | null) =>
+          target instanceof Element &&
+          Boolean(
+            target.closest("a[href], button, input, select, textarea, summary"),
+          );
         const resolveSpaceForwardTransition = new Function(
           `return (${helperSource});`,
         )();
@@ -104,6 +134,7 @@ describe("DesignEditor forwarded Space source handler", () => {
           "window",
           "resolveSpaceForwardTransition",
           "spaceForwardArmedRef",
+          "interactOwnsSpaceRef",
           "activeEditorDragRef",
           "canEditDesignRef",
           "spacePanStashedToolRef",
@@ -112,11 +143,14 @@ describe("DesignEditor forwarded Space source handler", () => {
           "setSpacePanActive",
           "broadcastSpaceHeldToIframes",
           "isDesignHotkeyEditableTarget",
+          "isNativeKeyboardActivationTarget",
+          "isKeyboardShortcutsDialogTarget",
           `${handlerSource}\nreturn { handleWindowKeyDown, handleWindowKeyUp, handleWindowBlur };`,
         )(
           window,
           resolveSpaceForwardTransition,
           spaceForwardArmedRef,
+          interactOwnsSpaceRef,
           activeEditorDragRef,
           canEditDesignRef,
           spacePanStashedToolRef,
@@ -125,6 +159,8 @@ describe("DesignEditor forwarded Space source handler", () => {
           setSpacePanActive,
           broadcastSpaceHeldToIframes,
           isDesignHotkeyEditableTarget,
+          isNativeKeyboardActivationTarget,
+          isKeyboardShortcutsDialogTarget,
         );
         window.addEventListener("keydown", handlers.handleWindowKeyDown, {
           capture: true,
@@ -143,9 +179,12 @@ describe("DesignEditor forwarded Space source handler", () => {
             cancelable: true,
             repeat: step.repeat ?? false,
           });
-          window.dispatchEvent(event);
+          (step.target === "layer-row" ? rowButton : window).dispatchEvent(
+            event,
+          );
           prevented.push(event.defaultPrevented);
         }
+        rowButton.remove();
         const result = {
           broadcasts,
           prevented,
@@ -163,9 +202,35 @@ describe("DesignEditor forwarded Space source handler", () => {
         window.removeEventListener("blur", handlers.handleWindowBlur);
         return result;
       },
-      { handlerSource, helperSource: transitionHelper.toString(), events },
+      {
+        handlerSource,
+        helperSource: transitionHelper.toString(),
+        events,
+        canEditDesign,
+        interact,
+      },
     );
   }
+
+  it("leaves Space to the page in Interact: no Hand tool, no pan, no cancelled key", async () => {
+    const result = await run(
+      [{ type: "keydown" }, { type: "keyup" }],
+      true,
+      true,
+    );
+    expect(result.prevented).toEqual([false, false]);
+    expect(result.activeTool).toBe("move");
+    expect(result.stashedTool).toBeNull();
+    expect(result.spacePanActive).toBe(false);
+    expect(result.broadcasts).toEqual([]);
+  });
+
+  it("still pans on Space outside Interact", async () => {
+    const result = await run([{ type: "keydown" }], false);
+    expect(result.prevented).toEqual([true]);
+    expect(result.activeTool).toBe("hand");
+    expect(result.spacePanActive).toBe(true);
+  });
 
   it("keeps a forwarded hold through mouseup and a duplicate nonrepeat keydown", async () => {
     const result = await run([
@@ -202,6 +267,36 @@ describe("DesignEditor forwarded Space source handler", () => {
     expect(result.spacePanActive).toBe(false);
   });
 
+  it("lets public viewers Space-pan without forwarding edit hotkeys", async () => {
+    const result = await run([{ type: "keydown" }, { type: "keyup" }], false);
+    expect(result.broadcasts).toEqual([]);
+    expect(result.prevented).toEqual([true, true]);
+    expect(result.armed).toBe(false);
+    expect(result.stashedTool).toBeNull();
+    expect(result.activeTool).toBe("move");
+    expect(result.spacePanActive).toBe(false);
+  });
+
+  it("does not arm canvas Space-pan while a layer-row button owns activation", async () => {
+    const result = await run([
+      { type: "keydown", target: "layer-row" },
+      { type: "keyup", target: "layer-row" },
+    ]);
+    expect(result.prevented).toEqual([false, false]);
+    expect(result.broadcasts).toEqual([]);
+    expect(result.activeTool).toBe("move");
+    expect(result.spacePanActive).toBe(false);
+  });
+
+  it("keeps iframe reorder forwarding gated to design editors", async () => {
+    const result = await run([{ type: "keydown", drag: true }], false);
+    expect(result.broadcasts).toEqual([]);
+    expect(result.prevented).toEqual([true]);
+    expect(result.armed).toBe(false);
+    expect(result.stashedTool).toBe("move");
+    expect(result.activeTool).toBe("hand");
+    expect(result.spacePanActive).toBe(true);
+  });
   it("sends the matching release on blur after a forwarded drag hold", async () => {
     const result = await run([
       { type: "keydown", drag: true },

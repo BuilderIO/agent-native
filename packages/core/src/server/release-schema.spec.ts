@@ -1,15 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { withMigrationRuntime } from "../db/migration-runtime.js";
 import {
   frameworkSchemaEnsureNames,
-  runFrameworkSchemaEnsures,
+  runFrameworkSchemaEnsures as runUnwrapped,
 } from "./release-schema.js";
 
+const runFrameworkSchemaEnsures = (...args: Parameters<typeof runUnwrapped>) =>
+  withMigrationRuntime(() => runUnwrapped(...args));
+
 describe("frameworkSchemaEnsureNames", () => {
-  // These four had no release path for twelve days: published sites came up
-  // with an empty database while the deploy reported success. Naming them here
-  // means removing one from the list fails a test, not a customer's site.
-  it.each(["Settings", "ApplicationState", "AppSecrets", "Resources"])(
+  it.each(["settings", "application_state", "app_secrets", "resources"])(
     "covers %s, which a request path can never create in production",
     (name) => {
       expect(frameworkSchemaEnsureNames()).toContain(name);
@@ -25,6 +26,15 @@ describe("frameworkSchemaEnsureNames", () => {
 });
 
 describe("runFrameworkSchemaEnsures", () => {
+  it("refuses to run without migration duty", async () => {
+    const run = vi.fn(async () => {});
+
+    await expect(runUnwrapped([["settings", run]])).rejects.toThrow(
+      /withMigrationRuntime/,
+    );
+    expect(run).not.toHaveBeenCalled();
+  });
+
   it("runs sequentially, in list order", async () => {
     const order: string[] = [];
     const record = (name: string) => async () => {
@@ -46,8 +56,6 @@ describe("runFrameworkSchemaEnsures", () => {
     ]);
   });
 
-  // A half-created schema that reports success is the failure this module
-  // exists to remove, so the release must abort rather than continue.
   it("aborts on the first failure and names the store", async () => {
     const after = vi.fn(async () => {});
 

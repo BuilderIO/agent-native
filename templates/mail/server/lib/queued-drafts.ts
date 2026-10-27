@@ -5,6 +5,7 @@ import {
   getAppProductionUrl,
   getRequestOrgId,
   getRequestUserEmail,
+  readOrgMemberRole,
   withConfiguredAppBasePath,
 } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
@@ -107,9 +108,9 @@ export function buildQueuedDraftUrl(id: string): string {
 async function getMembership(
   orgId: string,
   email: string,
-): Promise<{ email: string; role: string } | null> {
+): Promise<{ email: string } | null> {
   const [row] = await getDb()
-    .select({ email: orgMembers.email, role: orgMembers.role })
+    .select({ email: orgMembers.email })
     .from(orgMembers)
     .where(
       and(
@@ -119,7 +120,7 @@ async function getMembership(
     )
     .limit(1);
   if (!row) return null;
-  return { email: row.email, role: row.role };
+  return { email: row.email };
 }
 
 export async function requireQueueContext(): Promise<QueueContext> {
@@ -136,11 +137,15 @@ export async function requireQueueContext(): Promise<QueueContext> {
   if (!membership) {
     throw new Error("Only members of this organization can queue drafts.");
   }
+  const role = await readOrgMemberRole(orgId, userEmail);
+  if (!role) {
+    throw new Error("Only members of this organization can queue drafts.");
+  }
 
   return {
     userEmail: normalizeEmail(membership.email),
     orgId,
-    role: membership.role,
+    role,
   };
 }
 
@@ -229,8 +234,6 @@ export async function createQueuedDraft(input: {
 
   await getDb().insert(schema.queuedEmailDrafts).values(row);
 
-  // Best-effort notify the owner so they see a bell badge and can click
-  // through to review the draft. Self-queued drafts skip the notification.
   if (ownerEmail !== ctx.userEmail) {
     try {
       const requesterLabel = input.requesterName?.trim() || ctx.userEmail;
@@ -475,28 +478,12 @@ export type QueuedDraftClaim =
     }
   | { claimed: false; reason: "sent" | "sending" | "dismissed" };
 
-/**
- * Atomically claims a queued draft in a private send-claim column while keeping
- * the public status in one of its durable states ("queued" or "in_review").
- * That lets only one caller proceed to actually send the underlying email
- * without writing transient values into the constrained status column. Enforces
- * the same
- * owner-or-admin access check as requireQueuedDraft first, then uses a
- * single conditional UPDATE + RETURNING so two concurrent callers can't both
- * observe a sendable, unclaimed draft and both dispatch the real send.
- */
 export async function claimQueuedDraftForSending(
   id: string,
 ): Promise<QueuedDraftClaim> {
   const { ctx, draft: preClaimDraft } = await requireQueuedDraft(id, {
     ownerOnly: true,
   });
-  // Best post-update witness of the pre-claim status: UPDATE ... RETURNING
-  // yields POST-update values on Postgres and PGlite, so it can never
-  // be used to recover the prior status. The WHERE clause below guarantees
-  // this row was "queued" or "in_review" at claim time if the update
-  // affects it, so the pre-read status (when it's one of those two) is
-  // exactly that prior status; otherwise default to "queued".
   const priorStatus: QueuedDraftStatus =
     preClaimDraft.status === "queued" || preClaimDraft.status === "in_review"
       ? preClaimDraft.status
@@ -531,9 +518,6 @@ export async function claimQueuedDraftForSending(
     return { claimed: true, ctx, draft, claimId, priorStatus };
   }
 
-  // Lost the race (or nothing to claim) — report the real current status so
-  // callers can distinguish "someone else is sending this right now" from
-  // "this was already sent" instead of silently re-sending or erroring.
   const [current] = await getDb()
     .select({
       status: schema.queuedEmailDrafts.status,
@@ -557,10 +541,6 @@ export async function claimQueuedDraftForSending(
   return { claimed: false, reason: "dismissed" };
 }
 
-/**
- * Releases a failed send back to its pre-claim status so the draft is
- * retryable instead of stuck with an active send claim forever.
- */
 export async function releaseQueuedDraftClaim(
   id: string,
   ctx: QueueContext,

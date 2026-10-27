@@ -5,10 +5,6 @@ import { docsAlternateLinksForPath } from "./docs-seo";
 
 describe("docsAlternateLinksForPath", () => {
   it("self-references every locale, including ones with no translated doc", () => {
-    // "environment-variables" has no fr-FR translation — the route still
-    // resolves by falling back to the English doc (see
-    // docs-localization.test.ts), so it's a real, indexable page that needs
-    // its own self-referencing hreflang entry.
     expect(hasAvailableDoc("fr-FR", "environment-variables")).toBe(false);
 
     const links = docsAlternateLinksForPath("/docs/environment-variables/");

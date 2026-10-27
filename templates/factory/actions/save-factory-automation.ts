@@ -5,6 +5,7 @@ import {
   resourcePutIfCurrent,
 } from "@agent-native/core/resources";
 import { isReasoningEffort } from "@agent-native/core/shared";
+import { isOutsideAutomationOrigin } from "@agent-native/core/triggers";
 import { z } from "zod";
 
 import {
@@ -24,16 +25,19 @@ import {
   readPromptVersion,
   replaceAutomationContentWithUserPrompt,
   scheduleCron,
+  stampAutomationTriggerType,
 } from "../server/lib/factory-automation-config.js";
 import {
   deleteFactoryAutomationVersionRow,
   insertFactoryAutomationVersionIfChanged,
-  resolvePromptVersionForSnapshot,
+  resolvePromptVersionAllocation,
   snapshotFromAutomationResource,
 } from "../server/lib/factory-automation-history.js";
 import { findFactoryAutomationDefinition } from "../server/lib/factory-automation-resources.js";
 import {
   factoryIdSchema,
+  assertSingleLineFactoryAutomationSettings,
+  normalizeFactoryAutomationWriteContent,
   readAutomationDisplayName,
   readAutomationEnabled,
   readAutomationModel,
@@ -42,6 +46,10 @@ import {
   resolveAutomationDisplayName,
   setAutomationFrontmatterField,
 } from "../server/lib/factory-scope.js";
+import {
+  isWorkflowJob,
+  workflowJobRefusal,
+} from "../server/lib/factory-workflow-runner.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
@@ -101,7 +109,25 @@ export default defineAction({
       ),
   }),
   http: { method: "POST" },
+  needsApproval: (_input, ctx) => isOutsideAutomationOrigin(ctx),
   run: async (input, context) => {
+    assertSingleLineFactoryAutomationSettings({
+      factoryId: input.factoryId,
+      displayName: input.displayName,
+      model: input.model,
+      reasoningEffort: input.reasoningEffort,
+      slackWorkspace: input.slackWorkspace,
+      slackChannelId: input.slackChannelId,
+      slackChannelName: input.slackChannelName,
+      repository: input.repository,
+      sentryOrgSlug: input.sentryOrgSlug,
+      sentryProjectSlug: input.sentryProjectSlug,
+      sentryEnvironment: input.sentryEnvironment,
+      authorMode: input.authorMode,
+      authorIds: input.authorIds?.join(","),
+      scheduleMode: input.scheduleMode,
+      timezone: input.timezone,
+    });
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
@@ -111,6 +137,10 @@ export default defineAction({
       input.automationId,
     );
     if (!definition) throw new Error("Factory automation not found.");
+    if (isWorkflowJob(definition.meta)) {
+      const { message, errorCode } = workflowJobRefusal("edit");
+      fail(message, { errorCode, statusCode: 409 });
+    }
     if (definition.name !== input.name) {
       throw new Error(
         "Factory automation id and name do not refer to the same automation.",
@@ -121,8 +151,12 @@ export default defineAction({
       definition.resource.path,
     );
     if (!resource) throw new Error("Factory automation not found.");
-    const storedDisplayName = readAutomationDisplayName(resource.content);
-    const current = readFactoryAutomationConfig(resource.content, input.name);
+    const normalizedContent = normalizeFactoryAutomationWriteContent(
+      resource.content,
+      { context },
+    );
+    const storedDisplayName = readAutomationDisplayName(normalizedContent);
+    const current = readFactoryAutomationConfig(normalizedContent, input.name);
     if (
       input.displayName !== undefined &&
       !input.displayName.trim() &&
@@ -151,6 +185,7 @@ export default defineAction({
       input.slackChannelId !== undefined
         ? input.slackChannelId.trim()
         : current.slackChannelId;
+    const nextSlackWorkspace = input.slackWorkspace ?? current.slackWorkspace;
     const nextRepository =
       input.repository !== undefined
         ? input.repository.trim()
@@ -206,7 +241,7 @@ export default defineAction({
     }
     const config = {
       ...current,
-      slackWorkspace: input.slackWorkspace ?? current.slackWorkspace,
+      slackWorkspace: nextSlackWorkspace,
       slackChannelId: nextSlackChannelId,
       slackChannelName:
         input.slackChannelName !== undefined
@@ -240,7 +275,7 @@ export default defineAction({
       throw new Error(`Invalid cron expression "${schedule}".`);
     }
     const previousSnapshot = snapshotFromAutomationResource(
-      resource.content,
+      normalizedContent,
       input.name,
       input.factoryId,
     );
@@ -249,15 +284,18 @@ export default defineAction({
       input.displayName !== undefined
         ? input.displayName.trim() || null
         : previousSnapshot.displayName;
-    const resolvedPromptVersion = resolvePromptVersionForSnapshot(
-      {
+    const versionAllocation = await resolvePromptVersionAllocation({
+      automationId: definition.resource.id,
+      orgId,
+      next: {
         userPrompt: normalizedPrompt,
         displayName: nextDisplayName,
         config,
       },
-      previousSnapshot,
-    );
-    let content = applyAutomationConfigFrontmatter(resource.content, config);
+      previous: previousSnapshot,
+    });
+    const resolvedPromptVersion = versionAllocation.promptVersion;
+    let content = applyAutomationConfigFrontmatter(normalizedContent, config);
     content = replaceAutomationContentWithUserPrompt(
       content,
       normalizedPrompt,
@@ -289,6 +327,13 @@ export default defineAction({
       input.factoryId,
     );
     content = setAutomationFrontmatterField(content, "appId", "factory");
+    const stamp = stampAutomationTriggerType(content, { orgId });
+    content = stamp.content;
+    if (stamp.skipped) {
+      console.warn(
+        `[save-factory-automation] ${input.name} stays untagged because ${stamp.skipped}.`,
+      );
+    }
     if (input.model !== undefined) {
       content = setAutomationFrontmatterField(
         content,
@@ -318,11 +363,10 @@ export default defineAction({
       ).toISOString();
       content = setAutomationFrontmatterField(content, "nextRun", nextRun);
     }
-    // Insert the predecessor's raw content before the live write commits: if
-    // the write below fails, this is just an unused extra row, but if the
-    // order were reversed a crash or history-insert failure after a
-    // successful write would report a failed save while silently losing the
-    // last pre-save state with no way to recover it.
+    content = normalizeFactoryAutomationWriteContent(content, {
+      context,
+      currentContent: normalizedContent,
+    });
     const insertedVersion = await insertFactoryAutomationVersionIfChanged({
       automationId: definition.resource.id,
       factoryId: input.factoryId,
@@ -333,11 +377,8 @@ export default defineAction({
       nextContent: content,
       summary: "Automation save",
       source: "save",
+      version: versionAllocation.predecessorVersion ?? undefined,
     });
-    // A thrown write failure (DB/provider error) must compensate exactly like
-    // a falsy return (optimistic-concurrency mismatch) — resourcePutIfCurrent
-    // has no try/catch of its own, so a throw here would otherwise skip the
-    // cleanup below and leave the inserted version orphaned.
     let updated: Awaited<ReturnType<typeof resourcePutIfCurrent>> = null;
     let writeError: unknown;
     try {

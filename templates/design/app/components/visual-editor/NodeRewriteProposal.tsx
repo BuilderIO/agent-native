@@ -11,6 +11,10 @@ import {
   type NodeRewriteTarget,
 } from "@shared/node-rewrite";
 import {
+  SOURCE_EQUIVALENT_SELECTOR_PREFIX,
+  resolveSourceEquivalentSelector,
+} from "@shared/source-equivalent-selector";
+import {
   IconCheck,
   IconChevronLeft,
   IconChevronRight,
@@ -39,11 +43,15 @@ import {
 import { sendToDesignAgentChatAndConfirm } from "@/lib/agent-chat";
 import {
   formatNodeRepromptSubmission,
+  NODE_REPROMPT_PREVIEW_FAILED_EVENT,
   NODE_REPROMPT_PRESENTED_EVENT,
   NODE_REPROMPT_RESOLVED_EVENT,
 } from "@/lib/node-reprompt";
 
-import type { IframeNodeHtmlPreviewAppliedPayload } from "../design/design-canvas/iframe-events";
+import type {
+  IframeNodeHtmlPreviewAppliedPayload,
+  IframeNodeHtmlPreviewFailedPayload,
+} from "../design/design-canvas/iframe-events";
 
 interface NodeRewriteProposalProps {
   designId: string;
@@ -70,14 +78,41 @@ function findProposalElement(
       `[data-agent-native-node-rewrite-proposal="${escapeSelectorValue(proposalId)}"]`,
     );
     if (marked) return marked;
+    let nodeMatches: Element[] = [];
     if (target.nodeId) {
       const id = escapeSelectorValue(target.nodeId);
-      const byId = document.querySelector(
-        `[data-agent-native-node-id="${id}"],[data-code-layer-id="${id}"],[data-layer-id="${id}"],[data-builder-id="${id}"],#${id}`,
+      nodeMatches = Array.from(
+        document.querySelectorAll(
+          `[data-agent-native-node-id="${id}"],[data-code-layer-id="${id}"],[data-layer-id="${id}"],[data-builder-id="${id}"],[data-loc="${id}"],#${id}`,
+        ),
       );
-      if (byId) return byId;
+      if (nodeMatches.length === 1) return nodeMatches[0] ?? null;
     }
-    return target.selector ? document.querySelector(target.selector) : null;
+    if (
+      nodeMatches.length > 1 &&
+      target.selector?.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX)
+    ) {
+      const bySourceSelector = resolveSourceEquivalentSelector(
+        document,
+        target.selector,
+      );
+      return bySourceSelector && nodeMatches.includes(bySourceSelector)
+        ? bySourceSelector
+        : null;
+    }
+    if (nodeMatches.length > 1 && target.selector) {
+      const matchingTargets = Array.from(
+        document.querySelectorAll(target.selector),
+      ).filter((element) => nodeMatches.includes(element));
+      return matchingTargets.length === 1 ? (matchingTargets[0] ?? null) : null;
+    }
+    if (target.selector?.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX)) {
+      return resolveSourceEquivalentSelector(document, target.selector);
+    }
+    if (target.selector) {
+      return resolveSourceEquivalentSelector(document, target.selector);
+    }
+    return null;
   } catch {
     return null;
   }
@@ -180,6 +215,9 @@ export function NodeRewriteProposal({
   const [previewReadyProposalId, setPreviewReadyProposalId] = useState<
     string | null
   >(null);
+  const [previewFailedProposalId, setPreviewFailedProposalId] = useState<
+    string | null
+  >(null);
   const [refinement, setRefinement] = useState("");
   const [refining, setRefining] = useState(false);
   const [layoutTick, setLayoutTick] = useState(0);
@@ -209,7 +247,7 @@ export function NodeRewriteProposal({
       postToPreview({
         type: "node-html-preview",
         proposalId: current.proposalId,
-        target: current.resolvedTarget,
+        target: current.target,
         operation: "restore",
       });
     },
@@ -226,6 +264,7 @@ export function NodeRewriteProposal({
         const previous = proposalRef.current;
         if (previous?.proposalId !== value.proposalId) {
           setPreviewReadyProposalId(null);
+          setPreviewFailedProposalId(null);
         }
         if (
           previous?.proposalId === value.proposalId &&
@@ -272,15 +311,37 @@ export function NodeRewriteProposal({
     const onMessage = (event: MessageEvent) => {
       const data = event.data as
         | IframeNodeHtmlPreviewAppliedPayload
+        | IframeNodeHtmlPreviewFailedPayload
         | undefined;
       if (
         event.source !== iframe.contentWindow ||
-        data?.type !== "agent-native:node-html-preview-applied" ||
+        (data?.type !== "agent-native:node-html-preview-applied" &&
+          data?.type !== "agent-native:node-html-preview-failed") ||
         data.proposalId !== proposal.proposalId
       ) {
         return;
       }
+      if (data.type === "agent-native:node-html-preview-failed") {
+        const reason =
+          data.reason === "target-unresolved" ||
+          data.reason === "preview-invalid" ||
+          data.reason === "preview-replacement-failed"
+            ? data.reason
+            : "unknown";
+        setPreviewFailedProposalId(proposal.proposalId);
+        window.dispatchEvent(
+          new CustomEvent(NODE_REPROMPT_PREVIEW_FAILED_EVENT, {
+            detail: {
+              repromptId: proposal.repromptId,
+              fileId,
+              reason,
+            },
+          }),
+        );
+        return;
+      }
       setPreviewReadyProposalId(proposal.proposalId);
+      setPreviewFailedProposalId(null);
       setLayoutTick((value) => value + 1);
       window.dispatchEvent(
         new CustomEvent(NODE_REPROMPT_PRESENTED_EVENT, {
@@ -304,7 +365,7 @@ export function NodeRewriteProposal({
       const sent = postToPreview({
         type: "node-html-preview",
         proposalId: proposal.proposalId,
-        target: proposal.resolvedTarget,
+        target: proposal.target,
         html: variant.html,
         operation: "preview",
       });
@@ -393,7 +454,7 @@ export function NodeRewriteProposal({
             postToPreview({
               type: "node-html-preview",
               proposalId: proposal.proposalId,
-              target: proposal.resolvedTarget,
+              target: proposal.target,
               html: variant.html,
               operation: "preview",
             });
@@ -502,6 +563,7 @@ export function NodeRewriteProposal({
     viewport,
   );
   const busy = resolveMutation.isPending || refining;
+  const previewUnavailable = previewFailedProposalId === proposal.proposalId;
 
   return createPortal(
     <div
@@ -577,6 +639,7 @@ export function NodeRewriteProposal({
 
       <div className="mt-3 flex items-center gap-1.5">
         <Input
+          size="sm"
           value={refinement}
           onChange={(event) => setRefinement(event.currentTarget.value)}
           onKeyDown={(event) => {
@@ -585,16 +648,16 @@ export function NodeRewriteProposal({
               void submitRefinement();
             }
           }}
-          disabled={busy}
+          disabled={busy || previewUnavailable}
           placeholder={t("designEditor.nodeRewrite.refinePlaceholder")}
-          className="h-8 min-w-0 flex-1 text-xs"
+          className="min-w-0 flex-1 text-xs"
         />
         <Button
           type="button"
-          size="icon"
+          size="icon-sm"
           variant="outline"
-          className="size-8 shrink-0"
-          disabled={!refinement.trim() || busy}
+          className="shrink-0"
+          disabled={!refinement.trim() || busy || previewUnavailable}
           onClick={() => void submitRefinement()}
           aria-label={t("designEditor.nodeRewrite.refine")}
         >
@@ -611,7 +674,7 @@ export function NodeRewriteProposal({
           type="button"
           size="sm"
           variant="ghost"
-          className="h-8 gap-1.5 px-2.5 text-xs"
+          className="gap-1.5 px-2.5 text-xs"
           disabled={busy}
           onClick={() => void resolve("reject")}
         >
@@ -621,8 +684,8 @@ export function NodeRewriteProposal({
         <Button
           type="button"
           size="sm"
-          className="h-8 gap-1.5 px-3 text-xs"
-          disabled={busy}
+          className="gap-1.5 text-xs"
+          disabled={busy || previewUnavailable}
           onClick={() => void resolve("accept")}
         >
           {resolveMutation.isPending ? (

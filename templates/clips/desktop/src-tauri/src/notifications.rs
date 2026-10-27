@@ -1,9 +1,3 @@
-//! Native desktop notifications for upcoming meetings.
-//!
-//! Wraps `tauri-plugin-notification` (v2). The "join_url" in the payload is
-//! intentionally NOT auto-opened by the notification system itself. The
-//! frontend owns the "Start notes" click so consent/control stays visible.
-
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -22,17 +16,11 @@ use crate::util::{
 };
 
 const MEETING_NOTIFICATION_LABEL: &str = "meeting-notif";
-// Window is wider than the 440px card so its close control and menu stay inside
-// the transparent window. The right margin is pulled in to keep the card near
-// the top-right corner.
 const NOTIFICATION_W_LOGICAL: u32 = 504;
 const NOTIFICATION_H_LOGICAL: u32 = 120;
 const NOTIFICATION_TOP_MARGIN_LOGICAL: u32 = 44;
 const NOTIFICATION_RIGHT_MARGIN_LOGICAL: u32 = 0;
 const DISMISSAL_TOMBSTONE_SECS: i64 = 30 * 60;
-/// How long an answered card stays un-hydratable. Only has to outlive an
-/// overlay boot, but a meeting that is recording has no reason to be asked about
-/// again for a while either.
 const ACK_TOMBSTONE_SECS: i64 = 10 * 60;
 
 #[derive(Default)]
@@ -42,10 +30,6 @@ pub struct MeetingNotificationState(Mutex<MeetingNotificationStateInner>);
 struct MeetingNotificationStateInner {
     pending: Option<Value>,
     dismissed_until: HashMap<String, i64>,
-    /// meeting id -> unix-seconds until which a stored payload for it must not
-    /// be handed out. Clearing `pending` cannot retract a payload an overlay
-    /// already took, and `take_pending_meeting_notification` is destructive, so
-    /// the acknowledgement has to leave a mark rather than only a deletion.
     acknowledged_until: HashMap<String, i64>,
 }
 
@@ -78,10 +62,6 @@ fn notification_rect(app: &AppHandle) -> (u32, u32, i32, i32) {
 
 static MEETING_NOTIF_HOVER_TRACKING: AtomicBool = AtomicBool::new(false);
 
-/// True when the global cursor sits inside the notification window's frame.
-/// Mirrors `cursor_inside_pill_frame` in `recording_indicator.rs`: cursor and
-/// frame both come from Tauri (physical px, desktop top-left origin), so the
-/// test is a plain point-in-rect with no AppKit hop.
 fn cursor_inside_notification_frame(window: &WebviewWindow) -> bool {
     let (Ok(c), Ok(p), Ok(s)) = (
         window.cursor_position(),
@@ -96,14 +76,6 @@ fn cursor_inside_notification_frame(window: &WebviewWindow) -> bool {
         && c.y <= (p.y + s.height as i32) as f64
 }
 
-/// Poll the cursor against the notification frame and emit
-/// `meetings:notification-hover` on transitions. The window never becomes key
-/// (`show_without_activation` uses `orderFrontRegardless`, not
-/// `makeKeyAndOrderFront:`), so CSS `:hover`/`onMouseEnter` only fires once
-/// the user's first click makes it key — this poll is the fallback that
-/// reveals the close button on real hover before that click, same pattern as
-/// `start_pill_hover_tracking`. Idempotent — a second call is a no-op while a
-/// loop is already running.
 fn start_meeting_notification_hover_tracking(app: &AppHandle) {
     if MEETING_NOTIF_HOVER_TRACKING.swap(true, Ordering::SeqCst) {
         return;
@@ -115,11 +87,6 @@ fn start_meeting_notification_hover_tracking(app: &AppHandle) {
             let Some(win) = app.get_webview_window(MEETING_NOTIFICATION_LABEL) else {
                 break;
             };
-            // The window is reused across notifications (hidden/shown from
-            // the frontend, never destroyed), so this loop runs for the rest
-            // of the app session. Skip the cursor/frame queries entirely
-            // while hidden — no notification is on screen to hover — and
-            // back off to a slower idle tick until it's shown again.
             if !win.is_visible().unwrap_or(false) {
                 if prev {
                     prev = false;
@@ -145,6 +112,90 @@ fn start_meeting_notification_hover_tracking(app: &AppHandle) {
     });
 }
 
+/// Debug-only: writes a JSON snapshot into the app log folder so the card's
+/// state can be read without screen capture. A no-op unless debug logging is on.
+fn write_debug_snapshot(app: &AppHandle, name: &str, payload: &Value) -> Result<(), String> {
+    if !crate::debug::debug_enabled() {
+        return Ok(());
+    }
+    let dir = app
+        .path()
+        .app_log_dir()
+        .map_err(|e| e.to_string())?
+        .join("debug");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let body = serde_json::to_string_pretty(payload).map_err(|e| e.to_string())?;
+    std::fs::write(dir.join(format!("{name}.json")), body).map_err(|e| e.to_string())
+}
+
+fn is_valid_snapshot_name(name: &str) -> bool {
+    !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+}
+
+#[tauri::command]
+pub fn debug_write_snapshot(app: AppHandle, name: String, payload: Value) -> Result<(), String> {
+    if !is_valid_snapshot_name(&name) {
+        return Err(format!("invalid snapshot name: {name}"));
+    }
+    write_debug_snapshot(&app, &name, &payload)
+}
+
+fn snapshot_meeting_notification_window(app: &AppHandle) {
+    if !crate::debug::debug_enabled() {
+        return;
+    }
+    let Some(win) = app.get_webview_window(MEETING_NOTIFICATION_LABEL) else {
+        return;
+    };
+    let app = app.clone();
+    let main_win = win.clone();
+    // AppKit state can only be read on the main thread.
+    if let Err(err) = win.run_on_main_thread(move || {
+        let payload = serde_json::json!({
+            "visible": main_win.is_visible().ok(),
+            "position": main_win.outer_position().ok().map(|p| (p.x, p.y)),
+            "size": main_win.outer_size().ok().map(|s| (s.width, s.height)),
+            "scaleFactor": main_win.scale_factor().ok(),
+            "appKit": appkit_window_state(&main_win),
+        });
+        if let Err(err) = write_debug_snapshot(&app, "meeting-notif-window", &payload) {
+            eprintln!("[clips-tray] debug snapshot write failed: {err}");
+        }
+    }) {
+        eprintln!("[clips-tray] debug snapshot main-thread dispatch failed: {err}");
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn appkit_window_state(win: &WebviewWindow) -> Value {
+    let ptr = match win.ns_window() {
+        Ok(ptr) if !ptr.is_null() => ptr,
+        Ok(_) => return serde_json::json!({ "error": "ns_window is null" }),
+        Err(err) => return serde_json::json!({ "error": err.to_string() }),
+    };
+    // SAFETY: ns_window() returns a live NSWindow*, and this runs on the main thread.
+    unsafe {
+        let obj = &*(ptr as *mut objc2::runtime::AnyObject);
+        let alpha: f64 = objc2::msg_send![obj, alphaValue];
+        let level: isize = objc2::msg_send![obj, level];
+        let occlusion: usize = objc2::msg_send![obj, occlusionState];
+        let visible: bool = objc2::msg_send![obj, isVisible];
+        let on_active_space: bool = objc2::msg_send![obj, isOnActiveSpace];
+        serde_json::json!({
+            "alpha": alpha,
+            "level": level,
+            "occlusionState": occlusion,
+            "isVisible": visible,
+            "isOnActiveSpace": on_active_space,
+        })
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn appkit_window_state(_win: &WebviewWindow) -> Value {
+    serde_json::json!({ "error": "AppKit state is only available on macOS" })
+}
+
 pub fn show_meeting_notification_window(app: &AppHandle) -> Result<(), String> {
     let (w, h, x, y) = notification_rect(app);
     if let Some(existing) = app.get_webview_window(MEETING_NOTIFICATION_LABEL) {
@@ -152,6 +203,7 @@ pub fn show_meeting_notification_window(app: &AppHandle) -> Result<(), String> {
         let _ = existing.set_position(PhysicalPosition::new(x, y));
         configure_overlay_behavior(&existing);
         show_without_activation(&existing);
+        snapshot_meeting_notification_window(app);
         start_meeting_notification_hover_tracking(&app);
         return Ok(());
     }
@@ -171,8 +223,6 @@ pub fn show_meeting_notification_window(app: &AppHandle) -> Result<(), String> {
     .shadow(false)
     .visible(false)
     .focused(false);
-    // The reminder remains non-activating, but its first click should still
-    // reach the webview instead of only activating the window.
     #[cfg(target_os = "macos")]
     {
         builder = builder.accept_first_mouse(true);
@@ -183,12 +233,9 @@ pub fn show_meeting_notification_window(app: &AppHandle) -> Result<(), String> {
     })?;
     let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
     let _ = win.set_position(PhysicalPosition::new(x, y));
-    // Intentionally NOT capture-excluded: this is a "your meeting is starting,
-    // record it" reminder — it should behave like a normal macOS notification
-    // and stay visible, including in any screen recording in progress. (Clips's
-    // own recording chrome is still excluded elsewhere so it won't leak.)
     configure_overlay_behavior(&win);
     show_without_activation(&win);
+    snapshot_meeting_notification_window(app);
     start_meeting_notification_hover_tracking(&app);
     Ok(())
 }
@@ -210,11 +257,6 @@ pub fn take_pending_meeting_notification(app: AppHandle) -> Result<Option<Value>
     }) {
         state.pending = None;
     }
-    // A meeting whose card was already acknowledged must not be hydrated by an
-    // overlay mounting afterwards. Without this the payload survives as a
-    // "Take notes?" card over a meeting that is already recording, because the
-    // acknowledgement that would have cleared it arrived while this webview was
-    // still booting and had nothing listening.
     if state.pending.as_ref().is_some_and(|payload| {
         payload
             .get("meetingId")
@@ -257,29 +299,6 @@ fn notification_key_from_parts(
     )
 }
 
-/// Drop a stored payload for a meeting that no longer needs asking about.
-///
-/// `pending` exists so an overlay webview that had not mounted yet can still
-/// hydrate the card — and that is also how a stale card outlives the event meant
-/// to clear it. `meetings:hide-notification` is matched against the payload the
-/// overlay already holds, so a hide arriving before the overlay mounts is
-/// dropped, and hydration afterwards shows "Take notes?" over a meeting that is
-/// already recording. A caller that has started capture clears the payload
-/// rather than trusting an event the overlay may not be listening for yet.
-/// Clear the stored payload once the frontend confirms a card is finished with.
-///
-/// `pending` is the cold-overlay hydration path, so it has to outlive the emit
-/// that dismisses a card in an overlay that is already mounted — otherwise an
-/// overlay mounting late loses the notification entirely. It must not outlive it
-/// indefinitely either: a payload still sitting there after capture has begun
-/// becomes a "Take notes?" card over a meeting that is already recording.
-///
-/// `meetings:hide-notification` is the frontend's own acknowledgement that
-/// startup got far enough to put the meeting on screen, which makes it the exact
-/// point where the stored copy stops being a recovery path and starts being
-/// wrong. A start that fails emits `meetings:transcription-error` instead and
-/// deliberately leaves the payload in place, so the user keeps a way back to the
-/// detected meeting.
 pub fn watch_meeting_notification_acks(app: &AppHandle) {
     use tauri::Listener;
 
@@ -298,13 +317,6 @@ pub fn watch_meeting_notification_acks(app: &AppHandle) {
     });
 }
 
-/// Record that a meeting card has been answered, and drop any stored copy.
-///
-/// Both halves are needed. Dropping `pending` handles the overlay that has not
-/// read it yet; the tombstone handles the one that already did, or that reads it
-/// a moment from now — `take_pending_meeting_notification` is destructive, so by
-/// the time an acknowledgement arrives there may be nothing left to delete and
-/// still a payload in flight toward a webview that is about to render it.
 fn acknowledge_meeting_notification(app: &AppHandle, meeting_id: &str) {
     let Some(state) = app.try_state::<MeetingNotificationState>() else {
         return;
@@ -432,6 +444,7 @@ pub async fn notify_meeting_starting(
     platform: Option<String>,
     auto_start: Option<bool>,
     notification_type: Option<String>,
+    browser_bundle_id: Option<String>,
 ) -> Result<(), String> {
     let kind = notification_type
         .as_deref()
@@ -456,8 +469,6 @@ pub async fn notify_meeting_starting(
         body
     );
 
-    // Keep the latest payload available for cold overlay windows, then emit
-    // for already-mounted listeners.
     let payload = serde_json::json!({
         "type": kind,
         "title": title,
@@ -465,9 +476,11 @@ pub async fn notify_meeting_starting(
         "meetingId": meeting_id.clone(),
         "joinUrl": join_url,
         "platform": platform,
+        "browserBundleId": browser_bundle_id,
         "scheduledStart": scheduled_start,
         "scheduledEnd": scheduled_end,
         "autoStart": auto_start.unwrap_or(false),
+        "debugSnapshots": crate::debug::debug_enabled(),
     });
     let state = app.state::<MeetingNotificationState>();
     let should_show = {
@@ -499,7 +512,6 @@ pub async fn notify_meeting_starting(
     }
     let _ = app.emit("meetings:show-notification", payload.clone());
 
-    // Ensure the overlay window exists / is visible for cold starts.
     if let Err(err) = show_meeting_notification_window(&app) {
         eprintln!("[clips-tray] show meeting notification failed: {err}");
     }
@@ -510,6 +522,14 @@ pub async fn notify_meeting_starting(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn snapshot_names_cannot_escape_the_debug_folder() {
+        assert!(is_valid_snapshot_name("meeting-notif-dom"));
+        assert!(!is_valid_snapshot_name(""));
+        assert!(!is_valid_snapshot_name("../clips-tray"));
+        assert!(!is_valid_snapshot_name("a/b"));
+    }
 
     #[test]
     fn clears_only_the_matching_pending_notification() {

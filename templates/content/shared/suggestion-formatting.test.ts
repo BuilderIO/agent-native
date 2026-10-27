@@ -6,11 +6,35 @@ import {
   suggestionFormattingSourceSlice,
   suggestionFormattingSourceRange,
   suggestionMarkedSourceRanges,
+  suggestionSourceAlignment,
 } from "./suggestion-formatting";
 
 const L = (...lines: string[]) => lines.join("\n");
 
 describe("formatting source ranges", () => {
+  it("maps a literal image prefix beside a link through canonical spelling", () => {
+    for (const source of [String.raw`see \![x](y) here`, "see ![x](y) here"]) {
+      const canonical = String.raw`see \![x](y) here`;
+      expect(canonicalizeNfm(source)).toBe(canonical);
+      const start = source.indexOf("x");
+      expect(suggestionMarkedSourceRanges(source)).toEqual([
+        { from: source.indexOf("["), to: source.indexOf(")") + 1 },
+      ]);
+      expect(
+        suggestionFormattingSourceRange(source, start, start + 1),
+      ).toMatchObject({ from: 5, to: 6 });
+      expect(suggestionFormattingSourceSlice(source, start, start + 1)).toEqual(
+        [
+          {
+            type: "text",
+            text: "x",
+            marks: [{ type: "link", attrs: { href: "y" } }],
+          },
+        ],
+      );
+    }
+  });
+
   it.each([
     ["**Echo**", "bold"],
     ["*Echo*", "italic"],
@@ -46,6 +70,13 @@ describe("formatting source ranges", () => {
         marks: [{ type: "bold" }],
       },
     ]);
+  });
+
+  it("slices across more hard breaks than a call takes arguments", () => {
+    const source = `a${"<br>".repeat(130_000)}b`;
+    const slice = suggestionFormattingSourceSlice(source, 0, source.length);
+    expect(slice).toHaveLength(130_002);
+    expect(slice?.[130_001]).toEqual({ type: "text", text: "b", marks: [] });
   });
 
   it("preserves paragraph boundaries and rejects markup or invalid ranges", () => {
@@ -107,11 +138,89 @@ describe("formatting source ranges", () => {
     },
   );
 
-  it("does not admit heading syntax as a nonempty slice or map other markup gaps", () => {
-    expect(suggestionFormattingSourceSlice("# Heading", 0, 2)).toBeNull();
+  it("shows whole block syntax as written but does not map inline markup gaps", () => {
+    expect(suggestionFormattingSourceSlice("# Heading", 0, 2)).toEqual([
+      { type: "block", text: "# " },
+    ]);
+    expect(suggestionFormattingSourceSlice("# Heading", 0, 1)).toBeNull();
     expect(suggestionFormattingSourceRange("**Bold**", 1, 1)).toBeNull();
-    expect(suggestionFormattingSourceRange("> Quote", 0, 0)).toBeNull();
-    expect(suggestionFormattingSourceRange("- Item", 0, 0)).toBeNull();
+  });
+
+  it.each([
+    ["Before\n- Item", "- "],
+    ["Before\n1. Item", "1. "],
+    ["Before\n- [ ] Task", "- [ ] "],
+    ["Before\n> Quote", "> "],
+    ["Before\n## Heading", "## "],
+  ])("slices a new line's block syntax in %j", (source, marker) => {
+    const from = "Before".length;
+    const text = source.slice(from + 1 + marker.length);
+    expect(
+      suggestionFormattingSourceSlice(source, from, source.length),
+    ).toEqual([
+      { type: "break", text: "↵" },
+      { type: "block", text: marker },
+      { type: "text", text, marks: [] },
+    ]);
+    // The text offsets join blocks without separators.
+    expect(
+      suggestionFormattingSourceRange(source, from, source.length),
+    ).toMatchObject({ from, to: from + text.length });
+  });
+
+  it("slices and maps a span that ends in empty paragraphs", () => {
+    const source = "Alpha. More.\n<empty-block/>\n<empty-block/>\nBravo.";
+    const from = "Alpha.".length;
+    const to = source.indexOf("\nBravo");
+    expect(suggestionFormattingSourceSlice(source, from, to)).toEqual([
+      { type: "text", text: " More.", marks: [] },
+      { type: "break", text: "↵" },
+      { type: "block", text: "¶" },
+      { type: "break", text: "↵" },
+      { type: "block", text: "¶" },
+    ]);
+    expect(suggestionFormattingSourceSlice(source, from, to - 2)).toBeNull();
+  });
+
+  it.each([
+    ["Before\n> Quote", "Before".length],
+    ["Before\n- Item", "Before".length],
+    ["Before\n1. Item", "Before".length],
+    ["Before\n- [ ] Task", "Before".length],
+    ["Before\n```ts\nconst x = 1;\n```", "Before".length],
+    ["> Quote", 0],
+    ["- Item", 0],
+  ])(
+    "maps a zero-width boundary inside the block syntax of %j",
+    (source, textOffset) => {
+      const lineStart = source.indexOf("\n") + 1;
+      expect(
+        suggestionFormattingSourceRange(source, lineStart, lineStart),
+      ).toMatchObject({
+        from: textOffset,
+        to: textOffset,
+        fromAffinity: "right",
+      });
+    },
+  );
+
+  it("keeps a place before a closing fence with the code it closes", () => {
+    const source = "```ts\nconst x = 1;\n```\nAfter";
+    const fence = source.indexOf("\n```\n") + 1;
+    expect(suggestionFormattingSourceRange(source, fence, fence)).toMatchObject(
+      { from: "const x = 1;".length, fromAffinity: "left" },
+    );
+  });
+
+  it.each([
+    "A\n---\nB",
+    "A\n<empty-block/>\nB",
+    "A\n![Alt](https://example.test/a.png)\nB",
+  ])("leaves a gap holding a non-text block unmapped in %j", (source) => {
+    expect(suggestionFormattingSourceRange(source, 1, 1)).toMatchObject({
+      from: 1,
+    });
+    expect(suggestionFormattingSourceRange(source, 2, 2)).toBeNull();
   });
 
   it("keeps malformed and inline heading-like text in ordinary text runs", () => {
@@ -254,13 +363,9 @@ describe("formatting source ranges", () => {
   });
 });
 
-// A code fence emits its body unescaped and sizes its own delimiter from the
-// body's longest backtick run, so the inline escaping every other run restores
-// from silently made any page holding real code non-suggestable.
 describe("code fences stay mappable", () => {
   const bold = "Intro **bold** text";
   const mappable = (source: string) => {
-    // Only a fixpoint can be compared byte-for-byte against its own mapping.
     expect(canonicalizeNfm(source)).toBe(source);
     expect(docToNfm(nfmToDoc(source))).toBe(source);
     return suggestionMarkedSourceRanges(source);
@@ -354,8 +459,6 @@ describe("code fences stay mappable", () => {
       "</details>",
     );
     const two = source.indexOf("two");
-    // A toggle's summary is an attribute, so the code body alone is the text
-    // the editor sees; the second line's own tab is structural.
     expect(suggestionFormattingSourceRange(source, two, two + 3)).toMatchObject(
       {
         from: "one\ntwo".indexOf("two"),
@@ -435,8 +538,113 @@ describe("code fences stay mappable", () => {
     expect(mappable(L(bold, "```", "", "```"))).toEqual([{ from: 6, to: 14 }]);
   });
 });
-// Nothing pinned which page shapes are suggestable, so a whole-page refusal
-// could regress silently. Every source here is a canonical NFM fixpoint.
+describe("text the writer spells in context stays suggestable", () => {
+  it.each([
+    "<span>\t\\_\\_literal\\_\\_</span> \\![x](y) **next**",
+    "<span>\t</span> $`x`$1 **next**",
+    "<span>  </span> **next**",
+  ])("maps protective whitespace beside contextual escapes in %j", (input) => {
+    const source = canonicalizeNfm(input);
+    expect(canonicalizeNfm(source)).toBe(source);
+    expect(nfmToDoc(source)).toEqual(nfmToDoc(input));
+    const next = source.indexOf("next");
+    const alignment = suggestionSourceAlignment(source);
+    expect(alignment?.map(next, "stored")).toBe(next);
+    expect(suggestionFormattingSourceSlice(source, next, next + 4)).toEqual([
+      { type: "text", text: "next", marks: [{ type: "bold" }] },
+    ]);
+  });
+
+  it("maps HTML cell text ending in backslashes through canonical spelling", () => {
+    for (const tag of ["td", "th"]) {
+      for (const count of [1, 2, 3, 4]) {
+        const source = `<table>\n<tr><${tag}>C:${"\\".repeat(count)}</${tag}><${tag}>**next**</${tag}></tr>\n</table>`;
+        const alignment = suggestionSourceAlignment(source);
+        expect(alignment).not.toBeNull();
+        const from = source.indexOf("C:");
+        const to = from + 2 + count;
+        const canonicalFrom = alignment!.canonical.indexOf("C:");
+        const canonicalTo = canonicalFrom + 2 + 2 * Math.ceil(count / 2);
+        expect(alignment!.map(from, "stored")).toBe(canonicalFrom);
+        expect(alignment!.map(to, "stored")).toBe(canonicalTo);
+        expect(alignment!.map(canonicalFrom, "canonical")).toBe(from);
+        expect(alignment!.map(canonicalTo, "canonical")).toBe(to);
+        expect(suggestionFormattingSourceSlice(source, from, to)).toEqual([
+          {
+            type: "text",
+            text: `C:${"\\".repeat(Math.ceil(count / 2))}`,
+            marks: [],
+          },
+        ]);
+        const next = source.indexOf("next");
+        expect(alignment!.map(next, "stored")).toBe(
+          alignment!.canonical.indexOf("next"),
+        );
+        expect(suggestionFormattingSourceSlice(source, next, next + 4)).toEqual(
+          [{ type: "text", text: "next", marks: [{ type: "bold" }] }],
+        );
+      }
+    }
+  });
+
+  // The editor escapes underscores on a line that would read as emphasis,
+  // and writes math before a digit in its other form.
+  it.each([
+    ["\\_x\\_ **b**", ["**b**"]],
+    ["\\_\\_init\\_\\_ **b**", ["**b**"]],
+    ["$`x`$1 **b**", ["**b**"]],
+  ])("maps the formatting in %j", (source, marked) => {
+    expect(
+      suggestionMarkedSourceRanges(source)?.map((range) =>
+        source.slice(range.from, range.to),
+      ),
+    ).toEqual(marked);
+  });
+});
+
+// The parse reads these stored spellings, which the writer never writes.
+// The L7 bridge in the source mapper maps them until L7 replaces it.
+describe("stored spellings the L7 bridge maps", () => {
+  it.each([
+    // Agents write emphasis with underscores and escape what needs none.
+    ["Some _x_ text and **b**.", ["_x_", "**b**"]],
+    ["Call __init__ then **b**.", ["__init__", "**b**"]],
+    ["Call snake\\_case then **b**.", ["**b**"]],
+    // Adjacent runs with the same formatting read as one run.
+    ["**a****b** c", ["**a****b**"]],
+    ["[a](u)[b](u) c", ["[a](u)[b](u)"]],
+  ])("maps the formatting in %j", (source, marked) => {
+    expect(
+      suggestionMarkedSourceRanges(source)?.map((range) =>
+        source.slice(range.from, range.to),
+      ),
+    ).toEqual(marked);
+  });
+
+  it("maps a page whose last line is the editor's trailing empty paragraph", () => {
+    const source = "Intro **b** text\n# H\n<empty-block/>";
+    const alignment = suggestionSourceAlignment(source);
+    expect(alignment?.canonical).toBe("Intro **b** text\n# H");
+    const text = source.indexOf("text");
+    expect(alignment?.map(text, "stored")).toBe(text);
+    expect(alignment?.map(source.length, "stored")).toBeNull();
+  });
+
+  it("maps a place after delimiters the stored source reopens", () => {
+    const source = "**a****b**";
+    const b = source.indexOf("b");
+    expect(suggestionSourceAlignment(source)?.map(b, "stored")).toBe(3);
+    expect(suggestionFormattingSourceRange(source, b, b + 1)).toMatchObject({
+      text: "ab",
+      from: 1,
+      to: 2,
+    });
+    expect(suggestionFormattingSourceSlice(source, b, b + 1)).toEqual([
+      { type: "text", text: "b", marks: [{ type: "bold" }] },
+    ]);
+  });
+});
+
 describe("page shapes stay suggestable", () => {
   const bold = "Intro **bold** text";
   const mappable = (source: string) => {
@@ -562,8 +770,6 @@ describe("page shapes stay suggestable", () => {
       "\tSee the ~~old~~ notes.",
       "</callout>",
     );
-    // Each marked run must still resolve to its own delimited source span,
-    // with the code fence between them contributing none.
     expect(
       mappable(source)?.map((range) => source.slice(range.from, range.to)),
     ).toEqual(["**three**", "[loader](https://example.test)", "~~old~~"]);

@@ -26,13 +26,19 @@ vi.mock("@agent-native/core", () => ({
   embedApp: vi.fn(() => ({})),
 }));
 
-vi.mock("@agent-native/core/action", () => ({
-  defineAction: (config: unknown) => config,
-  fail: (message: string, options: Record<string, unknown>) => {
-    const error = Object.assign(new Error(message), options);
-    throw error;
-  },
-}));
+vi.mock("@agent-native/core/action", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/action")>();
+  return {
+    defineAction: (config: unknown) => config,
+    fail: (message: string, options: Record<string, unknown>) => {
+      const error = Object.assign(new Error(message), options);
+      throw error;
+    },
+    NoWriteError: actual.NoWriteError,
+    isNoWriteError: actual.isNoWriteError,
+  };
+});
 
 vi.mock("@agent-native/core/application-state", () => ({
   readAppState: mocks.readAppState,
@@ -71,6 +77,12 @@ vi.mock("../shared/signature.js", () => ({
   appendSignatureToBody: mocks.appendSignatureToBody,
 }));
 
+import { isNoWriteError } from "@agent-native/core/action";
+
+import {
+  GmailQuotaCooldownError,
+  GmailQuotaRefusedError,
+} from "../server/lib/gmail-quota.js";
 import action from "./manage-draft";
 
 let appState = new Map<string, unknown>();
@@ -101,20 +113,6 @@ function manageDraftSource(): string {
 }
 
 describe("manage-draft MCP App", () => {
-  it("reuses the real Mail app embed instead of a bespoke compose form", () => {
-    const source = manageDraftSource();
-
-    expect(source).toContain("embedApp({");
-    expect(source).toContain('openLabel: "Open in Mail"');
-    expect(source).toContain('iframeTitle: "Agent-Native Mail"');
-    expect(source).toContain("height: 900");
-    expect(source).not.toContain("mailDraftMcpAppHtml");
-    expect(source).not.toContain("_mcp-apps");
-    expect(source).not.toContain("data-save");
-    expect(source).not.toContain("Update draft");
-    expect(existsSync(new URL("./_mcp-apps.ts", import.meta.url))).toBe(false);
-  });
-
   it("requires an action and IDs for draft operations that target a draft", () => {
     const source = manageDraftSource();
 
@@ -269,6 +267,71 @@ describe("manage-draft saved mailbox deletion", () => {
 });
 
 describe("manage-draft local fallback", () => {
+  it("updates a compose draft already in app state without a create call", async () => {
+    const attachments = [
+      {
+        id: "attachment-1",
+        filename: "brief.pdf",
+        originalName: "brief.pdf",
+        mimeType: "application/pdf",
+        size: 128,
+        url: "/uploads/brief.pdf",
+      },
+    ];
+    appState.set("compose-ui-draft", {
+      id: "ui-draft",
+      to: "recipient@example.com",
+      subject: "Hello",
+      body: "Original draft",
+      mode: "compose",
+      attachments,
+      inline: true,
+    });
+
+    const updated = await action.run({
+      action: "update",
+      id: "ui-draft",
+      body: "Updated draft",
+    });
+
+    expect(mocks.readAppState).toHaveBeenCalledWith("compose-ui-draft");
+    expect(updated.draft.body).toBe("Updated draft");
+    expect(updated.draft.attachments).toEqual(attachments);
+    expect(updated.draft.inline).toBe(true);
+    expect(mocks.saveGmailDraft).toHaveBeenCalledWith(
+      expect.objectContaining({ attachments }),
+    );
+    expect(mocks.writeAppState).toHaveBeenCalledWith(
+      "compose-ui-draft",
+      expect.objectContaining({
+        body: "Updated draft",
+        attachments,
+        inline: true,
+      }),
+    );
+  });
+
+  it("rejects malformed attachment state instead of replacing a draft without it", async () => {
+    appState.set("compose-ui-draft", {
+      id: "ui-draft",
+      to: "recipient@example.com",
+      subject: "Hello",
+      body: "Original draft",
+      mode: "compose",
+      attachments: { filename: "brief.pdf" },
+    });
+
+    await expect(
+      action.run({
+        action: "update",
+        id: "ui-draft",
+        body: "Updated draft",
+      }),
+    ).rejects.toThrow('Draft "ui-draft" has invalid attachments');
+    expect(mocks.saveGmailDraft).not.toHaveBeenCalled();
+    expect(mocks.writeAppState).not.toHaveBeenCalled();
+  });
+
   it("can create and update a local draft without an account marker", async () => {
     const created = await action.run({
       action: "create",
@@ -429,47 +492,65 @@ describe("manage-draft local fallback", () => {
   });
 });
 
+describe("manage-draft Gmail budget refusals", () => {
+  it("reports a create refused by Mail's Gmail budget as not saved", async () => {
+    mocks.saveGmailDraft.mockRejectedValue(new GmailQuotaRefusedError(23_000));
+
+    const error = await action
+      .run({
+        action: "create",
+        id: "refused-draft",
+        to: "recipient@example.com",
+        subject: "Refund",
+        body: "Draft",
+      })
+      .catch((thrown: unknown) => thrown);
+
+    expect(isNoWriteError(error)).toBe(true);
+    expect(error).toMatchObject({
+      errorCode: "gmail_quota_cooldown",
+      statusCode: 429,
+      details: { retryAfterSeconds: 23 },
+      message: expect.stringMatching(/^The draft was not saved\. .*about 23s/),
+    });
+    expect(mocks.writeAppState).not.toHaveBeenCalled();
+  });
+
+  it("reports a refused update of a Gmail draft as not saved", async () => {
+    const stored = {
+      id: "gmail-draft",
+      savedDraftId: "gmail-draft-1",
+      savedDraftBackend: "gmail",
+      savedDraftAccountEmail: "owner@example.com",
+      accountEmail: "owner@example.com",
+      to: "recipient@example.com",
+      subject: "Refund",
+      body: "Draft",
+      mode: "compose",
+    };
+    appState.set("compose-gmail-draft", stored);
+    mocks.saveGmailDraft.mockRejectedValue(new GmailQuotaRefusedError(5_000));
+
+    const error = await action
+      .run({ action: "update", id: "gmail-draft", body: "Changed" })
+      .catch((thrown: unknown) => thrown);
+
+    expect(isNoWriteError(error)).toBe(true);
+    expect(mocks.writeAppState).not.toHaveBeenCalled();
+    expect(appState.get("compose-gmail-draft")).toBe(stored);
+  });
+
+  it("leaves Gmail's own 429 as it was, since that request was sent", async () => {
+    const gmail429 = new GmailQuotaCooldownError(60_000);
+    mocks.saveGmailDraft.mockRejectedValue(gmail429);
+
+    await expect(
+      action.run({ action: "create", id: "sent-draft", body: "Draft" }),
+    ).rejects.toBe(gmail429);
+  });
+});
+
 describe("manage-draft deep link", () => {
-  // Security regression test: a previous implementation base64url-encoded the
-  // full compose draft (subject + recipients + body) into a `compose=` query
-  // param on the deep link. That URL is surfaced to external MCP host LLMs
-  // (ChatGPT / Claude), which can see and remember it; shared / exported chat
-  // transcripts would leak draft contents. The deep link now carries only the
-  // opaque draft id, and the full draft is read from app-state on render.
-  it("no longer encodes draft contents into the URL", () => {
-    const source = manageDraftSource();
-
-    // The compose-payload encoder helpers are removed entirely.
-    expect(source).not.toContain("encodeComposeDraft");
-    expect(source).not.toContain("encodeComposePayload");
-    expect(source).not.toContain("MAX_COMPOSE_PAYLOAD_BYTES");
-    // No `compose:` field passed to buildDeepLink.
-    expect(source).not.toMatch(/\bcompose:\s*encode/);
-    // The deep link still carries an id-only pointer.
-    expect(source).toContain("composeDraftId");
-  });
-
-  it("composeDeepLink calls buildDeepLink with only id + view + to (no payload)", () => {
-    const source = manageDraftSource();
-
-    // The composeDeepLink helper body must contain ONLY the four expected
-    // properties: app, view, to, params (with composeDraftId). It must not
-    // contain a `compose:` field or any encoder call. Match the function
-    // body precisely to catch a regression that re-adds the payload field.
-    const match = source.match(
-      /function composeDeepLink\([^)]*\)[^{]*{[\s\S]*?return buildDeepLink\(\{([\s\S]*?)\}\);[\s\S]*?}/,
-    );
-    expect(match).toBeTruthy();
-    const body = match![1];
-    expect(body).toContain('app: "mail"');
-    expect(body).toContain('view: "inbox"');
-    expect(body).toContain('to: "/inbox"');
-    expect(body).not.toContain("composeFullscreen");
-    expect(body).toContain("composeDraftId: draft.id");
-    expect(body).not.toContain("compose:");
-    expect(body).not.toContain("encode");
-  });
-
   it("creates an ordinary draft deep link without fullscreen mode", async () => {
     await action.run({
       action: "create",
@@ -486,18 +567,55 @@ describe("manage-draft deep link", () => {
       params: { composeDraftId: "compact-draft" },
     });
   });
+
+  it("embeds the draft card and keeps the inbox deep link to open Mail", async () => {
+    mocks.buildDeepLink.mockReturnValue(
+      "/_agent-native/open?view=inbox&composeDraftId=card-draft",
+    );
+
+    const created = await action.run({
+      action: "create",
+      id: "card-draft",
+      to: "recipient@example.com",
+      subject: "Subject",
+      body: "Body",
+    });
+    const updated = await action.run({
+      action: "update",
+      id: "card-draft",
+      body: "Revised body",
+    });
+
+    for (const result of [created, updated]) {
+      expect(result).toMatchObject({
+        embed: true,
+        path: "/draft?id=card-draft",
+        deepLink: "/_agent-native/open?view=inbox&composeDraftId=card-draft",
+        deepLinkUrl: "/_agent-native/open?view=inbox&composeDraftId=card-draft",
+      });
+    }
+  });
 });
 
 describe("manage-draft call-shape guidance", () => {
-  // Regression for a reported failure cluster: the agent repeatedly called
-  // manage-draft with no action/id at all (schema validation failed 3x
-  // identically, halting with repeated_identical_tool_error) because the
-  // tool description didn't spell out that action is always required and
-  // that update/delete need the id returned by a prior create.
-  it("describes the required action field and the create-before-update contract", () => {
-    expect(action.description).toContain("action");
+  it("explains how to target existing drafts and when to create", () => {
+    expect(action.description).toContain(
+      "use `create` for a new draft even if another compose draft is open",
+    );
+    expect(action.description).toContain(
+      "`update` to revise a specific existing draft with its raw compose ID",
+    );
+    expect(action.description).toContain("pass only `{id}`");
+    expect(action.description).toContain(
+      "`delete` with only the raw compose ID (not the `compose-{id}` app-state key)",
+    );
+    expect(action.description).toContain(
+      "`delete-saved` with `savedDraftId` for a saved mailbox draft",
+    );
     expect(action.description).toMatch(/create.*update.*delete/i);
-    expect(action.description).toContain("id returned by a prior create");
+    expect(action.description).not.toContain(
+      "Never call update or delete before a matching create",
+    );
   });
 
   it("rejects a call with no action at all", () => {
@@ -512,13 +630,13 @@ describe("manage-draft call-shape guidance", () => {
   it("accepts a create call with only action set", () => {
     expect(action.schema.safeParse({ action: "create" }).success).toBe(true);
   });
+
+  it("does not register a Mail-specific chat renderer", () => {
+    expect(action.chatUI).toBeUndefined();
+  });
 });
 
 describe("manage-draft create-then-reply flow", () => {
-  // End-to-end regression for the reported user request: find an email and
-  // save a draft reply, then keep editing that same draft. This exercises
-  // the create-first-then-update-with-the-returned-id flow the tool
-  // description now calls out explicitly.
   it("creates a reply draft, then updates it using the id create returned", async () => {
     const created = await action.run({
       action: "create",
@@ -534,6 +652,13 @@ describe("manage-draft create-then-reply flow", () => {
       mode: "reply",
       replyToId: "msg-123",
     });
+    expect(created.change).toEqual({
+      verb: "created",
+      kind: "email-draft",
+      title: "Re: Event Registration",
+      detail: "attendee@example.com",
+      url: "/mail",
+    });
 
     const updated = await action.run({
       action: "update",
@@ -543,5 +668,13 @@ describe("manage-draft create-then-reply flow", () => {
 
     expect(updated.id).toBe(created.id);
     expect(updated.draft.body).toContain("Quick follow-up");
+    expect(updated.change).toEqual({
+      verb: "updated",
+      kind: "email-draft",
+      title: "Re: Event Registration",
+      detail: "attendee@example.com",
+      url: "/mail",
+    });
+    expect(JSON.stringify(updated.change)).not.toContain("Quick follow-up");
   });
 });

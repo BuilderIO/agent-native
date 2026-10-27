@@ -37,8 +37,6 @@ const EMBEDDED_PLUGIN_STEMS = [
   "agent-chat",
 ] as const;
 
-// The historical root exports remain available, but loading them must not
-// pull the React auth document into a headless Node process.
 export function createAgentChatPlugin(
   options?: AgentChatPluginOptions,
 ): NitroPluginDef {

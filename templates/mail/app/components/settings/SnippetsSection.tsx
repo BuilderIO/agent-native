@@ -230,30 +230,24 @@ export function SnippetsSection() {
     );
   };
 
+  const newSnippetButton = (
+    <Button
+      size="sm"
+      onClick={() => {
+        setShowNewForm(true);
+        setEditingId(null);
+      }}
+    >
+      <IconPlus className="h-3.5 w-3.5" />
+      {t("settings.newSnippet")}
+    </Button>
+  );
+
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-[16px] font-semibold text-foreground">
-            {t("settings.snippets")}
-          </h2>
-          <p className="text-[13px] text-muted-foreground mt-0.5">
-            {t("settings.snippetsDescription")}
-          </p>
-        </div>
-        <Button
-          size="sm"
-          onClick={() => {
-            setShowNewForm(true);
-            setEditingId(null);
-          }}
-        >
-          <IconPlus className="h-3.5 w-3.5" />
-          {t("settings.newSnippet")}
-        </Button>
-      </div>
+      <div className="mb-4 flex justify-end">{newSnippetButton}</div>
 
-      <div className="max-w-2xl space-y-2">
+      <div className="space-y-2">
         {showNewForm && (
           <SnippetEditRow
             onSave={handleCreate}

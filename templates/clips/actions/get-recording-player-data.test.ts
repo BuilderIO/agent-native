@@ -20,8 +20,6 @@ const mockShareQuery = vi.hoisted(() => {
   query.where.mockReturnValue(query);
   return query;
 });
-// The player payload's tag read is a *projected* select, so it needs its own
-// builder: the share builder below resolves through `limit`, not `orderBy`.
 const mockTagRows = vi.hoisted(() =>
   vi.fn(async () => [] as { tag: string }[]),
 );
@@ -36,9 +34,6 @@ const mockTagsQuery = vi.hoisted(() => {
   query.orderBy.mockImplementation(() => mockTagRows());
   return query;
 });
-// Unselected `db.select()` means the run reached the player payload queries.
-// It throws unless a test opts in by installing a builder, which keeps the
-// access-gate tests honest about never getting that far.
 const mockPlayerQuery = vi.hoisted(() => ({
   build: null as null | (() => unknown),
 }));
@@ -59,8 +54,6 @@ const mockDb = vi.hoisted(() => ({
     }
     return mockShareQuery;
   }),
-  // The player's tag read is DISTINCT — `recording_tags` carries no unique
-  // (recording_id, tag) constraint, so duplicate rows are possible.
   selectDistinct: vi.fn(() => mockTagsQuery),
 }));
 const mockCountRecordingViews = vi.hoisted(() =>
@@ -88,6 +81,7 @@ const mockResolvePlayerThumbnailUrl = vi.hoisted(() =>
   ),
 );
 const mockIsSeekableRepairPending = vi.hoisted(() => vi.fn());
+const mockListTranscriptVersions = vi.hoisted(() => vi.fn(async () => []));
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (options: unknown) => options,
@@ -188,12 +182,20 @@ vi.mock("../server/lib/seekable-media-state.js", () => ({
     mockIsSeekableRepairPending(...args),
 }));
 
+vi.mock("../server/lib/transcript-versions.js", () => ({
+  listTranscriptVersions: (...args: unknown[]) =>
+    mockListTranscriptVersions(...args),
+}));
+
 vi.mock("../server/lib/recordings.js", () => ({
   parseSpaceIds: vi.fn(() => []),
   countRecordingViews: (recordingId: string) =>
     mockCountRecordingViews(recordingId),
 }));
 
+vi.mock("../server/lib/user-identities.js", () => ({
+  hydrateCommentAuthorNames: async (comments: unknown[]) => comments,
+}));
 vi.mock("../shared/browser-diagnostics.js", () => ({
   parseBrowserDiagnosticsRow: vi.fn(() => null),
 }));
@@ -215,6 +217,7 @@ vi.mock("../shared/transcript-status.js", () => ({
   })),
 }));
 
+import { normalizeTranscriptSegments } from "../shared/transcript-segments.js";
 import action from "./get-recording-player-data";
 
 describe("get-recording-player-data direct public access", () => {
@@ -228,6 +231,26 @@ describe("get-recording-player-data direct public access", () => {
     mockIsSeekableRepairPending.mockResolvedValue(false);
     mockShareLimit.mockResolvedValue([]);
   });
+
+  it.each(["admin", "editor", "viewer"] as const)(
+    "withholds a trashed recording's direct player payload from %s callers",
+    async (role) => {
+      mockResolveAccess.mockResolvedValue({
+        role,
+        resource: {
+          id: "rec-1",
+          visibility: "org",
+          password: null,
+          expiresAt: null,
+          trashedAt: "2026-10-22T12:00:00.000Z",
+        },
+      });
+      await expect(action.run({ recordingId: "rec-1" })).rejects.toThrow(
+        "No access to recording rec-1",
+      );
+      expect(mockDb.select).not.toHaveBeenCalled();
+    },
+  );
 
   it.each(["admin", "editor", "viewer"] as const)(
     "requires an explicit recording share for %s callers",
@@ -317,10 +340,209 @@ describe("get-recording-player-data view count", () => {
     const result = await action.run({ recordingId: "rec-1" });
 
     expect(result.viewCount).toBe(9);
-    // Going through the shared helper is what keeps this number identical to
-    // list-recordings.viewCount and get-recording-insights.views.
     expect(mockCountRecordingViews).toHaveBeenCalledWith("rec-1");
   });
+
+  it("returns upload identity only to recording editors", async () => {
+    mockResolveAccess.mockResolvedValue({
+      role: "owner",
+      resource: {
+        id: "rec-1",
+        ownerEmail: "owner@example.com",
+        visibility: "private",
+        password: null,
+        expiresAt: null,
+        status: "processing",
+        chaptersJson: "[]",
+        uploadAttemptId: "attempt-1",
+        uploadGenerationId: "generation-1",
+      },
+    });
+
+    const result = await action.run({ recordingId: "rec-1" });
+
+    expect(result.recording.uploadAttemptId).toBe("attempt-1");
+    expect(result.recording.uploadGenerationId).toBe("generation-1");
+  });
+
+  it("holds the filmstrip back while redactions are pending", async () => {
+    mockShareLimit.mockResolvedValue([{ id: "share-1" }]);
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: {
+        id: "rec-1",
+        visibility: "public",
+        password: null,
+        expiresAt: null,
+        videoUrl: "https://cdn.example.com/video.mp4",
+        uploadAttemptId: "attempt-1",
+        uploadGenerationId: "generation-1",
+        filmstripUrl: "https://cdn.example.com/strip.jpg",
+        editsJson: JSON.stringify({
+          trims: [],
+          overlays: [
+            {
+              kind: "redact",
+              id: "r1",
+              startMs: 0,
+              endMs: 5_000,
+              keys: [{ atMs: 0, x: 0.1, y: 0.1, w: 0.2, h: 0.2 }],
+            },
+          ],
+        }),
+      },
+    });
+    mockPlayerQuery.build = () => {
+      const query: Record<string, unknown> = {};
+      query.from = () => query;
+      query.where = () => query;
+      query.orderBy = async () => [];
+      query.limit = async () => [];
+      query.then = (resolve: (rows: unknown[]) => unknown) => resolve([]);
+      return query;
+    };
+
+    const result = await action.run({ recordingId: "rec-1" });
+
+    expect(result.recording.filmstripUrl).toBeNull();
+    expect(result.recording.uploadAttemptId).toBeUndefined();
+    expect(result.recording.uploadGenerationId).toBeUndefined();
+  });
+
+  it("keeps a mid-burn screenshot's leftover file URLs from viewers", async () => {
+    // The marker lists the unredacted original until it is deleted; handing
+    // it out would get round the hold the media routes enforce.
+    mockShareLimit.mockResolvedValue([{ id: "share-1" }]);
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: {
+        id: "rec-1",
+        kind: "image",
+        visibility: "public",
+        password: null,
+        expiresAt: null,
+        imageUrl: "https://cdn.example.com/burned.png",
+        editsJson: JSON.stringify({
+          burnInProgress: {
+            staleUrls: ["https://cdn.example.com/original.png"],
+          },
+        }),
+      },
+    });
+    mockPlayerQuery.build = () => {
+      const query: Record<string, unknown> = {};
+      query.from = () => query;
+      query.where = () => query;
+      query.orderBy = async () => [];
+      query.limit = async () => [];
+      query.then = (resolve: (rows: unknown[]) => unknown) => resolve([]);
+      return query;
+    };
+
+    const result = await action.run({ recordingId: "rec-1" });
+
+    expect(JSON.stringify(result)).not.toContain("original.png");
+  });
+
+  it.each([
+    "{not json",
+    JSON.stringify({ annotations: { id: "not-an-array" } }),
+    JSON.stringify({ burnInProgress: { editsJson: "{not json" } }),
+  ])(
+    "fails when an editor's screenshot edits cannot be read: %s",
+    async (editsJson) => {
+      mockResolveAccess.mockResolvedValue({
+        role: "owner",
+        resource: {
+          id: "rec-1",
+          kind: "image",
+          visibility: "private",
+          password: null,
+          expiresAt: null,
+          imageUrl: "https://cdn.example.com/screenshot.png",
+          editsJson,
+        },
+      });
+
+      await expect(action.run({ recordingId: "rec-1" })).rejects.toThrow(
+        "CLIPS_SCREENSHOT_EDITS_UNREADABLE",
+      );
+    },
+  );
+
+  it.each([
+    ["owner", true],
+    ["admin", true],
+    ["editor", true],
+    ["viewer", false],
+  ] as const)(
+    "lists replaced transcripts to a %s only if they can edit",
+    async (role, listed) => {
+      const versions = [
+        {
+          id: "version-1",
+          replacedAt: "2026-10-16T12:00:00.000Z",
+          reason: "import",
+          source: null,
+          language: "en",
+          preview: "Automatic words.",
+        },
+      ];
+      mockListTranscriptVersions.mockReset();
+      mockListTranscriptVersions.mockImplementation(async () => versions);
+      mockShareLimit.mockResolvedValue([{ id: "share-1" }]);
+      mockResolveAccess.mockResolvedValue({
+        role,
+        resource: {
+          id: "rec-1",
+          ownerEmail: "owner@example.com",
+          visibility: "public",
+          password: null,
+          expiresAt: null,
+          status: "ready",
+          chaptersJson: "[]",
+        },
+      });
+      let transcriptRead = false;
+      mockPlayerQuery.build = () => {
+        const query: Record<string, unknown> = {};
+        query.from = () => query;
+        query.where = () => query;
+        query.orderBy = async () => [];
+        query.limit = async () => {
+          if (transcriptRead) return [];
+          transcriptRead = true;
+          return [
+            {
+              recordingId: "rec-1",
+              status: "ready",
+              fullText: "Imported words.",
+              segmentsJson: "[]",
+              language: "en",
+              source: "imported",
+              importId: "import-1",
+            },
+          ];
+        };
+        query.then = (resolve: (rows: unknown[]) => unknown) => resolve([]);
+        return query;
+      };
+
+      const result = await action.run({ recordingId: "rec-1" });
+
+      if (listed) {
+        expect(result.transcript?.versions).toEqual(versions);
+        expect(mockListTranscriptVersions).toHaveBeenCalledWith(
+          mockDb,
+          "rec-1",
+        );
+      } else {
+        expect(result.transcript).not.toHaveProperty("versions");
+        expect(mockListTranscriptVersions).not.toHaveBeenCalled();
+      }
+      mockListTranscriptVersions.mockReset();
+    },
+  );
 
   it("reports zero views without failing the player payload", async () => {
     const result = await action.run({ recordingId: "rec-1" });
@@ -328,6 +550,74 @@ describe("get-recording-player-data view count", () => {
     expect(result.viewCount).toBe(0);
     expect(result.recording.id).toBe("rec-1");
     expect(result.recording.folderId).toBe("folder-1");
+  });
+
+  it.each(["owner", "viewer"])(
+    "applies owner visibility to disabled comments in the %s player payload",
+    async (role) => {
+      mockResolveAccess.mockResolvedValue({
+        role,
+        resource: {
+          id: "rec-1",
+          ownerEmail: "owner@example.com",
+          visibility: "org",
+          enableComments: false,
+          password: null,
+          expiresAt: null,
+          status: "ready",
+          chaptersJson: "[]",
+        },
+      });
+      mockPlayerQuery.build = () => {
+        let isCommentsQuery = false;
+        const query: Record<string, unknown> = {};
+        query.from = (table: unknown) => {
+          isCommentsQuery =
+            (table as { videoTimestampMs?: string } | undefined)
+              ?.videoTimestampMs === "recordingComments.videoTimestampMs";
+          return query;
+        };
+        query.where = () => query;
+        query.limit = async () => [];
+        query.orderBy = async () =>
+          isCommentsQuery
+            ? [
+                {
+                  id: "comment-1",
+                  authorEmail: "author@example.com",
+                  authorName: "Author",
+                  content: "Saved comment",
+                },
+              ]
+            : [];
+        return query;
+      };
+      const result = await action.run({ recordingId: "rec-1" });
+      expect(result.comments.map((comment) => comment.content)).toEqual(
+        role === "owner" ? ["Saved comment"] : [],
+      );
+    },
+  );
+
+  it("includes a trashed recording's timestamp in the player payload", async () => {
+    const trashedAt = "2026-09-22T12:00:00.000Z";
+    mockResolveAccess.mockResolvedValue({
+      role: "owner",
+      resource: {
+        id: "rec-1",
+        ownerEmail: "owner@example.com",
+        visibility: "private",
+        password: null,
+        expiresAt: null,
+        status: "ready",
+        chaptersJson: "[]",
+        trashedAt,
+      },
+    });
+
+    const result = await action.run({ recordingId: "rec-1" });
+
+    expect(result.recording.trashedAt).toBe(trashedAt);
   });
 
   it("exposes pending seekable repair state to the player", async () => {
@@ -414,5 +704,128 @@ describe("get-recording-player-data view count", () => {
       "/api/thumbnail/rec-1?animated=1",
     );
     expect(result.recording.videoSizeBytes).toBe(1234);
+  });
+});
+
+describe("get-recording-player-data for agents reading a YouTube clip", () => {
+  const comment = {
+    id: "comment-1",
+    recordingId: "rec-yt",
+    threadId: "comment-1",
+    parentId: null,
+    authorEmail: "viewer@example.com",
+    authorName: "Viewer",
+    content: "This is where it breaks",
+    mentionsJson: "[]",
+    videoTimestampMs: 12_000,
+    emojiReactionsJson: "{}",
+    resolved: false,
+    createdAt: "2026-10-16T00:00:00.000Z",
+    updatedAt: "2026-10-16T00:00:00.000Z",
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetRequestUserEmail.mockReturnValue("owner@example.com");
+    mockIsSeekableRepairPending.mockResolvedValue(false);
+    mockCountRecordingViews.mockResolvedValue(0);
+    mockShareLimit.mockResolvedValue([]);
+    mockPlayerQuery.build = () => {
+      let table: unknown;
+      const query: Record<string, unknown> = {};
+      query.from = (source: unknown) => {
+        table = source;
+        return query;
+      };
+      query.where = () => query;
+      query.orderBy = async () =>
+        (table as { videoTimestampMs?: string })?.videoTimestampMs ===
+        "recordingComments.videoTimestampMs"
+          ? [comment]
+          : [];
+      query.limit = async () => [];
+      return query;
+    };
+    mockResolveAccess.mockResolvedValue({
+      role: "owner",
+      resource: {
+        id: "rec-yt",
+        enableComments: true,
+        ownerEmail: "owner@example.com",
+        visibility: "private",
+        password: null,
+        expiresAt: null,
+        status: "ready",
+        chaptersJson: "[]",
+        sourceAppName: "YouTube",
+        sourceWindowTitle: "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+        videoUrl: "https://www.youtube.com/embed/jNQXAC9IVRw",
+      },
+    });
+    vi.mocked(normalizeTranscriptSegments).mockReturnValue([
+      { startMs: 8_000, endMs: 11_000, text: "Now paste the link." },
+      { startMs: 11_000, endMs: 14_000, text: "And it fails here." },
+      { startMs: 40_000, endMs: 42_000, text: "Unrelated." },
+    ]);
+  });
+
+  afterEach(() => {
+    mockPlayerQuery.build = null;
+    vi.mocked(normalizeTranscriptSegments).mockReturnValue([]);
+  });
+
+  it("says frames aren't available and gives each comment its transcript", async () => {
+    const result = await action.run({ recordingId: "rec-yt" }, {
+      caller: "mcp",
+    } as any);
+
+    expect(result.media).toMatchObject({
+      embedProvider: "youtube",
+      framesAvailable: false,
+      note: expect.stringContaining("frames aren't available"),
+    });
+    expect(result.comments[0]).toMatchObject({
+      videoTimestampMs: 12_000,
+      transcriptContext: {
+        startMs: 8_000,
+        endMs: 14_000,
+        text: "Now paste the link. And it fails here.",
+      },
+    });
+  });
+
+  it("withholds frames from a hosted clip until it is ready", async () => {
+    mockResolveAccess.mockResolvedValue({
+      role: "owner",
+      resource: {
+        id: "rec-native",
+        ownerEmail: "owner@example.com",
+        visibility: "private",
+        password: null,
+        expiresAt: null,
+        status: "processing",
+        chaptersJson: "[]",
+        sourceAppName: null,
+        sourceWindowTitle: null,
+        videoUrl: "/api/video/rec-native",
+      },
+    });
+
+    const result = await action.run({ recordingId: "rec-native" }, {
+      caller: "mcp",
+    } as any);
+
+    expect(result.media).toMatchObject({
+      embedProvider: null,
+      framesAvailable: false,
+      note: expect.stringContaining("still processing"),
+    });
+  });
+
+  it("keeps the browser player's payload unchanged", async () => {
+    const result = await action.run({ recordingId: "rec-yt" });
+
+    expect(result).not.toHaveProperty("media");
+    expect(result.comments[0]).not.toHaveProperty("transcriptContext");
   });
 });

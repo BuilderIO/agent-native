@@ -9,6 +9,8 @@ import {
   runApplyLocalContentUpdate,
   type ApplyLocalContentUpdateArgs,
 } from "@/pages/design-editor/commands/apply-local-content-update";
+import { LOCAL_EDIT_ORIGIN } from "@/pages/design-editor/editor-session";
+import type { DesignFile } from "@/pages/design-editor/types";
 
 const oldContent = "<main><p>Old</p></main>";
 const rawContent =
@@ -313,4 +315,103 @@ it("routes a stale callback with a destroyed matching Y.Doc through the server",
     expect.any(String),
     expect.objectContaining({ syncCollab: true }),
   );
+});
+
+it("keeps accepted edit history intact while applying a local-only preview", () => {
+  const committedInput = oldContent.replace("Old", "Committed");
+  const ydoc = new Y.Doc();
+  ydoc.getText("content").insert(0, oldContent);
+  const undoManager = new Y.UndoManager(ydoc.getText("content"), {
+    trackedOrigins: new Set([LOCAL_EDIT_ORIGIN]),
+  });
+  const args = localArgs({
+    isSynced: true,
+    undoManagerRef: { current: undoManager },
+    ydoc,
+  });
+
+  const committed = runApplyLocalContentUpdate(args, committedInput);
+  expect(committed.status).toBe("accepted");
+  if (committed.status !== "accepted") return;
+  const committedContent = committed.content;
+  const previewContent = committedContent.replace("Committed", "Preview");
+  expect(ydoc.getText("content").toString()).toBe(committedContent);
+  expect(undoManager.canUndo()).toBe(true);
+
+  const preview = runApplyLocalContentUpdate(args, previewContent, {
+    persist: false,
+    previewOnly: true,
+    recordHistory: false,
+  });
+
+  expect(preview.status).toBe("accepted");
+  expect(ydoc.getText("content").toString()).toBe(committedContent);
+  expect(undoManager.canUndo()).toBe(true);
+  undoManager.undo();
+  expect(ydoc.getText("content").toString()).toBe(oldContent);
+
+  undoManager.destroy();
+  ydoc.destroy();
+});
+
+it("keeps an overview Y.Doc unchanged for a non-active local-only preview", () => {
+  const targetFile = {
+    ...activeFile,
+    id: "screen-b",
+    filename: "screen-b.html",
+  } as unknown as DesignFile;
+  const files = [activeFile as unknown as DesignFile, targetFile];
+  const overviewYdoc = new Y.Doc();
+  overviewYdoc.getText("content").insert(0, oldContent);
+  let cachedDesign = { files };
+  const acknowledge = vi.fn();
+  const recordHistory = vi.fn();
+  const queueSave = vi.fn();
+  const previewContent = oldContent.replace("Old", "Preview");
+
+  const result = runApplyFileContentUpdate(
+    {
+      acknowledgeAuthoritativeClipboardMutation: acknowledge,
+      activeFile: files[0],
+      applyFileContentUpdate: vi.fn(),
+      applyLocalContentUpdate: vi.fn(() => ({ status: "refused" as const })),
+      canEditDesignRef: { current: true },
+      cancelQueuedFileContentSave: vi.fn(),
+      clearPendingLocalFileContent: vi.fn(),
+      files,
+      getScreenContent: () => oldContent,
+      id: "design",
+      markPendingLocalFileContent: vi.fn(),
+      overviewIsSynced: true,
+      overviewPresenceFileId: targetFile.id,
+      overviewYdoc,
+      queryClient: {
+        setQueryData: (
+          _key: unknown,
+          update: (old: typeof cachedDesign) => typeof cachedDesign,
+        ) => {
+          cachedDesign = update(cachedDesign);
+        },
+      } as unknown as QueryClient,
+      queueFileContentSave: queueSave,
+      recordContentHistoryEntry: recordHistory,
+      suppressContentHistoryRef: { current: false },
+      t: (key: string) => key,
+    },
+    targetFile.id,
+    previewContent,
+    { persist: false, previewOnly: true, recordHistory: false },
+  );
+
+  expect(result.status).toBe("accepted");
+  expect(overviewYdoc.getText("content").toString()).toBe(oldContent);
+  expect(acknowledge).not.toHaveBeenCalled();
+  expect(recordHistory).not.toHaveBeenCalled();
+  expect(queueSave).not.toHaveBeenCalled();
+  expect(
+    cachedDesign.files.find((candidate) => candidate.id === targetFile.id)
+      ?.content,
+  ).toContain("Preview");
+
+  overviewYdoc.destroy();
 });

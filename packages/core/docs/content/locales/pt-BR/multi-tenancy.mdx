@@ -62,9 +62,9 @@ Se você estiver avaliando agente nativo para um CRM, rastreador de projeto, cai
 
 </Diagram>
 
-## O alternador organizacional UI {#org-switcher}
+## O menu da conta {#org-switcher}
 
-O org-switcher e os membros UI são renderizados em cada modelo sem código extra. Eles conduzem as rotas REST da organização principal em `/_agent-native/org/*` (criar organização, alternar organização, listar/convidar/remover membros, alterar funções, definir domínio de e-mail permitido). Os usuários escolhem a organização ativa no switcher; o painel de membros lida com convites e mudanças de função.
+O menu da conta (`OrgSwitcher`, na parte inferior da barra lateral) e as páginas de organização nas Configurações são renderizados em cada modelo sem código extra. Eles usam as rotas REST principais da organização em `/_agent-native/org/*` (criar organização, alternar organização, listar/convidar/remover membros, alterar funções, definir o domínio de e-mail permitido). Os usuários escolhem a organização ativa no menu da conta; **Settings › Organization › Members** cuida dos convites e das mudanças de função.
 
 Este é o módulo `org/` da própria estrutura, não o plugin de organização do Better Auth (que não foi registrado intencionalmente). A superfície completa de gerenciamento organizacional — `createOrganization`, as rotas REST e wrappers `defineAction` criados por modelo, como `invite-member` — está documentada em [Authentication → Organizations](/docs/authentication#organizations).
 

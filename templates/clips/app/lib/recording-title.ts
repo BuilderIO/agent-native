@@ -9,7 +9,13 @@ export interface CaptureTitleContext {
   appName?: string | null;
   windowTitle?: string | null;
   displaySurface?: "monitor" | "window" | "browser" | (string & {}) | null;
-  mode?: "screen" | "camera" | "screen+camera" | (string & {}) | null;
+  mode?:
+    | "screen"
+    | "camera"
+    | "screen+camera"
+    | "screenshot"
+    | (string & {})
+    | null;
   now?: Date;
 }
 
@@ -40,6 +46,12 @@ const GENERIC_CAPTURE_LABELS = [
   /^monitor(:|\s|$)/i,
   /^entire screen$/i,
   /^browser tab$/i,
+  // Chromium hands back its own handle for the captured surface rather than a
+  // name — e.g. "web-contents-media-stream://4DDFC4CE...". Any scheme-prefixed
+  // label is a machine identifier, never something to title a capture with.
+  /^[a-z][a-z0-9+.-]*:\/\//i,
+  // A bare opaque id, for the same reason.
+  /^[0-9a-f]{16,}$/i,
 ];
 
 export function buildCaptureTitle({
@@ -90,6 +102,13 @@ function fallbackSubject(
   mode: CaptureTitleContext["mode"],
 ): string {
   if (mode === "camera") return "Camera recording";
+  if (mode === "screenshot") {
+    // Screenshots share this helper so a captured window title still wins;
+    // only the nothing-to-go-on fallback has to say what it actually is.
+    if (displaySurface === "browser") return "Browser tab screenshot";
+    if (displaySurface === "window") return "Window screenshot";
+    return "Screenshot";
+  }
   if (displaySurface === "browser") return "Browser tab";
   if (displaySurface === "window") return "Window recording";
   return "Screen recording";

@@ -46,6 +46,7 @@ describe("issue-visual-edit-bootstrap", () => {
           /^bootstrap\+[A-Za-z0-9_-]{32}@local\.visual-edit\.agent-native\.invalid$/,
         ),
         targetPath: "/visual-edit",
+        audienceHost: "design.example.com",
         scope: expect.stringMatching(
           /^capability:visual-edit-bootstrap:[A-Za-z0-9_-]{32}$/,
         ),

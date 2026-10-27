@@ -1,13 +1,3 @@
-/**
- * MCP analytics coverage.
- *
- * Drives the real `createMCPServerForRequest` over an in-memory transport
- * pair, so the assertions are about what an actual `tools/list` /
- * `tools/call` exchange emits — not about the helpers in isolation. A
- * property name here is a contract with every dashboard built on PostHog's
- * MCP vocabulary, so the tests pin the exact keys.
- */
-
 import { Client } from "@modelcontextprotocol/client";
 import { InMemoryTransport } from "@modelcontextprotocol/server";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -18,7 +8,11 @@ import {
   unregisterTrackingProvider,
 } from "../tracking/registry.js";
 import type { TrackingEvent } from "../tracking/types.js";
-import { detectVendorClient, readClientInfoFromRequest } from "./analytics.js";
+import {
+  detectVendorClient,
+  readClientInfoFromRequest,
+  vendorForRedirectHost,
+} from "./analytics.js";
 import { createMCPServerForRequest, type MCPConfig } from "./build-server.js";
 
 const ORIGINAL_ENV = { ...process.env };
@@ -189,6 +183,17 @@ describe("client identification", () => {
     expect(detectVendorClient(undefined, "cursor-mcp/0.4")).toBe("cursor");
     expect(detectVendorClient("some-unknown-host")).toBeUndefined();
     expect(detectVendorClient(undefined, undefined)).toBeUndefined();
+  });
+
+  it("credits a redirect host only for a whole known domain", () => {
+    expect(vendorForRedirectHost("chatgpt.com")).toBe("openai");
+    expect(vendorForRedirectHost("chat.openai.com")).toBe("openai");
+    expect(vendorForRedirectHost("CLAUDE.AI")).toBe("claude");
+    expect(vendorForRedirectHost("openai.evil.example")).toBeUndefined();
+    expect(vendorForRedirectHost("chatgpt.com.evil.example")).toBeUndefined();
+    expect(vendorForRedirectHost("notchatgpt.com")).toBeUndefined();
+    expect(vendorForRedirectHost("localhost")).toBeUndefined();
+    expect(vendorForRedirectHost(undefined)).toBeUndefined();
   });
 
   it("reads the client's own name and version from per-request _meta", () => {

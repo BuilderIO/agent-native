@@ -239,8 +239,11 @@ describe("localized docs fallback", () => {
     const toolkitSection = getDocsNavSections("fr-FR").find(
       (section) => section.id === "toolkits",
     );
+    const foundations = toolkitSection?.items.find(
+      (item) => item.id === "toolkit-foundations",
+    );
     expect(
-      toolkitSection?.items.find((item) => item.id === "toolkit-ui")?.to,
+      foundations?.children?.find((item) => item.id === "toolkit-ui")?.to,
     ).toBe("/fr-fr/docs/toolkit-ui/");
     const resourcesSection = getDocsNavSections("fr-FR").find(
       (section) => section.id === "agent-resources",

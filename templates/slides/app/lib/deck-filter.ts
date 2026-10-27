@@ -1,12 +1,13 @@
 export const DECK_FILTER_STORAGE_KEY = "slides:deck-filter";
 
-export type DeckFilter = "all" | "mine";
+export type DeckFilter = "all" | "mine" | "not-mine";
 
 export function resolveDeckFilter(
   createdByParam: string | null,
   storedFilter: DeckFilter | undefined,
 ): DeckFilter {
   if (createdByParam === "me") return "mine";
+  if (createdByParam === "not-me") return "not-mine";
   if (createdByParam !== null) return "all";
   return storedFilter ?? "mine";
 }
@@ -21,7 +22,9 @@ export function readStoredDeckFilter(
 
   try {
     const stored = storage.getItem(DECK_FILTER_STORAGE_KEY);
-    return stored === "all" || stored === "mine" ? stored : undefined;
+    return stored === "all" || stored === "mine" || stored === "not-mine"
+      ? stored
+      : undefined;
   } catch {
     // coercion-ok: localStorage failures intentionally fall back to the default filter.
     return undefined;

@@ -1,19 +1,8 @@
-/**
- * The CRM grid's server-side query: a typed filter/sort tree compiled into one
- * Postgres Drizzle statement.
- *
- * Two rules shape everything here.
- *
- * 1. A filter that cannot be compiled is an ERROR, never a dropped condition.
- *    Silently ignoring an unknown attribute returns a full unfiltered page that
- *    looks exactly like a correct answer, which is the failure mode the root
- *    CLAUDE.md forbids.
- * 2. Attribute values live in `crm_record_fields`, one bitemporal row per
- *    attribute with `active_until IS NULL` for the current value. Filtering is
- *    therefore EXISTS/NOT EXISTS against that table, and sorting is a correlated
- *    scalar subquery over the current row.
- */
-
+import type { ActionRunContext } from "@agent-native/core/action";
+import {
+  decryptSecretValue,
+  encryptSecretValue,
+} from "@agent-native/core/secrets/crypto";
 import { accessFilter } from "@agent-native/core/sharing";
 import {
   and,
@@ -49,9 +38,11 @@ import {
 import { getDb, schema } from "../db/index.js";
 
 const MAX_RECORD_LIMIT = 100;
-const MAX_SCOPE_VALIDATIONS = 20;
+const MAX_CONCURRENT_SCOPE_CHECKS = 20;
+// A mostly withheld page may come back short with a cursor; the cap keeps one
+// call from scanning a whole table.
+const MAX_SCOPE_FILL_BATCHES = 5;
 
-/** A filter the caller must fix before retrying — surfaces as HTTP 422. */
 export class CrmFilterError extends Error {
   readonly statusCode = 422;
   readonly code: string;
@@ -63,7 +54,6 @@ export class CrmFilterError extends Error {
   }
 }
 
-/** A cursor that does not belong to this query — surfaces as HTTP 400. */
 export class CrmCursorError extends Error {
   readonly statusCode = 400;
   readonly code = "crm-cursor-mismatch";
@@ -73,10 +63,6 @@ export class CrmCursorError extends Error {
     this.name = "CrmCursorError";
   }
 }
-
-// ---------------------------------------------------------------------------
-// Input shapes
-// ---------------------------------------------------------------------------
 
 export const CRM_FILTER_CONDITIONS = [
   "is",
@@ -111,9 +97,7 @@ const filterValueSchema = z.union([
 ]);
 
 const leafSchema = z.object({
-  /** Attribute id, `api_slug`, or `field_name` on `crm_field_policies`. */
   attributeId: z.string().trim().min(1).max(128).optional(),
-  /** A column on `crm_records` — see RECORD_COLUMNS. */
   field: z.string().trim().min(1).max(64).optional(),
   condition: z.enum(CRM_FILTER_CONDITIONS),
   value: filterValueSchema.optional(),
@@ -124,10 +108,6 @@ const groupSchema = z.object({
   conditions: z.array(leafSchema).min(1).max(30),
 });
 
-/**
- * One level of nesting, spelled out rather than recursive: an unbounded tree is
- * an unbounded number of correlated subqueries in one statement.
- */
 export const crmFilterSchema = z.object({
   op: z.enum(["and", "or"]).default("and"),
   conditions: z.array(z.union([groupSchema, leafSchema])).max(30),
@@ -148,25 +128,11 @@ export type CrmFilterGroup = z.infer<typeof groupSchema>;
 export type CrmFilter = z.infer<typeof crmFilterSchema>;
 export type CrmSort = z.infer<typeof crmSortSchema>;
 
-/**
- * The tree the compiler walks. Input is capped at one level of nesting by the
- * schema; this shape lets the query builder wrap an already-parsed filter in
- * another group without re-typing it.
- */
 export interface CrmFilterNode {
   op: "and" | "or";
   conditions: Array<CrmFilterLeaf | CrmFilterNode>;
 }
 
-// ---------------------------------------------------------------------------
-// Targets: an attribute value or a `crm_records` column
-// ---------------------------------------------------------------------------
-
-/**
- * The condition vocabulary a target accepts. Derived from the attribute-type
- * registry so a new attribute type inherits a family instead of needing a new
- * branch at every call site.
- */
 type ConditionFamily =
   | "text"
   | "number"
@@ -224,15 +190,9 @@ function conditionFamily(type: CrmAttributeType): ConditionFamily {
 interface RecordColumnSpec {
   column: SQL;
   family: ConditionFamily;
-  /** Compared case-insensitively and eligible for `@currentUser`. */
   actor?: boolean;
 }
 
-/**
- * Filterable/sortable columns on `crm_records`. An allow-list, not a lookup by
- * string: an unlisted name is a typed error, so a filter can never reach a
- * column the summary does not expose.
- */
 const RECORD_COLUMNS: Record<string, RecordColumnSpec> = {
   displayName: {
     column: sql`${schema.crmRecords.displayName}`,
@@ -315,10 +275,6 @@ function isActorTarget(target: ResolvedTarget): boolean {
     : target.spec.actor === true;
 }
 
-// ---------------------------------------------------------------------------
-// Attribute resolution — one query for every reference in the tree
-// ---------------------------------------------------------------------------
-
 interface AttributeRow {
   id: string;
   fieldName: string;
@@ -347,11 +303,6 @@ function attributeRefs(
   return Array.from(refs);
 }
 
-/**
- * Resolve every attribute reference in one pass. A reference may name the
- * attribute id, its `api_slug`, or its legacy `field_name`; unknown, archived,
- * and ambiguous references are all typed errors that name the reference.
- */
 async function resolveAttributes(
   refs: string[],
 ): Promise<Map<string, ResolvedAttribute>> {
@@ -396,9 +347,6 @@ async function resolveAttributes(
         `Filter references archived attribute "${ref}".`,
       );
     }
-    // The same slug can exist on several objects/connections. That is fine as
-    // long as they agree on how the value is stored — the predicate keys on the
-    // slug, not on one row's id.
     const shapes = new Set(
       live.map((row) => `${row.attributeType}:${row.multi ? 1 : 0}`),
     );
@@ -458,16 +406,8 @@ function resolveTarget(
   );
 }
 
-// ---------------------------------------------------------------------------
-// Values
-// ---------------------------------------------------------------------------
-
 type Scalar = string | number | boolean;
 
-/**
- * `@currentUser` is resolved here and nowhere else. Resolving it on the client
- * would make one shared view render the author's rows for everybody.
- */
 function resolveToken(
   value: Scalar,
   target: ResolvedTarget,
@@ -545,16 +485,6 @@ function requireNumber(value: Scalar, target: ResolvedTarget): number {
   return parsed;
 }
 
-// ---------------------------------------------------------------------------
-// Relative dates
-//
-// Boundaries are emitted as bare `YYYY-MM-DD`, which compares correctly against
-// both a `date` value ("2026-07-26") and a `timestamp` value
-// ("2026-07-26T13:00:00.000Z") under lexicographic ordering. Days are UTC: the
-// server has no caller timezone, and inventing one would silently shift every
-// "today" filter for half the world.
-// ---------------------------------------------------------------------------
-
 const RELATIVE_DAYS = /^(last|next)-(\d{1,3})-days$/;
 
 function isoDay(time: number): string {
@@ -576,7 +506,6 @@ export function resolveRelativeDateToken(
     return { from: isoDay(startOfDay), to: isoDay(startOfDay + DAY_MS) };
   }
   if (token === "this-week") {
-    // ISO weeks start Monday; getUTCDay() is 0 for Sunday.
     const weekday = (new Date(startOfDay).getUTCDay() + 6) % 7;
     const start = startOfDay - weekday * DAY_MS;
     return { from: isoDay(start), to: isoDay(start + 7 * DAY_MS) };
@@ -598,10 +527,6 @@ export function resolveRelativeDateToken(
     : { from: isoDay(startOfDay), to: isoDay(startOfDay + days * DAY_MS) };
 }
 
-// ---------------------------------------------------------------------------
-// Predicate compilation
-// ---------------------------------------------------------------------------
-
 function likePattern(value: Scalar, mode: "contains" | "prefix" | "suffix") {
   const escaped = String(value).replace(/([\\%_])/g, "\\$1");
   if (mode === "prefix") return `${escaped}%`;
@@ -609,7 +534,6 @@ function likePattern(value: Scalar, mode: "contains" | "prefix" | "suffix") {
   return `%${escaped}%`;
 }
 
-// Lowering both sides makes PostgreSQL contains matching case-insensitive.
 function likeSql(column: SQL, pattern: string): SQL {
   return sql`lower(${column}) like lower(${pattern}) escape '\\'`;
 }
@@ -637,7 +561,6 @@ function jsonArrayContains(value: Scalar): SQL {
   )!;
 }
 
-/** The `crm_record_fields` column a target's values live in. */
 function valueColumnFor(attribute: ResolvedAttribute): SQL {
   if (attribute.multi) return sql`${schema.crmRecordFields.jsonValue}`;
   const storage = ATTRIBUTE_TYPE_SPECS[attribute.attributeType].storageColumn;
@@ -690,12 +613,6 @@ interface CompileContext {
   now: Date;
 }
 
-/**
- * A positive predicate over one value column, plus whether the caller must
- * negate the surrounding EXISTS. `is-not` means "has no such value", which
- * includes records that have no value at all — so it is NOT EXISTS of the
- * positive test, not EXISTS of an inequality.
- */
 interface Predicate {
   sql: SQL;
   negate: boolean;
@@ -734,8 +651,6 @@ function comparePredicate(
     const value = requireValue(leaf, target, ctx.actorEmail);
     const wanted =
       typeof value === "boolean" ? value : value === "true" || value === 1;
-    // The boolean column stores 0/1, and a raw `sql`
-    // fragment bypasses the column codec that would have converted this.
     return { sql: sql`${column} = ${wanted ? 1 : 0}`, negate: false };
   }
 
@@ -771,7 +686,6 @@ function comparePredicate(
     return datePredicate(column, target, leaf, ctx);
   }
 
-  // text / option / reference
   if (condition === "is" || condition === "is-not") {
     const value = requireValue(leaf, target, ctx.actorEmail);
     return {
@@ -857,7 +771,6 @@ function datePredicate(
   return { sql: sql`${column} = ${raw}`, negate: false };
 }
 
-/** Correlated current-value rows for one attribute of the outer record. */
 function currentValueRows(attribute: ResolvedAttribute, predicate?: SQL) {
   const conditions = [
     eq(schema.crmRecordFields.recordId, schema.crmRecords.id),
@@ -913,10 +826,6 @@ export async function compileCrmFilter(input: {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Sorting and keyset pagination
-// ---------------------------------------------------------------------------
-
 interface SortKey {
   expression: SQL;
   direction: "asc" | "desc";
@@ -924,6 +833,10 @@ interface SortKey {
 
 interface CursorPayload {
   f: string;
+  id: string;
+}
+
+interface KeysetAnchor {
   v: Array<string | number | boolean | null>;
   id: string;
 }
@@ -937,10 +850,17 @@ function fingerprint(value: unknown): string {
   return hash.toString(36);
 }
 
+// Sealed so a cursor that resumes past a withheld row never shows the caller
+// that row's id. It carries no sort values, so its size stays fixed; the
+// anchor row's sort values are read back from SQL on the next page.
+function encodeCursor(payload: CursorPayload): string {
+  return encryptSecretValue(JSON.stringify(payload));
+}
+
 function decodeCursor(cursor: string, expected: string): CursorPayload {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(cursor) as unknown;
+    parsed = JSON.parse(decryptSecretValue(cursor)) as unknown;
   } catch {
     throw new CrmCursorError("CRM list cursor is not readable.");
   }
@@ -948,7 +868,6 @@ function decodeCursor(cursor: string, expected: string): CursorPayload {
   if (
     !payload ||
     typeof payload.id !== "string" ||
-    !Array.isArray(payload.v) ||
     typeof payload.f !== "string"
   ) {
     throw new CrmCursorError("CRM list cursor is not readable.");
@@ -961,15 +880,9 @@ function decodeCursor(cursor: string, expected: string): CursorPayload {
   return payload as CursorPayload;
 }
 
-/**
- * "Strictly after the cursor" under NULLS LAST ordering, expanded
- * lexicographically over the sort keys with the record id as the final,
- * always-ascending tiebreak. Without that tiebreak two rows with equal sort
- * values could swap between pages and be skipped or repeated.
- */
 function keysetPredicate(
   keys: SortKey[],
-  cursor: CursorPayload,
+  cursor: KeysetAnchor,
 ): SQL | undefined {
   let predicate: SQL = sql`${schema.crmRecords.id} > ${cursor.id}`;
   for (let index = keys.length - 1; index >= 0; index -= 1) {
@@ -979,8 +892,6 @@ function keysetPredicate(
       value === null
         ? sql`${key.expression} is null`
         : sql`${key.expression} = ${value}`;
-    // NULLs sort last, so nothing follows a null on this key: only the later
-    // keys can still order two rows apart.
     const after =
       value === null
         ? undefined
@@ -996,7 +907,6 @@ function keysetPredicate(
 function orderByFor(keys: SortKey[]): SQL[] {
   const clauses: SQL[] = [];
   for (const key of keys) {
-    // Rank NULLs explicitly so pagination does not depend on database defaults.
     clauses.push(
       sql`case when ${key.expression} is null then 1 else 0 end asc`,
     );
@@ -1009,10 +919,6 @@ function orderByFor(keys: SortKey[]): SQL[] {
   clauses.push(sql`${schema.crmRecords.id} asc`);
   return clauses;
 }
-
-// ---------------------------------------------------------------------------
-// Saved views
-// ---------------------------------------------------------------------------
 
 export interface StoredCrmView {
   id: string;
@@ -1032,10 +938,6 @@ export interface StoredCrmView {
   updatedAt: string;
 }
 
-/**
- * Views saved before typed filters stored `{query, fieldEquals}`. Translate them
- * at the boundary so the rest of the pipeline only ever sees one filter shape.
- */
 export function normalizeStoredFilter(raw: unknown): CrmFilter {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return { op: "and", conditions: [] };
@@ -1184,14 +1086,9 @@ export function hydrateSavedViewRow(row: {
   };
 }
 
-/** Legacy sort entries used `{field}` for record columns; that still parses. */
 function normalizeStoredSort(raw: unknown): unknown {
   return Array.isArray(raw) ? raw : [];
 }
-
-// ---------------------------------------------------------------------------
-// The query
-// ---------------------------------------------------------------------------
 
 type ScopeValidationTarget = {
   connectionId: string;
@@ -1204,26 +1101,82 @@ export type CrmScopeResolver = (
   target: ScopeValidationTarget,
 ) => Promise<CrmAccessScope | null>;
 
-async function defaultScopeResolver(
-  target: ScopeValidationTarget,
-): Promise<CrmAccessScope | null> {
-  if (target.provider === "native") {
-    return resolveNativeCrmAccessScope({
-      connectionId: target.connectionId,
-      objectType: target.objectType,
+/**
+ * Resolves the scope the provider (or the native ownership model) grants the
+ * caller right now. Connected providers are asked as the calling user when the
+ * action context names one.
+ */
+export function crmScopeResolver(
+  ctx?: Pick<ActionRunContext, "userEmail" | "orgId">,
+): CrmScopeResolver {
+  return async (target) => {
+    if (target.provider === "native") {
+      return resolveNativeCrmAccessScope({
+        connectionId: target.connectionId,
+        objectType: target.objectType,
+      });
+    }
+    if (
+      !isConnectedCrmProvider(target.provider) ||
+      !target.workspaceConnectionId
+    ) {
+      return null;
+    }
+    const adapter = await createConnectedCrmAdapter({
+      provider: target.provider,
+      connectionId: target.workspaceConnectionId,
+      ...(ctx?.userEmail ? { userEmail: ctx.userEmail } : {}),
+      ...(ctx?.orgId !== undefined ? { orgId: ctx.orgId } : {}),
     });
+    return adapter.getAccessScope(target.objectType);
+  };
+}
+
+/**
+ * Keeps only the mirrored rows whose stored access scope still matches the
+ * scope granted now, so a narrowed or revoked upstream grant withholds the
+ * local copy even while its rows and shares remain. A resolver failure is
+ * thrown, not read as revoked access, so an outage never looks like an empty
+ * or partial result.
+ */
+export async function recordsInCurrentScope<
+  T extends ScopeValidationTarget & { accessScopeJson: string },
+>(rows: T[], resolveScope: CrmScopeResolver): Promise<T[]> {
+  const targets = Array.from(
+    new Map(
+      rows.map((row) => [
+        `${row.connectionId}:${row.objectType}`,
+        {
+          connectionId: row.connectionId,
+          workspaceConnectionId: row.workspaceConnectionId,
+          provider: row.provider,
+          objectType: row.objectType,
+        },
+      ]),
+    ).values(),
+  );
+  // Do not cap the scopes checked: a skipped scope drops records the caller
+  // can still see.
+  const currentScopes = new Map<string, CrmAccessScope | null>();
+  for (let i = 0; i < targets.length; i += MAX_CONCURRENT_SCOPE_CHECKS) {
+    const batch = targets.slice(i, i + MAX_CONCURRENT_SCOPE_CHECKS);
+    const scopes = await Promise.all(
+      batch.map((target) => resolveScope(target)),
+    );
+    batch.forEach((target, index) =>
+      currentScopes.set(
+        `${target.connectionId}:${target.objectType}`,
+        scopes[index],
+      ),
+    );
   }
-  if (
-    !isConnectedCrmProvider(target.provider) ||
-    !target.workspaceConnectionId
-  ) {
-    return null;
-  }
-  const adapter = await createConnectedCrmAdapter({
-    provider: target.provider,
-    connectionId: target.workspaceConnectionId,
+  return rows.filter((row) => {
+    const current = currentScopes.get(`${row.connectionId}:${row.objectType}`);
+    return Boolean(
+      current &&
+      scopesAreCompatible(parseCrmAccessScope(row.accessScopeJson), current),
+    );
   });
-  return adapter.getAccessScope(target.objectType);
 }
 
 const SUMMARY_COLUMNS = new Set([
@@ -1277,7 +1230,6 @@ function toRecordSummary(row: SummaryRow, columns?: string[]) {
 export interface QueryCrmRecordsInput {
   kind?: CrmObjectKind;
   connectionId?: string;
-  /** Display-name substring; sugar for a `displayName contains` condition. */
   query?: string;
   viewId?: string;
   filter?: CrmFilter;
@@ -1318,9 +1270,6 @@ export async function queryCrmRecords(
 
   const base: CrmFilterNode = view?.filter ??
     input.filter ?? { op: "and", conditions: [] };
-  // A `query` NARROWS whatever it is combined with. Appending it to an
-  // or-rooted filter would widen the result set instead, so an or-root is
-  // wrapped as a group under a new and-root.
   const search: CrmFilterLeaf | undefined = input.query
     ? { field: "displayName", condition: "contains", value: input.query }
     : undefined;
@@ -1367,7 +1316,30 @@ export async function queryCrmRecords(
   const pageConditions = [...conditions];
   if (input.cursor) {
     const cursor = decodeCursor(input.cursor, shape);
-    const predicate = keysetPredicate(keys, cursor);
+    const anchorSelection: Record<string, unknown> = {
+      id: schema.crmRecords.id,
+    };
+    keys.forEach((key, index) => {
+      anchorSelection[`sortKey${index}`] = key.expression.as(
+        `sort_key_${index}`,
+      );
+    });
+    const [anchor] = (await db
+      .select(anchorSelection as never)
+      .from(schema.crmRecords)
+      .where(eq(schema.crmRecords.id, cursor.id))
+      .limit(1)) as unknown as Array<Record<string, unknown>>;
+    if (!anchor) {
+      throw new CrmCursorError(
+        "CRM list cursor points at a record that no longer exists. Restart the list without a cursor.",
+      );
+    }
+    const predicate = keysetPredicate(keys, {
+      v: keys.map((_, index) =>
+        normalizeCursorValue(anchor[`sortKey${index}`]),
+      ),
+      id: cursor.id,
+    });
     if (predicate) pageConditions.push(predicate);
   }
 
@@ -1393,95 +1365,115 @@ export async function queryCrmRecords(
     selection[`sortKey${index}`] = key.expression.as(`sort_key_${index}`);
   });
 
-  const rows = (await db
-    .select(selection as never)
-    .from(schema.crmRecords)
-    .innerJoin(
-      schema.crmConnections,
-      eq(schema.crmRecords.connectionId, schema.crmConnections.id),
-    )
-    .where(and(...pageConditions))
-    .orderBy(...orderByFor(keys))
-    .limit(limit + 1)) as unknown as Array<
-    SummaryRow & {
-      connectionId: string;
-      objectType: string;
-      provider: string;
-      accessScopeJson: string;
-      workspaceConnectionId: string | null;
-    } & Record<string, unknown>
-  >;
+  type RawRow = SummaryRow & {
+    connectionId: string;
+    objectType: string;
+    provider: string;
+    accessScopeJson: string;
+    workspaceConnectionId: string | null;
+  } & Record<string, unknown>;
 
-  const hasMore = rows.length > limit;
-  const pageRows = rows.slice(0, limit);
-  const last = pageRows[pageRows.length - 1];
-  const nextCursor =
-    hasMore && last
-      ? JSON.stringify({
-          f: shape,
-          v: keys.map((_, index) =>
-            normalizeCursorValue(last[`sortKey${index}`]),
-          ),
-          id: last.id,
-        } satisfies CursorPayload)
-      : undefined;
-
-  const resolveScope = options.resolveScope ?? defaultScopeResolver;
-  const scopeTargets = Array.from(
-    new Map(
-      pageRows.map((row) => [
-        `${row.connectionId}:${row.objectType}`,
-        {
-          connectionId: row.connectionId,
-          workspaceConnectionId: row.workspaceConnectionId,
-          provider: row.provider,
-          objectType: row.objectType,
-        },
-      ]),
-    ).values(),
-  ).slice(0, MAX_SCOPE_VALIDATIONS);
-  const currentScopes = new Map(
-    await Promise.all(
-      scopeTargets.map(
-        async (target) =>
-          [
-            `${target.connectionId}:${target.objectType}`,
-            await resolveScope(target).catch(() => null),
-          ] as const,
-      ),
-    ),
-  );
-
-  const columnNames = view?.columns.map((column) => column.attributeId);
-  const records = pageRows
-    .filter((row) => {
-      const current = currentScopes.get(
-        `${row.connectionId}:${row.objectType}`,
-      );
-      return Boolean(
-        current &&
-        scopesAreCompatible(parseCrmAccessScope(row.accessScopeJson), current),
-      );
-    })
-    .map((row) => toRecordSummary(row, columnNames));
-
-  let totalEstimate: number | undefined;
-  if (input.includeTotal) {
-    const [count] = await db
-      .select({ total: sql<number>`count(*)` })
+  const fetchRows = (conds: SQL[], size: number) =>
+    db
+      .select(selection as never)
       .from(schema.crmRecords)
       .innerJoin(
         schema.crmConnections,
         eq(schema.crmRecords.connectionId, schema.crmConnections.id),
       )
-      .where(and(...conditions));
-    totalEstimate = Number(count?.total ?? 0);
+      .where(and(...conds))
+      .orderBy(...orderByFor(keys))
+      .limit(size) as unknown as Promise<RawRow[]>;
+
+  const cursorAfter = (row: RawRow): SQL | undefined =>
+    keysetPredicate(keys, {
+      v: keys.map((_, index) => normalizeCursorValue(row[`sortKey${index}`])),
+      id: row.id,
+    });
+
+  // Rows whose stored access scope no longer matches the current one are
+  // dropped after SQL, so a withheld row must not use up a page slot: keep
+  // scanning further raw rows (bounded) until the page is full or the table
+  // runs out, and never report a withheld row as proof there is no more data.
+  const scopeResolver = options.resolveScope ?? crmScopeResolver();
+  const targetVisible = limit + 1; // one extra to know whether more remain
+  const kept: RawRow[] = [];
+  let scanConditions = pageConditions;
+  let lastRawRow: RawRow | undefined;
+  let exhausted = false;
+  for (
+    let batch = 0;
+    batch < MAX_SCOPE_FILL_BATCHES && kept.length < targetVisible && !exhausted;
+    batch++
+  ) {
+    const need = targetVisible - kept.length;
+    const rawRows = await fetchRows(scanConditions, need);
+    if (!rawRows.length) {
+      exhausted = true;
+      break;
+    }
+    exhausted = rawRows.length < need;
+    lastRawRow = rawRows[rawRows.length - 1];
+    const visible = await recordsInCurrentScope(rawRows, scopeResolver);
+    kept.push(...visible);
+    if (!exhausted) {
+      const after = cursorAfter(lastRawRow);
+      scanConditions = after ? [...conditions, after] : conditions;
+    }
+  }
+
+  const hasMore = kept.length > limit;
+  const pageRows = kept.slice(0, limit);
+  const last = pageRows[pageRows.length - 1];
+  const cursorFor = (row: RawRow) => encodeCursor({ f: shape, id: row.id });
+  const nextCursor =
+    hasMore && last
+      ? cursorFor(last)
+      : !exhausted && lastRawRow
+        ? cursorFor(lastRawRow)
+        : undefined;
+
+  const columnNames = view?.columns.map((column) => column.attributeId);
+  const records = pageRows.map((row) => toRecordSummary(row, columnNames));
+
+  // Count per stored scope and keep only the groups the current scope still
+  // covers, so every matched row is scope-validated and the total never
+  // discloses rows the caller's provider access no longer covers.
+  let totalEstimate: number | undefined;
+  if (input.includeTotal) {
+    const groups = await db
+      .select({
+        connectionId: schema.crmRecords.connectionId,
+        objectType: schema.crmRecords.objectType,
+        provider: schema.crmRecords.provider,
+        accessScopeJson: schema.crmRecords.accessScopeJson,
+        workspaceConnectionId: schema.crmConnections.workspaceConnectionId,
+        total: sql<number>`count(*)`,
+      })
+      .from(schema.crmRecords)
+      .innerJoin(
+        schema.crmConnections,
+        eq(schema.crmRecords.connectionId, schema.crmConnections.id),
+      )
+      .where(and(...conditions))
+      .groupBy(
+        schema.crmRecords.connectionId,
+        schema.crmRecords.objectType,
+        schema.crmRecords.provider,
+        schema.crmRecords.accessScopeJson,
+        schema.crmConnections.workspaceConnectionId,
+      );
+    const inScope = await recordsInCurrentScope(groups, scopeResolver);
+    totalEstimate = inScope.reduce(
+      (sum, group) => sum + Number(group.total),
+      0,
+    );
   }
 
   return {
     records,
     nextCursor,
-    complete: !hasMore,
+    complete: nextCursor === undefined,
     ...(totalEstimate === undefined ? {} : { totalEstimate }),
     ...(view
       ? {
@@ -1516,8 +1508,6 @@ function normalizeCursorValue(
   ) {
     return value;
   }
-  // A sort key that is not a comparable scalar cannot be resumed from; failing
-  // here beats emitting a cursor that silently reorders the next page.
   throw new CrmCursorError(
     "CRM list sort key is not a comparable value; remove it from the sort.",
   );
@@ -1536,9 +1526,6 @@ function sortKeyExpression(
     );
   }
   const column = valueColumnFor(target.attribute);
-  // A record has at most one current row per attribute (the partial unique
-  // index enforces it); LIMIT 1 keeps PostgreSQL from erroring if that ever
-  // slips rather than failing the whole page.
   const subquery = getDb()
     .select({ value: sql`${column}`.as("value") })
     .from(schema.crmRecordFields)

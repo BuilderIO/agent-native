@@ -22,8 +22,6 @@ describe("isOsFileDragEvent", () => {
   });
 
   it("returns false for an internal DOM drag with only text/plain", () => {
-    // Matches the extensions-panel native-asset drag, which sets
-    // dataTransfer.setData("text/plain", ...) and never includes "Files".
     expect(isOsFileDragEvent(dragEventWithTypes(["text/plain"]))).toBe(false);
   });
 
@@ -36,9 +34,6 @@ describe("isOsFileDragEvent", () => {
   });
 
   it("works with a real DOMStringList-like object exposing only length/item/contains", () => {
-    // dataTransfer.types is a DOMStringList in real browsers, not a plain
-    // array — it supports indexed access and .length but not .includes().
-    // The implementation must use an index loop, not Array#includes.
     const domStringListLike = {
       length: 2,
       0: "text/uri-list",

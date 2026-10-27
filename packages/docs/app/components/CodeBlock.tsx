@@ -3,14 +3,20 @@ import { useT } from "@agent-native/core/client/i18n";
 import { useEffect, useState, useRef } from "react";
 import { codeToHtml } from "shiki";
 
+import { copyText } from "./website-redesign/ds/clipboard";
+
 interface CodeBlockProps {
   code: string;
   lang?: string;
+  className?: string;
+  onCopySuccess?: () => void;
 }
 
 export default function CodeBlock({
   code,
   lang = "typescript",
+  className = "my-4",
+  onCopySuccess,
 }: CodeBlockProps) {
   const t = useT();
   const [html, setHtml] = useState("");
@@ -25,8 +31,6 @@ export default function CodeBlock({
         light: "github-light-default",
         dark: "github-dark-default",
       },
-      // Emit BOTH --shiki-light and --shiki-dark CSS vars (no baked-in default
-      // theme) so the per-theme color rules in global.css work in both modes.
       defaultColor: false,
     })
       .then((result) => {
@@ -40,20 +44,21 @@ export default function CodeBlock({
     };
   }, [code, lang]);
 
-  function handleCopy() {
-    void navigator.clipboard.writeText(code.trim());
+  async function handleCopy() {
+    if (!(await copyText(code.trim()))) return;
     setCopied(true);
+    onCopySuccess?.();
     trackEvent("copy code block", { lang, snippet: code.trim().slice(0, 100) });
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     timeoutRef.current = setTimeout(() => setCopied(false), 2000);
   }
 
   return (
-    <div className="code-block group relative my-4">
+    <div className={`code-block group relative ${className}`}>
       <button
         type="button"
         onClick={handleCopy}
-        className="absolute right-2 top-2 z-10 flex h-8 w-8 items-center justify-center rounded-md border border-[var(--code-border)] bg-[var(--code-bg)] text-xs text-[var(--fg-secondary)] opacity-0 transition hover:text-[var(--fg)] group-hover:opacity-100"
+        className="absolute right-2 top-2 z-10 flex h-8 w-8 items-center justify-center rounded-md border border-[var(--code-border)] bg-[var(--code-bg)] text-xs text-[var(--fg-secondary)] opacity-100 transition hover:text-[var(--fg)] sm:opacity-0 sm:group-hover:opacity-100 focus-visible:opacity-100"
         aria-label={t("common.copyCode")}
       >
         {copied ? (

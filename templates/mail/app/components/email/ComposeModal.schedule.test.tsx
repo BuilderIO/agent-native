@@ -11,6 +11,8 @@ import {
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { FOCUS_COMPOSE_DRAFT_EVENT } from "@/hooks/use-compose-state";
+
 const mockScheduleEmail = vi.hoisted(() => vi.fn());
 const mockSendEmailAsync = vi.hoisted(() => vi.fn());
 const mockArchiveEmail = vi.hoisted(() => vi.fn());
@@ -18,8 +20,12 @@ const mockSettings = vi.hoisted(() => ({ sendAndArchive: false }));
 const mockAccounts = vi.hoisted(
   () => [] as Array<{ email: string; displayName?: string }>,
 );
+// Like sonner's, the mock returns the id of the toast it shows.
 const mockToast = vi.hoisted(() =>
-  Object.assign(vi.fn(), { error: vi.fn(), dismiss: vi.fn() }),
+  Object.assign(vi.fn().mockReturnValue("toast-id"), {
+    error: vi.fn(),
+    dismiss: vi.fn(),
+  }),
 );
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
@@ -207,7 +213,7 @@ describe("ComposeModal scheduling", () => {
     cleanup();
   });
 
-  it("opens a new-message draft in the compact workspace card", () => {
+  it("opens a new-message draft in the roomy workspace card", () => {
     const { container, getByRole } = render(
       <ComposeModal
         drafts={[draft]}
@@ -229,14 +235,60 @@ describe("ComposeModal scheduling", () => {
     expect(compose?.className).toContain("bottom-0");
     expect(compose?.className).not.toContain("sm:top-14");
     expect(compose?.className).not.toContain("sm:bottom-auto");
-    expect(compose?.className).toContain("sm:h-[300px]");
-    expect(compose?.className).toContain("sm:w-[490px]");
+    expect(compose?.className).toContain(
+      "sm:h-[min(540px,_calc(100dvh_-_2rem))]",
+    );
+    expect(compose?.className).toContain(
+      "md:w-[min(490px,_calc(100vw_-_var(--compose-right)_-_1rem))]",
+    );
     expect(compose?.className).toContain("sm:rounded-xl");
     expect(
       getByRole("button", {
         name: "mail.compose.fullScreenCompose",
       }).getAttribute("aria-pressed"),
     ).toBe("false");
+  });
+
+  it("restores a minimized saved draft when the agent focuses it", () => {
+    const savedDraft: ComposeState = {
+      ...draft,
+      savedDraftId: "gmail-draft-1",
+      savedDraftBackend: "gmail",
+      savedDraftAccountEmail: "owner@example.com",
+    };
+    const { container, getByRole } = render(
+      <ComposeModal
+        drafts={[savedDraft]}
+        activeId={savedDraft.id}
+        activeDraft={savedDraft}
+        onSetActiveId={vi.fn()}
+        onUpdate={vi.fn()}
+        onClose={vi.fn()}
+        onCloseAll={vi.fn()}
+        onDiscard={vi.fn()}
+        onStageForSend={vi.fn()}
+        onRestoreAfterSend={vi.fn()}
+        onNewDraft={vi.fn()}
+        onFlush={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(
+      getByRole("button", { name: "mail.compose.minimizeCompose" }),
+    );
+    expect(container.querySelector('[data-recipient-field="to"]')).toBeNull();
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(FOCUS_COMPOSE_DRAFT_EVENT, {
+          detail: { id: savedDraft.id },
+        }),
+      );
+    });
+
+    expect(
+      container.querySelector('[data-recipient-field="to"]'),
+    ).not.toBeNull();
   });
 
   it("focuses the initial unsaved draft when the modal mounts", async () => {
@@ -1500,5 +1552,226 @@ describe("ComposeModal scheduling", () => {
     expect(onStageForSend).toHaveBeenCalledWith(draft.id);
     expect(onDiscard).not.toHaveBeenCalled();
     expect(onRestoreAfterSend).toHaveBeenCalledWith(draft.id);
+  });
+
+  it("reports card sends as progress instead of toasts", async () => {
+    vi.useFakeTimers();
+    let resolveSend!: (result: { id: string }) => void;
+    mockSendEmailAsync.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSend = resolve;
+      }),
+    );
+    const onDiscard = vi.fn();
+    const onSendProgress = vi.fn();
+    const { getByRole, queryByLabelText, queryByPlaceholderText } = render(
+      <ComposeModal
+        presentation="card"
+        drafts={[replyDraft]}
+        activeId={replyDraft.id}
+        activeDraft={replyDraft}
+        onSetActiveId={vi.fn()}
+        onUpdate={vi.fn()}
+        onClose={vi.fn()}
+        onCloseAll={vi.fn()}
+        onDiscard={onDiscard}
+        onStageForSend={vi.fn()}
+        onRestoreAfterSend={vi.fn()}
+        onNewDraft={vi.fn()}
+        onFlush={vi.fn()}
+        onSendProgress={onSendProgress}
+      />,
+    );
+
+    // The card has no window controls, and a reply's subject sits in its header.
+    expect(queryByLabelText("mail.compose.closeAllDrafts")).toBeNull();
+    expect(queryByPlaceholderText("mail.compose.subject")).toBeNull();
+
+    fireEvent.click(getByRole("button", { name: "mail.compose.send" }));
+    expect(onSendProgress).toHaveBeenLastCalledWith({
+      status: "queued",
+      undo: expect.any(Function),
+    });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(onSendProgress).toHaveBeenLastCalledWith({ status: "sending" });
+
+    await act(async () => {
+      resolveSend({ id: "sent-1" });
+      await Promise.resolve();
+    });
+
+    expect(onSendProgress).toHaveBeenLastCalledWith({ status: "sent" });
+    expect(onDiscard).toHaveBeenCalledWith(replyDraft.id);
+    expect(mockToast).not.toHaveBeenCalled();
+  });
+
+  it("shows a card draft's copied recipients without a click", () => {
+    const copied = { ...replyDraft, cc: "theo@example.com" };
+    const { container } = render(
+      <ComposeModal
+        presentation="card"
+        drafts={[copied]}
+        activeId={copied.id}
+        activeDraft={copied}
+        onSetActiveId={vi.fn()}
+        onUpdate={vi.fn()}
+        onClose={vi.fn()}
+        onCloseAll={vi.fn()}
+        onDiscard={vi.fn()}
+        onStageForSend={vi.fn()}
+        onRestoreAfterSend={vi.fn()}
+        onNewDraft={vi.fn()}
+        onFlush={vi.fn()}
+        onSendProgress={vi.fn()}
+      />,
+    );
+
+    const cc = container.querySelector<HTMLInputElement>(
+      'input[data-recipient-field="cc"]:not([data-mail-recipient-input])',
+    );
+    expect(cc?.value).toBe("theo@example.com");
+    // An empty Bcc row would only take room from the message.
+    expect(
+      container.querySelector('input[data-recipient-field="bcc"]'),
+    ).toBeNull();
+  });
+
+  it("leaves a card draft edited while scheduling open and says so in a toast", async () => {
+    let resolveSchedule!: (value: unknown) => void;
+    mockScheduleEmail.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSchedule = resolve;
+      }),
+    );
+    const onDiscard = vi.fn();
+    const onSendProgress = vi.fn();
+    const props = {
+      presentation: "card" as const,
+      onSetActiveId: vi.fn(),
+      onUpdate: vi.fn(),
+      onClose: vi.fn(),
+      onCloseAll: vi.fn(),
+      onDiscard,
+      onStageForSend: vi.fn(),
+      onRestoreAfterSend: vi.fn(),
+      onNewDraft: vi.fn(),
+      onFlush: vi.fn(),
+      onSendProgress,
+    };
+    const { getByRole, rerender } = render(
+      <ComposeModal
+        {...props}
+        drafts={[replyDraft]}
+        activeId={replyDraft.id}
+        activeDraft={replyDraft}
+      />,
+    );
+
+    fireEvent.click(getByRole("button", { name: "Schedule send" }));
+    fireEvent.click(getByRole("button", { name: "Schedule later" }));
+    const edited = { ...replyDraft, body: "One more thing." };
+    rerender(
+      <ComposeModal
+        {...props}
+        drafts={[edited]}
+        activeId={edited.id}
+        activeDraft={edited}
+      />,
+    );
+    resolveSchedule({});
+
+    await vi.waitFor(() =>
+      expect(mockToast).toHaveBeenCalledWith("mail.sendLater.scheduledFor"),
+    );
+    expect(onSendProgress).not.toHaveBeenCalled();
+    expect(onDiscard).not.toHaveBeenCalled();
+  });
+
+  it("leaves a card draft retargeted to another thread while scheduling open", async () => {
+    let resolveSchedule!: (value: unknown) => void;
+    mockScheduleEmail.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSchedule = resolve;
+      }),
+    );
+    const onDiscard = vi.fn();
+    const onSendProgress = vi.fn();
+    const props = {
+      presentation: "card" as const,
+      onSetActiveId: vi.fn(),
+      onUpdate: vi.fn(),
+      onClose: vi.fn(),
+      onCloseAll: vi.fn(),
+      onDiscard,
+      onStageForSend: vi.fn(),
+      onRestoreAfterSend: vi.fn(),
+      onNewDraft: vi.fn(),
+      onFlush: vi.fn(),
+      onSendProgress,
+    };
+    const { getByRole, rerender } = render(
+      <ComposeModal
+        {...props}
+        drafts={[replyDraft]}
+        activeId={replyDraft.id}
+        activeDraft={replyDraft}
+      />,
+    );
+
+    fireEvent.click(getByRole("button", { name: "Schedule send" }));
+    fireEvent.click(getByRole("button", { name: "Schedule later" }));
+    // An agent moves the draft to another thread while the schedule is in
+    // flight, so the scheduled copy isn't the draft anymore.
+    const retargeted = { ...replyDraft, replyToThreadId: "other-thread" };
+    rerender(
+      <ComposeModal
+        {...props}
+        drafts={[retargeted]}
+        activeId={retargeted.id}
+        activeDraft={retargeted}
+      />,
+    );
+    resolveSchedule({});
+
+    await vi.waitFor(() =>
+      expect(mockToast).toHaveBeenCalledWith("mail.sendLater.scheduledFor"),
+    );
+    expect(mockScheduleEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ threadId: "source-thread" }),
+    );
+    expect(onSendProgress).not.toHaveBeenCalled();
+    expect(onDiscard).not.toHaveBeenCalled();
+  });
+
+  it("holds Send and scheduling while sending is disabled", () => {
+    const onStageForSend = vi.fn();
+    const { getByRole } = render(
+      <ComposeModal
+        presentation="card"
+        sendDisabled
+        drafts={[replyDraft]}
+        activeId={replyDraft.id}
+        activeDraft={replyDraft}
+        onSetActiveId={vi.fn()}
+        onUpdate={vi.fn()}
+        onClose={vi.fn()}
+        onCloseAll={vi.fn()}
+        onDiscard={vi.fn()}
+        onStageForSend={onStageForSend}
+        onRestoreAfterSend={vi.fn()}
+        onNewDraft={vi.fn()}
+        onFlush={vi.fn()}
+        onSendProgress={vi.fn()}
+      />,
+    );
+    const sendButton = getByRole("button", { name: "mail.compose.send" });
+
+    expect(sendButton.hasAttribute("disabled")).toBe(true);
+    expect(
+      getByRole("button", { name: "Schedule send" }).hasAttribute("disabled"),
+    ).toBe(true);
+    fireEvent.keyDown(sendButton, { key: "Enter", metaKey: true });
+    expect(onStageForSend).not.toHaveBeenCalled();
+    expect(mockSendEmailAsync).not.toHaveBeenCalled();
   });
 });

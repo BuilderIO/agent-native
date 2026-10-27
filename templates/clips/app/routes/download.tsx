@@ -1,4 +1,8 @@
-import { appBasePath, appPath } from "@agent-native/core/client/api-path";
+import {
+  appBasePath,
+  appPath,
+  WorkspaceAppMountResolutionError,
+} from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import { docsUrl } from "@agent-native/core/shared";
 import {
@@ -52,7 +56,7 @@ interface PlatformVariant {
   icon: typeof IconBrandApple;
 }
 
-const LATEST_JSON_URL = `${appBasePath()}/api/clips-latest.json`;
+const LATEST_JSON_PATH = "/api/clips-latest.json";
 const MANIFEST_STORAGE_KEY = "clips-download-manifest-v1";
 const CHROME_EXTENSION_DOCS_URL = docsUrl("template-clips-capture-everywhere", {
   hash: "browser-logs-with-the-chrome-extension",
@@ -122,6 +126,15 @@ function isManifest(value: unknown): value is Manifest {
   );
 }
 
+function getDownloadHeaderPath(path: string): string | undefined {
+  try {
+    return appPath(path);
+  } catch (error) {
+    if (!(error instanceof WorkspaceAppMountResolutionError)) throw error;
+    return undefined;
+  }
+}
+
 function readCachedManifest(channel: DownloadReleaseChannel): Manifest | null {
   if (typeof window === "undefined") return null;
   try {
@@ -176,8 +189,10 @@ function primaryDownloadButton(
   variant: PlatformVariant,
   manifest: Manifest | null,
   manifestError: boolean,
+  mountResolutionError: boolean,
   downloadLabel: string,
   retryLabel: string,
+  mountErrorLabel: string,
   onRetry: () => void,
   downloadStarted: boolean,
   downloadStartedLabel: string,
@@ -207,6 +222,13 @@ function primaryDownloadButton(
     return <Skeleton className="h-12 w-[252px] rounded-md" />;
   }
   if (manifestError) {
+    if (mountResolutionError) {
+      return (
+        <p role="alert" className="max-w-sm text-sm text-muted-foreground">
+          {mountErrorLabel}
+        </p>
+      );
+    }
     return (
       <Button
         size="lg"
@@ -299,6 +321,7 @@ export default function DownloadPage() {
   const [hostResolved, setHostResolved] = useState(false);
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [manifestError, setManifestError] = useState(false);
+  const [mountResolutionError, setMountResolutionError] = useState(false);
   const [detected, setDetected] = useState<PlatformId | null>(null);
   const [manifestRequest, setManifestRequest] = useState(0);
   const [confirmedDownload, setConfirmedDownload] =
@@ -320,10 +343,24 @@ export default function DownloadPage() {
     const cachedManifest = readCachedManifest(channel);
     setManifest(cachedManifest);
     setManifestError(false);
-    const manifestUrl =
-      channel === "nightly"
-        ? `${LATEST_JSON_URL}?channel=nightly`
-        : LATEST_JSON_URL;
+    setMountResolutionError(false);
+    let manifestUrl: string;
+    try {
+      const latestJsonUrl = `${appBasePath()}${LATEST_JSON_PATH}`;
+      manifestUrl =
+        channel === "nightly"
+          ? `${latestJsonUrl}?channel=nightly`
+          : latestJsonUrl;
+    } catch (error) {
+      if (!(error instanceof WorkspaceAppMountResolutionError)) throw error;
+      if (!cachedManifest) {
+        setManifestError(true);
+        setMountResolutionError(true);
+      }
+      return () => {
+        cancelled = true;
+      };
+    }
     fetch(manifestUrl)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`${r.status}`))))
       .then((json) => {
@@ -364,6 +401,10 @@ export default function DownloadPage() {
   const downloadStartedLabel = t("downloadRoute.downloadStarted");
   const primaryDownloadStarted =
     confirmedDownload?.asset.url === primaryAsset?.url;
+  const brandHref = getDownloadHeaderPath("/");
+  const lightIconSrc = getDownloadHeaderPath("/agent-native-icon-light.svg");
+  const darkIconSrc = getDownloadHeaderPath("/agent-native-icon-dark.svg");
+  const libraryHref = getDownloadHeaderPath("/library");
 
   const handleDownload = (asset: Manifest["assets"][number], label: string) => {
     markDesktopAppDownloaded();
@@ -375,29 +416,35 @@ export default function DownloadPage() {
       <header className="border-b border-border/40">
         <div className="mx-auto flex h-16 max-w-[1300px] items-center gap-3 border-x border-border/40 px-6 sm:px-10">
           <a
-            href={appPath("/")}
+            href={brandHref}
             className="flex items-center gap-2 font-semibold tracking-tight"
           >
-            <img
-              src={appPath("/agent-native-icon-light.svg")}
-              alt=""
-              aria-hidden="true"
-              className="block h-4 w-auto shrink-0 dark:hidden"
-            />
-            <img
-              src={appPath("/agent-native-icon-dark.svg")}
-              alt=""
-              aria-hidden="true"
-              className="hidden h-4 w-auto shrink-0 dark:block"
-            />
+            {lightIconSrc !== undefined && (
+              <img
+                src={lightIconSrc}
+                alt=""
+                aria-hidden="true"
+                className="block h-4 w-auto shrink-0 dark:hidden"
+              />
+            )}
+            {darkIconSrc !== undefined && (
+              <img
+                src={darkIconSrc}
+                alt=""
+                aria-hidden="true"
+                className="hidden h-4 w-auto shrink-0 dark:block"
+              />
+            )}
             <span>Clips</span>
           </a>
-          <a
-            href={appPath("/library")}
-            className="ms-auto text-sm text-muted-foreground transition-colors hover:text-foreground"
-          >
-            {t("downloadRoute.backToLibrary")}
-          </a>
+          {libraryHref !== undefined && (
+            <a
+              href={libraryHref}
+              className="ms-auto text-sm text-muted-foreground transition-colors hover:text-foreground"
+            >
+              {t("downloadRoute.backToLibrary")}
+            </a>
+          )}
         </div>
       </header>
 
@@ -424,8 +471,10 @@ export default function DownloadPage() {
                 primary,
                 manifest,
                 manifestError,
+                mountResolutionError,
                 downloadLabel,
                 t("downloadRoute.retry"),
+                t("downloadRoute.mountError"),
                 retryManifest,
                 primaryDownloadStarted,
                 downloadStartedLabel,

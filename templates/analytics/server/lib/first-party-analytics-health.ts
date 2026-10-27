@@ -15,6 +15,10 @@ import {
   type FirstPartyAnalyticsDeliveryHealth,
 } from "./first-party-analytics-delivery.js";
 import type { AnalyticsScope } from "./first-party-analytics.js";
+import { resolveBigQueryOAuthCredential } from "./provider-credentials.js";
+
+const FIRST_PARTY_ANALYTICS_HEALTH_WINDOW_DAYS = 30;
+const FIRST_PARTY_ANALYTICS_HEALTH_MAX_BYTES_BILLED = 100_000_000;
 
 export const FIRST_PARTY_ANALYTICS_PRESSURE_THRESHOLDS = {
   slowQueryMs: 5_000,
@@ -28,10 +32,7 @@ const EXTERNAL_BACKEND_DEFINITIONS = [
     id: "bigquery",
     label: "BigQuery",
     role: "warehouse",
-    requiredKeys: [
-      "GOOGLE_APPLICATION_CREDENTIALS_JSON",
-      "BIGQUERY_PROJECT_ID",
-    ],
+    requiredKeys: ["BIGQUERY_PROJECT_ID"],
     setupLink: buildDeepLink({
       app: "analytics",
       view: "data-sources",
@@ -89,6 +90,15 @@ export interface FirstPartyAnalyticsBackendStatus {
   setupLink: string;
 }
 
+export type FirstPartyAnalyticsBigQueryStatus =
+  FirstPartyAnalyticsBackendStatus & { id: "bigquery"; role: "warehouse" };
+
+function isBigQueryStatus<T extends { id: string }>(
+  backend: T,
+): backend is T & { id: "bigquery"; role: "warehouse" } {
+  return backend.id === "bigquery";
+}
+
 export interface FirstPartyAnalyticsHealth {
   status: FirstPartyAnalyticsHealthStatus;
   recommendation: FirstPartyAnalyticsRecommendation;
@@ -99,20 +109,30 @@ export interface FirstPartyAnalyticsHealth {
   >;
   observedAt: string;
   metrics: {
-    eventCount: number;
-    dailyRollupRows: number;
+    coverage:
+      | { kind: "all_time" }
+      | { kind: "recent_window"; startDate: string; endDate: string }
+      | {
+          kind: "unavailable";
+          reason: "maximum_bytes_billed" | "health_read_failed";
+        };
+    eventCount: number | null;
+    dailyRollupRows: number | null;
     firstEventDate: string | null;
+    firstEventDateUnavailableReason:
+      | "bounded_bigquery_read"
+      | "health_unavailable"
+      | null;
     lastEventDate: string | null;
-    spanDays: number;
-    slowQueryCount24h: number;
-    timeoutCount24h: number;
-    errorCount24h: number;
-    maxQueryDurationMs24h: number;
+    spanDays: number | null;
+    slowQueryCount24h: number | null;
+    timeoutCount24h: number | null;
+    errorCount24h: number | null;
+    maxQueryDurationMs24h: number | null;
   };
   thresholds: typeof FIRST_PARTY_ANALYTICS_PRESSURE_THRESHOLDS;
-  delivery: FirstPartyAnalyticsDeliveryHealth;
-  /** Kept for clients that still read the original BigQuery-only field. */
-  bigQuery: FirstPartyAnalyticsBackendStatus;
+  delivery: FirstPartyAnalyticsDeliveryHealth | null;
+  bigQuery: FirstPartyAnalyticsBigQueryStatus;
 }
 
 interface QueryPressureEvent {
@@ -204,11 +224,6 @@ function shouldRecordPressure(event: QueryPressureEvent): boolean {
   );
 }
 
-/**
- * Persist only slow/failing query aggregates. This intentionally sits outside
- * the raw event stream so diagnosing database pressure cannot recursively add
- * more analytics events to the same database.
- */
 export async function recordFirstPartyAnalyticsQueryPressure(
   scope: AnalyticsScope,
   event: QueryPressureEvent,
@@ -272,12 +287,40 @@ async function externalBackendStatus(
   definition: (typeof EXTERNAL_BACKEND_DEFINITIONS)[number],
 ): Promise<FirstPartyAnalyticsBackendStatus> {
   try {
+    const credentialContext = {
+      userEmail: scope.userEmail,
+      orgId: scope.orgId,
+      ...(scope.credentialScope === "org"
+        ? { credentialScope: "org" as const }
+        : {}),
+    };
+    if (definition.id === "bigquery") {
+      const [projectConfigured, serviceAccountConfigured] = await Promise.all([
+        hasCredential("BIGQUERY_PROJECT_ID", credentialContext),
+        hasCredential("GOOGLE_APPLICATION_CREDENTIALS_JSON", credentialContext),
+      ]);
+      const oauthCredential =
+        await resolveBigQueryOAuthCredential(credentialContext);
+      const hasAuth = serviceAccountConfigured || Boolean(oauthCredential);
+      return {
+        id: definition.id,
+        label: definition.label,
+        role: definition.role,
+        configured: projectConfigured && hasAuth,
+        missingRequiredKeys: [
+          ...(!projectConfigured ? ["BIGQUERY_PROJECT_ID"] : []),
+          ...(!hasAuth
+            ? [
+                "GOOGLE_APPLICATION_CREDENTIALS_JSON or BigQuery OAuth connection",
+              ]
+            : []),
+        ],
+        setupLink: definition.setupLink,
+      };
+    }
     const configured = await Promise.all(
       definition.requiredKeys.map((key) =>
-        hasCredential(key, {
-          userEmail: scope.userEmail,
-          orgId: scope.orgId,
-        }),
+        hasCredential(key, credentialContext),
       ),
     );
     return {
@@ -350,12 +393,19 @@ export async function getFirstPartyAnalyticsHealth(
   const pressure = schema.analyticsQueryPressureDaily;
   const db = getDb() as any;
   const backend = await getFirstPartyAnalyticsBackend(scope);
+  const startDate = new Date(
+    now.getTime() - (FIRST_PARTY_ANALYTICS_HEALTH_WINDOW_DAYS - 1) * 86_400_000,
+  )
+    .toISOString()
+    .slice(0, 10);
 
   const rollupRowsPromise =
     backend.sink === "bigquery"
-      ? getFirstPartyAnalyticsBigQueryMetrics(scope, backend.table).then(
-          (metrics) => [metrics],
-        )
+      ? getFirstPartyAnalyticsBigQueryMetrics(scope, backend.table, {
+          startDate,
+          endDate: today,
+          maxBytesBilled: FIRST_PARTY_ANALYTICS_HEALTH_MAX_BYTES_BILLED,
+        }).then((metrics) => [metrics])
       : db
           .select({
             eventCount: sql<number>`coalesce(sum(${rollups.eventCount}), 0)`,
@@ -408,16 +458,16 @@ export async function getFirstPartyAnalyticsHealth(
       deliveryPromise,
     ]);
 
-  const bigQuery = externalBackends.find(
-    (backend) => backend.id === "bigquery",
-  );
+  const bigQuery = externalBackends.find(isBigQueryStatus);
   if (!bigQuery) throw new Error("BigQuery backend status is missing");
 
   const rollup = (rollupRows[0] ?? {}) as Record<string, unknown>;
   const eventCount = finiteNumber(rollup.eventCount);
   const dailyRollupRows = finiteNumber(rollup.dailyRollupRows);
   const firstEventDate =
-    typeof rollup.firstEventDate === "string" ? rollup.firstEventDate : null;
+    backend.sink !== "bigquery" && typeof rollup.firstEventDate === "string"
+      ? rollup.firstEventDate
+      : null;
   const lastEventDate =
     typeof rollup.lastEventDate === "string" ? rollup.lastEventDate : null;
   const slowQueryCount24h = pressureRows.reduce(
@@ -442,6 +492,7 @@ export async function getFirstPartyAnalyticsHealth(
   );
   const reasons: FirstPartyAnalyticsHealth["reasons"] = [];
   if (
+    backend.sink !== "bigquery" &&
     eventCount >= FIRST_PARTY_ANALYTICS_PRESSURE_THRESHOLDS.recommendEventCount
   ) {
     reasons.push("event_volume");
@@ -490,11 +541,20 @@ export async function getFirstPartyAnalyticsHealth(
     reasons,
     observedAt: nowIso(),
     metrics: {
+      coverage:
+        backend.sink === "bigquery"
+          ? { kind: "recent_window", startDate, endDate: today }
+          : { kind: "all_time" },
       eventCount,
       dailyRollupRows,
       firstEventDate,
+      firstEventDateUnavailableReason:
+        backend.sink === "bigquery" ? "bounded_bigquery_read" : null,
       lastEventDate,
-      spanDays: dateSpanDays(firstEventDate, lastEventDate),
+      spanDays:
+        backend.sink === "bigquery"
+          ? null
+          : dateSpanDays(firstEventDate, lastEventDate),
       slowQueryCount24h,
       timeoutCount24h,
       errorCount24h,
@@ -506,7 +566,9 @@ export async function getFirstPartyAnalyticsHealth(
   };
 }
 
-export function unavailableFirstPartyAnalyticsHealth(): FirstPartyAnalyticsHealth {
+export function unavailableFirstPartyAnalyticsHealth(
+  reason: "maximum_bytes_billed" | "health_read_failed" = "health_read_failed",
+): FirstPartyAnalyticsHealth {
   const externalBackends = EXTERNAL_BACKEND_DEFINITIONS.map((definition) => ({
     id: definition.id,
     label: definition.label,
@@ -515,9 +577,7 @@ export function unavailableFirstPartyAnalyticsHealth(): FirstPartyAnalyticsHealt
     missingRequiredKeys: [],
     setupLink: definition.setupLink,
   }));
-  const bigQuery = externalBackends.find(
-    (backend) => backend.id === "bigquery",
-  );
+  const bigQuery = externalBackends.find(isBigQueryStatus);
   if (!bigQuery) throw new Error("BigQuery backend status is missing");
 
   return {
@@ -528,18 +588,20 @@ export function unavailableFirstPartyAnalyticsHealth(): FirstPartyAnalyticsHealt
     reasons: [],
     observedAt: nowIso(),
     metrics: {
-      eventCount: 0,
-      dailyRollupRows: 0,
+      coverage: { kind: "unavailable", reason },
+      eventCount: null,
+      dailyRollupRows: null,
       firstEventDate: null,
+      firstEventDateUnavailableReason: "health_unavailable",
       lastEventDate: null,
-      spanDays: 0,
-      slowQueryCount24h: 0,
-      timeoutCount24h: 0,
-      errorCount24h: 0,
-      maxQueryDurationMs24h: 0,
+      spanDays: null,
+      slowQueryCount24h: null,
+      timeoutCount24h: null,
+      errorCount24h: null,
+      maxQueryDurationMs24h: null,
     },
     thresholds: FIRST_PARTY_ANALYTICS_PRESSURE_THRESHOLDS,
-    delivery: emptyDeliveryHealth(),
+    delivery: null,
     bigQuery,
   };
 }

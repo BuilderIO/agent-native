@@ -1,8 +1,14 @@
-import type { Dispatch, SetStateAction } from "react";
+import { normalizeDesignSourceType } from "@shared/source-mode";
+import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 
 import type { ExportSettingsValue } from "@/components/design/inspector";
 import type { ElementInfo } from "@/components/design/types";
+import {
+  browserDesignExportErrorType,
+  trackBrowserDesignExported,
+  type BrowserDesignExportContext,
+} from "@/lib/design-export-tracking";
 import {
   buildStaticForeignObjectSvg,
   stripNonStaticXmlAttributes,
@@ -16,34 +22,127 @@ import {
 import type { DesignData } from "@/pages/design-editor/types";
 
 export interface DownloadSvgArgs {
+  activeCanvasSourceType?: "inline" | "localhost" | "fusion";
   design: DesignData | null;
   activePreviewFrameId?: string | null;
+  requireContentSizeReport?: boolean;
+  exportScreenId?: string | null;
+  exportScreenSourceType?: string | null;
+  /** Join keys for the `design_exported` this command reports. */
+  exportTracking?: BrowserDesignExportContext;
   fallbackExportName: (extension: string, suffix?: string) => string;
+  pngExportingRef: RefObject<boolean>;
+  prepareScreenForExport?: (screenId: string) => symbol | undefined;
+  releaseScreenFromExport?: (lease: symbol) => void;
   selectedElement: ElementInfo | null;
   setSvgExporting: Dispatch<SetStateAction<boolean>>;
   t: (key: string, options?: Record<string, unknown>) => string;
   triggerBlobDownload: (blob: Blob, filename: string) => void;
 }
 
+const SCREEN_PREVIEW_READY_TIMEOUT_MS = 15_000;
+
+async function waitForSvgExportIframe(args: {
+  activeCanvasSourceType?: DownloadSvgArgs["activeCanvasSourceType"];
+  activePreviewFrameId?: string | null;
+  requireContentSizeReport?: boolean;
+  waitForMount: boolean;
+  exportScreenSourceType?: string | null;
+}): Promise<
+  | { kind: "ready"; iframe: HTMLIFrameElement; doc: Document }
+  | { kind: "unreadable"; iframe: HTMLIFrameElement }
+  | { kind: "timeout" }
+  | null
+> {
+  const deadline =
+    window.performance.now() +
+    (args.waitForMount ? SCREEN_PREVIEW_READY_TIMEOUT_MS : 0);
+  while (true) {
+    const iframe = resolveSvgExportIframe(
+      document.querySelectorAll<HTMLIFrameElement>(
+        "iframe[data-screen-iframe-id], iframe[data-design-preview-iframe]",
+      ),
+      args.activePreviewFrameId,
+    );
+    if (iframe?.isConnected) {
+      let doc: Document | null = null;
+      try {
+        doc = iframe.contentDocument;
+      } catch {
+        return { kind: "unreadable", iframe };
+      }
+      if (!doc) return { kind: "unreadable", iframe };
+      if (!doc.documentElement && doc.readyState === "complete") {
+        return { kind: "unreadable", iframe };
+      }
+      const sourceType =
+        normalizeDesignSourceType(
+          iframe.dataset.designSourceType ?? args.exportScreenSourceType,
+        ) ??
+        args.activeCanvasSourceType ??
+        "inline";
+      const isInitialExternalDocument =
+        sourceType !== "inline" && doc.URL === "about:blank";
+      const isInitialInlineDocument =
+        sourceType === "inline" &&
+        doc.URL === "about:blank" &&
+        iframe.hasAttribute("srcdoc");
+      if (
+        !args.waitForMount &&
+        !isInitialExternalDocument &&
+        !isInitialInlineDocument
+      ) {
+        return { kind: "ready", iframe, doc };
+      }
+      const bridgeWindow = doc?.defaultView as
+        | (Window & { __agentNativeContentSizeReport?: boolean })
+        | null;
+      if (
+        !isInitialExternalDocument &&
+        !isInitialInlineDocument &&
+        doc?.readyState === "complete" &&
+        (sourceType !== "inline" ||
+          args.requireContentSizeReport !== true ||
+          bridgeWindow?.__agentNativeContentSizeReport === true)
+      ) {
+        return { kind: "ready", iframe, doc };
+      }
+    }
+    if (window.performance.now() >= deadline) {
+      return iframe?.isConnected ? { kind: "timeout" } : null;
+    }
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 16));
+  }
+}
+
 export function resolveSvgExportIframe<
   T extends { getAttribute(name: string): string | null },
 >(iframes: Iterable<T>, activePreviewFrameId?: string | null): T | null {
   const candidates = Array.from(iframes);
-  if (activePreviewFrameId) {
-    const active = candidates.find(
-      (iframe) =>
-        iframe.getAttribute("data-screen-iframe-id") === activePreviewFrameId,
+  if (activePreviewFrameId != null) {
+    return (
+      candidates.find(
+        (iframe) =>
+          iframe.getAttribute("data-screen-iframe-id") === activePreviewFrameId,
+      ) ?? null
     );
-    if (active) return active;
   }
   return candidates.length === 1 ? (candidates[0] ?? null) : null;
 }
 
 export async function runDownloadSvg(
   {
+    activeCanvasSourceType,
     activePreviewFrameId,
     design,
+    exportTracking,
+    exportScreenId,
+    exportScreenSourceType,
+    requireContentSizeReport,
     fallbackExportName,
+    pngExportingRef,
+    prepareScreenForExport,
+    releaseScreenFromExport,
     selectedElement,
     setSvgExporting,
     t,
@@ -51,34 +150,62 @@ export async function runDownloadSvg(
   }: DownloadSvgArgs,
   settings?: Partial<ExportSettingsValue>,
 ) {
-  const iframe = resolveSvgExportIframe(
-    document.querySelectorAll<HTMLIFrameElement>(
-      "iframe[data-design-preview-iframe]",
-    ),
-    activePreviewFrameId,
-  );
-  const doc = iframe?.contentDocument;
-  if (!doc?.documentElement) {
-    toast.error(t("designEditor.toasts.openScreenSvg"));
+  if (pngExportingRef.current) {
+    toast.error(t("designEditor.toasts.exportBusy"));
     return;
   }
-
-  setSvgExporting(true);
+  pngExportingRef.current = true;
+  let preparedScreenLease: symbol | undefined;
   try {
-    // Same readiness race as the PNG path (see waitForExportReady):
-    // without this, an SVG downloaded right after a screen loads inlines
-    // whatever partial/empty CSSOM exists at that instant, producing an
-    // unstyled export for no reason a user could tell from the UI.
+    setSvgExporting(true);
+    if (exportScreenId && prepareScreenForExport) {
+      preparedScreenLease = prepareScreenForExport(exportScreenId);
+    }
+    const iframe = await waitForSvgExportIframe({
+      activeCanvasSourceType,
+      activePreviewFrameId,
+      requireContentSizeReport,
+      waitForMount: Boolean(exportScreenId),
+      exportScreenSourceType,
+    });
+    if (!iframe) {
+      trackBrowserDesignExported("svg", {
+        ...exportTracking,
+        status: "failed",
+        errorType: "no_preview",
+      });
+      toast.error(t("designEditor.toasts.openScreenSvg"));
+      return;
+    }
+    if (iframe.kind === "timeout") {
+      trackBrowserDesignExported("svg", {
+        ...exportTracking,
+        status: "failed",
+        errorType: "export_error",
+      });
+      toast.error(t("designEditor.toasts.svgExportError"));
+      return;
+    }
+    if (iframe.kind === "unreadable") {
+      trackBrowserDesignExported("svg", {
+        ...exportTracking,
+        status: "failed",
+        errorType: "export_error",
+      });
+      toast.error(t("designEditor.toasts.svgExportError"));
+      return;
+    }
+    const { iframe: previewIframe, doc } = iframe;
     await waitForExportReady(doc);
     const width = Math.max(
       doc.documentElement.scrollWidth,
       doc.body?.scrollWidth ?? 0,
-      iframe?.clientWidth ?? 0,
+      previewIframe.clientWidth,
     );
     const height = Math.max(
       doc.documentElement.scrollHeight,
       doc.body?.scrollHeight ?? 0,
-      iframe?.clientHeight ?? 0,
+      previewIframe.clientHeight,
     );
     const clone = doc.documentElement.cloneNode(true) as HTMLElement;
     clone.setAttribute("xmlns", "http://www.w3.org/1999/xhtml");
@@ -102,8 +229,6 @@ export async function runDownloadSvg(
           .map((rule) => rule.cssText)
           .join("\n");
       } catch {
-        // Cross-origin stylesheets cannot be read. Leave the original link in
-        // place instead of failing the whole export.
         return;
       }
       if (!cssText.trim()) return;
@@ -116,15 +241,7 @@ export async function runDownloadSvg(
       clonedStylesheetLinks[index]?.replaceWith(style);
     });
     clone.querySelectorAll("script").forEach((node) => node.remove());
-    // Strip the editor's selection outline / handles so the SVG shows only
-    // the design, not the editor chrome.
     removeEditorChromeOverlays(clone);
-    // The live DOM can contain Alpine/Vue-style directive attributes such
-    // as `@click`, `:class`, and `x-bind:class`. They are valid HTML but
-    // invalid/unbound XML names, and the old serializer emitted a download
-    // that xmllint/Figma rejected at the first directive. This is a static
-    // snapshot (scripts are removed just above), so strip executable and
-    // otherwise XML-unsafe attributes from the clone before serialization.
     stripNonStaticXmlAttributes(clone);
     clone.style.width = `${width}px`;
     clone.style.minHeight = `${height}px`;
@@ -146,10 +263,6 @@ export async function runDownloadSvg(
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;") || t("designEditor.designExport");
     const exportScale = Math.max(0.1, Math.min(4, settings?.scale ?? 1));
-    // When an element is selected, crop to just that frame by narrowing the
-    // SVG viewBox to its document-space rect. The foreignObject still holds
-    // the full document so layout and inherited styles stay intact; the
-    // viewBox clips the visible region to the selection.
     const cropRect = resolveExportCropRect(doc, selectedElement);
     const svg = buildStaticForeignObjectSvg({
       documentWidth: width,
@@ -165,7 +278,16 @@ export async function runDownloadSvg(
       fallbackExportName("svg", settings?.suffix),
     );
     toast.success(t("designEditor.toasts.svgDownloaded"));
+    trackBrowserDesignExported("svg", {
+      ...exportTracking,
+      status: "completed",
+    });
   } catch (error) {
+    trackBrowserDesignExported("svg", {
+      ...exportTracking,
+      status: "failed",
+      errorType: browserDesignExportErrorType(error),
+    });
     console.error("SVG export failed:", error);
     toast.error(
       error instanceof Error
@@ -173,6 +295,14 @@ export async function runDownloadSvg(
         : t("designEditor.toasts.svgExportError"),
     );
   } finally {
-    setSvgExporting(false);
+    try {
+      if (preparedScreenLease) releaseScreenFromExport?.(preparedScreenLease);
+    } finally {
+      try {
+        pngExportingRef.current = false;
+      } finally {
+        setSvgExporting(false);
+      }
+    }
   }
 }

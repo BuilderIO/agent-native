@@ -26,7 +26,8 @@ vi.mock("./run-history.js", () => ({
   startAutomationRun: startAutomationRunMock,
 }));
 
-vi.mock("../resources/store.js", () => ({
+vi.mock("../resources/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../resources/store.js")>()),
   organizationResourceOwner: (orgId: string) => `__organization__:${orgId}`,
   resourceGetByPath: resourceGetByPathMock,
   resourcePutIfCurrent: resourcePutIfCurrentMock,
@@ -117,6 +118,101 @@ describe("remote automation execution", () => {
     finishAutomationRunMock.mockResolvedValue(undefined);
     enqueueRemoteCommandMock.mockResolvedValue(makeCommand());
   });
+
+  it("refuses a persisted MCP mark before dispatching to a full-auto execution host", async () => {
+    const settings = await import("../settings/user-settings.js");
+    const locale = vi.spyOn(settings, "getUserSetting").mockResolvedValueOnce({
+      locale: "es-ES",
+    });
+    const meta: JobFrontmatter = {
+      schedule: "0 * * * *",
+      enabled: true,
+      lastStatus: "running",
+      executionHostId: "remote-device-laptop",
+    };
+    const current = makeResource(meta);
+    current.content = current.content.replace(
+      "enabled: true",
+      "enabled: true\nmcpManaged: true",
+    );
+    resourceGetByPathMock.mockResolvedValue(current);
+    resourcePutIfCurrentMock.mockImplementation(async (input) => ({
+      ...current,
+      content: input.content,
+    }));
+    try {
+      await expect(
+        dispatchRemoteAutomation({
+          resource: makeResource(meta),
+          meta,
+          body: "Send the email.",
+          ownerEmail: "alice@example.com",
+          prompt: "Send it.",
+          title: "Send",
+        }),
+      ).rejects.toMatchObject({
+        errorCode: "config_invalid",
+        message:
+          "Las automatizaciones gestionadas por un agente externo no pueden usar funciones sin aprobación por acción.",
+      });
+      expect(enqueueRemoteCommandMock).not.toHaveBeenCalled();
+      expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
+      expect(startAutomationRunMock).not.toHaveBeenCalled();
+    } finally {
+      locale.mockRestore();
+    }
+  });
+
+  it.each([
+    { owner: "alice@example.com", scope: "personal", orgId: null },
+    { owner: "__organization__:acme", scope: "organization", orgId: "acme" },
+  ])(
+    "records remote scheduled runs under the $scope resource owner",
+    async ({ owner, scope, orgId }) => {
+      const meta: JobFrontmatter = {
+        schedule: "0 * * * *",
+        enabled: true,
+        orgId: "acme",
+        lastRun: "2026-08-15T12:00:00.000Z",
+        lastStatus: "running",
+        executionHostId: "remote-device-laptop",
+      };
+      let current = { ...makeResource(meta), owner };
+      resourceGetByPathMock.mockImplementation(async () => current);
+      resourcePutIfCurrentMock.mockImplementation(async (input) => {
+        current = {
+          ...current,
+          content: input.content,
+          updatedAt: current.updatedAt + 1,
+        };
+        return current;
+      });
+      await dispatchRemoteAutomation({
+        resource: current,
+        meta,
+        body: "Inspect the workspace.",
+        ownerEmail: "alice@example.com",
+        orgId: "acme",
+        appId: "calendar",
+        prompt: "Run it.",
+        title: "Nightly",
+      });
+      expect(startAutomationRunMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          owner,
+          scope,
+          orgId,
+          appId: "calendar",
+        }),
+      );
+      expect(enqueueRemoteCommandMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ownerEmail: "alice@example.com",
+          orgId: "acme",
+        }),
+      );
+    },
+  );
 
   it("rejects a selected host that does not advertise scheduled work", async () => {
     getRemoteExecutionCapabilitiesMock.mockReturnValue({

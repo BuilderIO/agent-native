@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { runWithRequestContext } from "../server/request-context.js";
+
 interface ExecCall {
   sql: string;
   args: unknown[];
@@ -19,16 +21,13 @@ vi.mock("../db/client.js", () => ({
   }),
 }));
 
-// A caller with no `ctx.orgId` (CLI, cron) still needs its actual org
-// resolved before the probe can run — mocked separately from the org-scoped
-// SQL probes above so a test can say "no membership anywhere" without also
-// faking rows for the Personal/cross-org queries.
 let resolveOrgIdForEmailResult: string | null = null;
 vi.mock("../org/context.js", () => ({
   resolveOrgIdForEmail: async () => resolveOrgIdForEmailResult,
 }));
 
-vi.mock("../settings/store.js", () => ({
+vi.mock("../settings/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/store.js")>()),
   getSetting: vi.fn(async () => null),
   putSetting: vi.fn(async () => {}),
   deleteSetting: vi.fn(async () => {}),
@@ -36,6 +35,7 @@ vi.mock("../settings/store.js", () => ({
 
 vi.mock("../secrets/storage.js", () => ({
   readAppSecret: vi.fn(async () => null),
+  isMissingAppSecretsTableError: () => false,
 }));
 
 const { describeCredentialScopeGap } = await import("./index.js");
@@ -98,7 +98,7 @@ describe("describeCredentialScopeGap", () => {
 
   it("declines to answer without an org boundary to bound the probe to", async () => {
     execute = async () => ({ rows: [{ 1: 1 }] });
-    resolveOrgIdForEmailResult = null; // caller truly has no memberships
+    resolveOrgIdForEmailResult = null;
 
     const message = await describeCredentialScopeGap(["SLACK_BOT_TOKEN"], {
       userEmail: "owner@example.com",
@@ -110,7 +110,7 @@ describe("describeCredentialScopeGap", () => {
 
   it("resolves the org from the caller's email when ctx.orgId is unset, like a CLI or cron run", async () => {
     execute = async () => ({ rows: [{ 1: 1 }] });
-    resolveOrgIdForEmailResult = "org-1"; // the caller's only membership
+    resolveOrgIdForEmailResult = "org-1";
 
     const message = await describeCredentialScopeGap(["SLACK_BOT_TOKEN"], {
       userEmail: "owner@example.com",
@@ -142,14 +142,9 @@ describe("describeCredentialScopeGap", () => {
   });
 });
 
-// Credentials are scoped per organization, so a user who gains a second org —
-// or whose `active-org-id` is repointed at one — reads an empty vault while the
-// key sits visibly in the org it was synced under. The generic error names the
-// key, which sends everyone looking for a deployment or env-var problem.
 describe("describeCredentialScopeGap across organizations", () => {
   const CROSS_ORG_PROBE = "s.scope IN ('org', 'workspace')";
 
-  /** No Personal-scope holder; the key lives in another org the user is in. */
   function onlyAnotherMemberOrgHasKey(orgName: string | null) {
     execute = async ({ sql }) =>
       sql.includes(CROSS_ORG_PROBE)
@@ -234,5 +229,48 @@ describe("describeCredentialScopeGap across organizations", () => {
     });
 
     expect(message).toBeNull();
+  });
+
+  it("does not inspect another org for an org-member assertion", async () => {
+    execute = async ({ sql }) =>
+      sql.includes(CROSS_ORG_PROBE)
+        ? { rows: [{ org_name: "Other Org" }] }
+        : { rows: [] };
+
+    const message = await runWithRequestContext(
+      {
+        a2aIdentityAssurance: "org-member",
+        userEmail: "tim@example.com",
+        orgId: "coach-org",
+      },
+      () =>
+        describeCredentialScopeGap(["ACADEMY_CONVEX_SITE_URL"], {
+          userEmail: "tim@example.com",
+          orgId: "coach-org",
+        }),
+    );
+
+    expect(message).toBeNull();
+    expect(execCalls.some((call) => call.sql.includes(CROSS_ORG_PROBE))).toBe(
+      false,
+    );
+  });
+
+  it("declines diagnostics when an org-member context does not match the credential scope", async () => {
+    const message = await runWithRequestContext(
+      {
+        a2aIdentityAssurance: "org-member",
+        userEmail: "tim@example.com",
+        orgId: "coach-org",
+      },
+      () =>
+        describeCredentialScopeGap(["SLACK_BOT_TOKEN"], {
+          userEmail: "tim@example.com",
+          orgId: "other-org",
+        }),
+    );
+
+    expect(message).toBeNull();
+    expect(execCalls).toHaveLength(0);
   });
 });

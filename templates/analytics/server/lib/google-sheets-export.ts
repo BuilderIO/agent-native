@@ -28,7 +28,7 @@ export interface GoogleSheetExportResult {
     columnCount: number;
     truncated: boolean;
     bytesProcessed: number | null;
-    provider: "google_drive";
+    provider: "google_sheets";
     updatedCells: number | null;
   };
 }
@@ -105,7 +105,7 @@ export async function exportDashboardPanelToGoogleSheet(
     input.panelTitle,
   );
   const createResult = await executeProviderApiRequest({
-    provider: "google_drive",
+    provider: "google_sheets",
     method: "POST",
     path: "https://sheets.googleapis.com/v4/spreadsheets",
     query: {
@@ -141,7 +141,7 @@ export async function exportDashboardPanelToGoogleSheet(
       ),
     ];
     const updateResult = await executeProviderApiRequest({
-      provider: "google_drive",
+      provider: "google_sheets",
       method: "PUT",
       path: `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(`${quoteSheetTitle(actualSheetTitle)}!A1`)}`,
       query: { valueInputOption: "RAW" },
@@ -181,7 +181,7 @@ export async function exportDashboardPanelToGoogleSheet(
       columnCount: columns.length,
       truncated: input.truncated === true,
       bytesProcessed: input.bytesProcessed ?? null,
-      provider: "google_drive",
+      provider: "google_sheets",
       updatedCells,
     },
   };

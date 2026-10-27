@@ -34,9 +34,6 @@ import {
 
 import { CLIPS_APP_PALETTE, CLIPS_APP_PALETTE_LIGHT } from "./ClipsShareUi";
 
-// Grid slot plus the ray endpoint that belongs to it, as percentages of the
-// diagram box. The endpoints sit a little inside each card so the line stops
-// under the card rather than at its outer corner.
 const OUTPUTS = [
   {
     label: "App change",
@@ -74,29 +71,14 @@ const CLIPS_BRIEF_MOCK_CSS = [
   `html.light .clips-brief-mock-frame { ${CLIPS_APP_PALETTE_LIGHT} }`,
   ".clips-brief-mock-frame { display: flex; justify-content: center; width: 100%; padding: 16px 0; container-type: inline-size; }",
   ".clips-brief-mock-diagram { position: relative; width: 100%; max-width: 680px; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); grid-template-rows: auto auto auto; grid-template-areas: '. n .' 'w clip e' '. s .'; align-items: center; justify-items: center; gap: 28px; }",
-  // Below this the 280px clip card plus the full-text side labels no longer
-  // fit the three side-by-side columns and get clipped by the page section.
-  // Shrinking the clip card and dropping each output to icon-only (the
-  // labels are aria-hidden decoration; the accessible name lives on the
-  // outer role="img") keeps the whole diagram inside its container instead.
   "@container (max-width: 420px) { .clips-brief-mock-diagram { gap: 12px; } }",
   "@container (max-width: 420px) { .clips-brief-mock-clip { width: 200px; } }",
   "@container (max-width: 420px) { .clips-brief-mock-output { padding: 10px; gap: 0; } }",
   "@container (max-width: 420px) { .clips-brief-mock-output-label { display: none; } }",
   ".clips-brief-mock-rays { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }",
-  // `--border` is a light grey in both themes, near-invisible on light mode's
-  // pale page background even though it reads fine against dark mode's near-
-  // black one. `--muted-foreground` keeps the line clearly a line in light
-  // mode without pulling it as dark as body text.
   ".clips-brief-mock-rays line { stroke: hsl(var(--border)); }",
   "html.light .clips-brief-mock-rays line { stroke: hsl(var(--muted-foreground)); }",
 
-  // The dash array is 4-on/4-off, an 8px period, so animating dashoffset by
-  // exactly that loops with no visible seam. Each line runs from the clip
-  // (x1/y1, at 50% 50%) to its output (x2/y2), and stroke-dashoffset moves the
-  // pattern along that direction as it decreases, so counting down to 0 reads
-  // as the dashes travelling from the clip outward rather than draining back
-  // into it.
   "@keyframes clips-brief-ray-flow { from { stroke-dashoffset: 8; } to { stroke-dashoffset: 0; } }",
   ".clips-brief-mock-rays line { animation: clips-brief-ray-flow 2.4s linear infinite; }",
   "@media (prefers-reduced-motion: reduce) { .clips-brief-mock-rays line { animation: none; } }",

@@ -3,10 +3,19 @@ import { describe, expect, it, vi } from "vitest";
 import {
   applyHistoryToDocumentBody,
   isHistoryRestoreReady,
+  isSavedContentLocalEcho,
   resolveAcknowledgedDocumentSnapshot,
 } from "./DocumentEditor";
 
 describe("document editor history", () => {
+  it("acknowledges a save as the editor's own snapshot only when the server stored exactly what was sent", () => {
+    expect(isSavedContentLocalEcho("Alpha typed", "Alpha typed")).toBe(true);
+    expect(
+      isSavedContentLocalEcho("Alpha typed", "Alpha typed\n\nAgent edit"),
+    ).toBe(false);
+    expect(isSavedContentLocalEcho(undefined, "Alpha")).toBe(false);
+  });
+
   it("requires the active page's rich-text controller before preparing an ordinary Page restore", () => {
     const controller = {
       undo: vi.fn(),

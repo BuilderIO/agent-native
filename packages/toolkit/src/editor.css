@@ -8,8 +8,6 @@
   cursor: default;
 }
 
-/* An unstyled editor contributes no box or typography of its own: the host
-   element's layout and inherited text styles are the only ones that apply. */
 .an-rich-md-wrapper--unstyled,
 .an-rich-md-wrapper--unstyled > .an-rich-md-content {
   display: contents;
@@ -19,8 +17,6 @@
   outline: none;
 }
 
-/* Shared Notion-style block controls. Apps can override the color tokens, but
-   every SharedRichEditor gets a usable grip/menu without app-local CSS. */
 .drag-handle {
   position: absolute;
   display: none;
@@ -222,9 +218,6 @@
   font-family:
     ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   font-size: 0.86em;
-  /* Theme-aware code surface: follows the app's muted/foreground/border tokens
-     so block code respects light and dark mode (the token palette below is
-     tuned to read on a muted surface in both). */
   background: hsl(var(--muted));
   color: hsl(var(--foreground));
   border: 1px solid hsl(var(--border));
@@ -243,10 +236,6 @@
   color: inherit;
 }
 
-/* highlight.js (lowlight) token palette. Scoped to block code so inline `code`
-   keeps its own background. No highlight.js base theme is imported; these rules
-   are the entire theme, tuned (mid-lightness HSL) to read on the muted surface
-   above in both light and dark mode. */
 .an-rich-md-prose pre code .hljs-comment,
 .an-rich-md-prose pre code .hljs-quote {
   color: hsl(var(--muted-foreground));
@@ -304,7 +293,6 @@
   font-weight: 600;
 }
 
-/* In dark mode, lift the token lightness for contrast on the dark muted surface. */
 .dark .an-rich-md-prose pre code .hljs-keyword,
 .dark .an-rich-md-prose pre code .hljs-selector-tag,
 .dark .an-rich-md-prose pre code .hljs-literal,
@@ -573,9 +561,6 @@
   color: hsl(var(--muted-foreground));
 }
 
-/* Shared block-level image node (the editor's `.an-rich-md-image` and the
-   read-only markdown renderer's <img>). Constrained to the prose width and
-   responsive; a still-uploading placeholder (empty src) shows a subtle frame. */
 .an-rich-md-prose img,
 .an-rich-md-image {
   display: block;
@@ -597,7 +582,6 @@
   outline-offset: 2px;
 }
 
-/* Collaboration carets & cursors (rendered by @tiptap/extension-collaboration-caret) */
 .collaboration-carets__caret,
 .collaboration-cursor__caret,
 .ProseMirror-yjs-cursor {

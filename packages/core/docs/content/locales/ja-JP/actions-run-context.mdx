@@ -98,6 +98,13 @@ export default defineAction({
             "呼び出されているアクションのレジストリ キー (例: `delete-recording`)。各ディスパッチ サイトで設定され、監査ログのような横断的関心事がその呼び出しを帰属できるようにします。ディスパッチャーを経由しない、直接的なプログラム的 `run()` 呼び出しでは `undefined` です。",
         },
         {
+          name: "toolCallId",
+          type: "string",
+          optional: true,
+          description:
+            "この呼び出しに対応するモデルのツール呼び出し ID（`toolCall.id`）。エージェントループが設定し、`defineAction()` のラッパーを経由しても保持されます。同じアクションを複数回実行した際のイベントの関連付けに使えます。アクションの入力ではありません。モデルのツール呼び出しがない呼び出し元では `undefined` です。",
+        },
+        {
           name: "threadId",
           type: "string",
           optional: true,

@@ -69,7 +69,6 @@ interface MonthViewProps {
   weekStartsOn?: 0 | 1;
 }
 
-// Skeleton pill widths per day-of-week (Sun–Sat), empty = no skeletons
 const MONTH_SKELETON_WIDTHS = [
   ["75%"],
   ["85%", "60%"],
@@ -83,12 +82,9 @@ const MONTH_SKELETON_WIDTHS = [
 const WEEKDAY_HEADERS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const WEEKDAY_HEADERS_SHORT = ["S", "M", "T", "W", "T", "F", "S"];
 
-/** An event occurrence placed on one day cell, with continuation state relative to a multi-day span. */
 interface DayOccurrence {
   event: CalendarEvent;
-  /** True when this day is the event's actual start day (vs. a later day it merely spans through). */
   isStart: boolean;
-  /** True when the event continues into the next visible day cell. */
   continuesNext: boolean;
 }
 
@@ -134,8 +130,6 @@ export const MonthView = memo(function MonthView({
     .map((day) => headerLabels[day]);
   const gridColumnCount = colCount + (prefs.showWeekNumbers ? 1 : 0);
 
-  // Pre-group events by every day they overlap (not just their start day) so
-  // multi-day events keep appearing as the grid moves past their start date.
   const eventsByDay = useMemo(() => {
     const map = new Map<string, DayOccurrence[]>();
     for (const e of events) {
@@ -273,7 +267,6 @@ export const MonthView = memo(function MonthView({
                   setDragOverDay(dayKey);
                 }}
                 onDragLeave={(e) => {
-                  // Only clear if leaving to outside this cell
                   if (!e.currentTarget.contains(e.relatedTarget as Node)) {
                     setDragOverDay(null);
                   }

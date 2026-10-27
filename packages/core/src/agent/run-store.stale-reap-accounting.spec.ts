@@ -1,20 +1,3 @@
-/**
- * The stale reapers used to lie twice about the same failure.
- *
- * 1. `completed_at` was stamped at REAP time, so a run that died at T+15s but
- *    was not noticed until T+30m recorded a 30-minute duration. That is
- *    detection latency filed as run duration — and it is the exact measurement
- *    used to judge whether reaping is timely, so the corruption hid itself.
- * 2. `terminal_reason` was written as the bare `stale_run` while
- *    `reconcileTerminalRunFromEvents` wrote `error:stale_run` for the very same
- *    outcome, splitting one failure across two permanent
- *    `agent_run_outcome_daily` buckets (prod: 612 + 604).
- *
- * A third lie was in the heartbeat that feeds them: its write inherited the
- * default DbExec budget (8s x 3 attempts on serverless = 24s) against a 15s
- * `RUN_STALE_MS`, so a live run could be reaped while its own heartbeat was
- * still in flight.
- */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 interface ExecCall {
@@ -27,7 +10,7 @@ interface ExecCall {
 const execCalls: ExecCall[] = [];
 let staleSelectRows: Array<{ id: string }> = [];
 
-const mockDb = {
+const mockDb: any = {
   execute: vi.fn(
     async (
       statement:
@@ -40,21 +23,40 @@ const mockDb = {
           },
     ) => {
       const sql = typeof statement === "string" ? statement : statement.sql;
+      const args = typeof statement === "string" ? [] : (statement.args ?? []);
       execCalls.push({
         sql,
-        args: typeof statement === "string" ? [] : (statement.args ?? []),
+        args,
         timeoutMs:
           typeof statement === "string" ? undefined : statement.timeoutMs,
         maxAttempts:
           typeof statement === "string" ? undefined : statement.maxAttempts,
       });
 
-      // hasRunningRuns short-circuits every sweep, so it must agree with the
-      // stale fixture or the test would assert on a sweep that never ran.
       if (
         /SELECT id FROM agent_runs WHERE status = 'running' LIMIT 1/i.test(sql)
       ) {
         return { rows: staleSelectRows.slice(0, 1), rowsAffected: 0 };
+      }
+      if (
+        /SELECT thread_id, COALESCE\(turn_id, id\) AS turn_id\s+FROM agent_runs WHERE id = \?/i.test(
+          sql,
+        )
+      ) {
+        return {
+          rows: [{ thread_id: "thread-dead", turn_id: String(args[0]) }],
+          rowsAffected: 0,
+        };
+      }
+      if (
+        /SELECT status, worker_generation FROM agent_runs WHERE id = \? FOR UPDATE/i.test(
+          sql,
+        )
+      ) {
+        return {
+          rows: [{ status: "running", worker_generation: null }],
+          rowsAffected: 0,
+        };
       }
       if (/SELECT id FROM agent_runs[\s\S]*status = 'running'/i.test(sql)) {
         return { rows: staleSelectRows, rowsAffected: 0 };
@@ -66,6 +68,9 @@ const mockDb = {
     },
   ),
 };
+mockDb.transaction = vi.fn(async (fn: (tx: any) => Promise<unknown>) =>
+  fn(mockDb),
+);
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => mockDb,
@@ -89,7 +94,6 @@ const {
   __resetNoRunningRunsProbeForTests,
 } = await import("./run-store.js");
 
-/** The reap-to-errored UPDATEs, in call order. */
 function staleReapUpdates(): ExecCall[] {
   return execCalls.filter(
     (call) =>
@@ -109,19 +113,14 @@ describe("stale reap accounting", () => {
   it("records completed_at from the liveness basis, never the reap time", async () => {
     staleSelectRows = [{ id: "run-dead" }];
     await reapAllStaleRuns();
-    await cleanupOldRuns(24 * 60 * 60 * 1000);
 
     const updates = staleReapUpdates();
-    expect(updates.length).toBe(3);
+    expect(updates).toHaveLength(1);
     for (const update of updates) {
-      // The liveness basis is the last proof the producer was alive; COALESCE
-      // keeps an already-written completed_at authoritative.
       expect(update.sql).toMatch(
         /completed_at = COALESCE\(completed_at, \(CASE WHEN COALESCE\(last_progress_at/,
       );
       expect(update.sql).not.toMatch(/completed_at = \?/);
-      // No clock value may be BOUND into the SET list at all: three
-      // placeholders, for error_code, error_detail and terminal_reason.
       const setPlaceholders =
         update.sql.slice(0, update.sql.indexOf("WHERE")).split("?").length - 1;
       expect(setPlaceholders).toBe(3);
@@ -134,19 +133,30 @@ describe("stale reap accounting", () => {
   it("writes one terminal_reason for one outcome, matching the reconciler's error:<code>", async () => {
     staleSelectRows = [{ id: "run-dead" }];
     await reapAllStaleRuns();
-    await cleanupOldRuns(24 * 60 * 60 * 1000);
 
     const updates = staleReapUpdates();
-    // reapAllStaleRuns' per-row UPDATE plus cleanupOldRuns' absolute-age and
-    // heartbeat-stale UPDATEs — every writer of this outcome.
-    expect(updates.length).toBe(3);
+    expect(updates).toHaveLength(1);
     expect(STALE_RUN_TERMINAL_REASON).toBe("error:stale_run");
     for (const update of updates) {
       expect(update.args).toContain(STALE_RUN_TERMINAL_REASON);
-      // The bare code stays the error_code; only terminal_reason is normalized,
-      // so `reconcileTerminalRunFromEvents`' repair WHERE still matches the row.
       expect(update.args).toContain("stale_run");
     }
+  });
+
+  it("does not update stale status independently during cleanup", async () => {
+    await cleanupOldRuns(24 * 60 * 60 * 1000);
+
+    expect(staleReapUpdates()).toHaveLength(0);
+    expect(
+      execCalls.some(
+        (call) =>
+          /UPDATE agent_runs/i.test(call.sql) &&
+          /SET status = 'errored'/i.test(call.sql),
+      ),
+    ).toBe(false);
+    expect(execCalls.some((call) => /OR started_at < \?/i.test(call.sql))).toBe(
+      false,
+    );
   });
 
   it("bounds the heartbeat write well inside the stale window it defends", async () => {
@@ -158,9 +168,6 @@ describe("stale reap accounting", () => {
     expect(heartbeat).toBeDefined();
     expect(heartbeat?.maxAttempts).toBe(1);
     expect(heartbeat?.timeoutMs).toBeGreaterThan(0);
-    // Worst-case occupancy is maxAttempts * timeoutMs. It must leave room for a
-    // later tick to land before the reap cutoff, or the single-flight guard lets
-    // a live run go stale behind its own in-flight write.
     const worstCaseMs =
       (heartbeat?.maxAttempts ?? 0) * (heartbeat?.timeoutMs ?? 0);
     expect(worstCaseMs).toBeLessThan(RUN_STALE_MS / 2);

@@ -64,8 +64,6 @@ describe("plan block registry — diagram", () => {
       data: diagramData,
     });
 
-    // Exactly the legacy `<Diagram id title summary data={…} />` shape: base
-    // attrs first, then the whole `data` object as one JSON prop, self-closing.
     expect(viaSpec).toBe(
       `<Diagram id="diagram-1" title="Agent flow" summary="End-to-end ingest path."` +
         ` data={${JSON.stringify(diagramData, null, 2)}} />`,
@@ -76,13 +74,10 @@ describe("plan block registry — diagram", () => {
     const source = diagramContent();
     const folder = await exportPlanContentToMdxFolder({
       content: source,
-      title: source.title,
+      title: source.title ?? "",
       brief: source.brief,
     });
 
-    // The exported plan.mdx contains a real `<Diagram>` element with the whole
-    // data object as the `data` prop. (Prettier reformats the embedded object
-    // literal on export, so assert on stable substrings, not exact JSON.)
     expect(folder["plan.mdx"]).toContain("<Diagram");
     expect(folder["plan.mdx"]).toContain("data={");
     expect(folder["plan.mdx"]).toContain('"Webhook"');
@@ -95,7 +90,6 @@ describe("plan block registry — diagram", () => {
       expect(diagram.id).toBe("diagram-1");
       expect(diagram.title).toBe("Agent flow");
       expect(diagram.summary).toBe("End-to-end ingest path.");
-      // The whole node/edge/note graph survives the round-trip unchanged.
       expect(diagram.data).toEqual(diagramData);
     }
   });
@@ -116,7 +110,7 @@ describe("plan block registry — diagram", () => {
     });
     const folder = await exportPlanContentToMdxFolder({
       content: source,
-      title: source.title,
+      title: source.title ?? "",
       brief: source.brief,
     });
 

@@ -8,8 +8,8 @@ order: 7
 roadmap_status: "partially_implemented"
 summary: "Accept or reject proposed human and agent changes in the ordinary Content interface."
 example_workflow: "An agent revises a live article and its metadata; the editor reviews the rendered Page, accepts the stronger passages, rejects an incorrect Property change, and leaves the remaining suggestions pending for another pass."
-works_today: "Source change sets, Builder review machinery, audit records, and document snapshots prove several parts of the review loop and provide useful donor implementations."
-remains: "Content needs one generic typed diff and suggestion system that reviews bodies, Properties, Blocks, and filtered record sets directly in their ordinary renderers."
+works_today: "Suggestions ship in Content's document editor: people and agents can propose text changes, review them in place, and accept or reject them. Recent work preserves Suggesting-mode drafts, supports text inside tables and other nested blocks, groups rewritten phrases, refuses unplaceable accepts, and keeps comment AI suggestions in their thread (#6627, #6661, #6716, #6720, #6729, #7258, #7372)."
+remains: "The generic typed review contract still needs complete Property, Block, and filtered-record coverage, durable disposition and conflict semantics, and end-to-end human/agent parity across the ordinary renderers."
 required_capabilities:
   [
     "content.diff.in-place",
@@ -22,7 +22,7 @@ enhancing_capabilities: ["content.diff.ai-assist", "content.review.code"]
 increments: []
 feature_proof: null
 publicness: "public"
-last_reviewed: "2026-07-29"
+last_reviewed: "2026-10-12"
 ---
 
 # Feature 7: Review changes in place

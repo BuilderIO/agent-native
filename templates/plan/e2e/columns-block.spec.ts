@@ -1,44 +1,5 @@
 import { test, expect, type Page, type APIResponse } from "@playwright/test";
 
-/*
- * COLUMNS CONTAINER BLOCK — render, nested edit, Notion-like chrome removal,
- * MDX round-trip, and (fixme) cross-region drag. Adversarial E2E.
- *
- * Area under test: the standard `columns` container block
- * (`packages/core/src/client/blocks/library/columns.tsx` + `columns.config.ts`).
- * `columns` data is `{ columns: [{ id, label?, blocks: NestedBlock[] }] }`; each
- * column is a side-by-side panel that holds its OWN list of child blocks rendered
- * recursively through the plan's block dispatcher.
- *
- * How it renders in the single-document editor (verified against the real code):
- *   - The columns block is an inline `planBlock` NodeView wrapped in
- *     `.plan-block-node[data-block-id=<id>]` (RegistryBlockNode), and because its
- *     spec is `editSurface: "container"`, the NodeView renders the block's `Edit`
- *     (`ColumnsBlockEditor`) IN PLACE when the doc is editable — NOT the read view.
- *   - `ColumnsBlockEditor` emits a bare `div[data-columns-edit-block=<id>]`.
- *     Columns are plain document regions: there are no per-column label inputs,
- *     remove buttons, or explicit `Add column` button. New columns are created
- *     by side-dropping a block left/right of another block, like Notion.
- *   - Each column's children render through `ctx.renderBlocksEditor`, which the
- *     plan wires to `NestedPlanBlocksEditor`. That mounts a per-region editor:
- *     `.plan-nested-document-editor-region[data-region-id=<colId>][data-container-block-id=<id>]`
- *     wrapping a `SharedRichEditor` whose contenteditable surface is
- *     `.plan-nested-document-editor-surface .an-rich-md-prose`. So a column's child
- *     text is addressable INSIDE its region's prose.
- *   - Every edit (top doc OR nested region) serializes the whole doc back to
- *     `blocks[]` and autosaves through `update-visual-plan`
- *     `{ op: "replace-blocks", blocks }` (no client debounce; one POST/keystroke).
- *
- * Persistence shape (verified live): `get-visual-plan` returns the columns block
- * with `data.columns: [{ id, label?, blocks:[…] }]` intact; `export-visual-plan`
- * emits the human-readable `<Columns><Column label="…" contentId="…">…markdown…
- * </Column></Columns>` MDX form in `mdx["plan.mdx"]`.
- *
- * Asserts CORRECT behavior — a FAILING assertion IS the bug it reports. retries:2
- * + web-first auto-retrying expects absorb transient HMR reloads on the shared dev
- * server. Uses the editable surface; auth is reused from global-setup storageState.
- */
-
 const UPDATE_ACTION = "/_agent-native/actions/update-visual-plan";
 const CREATE_ACTION = "/_agent-native/actions/create-visual-plan";
 const GET_ACTION = "/_agent-native/actions/get-visual-plan";
@@ -79,12 +40,6 @@ async function readJson(res: APIResponse): Promise<Record<string, unknown>> {
   }
 }
 
-/**
- * Create a fresh plan fixture via the authed action surface; return its id. The
- * shared dev server can HMR/reload mid-request while other agents edit the app (a
- * transient 500), so retry a few times — a fixture hiccup must never read as the
- * render/edit bug under test.
- */
 async function createPlanFixture(
   page: Page,
   content: PlanContentInput,
@@ -116,7 +71,6 @@ async function createPlanFixture(
   return planId as string;
 }
 
-/** Read the current stored top-level blocks. */
 async function getPlanBlocks(page: Page, planId: string): Promise<PlanBlock[]> {
   const res = await page.request.get(
     `${GET_ACTION}?id=${encodeURIComponent(planId)}`,
@@ -127,7 +81,6 @@ async function getPlanBlocks(page: Page, planId: string): Promise<PlanBlock[]> {
   return plan.content?.blocks ?? [];
 }
 
-/** Find the persisted columns block (by id) and return its `data.columns`. */
 async function getColumns(
   page: Page,
   planId: string,
@@ -142,7 +95,6 @@ async function getColumns(
   return Array.isArray(columns) ? columns : null;
 }
 
-/** Export the plan and return its `plan.mdx` source (for the MDX round-trip). */
 async function getPlanMdx(page: Page, planId: string): Promise<string> {
   const res = await page.request.get(
     `${EXPORT_ACTION}?planId=${encodeURIComponent(planId)}`,
@@ -162,7 +114,6 @@ function proseFor(page: Page) {
     .first();
 }
 
-/** Open the plan and wait for the editable single-document surface to be ready. */
 async function openPlanForEditing(page: Page, planId: string) {
   await page.goto(`/plans/${planId}`);
   const prose = proseFor(page);
@@ -173,7 +124,6 @@ async function openPlanForEditing(page: Page, planId: string) {
   return prose;
 }
 
-/** The inline `planBlock` NodeView wrapper for the columns block id. */
 function columnsNode(page: Page, columnsBlockId: string) {
   return page
     .locator(
@@ -182,12 +132,10 @@ function columnsNode(page: Page, columnsBlockId: string) {
     .first();
 }
 
-/** The bare columns editor container (`editSurface: container` renders Edit). */
 function columnsEditor(page: Page, columnsBlockId: string) {
   return page.locator(`[data-columns-edit-block="${columnsBlockId}"]`).first();
 }
 
-/** The per-column nested editor region for a given column id. */
 function regionFor(page: Page, columnId: string) {
   return page
     .locator(
@@ -196,7 +144,6 @@ function regionFor(page: Page, columnId: string) {
     .first();
 }
 
-/** The editable prose surface inside a given column region. */
 function regionProse(page: Page, columnId: string) {
   return regionFor(page, columnId)
     .locator(".plan-nested-document-editor-surface .an-rich-md-prose")
@@ -208,11 +155,6 @@ const COLS_ID = "blk-cols";
 const COL_BEFORE_ID = "col-before";
 const COL_AFTER_ID = "col-after";
 
-/**
- * Seed a plan with a leading rich-text block plus a 2-column comparison block.
- * The "Before" column holds OLD text, "After" holds NEW text — the canonical
- * before/after use of `columns`.
- */
 function columnsContent(opts: {
   title: string;
   beforeMarkdown?: string;

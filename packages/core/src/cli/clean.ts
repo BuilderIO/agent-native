@@ -1,32 +1,3 @@
-/**
- * `agent-native clean` — reclaim disk by deleting regenerable build caches.
- *
- * Everything this removes is reproduced by the next `dev`/`build`. Nothing it
- * removes is user data: `node_modules` itself, the pnpm store, `.git`, an
- * app's `data/` directory, and `.env*` are never candidates (see
- * `PROTECTED_NAMES` and `isSafeTarget`), every target is a real directory
- * entry read from disk and re-verified immediately before the delete (see
- * `addTarget` and `verifyTargetUnchanged`), the root has to be a confirmed
- * Agent-Native project root (see `checkProjectRoot`), and under `apps/` each
- * app has to confirm the same thing for itself (see `splitAppDirs`). Those
- * checks are the whole safety contract, not a nicety.
- *
- * The bytes are held to the matching rule: one is credited only where the run
- * observed it removed. Anything it could not observe — a tree another process
- * deleted first, a walk that hit an unreadable directory or a mount point, a
- * scan cut short by the depth cap — is a typed outcome, never a number.
- *
- * Like `agent-native package add` and `agent-native eject`, this is dry-run
- * unless `--apply` is passed, so the reflex form of the command shows the
- * paths and the bytes without touching anything.
- *
- *   agent-native clean                # dry run: caches only
- *   agent-native clean --apply        # delete them
- *   agent-native clean --builds --apply
- *
- * Caches (default) come back on the next dev start; build outputs (`--builds`)
- * need a real rebuild, which is why they are opt-in.
- */
 import fs from "node:fs";
 import path from "node:path";
 
@@ -38,34 +9,19 @@ export type CleanCategory =
 
 export interface CleanTarget {
   category: CleanCategory;
-  /** Absolute path under the root as the user named it, every segment taken
-   * from a real directory entry. This is the one that gets printed. */
   path: string;
-  /** `realpath` of the same directory — the one filesystem calls use. */
   realPath: string;
-  /** Identity at scan time. Re-checked immediately before the delete, so a
-   * parent swapped underneath us is a reported failure and not a delete
-   * somewhere else. */
   dev: number;
   ino: number;
-  /** Size when scanned. */
   bytes: number;
 }
 
 export interface CleanFailure {
   path: string;
-  /** A delete that threw, or a path the scan could not read. */
   message: string;
-  /** Bytes still on disk under `path`. Absent when it was never measurable —
-   * an unreadable path is not an empty one. */
   remainingBytes?: number;
 }
 
-/**
- * Records a failure once. A single unreadable directory is reached three times
- * — by the cache walk, by the measure pass, and by the post-delete re-measure —
- * and three identical lines read as three separate problems.
- */
 function addFailure(failures: CleanFailure[], failure: CleanFailure): void {
   const duplicate = failures.some(
     (existing) =>
@@ -83,7 +39,6 @@ export interface CleanCategoryTotals {
 export interface CleanReport {
   root: string;
   scope: "workspace" | "app";
-  /** False for a dry run — then `bytesReclaimed` is 0, never the found total. */
   applied: boolean;
   targets: CleanTarget[];
   failures: CleanFailure[];
@@ -92,11 +47,6 @@ export interface CleanReport {
   byCategory: Partial<Record<CleanCategory, CleanCategoryTotals>>;
 }
 
-/**
- * Never deleted and never descended into. `node_modules` is the one entry
- * that is banned as a target but allowed as a *parent*: the caches below all
- * live directly inside it.
- */
 const PROTECTED_NAMES = new Set([
   ".git",
   "data",
@@ -105,35 +55,17 @@ const PROTECTED_NAMES = new Set([
   ".pnpm-store",
 ]);
 
-/**
- * Protection matches case-insensitively while *target* matching stays
- * case-exact (see `resolveEntryPath`). That asymmetry looks inconsistent and
- * is the point: each direction is the one that fails safe. On a
- * case-insensitive filesystem `Data/` and `data/` are the same directory, so a
- * case-exact protection check descends into the app's data through the other
- * spelling; a case-insensitive target check deletes a hand-written `Build/`
- * under the `build` rule. Widening protection costs at most a cache that
- * survives a run. Widening targets costs files.
- */
 function isProtectedName(name: string): boolean {
   const lower = name.toLowerCase();
   return PROTECTED_NAMES.has(lower) || lower.startsWith(".env");
 }
 
-/**
- * Immediate children of a `node_modules` directory that are pure caches.
- * `.vite` holds `deps/` alongside the `deps_temp_*` directories a killed or
- * crashed re-optimize orphans, so removing it covers both.
- */
 const NODE_MODULES_CACHES: Record<string, CleanCategory> = {
   ".vite": "vite-cache",
   ".vite-temp": "vite-cache",
   ".nitro": "nitro-cache",
 };
 
-/** Checked only at app roots — a `dist` or `build` deeper in a source tree
- * may well be hand-written. Path segments rather than a joined string: each
- * one is matched against a directory entry, never assembled blind. */
 const APP_ROOT_BUILD_OUTPUTS: Array<{
   segments: string[];
   category: CleanCategory;
@@ -147,20 +79,6 @@ const APP_ROOT_BUILD_OUTPUTS: Array<{
   },
 ];
 
-/**
- * A backstop against a runaway walk, not a budget for real trees.
- *
- * The walk never descends a symlinked directory, so on a normal filesystem it
- * cannot cycle and this never fires; it exists for the pathological case a
- * FUSE or network mount can still present. The old 8 was sized for
- * `<workspace>/apps/<app>/packages/<pkg>/node_modules` and truncated in
- * silence, which is how a checked-in Rust build tree — `target/debug/build/
- * <crate>/out/build/…/CMakeFiles/…`, measured at 19 below a workspace root in
- * this repo — went missing from the totals with nothing said. Raising it to
- * clear that tree by a few levels just moves the same silence; the cap now
- * reports itself (see `walkForCaches`), so the right value is one no real tree
- * reaches, where firing means something is genuinely wrong.
- */
 const MAX_WALK_DEPTH = 64;
 
 function errorMessage(err: unknown): string {
@@ -178,17 +96,6 @@ export function formatBytes(bytes: number): string {
   return `${unit === 0 ? value : value.toFixed(1)} ${units[unit]}`;
 }
 
-/**
- * Refuses anything outside `root` and anything named — or nested under —
- * a protected directory. `node_modules` is allowed as a parent segment
- * because that is exactly where the Vite and Nitro caches live.
- *
- * Both arguments must already be `realpath`-resolved: containment is decided
- * here by comparing strings, but the delete lands on an inode. A symlinked
- * `apps/`, app directory or `build/` is inside the root lexically and outside
- * it physically, so resolving before the compare is what makes this check
- * mean what it says.
- */
 export function isSafeTarget(root: string, target: string): boolean {
   const rel = path.relative(root, target);
   if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) return false;
@@ -208,22 +115,10 @@ interface WalkedFile {
 }
 
 interface WalkResult {
-  /** False once any path could not be read. The total is then a floor, not a
-   * measurement, and callers must not present it as one. */
   complete: boolean;
-  /** Directories skipped because they sit on another filesystem. */
   mounts: string[];
 }
 
-/**
- * Every regular file under `dir` on device `device`, not following symlinks.
- *
- * Paths that cannot be read are recorded rather than counted as zero — an
- * under-reported scan is how a clean-looking total hides a directory nobody can
- * actually delete — and the walk stops at a mount point, because bytes on a
- * filesystem the project does not own are neither ours to count nor ours to
- * remove.
- */
 function walkFiles(
   dir: string,
   device: number,
@@ -244,8 +139,6 @@ function walkFiles(
   }
   for (const entry of entries) {
     const full = path.join(dir, entry.name);
-    // Dirent flags come from lstat, so a symlinked directory lands here as a
-    // symlink and is skipped — its bytes live somewhere we are not deleting.
     if (entry.isDirectory()) {
       let dirStat: fs.Stats;
       try {
@@ -285,14 +178,6 @@ function walkFiles(
   return result;
 }
 
-/**
- * Walks one target, reporting anything it hits under the name the user typed.
- *
- * `walkFiles` is handed `realPath` because that is what the delete acts on,
- * but the cache walk reaches the same directory through `path`. Left alone,
- * one unreadable directory shows up as `/var/…/build` and `/private/var/…
- * /build` — two lines, two entries in the "N failure(s)" count, one problem.
- */
 function walkTarget(
   target: CleanTarget,
   failures: CleanFailure[],
@@ -308,9 +193,6 @@ function walkTarget(
     addFailure(failures, {
       ...failure,
       path: named(failure.path),
-      // The errno message echoes the path the syscall got, so renaming only
-      // the column leaves two lines that differ solely in which spelling of
-      // one directory they quote.
       message: failure.message.replaceAll(target.realPath, target.path),
     });
   }
@@ -318,23 +200,6 @@ function walkTarget(
   return result;
 }
 
-/**
- * Fills in `bytes` for every target.
- *
- * Unlinking a hard link frees nothing while another link survives, so an inode
- * counts only when the number of links this run will delete equals its link
- * count. That covers the deploy layout the de-dup was written for — one bundle
- * hard-linked into `<app>-server`, `<app>-agent-background` and
- * `<app>-integration-recovery`, counted once — and the case it missed: a file
- * also linked from `node_modules/`, from `data/`, or from outside the root
- * counts zero, because deleting these copies returns zero bytes to the disk.
- * A category totalling less than the naive sum of its files is that number
- * being honest.
- *
- * Returns the targets that survive measurement: one holding a mount point is
- * dropped, because a recursive delete would take the mounted filesystem's
- * contents with it.
- */
 function measureTargets(
   targets: CleanTarget[],
   failures: CleanFailure[],
@@ -379,15 +244,6 @@ function measureTargets(
   return targets.filter((_, index) => !crossesMount[index]);
 }
 
-/**
- * Bytes still on disk under one path after a delete threw, or `undefined` when
- * the walk could not read all of it. Deliberately not `measureTargets`: this
- * asks what survives here, not what the run frees.
- *
- * `undefined` is the whole point of the return type. A tree the re-measure
- * cannot read is not an empty tree, and the caller's `bytes - remaining` turns
- * a confident `0` into a full credit for a directory that never went away.
- */
 function measureRemaining(
   target: CleanTarget,
   failures: CleanFailure[],
@@ -407,21 +263,13 @@ function measureRemaining(
 }
 
 interface ScanContext {
-  /** `realpath` of the scan root; every target is resolved and compared
-   * against this one. */
   realRoot: string;
-  /** Device the root lives on. The walk and the delete never leave it. */
   rootDev: number;
-  /** Directories under `apps/` that are not Agent-Native apps: never descended
-   * into, never selected. */
   excluded: Set<string>;
   targets: CleanTarget[];
   failures: CleanFailure[];
 }
 
-/** True when `dir` is on the same filesystem as the root. A mount inside the
- * project is storage the project does not own, so the walk stops there — and
- * says so, because bytes it did not count are bytes it cannot report. */
 function onRootDevice(ctx: ScanContext, dir: string): boolean {
   let stat: fs.Stats;
   try {
@@ -441,15 +289,6 @@ function onRootDevice(ctx: ScanContext, dir: string): boolean {
   return false;
 }
 
-/**
- * Walks `segments` one directory entry at a time, matching each name exactly
- * against what `readdir` reports.
- *
- * Joining the strings instead is what let a hand-written `Build/` be deleted
- * by the `build` rule on a case-insensitive filesystem — and then printed as
- * `build/`, a path that does not exist, by the dry run whose whole job was to
- * warn about it.
- */
 function resolveEntryPath(
   parent: string,
   segments: string[],
@@ -461,9 +300,6 @@ function resolveEntryPath(
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true });
     } catch (err) {
-      // Absent and unreadable are different answers: a project that never
-      // deployed has no `.netlify/`, but one nobody can read is space we are
-      // about to under-report.
       if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
         addFailure(failures, {
           path: dir,
@@ -473,8 +309,6 @@ function resolveEntryPath(
       return null;
     }
     const entry = entries.find((candidate) => candidate.name === segment);
-    // Dirent flags come from lstat, so a symlink named `build` is not a
-    // directory here and never becomes a candidate.
     if (!entry?.isDirectory()) return null;
     dir = path.join(dir, entry.name);
   }
@@ -489,8 +323,6 @@ function addTarget(
 ): void {
   const target = resolveEntryPath(parent, segments, ctx.failures);
   if (!target) return;
-  // realpath rules out a directory reached through a symlinked parent; the
-  // dev/ino recorded here is what the delete re-checks.
   let real: string;
   let stat: fs.Stats;
   try {
@@ -528,8 +360,6 @@ function listSubdirectories(dir: string, failures: CleanFailure[]): string[] {
       .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name);
   } catch (err) {
-    // No `apps/` is the normal single-app case; an `apps/` nobody can read is
-    // a workspace silently scanned as one app, so it has to be reported.
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
       addFailure(failures, {
         path: dir,
@@ -542,9 +372,6 @@ function listSubdirectories(dir: string, failures: CleanFailure[]): string[] {
 
 function walkForCaches(ctx: ScanContext, dir: string, depth: number): void {
   if (depth > MAX_WALK_DEPTH) {
-    // Returning quietly here made a truncated scan indistinguishable from a
-    // complete one: caches below the cap were absent from the totals, from the
-    // target list, and from the failure count that exists to say so.
     addFailure(ctx.failures, {
       path: dir,
       message: `not scanned: more than ${MAX_WALK_DEPTH} directories below the root`,
@@ -577,8 +404,6 @@ function walkForCaches(ctx: ScanContext, dir: string, depth: number): void {
   }
 }
 
-/** Drop targets nested inside another target so bytes are counted, and
- * deleted, exactly once. */
 function dropNested(targets: CleanTarget[]): CleanTarget[] {
   return targets.filter(
     (target) =>
@@ -592,36 +417,21 @@ function dropNested(targets: CleanTarget[]): CleanTarget[] {
 
 export interface ScanCleanOptions {
   root: string;
-  /** Also select build outputs and deploy bundles, which need a rebuild. */
   builds?: boolean;
 }
 
 export interface CleanScan {
   scope: "workspace" | "app";
-  /** `realpath` of the scan root, so the delete can re-check containment
-   * without resolving it again. */
   realRoot: string;
   targets: CleanTarget[];
   failures: CleanFailure[];
 }
 
 interface AppDirs {
-  /** Directly under `apps/`, and confirmed Agent-Native. */
   agentNative: string[];
-  /** Directly under `apps/`, and not. */
   foreign: string[];
 }
 
-/**
- * Splits `apps/` into the apps this command may clean and the ones it may not.
- *
- * One Agent-Native app under `apps/` authorizes cleaning *that app*, not its
- * neighbours: `build/`, `dist/` and `.output/` are ordinary directory names,
- * and a workspace can hold a Rust project or a personal folder beside the app.
- * This is `checkProjectRoot`'s question asked one level down, and the reason
- * that comment's claim about "the only part of a workspace this command ever
- * cleans" is true.
- */
 function splitAppDirs(root: string, failures: CleanFailure[]): AppDirs {
   const dirs: AppDirs = { agentNative: [], foreign: [] };
   const appsDir = resolveEntryPath(root, ["apps"], failures);
@@ -644,7 +454,6 @@ function splitAppDirs(root: string, failures: CleanFailure[]): AppDirs {
   return dirs;
 }
 
-/** Selects what `clean` would remove. Reads only — no deletes. */
 export function scanCleanTargets(options: ScanCleanOptions): CleanScan {
   const root = path.resolve(options.root);
   let realRoot: string;
@@ -653,9 +462,6 @@ export function scanCleanTargets(options: ScanCleanOptions): CleanScan {
     realRoot = fs.realpathSync(root);
     rootDev = fs.statSync(realRoot).dev;
   } catch (err) {
-    // Without a resolved root nothing can be shown to be inside it, so this is
-    // a reported failure, not an empty scan. No targets accompany it, so the
-    // unresolved `realRoot` below is never used to authorize anything.
     return {
       scope: "app",
       realRoot: root,
@@ -687,15 +493,12 @@ export function scanCleanTargets(options: ScanCleanOptions): CleanScan {
     }
   }
 
-  // Measure after the nested ones are dropped: a dropped target would
-  // otherwise claim the inodes its survivor has to count.
   const targets = measureTargets(dropNested(ctx.targets), ctx.failures);
 
   return { scope, realRoot, targets, failures: ctx.failures };
 }
 
 export interface PerformCleanOptions extends ScanCleanOptions {
-  /** Delete. Without it nothing is touched and `bytesReclaimed` stays 0. */
   apply?: boolean;
 }
 
@@ -785,28 +588,15 @@ export function performClean(options: PerformCleanOptions): CleanReport {
     if (!options.apply) continue;
     const check = verifyTargetUnchanged(scan.realRoot, target);
     if (check.kind === "changed") {
-      // Not a skip and not a quiet success: something moved under a path this
-      // run was about to delete recursively. `remainingBytes` stays absent —
-      // the path no longer names what was measured, so there is no honest
-      // number to give.
       addFailure(failures, { path: target.path, message: check.reason });
       continue;
     }
-    // Already removed by someone else: nothing to do, and nothing to credit.
     if (check.kind === "gone") continue;
     try {
-      // No `force`. `force` swallows ENOENT, and ENOENT here is the only signal
-      // that another process — a second `clean`, or Vite recreating `.vite`
-      // mid re-optimize — freed this tree first. Swallowed, both runs credit
-      // the same bytes and report a total larger than the disk ever held.
       fs.rmSync(target.realPath, { recursive: true });
       entry.reclaimed += target.bytes;
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
-      // A recursive rm can throw after already freeing part of the tree, so
-      // re-measure. `undefined` means the re-measure could not read what is
-      // left: unknown is not zero, and `bytes - 0` would credit the whole
-      // target while every byte of it is still on disk.
       const remainingBytes = measureRemaining(target, failures);
       addFailure(failures, {
         path: target.path,
@@ -851,9 +641,6 @@ export interface CleanCliOptions {
   builds?: boolean;
   json?: boolean;
   help?: boolean;
-  /** Set when argv could not be parsed; `runClean` turns it into exit 2. A
-   * typo must not degrade into a different command — `--aply` silently
-   * ignored is the difference between a dry run and a real delete. */
   error?: string;
 }
 
@@ -914,8 +701,6 @@ export function printCleanHelp(io: Pick<CleanIo, "log"> = defaultIo): void {
   io.log(CLEAN_HELP_LINES.join("\n"));
 }
 
-/** One path per line, so a directory name containing a newline would print as
- * two — the second looking like a separate top-level path being deleted. */
 function formatPath(target: string): string {
   return /\p{Cc}/u.test(target) ? JSON.stringify(target) : target;
 }
@@ -943,9 +728,6 @@ function formatCleanHuman(report: CleanReport): string {
     }
   }
 
-  // `formatBytes` rounds, so a partial run printed as "X of X" — the headline
-  // read as success while the failure block below contradicted it. The
-  // shortfall is exact for the same reason: it is the number that rounded away.
   const shortfall = report.bytesFound - report.bytesReclaimed;
   lines.push(
     !report.applied
@@ -978,10 +760,6 @@ type MarkerCheck =
   | { kind: "none" }
   | { kind: "unreadable"; path: string; message: string };
 
-/**
- * Is `dir` an Agent-Native app root? Three answers, never two: the manifest
- * says yes, the manifest says no, or nobody could read the manifest.
- */
 function readAgentNativeMarker(dir: string): MarkerCheck {
   for (const file of ["agent-native.json", "package.json"]) {
     const filePath = path.join(dir, file);
@@ -989,8 +767,6 @@ function readAgentNativeMarker(dir: string): MarkerCheck {
     try {
       text = fs.readFileSync(filePath, "utf-8");
     } catch (err) {
-      // EACCES, EISDIR and a zero-byte read are all "cannot tell"; only ENOENT
-      // means the marker is genuinely absent and the next file can be tried.
       if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
       return { kind: "unreadable", path: filePath, message: errorMessage(err) };
     }
@@ -1051,8 +827,6 @@ function checkProjectRoot(
   };
 }
 
-/** `agent-native clean` CLI entrypoint. Returns the process exit code —
- * callers are responsible for calling `process.exit(code)`. */
 export async function runClean(
   argv: string[],
   io: CleanIo = defaultIo,
@@ -1067,8 +841,6 @@ export async function runClean(
   if (opts.error) return usageError(opts.error);
 
   if (opts.help) {
-    // --json is a promise about every other exit path; help was the one that
-    // answered with prose regardless of it.
     if (opts.json) {
       io.log(JSON.stringify({ ok: true, help: CLEAN_HELP_LINES }, null, 2));
     } else {

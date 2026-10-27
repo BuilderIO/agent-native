@@ -6,12 +6,19 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
+import { runPendingTextHostCommit } from "../../pages/design-editor/commands/pending-text-host-commit";
 import {
+  runScreenTextContentChange,
+  type ScreenTextContentChangeArgs,
+} from "../../pages/design-editor/commands/screen-text-content-change";
+import {
+  HOST_COMMIT_RETRY_DELAYS_MS,
   armPendingTextCapture,
   beginTextEditForOwner,
   isPendingTextRequestLive,
   onPendingTextCaptureCancel,
   peekPendingTextCapture,
+  registerPendingTextHostCommit,
   takePendingTextCapture,
 } from "./design-canvas/pending-text-capture";
 import { PENDING_TEXT_INTERCEPT_CAP_MS } from "./design-canvas/pending-text-edit";
@@ -20,6 +27,7 @@ import { DesignCanvas } from "./DesignCanvas";
 let container: HTMLDivElement;
 let root: Root;
 let iframeServer: Server | null = null;
+let unregisterPendingHostCommit: (() => void) | null = null;
 
 beforeEach(() => {
   (
@@ -39,6 +47,8 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  unregisterPendingHostCommit?.();
+  unregisterPendingHostCommit = null;
   await act(async () => root.unmount());
   if (iframeServer) {
     await new Promise<void>((resolve) => iframeServer!.close(() => resolve()));
@@ -46,16 +56,10 @@ afterEach(async () => {
   }
   container.remove();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
-/**
- * Cancelling only the delayed-activation timer is not enough. A begin-text-edit
- * posted while the bridge was not ready waits in the one-shot ready queue, and
- * the flush that follows readiness focuses the node INSIDE the iframe — by then
- * no host-side check can take the session back. The cancel has to reach the
- * queue that holds the command.
- */
 it("drops a queued begin-text-edit when the creation is stood down before the bridge is ready", async () => {
   iframeServer = http.createServer((_request, response) => {
     response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
@@ -88,8 +92,11 @@ it("drops a queued begin-text-edit when the creation is stood down before the br
         contentKey="screen-live"
         screenId="screen-live"
         sourceType="localhost"
+        connectionId="localhost_connection"
         bridgeUrl={bridgeUrl}
         previewToken="text-edit-cancel-preview-token"
+        liveEditCapability="text-edit-cancel-live-capability"
+        liveEditRegistrationCapability="text-edit-cancel-registration-capability"
         zoom={100}
         deviceFrame="none"
         editMode
@@ -126,7 +133,6 @@ it("drops a queued begin-text-edit when the creation is stood down before the br
   await act(async () => {
     beginTextEditForOwner("screen-live", "text-cancel-1");
   });
-  // Never delivered: the canvas has not seen a ready handshake yet.
   expect(beginTextEdits()).toHaveLength(0);
 
   await act(async () => {
@@ -134,7 +140,6 @@ it("drops a queued begin-text-edit when the creation is stood down before the br
   });
   expect(isPendingTextRequestLive("screen-live", "text-cancel-1")).toBe(false);
 
-  // The bridge finally proves it is live and the queue flushes.
   await act(async () => {
     window.dispatchEvent(
       new MessageEvent("message", {
@@ -149,8 +154,6 @@ it("drops a queued begin-text-edit when the creation is stood down before the br
   });
   expect(beginTextEdits()).toHaveLength(0);
 
-  // A late pending report for the cancelled request must not re-arm the host
-  // buffer either — nothing is left to replay keystrokes into.
   await act(async () => {
     window.dispatchEvent(
       new MessageEvent("message", {
@@ -172,10 +175,12 @@ it("drops a queued begin-text-edit when the creation is stood down before the br
   expect(swallowed.defaultPrevented).toBe(false);
 });
 
-/** Render + iframe/postMessage plumbing shared by the cancellation cases. */
 async function mountCanvas(
   previewToken: string,
   options: { previewFrameId?: string; screenId?: string } = {},
+  onTextContentChange?: Parameters<
+    typeof DesignCanvas
+  >[0]["onTextContentChange"],
 ) {
   iframeServer = http.createServer((_request, response) => {
     response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
@@ -214,8 +219,11 @@ async function mountCanvas(
             contentKey="screen-live"
             screenId={overrides.screenId ?? options.screenId ?? "screen-live"}
             sourceType="localhost"
+            connectionId="localhost_connection"
             bridgeUrl={bridgeUrl}
             previewToken={previewToken}
+            liveEditCapability="text-edit-cancel-live-capability"
+            liveEditRegistrationCapability="text-edit-cancel-registration-capability"
             previewFrameId={options.previewFrameId}
             zoom={100}
             deviceFrame="none"
@@ -224,6 +232,7 @@ async function mountCanvas(
             onElementSelect={() => {}}
             onElementHover={() => {}}
             tweakValues={{}}
+            onTextContentChange={onTextContentChange}
           />
         ) : null,
       );
@@ -273,7 +282,6 @@ async function mountCanvas(
       posted.filter(
         (message) => (message as { type?: string } | null)?.type === type,
       ),
-    /** Mark both the runtime bridge and the editor-chrome listener ready. */
     markReady: async (frame: Window) => {
       await fromFrame(frame, {
         type: "agent-native:runtime-layer-snapshot",
@@ -286,12 +294,6 @@ async function mountCanvas(
   };
 }
 
-/**
- * The canvas's own keystroke listener registered on MOUNT, so it runs before
- * the capture's — and it stopImmediatePropagation()s. Escape therefore never
- * reached the capture's listener: the request, its retry ladder and its bridge
- * copy all stayed live and could re-focus the node the user just escaped.
- */
 it("stands the whole request down when Escape is swallowed by the mounted canvas", async () => {
   const canvas = await mountCanvas("text-edit-escape-preview-token");
 
@@ -312,16 +314,10 @@ it("stands the whole request down when Escape is swallowed by the mounted canvas
   expect(teardown).toHaveBeenCalledOnce();
   expect(isPendingTextRequestLive("screen-live", "text-escape")).toBe(false);
 
-  // The bridge finally becomes ready: nothing queued survives to focus it.
   await canvas.markReady(canvas.iframeWindow);
   expect(canvas.typed("begin-text-edit")).toHaveLength(0);
 });
 
-/**
- * Escape ends the session and KEEPS what was typed (Figma). Inside the
- * activation delay the keystrokes are still host-side, and dropping them there
- * lost the text AND left an empty layer behind — the reported ~200 ms window.
- */
 it("commits keystrokes escaped before the session opened, on a bridge that is not ready yet", async () => {
   const canvas = await mountCanvas("text-edit-escape-commit-preview-token");
 
@@ -341,8 +337,6 @@ it("commits keystrokes escaped before the session opened, on a bridge that is no
     );
   });
 
-  // Queued until the frame is ready, then delivered with the text aboard: one
-  // command that opens the session, lands "Sta", and closes it again.
   expect(canvas.typed("begin-text-edit")).toHaveLength(0);
   await canvas.markReady(canvas.iframeWindow);
   expect(canvas.typed("begin-text-edit")).toEqual([
@@ -356,12 +350,6 @@ it("commits keystrokes escaped before the session opened, on a bridge that is no
   ]);
 });
 
-/**
- * The frame can abandon a begin on its own — Escape or a pointerdown inside it,
- * a superseding dblclick, or its own deadline — and says so with
- * text-edit-pending:false. The host used to drop only its local buffer, leaving
- * the capture and the retry ladder alive to re-open the request.
- */
 it("cancels the exact host request when the frame reports it abandoned the begin", async () => {
   const canvas = await mountCanvas("text-edit-frame-abandon-preview-token");
   await canvas.markReady(canvas.iframeWindow);
@@ -374,7 +362,6 @@ it("cancels the exact host request when the frame reports it abandoned the begin
   const teardown = vi.fn();
   onPendingTextCaptureCancel("screen-live", "text-frame", teardown);
 
-  // A report about some other node changes nothing.
   await canvas.fromFrame(canvas.iframeWindow, {
     type: "text-edit-pending",
     nodeId: "text-other",
@@ -384,9 +371,6 @@ it("cancels the exact host request when the frame reports it abandoned the begin
   expect(teardown).not.toHaveBeenCalled();
   expect(isPendingTextRequestLive("screen-live", "text-frame")).toBe(true);
 
-  // The frame's own pump deadline only means the node has not arrived there
-  // yet. Escalating it to abandonment deletes a node the host ladder is still
-  // working on, so the host request survives it — as does an unlabelled report.
   await canvas.fromFrame(canvas.iframeWindow, {
     type: "text-edit-pending",
     nodeId: "text-frame",
@@ -411,12 +395,6 @@ it("cancels the exact host request when the frame reports it abandoned the begin
   expect(isPendingTextRequestLive("screen-live", "text-frame")).toBe(false);
 });
 
-/**
- * A breakpoint preview renders the SAME screenId as the primary frame, which is
- * why owner registration excludes it. The pending-window handoff has to be
- * excluded for the same reason: a preview draining the buffer sends the
- * gesture's keystrokes to a frame that will never own the session.
- */
 it("never lets a breakpoint preview canvas take the creation's buffer", async () => {
   const canvas = await mountCanvas("text-edit-preview-preview-token", {
     previewFrameId: "bp-390",
@@ -436,16 +414,9 @@ it("never lets a breakpoint preview canvas take the creation's buffer", async ()
     nodeId: "text-preview",
     pending: true,
   });
-  // Still the primary frame's to take.
   expect(takePendingTextCapture("screen-live", "text-preview")).toBe("Hi");
 });
 
-/**
- * Re-arming the same node is how the retry ladder keeps a slow activation
- * alive. Tearing the previous request down on that path threw away the buffer
- * the call had just adopted and told the bridge to forget a request about to be
- * re-issued.
- */
 it("re-arming the same node keeps its buffer and never cancels its bridge request", async () => {
   const canvas = await mountCanvas("text-edit-rearm-preview-token");
   await canvas.markReady(canvas.iframeWindow);
@@ -479,14 +450,6 @@ it("re-arming the same node keeps its buffer and never cancels its bridge reques
   ]);
 });
 
-/**
- * The buffer alone is not enough to survive a remount: takePendingTextCapture
- * also consumed the begin INTENT, so the replacement canvas registered with
- * nothing telling it to open the session, and the keystrokes sat in the capture
- * with no one to flush them. An owner that is gone for a whole render is not
- * mounted, so interception ends there and the text rides in the replacement's
- * begin command instead.
- */
 it("a remounted owner begins the edit holding the buffer the old instance held", async () => {
   const canvas = await mountCanvas("text-edit-remount-preview-token");
   await canvas.markReady(canvas.iframeWindow);
@@ -521,15 +484,12 @@ it("a remounted owner begins the edit holding the buffer the old instance held",
     });
   });
 
-  // The session opens in the new frame already holding the keystrokes.
   await canvas.fromFrame(remountedFrame, {
     type: "text-editing-state",
     active: true,
     sourceId: "text-remount",
   });
   expect(canvas.typed("text-edit-insert-text")).toEqual([]);
-  // The frame confirms the keystrokes landed — that, not the session opening,
-  // is what ends the request.
   await canvas.fromFrame(remountedFrame, {
     type: "text-edit-insert-result",
     nodeId: "text-remount",
@@ -538,11 +498,6 @@ it("a remounted owner begins the edit holding the buffer the old instance held",
   expect(isPendingTextRequestLive("screen-live", "text-remount")).toBe(false);
 });
 
-/**
- * A keyed remount unmounts the old owner and mounts its replacement in ONE
- * commit. Judging "the owner is gone" before that commit settles ended
- * interception mid-swap, and the next key typed hit host shortcuts.
- */
 it("a keyed remount in one commit keeps intercepting and flushes every key into the new session", async () => {
   const canvas = await mountCanvas("text-edit-keyed-remount-preview-token");
   await canvas.markReady(canvas.iframeWindow);
@@ -584,11 +539,6 @@ it("a keyed remount in one commit keeps intercepting and flushes every key into 
   ]);
 });
 
-/**
- * The frame's own pending deadline fires on a slow board mount, and it means
- * "the node has not arrived here yet" — not "the user gave up". Clearing the
- * host buffer on it discarded everything typed while the board was mounting.
- */
 it("keeps the typed buffer when the frame reports its own deadline", async () => {
   const canvas = await mountCanvas("text-edit-deadline-preview-token");
   await canvas.markReady(canvas.iframeWindow);
@@ -612,7 +562,6 @@ it("keeps the typed buffer when the frame reports its own deadline", async () =>
   });
   expect(isPendingTextRequestLive("screen-live", "text-slow")).toBe(true);
 
-  // Still there to commit: the session finally opens and takes it.
   await canvas.fromFrame(canvas.iframeWindow, {
     type: "text-editing-state",
     active: true,
@@ -627,12 +576,6 @@ it("keeps the typed buffer when the frame reports its own deadline", async () =>
   ]);
 });
 
-/**
- * The single-screen canvas renders without a key, so `screenId` mutates in
- * place when the active file changes. The keystroke listener installs once —
- * reading the prop through the closure cancelled a capture under the OLD
- * owner, which silently matched nothing.
- */
 it("cancels under the CURRENT owner after the canvas switches screens", async () => {
   const canvas = await mountCanvas("text-edit-owner-swap-preview-token", {
     screenId: "screen-a",
@@ -657,11 +600,6 @@ it("cancels under the CURRENT owner after the canvas switches screens", async ()
   expect(isPendingTextRequestLive("screen-b", "text-swap")).toBe(false);
 });
 
-/**
- * The escaped text is a COPY in the bridge payload; the capture keeps the
- * original until the frame says it took it. An iframe swap or an unmount
- * before the flush must not be able to lose it.
- */
 it("keeps the escaped text until the frame acknowledges the commit", async () => {
   const canvas = await mountCanvas("text-edit-ack-preview-token");
   await canvas.markReady(canvas.iframeWindow);
@@ -682,7 +620,6 @@ it("keeps the escaped text until the frame acknowledges the commit", async () =>
     );
   });
 
-  // Delivered, but not yet acknowledged — the host still owns the original.
   expect(peekPendingTextCapture("screen-live", "text-ack")).toBe("Sta");
   await canvas.fromFrame(canvas.iframeWindow, {
     type: "text-edit-pending",
@@ -701,12 +638,6 @@ it("keeps the escaped text until the frame acknowledges the commit", async () =>
   expect(isPendingTextRequestLive("screen-live", "text-ack")).toBe(false);
 });
 
-/**
- * A late activation for the PREVIOUS creation used to drain whatever buffer the
- * host held, splicing the next creation's keystrokes into the wrong layer —
- * "Beta" typed for the second text box arriving inside the first one as
- * "BetaAlpha", and the second box left empty.
- */
 it("never flushes a buffer into a session that belongs to another node", async () => {
   const canvas = await mountCanvas("text-edit-crosstalk-preview-token");
   await canvas.markReady(canvas.iframeWindow);
@@ -722,7 +653,6 @@ it("never flushes a buffer into a session that belongs to another node", async (
     }
   });
 
-  // The earlier creation's session finally reports active.
   await canvas.fromFrame(canvas.iframeWindow, {
     type: "text-editing-state",
     active: true,
@@ -730,7 +660,6 @@ it("never flushes a buffer into a session that belongs to another node", async (
   });
   expect(canvas.typed("text-edit-insert-text")).toHaveLength(0);
 
-  // The buffer is still the second creation's, and lands in ITS session.
   await canvas.fromFrame(canvas.iframeWindow, {
     type: "text-editing-state",
     active: true,
@@ -745,12 +674,6 @@ it("never flushes a buffer into a session that belongs to another node", async (
   ]);
 });
 
-/**
- * A frame still loading when the interception cap passed used to lose every
- * key typed into it: the capture's clock tore the request down and the canvas
- * buffer went with it. The keys become an owed delivery instead, and the
- * session opens already holding them.
- */
 it("opens the session holding text typed before the cap, and intercepts nothing after it", async () => {
   const canvas = await mountCanvas("text-edit-owed-preview-token");
 
@@ -791,8 +714,6 @@ it("opens the session holding text typed before the cap, and intercepts nothing 
     sourceId: "text-owed",
   });
   expect(canvas.typed("text-edit-insert-text")).toEqual([]);
-  // The frame confirms the keystrokes landed — that, not the session opening,
-  // is what ends the request.
   await canvas.fromFrame(canvas.iframeWindow, {
     type: "text-edit-insert-result",
     nodeId: "text-owed",
@@ -801,12 +722,6 @@ it("opens the session holding text typed before the cap, and intercepts nothing 
   expect(isPendingTextRequestLive("screen-live", "text-owed")).toBe(false);
 });
 
-/**
- * The creation ends where its session opens. Left open, the request ran on to
- * the interception cap, which tore it down as abandoned and scheduled the
- * empty-node cleanup against the node still being typed into — its source
- * stays empty until the session commits.
- */
 it("completes the request when the session opens, so the cap never abandons a live session", async () => {
   const canvas = await mountCanvas("text-edit-complete-preview-token");
   await canvas.markReady(canvas.iframeWindow);
@@ -836,8 +751,6 @@ it("completes the request when the session opens, so the cap never abandons a li
     },
   ]);
 
-  // The frame says the keystrokes landed: that, not the session opening, is
-  // what ends the request.
   await canvas.fromFrame(canvas.iframeWindow, {
     type: "text-edit-insert-result",
     nodeId: "text-live",
@@ -853,11 +766,6 @@ it("completes the request when the session opens, so the cap never abandons a li
   expect(canvas.typed("agent-native:cancel-text-edit")).toHaveLength(0);
 });
 
-/**
- * The retry ladder posts begin-text-edit straight at the frame, so a session
- * can open before any canvas took the keys. Those keys used to stay in the
- * capture until the cap, then land after whatever was typed into the session.
- */
 it("flushes keys the capture still holds when the session opens without a canvas handoff", async () => {
   const canvas = await mountCanvas("text-edit-held-preview-token");
   await canvas.markReady(canvas.iframeWindow);
@@ -882,8 +790,6 @@ it("flushes keys the capture still holds when the session opens without a canvas
       text: "Sta",
     },
   ]);
-  // The frame says the keystrokes landed: that, not the session opening, is
-  // what ends the request.
   await canvas.fromFrame(canvas.iframeWindow, {
     type: "text-edit-insert-result",
     nodeId: "text-held",
@@ -893,11 +799,6 @@ it("flushes keys the capture still holds when the session opens without a canvas
   expect(isPendingTextRequestLive("screen-live", "text-held")).toBe(false);
 });
 
-/**
- * The frame drops an insert it cannot place — the editable was replaced or
- * detached between the session opening and the flush. Releasing the request on
- * activation left those keystrokes in no session, no source, and no buffer.
- */
 it("keeps owing the text when the frame reports the insert did not land", async () => {
   const canvas = await mountCanvas("text-edit-insert-drop-preview-token");
   await canvas.markReady(canvas.iframeWindow);
@@ -925,7 +826,6 @@ it("keeps owing the text when the frame reports the insert did not land", async 
     },
   ]);
 
-  // Dropped: the host still holds the only copy, and owes it to that node.
   await canvas.fromFrame(canvas.iframeWindow, {
     type: "text-edit-insert-result",
     nodeId: "text-drop",
@@ -934,7 +834,6 @@ it("keeps owing the text when the frame reports the insert did not land", async 
   expect(peekPendingTextCapture("screen-live", "text-drop")).toBe("Sta");
   expect(isPendingTextRequestLive("screen-live", "text-drop")).toBe(true);
 
-  // Landed on the re-delivery: only that ends the request.
   await canvas.fromFrame(canvas.iframeWindow, {
     type: "text-edit-insert-result",
     nodeId: "text-drop",
@@ -943,13 +842,171 @@ it("keeps owing the text when the frame reports the insert did not land", async 
   expect(isPendingTextRequestLive("screen-live", "text-drop")).toBe(false);
 });
 
-/**
- * The host-side commit fallback writes the owed text into the source. If the
- * frame is still holding the begin that carries those same characters, that
- * commit is a SECOND copy — dropping the queued message never reached the copy
- * the iframe already had. The owed delivery is the ONLY begin here on purpose:
- * the ordinary activation path registers its own revoke, which would mask this.
- */
+it("commits owed text when Escape ends the session before the text lands, without deleting the node", async () => {
+  const onTextContentChange = vi.fn();
+  const canvas = await mountCanvas(
+    "text-edit-escape-race-preview-token",
+    {},
+    onTextContentChange,
+  );
+  await canvas.markReady(canvas.iframeWindow);
+
+  const capture = armPendingTextCapture({ owner: "screen-live" });
+  capture.bind("text-race");
+  await act(async () => {
+    beginTextEditForOwner("screen-live", "text-race");
+  });
+  await act(async () => {
+    for (const char of "Sta") {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: char }));
+    }
+  });
+  await canvas.fromFrame(canvas.iframeWindow, {
+    type: "text-editing-state",
+    active: true,
+    sourceId: "text-race",
+  });
+  expect(canvas.typed("text-edit-insert-text")).toHaveLength(1);
+
+  await canvas.fromFrame(canvas.iframeWindow, {
+    type: "text-editing-state",
+    active: false,
+    sourceId: "text-race",
+  });
+  await canvas.fromFrame(canvas.iframeWindow, {
+    type: "text-content-change",
+    selector: '[data-agent-native-node-id="text-race"]',
+    value: "",
+    payload: { sourceId: "text-race" },
+  });
+  await canvas.fromFrame(canvas.iframeWindow, {
+    type: "text-edit-insert-result",
+    nodeId: "text-race",
+    inserted: false,
+  });
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  });
+
+  expect(onTextContentChange).not.toHaveBeenCalled();
+  const begins = canvas.typed("begin-text-edit");
+  expect(begins[begins.length - 1]).toMatchObject({
+    nodeId: "text-race",
+    insertText: "Sta",
+    commitImmediately: true,
+  });
+});
+
+it("marks a commit made before the owed text lands so it does not create the box", async () => {
+  const onTextContentChange = vi.fn();
+  const canvas = await mountCanvas(
+    "text-edit-owed-tail-preview-token",
+    {},
+    onTextContentChange,
+  );
+  await canvas.markReady(canvas.iframeWindow);
+
+  const capture = armPendingTextCapture({ owner: "screen-live" });
+  capture.bind("text-tail");
+  await act(async () => {
+    beginTextEditForOwner("screen-live", "text-tail");
+  });
+  await act(async () => {
+    for (const char of "Bu") {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: char }));
+    }
+  });
+  await canvas.fromFrame(canvas.iframeWindow, {
+    type: "text-editing-state",
+    active: true,
+    sourceId: "text-tail",
+  });
+  await canvas.fromFrame(canvas.iframeWindow, {
+    type: "text-editing-state",
+    active: false,
+    sourceId: "text-tail",
+  });
+  const commit = (value: string, originalValue: string) =>
+    canvas.fromFrame(canvas.iframeWindow, {
+      type: "text-content-change",
+      selector: '[data-agent-native-node-id="text-tail"]',
+      value,
+      originalValue,
+      payload: { sourceId: "text-tail" },
+    });
+  await commit("tton", "");
+  await vi.waitFor(() => {
+    expect(onTextContentChange).toHaveBeenLastCalledWith(
+      '[data-agent-native-node-id="text-tail"]',
+      "tton",
+      { sourceId: "text-tail" },
+      expect.objectContaining({ owedTextPending: true }),
+    );
+  });
+
+  await canvas.fromFrame(canvas.iframeWindow, {
+    type: "text-edit-insert-result",
+    nodeId: "text-tail",
+    inserted: true,
+  });
+  await commit("Button", "tton");
+  await vi.waitFor(() => {
+    expect(onTextContentChange).toHaveBeenLastCalledWith(
+      '[data-agent-native-node-id="text-tail"]',
+      "Button",
+      { sourceId: "text-tail" },
+      expect.objectContaining({ owedTextPending: false }),
+    );
+  });
+});
+
+it("keeps text the host wrote on pointer-away when the session opened on the empty node commits empty", async () => {
+  const onTextContentChange = vi.fn();
+  const canvas = await mountCanvas(
+    "text-edit-pointer-away-race-preview-token",
+    {},
+    onTextContentChange,
+  );
+  await canvas.markReady(canvas.iframeWindow);
+  const writer = vi.fn(() => true);
+  unregisterPendingHostCommit = registerPendingTextHostCommit(writer);
+
+  const capture = armPendingTextCapture({ owner: "screen-live" });
+  capture.bind("text-away");
+  await act(async () => {
+    beginTextEditForOwner("screen-live", "text-away");
+  });
+  await act(async () => {
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "A" }));
+    window.dispatchEvent(new PointerEvent("pointerdown"));
+  });
+  expect(writer).toHaveBeenCalledWith("screen-live", "text-away", "A");
+
+  const emptyCommit = (originalValue: string) =>
+    canvas.fromFrame(canvas.iframeWindow, {
+      type: "text-content-change",
+      selector: '[data-agent-native-node-id="text-away"]',
+      value: "",
+      originalValue,
+      payload: { sourceId: "text-away" },
+    });
+  await emptyCommit("");
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  });
+  expect(onTextContentChange).not.toHaveBeenCalled();
+
+  await emptyCommit("A");
+  await vi.waitFor(() => {
+    expect(onTextContentChange).toHaveBeenCalledWith(
+      '[data-agent-native-node-id="text-away"]',
+      "",
+      { sourceId: "text-away" },
+      expect.objectContaining({ originalValue: "A" }),
+    );
+  });
+});
+
 it("revokes an owed delivery the frame may already hold when the request stands down", async () => {
   const canvas = await mountCanvas("text-edit-revoke-preview-token");
   await canvas.markReady(canvas.iframeWindow);
@@ -962,8 +1019,6 @@ it("revokes an owed delivery the frame may already hold when the request stands 
     }
   });
 
-  // The cap passes with the text still owed: interception ends and the owner is
-  // asked to open the session holding it.
   const armedAt = Date.now();
   vi.spyOn(Date, "now").mockReturnValue(
     armedAt + PENDING_TEXT_INTERCEPT_CAP_MS + 1,
@@ -981,8 +1036,6 @@ it("revokes an owed delivery the frame may already hold when the request stands 
     insertText: "Sta",
   });
 
-  // The frame holds that begin now. Standing the request down — the same path
-  // the host-side commit takes before it writes — has to revoke it there.
   await act(async () => {
     window.dispatchEvent(new PointerEvent("pointerdown"));
   });
@@ -995,11 +1048,6 @@ it("revokes an owed delivery the frame may already hold when the request stands 
   ).toHaveLength(1);
 });
 
-/**
- * A breakpoint preview renders the same screen with NO owner identity, so it
- * can never take the capture, drain it, or acknowledge it. Arming its key
- * listener from a pending report swallowed keys that nothing could deliver.
- */
 it("never arms a preview canvas's key buffer from a pending report", async () => {
   const canvas = await mountCanvas("text-edit-preview-pending-token", {
     previewFrameId: "bp-390",
@@ -1014,11 +1062,118 @@ it("never arms a preview canvas's key buffer from a pending report", async () =>
     pending: true,
   });
 
-  // The key must reach the creation's own capture, not this preview.
   await act(async () => {
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "x" }));
   });
   expect(peekPendingTextCapture("screen-live", "text-preview-pending")).toBe(
     "x",
   );
+});
+
+it("retains active-before-ack creation identity through a real refused text commit", async () => {
+  const unwritten = vi.spyOn(console, "error").mockImplementation(() => {});
+  const applyFileContentUpdate = vi.fn();
+  const args = {
+    activeFile: { id: "screen-live" },
+    applyFileContentUpdate,
+    canEditDesign: false,
+    designSourceType: "inline",
+    overviewScreens: [],
+  } as unknown as ScreenTextContentChangeArgs;
+  const screenTextCommit = vi.fn(
+    (screenId: string, selector: string, value: string) =>
+      runScreenTextContentChange(args, screenId, selector, value),
+  );
+  const canvas = await mountCanvas(
+    "text-active-before-ack-refusal-token",
+    {},
+    (selector, value) => screenTextCommit("screen-live", selector, value),
+  );
+  await canvas.markReady(canvas.iframeWindow);
+
+  const writer = vi.fn((owner: string, nodeId: string, text: string) =>
+    runPendingTextHostCommit(screenTextCommit, owner, nodeId, text),
+  );
+  unregisterPendingHostCommit = registerPendingTextHostCommit(writer);
+  vi.useFakeTimers();
+
+  const nodeId = "text-active-before-ack";
+  const capture = armPendingTextCapture({ owner: "screen-live" });
+  capture.bind(nodeId);
+  await act(async () => {
+    beginTextEditForOwner("screen-live", nodeId);
+    for (const char of "Sta") {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: char }));
+    }
+  });
+
+  // The bridge announces the active editable before acknowledging insertion.
+  await canvas.fromFrame(canvas.iframeWindow, {
+    type: "text-editing-state",
+    active: true,
+    sourceId: nodeId,
+  });
+  expect(canvas.typed("text-edit-insert-text")).toContainEqual({
+    type: "text-edit-insert-text",
+    nodeId,
+    text: "Sta",
+  });
+  await canvas.fromFrame(canvas.iframeWindow, {
+    type: "text-edit-insert-result",
+    nodeId,
+    inserted: true,
+  });
+  expect(isPendingTextRequestLive("screen-live", nodeId)).toBe(false);
+
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(30_001);
+  });
+  await canvas.fromFrame(canvas.iframeWindow, {
+    type: "text-editing-state",
+    active: false,
+    sourceId: nodeId,
+    reason: "committed",
+  });
+  await canvas.fromFrame(canvas.iframeWindow, {
+    type: "text-content-change",
+    selector: `#${nodeId}`,
+    value: "Started",
+    payload: { sourceId: nodeId },
+  });
+
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(100);
+  });
+  expect(screenTextCommit).toHaveBeenNthCalledWith(
+    1,
+    "screen-live",
+    `#${nodeId}`,
+    "Started",
+  );
+  expect(writer).toHaveBeenCalledWith("screen-live", nodeId, "Started");
+  expect(screenTextCommit).toHaveBeenNthCalledWith(
+    2,
+    "screen-live",
+    `[data-agent-native-node-id="${nodeId}"]`,
+    "Started",
+  );
+
+  for (const delay of HOST_COMMIT_RETRY_DELAYS_MS) {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(delay);
+    });
+  }
+  expect(screenTextCommit).toHaveBeenCalledTimes(
+    HOST_COMMIT_RETRY_DELAYS_MS.length + 2,
+  );
+  expect(unwritten).toHaveBeenCalledOnce();
+  expect(unwritten).toHaveBeenCalledWith(
+    expect.stringContaining("typed text could not be written"),
+    expect.objectContaining({
+      screenId: "screen-live",
+      nodeId,
+      reason: "commit-failed",
+    }),
+  );
+  expect(applyFileContentUpdate).not.toHaveBeenCalled();
 });

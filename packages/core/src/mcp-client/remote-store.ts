@@ -22,6 +22,7 @@
 
 import { createHash } from "node:crypto";
 
+import { AppSecretDecryptionError } from "../secrets/errors.js";
 import type { SecretScope } from "../secrets/register.js";
 import {
   writeAppSecret,
@@ -48,16 +49,38 @@ const SETTINGS_KEY = "mcp-servers-remote";
 
 export type RemoteMcpScope = "user" | "org";
 
+export class InvalidMcpHeaderConfigurationError extends Error {
+  readonly code = "invalid_mcp_header_configuration";
+
+  constructor(
+    readonly reason: "invalid-json" | "invalid-shape" | "missing-secret",
+  ) {
+    super(
+      "Saved MCP server headers are invalid. Re-save the server's headers before reconnecting.",
+    );
+    this.name = "InvalidMcpHeaderConfigurationError";
+  }
+}
+
+export class McpHeaderSecretUnavailableError extends Error {
+  readonly code = "mcp_header_secret_unavailable";
+
+  constructor(cause: unknown) {
+    super(
+      "Could not read the saved MCP header credential. Retry after the settings store is available.",
+      { cause },
+    );
+    this.name = "McpHeaderSecretUnavailableError";
+  }
+}
+
 function toSecretScope(scope: RemoteMcpScope): SecretScope {
   return scope === "user" ? "user" : "workspace";
 }
 
 export interface StoredRemoteMcpServer {
-  /** Stable unique id — used for removal / URLs. */
   id: string;
-  /** Human-readable name. Also used as the MCP server id (prefixed with scope). */
   name: string;
-  /** Streamable HTTP MCP server URL. */
   url: string;
   /**
    * Optional non-secret headers to pass to the MCP server. SECURITY: secret
@@ -67,35 +90,14 @@ export interface StoredRemoteMcpServer {
    * are honored read-only.
    */
   headers?: Record<string, string>;
-  /**
-   * Reference to the encrypted secret holding the JSON-stringified secret
-   * headers map (e.g. `{"Authorization":"Bearer …"}`). Resolved at request
-   * time via `readAppSecret`. Undefined when no secret-class headers were
-   * supplied (or for legacy cleartext rows).
-   */
   headerSecretKey?: string;
-  /** Reference to the encrypted OAuth credential bundle for this server. */
   oauthSecretKey?: string;
-  /**
-   * Trusted first-party Agent-Native app. Only framework-controlled
-   * registrations should set this; management routes intentionally do not
-   * expose it for arbitrary user-added MCP servers.
-   */
   firstParty?: boolean;
-  /** Canonical first-party app id from the org directory, e.g. `assets`. */
   firstPartyAppId?: string;
-  /** Optional description shown in the UI. */
   description?: string;
-  /** ms since epoch. */
   createdAt: number;
 }
 
-/**
- * Header names that are routed through the encrypted-at-rest secrets store
- * instead of being written to the plaintext `settings` row. Match is
- * case-insensitive and substring-based to catch one-off names like
- * `x-zapier-api-key`.
- */
 const SECRET_HEADER_NAME_PATTERNS = [
   /authorization/i,
   /api[-_]?key/i,
@@ -109,7 +111,6 @@ function isSecretHeaderName(name: string): boolean {
   return SECRET_HEADER_NAME_PATTERNS.some((re) => re.test(name));
 }
 
-/** Split a headers map into (cleartext, secret) buckets. */
 function partitionHeaders(headers: Record<string, string> | undefined): {
   cleartext: Record<string, string> | undefined;
   secret: Record<string, string> | undefined;
@@ -128,7 +129,6 @@ function partitionHeaders(headers: Record<string, string> | undefined): {
   };
 }
 
-/** Tiny nanoid — matches the inline helper used elsewhere in this package. */
 function shortId(): string {
   const rand =
     globalThis.crypto?.randomUUID?.().replace(/-/g, "") ??
@@ -136,15 +136,6 @@ function shortId(): string {
   return rand.slice(0, 16);
 }
 
-/**
- * Validate a candidate MCP server name — used as a key in the merged config
- * and as part of the prefixed tool name (`mcp__<merged-key>__<tool>`).
- *
- * Allowed: letters, digits, hyphen; 1–40 chars. Lowercased. Underscores are
- * excluded on purpose — the merged-key format uses `_` as a separator between
- * `<scope>`, `<owner>`, and `<name>`, so allowing `_` in names would make the
- * parse ambiguous.
- */
 export function normalizeServerName(input: string): string {
   return input
     .trim()
@@ -153,11 +144,6 @@ export function normalizeServerName(input: string): string {
     .slice(0, 40);
 }
 
-/**
- * Short, deterministic, URL-safe hash of an email. Used as the owner
- * discriminator in user-scope merged keys so two users with the same server
- * name don't collide in the global MCP manager.
- */
 export function hashEmail(email: string): string {
   return createHash("sha256")
     .update(email.toLowerCase().trim())
@@ -165,10 +151,6 @@ export function hashEmail(email: string): string {
     .slice(0, 10);
 }
 
-/**
- * Sanitise an org id to the character set allowed in merged keys.
- * Org ids are already nanoid-style alphanumeric, but we normalise defensively.
- */
 function sanitiseOrgId(orgId: string): string {
   return orgId.toLowerCase().replace(/[^a-z0-9-]/g, "-");
 }
@@ -309,11 +291,6 @@ export async function addOAuthRemoteServer(
   }
 }
 
-/**
- * Replace the OAuth grant for an existing server without changing its id or
- * display name. Reconnect must update the saved grant in place; registering a
- * second row makes the original connection impossible to repair.
- */
 export async function replaceOAuthRemoteServer(
   scope: RemoteMcpScope,
   scopeId: string,
@@ -390,8 +367,6 @@ export async function replaceOAuthRemoteServer(
     };
   }
 
-  // The settings row now points at the replacement grant. Old-grant cleanup
-  // is best effort and must not roll back or invalidate the committed row.
   await revokeMcpOAuthCredentials({
     key: current.oauthSecretKey,
     scope,
@@ -668,15 +643,6 @@ export async function removeRemoteServer(
   return true;
 }
 
-/**
- * Resolve the full headers map (cleartext + decrypted secret headers) for a
- * stored MCP server. Used when projecting the stored record into the
- * runtime `McpHttpServerConfig` shape that `McpClientManager` consumes.
- *
- * For legacy rows that wrote secrets cleartext into `headers`, this
- * returns those cleartext values unchanged — they should be re-saved
- * through `addRemoteServer` to migrate to encrypted storage.
- */
 export async function materializeHeaders(
   scope: RemoteMcpScope,
   scopeId: string,
@@ -684,24 +650,34 @@ export async function materializeHeaders(
 ): Promise<Record<string, string> | undefined> {
   const merged: Record<string, string> = { ...(stored.headers ?? {}) };
   if (stored.headerSecretKey) {
+    let secret: Awaited<ReturnType<typeof readAppSecret>>;
     try {
-      const secret = await readAppSecret({
+      secret = await readAppSecret({
         key: stored.headerSecretKey,
         scope: toSecretScope(scope),
         scopeId,
       });
-      if (secret) {
-        const parsed = JSON.parse(secret.value) as Record<string, string>;
-        for (const [k, v] of Object.entries(parsed)) {
-          if (typeof v === "string") merged[k] = v;
-        }
-      }
-    } catch (err: any) {
-      // eslint-disable-next-line no-console
-      console.warn(
-        `[mcp-client] Failed to decrypt MCP headers for ${stored.name}: ${err?.message ?? err}`,
-      );
+    } catch (error) {
+      if (error instanceof AppSecretDecryptionError) throw error;
+      throw new McpHeaderSecretUnavailableError(error);
     }
+    if (!secret) {
+      throw new InvalidMcpHeaderConfigurationError("missing-secret");
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(secret.value);
+    } catch {
+      throw new InvalidMcpHeaderConfigurationError("invalid-json");
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new InvalidMcpHeaderConfigurationError("invalid-shape");
+    }
+    const entries = Object.entries(parsed);
+    if (entries.some(([, value]) => typeof value !== "string")) {
+      throw new InvalidMcpHeaderConfigurationError("invalid-shape");
+    }
+    for (const [key, value] of entries) merged[key] = value;
   }
   return Object.keys(merged).length > 0 ? merged : undefined;
 }
@@ -734,14 +710,6 @@ export function toHttpServerConfig(
   };
 }
 
-/**
- * Async variant of `toHttpServerConfig` that resolves any encrypted
- * `headerSecretKey` reference from `app_secrets` and returns the full
- * cleartext headers map for use at runtime. Use this when actually
- * configuring an MCP client; use the sync variant only when serializing
- * stored data (e.g. for read-only listings that shouldn't disclose
- * secrets).
- */
 export async function toHttpServerConfigAsync(
   scope: RemoteMcpScope,
   scopeId: string,
@@ -797,17 +765,6 @@ export function mergedConfigKey(
   return `${scope}_${owner}_${stored.name}`;
 }
 
-/**
- * Parse a merged key (or a full prefixed tool name like
- * `mcp__user_abcd1234ef_zapier__run-task`) back into its scope + owner + name
- * components. Returns null for non-merged keys (e.g. stdio file-config servers
- * like `claude-in-chrome`) so callers can treat them as always-visible.
- *
- * `hub_<orgId>_<name>` entries (pulled from a remote hub via
- * `hub-client.ts`) project to `scope: "org"` so they pass through the same
- * per-request visibility gate as locally-stored org servers — the tool is
- * only visible to requests whose active org matches the hub entry's org.
- */
 export function parseMergedKey(
   keyOrToolName: string,
 ): { scope: RemoteMcpScope; owner: string; name: string } | null {
@@ -820,8 +777,6 @@ export function parseMergedKey(
   const m = /^(user|org|hub)_([^_]+)_(.+)$/.exec(key);
   if (!m) return null;
   const prefix = m[1];
-  // Hub-sourced servers are scoped to the org they came from — treat them
-  // as org-scope for visibility purposes (see isMcpToolAllowedForRequest).
   const scope: RemoteMcpScope = prefix === "user" ? "user" : "org";
   return {
     scope,

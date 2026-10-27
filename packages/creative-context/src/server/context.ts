@@ -56,6 +56,8 @@ export interface CreativeContextProjectionAdapters {
     }): Promise<void>;
   };
   generation?: {
+    // onlyIfMissing retries can replay this after the SQL row commits.
+    // Implementations must upsert by the artifact identity.
     record(input: {
       appId: string;
       artifactType: string;

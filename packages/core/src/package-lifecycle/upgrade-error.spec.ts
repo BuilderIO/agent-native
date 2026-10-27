@@ -7,7 +7,10 @@ import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND } from "./migration-message.js";
+import {
+  AGENT_NATIVE_MIGRATION_GUIDE_URL,
+  AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND,
+} from "./migration-message.js";
 import { renderTombstoneModule } from "./tombstone.js";
 import { AgentNativeUpgradeError } from "./upgrade-error.js";
 
@@ -39,7 +42,7 @@ describe("AgentNativeUpgradeError", () => {
       'throwMovedAgentNativeModule("@agent-native/core/client/old", "@agent-native/toolkit/new")',
     );
     expect(source).toContain(
-      `DeprecatedExport<"@agent-native/core/client/old moved to @agent-native/toolkit/new. Run: ${AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND}">`,
+      `DeprecatedExport<"@agent-native/core/client/old moved to @agent-native/toolkit/new. Run: ${AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND}. Migration guide: ${AGENT_NATIVE_MIGRATION_GUIDE_URL}">`,
     );
   });
 
@@ -54,7 +57,7 @@ describe("AgentNativeUpgradeError", () => {
             symbols: {
               SharedRichEditor: "SharedRichEditor",
               RegistryBlockDataProvider: {
-                to: "@agent-native/core/blocks",
+                to: "@agent-native/toolkit/app/blocks",
               },
               uploadEditorImage: {
                 to: "@agent-native/core/client/uploads",
@@ -72,13 +75,13 @@ describe("AgentNativeUpgradeError", () => {
     });
 
     expect(source).toContain(
-      'throwMovedAgentNativeModule("@agent-native/core/client/editor", "@agent-native/toolkit/editor", {"RegistryBlockDataProvider":"@agent-native/core/blocks","uploadEditorImage":"@agent-native/core/client/uploads"})',
+      'throwMovedAgentNativeModule("@agent-native/core/client/editor", "@agent-native/toolkit/editor", {"RegistryBlockDataProvider":"@agent-native/toolkit/app/blocks","uploadEditorImage":"@agent-native/core/client/uploads"})',
     );
     expect(source).toContain(
-      `DeprecatedExport<"@agent-native/core/client/editor moved to @agent-native/core/blocks. Run: ${AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND}">`,
+      `DeprecatedExport<"@agent-native/core/client/editor moved to @agent-native/toolkit/app/blocks. Run: ${AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND}. Migration guide: ${AGENT_NATIVE_MIGRATION_GUIDE_URL}">`,
     );
     expect(source).toContain(
-      `DeprecatedExport<"@agent-native/core/client/editor moved to @agent-native/core/client/uploads. Run: ${AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND}">`,
+      `DeprecatedExport<"@agent-native/core/client/editor moved to @agent-native/core/client/uploads. Run: ${AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND}. Migration guide: ${AGENT_NATIVE_MIGRATION_GUIDE_URL}">`,
     );
   });
 
@@ -116,7 +119,7 @@ describe("AgentNativeUpgradeError", () => {
       "@agent-native/toolkit/new",
     );
     expect(error.message).toBe(
-      `@agent-native/core/client/old moved to @agent-native/toolkit/new. Run: ${AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND}`,
+      `@agent-native/core/client/old moved to @agent-native/toolkit/new. Run: ${AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND}. Migration guide: ${AGENT_NATIVE_MIGRATION_GUIDE_URL}`,
     );
   });
 
@@ -126,11 +129,11 @@ describe("AgentNativeUpgradeError", () => {
       "@agent-native/toolkit/editor",
       {
         uploadEditorImage: "@agent-native/core/client/uploads",
-        RegistryBlockDataProvider: "@agent-native/core/blocks",
+        RegistryBlockDataProvider: "@agent-native/toolkit/app/blocks",
       },
     );
     expect(error.message).toBe(
-      `@agent-native/core/client/editor exports moved to multiple entrypoints: RegistryBlockDataProvider -> @agent-native/core/blocks; uploadEditorImage -> @agent-native/core/client/uploads; all other exports -> @agent-native/toolkit/editor. Run: ${AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND}`,
+      `@agent-native/core/client/editor exports moved to multiple entrypoints: RegistryBlockDataProvider -> @agent-native/toolkit/app/blocks; uploadEditorImage -> @agent-native/core/client/uploads; all other exports -> @agent-native/toolkit/editor. Run: ${AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND}. Migration guide: ${AGENT_NATIVE_MIGRATION_GUIDE_URL}`,
     );
   });
 
@@ -181,7 +184,7 @@ describe("AgentNativeUpgradeError", () => {
     });
     expect(execution.status).not.toBe(0);
     expect(execution.stderr).toContain(
-      `@fixture/removed moved to @fixture/new. Run: ${AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND}`,
+      `@fixture/removed moved to @fixture/new. Run: ${AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND}. Migration guide: ${AGENT_NATIVE_MIGRATION_GUIDE_URL}`,
     );
   });
 
@@ -208,7 +211,7 @@ describe("AgentNativeUpgradeError", () => {
     });
     expect(execution.status).not.toBe(0);
     expect(execution.stderr).toContain(
-      "RegistryBlockDataProvider -> @agent-native/core/blocks",
+      "RegistryBlockDataProvider -> @agent-native/toolkit/app/blocks",
     );
     expect(execution.stderr).toContain(
       "uploadEditorImage -> @agent-native/core/client/uploads",

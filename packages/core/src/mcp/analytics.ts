@@ -1,32 +1,7 @@
-/**
- * Analytics for the MCP server this app exposes.
- *
- * Events and property names follow PostHog's MCP analytics vocabulary
- * (https://posthog.com/docs/mcp-analytics/events) — `$mcp_tool_call`,
- * `$mcp_tool_name`, `$mcp_duration_ms`, … — but they are emitted through the
- * framework's provider-agnostic `track()`, so an app on Mixpanel, Amplitude,
- * a webhook, or Agent-Native Analytics receives the same events under the
- * same names. The vocabulary is borrowed rather than invented because
- * PostHog's MCP dashboards read these keys directly, and a second spelling
- * would strand every app already built on theirs.
- *
- * Emission points live in `build-server.ts` (shared by the HTTP mount and the
- * stdio transport, so both surfaces report identically) and in `server.ts`
- * for the initialize handshake, which is the only place the client's own name
- * and version are on the wire.
- *
- * Deliberately NOT emitted: `$mcp_response`. A tool result is app data of
- * unbounded size; the properties here stay metadata. `$mcp_parameters` is
- * opt-in for the same reason (`observability.mcpCaptureParameters`) and
- * redacted
- * even then.
- */
-
 import { getAppConfig } from "../app-config/store.js";
 import { safeValue } from "../tracking/redaction.js";
 import { listTrackingProviders, track } from "../tracking/registry.js";
 
-/** Reserved request `_meta` keys the 2026-07-28 protocol carries per request. */
 const CLIENT_INFO_META_KEY = "io.modelcontextprotocol/clientInfo";
 const PROTOCOL_VERSION_META_KEY = "io.modelcontextprotocol/protocolVersion";
 
@@ -36,26 +11,23 @@ export const MCP_ANALYTICS_EVENTS = {
   toolCall: "$mcp_tool_call",
   resourcesList: "$mcp_resources_list",
   resourceRead: "$mcp_resource_read",
+  oauthAuthorizeOpened: "$mcp_oauth_authorize_opened",
+  oauthLoginWallShown: "$mcp_oauth_login_wall_shown",
 } as const;
 
-/**
- * Per-request identity of the MCP exchange: who is calling, over which
- * transport, against which server build. Resolved once per request and passed
- * to each event so every `$mcp_*` event carries the same caller columns.
- */
 export interface McpAnalyticsContext {
-  /** `$mcp_source` — which transport served the request. */
   source: "http" | "stdio";
   serverName: string;
-  serverVersion: string;
+  serverVersion?: string;
   appId?: string;
   clientName?: string;
   clientVersion?: string;
   clientUserAgent?: string;
+  clientKey?: string;
+  redirectHost?: string;
   protocolVersion?: string;
-  /** Verified caller, when the request authenticated to one. */
   userId?: string;
-  /** MCP transport session, when the transport keeps one. */
+  anonymousId?: string;
   sessionId?: string;
 }
 
@@ -64,14 +36,6 @@ interface McpRequestLike {
   _meta?: Record<string, unknown> | undefined;
 }
 
-/**
- * Normalized vendor bucket for the calling host.
- *
- * Clients report themselves inconsistently — `claude-code`, `Claude Code`,
- * `claude-ai`, or nothing but a user agent — so grouping on the raw name
- * splits one host across several rows. Matching is substring-based against
- * the lowercased client name and user agent, first match wins.
- */
 const VENDOR_CLIENT_PATTERNS: Array<[RegExp, string]> = [
   [/claude[\s._-]?code/, "claude-code"],
   [/claude[\s._-]?desktop/, "claude-desktop"],
@@ -105,7 +69,27 @@ export function detectVendorClient(
   return undefined;
 }
 
-/** `{ name, version }` a 2026-era client carries in per-request `_meta`. */
+// A known redirect host labels a vendor when the client's name does not (a
+// client that points its callback at a domain it does not control cannot use
+// the code). It is still the client's own registration, so it does not prove
+// who the client is. Match the host itself or a subdomain, never a substring:
+// that would credit `openai.evil.example`.
+const REDIRECT_HOST_VENDORS: Array<[domain: string, vendor: string]> = [
+  ["chatgpt.com", "openai"],
+  ["openai.com", "openai"],
+  ["claude.ai", "claude"],
+];
+
+export function vendorForRedirectHost(
+  host: string | undefined,
+): string | undefined {
+  const name = host?.toLowerCase();
+  if (!name) return undefined;
+  return REDIRECT_HOST_VENDORS.find(
+    ([domain]) => name === domain || name.endsWith(`.${domain}`),
+  )?.[1];
+}
+
 export function readClientInfoFromRequest(
   request: McpRequestLike | undefined,
 ): {
@@ -131,14 +115,7 @@ export function readClientInfoFromRequest(
 }
 
 function analyticsEnabled(): boolean {
-  // A registry with no provider still fans out through `track()` at zero cost,
-  // but building the property bag (redacting arguments, listing tool names) is
-  // not free — skip it when nothing would receive the event.
   if (listTrackingProviders().length === 0) return false;
-  // Not wrapped: a malformed `MCP_ANALYTICS` value is a deployment error, and
-  // catching it here would turn "your config is wrong" into "MCP usage stopped
-  // being reported" — the exact silent-off state this instrumentation exists to
-  // rule out.
   return getAppConfig().observability.mcpEvents;
 }
 
@@ -147,22 +124,48 @@ function captureParameters(): boolean {
 }
 
 function contextProperties(ctx: McpAnalyticsContext): Record<string, unknown> {
-  const vendor = detectVendorClient(ctx.clientName, ctx.clientUserAgent);
+  // The client's name or user agent labels the vendor as it does on every other
+  // MCP event, so the dimension stays consistent; a known redirect host labels
+  // it only when they do not. On OAuth events (the ones with a redirect host)
+  // `$mcp_vendor_source` says whether the host gave the same label. Neither
+  // proves who the client is.
+  const hostVendor = vendorForRedirectHost(ctx.redirectHost);
+  const vendor = mcpVendorForContext(ctx);
   return {
     $mcp_source: ctx.source,
     $mcp_server_name: ctx.serverName,
-    $mcp_server_version: ctx.serverVersion,
+    ...(ctx.serverVersion ? { $mcp_server_version: ctx.serverVersion } : {}),
     ...(ctx.appId ? { $mcp_app_id: ctx.appId } : {}),
     ...(ctx.clientName ? { $mcp_client_name: ctx.clientName } : {}),
     ...(ctx.clientVersion ? { $mcp_client_version: ctx.clientVersion } : {}),
     ...(ctx.clientUserAgent
       ? { $mcp_client_user_agent: ctx.clientUserAgent }
       : {}),
+    ...(ctx.clientKey ? { $mcp_client_key: ctx.clientKey } : {}),
+    ...(ctx.redirectHost ? { $mcp_redirect_host: ctx.redirectHost } : {}),
     ...(vendor ? { $mcp_vendor_client: vendor } : {}),
+    ...(vendor && ctx.redirectHost
+      ? {
+          $mcp_vendor_source:
+            hostVendor === vendor ? "redirect_host" : "client_name",
+        }
+      : {}),
     ...(ctx.protocolVersion
       ? { $mcp_protocol_version: ctx.protocolVersion }
       : {}),
   };
+}
+
+export function mcpVendorForContext(
+  ctx: Pick<
+    McpAnalyticsContext,
+    "clientName" | "clientUserAgent" | "redirectHost"
+  >,
+): string | undefined {
+  return (
+    detectVendorClient(ctx.clientName, ctx.clientUserAgent) ??
+    vendorForRedirectHost(ctx.redirectHost)
+  );
 }
 
 function emit(
@@ -174,7 +177,11 @@ function emit(
     track(
       event,
       { ...contextProperties(ctx), ...properties },
-      { userId: ctx.userId, sessionId: ctx.sessionId },
+      {
+        ...(ctx.userId ? { userId: ctx.userId } : {}),
+        ...(ctx.anonymousId ? { anonymousId: ctx.anonymousId } : {}),
+        ...(ctx.sessionId ? { sessionId: ctx.sessionId } : {}),
+      },
     );
   } catch (err) {
     console.error(`[mcp-analytics] Failed to emit ${event}:`, err);
@@ -203,7 +210,6 @@ export function trackMcpToolCall(
   args: {
     toolName: string;
     toolDescription?: string;
-    /** `read` for a `readOnly` action, `write` otherwise. */
     toolCategory?: string;
     parameters?: Record<string, unknown>;
     durationMs: number;
@@ -262,13 +268,35 @@ export function trackMcpResourceRead(
   });
 }
 
-/**
- * Error shape for a `$mcp_*` event.
- *
- * `$mcp_error_type` is the class/code a consumer can group by;
- * `$mcp_error_message` is bounded and redacted by the tracking layer's own
- * rules when it reaches a provider.
- */
+export type McpOAuthRoute = "directory" | "mcp";
+
+// A new user's attempt serves two pages: the sign-in page (signedIn false, with
+// a login wall) and, after sign-in, the consent page (signedIn true). A
+// returning signed-in user sees only the consent page. So signedIn false counts
+// signed-out arrivals and signedIn true counts everyone who reached consent,
+// new and returning together; neither is "starts" on its own, and adding them
+// double-counts new users.
+export function trackMcpOAuthAuthorizeOpened(
+  ctx: McpAnalyticsContext,
+  args: { route: McpOAuthRoute; signedIn: boolean },
+): void {
+  if (!analyticsEnabled()) return;
+  emit(MCP_ANALYTICS_EVENTS.oauthAuthorizeOpened, ctx, {
+    $mcp_oauth_route: args.route,
+    $mcp_oauth_signed_in: args.signedIn,
+  });
+}
+
+export function trackMcpOAuthLoginWallShown(
+  ctx: McpAnalyticsContext,
+  args: { route: McpOAuthRoute },
+): void {
+  if (!analyticsEnabled()) return;
+  emit(MCP_ANALYTICS_EVENTS.oauthLoginWallShown, ctx, {
+    $mcp_oauth_route: args.route,
+  });
+}
+
 export function describeMcpError(err: unknown): {
   errorType: string;
   errorMessage: string;

@@ -2,7 +2,6 @@ import { fail } from "@agent-native/core/action";
 
 import type { FormField } from "../../shared/types.js";
 
-/** Reject forms that would be unusable if published. */
 export function assertPublishableForm(fields: FormField[]): void {
   const issues: string[] = [];
   if (fields.length === 0) {

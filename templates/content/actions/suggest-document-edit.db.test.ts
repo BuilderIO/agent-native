@@ -2,6 +2,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -22,6 +23,10 @@ type GetDocumentAction = typeof import("./get-document.js").default;
 type ListSuggestionsAction =
   typeof import("@agent-native/core/review/suggestions/actions/list-resource-suggestions").default;
 type UpdateDocumentAction = typeof import("./update-document.js").default;
+type GetSuggestionAction =
+  typeof import("@agent-native/core/review/suggestions/actions/get-resource-suggestion").default;
+type DecideSuggestionAction =
+  typeof import("@agent-native/core/review/suggestions/actions/decide-resource-suggestion").default;
 
 let getDb: DbModule["getDb"];
 let schema: DbModule["schema"];
@@ -30,6 +35,8 @@ let createDocument: CreateDocumentAction;
 let getDocument: GetDocumentAction;
 let listResourceSuggestions: ListSuggestionsAction;
 let updateDocument: UpdateDocumentAction;
+let getResourceSuggestion: GetSuggestionAction;
+let decideResourceSuggestion: DecideSuggestionAction;
 
 const ctx = {
   caller: "cli" as const,
@@ -38,6 +45,7 @@ const ctx = {
 
 beforeAll(async () => {
   process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
+  process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -53,6 +61,12 @@ beforeAll(async () => {
     await import("@agent-native/core/review/suggestions/actions/list-resource-suggestions")
   ).default;
   updateDocument = (await import("./update-document.js")).default;
+  getResourceSuggestion = (
+    await import("@agent-native/core/review/suggestions/actions/get-resource-suggestion")
+  ).default;
+  decideResourceSuggestion = (
+    await import("@agent-native/core/review/suggestions/actions/decide-resource-suggestion")
+  ).default;
 }, 60_000);
 
 afterAll(() => {
@@ -82,6 +96,182 @@ async function createPage(content: string) {
 }
 
 describe("suggest-document-edit", () => {
+  it("creates independent edits under one proposal and replays its membership", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const before = "We shipped quickly, and the results were good.";
+        const after = "We shipped quickly and the results were excellent.";
+        const { id, revision } = await createPage(before);
+        const args = {
+          id,
+          baseRevision: revision,
+          idempotencyKey: `granular-${id}`,
+          find: before,
+          replace: after,
+          summary: "Tighten release sentence",
+        };
+        const result = (await suggestDocumentEdit.run(args, ctx)) as {
+          suggestionId: string;
+          suggestionIds: string[];
+          proposalId: string;
+        };
+        expect(result.suggestionIds).toHaveLength(2);
+        expect(result.suggestionId).toBe(result.suggestionIds[0]);
+        expect(result.proposalId).toBeTruthy();
+        const listed = (await listResourceSuggestions.run(
+          { resourceType: "document", resourceId: id },
+          ctx,
+        )) as {
+          suggestions: Array<{
+            id: string;
+            proposalId?: string;
+            operations: Array<{
+              before: { markdown: string; changedText: string };
+              after: { changedText: string };
+              anchor: { from: number; to: number };
+            }>;
+          }>;
+        };
+        const children = result.suggestionIds.map(
+          (childId) => listed.suggestions.find((item) => item.id === childId)!,
+        );
+        expect(
+          children.every((item) => item.proposalId === result.proposalId),
+        ).toBe(true);
+        expect(
+          children.map((item) => [
+            item.operations[0]!.before.changedText,
+            item.operations[0]!.after.changedText,
+          ]),
+        ).toEqual([
+          [",", ""],
+          ["good", "excellent"],
+        ]);
+        const replay = (await suggestDocumentEdit.run(
+          args,
+          ctx,
+        )) as typeof result;
+        expect(replay.suggestionIds).toEqual(result.suggestionIds);
+        expect(replay.proposalId).toBe(result.proposalId);
+
+        await updateDocument.run({ id, content: "A newer body." }, ctx);
+        const staleReplay = (await suggestDocumentEdit.run(
+          args,
+          ctx,
+        )) as typeof result;
+        expect(staleReplay.suggestionIds).toEqual(result.suggestionIds);
+        await expect(
+          suggestDocumentEdit.run(
+            { ...args, baseRevision: "a-different-base-revision" },
+            ctx,
+          ),
+        ).rejects.toThrow(/already created a different suggested edit/);
+      },
+    );
+  });
+
+  it("creates no suggestion for a no-op replacement", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const { id, revision } = await createPage("No change here.");
+        await expect(
+          suggestDocumentEdit.run(
+            {
+              id,
+              baseRevision: revision,
+              idempotencyKey: `noop-${id}`,
+              find: "No change here.",
+              replace: "No change here.",
+            },
+            ctx,
+          ),
+        ).rejects.toThrow(/does not change the page/);
+        const listed = (await listResourceSuggestions.run(
+          { resourceType: "document", resourceId: id },
+          ctx,
+        )) as { suggestions: unknown[] };
+        expect(listed.suggestions).toEqual([]);
+      },
+    );
+  });
+
+  it("refuses a suggestion that would give two videos one id, as it refuses any change to a video", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const video = (id: string, caption: string) =>
+          `<video src="https://example.com/a.mp4" id="${id}">${caption}</video>`;
+        const { id, revision } = await createPage(
+          `Intro\n${video("video-original", "Demo")}\n${video("video-another1", "Other")}`,
+        );
+        for (const [find, replace] of [
+          ["Intro", `Intro\n${video("video-original", "Copy")}`],
+          ['id="video-another1"', 'id="video-original"'],
+        ])
+          await expect(
+            suggestDocumentEdit.run(
+              {
+                id,
+                baseRevision: revision,
+                idempotencyKey: `video-copy-${id}-${find}`,
+                find,
+                replace,
+              },
+              { caller: "mcp" as const, userEmail: ctx.userEmail },
+            ),
+          ).rejects.toMatchObject({
+            errorCode: "suggestion_structure_unsupported",
+            statusCode: 422,
+          });
+        const listed = (await listResourceSuggestions.run(
+          { resourceType: "document", resourceId: id },
+          ctx,
+        )) as { suggestions: unknown[] };
+        expect(listed.suggestions).toEqual([]);
+      },
+    );
+  });
+
+  it("appends another agent edit to an explicit proposal", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const before =
+          "We shipped quickly, and the results were good.\nA second note is ready.";
+        const { id, revision } = await createPage(before);
+        const summary = "Review the release notes";
+        const first = (await suggestDocumentEdit.run(
+          {
+            id,
+            baseRevision: revision,
+            idempotencyKey: `append-first-${id}`,
+            find: "We shipped quickly, and the results were good.",
+            replace: "We shipped quickly and the results were excellent.",
+            summary,
+          },
+          ctx,
+        )) as { proposalId: string; suggestionIds: string[] };
+        const second = (await suggestDocumentEdit.run(
+          {
+            id,
+            baseRevision: revision,
+            idempotencyKey: `append-second-${id}`,
+            proposalId: first.proposalId,
+            find: "A second note is ready.",
+            replace: "A second note is approved.",
+            summary,
+          },
+          ctx,
+        )) as { proposalId: string; suggestionIds: string[] };
+        expect(second.proposalId).toBe(first.proposalId);
+        expect(second.suggestionIds).toHaveLength(1);
+        expect(second.suggestionIds[0]).not.toBe(first.suggestionIds[0]);
+      },
+    );
+  });
+
   it("creates a pending suggestion and leaves the page unchanged", async () => {
     await runWithRequestContext(
       { userEmail: ctx.userEmail, orgId: null },
@@ -195,8 +385,8 @@ describe("suggest-document-edit", () => {
         const range = resolveMarkdownSuggestionRange(canonical, operation);
 
         expect(range).toEqual({
-          from: canonical.indexOf(find),
-          to: canonical.indexOf(find) + find.length,
+          from: canonical.indexOf("carefully"),
+          to: canonical.indexOf("carefully") + "carefully".length,
         });
         expect(
           suggestionTextPresentationForSource(operation.before.changedText, {
@@ -258,15 +448,16 @@ describe("suggest-document-edit", () => {
           { id, content: "The page changed underneath the proposal." },
           ctx,
         );
-        const retry = (await suggestDocumentEdit.run(
-          {
-            ...args,
-            baseRevision:
-              "body:0:sha256:0000000000000000000000000000000000000000000000000000000000000000",
-          },
-          ctx,
-        )) as { suggestionId: string };
+        const retry = (await suggestDocumentEdit.run(args, ctx)) as {
+          suggestionId: string;
+        };
         expect(retry.suggestionId).toBe(first.suggestionId);
+        await expect(
+          suggestDocumentEdit.run(
+            { ...args, baseRevision: "a-different-base-revision" },
+            ctx,
+          ),
+        ).rejects.toThrow(/already created a different suggested edit/);
       },
     );
   });
@@ -297,9 +488,7 @@ describe("suggest-document-edit", () => {
             },
             ctx,
           ),
-        ).rejects.toThrow(
-          /already created suggestion .* with a different edit/,
-        );
+        ).rejects.toThrow(/already created a different suggested edit/);
       },
     );
   });
@@ -331,7 +520,7 @@ describe("suggest-document-edit", () => {
             },
             ctx,
           ),
-        ).rejects.toThrow(/already used for a suggestion on a different page/);
+        ).rejects.toThrow(/already created a different suggested edit/);
       },
     );
   });
@@ -348,9 +537,30 @@ describe("suggest-document-edit", () => {
           find: "Shared inbox body.",
           replace: "Edited body.",
         };
-        const first = (await suggestDocumentEdit.run(args, ctx)) as {
-          suggestionId: string;
-        };
+        const createResourceSuggestion = (
+          await import("@agent-native/core/review/suggestions/actions/create-resource-suggestion")
+        ).default;
+        const { buildMarkdownSuggestionOperation } =
+          await import("./suggest-document-edit.js");
+        const first = (await createResourceSuggestion.run(
+          {
+            resourceType: "document",
+            resourceId: id,
+            adapterKind: "content.document-markdown",
+            baseRevision: revision,
+            summary: `Replace "${args.find}" with "${args.replace}"`,
+            idempotencyKey: args.idempotencyKey,
+            operations: [
+              buildMarkdownSuggestionOperation({
+                content: "Shared inbox body.",
+                find: args.find,
+                replace: args.replace,
+                start: 0,
+              }),
+            ],
+          },
+          ctx,
+        )) as { id: string };
         await (await import("@agent-native/core/db")).getDbExec().execute({
           sql: "UPDATE agent_review_suggestion_creations SET receipt_version = 1 WHERE idempotency_key = ?",
           args: [args.idempotencyKey],
@@ -359,7 +569,7 @@ describe("suggest-document-edit", () => {
           caller: "mcp" as const,
           userEmail: ctx.userEmail,
         })) as { suggestionId: string };
-        expect(retry.suggestionId).toBe(first.suggestionId);
+        expect(retry.suggestionId).toBe(first.id);
       },
     );
   });
@@ -370,6 +580,33 @@ describe("suggest-document-edit", () => {
       async () => {
         const { id } = await createPage("Shared across orgs body.");
         const db = getDb();
+        const { organizations, orgMembers } =
+          await import("@agent-native/core/org");
+        await getDbExec().execute(`CREATE TABLE organizations (
+          id TEXT PRIMARY KEY, name TEXT NOT NULL, created_by TEXT NOT NULL, created_at BIGINT NOT NULL,
+          allowed_domain TEXT, a2a_secret TEXT, workspace_url TEXT, required_auth_provider TEXT,
+          identity_authority TEXT, identity_id TEXT, icon_json TEXT, icon_revision BIGINT NOT NULL DEFAULT 0,
+          federation_roster_initialized_at BIGINT
+        )`);
+        await getDbExec().execute(`CREATE TABLE org_members (
+          id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL, joined_at BIGINT NOT NULL,
+          federation_removal_pending_at BIGINT, UNIQUE(org_id, email)
+        )`);
+        const now = Date.now();
+        await db.insert(organizations).values([
+          {
+            id: "org-owner",
+            name: "Document owner's organization",
+            createdBy: ctx.userEmail,
+            createdAt: now,
+          },
+          {
+            id: "org-shared",
+            name: "Shared organization",
+            createdBy: "member@other-org",
+            createdAt: now,
+          },
+        ]);
         await db
           .update(schema.documents)
           .set({ orgId: "org-owner" })
@@ -385,17 +622,94 @@ describe("suggest-document-edit", () => {
 
         const result = await runWithRequestContext(
           { userEmail: "member@other-org", orgId: "org-shared" },
-          async () =>
-            (await suggestDocumentEdit.run(
-              {
-                id,
-                find: "Shared across orgs body.",
-                replace: "Edited body.",
-              },
-              { caller: "cli" as const, userEmail: "member@other-org" },
-            )) as { suggestionId: string },
+          async () => {
+            const input = {
+              id,
+              find: "Shared across orgs body.",
+              replace: "Edited body.",
+              idempotencyKey: `cross-org-${id}`,
+            };
+            await expect(
+              suggestDocumentEdit.run(input, {
+                caller: "cli" as const,
+                userEmail: "member@other-org",
+              }),
+            ).rejects.toMatchObject({ statusCode: 404 });
+            await db.insert(orgMembers).values({
+              id: `cross-org-member-${id}`,
+              orgId: "org-shared",
+              email: "member@other-org",
+              role: "member",
+              joinedAt: now,
+            });
+            const first = (await suggestDocumentEdit.run(input, {
+              caller: "cli" as const,
+              userEmail: "member@other-org",
+            })) as {
+              suggestionId: string;
+              suggestionIds: string[];
+              proposalId: string;
+            };
+            const retry = (await suggestDocumentEdit.run(input, {
+              caller: "cli" as const,
+              userEmail: "member@other-org",
+            })) as { suggestionId: string; proposalId: string };
+            expect(retry).toMatchObject({
+              suggestionId: first.suggestionId,
+              proposalId: first.proposalId,
+            });
+            return first;
+          },
         );
-        expect(result.suggestionId).toBeTruthy();
+
+        // Read back what was actually stored, as the document's owner.
+        const listed = (await listResourceSuggestions.run(
+          { resourceType: "document", resourceId: id },
+          ctx,
+        )) as {
+          suggestions: Array<{
+            id: string;
+            proposalId?: string;
+            authorEmail: string | null;
+            ownerEmail: string | null;
+            orgId: string | null;
+            status: string;
+            operations: Array<{
+              before: { changedText: string };
+              after: { changedText: string };
+            }>;
+          }>;
+        };
+        // The retry replayed the receipt instead of storing a second copy.
+        expect(listed.suggestions.map((item) => item.id).sort()).toEqual(
+          [...result.suggestionIds].sort(),
+        );
+        const stored = result.suggestionIds.map(
+          (suggestionId) =>
+            listed.suggestions.find((item) => item.id === suggestionId)!,
+        );
+        // The suggestion is attributed to the other org's member but scoped to
+        // the document's own owner and org, so the owner's side can review it.
+        for (const item of stored) {
+          expect(item).toMatchObject({
+            proposalId: result.proposalId,
+            authorEmail: "member@other-org",
+            ownerEmail: ctx.userEmail,
+            orgId: "org-owner",
+            status: "pending",
+          });
+        }
+        expect(
+          stored.map((item) => [
+            item.operations[0]!.before.changedText,
+            item.operations[0]!.after.changedText,
+          ]),
+        ).toEqual([["Shared across orgs body", "Edited body"]]);
+        // A suggestion proposes; it must not have rewritten the document.
+        const unchanged = (await getDocument.run({ id }, ctx)) as {
+          content: string;
+        };
+        expect(unchanged.content).toBe("Shared across orgs body.");
       },
     );
   });
@@ -418,9 +732,7 @@ describe("suggest-document-edit", () => {
             caller: "mcp" as const,
             userEmail: ctx.userEmail,
           }),
-        ).rejects.toThrow(
-          /already created suggestion .* with a different edit/,
-        );
+        ).rejects.toThrow(/belongs to another caller/);
       },
     );
   });
@@ -442,7 +754,7 @@ describe("suggest-document-edit", () => {
           userEmail: ctx.userEmail,
         });
         await expect(suggestDocumentEdit.run(args, ctx)).rejects.toThrow(
-          /already created suggestion .* with a different edit/,
+          /belongs to another caller/,
         );
       },
     );
@@ -476,9 +788,7 @@ describe("suggest-document-edit", () => {
             },
             ctx,
           ),
-        ).rejects.toThrow(
-          /already created suggestion .* with a different edit/,
-        );
+        ).rejects.toThrow(/already created a different suggested edit/);
       },
     );
   });
@@ -510,7 +820,7 @@ describe("suggest-document-edit", () => {
     );
   });
 
-  it("attaches the open-suggestion deep link", async () => {
+  it("links the inline review card for every edit the call made", async () => {
     await runWithRequestContext(
       { userEmail: ctx.userEmail, orgId: null },
       async () => {
@@ -525,7 +835,7 @@ describe("suggest-document-edit", () => {
             replace: "Edited body text.",
           },
           ctx,
-        )) as { suggestionId: string };
+        )) as { suggestionId: string; suggestionIds: string[]; url: string };
         const link = (
           action as unknown as { link: (input: unknown) => unknown }
         ).link({
@@ -533,9 +843,13 @@ describe("suggest-document-edit", () => {
           result,
         });
         expect(link).toEqual({
-          url: `/page/${id}?suggestion=${result.suggestionId}`,
-          label: "Open suggestion",
+          url: `/suggestions/${id}?ids=${result.suggestionIds.join(",")}`,
+          label: "Review suggestion",
         });
+        expect(result.url).toBe(
+          `/page/${id}?suggestion=${result.suggestionId}`,
+        );
+        expect(action.mcpApp?.resource?.html).toBeTruthy();
       },
     );
   });
@@ -560,6 +874,345 @@ describe("suggest-document-edit", () => {
       },
     );
   });
+
+  const TABLE_PAGE = [
+    "Intro text.",
+    "",
+    "| Name | Value |",
+    "| --- | --- |",
+    "| alpha cell | beta |",
+    "",
+    "Closing text.",
+  ].join("\n");
+  const CALLOUT_PAGE = [
+    '<callout icon="💡">',
+    "\tCallout alpha text",
+    "</callout>",
+  ].join("\n");
+  const TOGGLE_PAGE = [
+    "<details>",
+    "<summary>Title</summary>",
+    "\tToggle alpha text",
+    "</details>",
+  ].join("\n");
+  const COLUMNS_PAGE = [
+    "<columns>",
+    "\t<column>",
+    "\t\tLeft alpha text",
+    "\t</column>",
+    "\t<column>",
+    "\t\tRight text",
+    "\t</column>",
+    "</columns>",
+  ].join("\n");
+
+  it.each([
+    ["a table cell", TABLE_PAGE, "alpha cell", "omega cell"],
+    ["a callout", CALLOUT_PAGE, "alpha", "omega"],
+    ["a toggle", TOGGLE_PAGE, "alpha", "omega"],
+    ["a column", COLUMNS_PAGE, "alpha", "omega"],
+    [
+      "a callout's paragraphs",
+      CALLOUT_PAGE,
+      "Callout alpha text",
+      "Callout alpha text\n\tAdded paragraph.",
+    ],
+    [
+      "a toggle's paragraphs",
+      TOGGLE_PAGE,
+      "Toggle alpha text",
+      "Toggle alpha text\n\tAdded paragraph.",
+    ],
+    [
+      "a column's paragraphs",
+      COLUMNS_PAGE,
+      "Left alpha text",
+      "Left alpha text\n\t\tAdded paragraph.",
+    ],
+  ])(
+    "suggests and accepts an edit inside %s",
+    async (_block, content, find, replace) => {
+      await runWithRequestContext(
+        { userEmail: ctx.userEmail, orgId: null },
+        async () => {
+          const { id, revision } = await createPage(content);
+          const before = (await getDocument.run({ id }, ctx)) as {
+            content: string;
+          };
+          const result = (await suggestDocumentEdit.run(
+            {
+              id,
+              baseRevision: revision,
+              idempotencyKey: `frame-text-${id}`,
+              find,
+              replace,
+            },
+            { caller: "mcp" as const, userEmail: ctx.userEmail },
+          )) as { suggestionId: string; status: string };
+          expect(result.status).toBe("pending");
+          const suggestion = await getResourceSuggestion.run(
+            { id: result.suggestionId },
+            ctx,
+          );
+          const decision = await decideResourceSuggestion.run(
+            {
+              id: suggestion.id,
+              decision: "accepted",
+              idempotencyKey: `accept-${suggestion.id}`,
+              observedBase: suggestion.baseRevision,
+              observedRevision: suggestion.revision,
+            },
+            ctx,
+          );
+          expect(decision.suggestion?.status).toBe("accepted");
+          const after = (await getDocument.run({ id }, ctx)) as {
+            content: string;
+          };
+          expect(after.content).toBe(before.content.replace(find, replace));
+        },
+      );
+    },
+  );
+
+  it.each([
+    ["a table cell", "alpha cell", "omega cell"],
+    ["a callout", "Callout alpha text", "Callout omega text"],
+  ])(
+    "accepts an edit inside %s after someone opens a toggle on the page",
+    async (_block, find, replace) => {
+      await runWithRequestContext(
+        { userEmail: ctx.userEmail, orgId: null },
+        async () => {
+          const content = [TABLE_PAGE, CALLOUT_PAGE, TOGGLE_PAGE].join("\n\n");
+          const { id, revision } = await createPage(content);
+          const result = (await suggestDocumentEdit.run(
+            {
+              id,
+              baseRevision: revision,
+              idempotencyKey: `frame-reopened-${id}`,
+              find,
+              replace,
+            },
+            { caller: "mcp" as const, userEmail: ctx.userEmail },
+          )) as { suggestionId: string };
+          const opened = canonicalizeNfm(content).replace(
+            "<details>",
+            "<details open>",
+          );
+          await updateDocument.run({ id, content: opened }, ctx);
+          const before = (await getDocument.run({ id }, ctx)) as {
+            content: string;
+          };
+          expect(before.content).toBe(opened);
+          const suggestion = await getResourceSuggestion.run(
+            { id: result.suggestionId },
+            ctx,
+          );
+          const decision = await decideResourceSuggestion.run(
+            {
+              id: suggestion.id,
+              decision: "accepted",
+              idempotencyKey: `accept-${suggestion.id}`,
+              observedBase: suggestion.baseRevision,
+              observedRevision: suggestion.revision,
+            },
+            ctx,
+          );
+          expect(decision.suggestion?.status).toBe("accepted");
+          const after = (await getDocument.run({ id }, ctx)) as {
+            content: string;
+          };
+          expect(after.content).toBe(opened.replace(find, replace));
+        },
+      );
+    },
+  );
+
+  it.each([
+    ["an agent wrote", (page: string) => page],
+    ["saved in canonical form", canonicalizeNfm],
+  ])(
+    "accepts a cell edit in its own row after someone edits that row on a page %s",
+    async (_form, form) => {
+      await runWithRequestContext(
+        { userEmail: ctx.userEmail, orgId: null },
+        async () => {
+          const row = (service: string) =>
+            `| Owned by Alice in the platform group | TBD | Waiting on the platform team to confirm | ${service} |`;
+          const content = form(
+            [
+              "| Owner | Status | Notes | Service |",
+              "| --- | --- | --- | --- |",
+              row("billing"),
+              row("search"),
+            ].join("\n"),
+          );
+          const { id, revision } = await createPage(content);
+          const createResourceSuggestion = (
+            await import("@agent-native/core/review/suggestions/actions/create-resource-suggestion")
+          ).default;
+          const { buildMarkdownSuggestionOperation } =
+            await import("./suggest-document-edit.js");
+          // The editor anchors a suggestion on the changed word alone.
+          const created = (await createResourceSuggestion.run(
+            {
+              resourceType: "document",
+              resourceId: id,
+              adapterKind: "content.document-markdown",
+              baseRevision: revision,
+              summary: "Mark billing done",
+              idempotencyKey: `row-edit-${id}`,
+              operations: [
+                buildMarkdownSuggestionOperation({
+                  content,
+                  find: "TBD",
+                  replace: "Done",
+                  start: content.indexOf("TBD"),
+                }),
+              ],
+            },
+            ctx,
+          )) as { id: string };
+          const edited = canonicalizeNfm(content).replace("Waiting", "Blocked");
+          await updateDocument.run({ id, content: edited }, ctx);
+          const suggestion = await getResourceSuggestion.run(
+            { id: created.id },
+            ctx,
+          );
+          const decision = await decideResourceSuggestion.run(
+            {
+              id: suggestion.id,
+              decision: "accepted",
+              idempotencyKey: `accept-${suggestion.id}`,
+              observedBase: suggestion.baseRevision,
+              observedRevision: suggestion.revision,
+            },
+            ctx,
+          );
+          expect(decision.suggestion?.status).toBe("accepted");
+          const after = (await getDocument.run({ id }, ctx)) as {
+            content: string;
+          };
+          expect(after.content).toBe(edited.replace("TBD", "Done"));
+        },
+      );
+    },
+  );
+
+  it.each([
+    [
+      "adds a table row",
+      TABLE_PAGE,
+      "| alpha cell | beta |",
+      "| alpha cell | beta |\n| new | row |",
+    ],
+    [
+      "adds a column",
+      COLUMNS_PAGE,
+      "\t\tRight text\n\t</column>",
+      "\t\tRight text\n\t</column>\n\t<column>\n\t\tMore\n\t</column>",
+    ],
+    ["changes a callout icon", CALLOUT_PAGE, 'icon="💡"', 'icon="🔥"'],
+    [
+      "changes a toggle title",
+      TOGGLE_PAGE,
+      "<summary>Title</summary>",
+      "<summary>New title</summary>",
+    ],
+  ])(
+    "refuses a suggestion that %s with a typed error",
+    async (_change, content, find, replace) => {
+      await runWithRequestContext(
+        { userEmail: ctx.userEmail, orgId: null },
+        async () => {
+          const { id, revision } = await createPage(content);
+          await expect(
+            suggestDocumentEdit.run(
+              {
+                id,
+                baseRevision: revision,
+                idempotencyKey: `frame-shape-${id}`,
+                find,
+                replace,
+              },
+              { caller: "mcp" as const, userEmail: ctx.userEmail },
+            ),
+          ).rejects.toMatchObject({
+            statusCode: 422,
+            errorCode: "suggestion_structure_unsupported",
+          });
+        },
+      );
+    },
+  );
+
+  // suggest-document-edit splits these into one suggestion per cell or
+  // column; a hand-built proposal can still send them as one operation.
+  it.each([
+    [
+      "changes text in two table cells",
+      TABLE_PAGE,
+      "alpha cell | beta",
+      "omega cell | gamma",
+    ],
+    [
+      "moves text across a table cell edge",
+      TABLE_PAGE,
+      "alpha cell | beta",
+      "alpha | cell beta",
+    ],
+    [
+      "bolds text in two table cells",
+      TABLE_PAGE,
+      "alpha cell | beta",
+      "**alpha cell** | **beta**",
+    ],
+    [
+      "moves a paragraph's text into a callout",
+      `${CALLOUT_PAGE}\n\nAfter the callout`,
+      "alpha text\n</callout>\n\nAfter the callout",
+      "alpha text After\n</callout>\n\nthe callout",
+    ],
+  ])(
+    "refuses one operation that %s",
+    async (change, content, find, replace) => {
+      await runWithRequestContext(
+        { userEmail: ctx.userEmail, orgId: null },
+        async () => {
+          const { id, revision } = await createPage(content);
+          const createResourceSuggestion = (
+            await import("@agent-native/core/review/suggestions/actions/create-resource-suggestion")
+          ).default;
+          const { buildMarkdownSuggestionOperation } =
+            await import("./suggest-document-edit.js");
+          await expect(
+            createResourceSuggestion.run(
+              {
+                resourceType: "document",
+                resourceId: id,
+                adapterKind: "content.document-markdown",
+                baseRevision: revision,
+                summary: change,
+                idempotencyKey: `cross-edge-${id}`,
+                operations: [
+                  buildMarkdownSuggestionOperation({
+                    content,
+                    find,
+                    replace,
+                    start: content.indexOf(find),
+                  }),
+                ],
+              },
+              ctx,
+            ),
+          ).rejects.toMatchObject({
+            statusCode: 422,
+            errorCode: "suggestion_structure_unsupported",
+          });
+        },
+      );
+    },
+  );
 
   it("rejects an ambiguous find", async () => {
     await runWithRequestContext(
@@ -594,11 +1247,19 @@ describe("suggest-document-edit", () => {
     ).rejects.toThrow(/baseRevision and idempotencyKey/);
   });
 
-  it("rejects pages that cannot receive suggestions", async () => {
+  it("proposes an edit to an ordinary database item without changing its body", async () => {
     const { id, revision } = await createPage("Database item body.");
     const db = getDb();
     const now = new Date().toISOString();
     const databaseId = `suggest-edit-db-${sequence}`;
+    await db.insert(schema.documents).values({
+      id: `suggest-edit-db-doc-${sequence}`,
+      title: "Test database",
+      content: "",
+      ownerEmail: ctx.userEmail,
+      createdAt: now,
+      updatedAt: now,
+    });
     await db.insert(schema.contentDatabases).values({
       id: databaseId,
       ownerEmail: ctx.userEmail,
@@ -607,6 +1268,20 @@ describe("suggest-document-edit", () => {
       createdAt: now,
       updatedAt: now,
     });
+    const primaryId = `suggest-edit-primary-${sequence}`;
+    await db.insert(schema.documentPropertyDefinitions).values({
+      id: primaryId,
+      ownerEmail: ctx.userEmail,
+      databaseId,
+      name: "Content",
+      type: "blocks",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db
+      .update(schema.contentDatabases)
+      .set({ primaryBlocksPropertyId: primaryId, blocksSeeded: 1 })
+      .where(eq(schema.contentDatabases.id, databaseId));
     await db.insert(schema.contentDatabaseItems).values({
       id: `suggest-edit-item-${sequence}`,
       ownerEmail: ctx.userEmail,
@@ -618,18 +1293,434 @@ describe("suggest-document-edit", () => {
     await runWithRequestContext(
       { userEmail: ctx.userEmail, orgId: null },
       async () => {
+        const result = (await suggestDocumentEdit.run(
+          {
+            id,
+            baseRevision: revision,
+            idempotencyKey: `db-${id}`,
+            find: "Database item body.",
+            replace: "x",
+          },
+          ctx,
+        )) as { suggestionId: string };
+        expect(result.suggestionId).toBeTruthy();
+        const [document] = await db
+          .select({ content: schema.documents.content })
+          .from(schema.documents)
+          .where(eq(schema.documents.id, id));
+        expect(document?.content).toBe("Database item body.");
+      },
+    );
+    const collaborator = "collaborator@example.com";
+    await db.insert(schema.documentShares).values({
+      id: `suggest-edit-row-share-${sequence}`,
+      resourceId: id,
+      principalType: "user",
+      principalId: collaborator,
+      role: "commenter",
+      createdBy: ctx.userEmail,
+      createdAt: now,
+    });
+    const collaboratorContext = { ...ctx, userEmail: collaborator };
+    await runWithRequestContext(
+      { userEmail: collaborator, orgId: null },
+      async () => {
         await expect(
           suggestDocumentEdit.run(
             {
               id,
               baseRevision: revision,
-              idempotencyKey: `db-${id}`,
+              idempotencyKey: `row-only-${id}`,
               find: "Database item body.",
               replace: "x",
             },
-            ctx,
+            collaboratorContext,
           ),
-        ).rejects.toThrow(/cannot receive suggestions/i);
+        ).rejects.toThrow(/no primary Blocks field/);
+      },
+    );
+    await db.insert(schema.documentShares).values({
+      id: `suggest-edit-db-share-${sequence}`,
+      resourceId: `suggest-edit-db-doc-${sequence}`,
+      principalType: "user",
+      principalId: collaborator,
+      role: "viewer",
+      createdBy: ctx.userEmail,
+      createdAt: now,
+    });
+    await runWithRequestContext(
+      { userEmail: collaborator, orgId: null },
+      async () => {
+        await expect(
+          suggestDocumentEdit.run(
+            {
+              id,
+              baseRevision: revision,
+              idempotencyKey: `row-and-db-${id}`,
+              find: "Database item body.",
+              replace: "x",
+            },
+            collaboratorContext,
+          ),
+        ).resolves.toMatchObject({ status: "pending" });
+      },
+    );
+  });
+});
+
+describe("suggest-document-edit on a Page written through its live copy", () => {
+  // An agent writes `$60`; a Page written through its live copy stores `\$60`.
+  const AGENT_BODY =
+    "Charlie paragraph costs $60 per seat.\n\nDelta paragraph.";
+
+  beforeAll(async () => {
+    const { registerFeatureFlags } =
+      await import("@agent-native/core/feature-flags");
+    const { CONTENT_FEATURE_FLAGS } =
+      await import("../shared/feature-flags.js");
+    registerFeatureFlags(CONTENT_FEATURE_FLAGS);
+    const { putSetting } = await import("@agent-native/core/settings");
+    for (const flag of ["content.live-body-shadow", "content.live-body-writer"])
+      await putSetting(`feature-flag:${flag}`, {
+        version: 1,
+        mode: "rules",
+        emails: [ctx.userEmail],
+        orgIds: [],
+        percentage: 0,
+        updatedAt: null,
+        updatedBy: null,
+      });
+  });
+
+  async function switchedPage(content: string) {
+    const { id } = await createPage(content);
+    const { switchPageToLiveCopy } =
+      await import("../server/live-copy/switch.js");
+    await expect(switchPageToLiveCopy(id)).resolves.toEqual({
+      writePath: "live_copy",
+    });
+    const doc = (await getDocument.run({ id }, ctx)) as {
+      revision: string;
+      content: string;
+    };
+    return { id, revision: doc.revision, content: doc.content };
+  }
+
+  function suggestOwnSpelling(
+    page: { id: string; revision: string },
+    find: string,
+    replace: string,
+  ) {
+    return suggestDocumentEdit.run(
+      {
+        id: page.id,
+        baseRevision: page.revision,
+        idempotencyKey: `stored-form-${page.id}-${find}`,
+        find,
+        replace,
+      },
+      ctx,
+    ) as Promise<{ suggestionId: string }>;
+  }
+
+  it("places an agent's spelling of the stored text, and accepting stores the change", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const page = await switchedPage(AGENT_BODY);
+        expect(page.content).toBe(canonicalizeNfm(AGENT_BODY));
+
+        const { suggestionId } = await suggestOwnSpelling(
+          page,
+          "costs $60",
+          "costs $75",
+        );
+        const suggestion = (await getResourceSuggestion.run(
+          { id: suggestionId },
+          ctx,
+        )) as {
+          revision: number;
+          baseRevision: string;
+          metadata?: { sourceFind?: string };
+          operations: Array<{ before: { markdown: string } }>;
+        };
+        expect(suggestion.metadata?.sourceFind).toBe("costs $60");
+        expect(suggestion.operations[0]!.before.markdown).toBe(page.content);
+
+        await decideResourceSuggestion.run(
+          {
+            id: suggestionId,
+            decision: "accepted",
+            idempotencyKey: `accept-${suggestionId}`,
+            observedBase: suggestion.baseRevision,
+            observedRevision: suggestion.revision,
+          },
+          ctx,
+        );
+        expect(
+          ((await getDocument.run({ id: page.id }, ctx)) as { content: string })
+            .content,
+        ).toBe(canonicalizeNfm(AGENT_BODY.replace("$60", "$75")));
+      },
+    );
+  });
+
+  it("reports a stored-form find that matches more than once as ambiguous", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const page = await switchedPage(
+          "Seats cost $60 now and desks cost $60 later.",
+        );
+        await expect(
+          suggestOwnSpelling(page, "cost $60", "cost $75"),
+        ).rejects.toThrow(/appears 2 times/);
+      },
+    );
+  });
+
+  async function acceptedBody(page: { id: string }, suggestionId: string) {
+    const suggestion = (await getResourceSuggestion.run(
+      { id: suggestionId },
+      ctx,
+    )) as { revision: number; baseRevision: string };
+    await decideResourceSuggestion.run(
+      {
+        id: suggestionId,
+        decision: "accepted",
+        idempotencyKey: `accept-${suggestionId}`,
+        observedBase: suggestion.baseRevision,
+        observedRevision: suggestion.revision,
+      },
+      ctx,
+    );
+    return (
+      (await getDocument.run({ id: page.id }, ctx)) as { content: string }
+    ).content;
+  }
+
+  it("refuses a spelling that reads as other text in its place", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        // On its own `+ x` is a list item, spelled `- x`; mid-line it is text.
+        const page = await switchedPage("Now - x costs $60.");
+        await expect(
+          suggestOwnSpelling(page, "+ x costs $60", "paid"),
+        ).rejects.toMatchObject({ errorCode: "SUGGESTION_FIND_NOT_FOUND" });
+      },
+    );
+  });
+
+  it("reads the replacement in its place on the page", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const page = await switchedPage(AGENT_BODY);
+        const { suggestionId } = await suggestOwnSpelling(
+          page,
+          "costs $60",
+          "+ x",
+        );
+        expect(await acceptedBody(page, suggestionId)).toBe(
+          canonicalizeNfm(AGENT_BODY.replace("costs $60", "+ x")),
+        );
+      },
+    );
+  });
+
+  it("never starts a match inside an escape", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const page = await switchedPage(AGENT_BODY);
+        // `$60 per` is a substring of the stored `\$60 per`.
+        const { suggestionId } = await suggestOwnSpelling(
+          page,
+          "$60 per",
+          "free",
+        );
+        expect(await acceptedBody(page, suggestionId)).toBe(
+          canonicalizeNfm(AGENT_BODY.replace("$60 per", "free")),
+        );
+      },
+    );
+  });
+
+  it("never ends a match on a backslash that escapes the next character", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const page = await switchedPage(AGENT_BODY);
+        await expect(
+          suggestOwnSpelling(page, "costs \\", "pays "),
+        ).rejects.toMatchObject({ errorCode: "SUGGESTION_FIND_NOT_FOUND" });
+      },
+    );
+  });
+
+  it("refuses to split an escape in a link's destination", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const page = await switchedPage("[a](https://example.com/foo\\(bar)");
+        expect(page.content).toContain("foo\\(bar");
+        await expect(
+          suggestOwnSpelling(page, "(bar", "baz"),
+        ).rejects.toMatchObject({ errorCode: "SUGGESTION_FIND_NOT_FOUND" });
+      },
+    );
+  });
+
+  it("is not misled by a private-use character already on the page", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const page = await switchedPage("Cost \\`foo then `\uE000` here.");
+        expect(page.content).toContain("\\`foo");
+        await expect(
+          suggestOwnSpelling(page, "`foo", "bar"),
+        ).rejects.toMatchObject({ errorCode: "SUGGESTION_FIND_NOT_FOUND" });
+      },
+    );
+  });
+
+  it("refuses a replacement that changes how a backslash beside it reads", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        // The backtick the edit adds closes the code span early, so the kept
+        // backslash at its end would escape the backtick after it.
+        const page = await switchedPage("\\\\`text\\` end");
+        expect(page.content).toContain("`text\\`");
+        await expect(
+          suggestOwnSpelling(page, "text", "text`"),
+        ).rejects.toMatchObject({ errorCode: "SUGGESTION_FIND_NOT_FOUND" });
+      },
+    );
+  });
+
+  // A backslash at its line's start escapes the block marker after it.
+  for (const { name, content, find } of [
+    { name: "a heading marker", content: "\\# Heading", find: "# Heading" },
+    { name: "a numbered list marker", content: "\\1. item", find: ". item" },
+  ])
+    it(`refuses to strand the backslash that escapes ${name}`, async () => {
+      await runWithRequestContext(
+        { userEmail: ctx.userEmail, orgId: null },
+        async () => {
+          const page = await switchedPage(content);
+          expect(page.content).toContain(content);
+          await expect(
+            suggestOwnSpelling(page, find, "Changed"),
+          ).rejects.toMatchObject({ errorCode: "SUGGESTION_FIND_NOT_FOUND" });
+        },
+      );
+    });
+
+  // After the edit the line can't start a block, so the escape that kept it a
+  // paragraph has nothing left to escape, and the stored form drops it.
+  for (const { name, content, find, stored } of [
+    {
+      name: "a list marker",
+      content: "\\- item",
+      find: " item",
+      stored: "-Changed",
+    },
+    {
+      name: "a heading marker the match starts inside",
+      content: "\\## Heading",
+      find: "# Heading",
+      stored: "#Changed",
+    },
+  ])
+    it(`edits the text after ${name} its line escapes`, async () => {
+      await runWithRequestContext(
+        { userEmail: ctx.userEmail, orgId: null },
+        async () => {
+          const page = await switchedPage(content);
+          expect(page.content).toContain(content);
+          const { suggestionId } = await suggestOwnSpelling(
+            page,
+            find,
+            "Changed",
+          );
+          expect(await acceptedBody(page, suggestionId)).toBe(stored);
+        },
+      );
+    });
+
+  // Where the parse keeps a backslash as written, it escapes nothing.
+  for (const { name, content, find, replace } of [
+    {
+      name: "inline code",
+      content: "Example `\\$60` here.",
+      find: "$60",
+      replace: "$75",
+    },
+    {
+      name: "a code block",
+      content: "Example:\n\n```\nprice \\$60\n```",
+      find: "$60",
+      replace: "$75",
+    },
+    {
+      name: "inline code it ends",
+      content: "Path `C:\\` here.",
+      find: "C:\\",
+      replace: "D:\\",
+    },
+    {
+      name: "a link's destination",
+      content: "[a](https://example.com/\\$foo)",
+      find: "$foo",
+      replace: "$bar",
+    },
+    {
+      name: "a code block's language",
+      content: "```lang\\$foo\ncode\n```",
+      find: "$foo",
+      replace: "$bar",
+    },
+    {
+      name: "inline code it ends after another backslash",
+      content: "Path `C:\\$Recycle.Bin\\` here.",
+      find: "C:\\$Recycle.Bin\\",
+      replace: "C:\\$Archive.Bin\\",
+    },
+    {
+      name: "a line that also escapes its marker, a price and a backslash",
+      content: "\\# Costs \\$60 and a \\\\ b here.",
+      find: "here.",
+      replace: "there.",
+    },
+  ])
+    it(`edits text beside a backslash in ${name}`, async () => {
+      await runWithRequestContext(
+        { userEmail: ctx.userEmail, orgId: null },
+        async () => {
+          const page = await switchedPage(content);
+          expect(page.content).toContain(find);
+          const { suggestionId } = await suggestOwnSpelling(
+            page,
+            find,
+            replace,
+          );
+          expect(await acceptedBody(page, suggestionId)).toBe(
+            canonicalizeNfm(page.content.replace(find, replace)),
+          );
+        },
+      );
+    });
+
+  it("keeps the exact match on a Page that isn't switched", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const { id, revision } = await createPage(canonicalizeNfm(AGENT_BODY));
+        await expect(
+          suggestOwnSpelling({ id, revision }, "costs $60", "costs $75"),
+        ).rejects.toMatchObject({ errorCode: "SUGGESTION_FIND_NOT_FOUND" });
       },
     );
   });

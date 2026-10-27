@@ -1,7 +1,5 @@
 import path from "path";
 
-// Lazy fs — loaded via dynamic import() on first use.
-// Avoids require() which bundlers convert to createRequire() that crashes on CF Workers.
 let _fs: typeof import("fs") | undefined;
 async function getFs(): Promise<typeof import("fs")> {
   if (!_fs) {
@@ -10,23 +8,12 @@ async function getFs(): Promise<typeof import("fs")> {
   return _fs;
 }
 
-/**
- * Map a Nitro-style route file path to { method, route }.
- *
- * Examples:
- *   api/emails/index.get.ts      → GET  /api/emails
- *   api/emails/[id].get.ts       → GET  /api/emails/:id
- *   api/emails/[id]/star.patch.ts→ PATCH /api/emails/:id/star
- *   api/events.get.ts            → GET  /api/events
- */
 export function parseRouteFile(relPath: string): {
   method: string;
   route: string;
 } | null {
-  // Strip .ts/.js extension
   const withoutExt = relPath.replace(/\.[tj]s$/, "");
 
-  // Extract HTTP method from the last segment (e.g. "status.get" → method="get")
   const dotIdx = withoutExt.lastIndexOf(".");
   if (dotIdx === -1) return null;
 
@@ -36,24 +23,17 @@ export function parseRouteFile(relPath: string): {
 
   let routePath = withoutExt.slice(0, dotIdx);
 
-  // Replace [param] with :param
   routePath = routePath.replace(/\[([^\]]+)\]/g, ":$1");
 
-  // Replace [...catchall] with ** (H3 catch-all syntax, value in params._)
   routePath = routePath.replace(/:\.\.\.([^/]+)/g, "**");
 
-  // Remove trailing /index
   routePath = routePath.replace(/\/index$/, "");
 
-  // Ensure leading slash
   if (!routePath.startsWith("/")) routePath = "/" + routePath;
 
   return { method, route: routePath };
 }
 
-/**
- * Recursively discover all .ts files under a directory.
- */
 export async function discoverFiles(
   dir: string,
   prefix = "",
@@ -80,15 +60,10 @@ export async function discoverFiles(
 export interface DiscoveredRoute {
   method: string;
   route: string;
-  /** Relative path from server/routes/ */
   filePath: string;
-  /** Absolute path on disk */
   absPath: string;
 }
 
-/**
- * Discover all API routes in a project's server/routes/ directory.
- */
 export async function discoverApiRoutes(
   cwd: string,
 ): Promise<DiscoveredRoute[]> {
@@ -113,9 +88,6 @@ export async function discoverApiRoutes(
   return routes;
 }
 
-/**
- * Discover all server plugins in a project's server/plugins/ directory.
- */
 export async function discoverPlugins(cwd: string): Promise<string[]> {
   try {
     const fs = await getFs();
@@ -138,10 +110,6 @@ function isRuntimeSourceFile(filename: string): boolean {
   return true;
 }
 
-/**
- * Default plugins that auto-mount when not provided by the template.
- * Key = filename stem, value = export name from @agent-native/core/server/edge.
- */
 export const DEFAULT_PLUGIN_REGISTRY: Record<string, string> = {
   "agent-chat": "defaultAgentChatPlugin",
   auth: "defaultAuthPlugin",
@@ -156,7 +124,6 @@ export const DEFAULT_PLUGIN_REGISTRY: Record<string, string> = {
   terminal: "defaultTerminalPlugin",
 };
 
-/** Files to skip during action discovery (mirrors action-discovery.ts). */
 const SKIP_ACTION_FILES = new Set([
   "helpers",
   "run",
@@ -166,23 +133,13 @@ const SKIP_ACTION_FILES = new Set([
 ]);
 
 export interface DiscoveredAction {
-  /** Action name (filename without extension) */
   name: string;
-  /** Absolute path to the action file */
   absPath: string;
-  /** HTTP method (from defineAction's http config, default POST) */
   method: string;
-  /**
-   * Custom route segment from defineAction's `http.path`. When unset the
-   * route falls back to `name`, mirroring the runtime mount
-   * (`action-routes.ts`: `path = http?.path ?? name`).
-   */
   path?: string;
-  /** Whether the action requires the signed browser UI capability. */
   uiOnly?: boolean;
 }
 
-/** HTTP methods an action may expose via `http.method`. */
 const VALID_ACTION_METHODS = new Set([
   "get",
   "post",
@@ -193,25 +150,6 @@ const VALID_ACTION_METHODS = new Set([
   "head",
 ]);
 
-/**
- * Statically extract the `http` config from a defineAction source file.
- *
- * Deploy discovery cannot import the action module — edge bundlers rewrite
- * require()/import in ways that crash (see getFs note above), and action
- * files often pull in Node-only deps — so we parse the source text instead.
- * The parse is scoped to the `http: { ... }` object literal so unrelated
- * `method:`/`path:` keys elsewhere in the file (e.g. a
- * `fetch(url, { method: "GET" })` in the action body) cannot flip the
- * route's method. A naive `content.includes('method: "GET"')` did exactly
- * that, and it also missed PUT/PATCH/DELETE and dropped `http.path`.
- *
- * The http config may contain nested object literals before `method` or
- * `path`, so extract the object body with a small balanced-brace scan rather
- * than a non-greedy regex that stops at the first closing brace.
- *
- * Returns `false` when the action opts out of HTTP (`http: false`); otherwise
- * `{ method, path? }` with method lowercased and defaulting to "post".
- */
 export function parseActionHttpConfig(
   content: string,
 ): false | { method: string; path?: string } {
@@ -385,10 +323,6 @@ function isIdentifierChar(ch: string | undefined): boolean {
   return ch !== undefined && /[A-Za-z0-9_$]/.test(ch);
 }
 
-/**
- * Scan a single actions directory for defineAction-backed files. Shared
- * between the template-actions path and the workspace-core actions layer.
- */
 async function scanActionsDir(actionsDir: string): Promise<DiscoveredAction[]> {
   const fs = await getFs();
   if (!fs.existsSync(actionsDir)) return [];
@@ -406,10 +340,6 @@ async function scanActionsDir(actionsDir: string): Promise<DiscoveredAction[]> {
     const name = file.replace(/\.(ts|js)$/, "");
     const absPath = path.join(actionsDir, file);
 
-    // Only mount actions that use defineAction. CLI-style scripts
-    // (export default async function()) often use Node-only APIs
-    // (fs, path) that can't run on edge runtimes — they're meant
-    // to be invoked via `pnpm action <name>`, not as HTTP endpoints.
     let content: string;
     try {
       content = fs.readFileSync(absPath, "utf-8");
@@ -419,7 +349,7 @@ async function scanActionsDir(actionsDir: string): Promise<DiscoveredAction[]> {
     if (!content.includes("defineAction")) continue;
 
     const http = parseActionHttpConfig(content);
-    if (http === false) continue; // agent-only
+    if (http === false) continue;
 
     out.push({
       name,
@@ -433,15 +363,6 @@ async function scanActionsDir(actionsDir: string): Promise<DiscoveredAction[]> {
   return out;
 }
 
-/**
- * Discover action files in the actions/ directory.
- *
- * When a workspace core is present in the ancestor chain, its actions/
- * directory is also scanned and its actions are merged in after the
- * template's — with template actions winning on name collision.
- *
- * These become `/_agent-native/actions/:name` HTTP endpoints.
- */
 export async function discoverActionFiles(
   cwd: string,
 ): Promise<DiscoveredAction[]> {
@@ -449,7 +370,6 @@ export async function discoverActionFiles(
   const byName = new Map<string, DiscoveredAction>();
   for (const a of templateActions) byName.set(a.name, a);
 
-  // Merge workspace-core actions (template wins on collision).
   try {
     const { getWorkspaceCoreExports } = await import("./workspace-core.js");
     const ws = await getWorkspaceCoreExports(cwd);
@@ -466,9 +386,6 @@ export async function discoverActionFiles(
   return Array.from(byName.values());
 }
 
-/**
- * Returns the stems of default plugins that are missing from the project.
- */
 export async function getMissingDefaultPlugins(cwd: string): Promise<string[]> {
   let existingStems: Set<string>;
   try {

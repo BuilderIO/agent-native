@@ -1,6 +1,8 @@
 import { fail } from "@agent-native/core/action";
-import { canManageOrg, orgMembers, type OrgRole } from "@agent-native/core/org";
+import { canManageOrg, type OrgRole } from "@agent-native/core/org";
+import { readOrgMemberRole } from "@agent-native/core/server";
 import {
+  getRequestContext,
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
@@ -26,11 +28,6 @@ function readId(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-/**
- * Workspace defaults live on the org, so a caller with no org (personal
- * context, CLI, cron) genuinely has none — that is absent, not unreadable, and
- * every read below distinguishes the two by letting store failures propagate.
- */
 export async function getWorkspaceDefaults(): Promise<WorkspaceDefaults> {
   const orgId = getRequestOrgId();
   if (!orgId) return EMPTY_DEFAULTS;
@@ -46,20 +43,15 @@ export async function getCallerOrgRole(): Promise<OrgRole | null> {
   const orgId = getRequestOrgId();
   const email = getRequestUserEmail();
   if (!orgId || !email) return null;
-  const rows = await getDb()
-    .select({ role: orgMembers.role })
-    .from(orgMembers)
-    .where(
-      and(
-        eq(orgMembers.orgId, orgId),
-        eq(sql`lower(${orgMembers.email})`, email.toLowerCase()),
-      ),
-    )
-    .limit(1);
-  const role = rows[0]?.role;
-  return role === "owner" || role === "admin" || role === "member"
-    ? role
-    : null;
+  const request = getRequestContext();
+  if (
+    request?.a2aIdentityAssurance === "org-member" &&
+    (request.orgId?.trim() !== orgId.trim() ||
+      request.userEmail?.trim().toLowerCase() !== email.trim().toLowerCase())
+  ) {
+    return null;
+  }
+  return readOrgMemberRole(orgId, email);
 }
 
 export async function canManageWorkspaceDefaults(): Promise<boolean> {
@@ -148,11 +140,6 @@ export async function assertWorkspaceVisible(
   }
 }
 
-/**
- * Design-system precedence: an explicit pick wins, then the caller's own
- * default, then the workspace default. A user who never set one still gets
- * on-brand output; one who did keeps their choice.
- */
 export async function resolveDefaultDesignSystemId(
   ownerEmail: string,
 ): Promise<string | null> {
@@ -177,11 +164,6 @@ export async function resolveDefaultDesignSystemId(
   return (await getWorkspaceDefaults()).designSystemId;
 }
 
-/**
- * Resolves an exact title to an id using the same access filter
- * list-design-systems uses, so a title matches only what that action would
- * offer the caller to pick from.
- */
 export async function resolveDesignSystemIdByTitle(
   title: string,
 ): Promise<string> {
