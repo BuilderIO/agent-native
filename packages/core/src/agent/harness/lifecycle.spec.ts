@@ -19,6 +19,10 @@ import type {
 const mocks = vi.hoisted(() => ({
   startRun: vi.fn(),
   tryClaimRunSlot: vi.fn(),
+  ensureChatThreadTables: vi.fn(async () => {}),
+  hasPendingQueuedSubmissionReceipt: vi.fn(async () => false),
+  ensureAgentToolApprovalTable: vi.fn(async () => {}),
+  hasPendingCurrentTurnApproval: vi.fn(async () => false),
   resolveRunSoftTimeoutMs: vi.fn(
     (overrideMs?: number, options?: { useHostedDefault?: boolean }) =>
       overrideMs ?? (options?.useHostedDefault ? 40_000 : 0),
@@ -58,6 +62,16 @@ vi.mock("../run-manager.js", () => ({
   startRun: mocks.startRun,
   tryClaimRunSlot: mocks.tryClaimRunSlot,
   resolveRunSoftTimeoutMs: mocks.resolveRunSoftTimeoutMs,
+}));
+
+vi.mock("../../chat-threads/store.js", () => ({
+  ensureChatThreadTables: mocks.ensureChatThreadTables,
+  hasPendingQueuedSubmissionReceipt: mocks.hasPendingQueuedSubmissionReceipt,
+}));
+
+vi.mock("../tool-approval-store.js", () => ({
+  ensureAgentToolApprovalTable: mocks.ensureAgentToolApprovalTable,
+  hasPendingCurrentTurnApproval: mocks.hasPendingCurrentTurnApproval,
 }));
 
 vi.mock("./store.js", () => ({
@@ -456,7 +470,22 @@ describe("agent harness lifecycle", () => {
     mocks.persistFollowUpEvent.mockResolvedValue(undefined);
     mocks.tryClaimRunSlot.mockImplementation(
       async (_threadId, _runId, _maxStaleMs, options) => {
-        await options?.afterInsert?.({} as never);
+        const tx = {} as never;
+        if (await options?.hasPendingApproval?.(tx)) {
+          return {
+            claimed: false,
+            activeRunId: null,
+            approvalPending: true,
+          };
+        }
+        if (await options?.hasPendingQueuedSubmission?.(tx)) {
+          return {
+            claimed: false,
+            activeRunId: null,
+            queuedSubmissionPending: true,
+          };
+        }
+        await options?.afterInsert?.(tx);
         return { claimed: true, activeRunId: null };
       },
     );
@@ -1256,6 +1285,8 @@ describe("agent harness lifecycle", () => {
       undefined,
       expect.objectContaining({
         turnId: followUpId,
+        hasPendingQueuedSubmission: expect.any(Function),
+        hasPendingApproval: expect.any(Function),
         afterInsert: expect.any(Function),
       }),
     );
@@ -1267,6 +1298,48 @@ describe("agent harness lifecycle", () => {
       expect.objectContaining({ deadlineDurationMs: 24 * 60 * 60 * 1_000 }),
     );
     expect(stored.resumeState).toEqual({ token: "next" });
+  });
+
+  it("does not dispatch a follow-up ahead of a queued submission", async () => {
+    const session = fakeSession([{ type: "done" }]);
+    register(stored, session);
+    mocks.hasPendingQueuedSubmissionReceipt.mockResolvedValueOnce(true);
+
+    const result = await sendAgentHarnessFollowUp({
+      runId: stored.runId!,
+      prompt: "continue",
+      scope: ownerScope(),
+    });
+
+    expect(result).toMatchObject({ ok: false, errorCode: "unavailable" });
+    expect(mocks.ensureChatThreadTables).toHaveBeenCalledOnce();
+    expect(mocks.hasPendingQueuedSubmissionReceipt).toHaveBeenCalledWith(
+      expect.anything(),
+      stored.threadId,
+    );
+    expect(mocks.startRun).not.toHaveBeenCalled();
+    expect(session.streamTurn).not.toHaveBeenCalled();
+  });
+
+  it("does not dispatch a follow-up ahead of a pending tool approval", async () => {
+    const session = fakeSession([{ type: "done" }]);
+    register(stored, session);
+    mocks.hasPendingCurrentTurnApproval.mockResolvedValueOnce(true);
+
+    const result = await sendAgentHarnessFollowUp({
+      runId: stored.runId!,
+      prompt: "continue",
+      scope: ownerScope(),
+    });
+
+    expect(result).toMatchObject({ ok: false, errorCode: "unavailable" });
+    expect(mocks.ensureAgentToolApprovalTable).toHaveBeenCalledOnce();
+    expect(mocks.hasPendingCurrentTurnApproval).toHaveBeenCalledWith(
+      stored.threadId,
+      expect.anything(),
+    );
+    expect(mocks.startRun).not.toHaveBeenCalled();
+    expect(session.streamTurn).not.toHaveBeenCalled();
   });
 
   it("continues a truncated follow-up under the same logical turn", async () => {

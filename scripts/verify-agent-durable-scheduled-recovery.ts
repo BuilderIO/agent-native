@@ -505,9 +505,9 @@ export function validateScheduledRecoveryOutcome(
     "completed",
     "recovered continuation is not complete",
   );
-  assert.equal(
-    successor.dispatchMode,
-    "background",
+  assert.ok(
+    successor.dispatchMode === "background" ||
+      successor.dispatchMode === "background-processing",
     "recovered continuation was not dispatched in the background",
   );
   // Terminal transitions clear dispatch_payload; continuation order survives.

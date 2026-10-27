@@ -3,6 +3,10 @@ import { performance } from "node:perf_hooks";
 
 import { startRun, tryClaimRunSlot } from "../run-manager.js";
 import type { ActiveRun, RunChunkControl, StartedRun } from "../run-manager.js";
+import {
+  ensureAgentToolApprovalTable,
+  hasPendingCurrentTurnApproval,
+} from "../tool-approval-store.js";
 import type { AgentChatEvent } from "../types.js";
 import { resolveAgentHarness } from "./registry.js";
 import { agentHarnessFollowUpRunOptions } from "./run-policy.js";
@@ -1003,12 +1007,29 @@ export async function sendAgentHarnessFollowUp(input: {
                 ) {
                   softTimeoutDeadlineAt = Date.now() + followUpSoftTimeoutMs;
                 }
+                const queuedSubmissionStore =
+                  await import("../../chat-threads/store.js");
+                await queuedSubmissionStore.ensureChatThreadTables();
+                if (session.ownerEmail) {
+                  await ensureAgentToolApprovalTable();
+                }
                 const admission = await tryClaimRunSlot(
                   session.threadId,
                   physicalRunId,
                   undefined,
                   {
                     turnId: followUpId,
+                    hasPendingQueuedSubmission: (tx) =>
+                      queuedSubmissionStore.hasPendingQueuedSubmissionReceipt(
+                        tx,
+                        session.threadId,
+                      ),
+                    ...(session.ownerEmail
+                      ? {
+                          hasPendingApproval: (tx) =>
+                            hasPendingCurrentTurnApproval(session.threadId, tx),
+                        }
+                      : {}),
                     afterInsert: (tx) => assertCurrent(tx),
                   },
                 );

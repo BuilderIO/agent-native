@@ -213,7 +213,7 @@ describe("scheduled-recovery outcome", () => {
           id: `${ids.runId}-successor`,
           status: "completed",
           terminalReason: null,
-          dispatchMode: "background",
+          dispatchMode: "background-processing",
           dispatchPayload: null,
           continuationOrder: 2,
           startedAt: 2_000,
