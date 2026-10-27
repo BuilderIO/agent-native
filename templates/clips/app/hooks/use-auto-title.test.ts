@@ -86,6 +86,18 @@ describe("retryWorkflowAction", () => {
     );
     expect(mocks.callAction).toHaveBeenCalledOnce();
   });
+
+  it("handles a confirmed rejection observed by a non-requester", async () => {
+    mocks.callAction.mockResolvedValue({
+      reconciled: false,
+      reason: "not-requester",
+    });
+
+    await expect(
+      retryWorkflowAction({ ...request, operation: "reject" }, "reconciled"),
+    ).resolves.toBe(true);
+    expect(mocks.callAction).toHaveBeenCalledOnce();
+  });
 });
 
 describe("nextAutoTitleFallbackDelay", () => {

@@ -90,7 +90,7 @@ describe("list-ai-requests", () => {
       },
     ];
 
-    const result = await (listAiRequests as any).run({});
+    const result = await listAiRequests.run({});
 
     expect(result).toEqual({
       requests: [
@@ -181,6 +181,56 @@ describe("list-ai-requests", () => {
     expect(result.requests).toHaveLength(1);
     expect(result.activeSessions).toEqual([]);
   });
+
+  it("only lists queued workflow requests to their requester", async () => {
+    await insertRecording("rec_mine", "My workflow", "me@example.com");
+    await insertRecording("rec_other", "Other workflow", "me@example.com");
+    const requestedAt = "2026-09-28T12:00:00.000Z";
+    mocks.appState = [
+      {
+        key: "clips-ai-request-rec_mine",
+        value: {
+          kind: "generate-workflow",
+          recordingId: "rec_mine",
+          requestedAt,
+        },
+      },
+      {
+        key: "clips-ai-request-rec_other",
+        value: {
+          kind: "generate-workflow",
+          recordingId: "rec_other",
+          requestedAt,
+        },
+      },
+      {
+        key: "clips-workflow-rec_mine",
+        value: {
+          status: "generating",
+          requestedAt,
+          requestedBy: "me@example.com",
+        },
+      },
+      {
+        key: "clips-workflow-rec_other",
+        value: {
+          status: "generating",
+          requestedAt,
+          requestedBy: "someone@example.com",
+        },
+      },
+    ];
+
+    const result = await listAiRequests.run({});
+
+    expect(result.requests).toEqual([
+      expect.objectContaining({
+        kind: "generate-workflow",
+        recordingId: "rec_mine",
+      }),
+    ]);
+  });
+
   it("recovers working sessions for every queued request kind", async () => {
     await insertRecording("rec_chapters", "Chapters", "me@example.com");
     const requestedAt = "2026-09-28T12:00:00.000Z";

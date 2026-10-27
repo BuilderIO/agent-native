@@ -16,6 +16,7 @@ import { z } from "zod";
 
 import {
   matchesWorkflowRequest,
+  workflowGenerationStaleAt,
   WorkflowKindSchema,
   workflowSessionTabId,
 } from "../shared/workflow.js";
@@ -410,6 +411,48 @@ export default defineAction({
     if (operation === "settle" || operation === "settle-terminal") {
       const activeRun = await getActiveRunForThreadAsync(tabId);
       if (!activeRun && operation === "settle") {
+        const staleAt = workflowGenerationStaleAt(state);
+        if (staleAt !== null && staleAt <= Date.now()) {
+          const expiredState = {
+            ...rawState,
+            status: "failed",
+            failedAt: new Date().toISOString(),
+            failureReason: "session-expired",
+          };
+          const rawRequest = await readAppState(requestKey);
+          if (rawRequest === null) {
+            const reconciled = await compareAndSetAppState(
+              stateKey,
+              rawState,
+              expiredState,
+            );
+            return reconciled
+              ? { reconciled: true, expired: true }
+              : { reconciled: false, reason: "stale" as const };
+          }
+          const parsedRequest = WorkflowRequestSchema.safeParse(rawRequest);
+          if (!parsedRequest.success) {
+            // guard:allow-bare-error — invariant: generate-workflow writes this shape.
+            throw new Error(
+              `Invalid workflow request state for ${recordingId}`,
+            );
+          }
+          if (
+            !matchesWorkflowRequest(parsedRequest.data, {
+              requestedAt,
+              requestId,
+            })
+          ) {
+            return { reconciled: false, reason: "newer-request" as const };
+          }
+          const reconciled = await compareAndSetManyAppState([
+            { key: stateKey, expectedValue: rawState, nextValue: expiredState },
+            { key: requestKey, expectedValue: rawRequest, nextValue: null },
+          ]);
+          return reconciled
+            ? { reconciled: true, expired: true }
+            : { reconciled: false, reason: "stale" as const };
+        }
         return { reconciled: false, reason: "run-not-found" as const };
       }
       if (

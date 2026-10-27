@@ -428,14 +428,47 @@ describe("reconcile-workflow-generation", () => {
   });
 
   it("leaves a session generating when no registered run proves it ended", async () => {
+    const recentRequestedAt = new Date().toISOString();
+    const recentTabId = workflowSessionTabId("rec_123", recentRequestedAt);
     mocks.readAppState.mockResolvedValue({
+      kind: "email",
+      status: "generating",
+      recordingId: "rec_123",
+      requestedAt: recentRequestedAt,
+      tabId: recentTabId,
+      claimedAt: new Date().toISOString(),
+    });
+
+    await expect(
+      action.run({
+        operation: "settle",
+        recordingId: "rec_123",
+        requestedAt: recentRequestedAt,
+        tabId: recentTabId,
+      }),
+    ).resolves.toEqual({ reconciled: false, reason: "run-not-found" });
+
+    expect(mocks.getActiveRunForThreadAsync).toHaveBeenCalledWith(recentTabId);
+    expect(mocks.abortTurnByRefDurably).not.toHaveBeenCalled();
+    expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
+  });
+
+  it("expires an unavailable session after its request lease and consumes its request", async () => {
+    const state = {
       kind: "email",
       status: "generating",
       recordingId: "rec_123",
       requestedAt,
       tabId,
-      claimedAt: new Date().toISOString(),
-    });
+    };
+    const request = {
+      kind: "generate-workflow",
+      recordingId: "rec_123",
+      requestedAt,
+    };
+    mocks.readAppState
+      .mockResolvedValueOnce(state)
+      .mockResolvedValueOnce(request);
 
     await expect(
       action.run({
@@ -444,10 +477,24 @@ describe("reconcile-workflow-generation", () => {
         requestedAt,
         tabId,
       }),
-    ).resolves.toEqual({ reconciled: false, reason: "run-not-found" });
+    ).resolves.toEqual({ reconciled: true, expired: true });
 
     expect(mocks.getActiveRunForThreadAsync).toHaveBeenCalledWith(tabId);
-    expect(mocks.abortTurnByRefDurably).not.toHaveBeenCalled();
+    expect(mocks.compareAndSetManyAppState).toHaveBeenCalledWith([
+      {
+        key: "clips-workflow-rec_123",
+        expectedValue: state,
+        nextValue: expect.objectContaining({
+          status: "failed",
+          failureReason: "session-expired",
+        }),
+      },
+      {
+        key: "clips-ai-request-rec_123",
+        expectedValue: request,
+        nextValue: null,
+      },
+    ]);
     expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
   });
 

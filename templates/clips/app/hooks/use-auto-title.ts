@@ -461,6 +461,9 @@ export async function retryWorkflowAction(
         request as any,
       )) as Record<string, unknown>;
       if (result[successKey] === true) return true;
+      if (request.operation === "reject" && result.reason === "not-requester") {
+        return true;
+      }
       if (typeof result.reason === "string" && result.reason !== "stale") {
         return false;
       }

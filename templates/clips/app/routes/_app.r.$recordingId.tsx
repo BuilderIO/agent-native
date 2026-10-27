@@ -1409,6 +1409,7 @@ export default function RecordingPage() {
     failedAttempts: number;
     exhausted: boolean;
   } | null>(null);
+  const workflowStopInFlightRef = useRef<string | null>(null);
   const reconcileWorkflowGeneration = useActionMutation<
     WorkflowGenerationStopResult,
     WorkflowGenerationStopInput
@@ -1456,16 +1457,29 @@ export default function RecordingPage() {
   const cancelWorkflowGeneration = useCallback(
     (workflow: GeneratedWorkflowState) => {
       const recordingId = workflow.recordingId ?? recording?.id;
-      if (!canEdit || !recordingId || !workflow.requestedAt) return;
-      setWorkflowStopAttempt({
-        recordingId,
-        requestedAt: workflow.requestedAt,
-        ...(workflow.requestId ? { requestId: workflow.requestId } : {}),
-        reason: "cancelled",
-        failedAttempts: 0,
-        exhausted: false,
-      });
-      startWorkflowToast(t("recordingPage.workflowStillGenerating"));
+      const requestedAt = workflow.requestedAt;
+      if (!canEdit || !recordingId || !requestedAt) return;
+      const attemptKey = `${recordingId}:${requestedAt}:${workflow.requestId ?? ""}`;
+      if (workflowStopInFlightRef.current === attemptKey) return;
+
+      function requestStop() {
+        if (workflowStopInFlightRef.current === attemptKey) return;
+        const requestedAt = workflow.requestedAt;
+        if (!requestedAt) return;
+        setWorkflowStopAttempt({
+          recordingId,
+          requestedAt,
+          ...(workflow.requestId ? { requestId: workflow.requestId } : {}),
+          reason: "cancelled",
+          failedAttempts: 0,
+          exhausted: false,
+        });
+        startWorkflowToast(t("recordingPage.workflowStillGenerating"), {
+          action: { label: t("common.cancel"), onClick: requestStop },
+        });
+      }
+
+      requestStop();
     },
     [canEdit, recording?.id, startWorkflowToast, t],
   );
@@ -1542,6 +1556,10 @@ export default function RecordingPage() {
     }
     if (workflowStopAttempt.exhausted) return;
 
+    const attemptKey = `${workflowStopAttempt.recordingId}:${workflowStopAttempt.requestedAt}:${workflowStopAttempt.requestId ?? ""}`;
+    if (workflowStopInFlightRef.current === attemptKey) return;
+    workflowStopInFlightRef.current = attemptKey;
+
     let active = true;
     let retryTimer: number | undefined;
     const attemptStop = async () => {
@@ -1554,6 +1572,10 @@ export default function RecordingPage() {
         startWorkflowToast(t("recordingPage.workflowStillGenerating"), {
           description:
             actionErrorMessage(error) ?? t("recordingPage.tryAgainMoment"),
+          action: {
+            label: t("common.cancel"),
+            onClick: () => cancelWorkflowGeneration(workflow),
+          },
         });
         if (shouldRetryWorkflowStop(error, failedAttempts)) {
           retryTimer = window.setTimeout(() => {
@@ -1575,6 +1597,9 @@ export default function RecordingPage() {
           );
         }
       }
+      if (workflowStopInFlightRef.current === attemptKey) {
+        workflowStopInFlightRef.current = null;
+      }
     };
     void attemptStop();
 
@@ -1584,6 +1609,7 @@ export default function RecordingPage() {
     };
   }, [
     canEdit,
+    cancelWorkflowGeneration,
     generatedWorkflow?.recordingId,
     generatedWorkflow?.requestId,
     generatedWorkflow?.requestedAt,
@@ -1680,13 +1706,6 @@ export default function RecordingPage() {
       generatedWorkflow.status !== "generating" ||
       !generatedWorkflow.recordingId ||
       !generatedWorkflow.requestedAt
-    ) {
-      return;
-    }
-    if (
-      workflowStopAttempt &&
-      workflowStopAttempt.recordingId === generatedWorkflow.recordingId &&
-      matchesWorkflowRequest(generatedWorkflow, workflowStopAttempt)
     ) {
       return;
     }
