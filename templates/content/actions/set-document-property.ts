@@ -46,6 +46,17 @@ import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import { assertEditableDocument } from "./_document-edit-mutation.js";
 import { NFM_CONTAINER_SYNTAX } from "./_nfm-syntax.js";
 import {
+  assertPropertyGenerations,
+  propertyChangeIdOf,
+  propertyChangeIdsFor,
+  propertyGenerationsFor,
+  readPropertyGenerations,
+  readPropertyTombstones,
+  readWrittenPropertyChangeIds,
+  storedPropertyGenerations,
+  type StoredPropertyChangeIds,
+} from "./_property-generations.js";
+import {
   getDatabaseById,
   listPropertiesForDatabaseDocuments,
   nanoid,
@@ -245,10 +256,25 @@ export default defineAction({
       .describe(
         "Expected Blocks field revision from list-content-database-blocks; required for Blocks field writes from anything other than the app's own UI (agents, CLI, automations, HTTP)",
       ),
+    expectedGeneration: z
+      .number()
+      .int()
+      .nonnegative()
+      .optional()
+      .describe(
+        "Write only if the property's generation still equals this one, from propertyGenerations on get-document or get-content-database. A mismatch writes nothing and fails with PROPERTY_GENERATION_CONFLICT. Not for Blocks fields.",
+      ),
   }),
   changeResource: (input) => documentChangeResource(input.documentId),
   run: async (
-    { documentId, databaseId, propertyId, value, expectedBlocksFieldRevision },
+    {
+      documentId,
+      databaseId,
+      propertyId,
+      value,
+      expectedBlocksFieldRevision,
+      expectedGeneration,
+    },
     ctx,
   ) => {
     const db = getDb();
@@ -290,6 +316,16 @@ export default defineAction({
     const now = new Date().toISOString();
 
     if (isBlocksPropertyType(type)) {
+      if (expectedGeneration !== undefined) {
+        throw new ActionContractError(
+          "Blocks fields are guarded by expectedBlocksFieldRevision, not expectedGeneration.",
+          {
+            errorCode: "PROPERTY_GENERATION_UNSUPPORTED",
+            details: { propertyId },
+            statusCode: 400,
+          },
+        );
+      }
       // A whole-field write must name the revision it read, so a stale copy
       // can't replace newer text. Only the app's own UI (in the browser or an
       // MCP widget) and internal server calls without a caller are exempt;
@@ -490,6 +526,8 @@ export default defineAction({
 
     let valueJson = normalizedValueJson(type, value);
     let webhookEvents = 0;
+    let generation = 0;
+    let changeId: number | null = null;
     await db.transaction(async (tx) => {
       await lockContentDatabaseMutation(
         tx as unknown as ReturnType<typeof getDb>,
@@ -550,6 +588,13 @@ export default defineAction({
         database.id,
         lockedDefinition,
       );
+      if (expectedGeneration !== undefined) {
+        await assertPropertyGenerations(
+          tx as unknown as ReturnType<typeof getDb>,
+          documentId,
+          { [propertyId]: expectedGeneration },
+        );
+      }
       if (lockedType === "relation") {
         const [stored] = await tx
           .select({ valueJson: schema.documentPropertyValues.valueJson })
@@ -719,18 +764,55 @@ export default defineAction({
           actor: contentChangeActor(ctx),
         },
       );
+      // Read before commit, while this write still holds the value's row, so
+      // a later writer's generation can't be returned as this one's.
+      generation = (
+        await readPropertyGenerations(
+          tx as unknown as ReturnType<typeof getDb>,
+          [documentId],
+          { propertyIds: [propertyId] },
+        )
+      ).of(documentId, propertyId);
+      changeId = propertyChangeIdOf(
+        await readWrittenPropertyChangeIds(
+          tx as unknown as ReturnType<typeof getDb>,
+          [documentId],
+          [propertyId],
+        ),
+        documentId,
+        propertyId,
+      );
     });
     if (webhookEvents) scheduleContentWebhookDelivery();
 
+    // `generation` and `changeId` are this write's. The page is read after
+    // commit, so it carries its own maps from the same read; a write that
+    // landed in between shows there.
+    const tombstones = await readPropertyTombstones(db, [documentId]);
+    const changeIds: StoredPropertyChangeIds = new Map();
+    const properties =
+      (
+        await listPropertiesForDatabaseDocuments(database.id, [document], {
+          includeBlocksFieldIdentity: true,
+          changeIds,
+        })
+      ).get(documentId) ?? [];
     return {
       documentId,
       databaseId: database.id,
-      properties:
-        (
-          await listPropertiesForDatabaseDocuments(database.id, [document], {
-            includeBlocksFieldIdentity: true,
-          })
-        ).get(documentId) ?? [],
+      generation,
+      changeId,
+      properties,
+      propertyGenerations: propertyGenerationsFor(
+        documentId,
+        properties,
+        storedPropertyGenerations(changeIds, tombstones),
+      ),
+      propertyChangeIds: propertyChangeIdsFor(
+        documentId,
+        properties,
+        changeIds,
+      ),
     };
   },
 });

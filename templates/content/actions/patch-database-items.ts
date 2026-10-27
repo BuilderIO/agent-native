@@ -13,6 +13,7 @@ import {
   databaseMutationEnvelopeSchema,
   patchDatabaseRows,
 } from "./_database-row-mutation.js";
+import { expectedPropertyGenerationsSchema } from "./_property-generations.js";
 
 const rowPatchSchema = z.object({
   itemId: z
@@ -31,6 +32,7 @@ const rowPatchSchema = z.object({
     .string()
     .min(1)
     .describe("The item's rowRevision from the same get-content-database read"),
+  expectedPropertyGenerations: expectedPropertyGenerationsSchema,
   title: z.string().trim().min(1).max(500).optional(),
   propertyValues: databasePropertyValuesSchema,
   propertyEntries: databasePropertyEntriesSchema.describe(
