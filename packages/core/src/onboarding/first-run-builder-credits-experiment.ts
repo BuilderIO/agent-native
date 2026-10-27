@@ -51,7 +51,7 @@ function setRequestAssignment(
   context.firstRunBuilderCreditsV2Assignment = assignment;
 }
 
-/** Resolve a stable arm without recording exposure before the UI applies it. */
+/** Resolve a stable arm without recording exposure before the UI displays it. */
 export async function resolveFirstRunBuilderCreditsV2Assignment({
   flagEnabled,
 }: {
@@ -74,7 +74,7 @@ export async function resolveFirstRunBuilderCreditsV2Assignment({
   return { ...expected, authUserId };
 }
 
-/** Persist exposure after the client confirms the assigned choice was applied. */
+/** Persist exposure after the client displays the assigned choice. */
 export async function recordFirstRunBuilderCreditsV2Exposure({
   flagEnabled,
   experimentVariant,

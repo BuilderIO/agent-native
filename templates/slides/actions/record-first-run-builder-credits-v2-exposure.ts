@@ -13,7 +13,7 @@ import { z } from "zod";
 
 export default defineAction({
   description:
-    "Resolve a signed-in user's first-run credits v2 arm and persist it after the choice is applied.",
+    "Resolve a signed-in user's first-run credits v2 arm and persist exposure after the choice is displayed.",
   schema: z.object({
     confirmedVariant: z.enum(["control", "credits"]).optional(),
   }),

@@ -612,7 +612,13 @@ export function FirstRunOnboarding({
     creditsV2ExposureConfirmationStartedRef.current = true;
     const persistExposure = async () => {
       let lastError: unknown;
-      for (let attempt = 0; attempt < 2; attempt += 1) {
+      // A write can commit even when its response is lost, so retry the idempotent assignment to reconcile it.
+      for (const delayMs of [0, 0, 1_000, 5_000, 30_000]) {
+        if (delayMs > 0) {
+          await new Promise<void>((resolve) =>
+            window.setTimeout(resolve, delayMs),
+          );
+        }
         try {
           const { assignment } = await creditsV2Exposure.mutateAsync({
             confirmedVariant: creditsV2Assignment.experiment_variant,
