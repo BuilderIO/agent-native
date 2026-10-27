@@ -141,7 +141,7 @@ function ClipBeingMade({
   label: string;
   /** Null once the bytes are all sent, or when this tab didn't send them. */
   percent: number | null;
-  fileName?: string;
+  fileName?: string | undefined;
   action?: ReactNode;
 }) {
   return (

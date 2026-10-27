@@ -294,7 +294,7 @@ export async function sendClipChunks(
     const body = file.slice(start, end, "");
 
     let answer = await postChunk(url.toString(), body, signal);
-    let retries = 0;
+    const retryDelays = RETRY_DELAYS_MS.values();
     let finishingFor = 0;
     while (!answer.ok && !signal?.aborted) {
       if ("finishing" in answer) {
@@ -302,10 +302,9 @@ export async function sendClipChunks(
         finishingFor += FINISHING_RETRY_MS;
         await wait(FINISHING_RETRY_MS);
       } else {
-        const delay = RETRY_DELAYS_MS[retries];
-        if (!answer.retry || delay === undefined) break;
-        retries += 1;
-        await wait(delay);
+        const delay = retryDelays.next();
+        if (!answer.retry || delay.done) break;
+        await wait(delay.value);
       }
       if (signal?.aborted) break;
       answer = await postChunk(url.toString(), body, signal);

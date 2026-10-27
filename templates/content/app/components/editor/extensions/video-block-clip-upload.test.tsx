@@ -127,6 +127,11 @@ function video(name = "demo.mp4", type = "video/mp4") {
 
 let root: Root;
 let container: HTMLDivElement;
+
+function defined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) throw new Error("Missing value");
+  return value;
+}
 let inserted: Array<{ range: unknown; content: unknown }>;
 let setAttrs: Array<Record<string, unknown>>;
 let deleted: unknown[];
@@ -204,18 +209,19 @@ function render(attrs: Record<string, unknown> = {}) {
 }
 
 function text() {
-  return container.textContent ?? "";
+  return container.textContent;
 }
 
 async function pick(file: File) {
-  const input = container.querySelector<HTMLInputElement>('input[type="file"]');
-  expect(input).not.toBeNull();
-  Object.defineProperty(input!, "files", {
+  const input = defined(
+    container.querySelector<HTMLInputElement>('input[type="file"]'),
+  );
+  Object.defineProperty(input, "files", {
     configurable: true,
     value: [file],
   });
   await act(async () => {
-    input!.dispatchEvent(new Event("change", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
   });
 }
 
@@ -226,27 +232,30 @@ async function focusWindow() {
 }
 
 async function clickCheckAgain() {
-  const button = Array.from(container.querySelectorAll("button")).find(
-    (each) => each.textContent === "clipEmbed.gateCheckAgain",
+  const button = defined(
+    Array.from(container.querySelectorAll("button")).find(
+      (each) => each.textContent === "clipEmbed.gateCheckAgain",
+    ),
   );
-  expect(button).toBeDefined();
-  await act(async () => button!.click());
+  await act(async () => button.click());
 }
 
 async function clickTryAgain() {
-  const button = Array.from(container.querySelectorAll("button")).find(
-    (each) => each.textContent === "clipEmbed.retry",
+  const button = defined(
+    Array.from(container.querySelectorAll("button")).find(
+      (each) => each.textContent === "clipEmbed.retry",
+    ),
   );
-  expect(button).toBeDefined();
-  await act(async () => button!.click());
+  await act(async () => button.click());
 }
 
 function clickRemove() {
-  const button = container.querySelector<HTMLButtonElement>(
-    'button[aria-label="clipEmbed.gateDiscard"]',
+  const button = defined(
+    container.querySelector<HTMLButtonElement>(
+      'button[aria-label="clipEmbed.gateDiscard"]',
+    ),
   );
-  expect(button).not.toBeNull();
-  act(() => button!.click());
+  act(() => button.click());
 }
 
 /** What each start of an upload sent. */
@@ -357,7 +366,7 @@ describe("the Upload tab while Clips in pages is on", () => {
       blockId: expect.stringMatching(/^clip-embed-[A-Za-z0-9]+$/),
       uploadKey: expect.stringMatching(/^[A-Za-z0-9_-]{16,64}$/),
     });
-    const { blockId } = state.callAction.mock.calls[0][1];
+    const { blockId } = defined(state.callAction.mock.calls[0])[1];
     expect(inserted).toEqual([
       {
         range: { from: 4, to: 5 },
@@ -438,7 +447,7 @@ describe("the Upload tab while Clips in pages is on", () => {
       ),
     );
     expect(state.toast.error).not.toHaveBeenCalled();
-    state.toast.info.mock.calls[0][1].action.onClick();
+    defined(state.toast.info.mock.calls[0])[1].action.onClick();
     expect(open).toHaveBeenCalledWith(
       "https://clips.example.test/r/rec_1",
       "_blank",
@@ -540,7 +549,7 @@ describe("the Upload tab while Clips in pages is on", () => {
       expect(text()).toContain(title);
       expect(text()).toContain("demo.mp4");
       expect(text()).toContain("clipEmbed.gateWhyLabel");
-      const anchors = Array.from(gate!.querySelectorAll("a"));
+      const anchors = Array.from(defined(gate).querySelectorAll("a"));
       expect(anchors.map((anchor) => anchor.textContent)).toEqual(links);
       for (const anchor of anchors) {
         expect(anchor.target).toBe("_blank");
@@ -658,7 +667,10 @@ describe("the Upload tab while Clips in pages is on", () => {
       expect(new Set(starts().map((each) => each.uploadKey)).size).toBe(1);
       expect(new Set(starts().map((each) => each.blockId)).size).toBe(1);
       expect(state.beginClipUpload).toHaveBeenCalledWith(
-        expect.objectContaining({ ticket, blockId: starts()[0].blockId }),
+        expect.objectContaining({
+          ticket,
+          blockId: defined(starts()[0]).blockId,
+        }),
       );
       expect(state.toast.error).not.toHaveBeenCalled();
     } finally {
@@ -716,9 +728,14 @@ describe("the Upload tab while Clips in pages is on", () => {
 
       await clickTryAgain();
       expect(starts()).toHaveLength(2);
-      expect(starts()[1].uploadKey).not.toBe(starts()[0].uploadKey);
+      expect(defined(starts()[1]).uploadKey).not.toBe(
+        defined(starts()[0]).uploadKey,
+      );
       expect(state.beginClipUpload).toHaveBeenCalledWith(
-        expect.objectContaining({ ticket, blockId: starts()[1].blockId }),
+        expect.objectContaining({
+          ticket,
+          blockId: defined(starts()[1]).blockId,
+        }),
       );
     } finally {
       vi.useRealTimers();
@@ -801,7 +818,10 @@ describe("the Upload tab while Clips in pages is on", () => {
       expect(new Set(starts().map((each) => each.uploadKey)).size).toBe(1);
       expect(new Set(starts().map((each) => each.blockId)).size).toBe(1);
       expect(state.beginClipUpload).toHaveBeenCalledWith(
-        expect.objectContaining({ ticket, blockId: starts()[0].blockId }),
+        expect.objectContaining({
+          ticket,
+          blockId: defined(starts()[0]).blockId,
+        }),
       );
       expect(state.toast.error).not.toHaveBeenCalled();
       expect(container.querySelector("[data-clip-upload-gate]")).toBeNull();
@@ -851,7 +871,7 @@ describe("the Upload tab while Clips in pages is on", () => {
       render();
       await pick(video());
       await act(() => vi.advanceTimersByTimeAsync(2_000 + 5_000 + 10_000));
-      const firstKey = starts()[0].uploadKey;
+      const firstKey = defined(starts()[0]).uploadKey;
       clickRemove();
       expect(container.querySelector("[data-clip-upload-gate]")).toBeNull();
 
@@ -859,7 +879,7 @@ describe("the Upload tab while Clips in pages is on", () => {
       state.callAction.mockResolvedValueOnce(ticket);
       await pick(video());
       expect(starts()).toHaveLength(1);
-      expect(starts()[0].uploadKey).not.toBe(firstKey);
+      expect(defined(starts()[0]).uploadKey).not.toBe(firstKey);
     } finally {
       vi.useRealTimers();
     }
@@ -960,7 +980,7 @@ describe("the Upload tab while Clips in pages is on", () => {
     render();
     await pick(video());
 
-    const { blockId } = state.callAction.mock.calls[0][1];
+    const { blockId } = defined(state.callAction.mock.calls[0])[1];
     expect(inserted).toEqual([
       {
         range: { from: 4, to: 5 },

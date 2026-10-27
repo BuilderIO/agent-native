@@ -3,7 +3,15 @@
 import type { ClipPlayback } from "@shared/clips-peer-contract";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 
@@ -20,7 +28,9 @@ type FakeQuery = {
   isError: boolean;
   isSuccess: boolean;
   error: unknown;
-  refetch: ReturnType<typeof vi.fn>;
+  refetch: Mock<
+    () => Promise<{ isError: boolean; data?: unknown; error?: unknown }>
+  >;
 };
 
 const queries = vi.hoisted(() => ({
@@ -421,7 +431,7 @@ describe("ClipEmbed while a Clip is uploaded", () => {
     canEdit?: boolean;
   }) {
     act(() =>
-      root!.render(
+      defined(root).render(
         <TooltipProvider>
           <ClipEmbedRead
             data={{ recordingId: "rec_1", origin: props.origin }}
@@ -533,9 +543,11 @@ describe("ClipEmbed while a Clip is uploaded", () => {
     renderBlock({ origin: "upload", canEdit: true });
 
     act(() =>
-      page
-        .querySelector<HTMLButtonElement>('[data-clip-upload="failed"] button')!
-        .click(),
+      defined(
+        page.querySelector<HTMLButtonElement>(
+          '[data-clip-upload="failed"] button',
+        ),
+      ).click(),
     );
     expect(deleteRange).toHaveBeenCalledWith({ from: 5, to: 8 });
     expect(run).toHaveBeenCalledOnce();
@@ -556,7 +568,7 @@ describe("ClipEmbed while a Clip is uploaded", () => {
       container.querySelector('[data-clip-upload="failed"]'),
     ).not.toBeNull();
 
-    act(() => root!.unmount());
+    act(() => defined(root).unmount());
     root = createRoot(container);
     queries.byName["get-clip-playback"] = withStatus("ready");
     render();
@@ -580,7 +592,7 @@ describe("ClipEmbed while a Clip is uploaded", () => {
     await waitMs(4_000);
     expect(uploads.clear).toHaveBeenCalledWith("rec_1");
     expect(toasts.success).toHaveBeenCalledOnce();
-    const [message, options] = toasts.success.mock.calls[0]!;
+    const [message, options] = defined(toasts.success.mock.calls[0]);
     expect(message).toBe("clipEmbed.savedAsClip");
     expect(options.action.label).toBe("clipEmbed.openInClips");
     options.action.onClick();
@@ -672,7 +684,7 @@ describe("ClipEmbed while a Clip is uploaded", () => {
     ).not.toBeNull();
     expect(container.textContent).toContain("clipEmbed.making");
 
-    await act(async () => checkAgainButton()!.click());
+    await act(async () => defined(checkAgainButton()).click());
     await waitMs(0);
     expect(refetch).toHaveBeenCalledTimes(19);
     // Still no new status: it keeps waiting for the reader.
@@ -752,7 +764,7 @@ describe("ClipEmbed while a Clip is uploaded", () => {
     const retry = [...container.querySelectorAll("button")].find(
       (button) => button.textContent === "clipEmbed.retry",
     );
-    await act(async () => retry!.click());
+    await act(async () => defined(retry).click());
     await waitMs(0);
     expect(container.querySelector("video")).not.toBeNull();
   });

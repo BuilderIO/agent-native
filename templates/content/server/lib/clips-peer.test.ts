@@ -432,7 +432,7 @@ describe("requestClipsUpload", () => {
       uploader: signedIn,
       documentId: "doc_1",
       clientIp: "203.0.113.7",
-      start: withStart ? start : undefined,
+      ...(withStart ? { start } : {}),
     });
 
   async function sentToken(fetchMock: ReturnType<typeof vi.fn>, call = 0) {

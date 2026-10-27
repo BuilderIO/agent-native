@@ -128,6 +128,7 @@ export function useClipUploadStorage(
 
 export interface ClipUploadStarted {
   file: File;
+  documentId: string;
   recordingId: string;
   /** Null when an earlier start of this file already gave Clips all of it. */
   ticket: ClipUploadTicket | null;
@@ -266,6 +267,7 @@ export function useClipFileUpload(input: {
           hold(null);
           onStartedRef.current({
             file,
+            documentId,
             recordingId: result.recordingId,
             ticket: result.status === "started" ? result : null,
             blockId,
@@ -281,7 +283,7 @@ export function useClipFileUpload(input: {
             storage: null,
             failureKey: "clipEmbed.uploadFailed",
           });
-        } else if (result.status === "too_large") {
+        } else {
           hold(null);
           toast.error(
             t("clipEmbed.uploadTooLarge", {

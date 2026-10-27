@@ -4157,14 +4157,14 @@ export function VisualEditor({
 
   // It checks the page's blocks at once, so not before the page is in.
   useEffect(() => {
-    if (!editor || !documentId || !collabSynced) return;
-    return watchClipUploadBlocks(editor, documentId, (upload, cancelled) =>
-      announceClipCancel(cancelled, {
+    if (!documentId || !collabSynced) return;
+    return watchClipUploadBlocks(editor, documentId, (upload, cancelled) => {
+      void announceClipCancel(cancelled, {
         recordingId: upload.recordingId,
         cancelledKey: "clipEmbed.uploadCancelledBlockGone",
         t: tRef.current,
-      }),
-    );
+      });
+    });
   }, [collabSynced, documentId, editor]);
 
   useEffect(() => {

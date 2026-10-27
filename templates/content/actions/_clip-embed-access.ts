@@ -178,9 +178,10 @@ export async function authorizeClipUploader(
   const state = await documentState(documentId);
   if (!state || state.trashedAt) failClip(CLIP_UPLOAD_ERRORS.documentNotFound);
 
+  const orgId = getRequestOrgId();
   const enabled = await isFeatureFlagEnabled(CLIP_EMBED_FLAG, {
     userEmail: email,
-    orgId: getRequestOrgId(),
+    ...(orgId !== undefined ? { orgId } : {}),
   });
   if (!enabled) failClip(CLIP_UPLOAD_ERRORS.disabled);
 

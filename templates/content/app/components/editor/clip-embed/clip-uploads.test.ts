@@ -22,6 +22,11 @@ import {
   watchClipUploadBlocks,
 } from "./clip-uploads";
 
+function defined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) throw new Error("Missing value");
+  return value;
+}
+
 const ticket = {
   recordingId: "rec_1",
   chunkUrl:
@@ -235,7 +240,10 @@ describe("sendClipChunks", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((url: string, init: RequestInit) => {
-        sent.push(new URL(url).searchParams.get("index")!);
+        const index = new URL(url).searchParams.get("index");
+        if (index === null)
+          throw new Error("A chunk was sent without its index");
+        sent.push(index);
         if (hangs > 0) {
           hangs -= 1;
           return hang(init);
@@ -500,7 +508,7 @@ describe("beginClipUpload", () => {
     expect(
       written.some(
         ([, value]) =>
-          (value as { uploads?: Array<{ percent: number | null }> })
+          (value as { uploads?: Array<{ percent: number | null }> } | null)
             ?.uploads?.[0]?.percent === 0,
       ),
     ).toBe(true);
@@ -549,7 +557,7 @@ describe("beginClipUpload", () => {
       uploads: [{ phase: "failed" }],
     });
     expect(sent.filter(isCancel)).toHaveLength(1);
-    const [cancel] = sent.filter(isCancel);
+    const cancel = defined(sent.filter(isCancel)[0]);
     expect(cancel.url.toString()).toBe(ticket.cancelUrl);
     expect(cancel.init).toMatchObject({ method: "POST", credentials: "omit" });
     expect(cancel.init.body).toBeUndefined();
@@ -675,7 +683,7 @@ describe("an upload whose block leaves the page", () => {
     expect(sent.filter(isCancel).map(({ url }) => url.toString())).toEqual([
       ticket.cancelUrl,
     ]);
-    expect(sent[0].init.signal?.aborted).toBe(true);
+    expect(defined(sent[0]).init.signal?.aborted).toBe(true);
     expect(onGivenUp).toHaveBeenCalledWith(
       expect.objectContaining({ recordingId: "rec_1", fileName: "demo.mp4" }),
       { outcome: "cancelled" },

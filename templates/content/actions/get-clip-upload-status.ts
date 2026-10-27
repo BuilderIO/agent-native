@@ -19,6 +19,7 @@ export default defineAction({
   description:
     "Where a video uploaded into this page would be saved as a Clip, as Clips says: storage that's ready, free clips left, free clips used up, no storage, or no Clips account yet. Checks the caller can edit the page first.",
   schema: clipEmbedArgsSchema.pick({ documentId: true }),
+  outputSchema: answerSchema,
   http: { method: "GET" },
   readOnly: true,
   agentTool: false,

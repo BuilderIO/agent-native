@@ -137,8 +137,9 @@ describe("a video dropped or pasted while uploads go to Clips", () => {
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
-    expect(state.editor).not.toBeNull();
-    return state.editor!;
+    const { editor } = state;
+    if (!editor) throw new Error("The editor never mounted");
+    return editor;
   }
 
   function handlerFor(editor: Editor, type: "drop" | "paste") {

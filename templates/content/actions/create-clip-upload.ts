@@ -54,6 +54,27 @@ const tooLargeSchema = z.object({
   maxBytes: z.number().int().positive(),
 });
 
+const resultSchema: z.ZodType<CreateClipUploadResult> = z.discriminatedUnion(
+  "status",
+  [
+    startedSchema.extend({ status: z.literal("started") }),
+    z.object({
+      status: z.literal("already_finished"),
+      recordingId: z.string(),
+    }),
+    z.object({ status: z.literal("starting") }),
+    z.object({ status: z.literal("key_used") }),
+    z.object({
+      status: z.literal("storage_required"),
+      storage: clipStorageSchema,
+    }),
+    z.object({
+      status: z.literal("too_large"),
+      maxBytes: z.number().int().positive(),
+    }),
+  ],
+);
+
 /** Whether a ticket's chunks hold the file exactly, none left over or short. */
 function coversFile(
   { chunkSizeBytes, totalChunks }: z.infer<typeof startedSchema>,
@@ -135,6 +156,7 @@ export default defineAction({
       .regex(CONTENT_CLIP_UPLOAD_KEY)
       .describe("Made once per picked file and sent with every start of it"),
   }),
+  outputSchema: resultSchema,
   agentTool: false,
   // Its ticket uploads into the caller's Clips.
   persistInBrowser: false,

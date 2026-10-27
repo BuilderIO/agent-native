@@ -204,13 +204,13 @@ export function VideoBlock({
   const uploadsGoToClips = clipsEnabled && Boolean(options.documentId);
   const clipUpload = useClipFileUpload({
     documentId: options.documentId,
-    onStarted: ({ file, recordingId, ticket, blockId }) => {
+    onStarted: ({ file, documentId, recordingId, ticket, blockId }) => {
       if (replaceWithClip(recordingId, "upload", blockId)) {
         if (ticket) {
           void beginClipUpload({
             file,
             ticket,
-            documentId: options.documentId!,
+            documentId,
             blockId,
           });
         }
@@ -658,7 +658,7 @@ export function VideoBlock({
       className="hidden"
       tabIndex={-1}
       aria-hidden="true"
-      onChange={handleVideoFilePicked}
+      onChange={(event) => void handleVideoFilePicked(event)}
     />
   );
 
