@@ -266,6 +266,7 @@ describe("the review page with an app's own authentication", () => {
         status: 401,
         body: {
           error: expect.stringContaining("AuthOptions.getBrowserSession"),
+          reason: "sign-in-unavailable",
         },
       });
     }
