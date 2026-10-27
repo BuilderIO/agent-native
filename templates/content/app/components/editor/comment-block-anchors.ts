@@ -55,16 +55,16 @@ function anchorBlocks(doc: ProseMirrorNode): AnchorBlocks {
     const type = node.type.name;
     if (!isCommentAnchorBlockType(type)) return true;
     found.push({ type, attrs: node.attrs, pos, nodeSize: node.nodeSize });
-    if (type === "video") blocks.videos++;
+    blocks.videos++;
     return false;
   });
-  commentAnchorBlockNames(found).forEach(({ id, holders }, index) => {
+  commentAnchorBlockNames(found).forEach(({ block: placed, id, holders }) => {
     if (!id) return;
     const block = {
       blockId: id,
-      blockType: found[index].type,
-      pos: found[index].pos,
-      nodeSize: found[index].nodeSize,
+      blockType: placed.type,
+      pos: placed.pos,
+      nodeSize: placed.nodeSize,
     };
     blocks.list.push(block);
     if (holders > 1) return void blocks.shared.add(id);
@@ -136,10 +136,7 @@ export function threadCommentBlock(
   )
     return null;
   if (anchorBlocks(doc).videos !== 1) return null;
-  return (
-    commentAnchorBlockList(doc).find((block) => block.blockType === "video") ??
-    null
-  );
+  return commentAnchorBlockList(doc)[0] ?? null;
 }
 
 /**
@@ -155,9 +152,9 @@ export function commentThreadQuote(
 }
 
 function cssEscape(value: string) {
-  return globalThis.CSS?.escape
-    ? globalThis.CSS.escape(value)
-    : value.replace(/["\\]/g, "\\$&");
+  return typeof CSS === "undefined"
+    ? value.replace(/["\\]/g, "\\$&")
+    : CSS.escape(value);
 }
 
 /**
@@ -178,9 +175,10 @@ export function commentThreadAt(
   target: EventTarget | null,
   current?: string | null,
 ) {
-  const mark = (target as Element | null)?.closest?.(
-    "[data-comment-thread], [data-comment-block-threads]",
-  );
+  const mark =
+    target instanceof Element
+      ? target.closest("[data-comment-thread], [data-comment-block-threads]")
+      : null;
   if (!mark) return null;
   const threadId = mark.getAttribute("data-comment-thread");
   if (threadId) return threadId;

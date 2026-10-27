@@ -8,6 +8,11 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { derivedVideoBlockId } from "../shared/comment-block-anchor.js";
 
+function found<T>(value: T | null | undefined): T {
+  if (value == null) throw new Error("Expected the fixture to have it");
+  return value;
+}
+
 vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@agent-native/creative-context/server")
@@ -26,7 +31,7 @@ const OWNER = "owner@example.com";
 const SAVED = "https://example.com/saved.mp4";
 const LEGACY = "https://example.com/legacy.mp4";
 
-let getDb: () => any;
+let getDb: typeof import("../server/db/index.js").getDb;
 let schema: typeof import("../server/db/schema.js");
 let createContentDatabase: typeof import("./create-content-database.js").default;
 let configureDocumentProperty: typeof import("./configure-document-property.js").default;
@@ -52,7 +57,7 @@ beforeAll(async () => {
   addComment = (await import("./add-comment.js")).default;
   listComments = (await import("./list-comments.js")).default;
   createDocument = (await import("./create-document.js")).default;
-  await (await import("../server/plugins/db.js")).default(undefined as any);
+  await (await import("../server/plugins/db.js")).default(undefined as never);
 }, 60000);
 
 afterAll(() => {
@@ -64,10 +69,12 @@ function as<T>(run: () => Promise<T>) {
 }
 
 // A person comments from the app's live editor; an agent comments as a tool.
-const byCaller = (args: Record<string, unknown>, caller?: string) =>
-  as(() => (addComment as any).run(args, caller ? { caller } : undefined));
-const byPerson = (args: Record<string, unknown>) => byCaller(args, "frontend");
-const byAgent = (args: Record<string, unknown>) => byCaller(args, "mcp");
+type CommentArgs = Parameters<typeof addComment.run>[0];
+type RunContext = NonNullable<Parameters<typeof addComment.run>[1]>;
+const byCaller = (args: CommentArgs, caller?: RunContext["caller"]) =>
+  as(() => addComment.run(args, caller ? { caller } : undefined));
+const byPerson = (args: CommentArgs) => byCaller(args, "frontend");
+const byAgent = (args: CommentArgs) => byCaller(args, "mcp");
 // Callers that read the saved page rather than a live editor.
 const SAVED_PAGE_CALLERS = [
   { label: "the CLI", caller: "cli" },
@@ -286,9 +293,7 @@ describe("add-comment with blockId", () => {
       blockType: "video",
     });
 
-    const { comments } = await as(() =>
-      (listComments as any).run({ documentId: page }),
-    );
+    const { comments } = await as(() => listComments.run({ documentId: page }));
     expect(comments).toEqual([
       expect.objectContaining({
         thread_id: created.threadId,
@@ -484,9 +489,11 @@ describe("add-comment with blockId", () => {
         name: "Notes",
         type: "blocks",
       });
-      const notesId = configured.properties.find(
-        (property) => property.definition.name === "Notes",
-      )!.definition.id;
+      const notesId = found(
+        configured.properties.find(
+          (property) => property.definition.name === "Notes",
+        ),
+      ).definition.id;
       const read = await getContentDatabase.run({ databaseId });
       if (!("database" in read) || !read.mutationContract)
         throw new Error("Fixture Collection has no mutation contract.");
@@ -547,15 +554,15 @@ describe("add-comment with blockId", () => {
       ),
     ).toEqual({ statusCode: 400, errorCode: "comment_block_not_found" });
 
-    const write = (value: string, ctx?: unknown) =>
+    const write = (value: string, ctx?: RunContext) =>
       as(() =>
-        (setDocumentProperty as any).run(
+        setDocumentProperty.run(
           { documentId: row, databaseId, propertyId: notesId, value },
           ctx,
         ),
       );
     const copied = `Tab notes\n<video src="${SAVED}" id="video-innotes"></video>\n<video src="${LEGACY}" id="video-innotes"></video>`;
-    for (const ctx of [undefined, { caller: "frontend" }]) {
+    for (const ctx of [undefined, { caller: "frontend" as const }]) {
       expect(await rejection(write(copied, ctx))).toEqual({
         statusCode: 422,
         errorCode: "DOCUMENT_VIDEO_ID_SHARED",
@@ -586,7 +593,7 @@ describe("add-comment with blockId", () => {
   it("creates a page that gives two videos one id, which no thread is on yet", async () => {
     const video = `<video src="${SAVED}" id="video-twice001"></video>`;
     const created = await as(() =>
-      (createDocument as any).run(
+      createDocument.run(
         { title: "Twice", content: `${video}\n${video}` },
         { caller: "mcp" },
       ),

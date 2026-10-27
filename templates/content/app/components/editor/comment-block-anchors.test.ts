@@ -27,6 +27,11 @@ import {
   threadCommentBlock,
 } from "./comment-block-anchors";
 
+function found<T>(value: T | null | undefined): T {
+  if (value == null) throw new Error("Expected the fixture to have it");
+  return value;
+}
+
 describe("comments from before videos had ids", () => {
   it("knows the video label each language quoted", () => {
     const catalogs = [
@@ -128,7 +133,10 @@ describe("the block a thread is on", () => {
     const saved = nfmToDoc(
       'Video notes\n<video src="https://example.com/a.mp4" id="video-only001"></video>',
     );
-    const thread = { quotedText: "Video", ...nfmQuoteAnchor(saved, "Video")! };
+    const thread = {
+      quotedText: "Video",
+      ...found(nfmQuoteAnchor(saved, "Video")),
+    };
     expect(threadCommentBlock(page, thread)).toBeNull();
     expect(resolveAnchor(page, thread)).toEqual({ from: 1, to: 6 });
   });
@@ -141,10 +149,10 @@ describe("the thread under the pointer", () => {
       '<div data-comment-block-threads="first second"><video></video></div>',
     ].join("");
     return {
-      quoted: document.querySelector("span")!,
-      plain: document.querySelector("p")!,
-      ring: document.querySelector("div")!,
-      video: document.querySelector("video")!,
+      quoted: found(document.querySelector("span")),
+      plain: found(document.querySelector("p")),
+      ring: found(document.querySelector("div")),
+      video: found(document.querySelector("video")),
     };
   }
 

@@ -84,9 +84,9 @@ function offsetToPos(docText: DocText, offset: number): number | null {
 export function resolveAnchorPoint(
   doc: ProseMirrorNode,
   anchor: {
-    prefix?: string;
-    suffix?: string;
-    startOffset?: number;
+    prefix?: string | undefined;
+    suffix?: string | undefined;
+    startOffset?: number | undefined;
   },
   blockSeparator = "",
   hardBreakSeparator: "" | "\n" = "",
@@ -199,9 +199,9 @@ export function resolveAnchor(
   doc: ProseMirrorNode,
   anchor: {
     quotedText: string | null;
-    prefix?: string;
-    suffix?: string;
-    startOffset?: number;
+    prefix?: string | undefined;
+    suffix?: string | undefined;
+    startOffset?: number | undefined;
   },
   blockSeparator = "",
   hardBreakSeparator: "" | "\n" = "",

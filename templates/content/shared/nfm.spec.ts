@@ -9,6 +9,11 @@ import {
   nfmToDoc,
 } from "./nfm";
 
+function found<T>(value: T | null | undefined): T {
+  if (value == null) throw new Error("Expected the fixture to have it");
+  return value;
+}
+
 const L = (...lines: string[]) => lines.join("\n");
 
 describe("collapseExactRepeatedNfm", () => {
@@ -1925,7 +1930,9 @@ describe("video block ids", () => {
 
   it("writes no id for a video that has none", () => {
     const plain = '<video src="https://example.com/demo.mp4"></video>';
-    expect(nfmToDoc(plain).content[0].attrs).not.toHaveProperty("blockId");
+    expect(found(nfmToDoc(plain).content?.[0]).attrs).not.toHaveProperty(
+      "blockId",
+    );
     expect(canonicalizeNfm(plain)).toBe(plain);
   });
 

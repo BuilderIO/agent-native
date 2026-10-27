@@ -21,6 +21,11 @@ import { derivedVideoBlockId } from "@shared/comment-block-anchor";
 import { commentHighlightKey } from "./extensions/CommentHighlight";
 import { VisualEditor } from "./VisualEditor";
 
+function found<T>(value: T | null | undefined): T {
+  if (value == null) throw new Error("Expected the fixture to have it");
+  return value;
+}
+
 const BEFORE = "Intro.\nThe team ships every Friday afternoon, so it lands.";
 const AFTER = "Intro.\nThe team ships every Friday at 2 pm, so it lands.";
 
@@ -336,7 +341,9 @@ describe("VisualEditor comment highlights", () => {
         render(content, threads, "seed", true, { onActivateThread }),
       );
       await settle();
-      await act(async () => marked("v1")!.querySelector("video")!.click());
+      await act(async () =>
+        found(found(marked("v1")).querySelector("video")).click(),
+      );
       expect(onActivateThread).toHaveBeenLastCalledWith("v1");
 
       await act(async () =>
@@ -346,7 +353,9 @@ describe("VisualEditor comment highlights", () => {
         }),
       );
       await settle();
-      await act(async () => marked("v2")!.querySelector("video")!.click());
+      await act(async () =>
+        found(found(marked("v2")).querySelector("video")).click(),
+      );
       expect(onActivateThread).toHaveBeenLastCalledWith("v2");
     });
 
@@ -368,7 +377,7 @@ describe("VisualEditor comment highlights", () => {
       const button = container.querySelector<HTMLButtonElement>(
         '[aria-label="editor.media.commentOnVideo"]',
       );
-      await act(async () => button!.click());
+      await act(async () => found(button).click());
 
       const derived = derivedVideoBlockId(VIDEO, 0);
       expect(onBlockComment).toHaveBeenCalledWith(
@@ -404,8 +413,8 @@ describe("VisualEditor comment highlights", () => {
         '[aria-label="editor.media.commentOnVideo"]',
       );
       expect(buttons).toHaveLength(2);
-      await act(async () => buttons[0]!.click());
-      await act(async () => buttons[1]!.click());
+      await act(async () => found(buttons[0]).click());
+      await act(async () => found(buttons[1]).click());
 
       expect(onBlockComment.mock.calls.map(([target]) => target)).toEqual([
         expect.objectContaining({ blockId: "video-saved001" }),
@@ -459,7 +468,7 @@ describe("VisualEditor comment highlights", () => {
         buttons.map((button) => !!button),
         "only the video with an id of its own",
       ).toEqual([false, true, false, false]);
-      await act(async () => buttons[1]!.click());
+      await act(async () => found(buttons[1]).click());
       expect(onBlockComment.mock.calls.map(([target]) => target)).toEqual([
         expect.objectContaining({ blockId: derived }),
       ]);
@@ -497,7 +506,7 @@ describe("VisualEditor comment highlights", () => {
       const buttons = container.querySelectorAll<HTMLButtonElement>(
         '[aria-label="editor.media.commentOnVideo"]',
       );
-      await act(async () => buttons[1]!.click());
+      await act(async () => found(buttons[1]).click());
 
       const editor = (
         container.querySelector(".ProseMirror") as HTMLElement & {
@@ -536,14 +545,17 @@ After.`,
         ).editor;
       };
       const videos = (editor: Editor) => {
-        const found: { pos: number; id: string }[] = [];
+        const videos: { pos: number; id: string }[] = [];
         editor.state.doc.descendants((node, pos) => {
           if (node.type.name === "video")
-            found.push({ pos, id: node.attrs.blockId });
+            videos.push({ pos, id: node.attrs.blockId });
         });
-        return found;
+        return videos;
       };
-      const fromElsewhere = (editor: Editor, change: (tr: any) => unknown) =>
+      const fromElsewhere = (
+        editor: Editor,
+        change: (tr: Editor["state"]["tr"]) => unknown,
+      ) =>
         act(async () => {
           const tr = editor.state.tr;
           change(tr);
@@ -554,8 +566,8 @@ After.`,
 
       it("marks neither video after another tab's copy, and the original again once the copy goes", async () => {
         const editor = await open();
-        const [original] = videos(editor);
-        const node = editor.state.doc.nodeAt(original.pos)!;
+        const original = found(videos(editor)[0]);
+        const node = found(editor.state.doc.nodeAt(original.pos));
         await fromElsewhere(editor, (tr) =>
           tr.insert(original.pos + node.nodeSize, node),
         );
@@ -566,7 +578,7 @@ After.`,
         ]);
         expect(marked("v1"), "on neither video").toBeNull();
 
-        const copy = videos(editor)[1];
+        const copy = found(videos(editor)[1]);
         await fromElsewhere(editor, (tr) =>
           tr.delete(copy.pos, copy.pos + node.nodeSize),
         );
@@ -576,13 +588,14 @@ After.`,
 
       it("keeps the mark on the original through this tab's paste of a copy", async () => {
         const editor = await open();
-        const [original] = videos(editor);
-        const node = editor.state.doc.nodeAt(original.pos)!;
+        const original = found(videos(editor)[0]);
+        const node = found(editor.state.doc.nodeAt(original.pos));
         const rendered: boolean[] = [];
         const updateState = editor.view.updateState.bind(editor.view);
         vi.spyOn(editor.view, "updateState").mockImplementation((state) => {
           rendered.push(
-            commentHighlightKey.getState(state)!.decorations.find().length > 0,
+            found(commentHighlightKey.getState(state)).decorations.find()
+              .length > 0,
           );
           updateState(state);
         });
@@ -593,7 +606,9 @@ After.`,
         });
         await settle();
 
-        const [kept, pasted] = videos(editor);
+        const list = videos(editor);
+        const kept = found(list[0]);
+        const pasted = found(list[1]);
         expect(kept.id).toBe("video-demo0001");
         expect(pasted.id).not.toBe("video-demo0001");
         expect(rendered.length).toBeGreaterThan(0);

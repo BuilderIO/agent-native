@@ -253,7 +253,7 @@ describe("Comments across a Collection", () => {
     const fixture = await seedCollection("counts");
     const [shared, propertyRow, privateRow] = fixture.rows;
     const text = await as(OWNER, () =>
-      (addComment as any).run(
+      addComment.run(
         {
           documentId: shared,
           quotedText: "Row 0",
@@ -277,7 +277,7 @@ describe("Comments across a Collection", () => {
       }),
     );
     await as(OWNER, () =>
-      (addComment as any).run(
+      addComment.run(
         {
           documentId: privateRow,
           quotedText: "Row 2",
@@ -333,7 +333,7 @@ describe("Comments across a Collection", () => {
     const fixture = await seedCollection("batch");
     const [shared, propertyRow, privateRow] = fixture.rows;
     const text = await as(OWNER, () =>
-      (addComment as any).run(
+      addComment.run(
         {
           documentId: shared,
           quotedText: "Row 0",
@@ -358,7 +358,7 @@ describe("Comments across a Collection", () => {
       }),
     );
     const hidden = await as(OWNER, () =>
-      (addComment as any).run(
+      addComment.run(
         {
           documentId: privateRow,
           quotedText: "Row 2",

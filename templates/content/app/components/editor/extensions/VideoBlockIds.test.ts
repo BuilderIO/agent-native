@@ -10,6 +10,11 @@ import { assertNoNewlySharedVideoIds } from "../../../../server/lib/video-block-
 import { commentAnchorBlockList } from "../comment-block-anchors";
 import { createVisualEditorExtensions } from "../VisualEditor";
 
+function found<T>(value: T | null | undefined): T {
+  if (value == null) throw new Error("Expected the fixture to have it");
+  return value;
+}
+
 const A = "https://example.com/a.mp4";
 const B = "https://example.com/b.mp4";
 
@@ -22,7 +27,9 @@ afterEach(() => {
 
 function open(nfm: string, canMutateMedia?: () => boolean) {
   editor = new Editor({
-    extensions: createVisualEditorExtensions({ canMutateMedia }),
+    extensions: createVisualEditorExtensions(
+      canMutateMedia ? { canMutateMedia } : {},
+    ),
     content: nfmToDoc(nfm),
   });
   return editor;
@@ -43,11 +50,11 @@ function typeAtEnd(target: Editor, text: string) {
 }
 
 function videoPos(target: Editor, index: number) {
-  const found: number[] = [];
+  const positions: number[] = [];
   target.state.doc.descendants((node, pos) => {
-    if (node.type.name === "video") found.push(pos);
+    if (node.type.name === "video") positions.push(pos);
   });
-  return found[index];
+  return found(positions[index]);
 }
 
 describe("video block ids", () => {
@@ -69,7 +76,7 @@ describe("video block ids", () => {
   it("writes down the derived id when the first edit resizes the video", () => {
     const target = open(`<video src="${A}"></video>\nIntro`);
     const pos = videoPos(target, 0);
-    const { attrs } = target.state.doc.nodeAt(pos)!;
+    const { attrs } = found(target.state.doc.nodeAt(pos));
     target.view.dispatch(
       target.state.tr.setNodeMarkup(pos, undefined, { ...attrs, width: 320 }),
     );
@@ -81,7 +88,7 @@ describe("video block ids", () => {
       `<video src="${A}"></video>\n<video src="${A}"></video>\nIntro`,
     );
     const pos = videoPos(target, 0);
-    const first = target.state.doc.nodeAt(pos)!;
+    const first = found(target.state.doc.nodeAt(pos));
     const tr = target.state.tr.delete(pos, pos + first.nodeSize);
     target.view.dispatch(tr.insert(tr.doc.content.size, first));
     expect(videoIds(target)).toEqual([
@@ -94,9 +101,9 @@ describe("video block ids", () => {
     const target = open(
       `<video src="${A}"></video>\n<video src="${A}"></video>\nIntro`,
     );
-    const first = target.state.doc.nodeAt(videoPos(target, 0))!;
+    const first = found(target.state.doc.nodeAt(videoPos(target, 0)));
     const tr = target.state.tr.delete(0, first.nodeSize);
-    const { attrs } = tr.doc.nodeAt(0)!;
+    const { attrs } = found(tr.doc.nodeAt(0));
     target.view.dispatch(
       tr.setNodeMarkup(0, undefined, { ...attrs, width: 320 }),
     );
@@ -105,8 +112,8 @@ describe("video block ids", () => {
 
   it("keeps a moved video's id from a new video with its source", () => {
     const target = open(`<video src="${A}"></video>\nIntro`);
-    const moved = target.state.doc.nodeAt(videoPos(target, 0))!;
-    const added = target.schema.nodes.video.create({ src: A });
+    const moved = found(target.state.doc.nodeAt(videoPos(target, 0)));
+    const added = found(target.schema.nodes.video).create({ src: A });
     const tr = target.state.tr.delete(0, moved.nodeSize).insert(0, added);
     target.view.dispatch(tr.insert(tr.doc.content.size, moved));
     const ids = videoIds(target);
@@ -119,7 +126,9 @@ describe("video block ids", () => {
     const target = open(
       `Intro\n<video src="${A}" id="video-original"></video>`,
     );
-    const original = target.state.doc.nodeAt(videoPos(target, 0))!.toJSON();
+    const original = found(
+      target.state.doc.nodeAt(videoPos(target, 0)),
+    ).toJSON();
 
     target.commands.insertContentAt(0, original);
     let ids = videoIds(target);
@@ -148,7 +157,7 @@ Intro`,
 <video src="${A}" id="video-shared"></video>
 Intro`;
     const target = open(pair);
-    const copy = target.state.doc.nodeAt(videoPos(target, 1))!.toJSON();
+    const copy = found(target.state.doc.nodeAt(videoPos(target, 1))).toJSON();
     target.commands.insertContentAt(target.state.doc.content.size, copy);
     target.commands.insertContentAt(0, copy);
     expect(
@@ -167,13 +176,13 @@ Intro`;
     const target = open(`<video src="${B}" id="video-shared"></video>
 <video src="${A}" id="video-shared"></video>
 Intro`);
-    const moved = target.state.doc.nodeAt(videoPos(target, 0))!;
+    const moved = found(target.state.doc.nodeAt(videoPos(target, 0)));
     const tr = target.state.tr.delete(0, moved.nodeSize);
     target.view.dispatch(tr.insert(tr.doc.content.size, moved));
     expect(videoIds(target)).toEqual(["video-shared", "video-shared"]);
 
     const pos = videoPos(target, 1);
-    const { attrs } = target.state.doc.nodeAt(pos)!;
+    const { attrs } = found(target.state.doc.nodeAt(pos));
     target.view.dispatch(
       target.state.tr.setNodeMarkup(pos, undefined, { ...attrs, width: 320 }),
     );
@@ -245,7 +254,7 @@ Intro`,
   it("leaves another tab's copy alone while this tab tidies up after it", () => {
     const target = open(`Intro
 <video src="${A}" id="video-original"></video>`);
-    const original = target.state.doc.nodeAt(videoPos(target, 0))!;
+    const original = found(target.state.doc.nodeAt(videoPos(target, 0)));
     const end = target.state.doc.content.size;
     target.view.dispatch(
       target.state.tr

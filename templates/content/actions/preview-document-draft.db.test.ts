@@ -7,6 +7,11 @@ import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+function found<T>(value: T | null | undefined): T {
+  if (value == null) throw new Error("Expected the fixture to have it");
+  return value;
+}
+
 const { outcomeCounter } = vi.hoisted(() => ({ outcomeCounter: vi.fn() }));
 vi.mock("@agent-native/core/tracking", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/tracking")>()),
@@ -1295,7 +1300,7 @@ describe("private preview document drafts", () => {
     const [copy] = await getDb()
       .select({ content: schema.documents.content })
       .from(schema.documents)
-      .where(eq(schema.documents.id, result.createdDocumentId!));
+      .where(eq(schema.documents.id, found(result.createdDocumentId)));
     expect(copy.content).toBe(local);
   });
 

@@ -38,7 +38,7 @@ const TEST_DB_PATH = join(
 );
 const OWNER = "owner@example.com";
 
-let getDb: () => any;
+let getDb: typeof import("../server/db/index.js").getDb;
 let schema: typeof import("../server/db/schema.js");
 let cloneDocument: typeof import("./clone-creative-context-document.js").default;
 
@@ -49,7 +49,7 @@ beforeAll(async () => {
   schema = dbModule.schema;
   cloneDocument = (await import("./clone-creative-context-document.js"))
     .default;
-  await (await import("../server/plugins/db.js")).default(undefined as any);
+  await (await import("../server/plugins/db.js")).default(undefined as never);
 }, 60000);
 
 afterAll(() => {

@@ -1057,10 +1057,10 @@ async function pullDocumentFromNotionInner(
   }
 
   const newTitle = pageContent.title || freshDocument.title;
-  const newContent =
-    pageContent.content == null
-      ? freshDocument.content
-      : keepVideoBlockIds(freshDocument.content, pageContent.content);
+  const newContent = keepVideoBlockIds(
+    freshDocument.content,
+    pageContent.content,
+  );
   const newIcon = iconAfterNotionSync(freshDocument.icon, pageContent.icon);
   const contentChanged =
     newTitle !== freshDocument.title ||
@@ -1297,10 +1297,7 @@ async function pushDocumentToNotionInner(
   });
 
   const freshDocument = await getDocument(documentId, owner);
-  const newContent =
-    remote.content == null
-      ? document.content
-      : keepVideoBlockIds(document.content, remote.content);
+  const newContent = keepVideoBlockIds(document.content, remote.content);
   const newTitle = remote.title || document.title;
   const newIcon = iconAfterNotionSync(freshDocument.icon, remote.icon);
   const contentChanged =

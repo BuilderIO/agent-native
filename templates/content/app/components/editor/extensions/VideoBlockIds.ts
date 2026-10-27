@@ -9,7 +9,7 @@ import { createContentBlockId } from "./registryBlocks";
 export interface VideoBlockIdsOptions {
   /** Whether a change is this tab's own edit, which may write ids. */
   isEdit: (transaction: Transaction) => boolean;
-  canAssign?: () => boolean;
+  canAssign?: (() => boolean) | undefined;
 }
 
 const savedBlockId = (node: PMNode) =>
@@ -68,7 +68,6 @@ export const VideoBlockIds = Extension.create<VideoBlockIdsOptions>({
           const lost: { id: string; node: PMNode; from: number; to: number }[] =
             [];
           for (const block of commentAnchorBlockList(oldState.doc)) {
-            if (block.blockType !== "video") continue;
             const node = oldState.doc.nodeAt(block.pos);
             let from = block.pos;
             let to = block.pos + (node?.nodeSize ?? 0);
@@ -93,7 +92,7 @@ export const VideoBlockIds = Extension.create<VideoBlockIdsOptions>({
           const used = new Set<string>();
           const take = (carries: (entry: (typeof lost)[number]) => boolean) => {
             const index = lost.findIndex(carries);
-            return index < 0 ? undefined : lost.splice(index, 1)[0].id;
+            return index < 0 ? undefined : lost.splice(index, 1)[0]?.id;
           };
           const tr = newState.tr;
           newState.doc.descendants((node, pos) => {

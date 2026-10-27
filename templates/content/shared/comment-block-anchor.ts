@@ -1,6 +1,11 @@
 import { docToNfm, nfmToDoc, type PMNode } from "./nfm";
 
-/** Blocks a comment can point at as a whole, rather than at text in them. */
+/**
+ * Blocks a comment can point at as a whole, rather than at text in them.
+ * Every reader treats these as videos (derived ids, Notion matching, the
+ * one-video rule for older threads), so a new type needs its own rules there,
+ * not only a place in this list.
+ */
 export const COMMENT_ANCHOR_BLOCK_TYPES = ["video"] as const;
 export type CommentAnchorBlockType =
   (typeof COMMENT_ANCHOR_BLOCK_TYPES)[number];
@@ -47,13 +52,13 @@ export function derivedVideoBlockId(src: string, occurrence: number) {
  * counts the blocks that go by an id. An id more than one block goes by names
  * none of them, since nothing says which one a thread on it meant.
  */
-export function commentAnchorBlockNames(
-  blocks: readonly {
+export function commentAnchorBlockNames<
+  Block extends {
     type: CommentAnchorBlockType;
-    attrs?: Record<string, unknown> | null;
-  }[],
-) {
-  const savedId = ({ attrs }: (typeof blocks)[number]) =>
+    attrs?: Record<string, unknown> | null | undefined;
+  },
+>(blocks: readonly Block[]) {
+  const savedId = ({ attrs }: Block) =>
     typeof attrs?.blockId === "string" ? attrs.blockId : "";
   const savedIds = new Set(blocks.map(savedId));
   const sources = new Map<string, number>();
@@ -62,10 +67,9 @@ export function commentAnchorBlockNames(
     const occurrence = sources.get(src) ?? 0;
     sources.set(src, occurrence + 1);
     const saved = savedId(block);
-    if (saved) return { id: saved, saved: true };
-    const derived =
-      block.type === "video" ? derivedVideoBlockId(src, occurrence) : "";
-    return { id: savedIds.has(derived) ? "" : derived, saved: false };
+    if (saved) return { block, id: saved, saved: true };
+    const derived = derivedVideoBlockId(src, occurrence);
+    return { block, id: savedIds.has(derived) ? "" : derived, saved: false };
   });
   const holders = new Map<string, number>();
   for (const { id } of names) holders.set(id, (holders.get(id) ?? 0) + 1);
@@ -97,24 +101,33 @@ const textOf = (node: PMNode | undefined): string =>
   node?.text ?? node?.content?.map(textOf).join("") ?? "";
 
 function videosIn(root: PMNode) {
-  const blocks: { node: AnchorBlockNode; before: string; after: string }[] = [];
+  const blocks: {
+    type: CommentAnchorBlockType;
+    attrs: PMNode["attrs"];
+    node: PMNode;
+    before: string;
+    after: string;
+  }[] = [];
   const walk = (node: PMNode) =>
     node.content?.forEach((child, index, siblings) => {
       if (!isCommentAnchorBlockType(child.type)) return walk(child);
       blocks.push({
-        node: child as AnchorBlockNode,
+        type: child.type,
+        attrs: child.attrs,
+        node: child,
         before: textOf(siblings[index - 1]),
         after: textOf(siblings[index + 1]),
       });
     });
   walk(root);
-  const names = commentAnchorBlockNames(blocks.map(({ node }) => node));
-  return blocks.flatMap(({ node, before, after }, index): PlacedVideo[] => {
-    const { id, holders } = names[index];
-    return node.type === "video"
-      ? [{ node, id: id && holders === 1 ? id : null, before, after }]
-      : [];
-  });
+  return commentAnchorBlockNames(blocks).map(
+    ({ block: { node, before, after }, id, holders }): PlacedVideo => ({
+      node,
+      id: id && holders === 1 ? id : null,
+      before,
+      after,
+    }),
+  );
 }
 
 const savedVideoId = (video: PMNode) =>
@@ -170,9 +183,14 @@ export function keepVideoBlockIds(
       if (!used.has(video.id)) group(video)[0].push(video);
     for (const video of unsaved)
       if (!matched.has(video)) group(video)[1].push(video);
-    for (const [mine, other] of groups.values())
-      if (fits(mine.length, other.length))
-        other.forEach((video, index) => matched.set(video, mine[index].id));
+    for (const [mine, other] of groups.values()) {
+      if (!fits(mine.length, other.length)) continue;
+      const owners = [...mine];
+      for (const video of other) {
+        const own = owners.shift();
+        if (own) matched.set(video, own.id);
+      }
+    }
   }
   for (const video of unsaved)
     video.node.attrs = {
@@ -193,10 +211,10 @@ export function nfmCommentAnchorBlocks(root: PMNode) {
     { blockType: CommentAnchorBlockType; saved: boolean; shared: boolean }
   >();
   const found = anchorBlocksIn(root);
-  commentAnchorBlockNames(found).forEach(({ id, saved, holders }, index) => {
+  commentAnchorBlockNames(found).forEach(({ block, id, saved, holders }) => {
     if (id && !blocks.has(id))
       blocks.set(id, {
-        blockType: found[index].type,
+        blockType: block.type,
         saved,
         shared: holders > 1,
       });

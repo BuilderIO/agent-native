@@ -22,6 +22,11 @@ import {
   suggestingReadOnlyBlocksPlugin,
 } from "./read-only-blocks";
 
+function found<T>(value: T | null | undefined): T {
+  if (value == null) throw new Error("Expected the fixture to have it");
+  return value;
+}
+
 const schema = createContentEditorStructuralSchema();
 const TAB = "\t";
 
@@ -229,7 +234,7 @@ describe("suggesting read-only blocks", () => {
   it("refuses pasting a video, which would bring its id along", () => {
     const state = stateFor(PAGE);
     const { to } = nodeRange(state, "table");
-    const copy = schema.nodes.video!.create({
+    const copy = found(schema.nodes.video).create({
       src: "https://example.com/a.mp4",
       blockId: "video-original",
     });
