@@ -87,13 +87,41 @@ describe("Design no-questions readout query", () => {
     },
   );
 
+  it("bounds exposures by the requested dates and outcomes by the data cutoff", () => {
+    const postgresSql = buildPostgresDesignNoQuestionsAbSql();
+    const bigQuerySql = buildBigQueryDesignNoQuestionsAbSql(
+      "`project.analytics.events_query_range`",
+    );
+
+    expect(postgresSql).toContain(
+      "e.event_date <= to_char($4::timestamptz AT TIME ZONE 'UTC', 'YYYY-MM-DD')",
+    );
+    expect(postgresSql).toContain("AND event_date BETWEEN $1 AND $2");
+    expect(
+      postgresSql.match(/AND e\.happened_at <= \$4::timestamptz/g),
+    ).toHaveLength(3);
+    expect(bigQuerySql).toMatch(
+      /events_query_range`?\(@start_date, DATE\(@as_of\)\)/,
+    );
+    expect(bigQuerySql).toContain(
+      "AND event_date BETWEEN @start_date AND @end_date",
+    );
+    expect(bigQuerySql.match(/AND e\.happened_at <= @as_of/g)).toHaveLength(3);
+  });
+
   it("reports all requested metrics with mature denominators and sample size", async () => {
+    const startDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10);
+    const asOf = new Date(Date.now() - 60 * 1000).toISOString();
+    expect(asOf.slice(0, 10)).not.toBe(startDate);
     const result = await runDesignNoQuestionsReadout({
-      startDate: "2026-10-27",
-      endDate: "2026-10-27",
-      asOf: "2026-10-27T00:01:00Z",
+      startDate,
+      endDate: startDate,
+      asOf,
     });
 
+    expect(result.dataCutoff).toBe(asOf);
     expect(result.sampleNeededPerArm).toBe(358);
     expect(result.sampleNeededTotal).toBe(716);
     expect(result.arms[0]).toMatchObject({
@@ -110,7 +138,7 @@ describe("Design no-questions readout query", () => {
     );
     expect(queryMocks.runPostgresQuery).toHaveBeenCalledWith(
       buildPostgresDesignNoQuestionsAbSql(),
-      ["2026-10-27", "2026-10-27", "org-1", "2026-10-27T00:01:00.000Z"],
+      [startDate, startDate, "org-1", asOf],
       { fresh: true, cache: false },
     );
   });

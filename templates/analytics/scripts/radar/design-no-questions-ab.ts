@@ -59,7 +59,7 @@ export interface DesignNoQuestionsReadout {
 
 const POSTGRES_AB_SQL = `${buildFirstTouchEventsCte({
   startDate: "$1",
-  endDate: "$2",
+  endDate: "to_char($4::timestamptz AT TIME ZONE 'UTC', 'YYYY-MM-DD')",
   orgId: "$3",
   includeAllApps: true,
 })},
@@ -73,6 +73,7 @@ exposure_rows AS (
     AND properties ->> 'experiment_id' = '${DESIGN_NO_QUESTIONS_EXPERIMENT_ID}'
     AND properties ->> 'experiment_variant' IN ('control', 'no_questions')
     AND person_key IS NOT NULL
+    AND event_date BETWEEN $1 AND $2
     AND happened_at <= $4::timestamptz
 ),
 exposures AS (
@@ -112,6 +113,7 @@ ready AS (
     AND e.app = 'design' AND e.event_name = 'design_ready_viewed'
     AND e.happened_at >= a.anchor_at
     AND e.happened_at < a.anchor_at + interval '24 hours'
+    AND e.happened_at <= $4::timestamptz
     AND e.properties ->> 'experiment_id' = '${DESIGN_NO_QUESTIONS_EXPERIMENT_ID}'
     AND e.properties ->> 'experiment_variant' = a.variant
   GROUP BY a.person_key
@@ -132,6 +134,7 @@ exports AS (
     AND e.app = 'design' AND e.event_name = 'design_exported'
     AND e.happened_at >= a.anchor_at
     AND e.happened_at < a.anchor_at + interval '24 hours'
+    AND e.happened_at <= $4::timestamptz
     AND e.properties ->> 'experiment_id' = '${DESIGN_NO_QUESTIONS_EXPERIMENT_ID}'
     AND e.properties ->> 'experiment_variant' = a.variant
     AND e.properties ->> 'status' = 'completed'
@@ -144,6 +147,7 @@ returns AS (
     AND e.app = 'design' AND e.event_name IN ('pageview', 'app_entered')
     AND e.happened_at >= a.anchor_at + interval '24 hours'
     AND e.happened_at < a.anchor_at + interval '8 days'
+    AND e.happened_at <= $4::timestamptz
   GROUP BY a.person_key
 ),
 per_user AS (
@@ -177,7 +181,10 @@ summary AS (
 SELECT * FROM summary ORDER BY variant`;
 
 const BIGQUERY_AB_SQL = (eventsTableRange: string) =>
-  `${bigQueryFirstTouchEventsCte(eventsTableRange, { includeAllApps: true })},
+  `${bigQueryFirstTouchEventsCte(eventsTableRange, {
+    endDateParam: "DATE(@as_of)",
+    includeAllApps: true,
+  })},
 exposure_rows AS (
   SELECT person_key,
     json_value(properties, '$.experiment_variant') AS variant,
@@ -188,6 +195,7 @@ exposure_rows AS (
     AND json_value(properties, '$.experiment_id') = '${DESIGN_NO_QUESTIONS_EXPERIMENT_ID}'
     AND json_value(properties, '$.experiment_variant') IN ('control', 'no_questions')
     AND person_key IS NOT NULL
+    AND event_date BETWEEN @start_date AND @end_date
     AND happened_at <= @as_of
 ),
 exposures AS (
@@ -227,6 +235,7 @@ ready AS (
     AND e.app = 'design' AND e.event_name = 'design_ready_viewed'
     AND e.happened_at >= a.anchor_at
     AND e.happened_at < timestamp_add(a.anchor_at, INTERVAL 24 HOUR)
+    AND e.happened_at <= @as_of
     AND json_value(e.properties, '$.experiment_id') = '${DESIGN_NO_QUESTIONS_EXPERIMENT_ID}'
     AND json_value(e.properties, '$.experiment_variant') = a.variant
   GROUP BY a.person_key
@@ -247,6 +256,7 @@ exports AS (
     AND e.app = 'design' AND e.event_name = 'design_exported'
     AND e.happened_at >= a.anchor_at
     AND e.happened_at < timestamp_add(a.anchor_at, INTERVAL 24 HOUR)
+    AND e.happened_at <= @as_of
     AND json_value(e.properties, '$.experiment_id') = '${DESIGN_NO_QUESTIONS_EXPERIMENT_ID}'
     AND json_value(e.properties, '$.experiment_variant') = a.variant
     AND json_value(e.properties, '$.status') = 'completed'
@@ -259,6 +269,7 @@ returns AS (
     AND e.app = 'design' AND e.event_name IN ('pageview', 'app_entered')
     AND e.happened_at >= timestamp_add(a.anchor_at, INTERVAL 24 HOUR)
     AND e.happened_at < timestamp_add(a.anchor_at, INTERVAL 8 DAY)
+    AND e.happened_at <= @as_of
   GROUP BY a.person_key
 ),
 per_user AS (
@@ -425,20 +436,16 @@ export async function runDesignNoQuestionsReadout(
       2,
     );
   }
-  const endExclusive = new Date(`${endDate}T00:00:00.000Z`);
-  endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
   const requestedCutoff = options.asOf
     ? parseAsOfTimestamp(options.asOf)
-    : endExclusive;
+    : new Date();
   if (!requestedCutoff) {
     throw new RadarQueryError(
       "--as-of must be an ISO timestamp with a valid date and explicit UTC offset.",
       2,
     );
   }
-  const cutoffDate = new Date(
-    Math.min(requestedCutoff.getTime(), Date.now(), endExclusive.getTime()),
-  );
+  const cutoffDate = new Date(Math.min(requestedCutoff.getTime(), Date.now()));
   if (cutoffDate < new Date(`${startDate}T00:00:00.000Z`)) {
     throw new RadarQueryError(
       "The A/B data cutoff must be on or after --start.",

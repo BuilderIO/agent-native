@@ -174,6 +174,22 @@ describe("app config store", () => {
     expect(getAppConfig().agent.questionIntake).toBeUndefined();
   });
 
+  it("lets an explicit false enable alias override the app config", () => {
+    process.env.AGENT_QUESTION_INTAKE_EXPERIMENT_ENABLED = "false";
+    defineAppConfig({
+      agent: {
+        questionIntake: {
+          enabled: true,
+          experimentId: "design_no_questions",
+          questionToolNames: ["show-design-questions"],
+          treatmentInstructions: "Design first.",
+        },
+      },
+    });
+
+    expect(getAppConfig().agent.questionIntake?.enabled).toBe(false);
+  });
+
   it("applies the enable alias to a configured app", () => {
     process.env.AGENT_QUESTION_INTAKE_EXPERIMENT_ENABLED = "true";
     defineAppConfig({
