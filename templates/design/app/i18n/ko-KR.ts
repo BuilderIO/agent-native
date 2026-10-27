@@ -314,6 +314,12 @@ export default {
       chooseFrame: "프레임 선택",
       inspect: "검사",
       exportSvg: "SVG 내보내기",
+      syncDesign: "디자인 동기화",
+      syncComments: "댓글 동기화",
+      syncPrompt:
+        "연결된 소스와 활성 Design 화면의 변경 사항을 확인하세요. Design 화면에 로컬 편집이 없을 때만 소스 변경을 가져오고, 충돌은 어느 쪽도 덮어쓰지 말고 보고하세요. Design 변경에는 연결된 쓰기 도구를 사용하고 확인된 결과를 기록하세요. {{url}}",
+      syncCommentsPrompt:
+        "연결된 소스와 활성 Design 화면 사이의 댓글 스레드를 동기화하세요. 작성자와 답글을 보존하고 중복을 피하며, 일치하는 연결 계정이 만들고 소유한 개인 Draft에만 게시하세요. 동기화하지 못한 항목을 보고하세요. {{url}}",
       actionsPrefill: "검토 후 보내기",
       retry: "다시 시도",
       currentDesign: "현재 Design",

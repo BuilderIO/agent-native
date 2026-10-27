@@ -44,6 +44,7 @@ describe("Figma secret registration", () => {
     );
     expect(secret.description).toContain("current_user:read");
     expect(secret.description).toContain("file_content:read");
+    expect(secret.description).toContain("file_metadata:read");
     expect(secret.description).toContain("library_content:read");
     expect(secret.description).toContain("team_library_content:read");
   });

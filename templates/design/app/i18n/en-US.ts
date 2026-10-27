@@ -246,6 +246,12 @@ export default {
       chooseFrame: "Choose frame",
       inspect: "Inspect",
       exportSvg: "Export SVG",
+      syncDesign: "Sync design",
+      syncComments: "Sync comments",
+      syncPrompt:
+        "Check the linked source and active Design screen. Pull source changes only if the Design screen has no local edits; report conflicts without overwriting either side. For Design changes, use the connected write tools and record the verified result. {{url}}",
+      syncCommentsPrompt:
+        "Sync comment threads between the linked source and active Design screen. Keep authors and replies, avoid duplicates, and publish only to a personal Draft created and owned by the matching connected account. Report anything skipped. {{url}}",
       actionsPrefill: "Review, then send",
       retry: "Retry",
       currentDesign: "the current Design",

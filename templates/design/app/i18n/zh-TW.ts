@@ -394,6 +394,12 @@ export default {
       chooseFrame: "選擇畫框",
       inspect: "檢查",
       exportSvg: "匯出 SVG",
+      syncDesign: "同步設計",
+      syncComments: "同步留言",
+      syncPrompt:
+        "檢查已連結的來源和目前的 Design 畫面。只有在 Design 畫面沒有本機編輯時才套用來源變更；發現衝突時請回報，不要覆寫任一側。Design 變更請使用已連線的寫入工具，並記錄已驗證的結果。{{url}}",
+      syncCommentsPrompt:
+        "同步已連結來源與目前 Design 畫面之間的留言串。保留作者與回覆、避免重複，並且只發布到由相符已連線帳戶建立並擁有的個人草稿。回報未同步的項目。{{url}}",
       actionsPrefill: "檢閱後再傳送",
       retry: "重試",
       currentDesign: "目前的 Design",

@@ -321,6 +321,12 @@ export default {
       chooseFrame: "Choisir une frame",
       inspect: "Inspecter",
       exportSvg: "Exporter SVG",
+      syncDesign: "Synchroniser le design",
+      syncComments: "Synchroniser les commentaires",
+      syncPrompt:
+        "Vérifiez la source liée et l’écran Design actif. Appliquez les changements de la source uniquement si l’écran Design ne contient aucune modification locale ; signalez les conflits sans écraser l’un ou l’autre côté. Pour les changements Design, utilisez les outils d’écriture connectés puis enregistrez le résultat vérifié. {{url}}",
+      syncCommentsPrompt:
+        "Synchronisez les fils de commentaires entre la source liée et l’écran Design actif. Conservez les auteurs et les réponses, évitez les doublons et publiez uniquement dans un brouillon personnel créé et détenu par le compte connecté correspondant. Signalez les éléments ignorés. {{url}}",
       actionsPrefill: "Vérifiez puis envoyez",
       retry: "Réessayer",
       currentDesign: "le Design actuel",

@@ -170,6 +170,33 @@ describe("FigmaLinkComposerBubble", () => {
     });
   });
 
+  it("prefills separate screen and comment sync requests without submitting them", async () => {
+    connectionMocks.get.mockResolvedValue({
+      connected: true,
+      status: "set",
+      key: "FIGMA_ACCESS_TOKEN",
+      label: "Figma access token",
+      last4: "5678",
+    });
+    await renderBubble("design-42");
+
+    await act(async () => button("chat.figmaLink.syncDesign").click());
+    expect(sendToDesignAgentChat).toHaveBeenLastCalledWith({
+      message:
+        'chat.figmaLink.syncPrompt:{"url":"https://www.figma.com/design/FileKey1/Checkout?node-id=1-2"}',
+      submit: false,
+      openSidebar: false,
+    });
+
+    await act(async () => button("chat.figmaLink.syncComments").click());
+    expect(sendToDesignAgentChat).toHaveBeenLastCalledWith({
+      message:
+        'chat.figmaLink.syncCommentsPrompt:{"url":"https://www.figma.com/design/FileKey1/Checkout?node-id=1-2"}',
+      submit: false,
+      openSidebar: false,
+    });
+  });
+
   it("keeps the newest connection result when status checks finish out of order", async () => {
     let resolveFirst!: (value: unknown) => void;
     let resolveSecond!: (value: unknown) => void;
@@ -273,5 +300,7 @@ describe("FigmaLinkComposerBubble", () => {
     await renderBubble();
 
     expect(button("chat.figmaLink.exportSvg").disabled).toBe(true);
+    expect(button("chat.figmaLink.syncDesign").disabled).toBe(true);
+    expect(button("chat.figmaLink.syncComments").disabled).toBe(true);
   });
 });

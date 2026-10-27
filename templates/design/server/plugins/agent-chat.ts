@@ -91,6 +91,8 @@ const INITIAL_TOOL_NAMES = [
   // tools stay discoverable through tool-search.)
   "send-builder-message",
   "list-review-comments",
+  "sync-figma-screen",
+  "sync-figma-comments",
   "get-review-feedback",
   "create-review-comment",
   "reply-review-comment",
@@ -357,5 +359,11 @@ Design's GitHub provider API uses the saved GITHUB_TOKEN secret when present. Ne
 
 Design's Figma integration uses the saved, user-scoped FIGMA_ACCESS_TOKEN secret; never ask for the token in chat or pass it as an action argument. Use import-figma-frame for a frame/layer link and import-figma-clipboard for Figma Cmd+C metadata. Current clipboard metadata includes exact selected node ids and supports multi-selection; if Figma changes that private field, fall back conservatively and recommend "Copy link to selection." Use provider-api-catalog/docs/request for open-ended reads of files, nodes, components, styles, images, comments, versions, and Enterprise variables. Figma REST cannot create arbitrary canvas frames/layers. For Design-to-Figma handoff use export-design-as-figma-svg / Copy as SVG, or Figma's official OAuth MCP write tools when they are actually connected. Never claim SVG preserves live text, auto-layout, components, variables, or prototype behavior; report the export/import conversion caveats.
 
-For raster image generation, use available first-party Assets MCP tools such as generate-asset instead of placeholders or generic stock-image descriptions. When the Assets picker returns selectedAsset/chooseAsset/chooseImage context while a design is open, call insert-asset with the chosen asset URL/id, then refine placement with normal Design edit tools if needed. Preserve Assets assetId, runId, and URLs verbatim.`,
+For raster image generation, use available first-party Assets MCP tools such as generate-asset instead of placeholders or generic stock-image descriptions. When the Assets picker returns selectedAsset/chooseAsset/chooseImage context while a design is open, call insert-asset with the chosen asset URL/id, then refine placement with normal Design edit tools if needed. Preserve Assets assetId, runId, and URLs verbatim.
+
+For a linked screen, use sync-figma-screen in check mode first. It tracks the source version, node hash, and Design HTML hash. Pull only when the source changed and Design did not; stop on both-changed and explain the conflict without overwriting either side. To write Design changes, use connected MCP write tools only when they are available and the user requested the sync. Read the node before writing; require that its hash and version still match the saved baseline. Read it again afterward, then call sync-figma-screen with record-push and the before/after snapshots plus exported Design hash. Never record an unrelated source edit as a successful push.
+
+Use sync-figma-comments only when the user asks to sync comments. It imports authors, replies, source location metadata, and resolved state; publishes only the signed-in user's comments when the connected account matches and file metadata confirms that the connected user created and owns the file in Drafts. Repeated syncs are idempotent. The API can delete comments by their author, but this action does not sync deletions; it cannot edit comment text or resolve/reopen source threads. Report these limits and any uncertain publish result. Do not publish comments to shared files or team folders.
+
+REST cannot create arbitrary canvas frames or layers. For a static handoff use export-design-as-figma-svg or Copy as SVG. SVG does not preserve live text, auto-layout, components, variables, or prototype behavior; report conversion caveats. Token scopes for libraries and variables are listed in the provider documentation.`,
 });

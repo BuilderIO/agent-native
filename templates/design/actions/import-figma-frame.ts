@@ -10,10 +10,11 @@ import {
 } from "../server/lib/figma-import-errors.js";
 import {
   buildScreenFilesFromFigmaNodes,
-  fetchFigmaNode,
+  fetchFigmaNodeSnapshot,
   resolveTargetNodeId,
   summarizeFidelity,
 } from "../server/lib/figma-node-import.js";
+import { hashJson, hashText } from "../server/lib/figma-sync.js";
 import {
   resolveImportDesignId,
   saveImportedDesignFiles,
@@ -115,14 +116,23 @@ export default defineAction({
     }
 
     const nodeId = await resolveTargetNodeId(fileKey, requestedNodeId);
-    const rootNode = await fetchFigmaNode(fileKey, nodeId);
+    const figmaSnapshot = await fetchFigmaNodeSnapshot(fileKey, nodeId);
+    const rootNode = figmaSnapshot.node;
 
     const { files, fidelityEntries, omissionWarnings } =
       await buildScreenFilesFromFigmaNodes(
         fileKey,
         { [nodeId]: rootNode },
         {
-          source: () => ({ figmaUrl: args.figmaUrl ?? null }),
+          source: (_nodeId, node, content) => ({
+            figmaUrl: args.figmaUrl ?? null,
+            figmaSync: {
+              figmaVersion: figmaSnapshot.version,
+              figmaLastModified: figmaSnapshot.lastModified,
+              figmaNodeHash: hashJson(node),
+              designHash: hashText(content),
+            },
+          }),
         },
       );
 

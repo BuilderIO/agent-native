@@ -320,6 +320,12 @@ export default {
       chooseFrame: "Elegir marco",
       inspect: "Inspeccionar",
       exportSvg: "Exportar SVG",
+      syncDesign: "Sincronizar diseño",
+      syncComments: "Sincronizar comentarios",
+      syncPrompt:
+        "Comprueba la fuente vinculada y la pantalla activa de Design. Aplica cambios de la fuente solo si la pantalla de Design no tiene cambios locales; informa de los conflictos sin sobrescribir ningún lado. Para cambios de Design, usa las herramientas de escritura conectadas y registra el resultado verificado. {{url}}",
+      syncCommentsPrompt:
+        "Sincroniza los hilos de comentarios entre la fuente vinculada y la pantalla activa de Design. Conserva autores y respuestas, evita duplicados y publica solo en un borrador personal creado y propiedad de la cuenta conectada correspondiente. Indica lo que no se sincronice. {{url}}",
       actionsPrefill: "Revisa y envía",
       retry: "Reintentar",
       currentDesign: "el Diseño actual",

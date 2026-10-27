@@ -321,6 +321,12 @@ export default {
       chooseFrame: "フレームを選択",
       inspect: "確認",
       exportSvg: "SVG をエクスポート",
+      syncDesign: "デザインを同期",
+      syncComments: "コメントを同期",
+      syncPrompt:
+        "リンク先と現在の Design 画面の変更を確認してください。Design 画面にローカル編集がない場合だけリンク先の変更を取り込み、競合はどちらも上書きせずに報告してください。Design 側の変更には接続済みの書き込みツールを使い、確認済みの結果を記録してください。{{url}}",
+      syncCommentsPrompt:
+        "リンク先と現在の Design 画面のコメントスレッドを同期してください。投稿者と返信を維持し、重複を避け、一致する接続アカウントが作成・所有する個人用 Draft にのみ投稿してください。同期できなかった項目を報告してください。{{url}}",
       actionsPrefill: "確認して送信",
       retry: "再試行",
       currentDesign: "現在のDesign",

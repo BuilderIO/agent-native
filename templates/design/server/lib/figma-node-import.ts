@@ -517,10 +517,18 @@ export async function fetchFigmaNodes(
   fileKey: string,
   nodeIds: string[],
   withGeometry = true,
+  onFileMetadata?: (metadata: {
+    version: string | null;
+    lastModified: string | null;
+    role: string | null;
+  }) => void,
 ): Promise<Record<string, FigmaNode>> {
   if (nodeIds.length === 0) return {};
   let json: {
     nodes?: Record<string, { document?: FigmaNode; err?: string } | undefined>;
+    version?: string;
+    lastModified?: string;
+    role?: string;
   };
   try {
     const envelope = await figmaGet(`/files/${fileKey}/nodes`, {
@@ -533,8 +541,18 @@ export async function fetchFigmaNodes(
     if (isOversize && nodeIds.length > 1) {
       const midpoint = Math.ceil(nodeIds.length / 2);
       const [left, right] = await Promise.all([
-        fetchFigmaNodes(fileKey, nodeIds.slice(0, midpoint), withGeometry),
-        fetchFigmaNodes(fileKey, nodeIds.slice(midpoint), withGeometry),
+        fetchFigmaNodes(
+          fileKey,
+          nodeIds.slice(0, midpoint),
+          withGeometry,
+          onFileMetadata,
+        ),
+        fetchFigmaNodes(
+          fileKey,
+          nodeIds.slice(midpoint),
+          withGeometry,
+          onFileMetadata,
+        ),
       ]);
       return { ...left, ...right };
     }
@@ -542,10 +560,16 @@ export async function fetchFigmaNodes(
       console.warn(
         `[figma-import] Node ${nodeIds.join(",")} exceeded the provider response limit with geometry=paths; retrying without it (vectors will import as rendered PNGs).`,
       );
-      return fetchFigmaNodes(fileKey, nodeIds, false);
+      return fetchFigmaNodes(fileKey, nodeIds, false, onFileMetadata);
     }
     throw error;
   }
+  onFileMetadata?.({
+    version: typeof json.version === "string" ? json.version : null,
+    lastModified:
+      typeof json.lastModified === "string" ? json.lastModified : null,
+    role: typeof json.role === "string" ? json.role : null,
+  });
   const result: Record<string, FigmaNode> = {};
   for (const nodeId of nodeIds) {
     const entry = json.nodes?.[nodeId];
@@ -579,8 +603,28 @@ export async function fetchFigmaNode(
   fileKey: string,
   nodeId: string,
 ): Promise<FigmaNode> {
-  const nodes = await fetchFigmaNodes(fileKey, [nodeId]);
-  return nodes[nodeId]!;
+  const snapshot = await fetchFigmaNodeSnapshot(fileKey, nodeId);
+  return snapshot.node;
+}
+
+export async function fetchFigmaNodeSnapshot(
+  fileKey: string,
+  nodeId: string,
+): Promise<{
+  node: FigmaNode;
+  version: string | null;
+  lastModified: string | null;
+  role: string | null;
+}> {
+  let fileMetadata: {
+    version: string | null;
+    lastModified: string | null;
+    role: string | null;
+  } = { version: null, lastModified: null, role: null };
+  const nodes = await fetchFigmaNodes(fileKey, [nodeId], true, (metadata) => {
+    fileMetadata = metadata;
+  });
+  return { node: nodes[nodeId]!, ...fileMetadata };
 }
 
 async function fetchFallbackImageUrls(
@@ -704,7 +748,11 @@ export async function buildScreenFilesFromFigmaNodes(
   fileKey: string,
   nodesById: Record<string, FigmaNode>,
   options: {
-    source?: (nodeId: string, node: FigmaNode) => Record<string, unknown>;
+    source?: (
+      nodeId: string,
+      node: FigmaNode,
+      content: string,
+    ) => Record<string, unknown>;
     sourceLabel?: (nodeId: string, node: FigmaNode) => string;
   } = {},
 ): Promise<{
@@ -805,7 +853,7 @@ export async function buildScreenFilesFromFigmaNodes(
         figmaFileKey: fileKey,
         figmaNodeId: nodeId,
         figmaNodeName: node.name ?? null,
-        ...options.source?.(nodeId, node),
+        ...options.source?.(nodeId, node, content),
       },
       preferredFrame: {
         title: node.name,

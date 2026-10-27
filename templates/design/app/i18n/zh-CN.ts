@@ -302,6 +302,12 @@ export default {
       chooseFrame: "选择画框",
       inspect: "检查",
       exportSvg: "导出 SVG",
+      syncDesign: "同步设计",
+      syncComments: "同步评论",
+      syncPrompt:
+        "检查已关联的来源和当前 Design 画面。只有在 Design 画面没有本地编辑时才应用来源更改；发现冲突时报告情况，不覆盖任何一侧。Design 更改使用已连接的写入工具，并记录已验证的结果。{{url}}",
+      syncCommentsPrompt:
+        "同步已关联来源与当前 Design 画面之间的评论线程。保留作者和回复，避免重复，并且仅发布到由匹配的已连接账号创建并拥有的个人草稿中。报告未同步的内容。{{url}}",
       actionsPrefill: "检查后发送",
       retry: "重试",
       currentDesign: "当前 Design",

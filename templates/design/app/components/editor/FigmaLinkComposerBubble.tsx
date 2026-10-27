@@ -192,6 +192,10 @@ export function FigmaLinkComposerBubble({
           url: link.url,
         }),
         exportSvg: t("chat.figmaLink.exportSvgPrompt"),
+        sync: t("chat.figmaLink.syncPrompt", { url: link.url }),
+        syncComments: t("chat.figmaLink.syncCommentsPrompt", {
+          url: link.url,
+        }),
       });
       sendToDesignAgentChat({
         ...prompt,
@@ -266,6 +270,26 @@ export function FigmaLinkComposerBubble({
             onClick={() => handleAgentAction("export-svg")}
           >
             {t("chat.figmaLink.exportSvg")}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-7 px-2 text-[11px]"
+            disabled={!designId}
+            onClick={() => handleAgentAction("sync")}
+          >
+            {t("chat.figmaLink.syncDesign")}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-7 px-2 text-[11px]"
+            disabled={!designId}
+            onClick={() => handleAgentAction("sync-comments")}
+          >
+            {t("chat.figmaLink.syncComments")}
           </Button>
           <span className="min-w-0 flex-1 text-end text-[9px] leading-tight text-muted-foreground">
             {t("chat.figmaLink.actionsPrefill")}
