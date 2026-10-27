@@ -494,10 +494,9 @@ export function buildRecordingBreadcrumbItems({
 }
 
 /**
- * What the page shows for its player-data read. "share" redirects to the
- * share page, so the page must paint only its skeleton until the redirect
- * lands; reading the redirect and the skeleton from different checks is how
- * a signed-out private Clip flashed "Something went wrong".
+ * What the page shows for its player-data read. "share" hands the visitor to
+ * RecordingShareRedirect, which paints only the skeleton until the share page
+ * lands.
  */
 export function recordingAccessView({
   isPending,
@@ -920,15 +919,6 @@ export default function RecordingPage() {
     accessStatus: playerDataAccessStatus,
     signedIn: Boolean(session),
   });
-  useEffect(() => {
-    if (!recordingId || accessView !== "share") return;
-    void navigate(
-      `/share/${encodeURIComponent(recordingId)}?${legacyShareQuery}`,
-      {
-        replace: true,
-      },
-    );
-  }, [legacyShareQuery, recordingId, accessView, navigate]);
 
   const recording = playerDataQ.data?.recording;
   const hostedFailureCode = (recording as any)?.failureCode;
@@ -2245,8 +2235,14 @@ export default function RecordingPage() {
 
   if (!recordingId) return null;
 
-  if (accessView === "pending" || accessView === "share") {
-    return <RecordingWorkspaceSkeleton />;
+  if (accessView === "pending") return <RecordingWorkspaceSkeleton />;
+
+  if (accessView === "share") {
+    return (
+      <RecordingShareRedirect
+        to={`/share/${encodeURIComponent(recordingId)}?${legacyShareQuery}`}
+      />
+    );
   }
 
   if (accessView === "retry") {
@@ -3427,6 +3423,18 @@ export default function RecordingPage() {
   );
 
   return viewer;
+}
+
+// The redirect runs only from here so the page can't send the visitor to the
+// share page while painting anything but the skeleton; a redirect and a
+// skeleton read from different checks is how a signed-out private Clip
+// flashed "Something went wrong".
+export function RecordingShareRedirect({ to }: { to: string }) {
+  const navigate = useNavigate();
+  useEffect(() => {
+    void navigate(to, { replace: true });
+  }, [navigate, to]);
+  return <RecordingWorkspaceSkeleton />;
 }
 
 function RecordingWorkspaceSkeleton() {

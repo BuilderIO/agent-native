@@ -1,11 +1,16 @@
 // @vitest-environment happy-dom
 
-import { describe, expect, it } from "vitest";
+import { act } from "react";
+import { createRoot } from "react-dom/client";
+import { renderToStaticMarkup } from "react-dom/server";
+import { createMemoryRouter, MemoryRouter, RouterProvider } from "react-router";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   buildRecordingBreadcrumbItems,
   mergeRecordingReactions,
   recordingAccessView,
+  RecordingShareRedirect,
   removePendingReaction,
 } from "./_app.r.$recordingId";
 
@@ -160,5 +165,51 @@ describe("recordingAccessView", () => {
         signedIn: false,
       }),
     ).toBe("pending");
+  });
+});
+
+describe("RecordingShareRedirect", () => {
+  it("paints only the skeleton, then puts the share page in its history entry", async () => {
+    const to = "/share/clip-a?ref=clip";
+    const firstPaint = renderToStaticMarkup(
+      <MemoryRouter initialEntries={["/r/clip-a"]}>
+        <RecordingShareRedirect to={to} />
+      </MemoryRouter>,
+    );
+    expect(firstPaint).toContain("skeleton-shimmer");
+    expect(firstPaint).not.toContain("somethingWentWrong");
+
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const router = createMemoryRouter(
+      [
+        { path: "/library", Component: () => <p>Library</p> },
+        {
+          path: "/r/:recordingId",
+          element: <RecordingShareRedirect to={to} />,
+        },
+        { path: "/share/:shareId", Component: () => <p>Share page</p> },
+      ],
+      { initialEntries: ["/library", "/r/clip-a"], initialIndex: 1 },
+    );
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    try {
+      await act(async () => {
+        root.render(<RouterProvider router={router} />);
+      });
+      expect(router.state.location.pathname).toBe("/share/clip-a");
+      expect(router.state.location.search).toBe("?ref=clip");
+      expect(container.textContent).toBe("Share page");
+
+      await act(async () => {
+        await router.navigate(-1);
+      });
+      expect(router.state.location.pathname).toBe("/library");
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+      vi.unstubAllGlobals();
+    }
   });
 });

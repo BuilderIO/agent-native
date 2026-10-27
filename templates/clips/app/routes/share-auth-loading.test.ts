@@ -11,9 +11,10 @@ describe("authenticated recording route loading", () => {
   it("waits for the browser session before the direct player action", () => {
     const route = readRoute("_app.r.$recordingId.tsx");
     expect(route).toContain("enabled: !!recordingId && !sessionLoading");
-    expect(route).toContain(
-      "if (playerDataQ.isPending || playerDataForbidden)",
-    );
+    // oracle-change: which access states keep the skeleton up is pinned by
+    // recordingAccessView's and RecordingShareRedirect's tests
+    // (_app.r.$recordingId.test.tsx), not by the condition that used to spell
+    // it out here.
     expect(route).toContain("<RecordingWorkspaceSkeleton />");
     expect(route).not.toContain("buildSignInReturnHref");
   });
