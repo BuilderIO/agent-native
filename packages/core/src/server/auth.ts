@@ -5337,10 +5337,14 @@ async function mountBetterAuthRoutes(
               })
             : "/";
         const returnUrl = validated !== "/" ? validated : undefined;
-        const signupAttribution = signupAttributionFromCookieHeader(
-          getHeader(event, "cookie") ?? null,
-        );
         const signupCookieHeader = getHeader(event, "cookie") ?? null;
+        const targetingAllowed = requestAllowsConsentCategory(
+          event,
+          "targeting",
+        );
+        const signupAttribution = targetingAllowed
+          ? signupAttributionFromCookieHeader(signupCookieHeader)
+          : undefined;
         const performanceAllowed = requestAllowsConsentCategory(
           event,
           "performance",

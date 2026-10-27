@@ -2798,6 +2798,13 @@ describe("server/auth", () => {
         },
         "state-secret",
       );
+      const firstTouchCookie = `an_ft=${encodeURIComponent(
+        JSON.stringify({
+          ref: "newsletter",
+          utm_source: "newsletter",
+          landing_path: "/campaign",
+        }),
+      )}`;
       const authUrlHandler = app.use.mock.calls.find(
         (call: any[]) => call[0] === "/_agent-native/google/auth-url",
       )?.[1];
@@ -2805,7 +2812,7 @@ describe("server/auth", () => {
         path: "/_agent-native/google/auth-url",
         query: { mobile: "1" },
         headers: {
-          cookie: `an_mcp_signup=${mcpSignupCookie}; an_consent=1.p1.t1; an_aid=anon_mcp_auth_url; an_sid=session_mcp_auth_url`,
+          cookie: `an_mcp_signup=${mcpSignupCookie}; ${firstTouchCookie}; an_consent=1.p1.t1; an_aid=anon_mcp_auth_url; an_sid=session_mcp_auth_url`,
         },
       });
       const result = await authUrlHandler(authStartEvent);
@@ -2829,6 +2836,11 @@ describe("server/auth", () => {
       expect(state).toMatchObject({
         signupAnonymousId: "anon_mcp_auth_url",
         signupSessionId: "session_mcp_auth_url",
+        signupAttribution: {
+          referral_source: "newsletter",
+          utm_source: "newsletter",
+          first_touch_path: "/campaign",
+        },
         mcpSignupAttribution: {
           vendorHint: "openai",
           anonymousId: "anon_mcp_auth_url",
@@ -2841,7 +2853,7 @@ describe("server/auth", () => {
           path: "/_agent-native/google/auth-url",
           query: { mobile: "1" },
           headers: {
-            cookie: `an_mcp_signup=${mcpSignupCookie}; an_consent=1.p0.t1; an_aid=anon_mcp_auth_url; an_sid=session_mcp_auth_url`,
+            cookie: `an_mcp_signup=${mcpSignupCookie}; ${firstTouchCookie}; an_consent=1.p0.t1; an_aid=anon_mcp_auth_url; an_sid=session_mcp_auth_url`,
           },
         }),
       );
@@ -2858,6 +2870,31 @@ describe("server/auth", () => {
         "anonymousId",
       );
       expect(revokedState.mcpSignupAttribution).not.toHaveProperty("sessionId");
+
+      const targetingRevokedResult = await authUrlHandler(
+        createMockEvent({
+          path: "/_agent-native/google/auth-url",
+          query: { mobile: "1" },
+          headers: {
+            cookie: `an_mcp_signup=${mcpSignupCookie}; ${firstTouchCookie}; an_consent=1.p1.t0; an_aid=anon_targeting_revoked; an_sid=session_targeting_revoked`,
+          },
+        }),
+      );
+      const targetingRevokedState = decodeOAuthState(
+        new URL(targetingRevokedResult.url).searchParams.get("state") ??
+          undefined,
+        "http://localhost/_agent-native/google/callback",
+      );
+      expect(targetingRevokedState.signupAttribution).toBeUndefined();
+      expect(targetingRevokedState.signupAnonymousId).toBe(
+        "anon_targeting_revoked",
+      );
+      expect(targetingRevokedState.signupSessionId).toBe(
+        "session_targeting_revoked",
+      );
+      expect(targetingRevokedState.mcpSignupAttribution).not.toHaveProperty(
+        "vendorHint",
+      );
     });
 
     it("maps an invite-only Google callback rejection to the public auth error page", async () => {
