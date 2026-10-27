@@ -71,6 +71,10 @@
     {
       "name": "agent-harness-transcript-order-runtime-schema",
       "checksum": null
+    },
+    {
+      "name": "agent-harness-sessions-run-policy",
+      "checksum": "005df5375106ffa4"
     }
   ],
   "agent_runs": [

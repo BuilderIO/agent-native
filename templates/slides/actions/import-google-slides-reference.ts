@@ -393,7 +393,7 @@ export default defineAction({
       source: "import-google-slides-reference",
       imageFallbacks,
     });
-    trackDeckCreated(
+    await trackDeckCreated(
       result.id,
       {
         creationMethod: "import_gslides",

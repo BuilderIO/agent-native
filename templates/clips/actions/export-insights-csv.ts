@@ -1,8 +1,10 @@
 import { defineAction } from "@agent-native/core/action";
-import { desc, eq, inArray, sql } from "drizzle-orm";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { recordingExpiryQuery } from "../server/lib/recording-expiry-query.js";
 import { requireOrganizationAccess } from "../server/lib/recordings.js";
 
 function csvEscape(value: unknown): string {
@@ -40,7 +42,12 @@ export default defineAction({
     const recordings = await db
       .select()
       .from(schema.recordings)
-      .where(eq(schema.recordings.organizationId, organizationId))
+      .where(
+        and(
+          eq(schema.recordings.organizationId, organizationId),
+          recordingExpiryQuery(getRequestUserEmail()).available,
+        ),
+      )
       .orderBy(desc(schema.recordings.createdAt))
       .limit(MAX_RECORDINGS);
     const truncated = recordings.length >= MAX_RECORDINGS;

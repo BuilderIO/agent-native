@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { presentUiCapability } from "./helpers";
+import { presentUiCapability, signInAccount } from "./helpers";
 
 const ACTION_HEADERS = {
   "X-Agent-Native-Frontend": "1",
@@ -115,6 +115,94 @@ test("Go to my pages opens a Page the account can open", async ({ page }) => {
   await expect(
     page.getByRole("heading", { name: "This page doesn't exist" }),
   ).toHaveCount(0, { timeout: 60_000 });
+});
+
+test("a Page that isn't shared with the reader says so without an error first, also on the way back", async ({
+  page,
+  browser,
+  baseURL,
+}) => {
+  if (!baseURL) throw new Error("This spec needs the project's baseURL.");
+  const documentId = await createDocument(
+    page,
+    `No access link E2E ${Date.now().toString(36)}`,
+  );
+  const reader = await browser.newContext({
+    baseURL,
+    storageState: { cookies: [], origins: [] },
+  });
+
+  try {
+    const readerPage = await reader.newPage();
+    const readerEmail = `no-access-reader+autoz-${Date.now().toString(36)}@content.test`;
+    const signedIn = await signInAccount(readerPage.request, baseURL, {
+      email: readerEmail,
+      password: ["example", "no", "access", "pw"].join("-"),
+      name: "No access reader",
+    });
+    expect(signedIn.sessionEmail, JSON.stringify(signedIn)).toBe(readerEmail);
+    // The refused read is read again on the way to the access screen, and
+    // that read clears the query's error while it runs.
+    let errorFrames = 0;
+    await readerPage.exposeFunction("__errorStatePainted", () => {
+      errorFrames += 1;
+    });
+    await readerPage.addInitScript(() => {
+      const tick = () => {
+        for (const message of document.querySelectorAll("p")) {
+          if (
+            message.textContent?.trim() === "Something went wrong" &&
+            message.checkVisibility({ visibilityProperty: true })
+          ) {
+            (
+              window as Window & { __errorStatePainted?: () => void }
+            ).__errorStatePainted?.();
+          }
+        }
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+
+    // A reader already in the app, as when the link is opened from a tab.
+    await readerPage.goto("/", { waitUntil: "domcontentloaded" });
+    await expect(readerPage.getByLabel("Document title")).toBeVisible({
+      timeout: 60_000,
+    });
+    const ownPath = openedPath(readerPage);
+    const noAccess = readerPage.getByRole("heading", {
+      name: "You don't have access to this page",
+    });
+    errorFrames = 0;
+    await readerPage.goto(`/page/${documentId}`, { waitUntil: "commit" });
+
+    await expect(noAccess).toBeVisible({ timeout: 60_000 });
+    expect(openedPath(readerPage)).toBe(`/page/${documentId}`);
+    expect(errorFrames).toBe(0);
+
+    // Coming back mounts a new editor while the refused page is read again.
+    await readerPage.locator(`a[href="${ownPath}"]`).first().click();
+    await expect(readerPage.getByLabel("Document title")).toBeVisible({
+      timeout: 60_000,
+    });
+    errorFrames = 0;
+    const reread = readerPage.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return (
+        url.pathname.endsWith("/_agent-native/actions/get-document") &&
+        url.searchParams.get("id") === documentId
+      );
+    });
+    await readerPage.goBack({ waitUntil: "commit" });
+
+    await reread;
+    await expect(noAccess).toBeVisible({ timeout: 60_000 });
+    expect(openedPath(readerPage)).toBe(`/page/${documentId}`);
+    expect(errorFrames).toBe(0);
+  } finally {
+    await reader.close();
+    await removeDocument(page, documentId);
+  }
 });
 
 test("the owner's link to a trashed Page says so and restores it", async ({

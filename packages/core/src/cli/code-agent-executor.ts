@@ -31,6 +31,7 @@ import type { AgentChatEvent } from "../agent/types.js";
 import { getAppConfig } from "../app-config/index.js";
 import {
   formatPromptWithAttachments,
+  promptAttachmentsFromMetadata,
   type AgentPromptAttachment,
 } from "../code-agents/prompt-attachments.js";
 import {
@@ -162,8 +163,11 @@ export async function executeCodeAgentRun(
   const rawAttachments =
     options.attachments ?? latestUserPromptAttachments(existing.id, prompt);
 
-  const imageAttachments = rawAttachments.filter((a) => a.dataUrl);
-  const textOnlyAttachments = rawAttachments.filter((a) => !a.dataUrl);
+  // An SVG carries both its text and a data URL; the text is what the agent reads.
+  const isImageOnly = (a: AgentPromptAttachment) =>
+    Boolean(a.dataUrl) && a.text === undefined && !a.readError;
+  const imageAttachments = rawAttachments.filter(isImageOnly);
+  const textOnlyAttachments = rawAttachments.filter((a) => !isImageOnly(a));
   const executionPrompt = formatPromptWithAttachments(
     prompt,
     textOnlyAttachments,
@@ -2161,23 +2165,6 @@ function userPromptAttachmentsForEvent(
     (item) => item.id === eventId && item.kind === "user",
   );
   return promptAttachmentsFromMetadata(event?.metadata?.attachments);
-}
-
-function promptAttachmentsFromMetadata(
-  value: unknown,
-): AgentPromptAttachment[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .filter((item): item is Record<string, unknown> =>
-      Boolean(item && typeof item === "object" && !Array.isArray(item)),
-    )
-    .map((item) => ({
-      name: typeof item.name === "string" && item.name ? item.name : "file",
-      ...(typeof item.type === "string" ? { type: item.type } : {}),
-      ...(typeof item.size === "number" ? { size: item.size } : {}),
-      ...(typeof item.text === "string" ? { text: item.text } : {}),
-      ...(typeof item.dataUrl === "string" ? { dataUrl: item.dataUrl } : {}),
-    }));
 }
 
 function metadataString(

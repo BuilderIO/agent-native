@@ -470,9 +470,9 @@ TerminaliseUnclaimed(r) ==
                  effects, staleWrite, liveSteal>>
   /\ RetireDead
 
-\* insertRun RS:1201-1303 / tryClaimRunSlot RS:1794-2000 of another run in the
-\* same turn: a recovery successor (attemptStaleRunRecovery RS:2557-2679,
-\* inserted inside the reaper tx that holds the predecessor row), a
+\* insertRun RS:1412-1516 / tryClaimRunSlot RS:2039-2289 of another run in the
+\* same turn: a recovery successor (attemptStaleRunRecovery RS:2818-2941,
+\* inserted inside the reaper tx that holds the slot, lease, and predecessor row), a
 \* continuation, or a team attempt. The turn id comes from the request
 \* (PA:14815-14822, BAR:1476), so a continuation can also arrive after the
 \* turn's rows were pruned. The recovery cutoff is not evidence that a detached
@@ -480,8 +480,9 @@ TerminaliseUnclaimed(r) ==
 \* active-turn checks assume request turn IDs are not reused after retention;
 \* the F7 finding disables that explicit assumption.
 EffectCanLand == \E q \in Runs : effectPending[q]
-InsertRun(r) ==
+InsertRun(r, caller) ==
   /\ rstatus[r] = "absent"
+  /\ IF caller = NoRun THEN TRUE ELSE Current(caller)
   /\ (IF PruneWhileTurnActive
       THEN ((step.exists /\ step.status # "completed")
         \/ (~step.exists /\ EffectCanLand))
@@ -581,7 +582,7 @@ Next ==
   \/ \E r \in Runs : ReapOrFailUnowned(r)
   \/ \E r \in Runs : FinalizeClaimedFailure(r)
   \/ \E r \in Runs : TerminaliseUnclaimed(r)
-  \/ \E r \in Runs : InsertRun(r)
+  \/ \E r \in Runs, caller \in (Runs \cup {NoRun}) : InsertRun(r, caller)
   \/ \E r \in Runs : PruneRun(r)
   \/ PruneStep
   \/ PruneLease

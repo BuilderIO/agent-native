@@ -120,6 +120,51 @@ describe("/api/agent-context route", () => {
     });
   });
 
+  it.each([true, false])(
+    "applies comments-off visibility to agent history with viewerIsOwner=%s",
+    async (viewerIsOwner) => {
+      mockLoadPublicAgentAccess.mockResolvedValue({
+        ok: true,
+        access: {
+          recording: {
+            id: "rec-1",
+            durationMs: 1234,
+            status: "ready",
+            enableComments: false,
+            enableReactions: false,
+          },
+          viewerIsOwner,
+          apiToken: null,
+        },
+      });
+      const savedComment = {
+        id: "comment-test",
+        content: "Fake saved comment",
+      };
+      mockGetDb.mockReturnValue({
+        select: (fields: { count?: unknown }) => {
+          const rows = "count" in fields ? [{ count: 1 }] : [savedComment];
+          const query = {
+            from: (): unknown => query,
+            where: (): unknown => query,
+            orderBy: (): unknown => query,
+            limit: async () => rows,
+            then: (resolve: (rows: unknown[]) => unknown) =>
+              Promise.resolve(rows).then(resolve),
+          };
+          return query;
+        },
+      });
+      await handler({} as unknown as Parameters<typeof handler>[0]);
+      expect(mockBuildPublicAgentContext).toHaveBeenCalledWith(
+        expect.objectContaining({
+          comments: viewerIsOwner ? [savedComment] : [],
+          commentCount: viewerIsOwner ? 1 : 0,
+        }),
+      );
+    },
+  );
+
   it("passes comments and reactions into the shared agent payload", async () => {
     const comments = Array.from({ length: 101 }, (_, index) => ({
       id: `c${index}`,

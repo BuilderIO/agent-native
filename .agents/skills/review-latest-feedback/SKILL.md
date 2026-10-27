@@ -53,14 +53,22 @@ Every claimed report gets **one** reply in its thread per outcome:
   anyone curious can click through. Beyond that link: no PR numbers, commits,
   branches, file or function names, CI, "verified locally", "scope", or any
   mention of this workflow.
-- End with exactly: `this was sent from a bot.`
+- End with the bold line `**This was sent from a bot**` on its own line,
+  once.
 
-Good:
+Good (each is the first line; the footer goes on the line below it):
 
-- `thanks for flagging - <https://github.com/BuilderIO/agent-native/pull/1234|fix> is merged and will be on beta shortly. this was sent from a bot.`
-- `thanks for flagging - the export now keeps your column order (<https://github.com/BuilderIO/agent-native/pull/1234|fix>), and it'll be on beta shortly. this was sent from a bot.`
-- `thanks - moving that button is a product call, so I've left it for Sid to decide. this was sent from a bot.`
-- `thanks - I couldn't reproduce this; could you share the link to the deck where it happened? this was sent from a bot.`
+- `thanks for flagging - <https://github.com/BuilderIO/agent-native/pull/1234|fix> is merged and will be on beta shortly.`
+- `thanks for flagging - the export now keeps your column order (<https://github.com/BuilderIO/agent-native/pull/1234|fix>), and it'll be on beta shortly.`
+- `thanks - moving that button is a product call, so I've left it for Sid to decide.`
+- `thanks - I couldn't reproduce this; could you share the link to the deck where it happened?`
+
+So a full reply looks like:
+
+```text
+thanks for flagging - <https://github.com/BuilderIO/agent-native/pull/1234|fix> is merged and will be on beta shortly.
+**This was sent from a bot**
+```
 
 Bad: anything that spells out a PR number or SHA, lists "verified scopes", explains
 reactions, says "Great catch!!", repeats the bug back, or posts a second reply
@@ -83,6 +91,17 @@ that adds nothing new.
 - **PRs:** push to, comment on, or merge only PRs authored by the active
   GitHub login (`gh api user --jq .login`). Never touch anyone else's PR unless
   the invocation names that exact PR and action.
+- **One run, one PR.** Work only on the PR this run opened. Every sweep PR is
+  authored by Steve's login, so the author check can't tell runs apart: an
+  open PR with a `Reports` section that this run didn't open belongs to
+  another run that may still be working on it. Don't push to, reply on, or
+  merge it; list it under "Still open from earlier runs".
+- **Goals end with the run.** If you set a Codex goal, scope it to this run:
+  name its PR once you have one, and end it after step 6 ("merge PR #N,
+  close its Reports, append the recap"). Never set an open-ended goal such as
+  "review feedback" or "fix Steve's open PRs". Goals resume after restarts,
+  so an open-ended one keeps running into the next scheduled sweep and
+  collides with it.
 - Use the connected Slack integration for every Slack read and write. Confirm
   the connected profile is Steve before the first write.
 
@@ -106,8 +125,10 @@ the invocation gives), plus 14 days for open items.
 - **Open items first.** Every run posts as Steve, and Steve also adds 👀 by
   hand to things he is working on himself, so a 👀 from his account is not
   enough to make a root this workflow's. Treat it as the workflow's only when
-  the thread already has a reply from Steve's account ending in
-  `this was sent from a bot.`, or when the root is listed under "Claimed, not
+  the thread already has a reply from Steve's account that ends with "This
+  was sent from a bot", ignoring case, `*`, punctuation, and whitespace. The
+  phrase may be on its own line or, in older replies, at the end of the
+  sentence (`... this was sent from a bot.`). Or when the root is listed under "Claimed, not
   yet answered" in the automation's `memory.md`. Any other Steve 👀 means Steve
   has it: leave it alone. Of the workflow's roots, any without ✅ or 🎫, or
   with a human reply newer than our last reply, comes first in this run. A

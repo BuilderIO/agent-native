@@ -129,6 +129,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleOther": "अन्य",
   "onboarding.roleOtherInputLabel": "अपनी भूमिका बताएं",
   "onboarding.skipForNow": "अभी छोड़ें",
+  "onboarding.builderProvisionFailedDetail":
+    "आपका Builder.io खाता नहीं बनाया जा सका। फिर से कोशिश करें या किसी मौजूदा खाते से साइन इन करें।",
   "onboarding.saveRoleError": "आपकी भूमिका सहेजी नहीं जा सकी।",
   "onboarding.builderCreateAccount": "Builder.io इस्तेमाल करें",
   "onboarding.builderSignInWithAccount": "Builder.io खाते से साइन इन करें",
@@ -411,6 +413,9 @@ const messages: ToolkitAgentChatTranslation = {
     "छोड़ी गई फ़ाइल जोड़ी नहीं जा सकी। कोई दूसरा फ़ॉर्मैट आज़माएँ।",
   "composer.openDesktop": "इस चैट का उपयोग करने के लिए Desktop खोलें।",
   "composer.removeAttachment": "{{name}} हटाएँ",
+  "composer.attachmentReadFailed": "यह फ़ाइल पढ़ी नहीं जा सकी",
+  "composer.attachmentTooLarge": "फ़ाइल 8 MB से बड़ी है",
+  "composer.attachmentNotUtf8": "फ़ाइल UTF-8 टेक्स्ट नहीं है",
   "composer.scrollToBottom": "सबसे नीचे जाएँ",
   "composer.suggestedPrompts": "सुझाए गए प्रॉम्प्ट",
   "composer.stopResponse": "जवाब रोकें",

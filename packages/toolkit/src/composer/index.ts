@@ -132,16 +132,20 @@ export {
   type RealtimeVoiceModeApi,
   type RealtimeVoiceModeProviderProps,
   type RealtimeVoiceSessionAnswer,
+  type RealtimeVoiceStartOptions,
   type RealtimeVoiceToolResult,
 } from "./useRealtimeVoiceMode.js";
 export {
   AGENT_PROMPT_MAX_INLINE_IMAGE_BYTES,
   AGENT_PROMPT_MAX_INLINE_TEXT_CHARS,
+  AGENT_PROMPT_MAX_TEXT_FILE_BYTES,
   escapePromptAttachmentAttribute,
   formatPromptWithAttachments,
   isInlineableAgentPromptFile,
+  probeAgentPromptAttachment,
   readAgentPromptAttachment,
   type AgentPromptAttachment,
+  type AgentPromptAttachmentReadError,
   type ReadAgentPromptAttachmentOptions,
 } from "./prompt-attachments.js";
 export { MentionChip, type MentionChipProps } from "./MentionChip.js";

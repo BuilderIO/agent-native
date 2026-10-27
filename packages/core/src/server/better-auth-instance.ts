@@ -109,6 +109,7 @@ import {
   signupAttributionContextFromCookieHeader,
   signupAttributionContextFromHeaders,
 } from "./attribution.js";
+import { requestAllowsConsentCategoryFromHeaders } from "./consent-route.js";
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import {
   getMissingAuthSecretKey,
@@ -136,6 +137,10 @@ import {
   withJwksRotationRecovery,
 } from "./jwks-secret-rotation.js";
 import { readMagicLinkSignupAttribution } from "./magic-link-attribution.js";
+import {
+  applyMcpSignupAttribution,
+  filterMcpSignupAttributionByConsent,
+} from "./mcp-signup-attribution.js";
 import {
   getConfiguredOriginAllowlist,
   requestForwardedOrigin,
@@ -283,9 +288,20 @@ export async function emitSignupEventForCreatedUser(
 
   const requestHeaders = context?.headers ?? context?.request?.headers ?? null;
   if (!requestHeaders) return;
-  const requestSessionId = normalizeAnalyticsSessionId(
-    requestHeaders.get("x-agent-native-session-id"),
+  const cookieHeader = requestHeaders.get("cookie");
+  const performanceAllowed = requestAllowsConsentCategoryFromHeaders(
+    requestHeaders,
+    "performance",
   );
+  const targetingAllowed = requestAllowsConsentCategoryFromHeaders(
+    requestHeaders,
+    "targeting",
+  );
+  const requestSessionId = performanceAllowed
+    ? normalizeAnalyticsSessionId(
+        requestHeaders.get("x-agent-native-session-id"),
+      )
+    : undefined;
 
   const scoped = hasContinuationLocalRequestContext()
     ? getRequestContext()
@@ -293,18 +309,43 @@ export async function emitSignupEventForCreatedUser(
   let attribution: Record<string, string> | undefined;
   let anonymousId: string | undefined;
   let sessionId: string | undefined;
+  let magicLinkAttribution:
+    | ReturnType<typeof readMagicLinkSignupAttribution>
+    | undefined;
+  let mcpSignupAttribution:
+    | ReturnType<typeof filterMcpSignupAttributionByConsent>
+    | undefined;
   try {
+    magicLinkAttribution = context?.request?.url?.includes("newUserCallbackURL")
+      ? readMagicLinkSignupAttribution(context.request.url, getAuthSecret())
+      : undefined;
+    if (magicLinkAttribution) {
+      mcpSignupAttribution = filterMcpSignupAttributionByConsent(
+        magicLinkAttribution.mcpSignupAttribution,
+        cookieHeader,
+        { performance: performanceAllowed, targeting: targetingAllowed },
+      );
+      const filteredMagicLinkAttribution = { ...magicLinkAttribution };
+      delete filteredMagicLinkAttribution.mcpSignupAttribution;
+      if (!performanceAllowed) {
+        delete filteredMagicLinkAttribution.anonymousId;
+        delete filteredMagicLinkAttribution.sessionId;
+      }
+      magicLinkAttribution = {
+        ...filteredMagicLinkAttribution,
+        ...(mcpSignupAttribution ? { mcpSignupAttribution } : {}),
+      };
+    }
     const browser =
-      (context?.request?.url?.includes("newUserCallbackURL")
-        ? readMagicLinkSignupAttribution(context.request.url, getAuthSecret())
-        : undefined) ??
+      magicLinkAttribution ??
       scoped?.signupAttribution ??
       signupAttributionContextFromHeaders(requestHeaders) ??
-      signupAttributionContextFromCookieHeader(requestHeaders.get("cookie"));
-    attribution = browser?.attribution;
-    anonymousId = browser?.anonymousId;
-    sessionId =
-      normalizeAnalyticsSessionId(browser?.sessionId) ?? requestSessionId;
+      signupAttributionContextFromCookieHeader(cookieHeader);
+    attribution = targetingAllowed ? browser?.attribution : undefined;
+    anonymousId = performanceAllowed ? browser?.anonymousId : undefined;
+    sessionId = performanceAllowed
+      ? (normalizeAnalyticsSessionId(browser?.sessionId) ?? requestSessionId)
+      : undefined;
   } catch (err) {
     console.error("[auth] failed to derive signup attribution", err);
   }
@@ -314,9 +355,20 @@ export async function emitSignupEventForCreatedUser(
   // must not inherit it.
   const actingUserId = context?.context?.session?.user?.id;
   const ownsSignupAttribution = !actingUserId || actingUserId === user.id;
-  const eventAttribution = ownsSignupAttribution ? attribution : undefined;
-  const eventAnonymousId = ownsSignupAttribution ? anonymousId : undefined;
-  const eventSessionId = ownsSignupAttribution ? sessionId : undefined;
+  const eventMcpSignupAttribution = ownsSignupAttribution
+    ? mcpSignupAttribution
+    : undefined;
+  const eventAttribution = ownsSignupAttribution
+    ? (applyMcpSignupAttribution(attribution, eventMcpSignupAttribution) as
+        | Record<string, string>
+        | undefined)
+    : undefined;
+  const eventAnonymousId = ownsSignupAttribution
+    ? (anonymousId ?? eventMcpSignupAttribution?.anonymousId)
+    : undefined;
+  const eventSessionId = ownsSignupAttribution
+    ? (sessionId ?? eventMcpSignupAttribution?.sessionId)
+    : undefined;
   if (user.id && eventAttribution) {
     try {
       await persistUserFirstTouchAttribution(user.id, eventAttribution);
@@ -334,7 +386,9 @@ export async function emitSignupEventForCreatedUser(
 
   await trackSignupEvent({
     authProvider: "better-auth",
-    origin: scoped?.signupOrigin ?? "browser_signup",
+    origin:
+      scoped?.signupOrigin ??
+      (eventMcpSignupAttribution ? "mcp_oauth" : "browser_signup"),
     signupMethod: signupMethodFromRequestUrl(context?.request?.url),
     authUserId: user.id,
     email,
