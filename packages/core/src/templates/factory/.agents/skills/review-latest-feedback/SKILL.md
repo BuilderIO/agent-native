@@ -183,8 +183,17 @@ a one-line lesson in the recap and Steve will decide whether it goes in.
 
 ## 5. Close the loop
 
-After the merge (or at the end of the run if it can't merge), for every root
-you put 👀 on:
+This step is the only place a claimed report gets its closing reply. `/ship`
+step 6 runs it for the threads in the PR's `Reports` section once they merge,
+and `address-feedback-with-replies` runs it for its threads. Run it once per
+thread: if a reply in the thread already links this PR, just make sure ✅ is
+there and move on.
+
+Write only as the connected Slack profile (Steve), only in the feedback
+channels, and in the reply format from the contract above. Re-read each thread
+before writing. If Steve has since added `:mag:` or a person has taken it over,
+leave it. If a newer human reply says it's still broken, leave the 👀 for the
+next sweep. Otherwise:
 
 - **Merged fix:** add ✅ and reply that it's fixed, with the PR linked, and
   will be on beta shortly.

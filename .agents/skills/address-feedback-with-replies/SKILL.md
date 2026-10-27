@@ -96,10 +96,12 @@ section. Only Steve's own PRs get pushed, merged, or commented on.
 
 ## 5. Close the loop
 
-`/ship` closes out the fixed threads listed under `Reports` (✅ plus the
-"fixed (PR linked), on beta shortly" reply), so don't reply on those again.
-For every other thread you put 👀 on, post the single reply from
-`review-latest-feedback` and add the matching reaction:
+Run `review-latest-feedback` step 5 for every thread you put 👀 on. That
+step owns the replies and reactions. `/ship` has already run it for the
+`Reports` threads it merged; the step's no-duplicate check covers those, and
+any it skipped or couldn't merge still get their outcome here:
+
+- Fix not merged yet: reply that a fix (PR linked) is ready.
 
 - Needs a person: 🎫 and what's needed from whom, as a plain name.
 - Couldn't reproduce: 🎫 and one specific question.
