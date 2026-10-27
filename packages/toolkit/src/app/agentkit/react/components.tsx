@@ -108,6 +108,7 @@ import {
   ComposerNotice,
   ComposerNoticeScope,
 } from "../../../composer/composer-notice.js";
+import { useComposerRuntimeAdapters } from "../../../composer/runtime-adapters.js";
 import { Dialog, Tooltip } from "../../../design-system/index.js";
 import { useTableColumnGlide } from "../../../table-column-glide.js";
 import { Skeleton } from "../../../ui/skeleton.js";
@@ -6432,13 +6433,14 @@ export function AgentKitComposer({
     };
   }, []);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const composerTranslate = useComposerRuntimeAdapters().translate;
   useEffect(() => {
     setAttachmentError(null);
     setStopError(null);
   }, [threadId]);
   const composerAttachmentAdapter = useMemo(
-    () => attachmentAdapter ?? createChatAttachmentAdapter(),
-    [attachmentAdapter],
+    () => attachmentAdapter ?? createChatAttachmentAdapter(composerTranslate),
+    [attachmentAdapter, composerTranslate],
   );
   const starting = useAgentKitSubmissionStarting(threadId);
   const active = hasActiveRuns(thread) || starting;

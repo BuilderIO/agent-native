@@ -1,3 +1,5 @@
+import type { ComposerTranslate } from "./runtime-adapters.js";
+
 export type AgentPromptAttachmentReadError =
   | "read-failed"
   | "too-large"
@@ -238,6 +240,45 @@ export function isInlineableAgentPromptFile(file: File): boolean {
   return /\.(txt|md|markdown|mdx|csv|tsv|json|jsonl|yaml|yml|ts|tsx|js|jsx|mjs|cjs|py|rb|go|rs|java|c|cpp|h|cs|swift|kt|sh|bash|zsh|fish|toml|ini|cfg|conf|xml|svg|html|htm|css|scss|sass|less|sql|graphql|gql|eml)$/i.test(
     file.name,
   );
+}
+
+/**
+ * Images past these limits cannot be shrunk in the browser, so they are refused
+ * at attach time; otherwise they fall back to a normal upload and the failure
+ * surfaces at send time with the wrong reason.
+ */
+export async function getUnshrinkableImageError(
+  file: File,
+  translate: ComposerTranslate,
+): Promise<string | null> {
+  if (!isRasterImageMediaType(file.type)) return null;
+  if (file.size > MAX_OPTIMIZABLE_IMAGE_INPUT_BYTES) {
+    const limit = MAX_OPTIMIZABLE_IMAGE_INPUT_BYTES / 1024 / 1024;
+    return translate("agentChat.composer.imageTooLargeToAttach", {
+      defaultValue:
+        '"{{name}}" is {{size}} MB - images over {{limit}} MB cannot be attached. Please use a smaller image.',
+      name: file.name,
+      size: (file.size / 1024 / 1024).toFixed(1),
+      limit,
+    });
+  }
+  const dimensions = await readRasterImageDimensions(file);
+  if (
+    dimensions &&
+    dimensions.width * dimensions.height > MAX_OPTIMIZABLE_IMAGE_PIXELS
+  ) {
+    const limit = MAX_OPTIMIZABLE_IMAGE_PIXELS / 1_000_000;
+    return translate("agentChat.composer.imageTooManyPixelsToAttach", {
+      defaultValue:
+        '"{{name}}" is {{megapixels}} megapixels - images over {{limit}} megapixels cannot be attached. Please use a smaller image.',
+      name: file.name,
+      megapixels: ((dimensions.width * dimensions.height) / 1_000_000).toFixed(
+        1,
+      ),
+      limit,
+    });
+  }
+  return null;
 }
 
 /**

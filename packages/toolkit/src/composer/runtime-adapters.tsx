@@ -273,7 +273,7 @@ export interface ComposerRuntimeAdapters {
 }
 
 const identityPath = (path: string) => path;
-const fallbackTranslate: ComposerTranslate = (key, options) => {
+export const fallbackTranslate: ComposerTranslate = (key, options) => {
   const template =
     typeof options?.defaultValue === "string" ? options.defaultValue : key;
 
