@@ -4,7 +4,10 @@ import {
   compareAndSetManyAppState,
   readAppState,
 } from "@agent-native/core/application-state";
-import { abortTurnByRefDurably } from "@agent-native/core/server";
+import {
+  abortTurnByRefDurably,
+  getActiveRunForThreadAsync,
+} from "@agent-native/core/server";
 import { backgroundAgentTurnIdForReceipt } from "@agent-native/core/shared";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
@@ -46,6 +49,7 @@ export default defineAction({
   schema: z.object({
     operation: z.enum([
       "track",
+      "settle",
       "release",
       "mark-delivered",
       "consume",
@@ -70,6 +74,20 @@ export default defineAction({
       recordingId,
       operation === "stop" ? "editor" : "viewer",
     );
+    const expectedTabId = workflowSessionTabId(
+      recordingId,
+      requestedAt,
+      requestId,
+    );
+    if (
+      ["track", "settle", "stop"].includes(operation) &&
+      tabId !== expectedTabId
+    ) {
+      fail("Invalid workflow generation session", {
+        errorCode: "invalid_workflow_generation_session",
+        statusCode: 400,
+      });
+    }
 
     const requestKey = `clips-ai-request-${recordingId}`;
     if (operation === "mark-delivered" || operation === "consume") {
@@ -247,6 +265,21 @@ export default defineAction({
       return { reconciled: false, reason: "newer-request" as const };
     }
 
+    if (operation === "settle") {
+      const activeRun = await getActiveRunForThreadAsync(tabId);
+      if (activeRun?.inFlight || activeRun?.status === "running") {
+        return { reconciled: false, reason: "still-running" as const };
+      }
+      const reconciled = await compareAndSetAppState(stateKey, rawState, {
+        ...rawState,
+        status: "failed",
+        failedAt: new Date().toISOString(),
+      });
+      return reconciled
+        ? { reconciled: true }
+        : { reconciled: false, reason: "stale" as const };
+    }
+
     if (operation === "track") {
       if (state.tabId === tabId) {
         return { reconciled: false, tracked: true };
@@ -289,10 +322,7 @@ export default defineAction({
         ? { reconciled: false, tracked: true }
         : { reconciled: false, tracked: false, reason: "stale" as const };
     }
-    if (
-      state.tabId !== tabId &&
-      !(operation === "stop" && !state.tabId && !state.claimedAt)
-    ) {
+    if (operation !== "stop" && state.tabId !== tabId) {
       return operation === "release"
         ? {
             reconciled: false,
@@ -302,17 +332,6 @@ export default defineAction({
         : { reconciled: false, reason: "different-run" as const };
     }
     if (operation === "stop") {
-      const expectedTabId = workflowSessionTabId(
-        recordingId,
-        requestedAt,
-        requestId,
-      );
-      if (tabId !== expectedTabId) {
-        fail("Invalid workflow generation session", {
-          errorCode: "invalid_workflow_generation_session",
-          statusCode: 400,
-        });
-      }
       await abortTurnByRefDurably(
         tabId,
         backgroundAgentTurnIdForReceipt(tabId, tabId),

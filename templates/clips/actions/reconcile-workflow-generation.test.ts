@@ -1,8 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+type ActiveRunSnapshot = { status: string; inFlight: boolean } | null;
+
 const mocks = vi.hoisted(() => ({
   assertAccess: vi.fn(async () => undefined),
   abortTurnByRefDurably: vi.fn(async () => "aborted" as const),
+  getActiveRunForThreadAsync: vi.fn(
+    async (): Promise<ActiveRunSnapshot> => null,
+  ),
   readAppState: vi.fn(),
   compareAndSetAppState: vi.fn(async () => true),
   compareAndSetManyAppState: vi.fn(async () => true),
@@ -24,6 +29,8 @@ vi.mock("@agent-native/core/sharing", () => ({
 vi.mock("@agent-native/core/server", () => ({
   abortTurnByRefDurably: (...args: unknown[]) =>
     mocks.abortTurnByRefDurably(...args),
+  getActiveRunForThreadAsync: (...args: unknown[]) =>
+    mocks.getActiveRunForThreadAsync(...args),
 }));
 
 import { backgroundAgentTurnIdForReceipt } from "@agent-native/core/shared";
@@ -37,6 +44,7 @@ const tabId = workflowSessionTabId("rec_123", requestedAt);
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.abortTurnByRefDurably.mockResolvedValue("aborted");
+  mocks.getActiveRunForThreadAsync.mockResolvedValue(null);
   mocks.compareAndSetAppState.mockResolvedValue(true);
   mocks.compareAndSetManyAppState.mockResolvedValue(true);
 });
@@ -77,8 +85,31 @@ describe("reconcile-workflow-generation", () => {
     );
   });
 
+  it("rejects a viewer claim for a non-canonical workflow session", async () => {
+    await expect(
+      action.run({
+        operation: "track",
+        recordingId: "rec_123",
+        requestedAt,
+        tabId: "arbitrary-thread",
+      }),
+    ).rejects.toThrow("Invalid workflow generation session");
+
+    expect(mocks.assertAccess).toHaveBeenCalledWith(
+      "recording",
+      "rec_123",
+      "viewer",
+    );
+    expect(mocks.readAppState).not.toHaveBeenCalled();
+  });
+
   it("requires the request ID when timestamps collide", async () => {
     const requestId = "workflow-request-current";
+    const requestTabId = workflowSessionTabId(
+      "rec_123",
+      requestedAt,
+      requestId,
+    );
     mocks.readAppState
       .mockResolvedValueOnce({
         kind: "email",
@@ -101,7 +132,7 @@ describe("reconcile-workflow-generation", () => {
         recordingId: "rec_123",
         requestedAt,
         requestId,
-        tabId,
+        tabId: requestTabId,
       }),
     ).resolves.toEqual({ reconciled: false, reason: "newer-request" });
     expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
@@ -371,6 +402,73 @@ describe("reconcile-workflow-generation", () => {
     );
   });
 
+  it("lets a viewer settle a terminal matching session without aborting it", async () => {
+    mocks.readAppState.mockResolvedValue({
+      kind: "email",
+      status: "generating",
+      recordingId: "rec_123",
+      requestedAt,
+      tabId,
+    });
+    mocks.getActiveRunForThreadAsync.mockResolvedValue({
+      status: "completed",
+      inFlight: false,
+    });
+
+    await expect(
+      action.run({
+        operation: "settle",
+        recordingId: "rec_123",
+        requestedAt,
+        tabId,
+      }),
+    ).resolves.toEqual({ reconciled: true });
+
+    expect(mocks.assertAccess).toHaveBeenCalledWith(
+      "recording",
+      "rec_123",
+      "viewer",
+    );
+    expect(mocks.getActiveRunForThreadAsync).toHaveBeenCalledWith(tabId);
+    expect(mocks.abortTurnByRefDurably).not.toHaveBeenCalled();
+    expect(mocks.compareAndSetAppState).toHaveBeenCalledWith(
+      "clips-workflow-rec_123",
+      expect.objectContaining({ status: "generating", requestedAt, tabId }),
+      expect.objectContaining({ status: "failed", requestedAt, tabId }),
+    );
+  });
+
+  it("does not settle a matching session while its run is active", async () => {
+    mocks.readAppState.mockResolvedValue({
+      kind: "email",
+      status: "generating",
+      recordingId: "rec_123",
+      requestedAt,
+      tabId,
+    });
+    mocks.getActiveRunForThreadAsync.mockResolvedValue({
+      status: "running",
+      inFlight: true,
+    });
+
+    await expect(
+      action.run({
+        operation: "settle",
+        recordingId: "rec_123",
+        requestedAt,
+        tabId,
+      }),
+    ).resolves.toEqual({ reconciled: false, reason: "still-running" });
+
+    expect(mocks.assertAccess).toHaveBeenCalledWith(
+      "recording",
+      "rec_123",
+      "viewer",
+    );
+    expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
+    expect(mocks.abortTurnByRefDurably).not.toHaveBeenCalled();
+  });
+
   it("does not abort a session outside the recording's deterministic ID", async () => {
     mocks.readAppState.mockResolvedValue({
       kind: "email",
@@ -496,6 +594,8 @@ describe("reconcile-workflow-generation", () => {
   });
 
   it("does not fail a newer generation with the same timestamp", async () => {
+    const oldRequestId = "workflow-request-old";
+    const oldTabId = workflowSessionTabId("rec_123", requestedAt, oldRequestId);
     mocks.readAppState.mockResolvedValue({
       kind: "email",
       status: "generating",
@@ -510,8 +610,8 @@ describe("reconcile-workflow-generation", () => {
         operation: "stop",
         recordingId: "rec_123",
         requestedAt,
-        requestId: "workflow-request-old",
-        tabId,
+        requestId: oldRequestId,
+        tabId: oldTabId,
       }),
     ).resolves.toEqual({ reconciled: false, reason: "newer-request" });
     expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
@@ -537,13 +637,13 @@ describe("reconcile-workflow-generation", () => {
     ).resolves.toEqual({ reconciled: false, reason: "stale" });
   });
 
-  it("does not fail a different agent run", async () => {
+  it("lets canonical editor cancellation ignore a stale session claim", async () => {
     mocks.readAppState.mockResolvedValue({
       kind: "email",
       status: "generating",
       recordingId: "rec_123",
       requestedAt,
-      tabId: "clips-workflow:rec_123:request:chat-newer",
+      tabId: "arbitrary-thread",
     });
 
     await expect(
@@ -553,8 +653,17 @@ describe("reconcile-workflow-generation", () => {
         requestedAt,
         tabId,
       }),
-    ).resolves.toEqual({ reconciled: false, reason: "different-run" });
-    expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
+    ).resolves.toEqual({ reconciled: true });
+    expect(mocks.abortTurnByRefDurably).toHaveBeenCalledWith(
+      tabId,
+      backgroundAgentTurnIdForReceipt(tabId, tabId),
+      "workflow-session-ended",
+    );
+    expect(mocks.compareAndSetAppState).toHaveBeenCalledWith(
+      "clips-workflow-rec_123",
+      expect.objectContaining({ tabId: "arbitrary-thread" }),
+      expect.objectContaining({ status: "failed" }),
+    );
   });
   it("consumes the matching request when tracking a finished workflow", async () => {
     const request = {

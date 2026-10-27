@@ -797,7 +797,7 @@ async function dispatchWorkflowRequest(
 
   if (outcome.type === "rejected") {
     await retryWorkflowAction(
-      { operation: "stop", ...workflowRequest, tabId },
+      { operation: "settle", ...workflowRequest, tabId },
       "reconciled",
     );
     return { handled: false, accepted: false };
@@ -828,7 +828,7 @@ async function settleWorkflowSession(
     const result = (await callAction(
       "reconcile-workflow-generation" as any,
       {
-        operation: "stop",
+        operation: "settle",
         recordingId: session.recordingId,
         requestedAt: session.requestedAt,
         ...(session.requestId ? { requestId: session.requestId } : {}),
@@ -837,7 +837,9 @@ async function settleWorkflowSession(
     )) as { reconciled?: boolean; reason?: string };
     return (
       result.reconciled === true ||
-      (typeof result.reason === "string" && result.reason !== "stale")
+      (typeof result.reason === "string" &&
+        result.reason !== "stale" &&
+        result.reason !== "still-running")
     );
   } catch (error) {
     console.warn("[clips] failed to reconcile finished workflow session", {
