@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
 import type { AgentEngine, EngineEvent } from "../agent/engine/types.js";
@@ -173,6 +173,21 @@ describe("background automation identity scope", () => {
 });
 
 describe("MCP-managed automation callers", () => {
+  beforeAll(async () => {
+    await Promise.all([
+      import("../action.js"),
+      import("./tools.js"),
+      import("../agent/tool-search.js"),
+      import("../mcp/framework-tools.js"),
+      import("../../../../templates/analytics/actions/build-data-index.js"),
+      import("../server/agent-chat/script-entries.js"),
+      import("../server/email-actions.js"),
+      vi.importActual("../agent/production-agent.js"),
+      import("../agent/execution-fence.js"),
+      import("../agent/run-loop-with-resume.js"),
+    ]);
+  }, 120_000);
+
   it.each(
     ["slack", "email"].flatMap((platform) =>
       ["preflight", "delivery", "ordinary"].map((stage) => ({

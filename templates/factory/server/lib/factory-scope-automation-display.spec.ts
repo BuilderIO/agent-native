@@ -102,11 +102,12 @@ describe("factory automation display names", () => {
         model: "selected",
         enabled: false,
       });
+      const header = updated.split(/\r?\n---/).at(0);
+      if (header === undefined) throw new Error("Expected automation header.");
       expect(
-        updated
-          .split(/\r?\n---/)[0]
+        header
           .split(/\r?\n/)
-          .filter((line) => line.split(":")[0].trim() === "model"),
+          .filter((line) => line.split(":").shift()?.trim() === "model"),
       ).toEqual(["model: selected"]);
       expect(updated.endsWith(`${lineEnding}Body${lineEnding}`)).toBe(true);
       expect(

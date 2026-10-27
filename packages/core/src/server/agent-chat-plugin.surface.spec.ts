@@ -1512,6 +1512,7 @@ describe("assembled prompt snapshots", () => {
   });
 });
 
+// oracle-change: Native registry, schema and prompt checks run through the real plugin in agent-chat-plugin.additional-actions.spec.ts instead of source-layout assertions.
 describe("delegated tool surfaces in dev", () => {
   it("enables cross-app delegation by default with an explicit isolation opt-out", () => {
     expect(resolveA2AAgentDelegationEnabled()).toBe(true);

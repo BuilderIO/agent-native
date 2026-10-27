@@ -71,9 +71,9 @@ export default defineAction({
       userEmail: admin.userEmail,
       orgId: admin.orgId,
       appId,
-      caller: ctx?.caller,
-      networkProtocol: ctx?.networkProtocol,
-      automation: ctx?.automation,
+      caller: ctx.caller,
+      networkProtocol: ctx.networkProtocol,
+      automation: ctx.automation,
     };
     const definitions = await listAutomationDefinitions(actor, "organization");
     const exists = definitions.some((definition) => definition.name === name);

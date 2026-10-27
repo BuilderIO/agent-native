@@ -220,13 +220,14 @@ describe("createFactoryAutomation origin", () => {
         },
         context as never,
       );
-      const content = resourcePutIfAbsentMock.mock.calls[0][2] as string;
+      const content = resourcePutIfAbsentMock.mock.calls.at(0)?.[2] as string;
       expect(parseJobResource(content).meta.mcpManaged).toBe(true);
       expect(
         content
-          .split("\n---")[0]
-          .split("\n")
-          .filter((line) => line.split(":")[0].trim() === "mcpManaged"),
+          .split("\n---")
+          .at(0)
+          ?.split("\n")
+          .filter((line) => line.split(":").shift()?.trim() === "mcpManaged"),
       ).toEqual(["mcpManaged: true"]);
       expect(resourcePutMock).not.toHaveBeenCalled();
     },
@@ -246,7 +247,7 @@ describe("createFactoryAutomation origin", () => {
         { caller } as never,
       );
       expect(
-        parseJobResource(resourcePutIfAbsentMock.mock.calls[0][2]).meta
+        parseJobResource(resourcePutIfAbsentMock.mock.calls.at(0)?.[2]).meta
           .mcpManaged,
       ).toBeUndefined();
     },

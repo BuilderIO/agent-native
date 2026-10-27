@@ -428,14 +428,15 @@ function frontmatterKey(line: string): string | undefined {
 
 function automationFrontmatter(content: string) {
   const match = content.match(FACTORY_FRONTMATTER_RE);
-  if (!match) {
+  const header = match?.at(1);
+  if (!match || header === undefined) {
     fail(
       "Restore complete Factory automation frontmatter (--- header ---) before saving outside-agent or marked content.",
       { statusCode: 400, errorCode: "invalid_request" },
     );
   }
   return {
-    lines: match[1].split(/\r?\n/),
+    lines: header.split(/\r?\n/),
     suffix: content.slice(match[0].length),
   };
 }

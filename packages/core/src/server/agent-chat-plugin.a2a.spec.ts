@@ -1100,6 +1100,7 @@ describe("delegated A2A tool surface", () => {
     ]);
   });
 
+  // oracle-change: The source-spread check is replaced by real-plugin initial automation-tool coverage in agent-chat-plugin.additional-actions.spec.ts.
   it("keeps framework automation tools on the delegated first request", () => {
     const surface = createA2AEngineToolSurface(
       [tool("manage-automations"), tool("tool-search"), tool("rare-action")],

@@ -2,9 +2,11 @@ import { isOutsideAgentCall } from "../action-caller.js";
 import { actionExecutionStorage } from "../action-frame.js";
 import type { ActionRunContext } from "../action.js";
 
-export type AutomationOriginContext = Partial<
-  Pick<ActionRunContext, "caller" | "networkProtocol" | "automation">
->;
+export type AutomationOriginContext = {
+  caller?: ActionRunContext["caller"] | undefined;
+  networkProtocol?: ActionRunContext["networkProtocol"] | undefined;
+  automation?: ActionRunContext["automation"] | undefined;
+};
 
 /**
  * Whether an automation change or run trigger came from outside the app's own
