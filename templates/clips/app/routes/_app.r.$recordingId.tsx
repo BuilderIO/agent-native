@@ -505,6 +505,28 @@ export function buildRecordingBreadcrumbItems({
   ];
 }
 
+/**
+ * What the page shows for its player-data read. "share" hands the visitor to
+ * RecordingShareRedirect, which paints only the skeleton until the share page
+ * lands.
+ */
+export function recordingAccessView({
+  isPending,
+  accessStatus,
+  signedIn,
+}: {
+  isPending: boolean;
+  accessStatus: number | undefined;
+  signedIn: boolean;
+}): "pending" | "share" | "retry" | "page" {
+  if (isPending) return "pending";
+  if (accessStatus === 403 || (accessStatus === 401 && !signedIn)) {
+    return "share";
+  }
+  if (accessStatus === 401) return "retry";
+  return "page";
+}
+
 export function meta() {
   return [{ title: enMessages.recordingRoute.pageTitle }];
 }
@@ -918,20 +940,11 @@ export default function RecordingPage() {
   const playerDataAccessStatus = playerDataQ.isError
     ? (playerDataQ.error as { status?: number } | undefined)?.status
     : undefined;
-  const playerDataUnauthorized = playerDataAccessStatus === 401;
-  const playerDataForbidden = playerDataAccessStatus === 403;
-
-  const shouldFallbackToShare =
-    playerDataForbidden || (playerDataUnauthorized && !session);
-  useEffect(() => {
-    if (!recordingId || !shouldFallbackToShare) return;
-    void navigate(
-      `/share/${encodeURIComponent(recordingId)}?${legacyShareQuery}`,
-      {
-        replace: true,
-      },
-    );
-  }, [legacyShareQuery, recordingId, shouldFallbackToShare, navigate]);
+  const accessView = recordingAccessView({
+    isPending: playerDataQ.isPending,
+    accessStatus: playerDataAccessStatus,
+    signedIn: Boolean(session),
+  });
 
   const recording = playerDataQ.data?.recording;
   const hostedFailureCode = (recording as any)?.failureCode;
@@ -2637,11 +2650,17 @@ export default function RecordingPage() {
 
   if (!recordingId) return null;
 
-  if (playerDataQ.isPending || playerDataForbidden) {
-    return <RecordingWorkspaceSkeleton />;
+  if (accessView === "pending") return <RecordingWorkspaceSkeleton />;
+
+  if (accessView === "share") {
+    return (
+      <RecordingShareRedirect
+        to={`/share/${encodeURIComponent(recordingId)}?${legacyShareQuery}`}
+      />
+    );
   }
 
-  if (playerDataUnauthorized) {
+  if (accessView === "retry") {
     return (
       <Empty className="min-h-[calc(100dvh-3.5rem)] rounded-none border-0">
         <EmptyHeader>
@@ -3826,6 +3845,18 @@ export default function RecordingPage() {
   );
 
   return viewer;
+}
+
+// The redirect runs only from here so the page can't send the visitor to the
+// share page while painting anything but the skeleton; a redirect and a
+// skeleton read from different checks is how a signed-out private Clip
+// flashed "Something went wrong".
+export function RecordingShareRedirect({ to }: { to: string }) {
+  const navigate = useNavigate();
+  useEffect(() => {
+    void navigate(to, { replace: true });
+  }, [navigate, to]);
+  return <RecordingWorkspaceSkeleton />;
 }
 
 function RecordingWorkspaceSkeleton() {
