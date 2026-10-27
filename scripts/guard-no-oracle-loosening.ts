@@ -1115,7 +1115,7 @@ export function findOracleLoosening(changes: OracleChanges): OracleViolation[] {
         violations.push({ file: rel, line, rule, message: text });
     };
     const oldPath = changes.removed.get(abs)?.oldPath ?? rel;
-    if (isTestFile(rel))
+    if (isTestFile(rel) || isTestFile(oldPath))
       checkTestFile(
         rel,
         file,

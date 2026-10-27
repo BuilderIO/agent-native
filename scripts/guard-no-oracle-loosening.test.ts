@@ -733,6 +733,36 @@ describe("snapshot-changed", () => {
     );
   });
 
+  it("flags a changed snapshot when a test file is renamed out of the test pattern", () => {
+    const oldSpec = "templates/mail/actions/send.spec.ts";
+    const renamedFile = "templates/mail/actions/send.ts";
+    const base = [
+      `import { expect } from "${VITEST}";`,
+      'it("pins the output", () => {',
+      '  expect(trace).toMatchInlineSnapshot(`"before"`);',
+      "});",
+    ].join("\n");
+    const source = base.replace('`"before"`', '`"after"`');
+    const diff = [
+      `diff --git a/${oldSpec} b/${renamedFile}`,
+      "similarity index 90%",
+      `rename from ${oldSpec}`,
+      `rename to ${renamedFile}`,
+      `--- a/${oldSpec}`,
+      `+++ b/${renamedFile}`,
+      "@@ -3 +3 @@",
+      '-  expect(trace).toMatchInlineSnapshot(`"before"`);',
+      '+  expect(trace).toMatchInlineSnapshot(`"after"`);',
+    ].join("\n");
+
+    assert.deepEqual(
+      flagged({ [renamedFile]: { source, added: [3] } }, diff, {
+        [oldSpec]: base,
+      }),
+      [`${renamedFile}:3: snapshot-changed`],
+    );
+  });
+
   it("does not mistake an inserted same-key snapshot for the existing one", () => {
     const base = [
       `import { expect } from "${VITEST}";`,
