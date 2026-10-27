@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   resolveAppRuntimeUrl: vi.fn(),
   createWorkspaceSsoEmbedSession: vi.fn(),
   createGrantedDispatchMcpEmbedSession: vi.fn(),
+  createWorkspaceSsoEmbedSessionForWorkspaceAppChat: vi.fn(),
+  createGrantedDispatchMcpEmbedSessionForWorkspaceAppChat: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/server", async (importOriginal) => {
@@ -31,6 +33,10 @@ vi.mock("./mcp-gateway.js", () => ({
   createWorkspaceSsoEmbedSession: mocks.createWorkspaceSsoEmbedSession,
   createGrantedDispatchMcpEmbedSession:
     mocks.createGrantedDispatchMcpEmbedSession,
+  createWorkspaceSsoEmbedSessionForWorkspaceAppChat:
+    mocks.createWorkspaceSsoEmbedSessionForWorkspaceAppChat,
+  createGrantedDispatchMcpEmbedSessionForWorkspaceAppChat:
+    mocks.createGrantedDispatchMcpEmbedSessionForWorkspaceAppChat,
 }));
 
 import {
@@ -126,6 +132,32 @@ describe("workspace app chat proxy", () => {
       app: "analytics",
     });
     mocks.createGrantedDispatchMcpEmbedSession.mockReset();
+    mocks.createWorkspaceSsoEmbedSessionForWorkspaceAppChat.mockImplementation(
+      async (appId: string) => {
+        const result = await mocks.createWorkspaceSsoEmbedSession({
+          app: appId,
+          path: "/",
+          chrome: "minimal",
+        });
+        return {
+          startUrl: result.startUrl,
+          appBaseUrl: new URL(result.startUrl).origin,
+        };
+      },
+    );
+    mocks.createGrantedDispatchMcpEmbedSessionForWorkspaceAppChat.mockImplementation(
+      async (appId: string) => {
+        const result = await mocks.createGrantedDispatchMcpEmbedSession({
+          app: appId,
+          path: "/",
+          chrome: "minimal",
+        });
+        return {
+          startUrl: result.startUrl,
+          appBaseUrl: new URL(result.startUrl).origin,
+        };
+      },
+    );
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
   });
 
@@ -160,9 +192,9 @@ describe("workspace app chat proxy", () => {
   it("forwards chat through the Workspace app mount returned by embed exchange", async () => {
     const appId = "customer-ticket-triage";
     const appBaseUrl = `${WORKSPACE_ORIGIN}/dispatch/apps/${appId}`;
-    mocks.createWorkspaceSsoEmbedSession.mockResolvedValue({
+    mocks.createWorkspaceSsoEmbedSessionForWorkspaceAppChat.mockResolvedValue({
       startUrl: `${WORKSPACE_ORIGIN}/dispatch/_agent-native/embed/start?ticket=ticket-1`,
-      app: appId,
+      appBaseUrl,
     });
     const fetchImpl = stubFetch(() => new Response("ok", { status: 200 }), {
       redirectLocation: (token) =>
@@ -185,6 +217,62 @@ describe("workspace app chat proxy", () => {
     expect(
       (chatCall[1].headers as Headers).get("x-agent-native-embed-target"),
     ).toBe(`/dispatch/apps/${appId}/`);
+  });
+
+  it("does not send an embed token to a sibling app on the same origin", async () => {
+    const appId = "customer-ticket-triage";
+    mocks.createWorkspaceSsoEmbedSessionForWorkspaceAppChat.mockResolvedValue({
+      startUrl: `${WORKSPACE_ORIGIN}/dispatch/_agent-native/embed/start?ticket=ticket-1`,
+      appBaseUrl: `${WORKSPACE_ORIGIN}/dispatch/apps/${appId}`,
+    });
+    const fetchImpl = stubFetch(
+      () => new Response("unexpected", { status: 200 }),
+      {
+        redirectLocation: (token) =>
+          `/dispatch/apps/other-app/?embedded=1&__an_embed_token=${encodeURIComponent(token)}`,
+      },
+    );
+    const handler = createWorkspaceAppChatProxyHandler({ fetchImpl });
+
+    const response = await handler(
+      proxyEvent(`/_agent-native/workspace-app-chat/${appId}`, {
+        method: "POST",
+      }),
+    );
+
+    expect(response.status).toBe(502);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(((await response.json()) as { error: string }).error).toContain(
+      "outside its app mount",
+    );
+  });
+
+  it("rejects encoded path segments before forwarding an embed token", async () => {
+    const appId = "customer-ticket-triage";
+    mocks.createWorkspaceSsoEmbedSessionForWorkspaceAppChat.mockResolvedValue({
+      startUrl: `${WORKSPACE_ORIGIN}/dispatch/_agent-native/embed/start?ticket=ticket-1`,
+      appBaseUrl: `${WORKSPACE_ORIGIN}/dispatch/apps/${appId}`,
+    });
+    const fetchImpl = stubFetch(
+      () => new Response("unexpected", { status: 200 }),
+      {
+        redirectLocation: () =>
+          `/dispatch/apps/${appId}%2F..%2Fother-app/?embedded=1&__an_embed_token=encoded`,
+      },
+    );
+    const handler = createWorkspaceAppChatProxyHandler({ fetchImpl });
+
+    const response = await handler(
+      proxyEvent(`/_agent-native/workspace-app-chat/${appId}`, {
+        method: "POST",
+      }),
+    );
+
+    expect(response.status).toBe(502);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(((await response.json()) as { error: string }).error).toContain(
+      "outside its app mount",
+    );
   });
 
   it("does not send an embed token to a cross-origin exchange redirect", async () => {

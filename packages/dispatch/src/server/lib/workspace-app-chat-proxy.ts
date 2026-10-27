@@ -13,8 +13,8 @@ import {
 
 import { parseWorkspaceAppChatProxyPath } from "../../shared/workspace-app-chat.js";
 import {
-  createGrantedDispatchMcpEmbedSession,
-  createWorkspaceSsoEmbedSession,
+  createGrantedDispatchMcpEmbedSessionForWorkspaceAppChat,
+  createWorkspaceSsoEmbedSessionForWorkspaceAppChat,
 } from "./mcp-gateway.js";
 
 const TARGET_CHAT_PATH = "/_agent-native/agent-chat";
@@ -168,13 +168,16 @@ export function embedSessionTokenExpiry(token: string): number {
   return exp * 1000;
 }
 
-async function mintEmbedStartUrl(appId: string): Promise<string> {
-  const input = { app: appId, path: "/", chrome: "minimal" } as const;
+async function mintEmbedStartUrl(
+  appId: string,
+): Promise<{ startUrl: string; appBaseUrl: string }> {
   try {
-    return (await createWorkspaceSsoEmbedSession(input)).startUrl;
+    return await createWorkspaceSsoEmbedSessionForWorkspaceAppChat(appId);
   } catch (ssoError) {
     try {
-      return (await createGrantedDispatchMcpEmbedSession(input)).startUrl;
+      return await createGrantedDispatchMcpEmbedSessionForWorkspaceAppChat(
+        appId,
+      );
     } catch (grantError) {
       throw new Error(
         `Could not create an app session for "${appId}". ` +
@@ -187,6 +190,7 @@ async function mintEmbedStartUrl(appId: string): Promise<string> {
 
 export async function exchangeEmbedStartUrl(
   startUrl: string,
+  expectedAppBaseUrl: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<WorkspaceAppChatSession> {
   const start = new URL(startUrl);
@@ -207,17 +211,39 @@ export async function exchangeEmbedStartUrl(
   if (resolved.origin !== start.origin) {
     throw new Error("App session exchange redirected to an untrusted origin.");
   }
-  const appBaseUrl = `${resolved.origin}${resolved.pathname.replace(/\/+$/, "")}`;
+  const expectedApp = new URL(expectedAppBaseUrl);
+  if (
+    expectedApp.origin !== start.origin ||
+    !isWithinAppMount(expectedApp.pathname, resolved.pathname)
+  ) {
+    throw new Error("App session exchange redirected outside its app mount.");
+  }
   const token = resolved.searchParams.get(EMBED_TOKEN_QUERY_PARAM);
   if (!token) {
     throw new Error("App session exchange returned no embed token.");
   }
   return {
-    appBaseUrl,
+    appBaseUrl: `${expectedApp.origin}${expectedApp.pathname.replace(/\/+$/, "")}`,
     token,
     embedTarget: resolved.pathname,
     expiresAt: embedSessionTokenExpiry(token),
   };
+}
+
+function appPathSegments(pathname: string): string[] | null {
+  if (pathname.includes("%")) return null;
+  return pathname.split("/").filter(Boolean);
+}
+
+function isWithinAppMount(mountPath: string, targetPath: string): boolean {
+  const mount = appPathSegments(mountPath);
+  const target = appPathSegments(targetPath);
+  return (
+    mount !== null &&
+    target !== null &&
+    mount.length <= target.length &&
+    mount.every((segment, index) => target[index] === segment)
+  );
 }
 
 async function resolveWorkspaceAppChatSession(input: {
@@ -250,11 +276,14 @@ async function resolveWorkspaceAppChatSession(input: {
         ...(input.orgId ? { orgId: input.orgId } : {}),
         requestOrigin: input.requestOrigin,
       },
-      async () =>
-        exchangeEmbedStartUrl(
-          await mintEmbedStartUrl(input.appId),
+      async () => {
+        const embedSession = await mintEmbedStartUrl(input.appId);
+        return exchangeEmbedStartUrl(
+          embedSession.startUrl,
+          embedSession.appBaseUrl,
           input.fetchImpl,
-        ),
+        );
+      },
     ),
   );
   sessionCache.set(key, pending);

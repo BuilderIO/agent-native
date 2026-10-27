@@ -132,7 +132,9 @@ import { runWithRequestContext } from "@agent-native/core/server";
 
 import {
   createGrantedDispatchMcpEmbedSession,
+  createGrantedDispatchMcpEmbedSessionForWorkspaceAppChat,
   createWorkspaceSsoEmbedSession,
+  createWorkspaceSsoEmbedSessionForWorkspaceAppChat,
   askGrantedDispatchMcpApp,
   getGrantedDispatchMcpAppTask,
   listGrantedDispatchMcpApps,
@@ -1652,7 +1654,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
         },
       ]);
       mocks.getUserSetting.mockResolvedValue({ mode: "all-apps" });
-      mocks.managerCallTool.mockResolvedValueOnce({
+      mocks.managerCallTool.mockResolvedValue({
         structuredContent: {
           startUrl:
             "https://beta.agent-workspace.builder.io/customer-ticket-triage/_agent-native/embed/start?ticket=remote",
@@ -1705,6 +1707,22 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       );
       expect(result.startUrl).toBe(
         "https://beta.agent-workspace.builder.io/customer-ticket-triage/_agent-native/embed/start?ticket=remote",
+      );
+
+      const chatSession = await runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "https://beta.agent-workspace.builder.io",
+        },
+        () =>
+          route === "workspace-sso"
+            ? createWorkspaceSsoEmbedSessionForWorkspaceAppChat(workspaceApp.id)
+            : createGrantedDispatchMcpEmbedSessionForWorkspaceAppChat(
+                workspaceApp.id,
+              ),
+      );
+      expect(chatSession.appBaseUrl).toBe(
+        "https://beta.agent-workspace.builder.io/customer-ticket-triage",
       );
     },
   );
