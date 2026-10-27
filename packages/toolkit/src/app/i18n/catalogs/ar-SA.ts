@@ -538,6 +538,10 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "رفع ملف مهارة",
   "composer.upload": "رفع",
   "composer.uploadFailed": "تعذّر رفع الملف المحدد.",
+  "composer.imageTooLargeToAttach":
+    '"{{name}}" بحجم {{size}} ميغابايت، ولا يمكن إرفاق الصور التي يزيد حجمها على {{limit}} ميغابايت. يُرجى استخدام صورة أصغر.',
+  "composer.imageTooManyPixelsToAttach":
+    '"{{name}}" بدقة {{megapixels}} ميغابكسل، ولا يمكن إرفاق الصور التي تزيد على {{limit}} ميغابكسل. يُرجى استخدام صورة أصغر.',
   "composer.fileTooLarge":
     "هذا الملف أكبر من حد الرفع البالغ {{size}} ميغابايت.",
   "composer.sessionExpired":

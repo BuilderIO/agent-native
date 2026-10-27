@@ -285,6 +285,8 @@ const messages = {
     fillerCompleted: "Filler-word removal complete",
     workflowReady: "Workflow ready",
     workflowFailed: "Workflow generation failed",
+    workflowCancelled: "Workflow generation cancelled",
+    workflowTimedOut: "Workflow generation timed out",
     transcriptionCompleted: "Transcription complete",
     transcriptNotReady: "Transcript is not ready yet",
     tryAfterTranscription: "Try again after transcription finishes.",
@@ -303,6 +305,8 @@ const messages = {
     silenceEditsUnreadable:
       "Saved edits couldn't be read, so silence removal wasn't applied.",
     workflowQueued: "Generating workflow…",
+    workflowStillGenerating: "Still generating workflow…",
+    workflowTakingLonger: "This is taking longer than usual…",
     pageTitle: "Clip recording · Clips",
     loomMissingUrl: "This Loom recording is missing its source URL.",
     finalizeFailed: "Finalize failed ({{status}})",
