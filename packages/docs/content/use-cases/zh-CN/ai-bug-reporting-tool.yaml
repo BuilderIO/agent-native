@@ -1,6 +1,10 @@
 template: v2
 slug: ai-bug-reporting-tool
 app: clips
+roles:
+  - product
+  - engineering
+  - design
 title: 录下 bug，附带控制台和网络日志
 seo_title: 带控制台日志的 AI 缺陷报告工具
 meta_description: 在 Chrome 中演示 bug，Agent-Native Clips 会把录屏变成一个链接，附带页面的报错和失败的请求，交给你的工程师或编码 agent。

@@ -1,6 +1,10 @@
 template: v2
 slug: ai-bug-reporting-tool
 app: clips
+roles:
+  - product
+  - engineering
+  - design
 title: "कंसोल और नेटवर्क लॉग्स के साथ बग रिकॉर्ड करें"
 seo_title: "कंसोल लॉग्स के साथ AI बग रिपोर्टिंग टूल"
 meta_description: "Chrome में बग दिखाएँ, और Agent-Native Clips आपकी रिकॉर्डिंग को आपके इंजीनियर या कोडिंग एजेंट के लिए एक लिंक में बदल देता है, जिसमें पेज के एरर और फ़ेल हुए रिक्वेस्ट होते हैं।"

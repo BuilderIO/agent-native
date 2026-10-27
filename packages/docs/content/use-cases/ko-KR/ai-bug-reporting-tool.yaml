@@ -1,6 +1,10 @@
 template: v2
 slug: ai-bug-reporting-tool
 app: clips
+roles:
+  - product
+  - engineering
+  - design
 title: 콘솔과 네트워크 로그까지 담아 버그를 녹화하세요
 seo_title: 콘솔 로그가 담기는 AI 버그 리포트 도구
 meta_description: "Chrome에서 버그를 보여 주세요. Agent-Native Clips가 녹화를 페이지의 오류와 실패한 요청이 담긴 링크 하나로 만들어 엔지니어나 코딩 에이전트에게 건네줘요."

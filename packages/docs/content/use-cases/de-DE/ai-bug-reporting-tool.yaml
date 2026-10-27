@@ -1,6 +1,10 @@
 template: v2
 slug: ai-bug-reporting-tool
 app: clips
+roles:
+  - product
+  - engineering
+  - design
 title: Fehler samt Konsolen- und Netzwerk-Logs aufnehmen
 seo_title: KI-Tool für Fehlerberichte mit Konsolen-Logs
 meta_description: Zeigen Sie den Fehler in Chrome, und Agent-Native Clips macht aus Ihrer Aufnahme einen Link mit den Fehlern und fehlgeschlagenen Anfragen der Seite für Ihren Entwickler oder Coding-Agenten.

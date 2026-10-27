@@ -1,6 +1,10 @@
 template: v2
 slug: ai-bug-reporting-tool
 app: clips
+roles:
+  - product
+  - engineering
+  - design
 title: 錄下錯誤，附上主控台與網路記錄
 seo_title: 附帶主控台記錄的 AI 錯誤回報工具
 meta_description: 在 Chrome 中示範錯誤，Agent-Native Clips 就會把你的錄影變成一個連結，附上頁面的錯誤訊息和失敗的請求，交給你的工程師或程式開發 agent。

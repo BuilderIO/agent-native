@@ -1,6 +1,10 @@
 template: v2
 slug: ai-bug-reporting-tool
 app: clips
+roles:
+  - product
+  - engineering
+  - design
 title: コンソールログとネットワークログ付きでバグを録画
 seo_title: コンソールログ付きのAIバグ報告ツール
 meta_description: Chromeでバグを再現すると、Agent-Native Clipsが録画を、ページのエラーと失敗したリクエスト付きのリンク1つにまとめます。エンジニアやコーディングエージェントにそのまま渡せます。

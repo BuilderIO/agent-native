@@ -1,6 +1,10 @@
 template: v2
 slug: ai-bug-reporting-tool
 app: clips
+roles:
+  - product
+  - engineering
+  - design
 title: "سجّل الأخطاء مع سجلات وحدة التحكم والشبكة"
 seo_title: "أداة ذكية للإبلاغ عن الأخطاء مع سجلات وحدة التحكم"
 meta_description: "اعرض الخطأ في Chrome، ويحوّل Agent-Native Clips تسجيلك إلى رابط واحد يضم أخطاء الصفحة وطلباتها الفاشلة لمهندسك أو وكيل البرمجة لديك."
