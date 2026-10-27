@@ -1,6 +1,10 @@
 template: v2
 slug: ai-funnel-analysis
 app: analytics
+roles:
+  - product
+  - founders
+  - engineering
 title: 신규 사용자가 이탈하는 지점을 찾아보세요
 seo_title: 세션 리플레이로 하는 AI 퍼널 분석
 meta_description: "Agent-Native Analytics에 가입 단계 중 어디서 신규 사용자를 잃는지 평소 말로 물어보세요. 내 이벤트로 퍼널을 만들고, 떠난 사람들의 리플레이를 볼 수 있어요."

@@ -1,6 +1,10 @@
 template: v2
 slug: ai-funnel-analysis
 app: analytics
+roles:
+  - product
+  - founders
+  - engineering
 title: 新規ユーザーの離脱ポイントを見つける
 seo_title: セッションリプレイで行うAIファネル分析
 meta_description: 新規ユーザーがどの登録ステップで離脱するかをAgent-Native Analyticsに普段の言葉で質問し、自社のイベントからファネルを作成。離脱した人のリプレイも確認できます。

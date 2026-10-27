@@ -1,6 +1,10 @@
 template: v2
 slug: ai-funnel-analysis
 app: analytics
+roles:
+  - product
+  - founders
+  - engineering
 title: "اعرف أين يتوقف المستخدمون الجدد"
 seo_title: "تحليل مسار التحويل بالذكاء الاصطناعي وإعادة الجلسة"
 meta_description: "اسأل Agent-Native Analytics بلغة عادية عن خطوة التسجيل التي تخسر فيها المستخدمين الجدد، واحصل على المسار من أحداثك، ثم شاهد جلسات من غادروا."

@@ -1,6 +1,10 @@
 template: v2
 slug: ai-funnel-analysis
 app: analytics
+roles:
+  - product
+  - founders
+  - engineering
 title: Erkennen, wo neue Nutzer abspringen
 seo_title: KI-Funnel-Analyse mit Session-Replays
 meta_description: Fragen Sie Agent-Native Analytics, welcher Signup-Schritt neue Nutzer verliert, erhalten Sie den Funnel aus Ihren Events und sehen Sie Replays derer, die gingen.

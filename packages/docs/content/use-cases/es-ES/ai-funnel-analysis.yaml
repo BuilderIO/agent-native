@@ -1,6 +1,10 @@
 template: v2
 slug: ai-funnel-analysis
 app: analytics
+roles:
+  - product
+  - founders
+  - engineering
 title: Descubre dónde abandonan los nuevos usuarios
 seo_title: Análisis de embudo con IA y sesiones grabadas
 meta_description: Pregunta a Agent-Native Analytics qué paso del registro pierde usuarios, obtén el embudo con tus propios eventos y mira las grabaciones de quienes se fueron.

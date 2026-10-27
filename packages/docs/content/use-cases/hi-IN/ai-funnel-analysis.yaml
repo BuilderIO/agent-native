@@ -1,6 +1,10 @@
 template: v2
 slug: ai-funnel-analysis
 app: analytics
+roles:
+  - product
+  - founders
+  - engineering
 title: "जानें कि नए यूज़र्स कहाँ छोड़ देते हैं"
 seo_title: "सेशन रीप्ले के साथ AI फ़नल एनालिसिस"
 meta_description: "Agent-Native Analytics से आसान भाषा में पूछें कि साइनअप का कौन-सा स्टेप नए यूज़र्स खोता है, अपने इवेंट्स से फ़नल पाएँ, फिर छोड़कर गए लोगों के रीप्ले देखें।"

@@ -1,6 +1,10 @@
 template: v2
 slug: ai-funnel-analysis
 app: analytics
+roles:
+  - product
+  - founders
+  - engineering
 title: 找出新用户在哪一步流失
 seo_title: 结合会话回放的 AI 漏斗分析
 meta_description: 用日常语言问 Agent-Native Analytics 哪一步注册流程流失的新用户最多，基于你自己的事件得到漏斗，再观看离开者的会话回放。

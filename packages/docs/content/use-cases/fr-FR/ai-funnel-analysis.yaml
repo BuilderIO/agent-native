@@ -1,6 +1,10 @@
 template: v2
 slug: ai-funnel-analysis
 app: analytics
+roles:
+  - product
+  - founders
+  - engineering
 title: Trouvez où décrochent vos nouveaux inscrits
 seo_title: Analyse de funnel par IA avec replays de sessions
 meta_description: Demandez à Agent-Native Analytics quelle étape d'inscription vous fait perdre du monde, obtenez le funnel de vos événements, puis voyez les replays des partants.

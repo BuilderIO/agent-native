@@ -1,6 +1,10 @@
 template: v2
 slug: ai-funnel-analysis
 app: analytics
+roles:
+  - product
+  - founders
+  - engineering
 title: Descubra onde os novos usuários desistem
 seo_title: Análise de funil com IA e replays de sessão
 meta_description: Pergunte ao Agent-Native Analytics qual etapa do cadastro perde novos usuários, veja o funil com seus próprios eventos e assista aos replays de quem saiu.
