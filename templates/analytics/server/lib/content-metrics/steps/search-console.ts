@@ -1,8 +1,8 @@
-import { createHash } from "node:crypto";
-
-import { normalizeSearchConsoleProperty } from "../../../../shared/search-console-property.js";
 import { querySearchAnalytics } from "../../search-console.js";
-import type { SearchConsoleSite } from "../config.js";
+import {
+  searchConsoleConfigFingerprint,
+  type SearchConsoleSite,
+} from "../config.js";
 import { ContentStepStop, type ContentStep } from "../step.js";
 import {
   listContentItems,
@@ -62,16 +62,7 @@ export const searchConsoleStep: ContentStep = {
   id: "search_console",
   async run({ collection, now, signal }) {
     const sites = collection.config.searchConsole.sites;
-    const configFingerprint = createHash("sha256")
-      .update(
-        JSON.stringify(
-          sites.map((site) => [
-            normalizeSearchConsoleProperty(site.siteUrl),
-            site.pathPrefix?.trim() ?? "",
-          ]),
-        ),
-      )
-      .digest("hex");
+    const configFingerprint = searchConsoleConfigFingerprint(sites);
     if (sites.length === 0) {
       throw new ContentStepStop({
         status: "not_configured",

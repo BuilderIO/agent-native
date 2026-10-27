@@ -1392,9 +1392,8 @@ button[title="Open agent sidebar"] {
   line-height: 1.5;
 }
 
-/* Selection chrome mirrors measured Google Slides values and stays screen-px
-   constant. The overlay elements carry inline border-radius / box-shadow, so
-   those declarations need !important. */
+/* Selection chrome stays constant in screen pixels. Overlay elements carry
+   inline border-radius / box-shadow, so these declarations need !important. */
 [data-slide-layer-hover-outline="true"] {
   border: 1px solid #747775;
   border-radius: 0 !important;

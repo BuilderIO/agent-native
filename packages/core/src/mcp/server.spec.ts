@@ -61,6 +61,26 @@ vi.mock("../server/action-change-marker-write.js", () => ({
   writeActionChangeMarker: actionChangeMocks.writeMarker,
 }));
 
+// People who turned on the "App cards in chat apps" lab. Other labs read the
+// real store.
+const appCardsLab = vi.hoisted(() => ({ optedIn: new Set<string>() }));
+
+vi.mock("../labs/store.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../labs/store.js")>();
+  return {
+    ...actual,
+    getUserLabEnabled: vi.fn(
+      async (...args: Parameters<typeof actual.getUserLabEnabled>) => {
+        const [email, lab] = args;
+        const key = typeof lab === "string" ? lab : lab.key;
+        return key === "mcp-app-cards"
+          ? appCardsLab.optedIn.has(email)
+          : actual.getUserLabEnabled(...args);
+      },
+    ),
+  };
+});
+
 const auditMocks = vi.hoisted(() => ({
   record: vi.fn(async (_input: unknown) => {}),
 }));
@@ -996,6 +1016,7 @@ async function directoryWidgetTemplateConfig(
 async function mcpAppsFullCatalogHeaders(
   options: {
     clientId?: string;
+    ownerEmail?: string;
     scope?: string;
   } = {},
 ) {
@@ -1004,6 +1025,10 @@ async function mcpAppsFullCatalogHeaders(
     "x-agent-native-mcp-full-catalog": "1",
   };
 }
+
+// The shared ACCESS_TOKEN carries no email, so tests that expect cards name an
+// owner who turned on the "App cards in chat apps" lab.
+const CARDS_OWNER = { "x-agent-native-owner-email": "cards-owner@example.com" };
 
 describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)", () => {
   beforeEach(() => {
@@ -1016,8 +1041,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     delete process.env.AGENT_NATIVE_MCP_DEV_OPEN;
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
-    process.env.AGENT_NATIVE_MCP_APPS_INLINE = "1";
-    delete process.env.AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS;
+    appCardsLab.optedIn = new Set([
+      "oauth@example.com",
+      CARDS_OWNER["x-agent-native-owner-email"],
+    ]);
     mockOAuthClients.clear();
     approvalStoreMocks.grants.clear();
     embedSessionMocks.renewalTickets.clear();
@@ -1039,8 +1066,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     delete process.env.AGENT_NATIVE_MCP_DEV_OPEN;
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
-    delete process.env.AGENT_NATIVE_MCP_APPS_INLINE;
-    delete process.env.AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS;
+    appCardsLab.optedIn.clear();
     mockOAuthClients.clear();
     vi.clearAllMocks();
     builtinToolMocks.askAppRun.mockResolvedValue({ response: "agent answer" });
@@ -2041,7 +2067,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
   });
 
   it("serves only the directory allowlist with explicit annotations and app UI metadata", async () => {
-    process.env.AGENT_NATIVE_MCP_APPS_INLINE = "0";
+    // The directory catalog serves cards whether or not the lab is on.
+    appCardsLab.optedIn.clear();
     const directoryAction = defineAction({
       description: "Create one workspace artifact.",
       parameters: {},
@@ -6972,7 +6999,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         method: "tools/list",
         params: {},
       },
-      { headers: { "x-agent-native-mcp-full-catalog": "1" } },
+      { headers: { ...CARDS_OWNER, "x-agent-native-mcp-full-catalog": "1" } },
     );
     expect(out.error).toBeUndefined();
     const names = out.result.tools.map((t: any) => t.name);
@@ -7783,7 +7810,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         method: "tools/list",
         params: {},
       },
-      { config: compactSurfaceDefaultConfig },
+      { headers: CARDS_OWNER, config: compactSurfaceDefaultConfig },
     );
 
     expect(toolsOut.error).toBeUndefined();
@@ -7812,7 +7839,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         method: "resources/list",
         params: {},
       },
-      { config: compactSurfaceDefaultConfig },
+      { headers: CARDS_OWNER, config: compactSurfaceDefaultConfig },
     );
 
     expect(resourcesOut.error).toBeUndefined();
@@ -8153,9 +8180,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.result.resources[0]._meta.ui.domain).toBeUndefined();
   });
 
-  it("omits MCP App resources when the inline kill switch is off", async () => {
-    delete process.env.AGENT_NATIVE_MCP_APPS_INLINE;
-    delete process.env.AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS;
+  it("omits MCP App resources for a caller who has not turned on the lab", async () => {
+    appCardsLab.optedIn.clear();
     const list = await callWeb(
       { jsonrpc: "2.0", id: 41, method: "resources/list", params: {} },
       { headers: await mcpAppsFullCatalogHeaders() },
@@ -8181,11 +8207,23 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
     expect(call.error).toBeUndefined();
     expect(JSON.stringify(call)).not.toContain("openai/outputTemplate");
+
+    // A card's URI is easy to guess, so reading it directly is refused too.
+    const read = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 50,
+        method: "resources/read",
+        params: { uri: "ui://mail/echo-thing/shell-v65" },
+      },
+      { headers: await mcpAppsFullCatalogHeaders() },
+    );
+    expect(read.result).toBeUndefined();
+    expect(read.error?.message).toContain("MCP App resource not found");
   });
 
-  it("serves MCP App resources when an authenticated first-party caller requests inline apps", async () => {
-    delete process.env.AGENT_NATIVE_MCP_APPS_INLINE;
-    delete process.env.AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS;
+  it("serves MCP App resources to an authenticated first-party caller without the lab", async () => {
+    appCardsLab.optedIn.clear();
     const list = await callWeb(
       { jsonrpc: "2.0", id: 45, method: "resources/list", params: {} },
       { headers: await firstPartyMcpAuthHeaders() },
@@ -8206,12 +8244,24 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
     expect(call.error).toBeUndefined();
     expect(JSON.stringify(call)).toContain("openai/outputTemplate");
+
+    const read = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 51,
+        method: "resources/read",
+        params: { uri: "ui://mail/echo-thing/shell-v65" },
+      },
+      { headers: await firstPartyMcpAuthHeaders() },
+    );
+    expect(read.error).toBeUndefined();
+    expect(read.result.contents).toEqual([
+      expect.objectContaining({ uri: "ui://mail/echo-thing/shell-v65" }),
+    ]);
   });
 
-  it("serves inline MCP App resources to allow-listed emails while the global switch is off", async () => {
-    delete process.env.AGENT_NATIVE_MCP_APPS_INLINE;
-    process.env.AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS =
-      "someone@else.com, oauth@example.com";
+  it("serves cards to the caller who turned the lab on and plain results to everyone else", async () => {
+    appCardsLab.optedIn = new Set(["oauth@example.com"]);
     const list = await callWeb(
       { jsonrpc: "2.0", id: 43, method: "resources/list", params: {} },
       { headers: await mcpAppsFullCatalogHeaders() },
@@ -8220,6 +8270,39 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(list.result.resources).toEqual([
       expect.objectContaining({ uri: "ui://mail/echo-thing/shell-v65" }),
     ]);
+
+    const otherHeaders = await mcpAppsFullCatalogHeaders({
+      ownerEmail: "someone@else.com",
+    });
+    const otherList = await callWeb(
+      { jsonrpc: "2.0", id: 47, method: "resources/list", params: {} },
+      { headers: otherHeaders },
+    );
+    expect(otherList.error).toBeUndefined();
+    expect(otherList.result.resources).toEqual([]);
+    const otherTools = await callWeb(
+      { jsonrpc: "2.0", id: 48, method: "tools/list", params: {} },
+      { headers: otherHeaders },
+    );
+    expect(otherTools.error).toBeUndefined();
+    expect(JSON.stringify(otherTools)).not.toContain("ui://mail/");
+  });
+
+  it("ignores the retired inline env vars", async () => {
+    appCardsLab.optedIn.clear();
+    process.env.AGENT_NATIVE_MCP_APPS_INLINE = "1";
+    process.env.AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS = "oauth@example.com";
+    try {
+      const list = await callWeb(
+        { jsonrpc: "2.0", id: 49, method: "resources/list", params: {} },
+        { headers: await mcpAppsFullCatalogHeaders() },
+      );
+      expect(list.error).toBeUndefined();
+      expect(list.result.resources).toEqual([]);
+    } finally {
+      delete process.env.AGENT_NATIVE_MCP_APPS_INLINE;
+      delete process.env.AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS;
+    }
   });
 
   it("handles `resources/templates/list` with MCP App templates", async () => {
@@ -8814,7 +8897,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         method: "tools/call",
         params: { name: "echo-thing", arguments: { value: "hello" } },
       },
-      { headers: { "x-agent-native-mcp-full-catalog": "1" } },
+      { headers: { ...CARDS_OWNER, "x-agent-native-mcp-full-catalog": "1" } },
     );
     expect(out.error).toBeUndefined();
     const content = out.result.content;
@@ -9714,7 +9797,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         params: { name: "open-app-embed", arguments: {} },
       },
       {
-        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        headers: { ...CARDS_OWNER, "x-agent-native-mcp-full-catalog": "1" },
         config: embedConfig,
       },
     );
@@ -9793,7 +9876,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         params: { name: "open-app-embed", arguments: {} },
       },
       {
-        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        headers: { ...CARDS_OWNER, "x-agent-native-mcp-full-catalog": "1" },
         config: embedConfig,
       },
     );
@@ -9918,7 +10001,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         params: { name: "open-embed-only", arguments: {} },
       },
       {
-        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        headers: { ...CARDS_OWNER, "x-agent-native-mcp-full-catalog": "1" },
         config: embedConfig,
       },
     );
@@ -9969,7 +10052,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         params: { name: "open-url-only-embed", arguments: {} },
       },
       {
-        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        headers: { ...CARDS_OWNER, "x-agent-native-mcp-full-catalog": "1" },
         config: embedConfig,
       },
     );
@@ -10023,7 +10106,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         params: { name: "open-root-embed", arguments: {} },
       },
       {
-        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        headers: { ...CARDS_OWNER, "x-agent-native-mcp-full-catalog": "1" },
         config: embedConfig,
       },
     );
@@ -10681,7 +10764,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         params: { name: "open-thread", arguments: {} },
       },
       {
-        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        headers: { ...CARDS_OWNER, "x-agent-native-mcp-full-catalog": "1" },
         config: embedConfig,
       },
     );
@@ -10743,7 +10826,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         params: { name: "open-deck-by-name", arguments: {} },
       },
       {
-        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        headers: { ...CARDS_OWNER, "x-agent-native-mcp-full-catalog": "1" },
         config: embedConfig,
       },
     );
@@ -10816,7 +10899,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         params: { name: "open-thread-route", arguments: {} },
       },
       {
-        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        headers: { ...CARDS_OWNER, "x-agent-native-mcp-full-catalog": "1" },
         config: embedConfig,
       },
     );
@@ -10835,7 +10918,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         params: { name: "open-route-with-params", arguments: {} },
       },
       {
-        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        headers: { ...CARDS_OWNER, "x-agent-native-mcp-full-catalog": "1" },
         config: embedConfig,
       },
     );
@@ -11170,7 +11253,9 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
   it("returns modern tools/call results as one JSON response", async () => {
     const { client, wireContentTypes, wireResponses } =
-      await createModernClient();
+      await createModernClient(config, {
+        requestHeaders: CARDS_OWNER,
+      });
     try {
       const result = await client.callTool({
         name: "echo-thing",

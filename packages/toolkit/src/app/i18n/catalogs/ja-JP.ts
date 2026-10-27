@@ -2196,6 +2196,9 @@ const messages: ToolkitAgentChatTranslation = {
     "{{lab}} を変更できませんでした。もう一度お試しください。",
   "settingsShell.appGroup.mcpAbout":
     "{{app}} を Claude、ChatGPT、Cursor など、MCP に対応した AI アプリに接続します。接続したアプリは、あなたに代わって {{app}} で作業できます。アプリが見られるのは、あなたが見られるものだけです。",
+  "settingsShell.appGroup.mcpAppCards": "チャットアプリでのアプリカード",
+  "settingsShell.appGroup.mcpAppCardsDescription":
+    "MCP Apps に対応したチャットアプリ（Claude や ChatGPT など）で、ツールが操作できるカードを表示します。たとえば、編集して送信できるメールの下書きです。変更したら、チャットアプリでこのアプリを再接続してください。",
   "settingsShell.appGroup.mcpFootnote":
     "エージェント自身が使うツールについては、{{integrations}} を参照してください。",
   "settingsShell.appGroup.newAutomation": "新しい自動化",
