@@ -62,7 +62,7 @@ integrations:
       logos:
         - name: Slack
         - name: Google Sheets
-      body: Publique um dashboard em um canal do Slack, ou exporte uma tabela de negócios para uma nova planilha do Google Sheets na sua conta Google conectada.
+      body: Publique um dashboard num canal do Slack ou exporte negócios para uma nova planilha na sua conta Google conectada.
     - title: Conecte qualquer coisa via MCP
       logos:
         - name: Notion

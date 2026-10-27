@@ -76,7 +76,7 @@ other_uses:
     - title: スタートアップのKPIダッシュボードを作成
       url: https://www.agent-native.com/use-cases/ai-kpi-dashboard/
       body: スタートアップで追っているグラフを頼んで、1つのダッシュボードにまとめられます。
-    - title: スプレッドシートなしで週次マーケティングレポートを作成
+    - title: 表計算なしで週次マーケティングレポートを作成
       url: https://www.agent-native.com/use-cases/weekly-marketing-report/
       body: Google AnalyticsとHubSpotをもとに1週間の成果を質問し、レポートとして残せます。
     - title: 新規ユーザーの離脱ポイントを見つける

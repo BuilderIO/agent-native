@@ -1,7 +1,7 @@
 template: v2
 slug: ai-sales-analytics
 app: analytics
-title: Ihre Sales-Pipeline mit HubSpot- und Gong-Daten prüfen
+title: Ihre Sales-Pipeline mit HubSpot und Gong prüfen
 seo_title: KI-Vertriebsanalyse für HubSpot und Gong
 meta_description: Welche Deals stocken und warum? Fragen Sie Agent-Native Analytics vor dem Pipeline-Review zu HubSpot und Gong und behalten Sie die Antworten als Dashboard.
 updated: 2026-10-27
@@ -76,7 +76,7 @@ other_uses:
     - title: Ein KPI-Dashboard für Ihr Startup erstellen
       url: https://www.agent-native.com/use-cases/ai-kpi-dashboard/
       body: Fragen Sie nach den Diagrammen, die Ihr Startup verfolgt, und behalten Sie sie in einem Dashboard.
-    - title: Den Marketing-Wochenbericht ohne Tabellen erstellen
+    - title: Marketing-Wochenbericht ohne Tabellen erstellen
       url: https://www.agent-native.com/use-cases/weekly-marketing-report/
       body: Fragen Sie, wie die Woche in Google Analytics und HubSpot lief, und behalten Sie den Bericht.
     - title: Erkennen, wo neue Nutzer abspringen

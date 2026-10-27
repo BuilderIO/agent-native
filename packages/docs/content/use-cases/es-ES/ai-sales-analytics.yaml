@@ -47,7 +47,7 @@ features:
     - title: Tu pipeline junto a los ingresos
       body: Conecta también Stripe y BigQuery, y el mismo chat responde sobre ingresos y uso del producto junto a tus oportunidades.
     - title: Tus definiciones del pipeline
-      body: Un administrador define qué es una oportunidad estancada o un pipeline cualificado en la página **Capa semántica**. El agente la lee antes de responder.
+      body: Un administrador define qué es una oportunidad estancada o un pipeline cualificado en **Capa semántica**. El agente lo lee antes de responder.
     - title: Un informe diario del pipeline
       body: Recibe el panel cada día por correo, hasta cinco personas, o en un canal de Slack, sin abrir la aplicación.
 integrations:
@@ -76,7 +76,7 @@ other_uses:
     - title: Crea un panel de KPI para tu startup
       url: https://www.agent-native.com/use-cases/ai-kpi-dashboard/
       body: Pide los gráficos que sigue tu startup y tenlos en un solo panel.
-    - title: Haz tu informe semanal de marketing sin hojas de cálculo
+    - title: Haz tu informe semanal sin hojas de cálculo
       url: https://www.agent-native.com/use-cases/weekly-marketing-report/
       body: Pregunta cómo fue la semana en Google Analytics y HubSpot, y guarda el informe.
     - title: Descubre dónde abandonan los nuevos usuarios
