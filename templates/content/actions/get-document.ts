@@ -358,14 +358,15 @@ export default defineAction({
     // Before the values: see readPropertyTombstones.
     const tombstones = await readPropertyTombstones(db, [doc.id]);
     const changeIds: StoredPropertyChangeIds = new Map();
-    const [properties] = await Promise.all([
-      listPropertiesForDocument(doc, selectedDatabaseId, {
-        // A share authorizes the exact page and its membership-local fields,
-        // not the private database document that owns those definitions.
-        requireDatabaseAccess: hasPropertyDatabaseAccess,
-        database: propertyDatabase,
-        changeIds,
-      }),
+    const propertiesRead = listPropertiesForDocument(doc, selectedDatabaseId, {
+      // A share authorizes the exact page and its membership-local fields,
+      // not the private database document that owns those definitions.
+      requireDatabaseAccess: hasPropertyDatabaseAccess,
+      database: propertyDatabase,
+      changeIds,
+    });
+    await Promise.all([
+      propertiesRead,
       // Reading the collection's own fields also takes resolveAccess on its
       // document, which can refuse a document accessibleDocumentIds admits.
       selectedDatabaseId && hasPropertyDatabaseAccess
@@ -378,6 +379,7 @@ export default defineAction({
           )
         : undefined,
     ]);
+    const properties = await propertiesRead;
     const contextPath = readContextPath ? await readContextPath() : [];
     let isExternallyLinked = false;
     let hasBodyTarget = true;

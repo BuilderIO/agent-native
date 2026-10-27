@@ -8142,6 +8142,11 @@ const SOURCE_OPTION_PALETTE: DocumentPropertyOptionColor[] = [
   "red",
 ];
 
+/** A new source's color, cycling through the palette. */
+function sourceOptionColor(index: number): DocumentPropertyOptionColor {
+  return SOURCE_OPTION_PALETTE[index % SOURCE_OPTION_PALETTE.length] ?? "gray";
+}
+
 export function sourcePropertyOptionsForSources(
   sources: Array<{ id: string; sourceName: string }>,
   priorOptions: DocumentPropertyOption[],
@@ -8155,9 +8160,7 @@ export function sourcePropertyOptionsForSources(
     ...sources.map((source, index) => ({
       id: source.id,
       name: source.sourceName,
-      color:
-        priorById.get(source.id)?.color ??
-        SOURCE_OPTION_PALETTE[index % SOURCE_OPTION_PALETTE.length],
+      color: priorById.get(source.id)?.color ?? sourceOptionColor(index),
       ...retainDescription(source.id),
     })),
     {

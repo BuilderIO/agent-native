@@ -335,7 +335,10 @@ export async function readWrittenPropertyChangeIds(
  */
 export async function propertyGenerationConflicts(
   tx: Db,
-  expectations: Array<{ documentId: string; expected?: PropertyGenerations }>,
+  expectations: Array<{
+    documentId: string;
+    expected?: PropertyGenerations | undefined;
+  }>,
 ): Promise<Map<string, PropertyGenerationConflict[]>> {
   const guarded = expectations.flatMap(({ documentId, expected }) =>
     expected && Object.keys(expected).length > 0
