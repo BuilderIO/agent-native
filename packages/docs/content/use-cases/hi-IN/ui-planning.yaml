@@ -1,6 +1,10 @@
 template: v2
 slug: ui-planning
 app: plans
+roles:
+  - engineering
+  - product
+  - design
 title: "अपने कोडिंग एजेंट के साथ नई स्क्रीन्स प्लान करें"
 seo_title: "Claude Code, Codex और Cursor के लिए UI प्लानिंग"
 meta_description: "Agent-Native Plan के साथ आप और आपका कोडिंग एजेंट ऐप के असली लेआउट में, हर स्थिति के वायरफ़्रेम से स्क्रीन प्लान करते हैं। कमेंट करें, एजेंट सुधारता है, फिर बनाता है।"

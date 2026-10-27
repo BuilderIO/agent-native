@@ -1,6 +1,10 @@
 template: v2
 slug: ui-planning
 app: plans
+roles:
+  - engineering
+  - product
+  - design
 title: 和程式開發 agent 一起規劃新畫面
 seo_title: Claude Code、Codex 和 Cursor 的 UI 規劃
 meta_description: 用 Agent-Native Plan，你和程式開發 agent 以應用程式的真實版面，逐一狀態把畫面規劃成線框圖。留言後它會修改，再動手開發。

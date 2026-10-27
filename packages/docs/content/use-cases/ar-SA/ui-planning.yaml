@@ -1,6 +1,10 @@
 template: v2
 slug: ui-planning
 app: plans
+roles:
+  - engineering
+  - product
+  - design
 title: "خطّط للشاشات الجديدة مع وكيل البرمجة"
 seo_title: "تخطيط الواجهات لـ Claude Code وCodex وCursor"
 meta_description: "مع Agent-Native Plan تخطّط أنت ووكيل البرمجة لشاشة كمخططات أولية في تخطيط تطبيقك الحقيقي، حالةً بحالة. علّق فيعدّل الوكيل، ثم يبني."

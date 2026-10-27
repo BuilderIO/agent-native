@@ -1,6 +1,10 @@
 template: v2
 slug: ui-planning
 app: plans
+roles:
+  - engineering
+  - product
+  - design
 title: Planifica pantallas nuevas con tu agente de código
 seo_title: Planifica la UI con Claude Code, Codex y Cursor
 meta_description: Con Agent-Native Plan, tu agente de código planifica una pantalla en wireframes, estado a estado y con el diseño de tu app. Comenta y la corrige antes de crearla.

@@ -1,6 +1,10 @@
 template: v2
 slug: ui-planning
 app: plans
+roles:
+  - engineering
+  - product
+  - design
 title: コーディングエージェントと新しい画面を計画
 seo_title: Claude Code・Codex・Cursor向けUIプランニング
 meta_description: Agent-Native Planなら、コーディングエージェントと一緒に、アプリの実際のレイアウトで状態ごとのワイヤーフレームを作って画面を計画できます。コメントすれば修正し、その後に実装します。
