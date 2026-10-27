@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { safeRadarEventLabel } from "./event-labels.ts";
 import {
   loadUploadRejectionRows,
+  campaignUnavailableCheck,
   safeCampaignLabel,
   uploadRejectionCheck,
 } from "./watch.ts";
@@ -141,5 +142,18 @@ describe("upload rejection evidence routing", () => {
         recorders: 8,
       }),
     ).toMatchObject({ app: "clips", status: "unavailable" });
+  });
+
+  it("preserves the typed campaign-unavailable reason in the check detail", () => {
+    expect(
+      campaignUnavailableCheck(
+        "Campaign follow-up is unavailable for the configured sink.",
+      ),
+    ).toMatchObject({
+      id: "campaign-followup",
+      status: "unavailable",
+      detail:
+        "Campaign follow-up unavailable: Campaign follow-up is unavailable for the configured sink.",
+    });
   });
 });

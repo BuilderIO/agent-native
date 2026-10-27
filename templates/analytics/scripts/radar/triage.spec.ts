@@ -71,4 +71,12 @@ describe("BigQuery triage metadata parameters", () => {
     expect(params[1]).toBe("org-1");
     expect(params[2]).toBe("2026-10-27T00:00:00.000Z");
   });
+
+  it("rejects invalid dates before resolving credentials or building windows", async () => {
+    await expect(runTriage({ date: "2026-02-30" })).rejects.toMatchObject({
+      exitCode: 2,
+      message: "--date must be YYYY-MM-DD.",
+    });
+    expect(mocks.resolveRadarOrganizationId).not.toHaveBeenCalled();
+  });
 });

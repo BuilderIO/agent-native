@@ -278,6 +278,15 @@ export function uploadRejectionCheck(
   });
 }
 
+export function campaignUnavailableCheck(detail: string): RadarCheckResult {
+  return baseResult(
+    requireCheckDefinition("campaign-followup"),
+    "*",
+    "unavailable",
+    { detail: `Campaign follow-up unavailable: ${detail}` },
+  );
+}
+
 function eventCampaigns(
   rows: QueryRow[],
   period: string,
@@ -380,7 +389,7 @@ function createEventChecks(
   targetHour: string,
   window: "hourly" | "daily",
   campaign?: CampaignFollowupResult,
-  campaignUnavailable = false,
+  campaignUnavailableDetail?: string,
 ): {
   checks: RadarCheckResult[];
   annotations: Array<{ app: string; campaigns: string[] }>;
@@ -1065,14 +1074,8 @@ function createEventChecks(
         detail: `${campaign.sentRecipients} accepted recipients counted; ${campaign.skippedRows} rows were not accepted sends.`,
       }),
     );
-  } else if (campaignUnavailable) {
-    const campaignDef = requireCheckDefinition("campaign-followup");
-    checks.push(
-      baseResult(campaignDef, "*", "unavailable", {
-        detail:
-          "Campaign follow-up data could not be read; the remaining daily checks completed.",
-      }),
-    );
+  } else if (campaignUnavailableDetail) {
+    checks.push(campaignUnavailableCheck(campaignUnavailableDetail));
   }
 
   return { checks, annotations, issues, sourceCoverage };
@@ -1128,7 +1131,7 @@ export async function runWatch(
   let issueRows: QueryRow[] = [];
   let sloRows: QueryRow[] = [];
   let campaign: CampaignFollowupResult | undefined;
-  let campaignUnavailable = false;
+  let campaignUnavailableDetail: string | undefined;
   let additionalQueries = 0;
 
   if (window === "daily") {
@@ -1192,8 +1195,11 @@ export async function runWatch(
       additionalQueries += 1;
       try {
         campaign = await runCampaignFollowup(orgId);
-      } catch {
-        campaignUnavailable = true;
+      } catch (error) {
+        campaignUnavailableDetail =
+          error instanceof RadarQueryError
+            ? error.message
+            : "Campaign query failed.";
       }
     }
   }
@@ -1208,7 +1214,7 @@ export async function runWatch(
     hourKey,
     window,
     campaign,
-    campaignUnavailable,
+    campaignUnavailableDetail,
   );
   if (window === "daily") {
     const sloDefinition = requireCheckDefinition("prompt-output-p90");

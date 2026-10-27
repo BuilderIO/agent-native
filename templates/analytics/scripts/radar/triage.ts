@@ -53,9 +53,11 @@ function addDays(date: string, amount: number): string {
 }
 
 function validateDate(value: string): void {
+  const parsed = new Date(`${value}T00:00:00Z`);
   if (
     !/^\d{4}-\d{2}-\d{2}$/.test(value) ||
-    !Number.isFinite(new Date(`${value}T00:00:00Z`).getTime())
+    !Number.isFinite(parsed.getTime()) ||
+    parsed.toISOString().slice(0, 10) !== value
   ) {
     throw new RadarQueryError("--date must be YYYY-MM-DD.", 2);
   }
@@ -64,6 +66,7 @@ function validateDate(value: string): void {
 export async function runTriage(
   options: { date?: string } = {},
 ): Promise<TriageRun> {
+  if (options.date) validateDate(options.date);
   const now = new Date();
   const windowEnd = options.date
     ? `${addDays(options.date, 1)}T00:00:00.000Z`
@@ -71,7 +74,6 @@ export async function runTriage(
   const windowStart = options.date
     ? `${options.date}T00:00:00.000Z`
     : new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
-  if (options.date) validateDate(options.date);
   const eventStart = addDays(windowStart.slice(0, 10), -1);
   const eventEnd = addDays(windowEnd.slice(0, 10), 1);
   const orgId = await resolveRadarOrganizationId();
