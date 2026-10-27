@@ -3260,6 +3260,14 @@ export async function createMCPServerForRequest(
               Boolean(inputSchema.properties?.app);
             const toolMeta = {
               ...rawToolMeta,
+              ...(Array.isArray(entry.mcpApp?.visibility)
+                ? {
+                    ui: {
+                      ...metadataObject(rawToolMeta.ui),
+                      visibility: entry.mcpApp.visibility,
+                    },
+                  }
+                : {}),
               ...(mcpAppResource && requestMeta?.inlineMcpApps
                 ? {
                     ...openAiToolDescriptorMeta(

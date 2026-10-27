@@ -1187,7 +1187,7 @@ describe("direct tools/call embed credential redaction", () => {
     }),
     "app-only-start": act({
       description: "App-only session helper",
-      toolMeta: { ui: { visibility: ["app"] } },
+      mcpApp: { visibility: ["app"] },
       run: async () => ({
         startUrl: EMBED_START,
         targetPath: "/inbox",
@@ -1487,7 +1487,24 @@ ${imageNote(leak, "#1")}`,
   });
 
   it("hands an app-only tool's start URL to the view in _meta alone", async () => {
-    const started = await call("app-only-start");
+    const { client, wire } = await connect(
+      {
+        ...(await oauthHeaders()),
+        "x-agent-native-mcp-full-catalog": "1",
+      },
+      { serverConfig: leakConfig },
+    );
+    const listed = await client.listTools();
+    expect(
+      listed.tools.find((tool) => tool.name === "app-only-start")?._meta?.ui,
+    ).toMatchObject({ visibility: ["app"] });
+    await callCapturingError(client, {
+      name: "app-only-start",
+      arguments: {},
+    });
+    await client.close();
+    const [leg] = wire as Array<{ body: { result: any } }>;
+    const started = leg.body.result;
     expect(started._meta["agent-native/embedStart"]).toEqual({
       startUrl: EMBED_START,
       expiresAt: 1735689600,

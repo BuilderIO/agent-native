@@ -1560,7 +1560,8 @@ export function defineAction(options: any) {
     }
     if (
       (options.mcpApp.compactCatalog === true ||
-        options.mcpApp.structuredContent === true) &&
+        options.mcpApp.structuredContent === true ||
+        Array.isArray(options.mcpApp.visibility)) &&
       !options.mcpApp.resource
     ) {
       return options.mcpApp as ActionMcpAppConfig;

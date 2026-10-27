@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { StateMachineError } from "../state-machine/index.js";
+import {
+  renderMachineTrace,
+  StateMachineError,
+} from "../state-machine/index.js";
 import {
   a2aApprovalMachine,
   a2aTaskMachine,
@@ -352,5 +355,69 @@ describe("a2aApprovalMachine", () => {
         "unknown_state",
       );
     }
+  });
+});
+
+describe("A2A lifecycle traces", () => {
+  it("renders the task happy path", () => {
+    expect(
+      renderMachineTrace(a2aTaskMachine, [
+        "claimForProcessing",
+        "completeProcessing",
+      ]),
+    ).toMatchInlineSnapshot(`
+      "claimForProcessing -> processing [guard: 'submitted', 'working']
+      completeProcessing -> completed [guard: 'processing']"
+    `);
+  });
+
+  it("renders cancellation from each non-final task state", () => {
+    expect({
+      submitted: renderMachineTrace(a2aTaskMachine, ["cancel"], "submitted"),
+      working: renderMachineTrace(a2aTaskMachine, ["cancel"], "working"),
+      processing: renderMachineTrace(a2aTaskMachine, ["cancel"], "processing"),
+      inputRequired: renderMachineTrace(
+        a2aTaskMachine,
+        ["cancel"],
+        "input-required",
+      ),
+    }).toMatchInlineSnapshot(`
+      {
+        "inputRequired": "cancel -> canceled [guard: 'submitted', 'working', 'processing', 'input-required']",
+        "processing": "cancel -> canceled [guard: 'submitted', 'working', 'processing', 'input-required']",
+        "submitted": "cancel -> canceled [guard: 'submitted', 'working', 'processing', 'input-required']",
+        "working": "cancel -> canceled [guard: 'submitted', 'working', 'processing', 'input-required']",
+      }
+    `);
+  });
+
+  it("renders the completed-task cancellation refusal", () => {
+    expect(
+      renderMachineTrace(a2aTaskMachine, ["cancel"], "completed"),
+    ).toMatchInlineSnapshot(
+      `"cancel -> completed (rejected) [guard: 'submitted', 'working', 'processing', 'input-required']"`,
+    );
+  });
+
+  it("keeps cancellation when processing completes late", () => {
+    expect(
+      renderMachineTrace(a2aTaskMachine, [
+        "claimForProcessing",
+        "cancel",
+        "completeProcessing",
+      ]),
+    ).toMatchInlineSnapshot(`
+      "claimForProcessing -> processing [guard: 'submitted', 'working']
+      cancel -> canceled [guard: 'submitted', 'working', 'processing', 'input-required']
+      completeProcessing -> canceled (rejected) [guard: 'processing']"
+    `);
+  });
+
+  it("renders the approval happy path", () => {
+    expect(renderMachineTrace(a2aApprovalMachine, ["claim", "complete"]))
+      .toMatchInlineSnapshot(`
+      "claim -> processing [guard: 'pending']
+      complete -> completed [guard: 'processing']"
+    `);
   });
 });
