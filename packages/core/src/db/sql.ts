@@ -124,6 +124,12 @@ function isSqlBoundValue(value: unknown): value is SqlBoundValue {
   );
 }
 
+function isSqlHelper(value: unknown): boolean {
+  return (
+    isSqlFragment(value) || isSqlIdentifier(value) || isSqlBoundValue(value)
+  );
+}
+
 function appendFragment(fragment: SqlFragment, builder: FragmentBuilder): void {
   for (const offset of getSqlFragmentParameterOffsets(fragment)) {
     builder.parameterOffsets.push(builder.length + offset);
@@ -141,7 +147,7 @@ function appendInterpolation(
     return;
   }
   if (isSqlIdentifier(value)) {
-    appendText(builder, value.name);
+    appendText(builder, `"${value.name}"`);
     return;
   }
   if (isSqlBoundValue(value)) {
@@ -194,6 +200,9 @@ export const sql: SqlTag = Object.assign(tag, {
         "SQL bound values cannot be undefined; use null explicitly.",
       );
     }
+    if (isSqlHelper(value)) {
+      throw new TypeError("SQL bound values cannot be SQL helpers.");
+    }
     return Object.freeze({
       value,
       [boundValueRuntimeBrand]: true as const,
@@ -236,6 +245,9 @@ export const sql: SqlTag = Object.assign(tag, {
       throw new TypeError(
         "SQL IN values cannot include undefined; use null explicitly.",
       );
+    }
+    if (values.some(isSqlHelper)) {
+      throw new TypeError("SQL IN values cannot include SQL helpers.");
     }
     const builder = createBuilder();
     appendText(builder, "(");

@@ -80,6 +80,7 @@ function createChecker(sourceFile: ts.SourceFile): ts.TypeChecker {
 interface TaintedAssignment {
   node: ts.Node;
   expression: ts.Expression;
+  compound: boolean;
 }
 
 interface SqlAnalysis {
@@ -193,13 +194,15 @@ function buildSqlAnalysis(
         appendToMapList(assignments, symbol, {
           node,
           expression: node.initializer,
+          compound: false,
         });
         addFunction(symbol, functionExpression(node.initializer));
       }
     }
     if (
       ts.isBinaryExpression(node) &&
-      node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+      node.operatorToken.kind <= ts.SyntaxKind.LastAssignment &&
       ts.isIdentifier(node.left)
     ) {
       const symbol = checker.getSymbolAtLocation(node.left);
@@ -207,6 +210,7 @@ function buildSqlAnalysis(
         appendToMapList(assignments, symbol, {
           node,
           expression: node.right,
+          compound: node.operatorToken.kind !== ts.SyntaxKind.EqualsToken,
         });
         addFunction(symbol, functionExpression(node.right));
       }
@@ -229,32 +233,107 @@ function buildSqlAnalysis(
   return { sourceFile, checker, assignments, functions };
 }
 
-function latestAssignment(
-  symbol: ts.Symbol,
-  position: number,
-  analysis: SqlAnalysis,
-): TaintedAssignment | undefined {
-  let latest: TaintedAssignment | undefined;
-  for (const assignment of analysis.assignments.get(symbol) ?? []) {
-    if (assignment.node.getStart(analysis.sourceFile) >= position) continue;
-    if (
-      !latest ||
-      assignment.node.getStart(analysis.sourceFile) >
-        latest.node.getStart(analysis.sourceFile)
+function statementBlock(node: ts.Node): ts.Block | ts.SourceFile | undefined {
+  let current = node;
+  while (current.parent) {
+    const parent = current.parent;
+    if (ts.isFunctionLike(parent) || ts.isClassLike(parent)) {
+      return undefined;
+    }
+    if (ts.isStatement(parent)) {
+      return ts.isBlock(parent.parent) || ts.isSourceFile(parent.parent)
+        ? parent.parent
+        : undefined;
+    }
+    if (ts.isBlock(parent) || ts.isSourceFile(parent)) return parent;
+    current = parent;
+  }
+  return undefined;
+}
+
+function assignmentBlock(
+  assignment: TaintedAssignment,
+): ts.Block | ts.SourceFile | undefined {
+  let current = assignment.node;
+  if (ts.isBinaryExpression(current)) {
+    while (
+      current.parent &&
+      (ts.isParenthesizedExpression(current.parent) ||
+        ts.isAsExpression(current.parent) ||
+        ts.isSatisfiesExpression(current.parent))
     ) {
-      latest = assignment;
+      current = current.parent;
+    }
+    if (!ts.isExpressionStatement(current.parent)) return undefined;
+    current = current.parent;
+  } else if (ts.isVariableDeclaration(current)) {
+    while (current.parent && !ts.isVariableStatement(current.parent)) {
+      if (ts.isStatement(current.parent) || ts.isFunctionLike(current.parent)) {
+        return undefined;
+      }
+      current = current.parent;
+    }
+    if (!ts.isVariableStatement(current.parent)) return undefined;
+    current = current.parent;
+  } else {
+    return undefined;
+  }
+  return ts.isBlock(current.parent) || ts.isSourceFile(current.parent)
+    ? current.parent
+    : undefined;
+}
+
+function reachingAssignments(
+  symbol: ts.Symbol,
+  reference: ts.Identifier,
+  analysis: SqlAnalysis,
+): TaintedAssignment[] {
+  const position = reference.getStart(analysis.sourceFile);
+  const block = statementBlock(reference);
+  const candidates = (analysis.assignments.get(symbol) ?? []).filter(
+    (assignment) =>
+      !block ||
+      assignmentBlock(assignment) !== block ||
+      assignment.node.end <= position,
+  );
+  if (!block) return candidates;
+  let latestDominating: TaintedAssignment | undefined;
+  for (const assignment of candidates) {
+    if (assignmentBlock(assignment) !== block) continue;
+    if (
+      !latestDominating ||
+      assignment.node.getStart(analysis.sourceFile) >
+        latestDominating.node.getStart(analysis.sourceFile)
+    ) {
+      latestDominating = assignment;
     }
   }
-  return latest;
+  return candidates.filter(
+    (assignment) =>
+      assignmentBlock(assignment) !== block || assignment === latestDominating,
+  );
 }
 
 function isStringLikeType(
   expression: ts.Expression,
   checker: ts.TypeChecker,
 ): boolean {
-  return (
-    (checker.getTypeAtLocation(expression).flags & ts.TypeFlags.StringLike) !==
+  return mayBeStringType(checker.getTypeAtLocation(expression));
+}
+
+function mayBeStringType(type: ts.Type, seen = new Set<ts.Type>()): boolean {
+  if (seen.has(type)) return false;
+  seen.add(type);
+  if (
+    (type.flags &
+      (ts.TypeFlags.StringLike | ts.TypeFlags.Any | ts.TypeFlags.Unknown)) !==
     0
+  ) {
+    return true;
+  }
+  return (
+    type.isUnionOrIntersection() &&
+    type.types.some((member) => mayBeStringType(member, seen))
   );
 }
 
@@ -262,11 +341,7 @@ function isPotentialStringType(
   expression: ts.Expression,
   checker: ts.TypeChecker,
 ): boolean {
-  return (
-    (checker.getTypeAtLocation(expression).flags &
-      (ts.TypeFlags.StringLike | ts.TypeFlags.Any | ts.TypeFlags.Unknown)) !==
-    0
-  );
+  return mayBeStringType(checker.getTypeAtLocation(expression));
 }
 
 function isStaticStringExpression(expression: ts.Expression): boolean {
@@ -286,7 +361,8 @@ function isStaticStringExpression(expression: ts.Expression): boolean {
   }
   if (
     ts.isBinaryExpression(expression) &&
-    expression.operatorToken.kind === ts.SyntaxKind.PlusToken
+    (expression.operatorToken.kind === ts.SyntaxKind.PlusToken ||
+      expression.operatorToken.kind === ts.SyntaxKind.PlusEqualsToken)
   ) {
     return (
       isStaticStringExpression(expression.left) &&
@@ -365,19 +441,23 @@ function findUnsafeSqlSources(
     const symbol = analysis.checker.getSymbolAtLocation(current);
     if (!symbol || seenSymbols.has(symbol)) return new Set();
 
-    const assignment = latestAssignment(
-      symbol,
-      current.getStart(analysis.sourceFile),
-      analysis,
-    );
-    if (assignment) {
+    const assignments = reachingAssignments(symbol, current, analysis);
+    if (assignments.length > 0) {
       const nextSymbols = new Set(seenSymbols);
       nextSymbols.add(symbol);
-      return findUnsafeSqlSources(
-        assignment.expression,
-        analysis,
-        nextSymbols,
-        seenFunctions,
+      return unionSources(
+        ...assignments.map((assignment) => {
+          const sourceExpression =
+            assignment.compound && ts.isBinaryExpression(assignment.node)
+              ? assignment.node
+              : assignment.expression;
+          return findUnsafeSqlSources(
+            sourceExpression,
+            analysis,
+            assignment.compound ? seenSymbols : nextSymbols,
+            seenFunctions,
+          );
+        }),
       );
     }
     return isPotentialStringType(current, analysis.checker)
@@ -417,7 +497,8 @@ function findUnsafeSqlSources(
   }
   if (ts.isBinaryExpression(current)) {
     if (
-      current.operatorToken.kind === ts.SyntaxKind.PlusToken &&
+      (current.operatorToken.kind === ts.SyntaxKind.PlusToken ||
+        current.operatorToken.kind === ts.SyntaxKind.PlusEqualsToken) &&
       (isStringLikeType(current, analysis.checker) ||
         ts.isStringLiteralLike(current.left) ||
         ts.isStringLiteralLike(current.right))
@@ -436,11 +517,11 @@ function findUnsafeSqlSources(
           seenFunctions,
         ),
       );
-      return sources.size > 0
-        ? sources
-        : isStaticStringExpression(current)
-          ? new Set()
-          : new Set([current]);
+      if (sources.size > 0) return sources;
+      if (current.operatorToken.kind === ts.SyntaxKind.PlusEqualsToken) {
+        return new Set();
+      }
+      return isStaticStringExpression(current) ? new Set() : new Set([current]);
     }
     return unionSources(
       findUnsafeSqlSources(current.left, analysis, seenSymbols, seenFunctions),

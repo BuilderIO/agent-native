@@ -18,7 +18,7 @@ describe("sql", () => {
     const query = sql`SELECT ${sql.ident("id")} FROM chat_threads WHERE id = ${sql.value(id)} AND status IN ${states}`;
 
     expect(query.sql).toBe(
-      "SELECT id FROM chat_threads WHERE id = ? AND status IN (?, ?)",
+      'SELECT "id" FROM chat_threads WHERE id = ? AND status IN (?, ?)',
     );
     expect(query.args).toEqual([id, "submitted", "working"]);
   });
@@ -73,6 +73,12 @@ describe("sql", () => {
     );
   });
 
+  it("quotes validated identifiers so reserved words remain valid", () => {
+    const query = sql`SELECT ${sql.ident("select")} FROM records`;
+
+    expect(query.sql).toBe('SELECT "select" FROM records');
+  });
+
   it("rejects empty IN lists", () => {
     expect(() => sql.in([])).toThrow("SQL IN requires at least one value");
   });
@@ -83,6 +89,31 @@ describe("sql", () => {
     );
     expect(() => sql.in(["active", undefined])).toThrow(
       "SQL IN values cannot include undefined",
+    );
+  });
+
+  it("rejects SQL helpers nested inside bound values and IN lists", () => {
+    const fragment: unknown = sql`SELECT 1`;
+    const identifier: unknown = sql.ident("id");
+    const boundValue: unknown = sql.value("value");
+
+    expect(() => sql.value(fragment)).toThrow(
+      "SQL bound values cannot be SQL helpers",
+    );
+    expect(() => sql.value(identifier)).toThrow(
+      "SQL bound values cannot be SQL helpers",
+    );
+    expect(() => sql.value(boundValue)).toThrow(
+      "SQL bound values cannot be SQL helpers",
+    );
+    expect(() => sql.in([fragment])).toThrow(
+      "SQL IN values cannot include SQL helpers",
+    );
+    expect(() => sql.in([identifier])).toThrow(
+      "SQL IN values cannot include SQL helpers",
+    );
+    expect(() => sql.in([boundValue])).toThrow(
+      "SQL IN values cannot include SQL helpers",
     );
   });
 });

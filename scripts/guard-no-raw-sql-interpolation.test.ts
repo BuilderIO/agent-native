@@ -143,6 +143,19 @@ describe("raw SQL interpolation guard", () => {
     ]);
   });
 
+  it("tracks raw strings appended with compound assignment", () => {
+    const text = source([
+      "declare const userId: string;",
+      'let statement = "SELECT * FROM records WHERE id = ";',
+      "statement += userId;",
+      "database.execute(statement);",
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolations(FILE, text, new Set([1, 2, 3, 4])),
+    ).toHaveLength(1);
+  });
+
   it("catches interpolated tagged templates outside the SQL fragment tag", () => {
     const text = source([
       "const statement = String.raw`SELECT * FROM records WHERE id = ${recordId}`;",
@@ -221,6 +234,79 @@ describe("raw SQL interpolation guard", () => {
     expect(
       findRawSqlInterpolationViolations(FILE, text, new Set([1, 2, 3])),
     ).toEqual([]);
+  });
+
+  it("keeps taint from earlier values when a branch may not replace them", () => {
+    const text = source([
+      "declare const enabled: boolean;",
+      "declare const userId: string;",
+      "let statement = `SELECT * FROM records WHERE id = ${userId}`;",
+      "if (enabled) {",
+      '  statement = "SELECT * FROM records";',
+      "}",
+      "database.execute(statement);",
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolations(
+        FILE,
+        text,
+        new Set([1, 2, 3, 4, 5, 6, 7]),
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("keeps taint from closure assignments despite later textual writes", () => {
+    const text = source([
+      "declare const userId: string;",
+      'let statement = "SELECT * FROM records";',
+      "const replace = () => {",
+      "  statement = `SELECT * FROM records WHERE id = ${userId}`;",
+      "};",
+      'statement = "SELECT * FROM records";',
+      "replace();",
+      "database.execute(statement);",
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolations(
+        FILE,
+        text,
+        new Set([1, 2, 3, 4, 5, 6, 7, 8]),
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("tracks writes before a deferred sink call despite source order", () => {
+    const text = source([
+      "declare const userId: string;",
+      'let statement = "SELECT * FROM records";',
+      "function runQuery() {",
+      "  database.execute(statement);",
+      "}",
+      "statement = `SELECT * FROM records WHERE id = ${userId}`;",
+      "runQuery();",
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolations(
+        FILE,
+        text,
+        new Set([1, 2, 3, 4, 5, 6, 7]),
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("treats union types containing strings as potentially raw SQL", () => {
+    const text = source([
+      "type Query = string | { sql: string; args: unknown[] };",
+      "declare const query: Query;",
+      "database.execute(query);",
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolations(FILE, text, new Set([1, 2, 3])),
+    ).toHaveLength(1);
   });
 
   it("leaves tagged SQL fragments to the tag's binding rules", () => {
