@@ -819,6 +819,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     return inboxTabs.map((tab) => {
       const label = labels.find((l) => l.id === tab.id);
       const aiTagName = aiTagDisplayNames.get(tab.id);
+      const mailboxWideLabelTab =
+        tab.kind === "label" && !isInboxScopedLabel(tab.id, labels);
       return {
         id: tab.id,
         pinnedId: tab.kind === "label" ? tab.id : undefined,
@@ -826,21 +828,31 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         label:
           tab.kind === "all" ? t("mail.views.all") : (aiTagName ?? tab.name),
         fullLabel: aiTagName ?? label?.name,
-        href: inboxTabHref(tab.id),
-        isActive: view === "inbox" && activeInboxTabId === tab.id,
+        href: mailboxWideLabelTab
+          ? labelTabHref(tab.id, labels)
+          : inboxTabHref(tab.id),
+        isActive:
+          (view === "inbox" && activeInboxTabId === tab.id) ||
+          (mailboxWideLabelTab && activeLabel === tab.id && view === "all"),
         color: label?.color,
         tooltip: tab.query,
-        total: tab.total,
-        totalIsLowerBound: tab.totalIsLowerBound,
-        unread: tab.unread,
+        total: mailboxWideLabelTab ? label?.totalCount : tab.total,
+        totalIsLowerBound: mailboxWideLabelTab ? false : tab.totalIsLowerBound,
+        unread: mailboxWideLabelTab ? label?.unreadCount : tab.unread,
         isSystemView: false,
       };
     });
   }, [aiTagDisplayNames, inboxTabs, activeInboxTabId, labels, t, view]);
 
   const topBarTabs = useMemo<RenderedTab[]>(
-    () => [...systemViewTabs, ...(view === "inbox" ? dataTabs : [])],
-    [systemViewTabs, dataTabs, view],
+    () => [
+      ...systemViewTabs,
+      ...(view === "inbox" ||
+      dataTabs.some((tab) => tab.isActive && tab.pinnedId === activeLabel)
+        ? dataTabs
+        : []),
+    ],
+    [activeLabel, systemViewTabs, dataTabs, view],
   );
 
   const hiddenViews = useMemo(

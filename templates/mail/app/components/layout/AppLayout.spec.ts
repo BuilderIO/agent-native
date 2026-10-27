@@ -294,7 +294,16 @@ describe("AppLayout inbox tab bar", () => {
       "href: sysView.id === AI_FILTER_LABEL ? labelTabHref(AI_FILTER_LABEL)",
     );
     expect(source).toContain(
-      '() => [...systemViewTabs, ...(view === "inbox" ? dataTabs : [])]',
+      "href: mailboxWideLabelTab ? labelTabHref(tab.id, labels) : inboxTabHref(tab.id)",
+    );
+    expect(source).toContain(
+      'const mailboxWideLabelTab = tab.kind === "label" && !isInboxScopedLabel(tab.id, labels);',
+    );
+    expect(source).toContain(
+      "mailboxWideLabelTab ? label?.totalCount : tab.total",
+    );
+    expect(source).toContain(
+      "dataTabs.some((tab) => tab.isActive && tab.pinnedId === activeLabel)",
     );
   });
 

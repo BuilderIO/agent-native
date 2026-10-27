@@ -107,8 +107,14 @@ export function resolvePinnedLabels(
   return [...userPinnedLabels];
 }
 
-export function labelTabHref(labelId: string): string {
-  const view = isInboxScopedAppLabel(labelId) ? "inbox" : "all";
+export function labelTabHref(
+  labelId: string,
+  labels?: readonly Label[],
+): string {
+  const inboxScoped = labels
+    ? isInboxScopedLabel(labelId, labels)
+    : isInboxScopedAppLabel(labelId);
+  const view = inboxScoped ? "inbox" : "all";
   return `/${view}?label=${encodeURIComponent(labelId)}`;
 }
 
