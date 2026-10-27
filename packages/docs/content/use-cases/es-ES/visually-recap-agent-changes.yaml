@@ -1,6 +1,8 @@
 template: v2
 slug: visually-recap-agent-changes
 app: plans
+roles:
+  - engineering
 title: Mira un resumen visual de los cambios de tu agente
 seo_title: Resumen visual de los cambios de tu agente
 meta_description: Agent-Native Plan muestra los cambios de tu agente con pantallas de antes y después, campos de datos señalados, un mapa de archivos y diffs para comentar.

@@ -1,6 +1,8 @@
 template: v2
 slug: visually-recap-agent-changes
 app: plans
+roles:
+  - engineering
 title: 用視覺化回顧看懂程式開發 agent 的變更
 seo_title: 程式開發 agent 變更的視覺化回顧
 meta_description: Agent-Native Plan 把程式開發 agent 的變更呈現為前後對照畫面、標示出的資料欄位、檔案地圖和加註解的 diff，每一處都能留言。

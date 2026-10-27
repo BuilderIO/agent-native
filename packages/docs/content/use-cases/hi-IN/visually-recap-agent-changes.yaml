@@ -1,6 +1,8 @@
 template: v2
 slug: visually-recap-agent-changes
 app: plans
+roles:
+  - engineering
 title: "अपने कोडिंग एजेंट के बदलावों का विज़ुअल रीकैप पाएँ"
 seo_title: "आपके कोडिंग एजेंट के बदलावों का विज़ुअल रीकैप"
 meta_description: "Agent-Native Plan दिखाता है कि आपके कोडिंग एजेंट ने क्या बदला: पहले-बाद की स्क्रीन्स, मार्क किए डेटा फ़ील्ड, फ़ाइल मैप और एनोटेटेड diffs, जिन पर आप कमेंट करें।"

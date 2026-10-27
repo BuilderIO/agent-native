@@ -1,6 +1,8 @@
 template: v2
 slug: visually-recap-agent-changes
 app: plans
+roles:
+  - engineering
 title: コーディングエージェントの変更をビジュアルで要約
 seo_title: コーディングエージェントの変更のビジュアル要約
 meta_description: Agent-Native Planは、コーディングエージェントの変更を、変更前後の画面、印の付いたデータ項目、ファイルマップ、コメントできる注釈付き差分で見せます。

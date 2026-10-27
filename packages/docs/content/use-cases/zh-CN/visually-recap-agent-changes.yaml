@@ -1,6 +1,8 @@
 template: v2
 slug: visually-recap-agent-changes
 app: plans
+roles:
+  - engineering
 title: 用可视化回顾看懂编码 agent 的改动
 seo_title: 编码 agent 改动的可视化回顾
 meta_description: Agent-Native Plan 用前后对比界面、标注出的数据字段、文件地图和带注释的 diff 展示编码 agent 改了什么，每一处都能评论。

@@ -1,6 +1,8 @@
 template: v2
 slug: visually-recap-agent-changes
 app: plans
+roles:
+  - engineering
 title: Agenten-Änderungen visuell nachvollziehen
 seo_title: Visueller Rückblick auf Änderungen Ihres Agenten
 meta_description: Agent-Native Plan zeigt, was Ihr Coding-Agent geändert hat, als Vorher-nachher-Screens, markierte Datenfelder, Dateiübersicht und kommentierbare Diffs.

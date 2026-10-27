@@ -1,6 +1,8 @@
 template: v2
 slug: visually-recap-agent-changes
 app: plans
+roles:
+  - engineering
 title: 코딩 에이전트가 바꾼 내용을 시각적 요약으로 받아 보세요
 seo_title: 코딩 에이전트 변경 사항을 한눈에 보는 시각적 요약
 meta_description: "Agent-Native Plan은 코딩 에이전트가 바꾼 내용을 전후 화면, 표시된 데이터 필드, 파일 맵, 댓글을 달 수 있는 주석 달린 diff로 보여 줘요."

@@ -1,6 +1,8 @@
 template: v2
 slug: visually-recap-agent-changes
 app: plans
+roles:
+  - engineering
 title: Veja um resumo visual do que seu agente de código mudou
 seo_title: Resumo visual das mudanças do agente de código
 meta_description: "O Agent-Native Plan mostra o que seu agente de código mudou: telas de antes e depois, campos de dados sinalizados, mapa de arquivos e diffs anotados para comentar."

@@ -1,6 +1,8 @@
 template: v2
 slug: visually-recap-agent-changes
 app: plans
+roles:
+  - engineering
 title: "احصل على ملخص مرئي لتغييرات وكيل البرمجة"
 seo_title: "ملخص مرئي لتغييرات وكيل البرمجة"
 meta_description: "يعرض Agent-Native Plan ما غيّره وكيل البرمجة كشاشات قبل وبعد، وحقول بيانات مميّزة، وخريطة ملفات، وفروقات كود مشروحة يمكنك التعليق عليها."
