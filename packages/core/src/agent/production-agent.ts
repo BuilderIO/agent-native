@@ -142,6 +142,7 @@ import {
 import {
   isHostedModelExperimentEnabled,
   resolveHostedModelExperiment,
+  singleNonHostedAssignment,
 } from "../observability/hosted-model-experiment.js";
 import {
   resolveQuestionIntakeExperimentAssignment,
@@ -15047,6 +15048,9 @@ export function createProductionAgentHandler(
           },
         ]
       : [];
+    let singularExperimentAssignment:
+      | { experimentId: string; variantId: string }
+      | undefined;
 
     try {
       // A pinned request model suppresses the experiment's model override, so
@@ -15064,6 +15068,9 @@ export function createProductionAgentHandler(
                 : undefined,
             assignments: expConfig.assignments,
           });
+          singularExperimentAssignment = singleNonHostedAssignment(
+            experimentSelection.assignments,
+          );
           experimentAssignments = [
             ...experimentAssignments,
             ...experimentSelection.assignments,
@@ -17497,6 +17504,7 @@ export function createProductionAgentHandler(
                     : {}),
                 },
                 experimentAssignments,
+                singularExperimentAssignment,
                 modelSelectionSource,
                 sentimentInput: shouldInferSentimentForTurn({
                   internalContinuation: Boolean(internalContinuation),
