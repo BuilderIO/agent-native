@@ -161,6 +161,22 @@ describe("filesystemActionEntry", () => {
     expect(entry.mcpAnnotationDefaults).toBeUndefined();
   });
 
+  it("drops malformed MCP annotations and uses the conservative defaults", () => {
+    const entry = filesystemActionEntry({
+      tool: { description: "Malformed", parameters: { type: "object" } },
+      run: async () => ({}),
+      readOnly: true,
+      mcpAnnotations: { readOnlyHint: "yes" },
+    });
+
+    expect(entry.mcpAnnotations).toBeUndefined();
+    expect(entry.mcpAnnotationDefaults).toEqual({
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: true,
+    });
+  });
+
   it("defaults an unannotated filesystem write to destructive without declaring it", () => {
     const entry = filesystemActionEntry({
       tool: { description: "Write", parameters: { type: "object" } },

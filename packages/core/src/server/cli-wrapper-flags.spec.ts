@@ -236,6 +236,8 @@ describe("cliWrapperFlagsFromSource", () => {
       '{ method: "GET", ...routeOptions }',
       '{ method: "GET", [key]: "POST" }',
       '{ method: "GET", method: chooseMethod() }',
+      '{ method: "GET" };\nhttp.method = "POST"',
+      '{ method: "GET" };\nObject.assign(http, routeOptions)',
     ]) {
       expect(read(http), http).toEqual({});
     }

@@ -175,12 +175,16 @@ function isModuleExports(node: BabelNode | undefined): boolean {
     : identifierName(node.property) === "exports";
 }
 
-function mentions(node: unknown, name: string): boolean {
-  let found = false;
+function mentionCount(node: unknown, name: string): number {
+  let count = 0;
   forEachNode(node, (child) => {
-    if (child.type === "Identifier" && child.name === name) found = true;
+    if (child.type === "Identifier" && child.name === name) count++;
   });
-  return found;
+  return count;
+}
+
+function mentions(node: unknown, name: string): boolean {
+  return mentionCount(node, name) > 0;
 }
 
 /**
@@ -196,11 +200,7 @@ function isTouched(
   value: BabelNode | undefined,
 ): boolean {
   if (!value || !FUNCTIONS.has(value.type)) {
-    let count = 0;
-    forEachNode(program, (node) => {
-      if (node.type === "Identifier" && node.name === name) count++;
-    });
-    return count > 2;
+    return mentionCount(program, name) > 2;
   }
   let reassigned = false;
   forEachNode(program, (node) => {
@@ -312,7 +312,12 @@ function namedExports(program: BabelProgram): {
         if (name !== undefined) {
           const value =
             declaration.kind === "const" ? unwrap(declarator.init) : undefined;
-          names.set(name, value ?? "unknown");
+          // A `const` object can still be mutated or handed to other code,
+          // so it counts only when the module never mentions it again.
+          const settled =
+            value?.type !== "ObjectExpression" ||
+            mentionCount(program, name) === 1;
+          names.set(name, settled ? (value ?? "unknown") : "unknown");
         } else {
           // Destructured: any name in the pattern might be exported.
           forEachNode(declarator.id, (node) => {

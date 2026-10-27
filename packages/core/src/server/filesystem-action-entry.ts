@@ -196,7 +196,7 @@ export function actionDefinition(
 /**
  * The entry the dev filesystem scan registers for a loaded action module: the
  * real `run` plus the same flags a built registry keeps, and conservative MCP
- * annotations when the module declares none.
+ * annotations when the module declares no valid ones.
  */
 export function filesystemActionEntry(def: Record<string, any>): ActionEntry {
   const flags = preserveActionFlags(def);
@@ -205,8 +205,8 @@ export function filesystemActionEntry(def: Record<string, any>): ActionEntry {
     run: def.run,
     ...(def.http !== undefined ? { http: def.http } : {}),
     ...flags,
-    ...(def.mcpAnnotations
-      ? { mcpAnnotations: def.mcpAnnotations }
+    ...(flags.mcpAnnotations
+      ? {}
       : {
           mcpAnnotationDefaults: discoveredActionMcpAnnotations(
             isMcpReadOnlyTool(flags),
