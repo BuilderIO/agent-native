@@ -106,6 +106,8 @@ describe("radar query safety", () => {
     expect(
       isReadOnlySql("SELECT $$; UPDATE app_secrets SET x=1$$ AS note"),
     ).toBe(true);
+    expect(isReadOnlySql("SELECT $é$literal$é$ AS note")).toBe(false);
+    expect(isReadOnlySql("SELECT $tagé$literal$tagé$ AS note")).toBe(false);
   });
 
   it("rejects mutating tokens and transaction control hidden after a literal comment marker", () => {
@@ -155,6 +157,10 @@ describe("radar query safety", () => {
     }
     expect(isReadOnlySql("SELECT pg_advisory_unlock_shared(1, 2)")).toBe(false);
     expect(isReadOnlySql("SELECT pg_advisory_xact_lock_shared(1, 2)")).toBe(
+      false,
+    );
+    expect(isReadOnlySql("SELECT pg_try_advisory_xact_lock(1, 2)")).toBe(false);
+    expect(isReadOnlySql("SELECT pg_try_advisory_xact_lock_shared(1, 2)")).toBe(
       false,
     );
     expect(isReadOnlySql("SELECT pg_advisory_unlock_all()")).toBe(false);

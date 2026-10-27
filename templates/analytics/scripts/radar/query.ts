@@ -357,6 +357,9 @@ export function isReadOnlySql(sql: string): boolean {
         tokens.push("<quoted>");
         continue;
       }
+      if (/[A-Za-z_\u0080-\uFFFF]/.test(sql.slice(index + 1, index + 2))) {
+        return false;
+      }
     }
     if (char === ";") {
       if (statementEnded) return false;
@@ -440,7 +443,9 @@ export function isReadOnlySql(sql: string): boolean {
     "pg_advisory_unlock_shared",
     "pg_try_advisory_unlock_shared",
     "pg_advisory_xact_lock",
+    "pg_try_advisory_xact_lock",
     "pg_advisory_xact_lock_shared",
+    "pg_try_advisory_xact_lock_shared",
     "pg_advisory_unlock_all",
     "nextval",
     "setval",
