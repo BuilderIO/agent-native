@@ -338,6 +338,8 @@ const database = {
   failedToCreateRow: "행을 생성하지 못했습니다",
   pageCreatedCollectionRefreshFailed:
     "페이지가 생성되었지만 이 컬렉션을 새로 고치지 못했습니다. 다시 로드하여 확인하세요.",
+  builderPushResultNotLoaded:
+    "업데이트가 Builder에 전달되었지만 이 검토에서 결과를 불러오지 못했습니다. 다시 로드하여 확인하세요.",
   failedToDeleteRow: "행을 삭제하지 못했습니다",
   failedToDeleteSelectedRows: "선택한 행을 삭제하지 못했습니다",
   failedToDuplicateEverySelectedRow: "선택한 모든 행을 복제하지 못했습니다",
