@@ -915,6 +915,8 @@ const editor = {
     editProperty: "{{name}}を編集",
     builderStatusPublishInBuilder:
       "Builder のエディターで保存された変更は、Builder からのみ公開できます。",
+    builderStatusUnpublishedChangesInBuilder:
+      "未公開の変更は Builder のエディターから反映されるため、ここでは設定できません。",
     editStartDate: "{{name}} 開始日の編集",
     editValue: "{{name}} 値を編集する",
     empty: "空の",

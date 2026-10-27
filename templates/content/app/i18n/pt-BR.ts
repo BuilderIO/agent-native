@@ -928,6 +928,8 @@ const editor = {
     editProperty: "Editar {{name}}",
     builderStatusPublishInBuilder:
       "Alterações salvas no editor do Builder só podem ser publicadas pelo Builder.",
+    builderStatusUnpublishedChangesInBuilder:
+      "Alterações não publicadas vêm do editor do Builder, então não podem ser definidas aqui.",
     editStartDate: "Editar data de início do {{name}}",
     editValue: "Editar valor {{name}}",
     empty: "Vazio",

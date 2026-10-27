@@ -746,6 +746,8 @@ const overrides = {
       editProperty: "編輯 {{name}}",
       builderStatusPublishInBuilder:
         "在 Builder 編輯器中儲存的變更只能從 Builder 發布。",
+      builderStatusUnpublishedChangesInBuilder:
+        "未發布的變更來自 Builder 編輯器，因此無法在此設定。",
       editStartDate: "編輯 {{name}} 開始日期",
       editValue: "編輯 {{name}} 值",
       empty: "空",

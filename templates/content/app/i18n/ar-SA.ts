@@ -890,6 +890,8 @@ const editor = {
     editProperty: "تحرير {{name}}",
     builderStatusPublishInBuilder:
       "لا يمكن نشر التغييرات المحفوظة في محرر Builder إلا من Builder.",
+    builderStatusUnpublishedChangesInBuilder:
+      "تأتي التغييرات غير المنشورة من محرر Builder، لذا لا يمكن تعيينها هنا.",
     editStartDate: "تحرير تاريخ البدء {{name}}",
     editValue: "تحرير قيمة {{name}}",
     empty: "فارغ",

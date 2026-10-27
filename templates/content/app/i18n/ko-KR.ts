@@ -907,6 +907,8 @@ const editor = {
     editProperty: "{{name}} 편집",
     builderStatusPublishInBuilder:
       "Builder 편집기에 저장된 변경 사항은 Builder에서만 게시할 수 있습니다.",
+    builderStatusUnpublishedChangesInBuilder:
+      "게시되지 않은 변경 사항은 Builder 편집기에서 오므로 여기서 설정할 수 없습니다.",
     editStartDate: "{{name}} 시작 날짜 편집",
     editValue: "{{name}} 값 편집",
     empty: "비어 있음",

@@ -48,10 +48,13 @@ import {
   builderCmsReferenceIdKey,
 } from "./_builder-cms-source-adapter.js";
 import {
+  builderCmsEditConflictKey,
   builderCmsSourceFieldMatches,
   builderCmsUnpublishedChangesAfterWrite,
+  readBuilderCmsEditConflicts,
   readBuilderCmsPublicationIntent,
   readBuilderCmsUnpublishedChanges,
+  withBuilderCmsEditConflicts,
   withBuilderCmsPublicationIntent,
   withBuilderCmsUnpublishedChanges,
 } from "./_builder-cms-unpublished-changes.js";
@@ -499,13 +502,24 @@ export function builderCmsReconciledSourceValuesJson(args: {
   // when it sent the other transition instead. One staged while it was in
   // flight, or left out of its review, still waits for a push.
   const staged = readBuilderCmsPublicationIntent(existing);
-  const next =
+  const settledIntent =
     staged.state === "staged" &&
     (staged.transition === effect ||
       ((effect === "publish" || effect === "unpublish") &&
         staged.transition === args.changeSet.stagedPublicationTransition))
       ? withBuilderCmsPublicationIntent(existing, null)
       : { ...existing };
+  // It settles the edit conflicts it pushed over too: the review showed
+  // them, and the push overwrote Builder's change.
+  const pushedKeys = args.changeSet.fieldChanges.map(builderCmsEditConflictKey);
+  if (args.changeSet.bodyChange) pushedKeys.push(BUILDER_CMS_BODY_CONTENT_KEY);
+  const next =
+    readBuilderCmsEditConflicts(existing).state === "recorded"
+      ? withBuilderCmsEditConflicts(settledIntent, {
+          ownedKeys: pushedKeys,
+          conflictedKeys: [],
+        })
+      : settledIntent;
   const published = builderCmsPublishedAfterWrite({
     effect: args.plan.payload.effect,
     livePreflight: args.plan.payload.livePreflight,
