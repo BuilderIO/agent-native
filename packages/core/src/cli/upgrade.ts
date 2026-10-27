@@ -1060,9 +1060,14 @@ function collectLatestAgentNativeDependencies(
     .map(([file, names]) => ({ file, names: [...names].sort() }));
 }
 
-function yarnMajorVersion(project: UpgradeProject, io: UpgradeIo): number | null {
+function yarnMajorVersion(
+  project: UpgradeProject,
+  io: UpgradeIo,
+): number | null {
   const rootPackage = readJsonFile(path.join(project.root, "package.json"));
-  const packageManager = rootPackage.ok ? rootPackage.value.packageManager : null;
+  const packageManager = rootPackage.ok
+    ? rootPackage.value.packageManager
+    : null;
   const pinnedMajor = packageManager?.match(/^yarn@(\d+)/)?.[1];
   if (pinnedMajor) return Number(pinnedMajor);
 
@@ -1089,19 +1094,21 @@ function refreshLatestAgentNativeDependencies(
   if (pm === "yarn" && yarnMajor === null) {
     return {
       ok: false,
-      message: "Could not determine the Yarn version to refresh latest packages.",
+      message:
+        "Could not determine the Yarn version to refresh latest packages.",
     };
   }
 
-  const updateGroups =
-    pm === "yarn" && yarnMajor! >= 2
-      ? [
-          {
-            file: path.join(project.root, "package.json"),
-            names: [...new Set(groups.flatMap(({ names }) => names))].sort(),
-          },
-        ]
-      : groups;
+  const usesModernYarn =
+    pm === "yarn" && yarnMajor !== null && yarnMajor >= 2;
+  const updateGroups = usesModernYarn
+    ? [
+        {
+          file: path.join(project.root, "package.json"),
+          names: [...new Set(groups.flatMap(({ names }) => names))].sort(),
+        },
+      ]
+    : groups;
 
   let updateFailure: string | null = null;
   for (const group of updateGroups) {
@@ -1110,14 +1117,11 @@ function refreshLatestAgentNativeDependencies(
         ? ["update", "--latest", ...group.names]
         : pm === "npm"
           ? ["update", "--save", ...group.names]
-          : yarnMajor! >= 2
-            ? ["up", ...group.names.map((name) => `${name}@latest`)]
+          : usesModernYarn
+            ? ["up", "-R", ...group.names.map((name) => `${name}@latest`)]
             : ["upgrade", ...group.names.map((name) => `${name}@latest`)];
     const result = io.spawn(pm, args, {
-      cwd:
-        pm === "yarn" && yarnMajor! >= 2
-          ? project.root
-          : path.dirname(group.file),
+      cwd: usesModernYarn ? project.root : path.dirname(group.file),
       stdio,
     });
     if (result.status !== 0) {

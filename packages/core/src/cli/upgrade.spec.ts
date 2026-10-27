@@ -1202,8 +1202,8 @@ describe("runUpgrade", () => {
       'import { RichMarkdownEditor } from "@agent-native/core/client/editor";\nvoid RichMarkdownEditor;\n';
     fs.writeFileSync(source, original);
     const { io, err } = captureIo({
-      spawn: () => ({
-        status: 1,
+      spawn: (_command, args) => ({
+        status: args[0] === "install" ? 1 : 0,
         pid: 1,
         output: [],
         stdout: "",
@@ -1372,7 +1372,11 @@ describe("runUpgrade", () => {
         },
       },
     });
-    const spawnCalls: Array<{ command: string; args: string[]; cwd: string }> = [];
+    const spawnCalls: Array<{
+      command: string;
+      args: string[];
+      cwd: string;
+    }> = [];
     const { io } = captureIo({
       spawn: (command, args, options) => {
         spawnCalls.push({ command, args, cwd: options.cwd });
@@ -1383,7 +1387,10 @@ describe("runUpgrade", () => {
           const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
           manifest.dependencies["@agent-native/dispatch"] = "^0.40.40";
           manifest.dependencies["@agent-native/otel"] = "^0.1.25";
-          fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+          fs.writeFileSync(
+            manifestPath,
+            `${JSON.stringify(manifest, null, 2)}\n`,
+          );
         }
         return {
           status: 0,
@@ -1421,6 +1428,70 @@ describe("runUpgrade", () => {
     );
     expect(appPackage.dependencies["@agent-native/dispatch"]).toBe("0.40.40");
     expect(appPackage.dependencies["@agent-native/otel"]).toBe("0.1.25");
+  });
+
+  it("keeps unrelated specs during Yarn Berry refresh", async () => {
+    const root = makeTempProject({
+      kind: "workspace",
+      rootPkg: { name: "ws", packageManager: "yarn@4.11.0" },
+      apps: {
+        chat: {
+          name: "chat",
+          dependencies: { "@agent-native/dispatch": "latest" },
+        },
+        other: {
+          name: "other",
+          dependencies: { "@agent-native/dispatch": "workspace:*" },
+        },
+      },
+    });
+    fs.writeFileSync(path.join(root, "yarn.lock"), "");
+    const spawnCalls: Array<{
+      command: string;
+      args: string[];
+      cwd: string;
+    }> = [];
+    const { io } = captureIo({
+      spawn: (command, args, options) => {
+        spawnCalls.push({ command, args, cwd: options.cwd });
+        if (args[0] === "up") {
+          writeInstalledPackage(root, "0.40.40", "@agent-native/dispatch");
+        }
+        return {
+          status: 0,
+          pid: 1,
+          output: [],
+          stdout: "",
+          stderr: "",
+          signal: null,
+        };
+      },
+    });
+
+    expect(
+      await runUpgrade(
+        ["--cwd", root, "--skip-skills", "--skip-verify"],
+        io,
+      ),
+    ).toBe(0);
+
+    expect(spawnCalls.slice(0, 2)).toEqual([
+      {
+        command: "yarn",
+        args: ["up", "-R", "@agent-native/dispatch@latest"],
+        cwd: root,
+      },
+      { command: "yarn", args: ["install"], cwd: root },
+    ]);
+    const otherPackage = JSON.parse(
+      fs.readFileSync(
+        path.join(root, "apps", "other", "package.json"),
+        "utf-8",
+      ),
+    );
+    expect(otherPackage.dependencies["@agent-native/dispatch"]).toBe(
+      "workspace:*",
+    );
   });
 
   it("fails loudly instead of leaving a spec floating on latest", async () => {

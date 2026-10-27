@@ -1,11 +1,11 @@
 import { execFileSync } from "child_process";
 import fs from "fs";
-import os from "os";
-import path from "path";
 import { once } from "node:events";
 import { createServer } from "node:http";
+import os from "os";
+import path from "path";
 
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parse as parseYaml } from "yaml";
 
 import {
@@ -866,7 +866,7 @@ describe("template archive downloads", () => {
         destDir,
       );
       expect(
-        fs.readFileSync(path.join(destDir, "nested", "template.txt"), "utf8"),
+        fs.readFileSync(path.join(destDir, "template.txt"), "utf8"),
       ).toBe("template contents\n");
       expect(fs.existsSync(path.join(destDir, ".download.tar.gz"))).toBe(false);
     } finally {
