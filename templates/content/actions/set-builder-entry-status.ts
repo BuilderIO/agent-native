@@ -1,5 +1,6 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import { assertAccess } from "@agent-native/core/sharing";
+import { getDbExec } from "@agent-native/core/db";
+import { assertAccess, currentAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -110,6 +111,13 @@ export default defineAction({
       // Refreshes and pushes rewrite the row under this lock, so the staged
       // change is applied to the values they last stored.
       await lockDatabaseMemberships(tx, [target.row.databaseItemId]);
+      // A refresh can hold the row a while, so access is checked again.
+      for (const documentId of [database.documentId, args.documentId]) {
+        await assertAccess("document", documentId, "editor", {
+          ...currentAccess(),
+          transaction: getDbExec(),
+        });
+      }
       // Turning publication changes off saves the setting before it clears
       // staged picks, so a pick checked earlier could land after the clear.
       // The share lock waits for that save.
