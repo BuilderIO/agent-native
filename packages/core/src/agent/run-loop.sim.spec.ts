@@ -775,7 +775,7 @@ describe("deterministic agent run simulation", () => {
     `);
   });
 
-  it("F2 prunes a retry-safe unknown step after its recovery window expires", async () => {
+  it("F2 prunes a never-replay unknown step after its recovery window expires", async () => {
     const trace = new TraceRecorder(START_MS);
     const threadId = "sim-f2-unknown-thread";
     const turnId = "sim-f2-unknown-turn";
@@ -790,7 +790,7 @@ describe("deterministic agent run simulation", () => {
       operationId: stepId,
       toolName: "write",
       inputJson: JSON.stringify({ argumentsHash: "unknown-result" }),
-      replayPolicy: "retry-safe" as const,
+      replayPolicy: "never" as const,
     };
     await withExecutionFence(fence, async () => {
       const admission = await beginAgentExecutionStep(intent);
@@ -869,7 +869,7 @@ describe("deterministic agent run simulation", () => {
     `);
   });
 
-  it("retains a never-replay receipt while its late effect can still land", async () => {
+  it("retains an unknown receipt for late recovery during the retention window", async () => {
     const trace = new TraceRecorder(START_MS);
     const effects: string[] = [];
     let signalActionStarted: () => void = () => {};
@@ -967,19 +967,7 @@ describe("deterministic agent run simulation", () => {
       "UPDATE agent_runs SET status = 'aborted', completed_at = $1, thread_projection_pending = FALSE WHERE id = $2",
       [START_MS - 30_000, firstRunId],
     );
-    await pglite.db.query(
-      `UPDATE agent_execution_steps SET updated_at = to_timestamp($1 / 1000.0)
-       WHERE thread_id = $2 AND turn_id = $3 AND step_id = $4`,
-      [START_MS - 30_000, threadId, turnId, "sim:step-1"],
-    );
-    await pglite.db.query(
-      `UPDATE agent_execution_leases
-       SET updated_at = to_timestamp($1 / 1000.0),
-           lease_expires_at = to_timestamp($1 / 1000.0)
-       WHERE thread_id = $2 AND turn_id = $3`,
-      [START_MS - 30_000, threadId, turnId],
-    );
-    await vi.advanceTimersByTimeAsync(30_001);
+    await vi.advanceTimersByTimeAsync(15_001);
     await cleanupOldRuns(30_000, 30_000);
 
     const retainedReceipt = await pglite.db.query(
@@ -998,10 +986,8 @@ describe("deterministic agent run simulation", () => {
         ? retainedReceipt.rows[0].status
         : undefined,
     ).toBe("unknown");
-    expect(prunedLease.rows).toHaveLength(0);
-    trace.add(
-      "recovery window expired; lease pruned, unknown receipt retained",
-    );
+    expect(prunedLease.rows).toHaveLength(1);
+    trace.add("lease expired; recovery window still retains unknown receipt");
 
     const retainedRow = retainedReceipt.rows[0];
     if (!isRecord(retainedRow) || typeof retainedRow.input_json !== "string") {
@@ -1035,6 +1021,7 @@ describe("deterministic agent run simulation", () => {
     resolveSlowAction();
     await actionSettled;
     expect(effects).toEqual(["sim:step-1"]);
+    // oracle-change: the recovery window now retains unknown receipts only until its cutoff.
     expect(trace.toString()).toMatchInlineSnapshot(`
       "t=0ms lease acquired run=sim-late-effect-run-1 gen=1
       t=0ms model request=1
@@ -1045,11 +1032,229 @@ describe("deterministic agent run simulation", () => {
       t=0ms event tool_done tool=write
       t=0ms old loop stopped error=StaleExecutionFenceError
       t=0ms lease lost -> abort reason=execution_lease_lost
-      t=30001ms recovery window expired; lease pruned, unknown receipt retained
-      t=30001ms lease acquired run=sim-late-effect-run-2 gen=1
-      t=30001ms same-turn retry blocked by unknown never-replay receipt
-      t=30001ms late tool sideEffect step=sim:step-1"
+      t=15001ms lease expired; recovery window still retains unknown receipt
+      t=15001ms lease acquired run=sim-late-effect-run-2 gen=2
+      t=15001ms same-turn retry blocked by unknown never-replay receipt
+      t=15001ms late tool sideEffect step=sim:step-1"
     `);
+  });
+
+  it("prunes a policy-flipped unknown step after its recovery window", async () => {
+    const trace = new TraceRecorder(START_MS);
+    const threadId = "sim-policy-retention-thread";
+    const turnId = "sim-policy-retention-turn";
+    const stepId = "sim-policy-retention-step";
+    const firstRunId = "sim-policy-retention-run-1";
+    const secondRunId = "sim-policy-retention-run-2";
+
+    try {
+      await insertRun(firstRunId, threadId, turnId);
+      const firstFence = await claimTurnExecutionLease(
+        threadId,
+        turnId,
+        firstRunId,
+      );
+      trace.add(`lease acquired run=${firstRunId} gen=1`);
+      const firstIntent: AgentExecutionStepIntent = {
+        ...firstFence,
+        stepId,
+        operationId: stepId,
+        toolName: "write",
+        inputJson: JSON.stringify({ argumentsHash: "same-input" }),
+        replayPolicy: "retry-safe",
+      };
+      await withExecutionFence(firstFence, async () => {
+        const admission = await beginAgentExecutionStep(firstIntent);
+        expect(admission.status).toBe("execute");
+        await markAgentExecutionStepDispatched(firstIntent);
+        await markAgentExecutionStepUnknown(firstIntent);
+        trace.add(
+          "retry-safe dispatch became unknown; handler may still finish",
+        );
+        await updateRunStatusIfRunning(firstRunId, "aborted");
+      });
+
+      await vi.advanceTimersByTimeAsync(15_001);
+      await insertRun(secondRunId, threadId, turnId);
+      const secondFence = await claimTurnExecutionLease(
+        threadId,
+        turnId,
+        secondRunId,
+      );
+      trace.add(
+        `lease acquired run=${secondRunId} gen=${secondFence.generation}`,
+      );
+      const secondIntent: AgentExecutionStepIntent = {
+        ...firstIntent,
+        ...secondFence,
+        replayPolicy: "never",
+      };
+      await withExecutionFence(secondFence, async () => {
+        const admission = await beginAgentExecutionStep(secondIntent);
+        expect(admission.status).toBe("unknown");
+        trace.add("never-policy attempt blocked by earlier dispatch");
+        await updateRunStatusIfRunning(secondRunId, "aborted");
+      });
+
+      const recentReceipt = await pglite.db.query(
+        `SELECT status, replay_policy FROM agent_execution_steps
+         WHERE thread_id = $1 AND turn_id = $2 AND step_id = $3`,
+        [threadId, turnId, stepId],
+      );
+      expect(recentReceipt.rows).toHaveLength(1);
+      const recentRow = recentReceipt.rows[0];
+      if (!isRecord(recentRow)) {
+        throw new Error(
+          "The policy-flipped execution receipt was not readable",
+        );
+      }
+      expect(recentRow.status).toBe("unknown");
+      expect(recentRow.replay_policy).toBe("retry-safe");
+      trace.add("unknown receipt keeps the original retry-safe policy");
+
+      await vi.advanceTimersByTimeAsync(30_001);
+      await pglite.db.query(
+        `UPDATE agent_runs
+         SET completed_at = $1, thread_projection_pending = FALSE
+         WHERE id IN ($2, $3)`,
+        [Date.now() - 30_001, firstRunId, secondRunId],
+      );
+      await cleanupOldRuns(30_000, 30_000);
+
+      const prunedReceipt = await pglite.db.query(
+        `SELECT status, replay_policy FROM agent_execution_steps
+         WHERE thread_id = $1 AND turn_id = $2 AND step_id = $3`,
+        [threadId, turnId, stepId],
+      );
+      const prunedLease = await pglite.db.query(
+        `SELECT owner_run_id FROM agent_execution_leases
+         WHERE thread_id = $1 AND turn_id = $2`,
+        [threadId, turnId],
+      );
+      trace.add(
+        `retention prune left ${prunedReceipt.rows.length} receipt(s) and ${prunedLease.rows.length} lease(s)`,
+      );
+      expect(prunedReceipt.rows).toHaveLength(0);
+      expect(prunedLease.rows).toHaveLength(0);
+      trace.add("recovery window expired; unknown step and lease were pruned");
+      // oracle-change: unknown receipts now expire after the configured recovery window.
+      expect(trace.toString()).toMatchInlineSnapshot(`
+        "t=0ms lease acquired run=sim-policy-retention-run-1 gen=1
+        t=0ms retry-safe dispatch became unknown; handler may still finish
+        t=15001ms lease acquired run=sim-policy-retention-run-2 gen=2
+        t=15001ms never-policy attempt blocked by earlier dispatch
+        t=15001ms unknown receipt keeps the original retry-safe policy
+        t=45002ms retention prune left 0 receipt(s) and 0 lease(s)
+        t=45002ms recovery window expired; unknown step and lease were pruned"
+      `);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`${message}\nSimulation trace:\n${trace}`);
+    }
+  });
+
+  // oracle finding: a reused expired turn id can execute a pruned step while its prior effect is pending.
+  // oracle-change: retention expiry needs a product rule for same-turn request replay.
+  it.fails("an expired same-turn replay preserves at-most-once effects", async () => {
+    const trace = new TraceRecorder(START_MS);
+    const effects: string[] = [];
+    const threadId = "sim-expired-turn-thread";
+    const turnId = "sim-expired-turn-turn";
+    const stepId = "sim-expired-turn-step";
+    const firstRunId = "sim-expired-turn-run-1";
+    const secondRunId = "sim-expired-turn-run-2";
+    const firstFence = await createAttempt({
+      runId: firstRunId,
+      threadId,
+      turnId,
+      trace,
+    });
+    const retrySafeIntent: AgentExecutionStepIntent = {
+      ...firstFence,
+      stepId,
+      operationId: stepId,
+      toolName: "write",
+      inputJson: JSON.stringify({ argumentsHash: "same-input" }),
+      replayPolicy: "retry-safe",
+    };
+    await withExecutionFence(firstFence, async () => {
+      expect((await beginAgentExecutionStep(retrySafeIntent)).status).toBe(
+        "execute",
+      );
+      await markAgentExecutionStepDispatched(retrySafeIntent);
+      await markAgentExecutionStepUnknown(retrySafeIntent);
+      await updateRunStatusIfRunning(firstRunId, "aborted");
+    });
+    trace.add("retry-safe handler remains in flight with an unknown result");
+
+    const oldTime = Date.now() - 1;
+    await pglite.db.query(
+      `UPDATE agent_runs
+       SET completed_at = $1, thread_projection_pending = FALSE
+       WHERE id = $2`,
+      [oldTime, firstRunId],
+    );
+    await pglite.db.query(
+      `UPDATE agent_execution_steps SET updated_at = to_timestamp($1 / 1000.0)
+       WHERE thread_id = $2 AND turn_id = $3 AND step_id = $4`,
+      [oldTime, threadId, turnId, stepId],
+    );
+    await pglite.db.query(
+      `UPDATE agent_execution_leases
+       SET updated_at = to_timestamp($1 / 1000.0),
+           lease_expires_at = to_timestamp($1 / 1000.0)
+       WHERE thread_id = $2 AND turn_id = $3`,
+      [oldTime, threadId, turnId],
+    );
+    await vi.advanceTimersByTimeAsync(1);
+    await cleanupOldRuns(0, 0);
+    const prunedRows = await pglite.db.query(
+      `SELECT 'run' AS kind FROM agent_runs WHERE id = $1
+       UNION ALL
+       SELECT 'step' AS kind FROM agent_execution_steps
+       WHERE thread_id = $2 AND turn_id = $3 AND step_id = $4
+       UNION ALL
+       SELECT 'lease' AS kind FROM agent_execution_leases
+       WHERE thread_id = $2 AND turn_id = $3`,
+      [firstRunId, threadId, turnId, stepId],
+    );
+    expect(prunedRows.rows).toHaveLength(0);
+    trace.add("retention removed the run, unknown step, and expired lease");
+
+    await insertRun(secondRunId, threadId, turnId);
+    const secondFence = await claimTurnExecutionLease(
+      threadId,
+      turnId,
+      secondRunId,
+    );
+    trace.add(`same turn id re-entered run=${secondRunId} gen=1`);
+    const neverIntent: AgentExecutionStepIntent = {
+      ...retrySafeIntent,
+      ...secondFence,
+      replayPolicy: "never",
+    };
+    const admission = await withExecutionFence(secondFence, () =>
+      beginAgentExecutionStep(neverIntent),
+    );
+    if (admission.status === "execute") {
+      await withExecutionFence(secondFence, () =>
+        markAgentExecutionStepDispatched(neverIntent),
+      );
+      effects.push(stepId);
+      trace.add(`new never step sideEffect step=${stepId}`);
+    }
+    effects.push(stepId);
+    trace.add(`late first handler sideEffect step=${stepId}`);
+    expect(trace.toString()).toMatchInlineSnapshot(`
+      "t=0ms lease acquired run=sim-expired-turn-run-1 gen=1
+      t=0ms retry-safe handler remains in flight with an unknown result
+      t=1ms retention removed the run, unknown step, and expired lease
+      t=1ms same turn id re-entered run=sim-expired-turn-run-2 gen=1
+      t=1ms new never step sideEffect step=sim-expired-turn-step
+      t=1ms late first handler sideEffect step=sim-expired-turn-step"
+    `);
+    expect(admission.status).toBe("unknown");
+    expect(effects).toHaveLength(1);
   });
 
   it("F3 remembers dispatch across retry-safe adoption and a policy flip", async () => {

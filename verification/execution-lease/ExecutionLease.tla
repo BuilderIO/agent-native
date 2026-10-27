@@ -20,14 +20,14 @@ CONSTANTS
   Runs,           \* agent_runs ids that belong to this turn
   NoRun,          \* stands for an empty owner / run_id column
   PolicyChoices,  \* intent.replayPolicy values a run's deploy may use
-  Mutation,       \* "none" or one of "a".."i" (broken variants, see NOTES.md)
+  Mutation,       \* "none", broken variants "a".."i", or finding mode "k"
   WithPrune,      \* include the retention prune (RS:5126-5258)
   PruneWhileTurnActive \* let pruning race in-window turn recovery; FALSE
                        \* means the recovery cutoff passed
 
 ASSUME NoRun \notin Runs
 ASSUME PolicyChoices \subseteq {"never", "retry-safe", "read-only"}
-ASSUME Mutation \in {"none", "a", "b", "c", "d", "e", "f", "g", "h", "i"}
+ASSUME Mutation \in {"none", "a", "b", "c", "d", "e", "f", "g", "h", "i", "k"}
 ASSUME WithPrune \in BOOLEAN
 ASSUME PruneWhileTurnActive \in BOOLEAN
 
@@ -88,6 +88,7 @@ Adopt(r) == [exists |-> TRUE, status |-> "prepared", run |-> r,
              dispatchedAt |-> step.dispatchedAt,
              wasDispatched |-> (step.wasDispatched \/ step.dispatchedAt
                                  \/ step.status \in {"dispatched", "unknown"})]
+UnknownAfterMismatch(r) == [step EXCEPT !.status = "unknown"]
 NoPresentRun == \A q \in Runs : rstatus[q] \notin Present
 
 \* History for P6: a (owner, gen) pair dies when it stops being the live lease.
@@ -169,8 +170,8 @@ FenceCheck(r) ==
 \* BAR:1197 (fence required, BAR:1173-1184). INSERT ... ON CONFLICT DO NOTHING
 \* RS:716; SELECT ... FOR UPDATE RS:733; completed -> replay RS:764-770;
 \* unknown and not replayable -> unknown RS:773-779; dispatched and not
-\* replayable -> UPDATE status='unknown' RS:780-793; otherwise re-adopt with
-\* this run/generation/policy RS:795-809 and return "execute".
+\* replayable -> UPDATE status='unknown' RS:780-793 and retain a stricter
+\* never policy; otherwise re-adopt with this run/generation/policy RS:795-809.
 \* canReplay: row.replay_policy = intent.replayPolicy AND intent in
 \* {read-only, retry-safe} (RS:774-777, RS:781-784).
 \* Mutation b: the dispatched branch re-adopts a never step instead.
@@ -197,9 +198,10 @@ BeginStep(r) ==
            /\ UNCHANGED effectPending
      IN  IF ~step.exists THEN execute
          ELSE IF step.status = "completed" THEN stop(step)
-         ELSE IF step.status = "unknown" /\ ~canReplay THEN stop(step)
+         ELSE IF step.status = "unknown" /\ ~canReplay
+              THEN stop(UnknownAfterMismatch(r))
          ELSE IF hadDispatch /\ ~canReplay /\ Mutation # "b"
-              THEN stop([step EXCEPT !.status = "unknown"])
+              THEN stop(UnknownAfterMismatch(r))
          ELSE execute
   /\ UNCHANGED <<policy, rstatus, wg, lease, effects, liveSteal>>
   /\ RetireDead
@@ -472,9 +474,8 @@ TerminaliseUnclaimed(r) ==
 \* continuation, or a team attempt. The turn id comes from the request
 \* (PA:14815-14822, BAR:1476), so a continuation can also arrive after the
 \* turn's rows were pruned. The recovery cutoff is not evidence that a detached
-\* external effect has settled. After the cutoff, a same-turn retry can still
-\* arrive while an unresolved receipt remains. Mutation i also admits one
-\* after the receipt was incorrectly pruned while its handler is pending.
+\* external effect has settled. Mutation i ignores the recovery cutoff; finding
+\* mode k admits replay after normal post-cutoff pruning.
 EffectCanLand == \E q \in Runs : effectPending[q]
 InsertRun(r) ==
   /\ rstatus[r] = "absent"
@@ -484,7 +485,7 @@ InsertRun(r) ==
       ELSE ((\E q \in Runs : rstatus[q] \in Present)
         \/ ((\E q \in Runs : rstatus[q] = "pruned")
           /\ ((step.exists /\ step.status # "completed")
-            \/ (Mutation = "i" /\ ~step.exists /\ EffectCanLand)))))
+            \/ (Mutation \in {"i", "k"} /\ ~step.exists /\ EffectCanLand)))))
   /\ rstatus' = [rstatus EXCEPT ![r] = "running"]
   /\ UNCHANGED <<policy, wg, lease, step, wpc, effectPending, checked,
                  effects, staleWrite, liveSteal>>
@@ -509,10 +510,9 @@ PruneRun(r) ==
   /\ RetireDead
 
 \* DELETE agent_execution_steps: older than the cutoff and no agent_runs row of
-\* the turn (RS:5166-5177). A live lease extends retention. The SQL cannot see
-\* a detached handler's pending effect, so keep an unresolved never-replay
-\* dispatch receipt even after the recovery window. Retry-safe/read-only receipts
-\* and known-undispatched prepared rows can expire.
+\* the turn (RS:5166-5177). A live lease and recent unresolved receipts extend
+\* retention. Once the cutoff passes, every unresolved receipt is eligible for
+\* pruning; mutation i ignores that age guard while the cutoff is still active.
 StepMayHaveEffect ==
   step.status \in {"dispatched", "unknown"}
   \/ (step.status = "prepared" /\ (step.dispatchedAt \/ step.wasDispatched))
@@ -530,17 +530,15 @@ PruneStep ==
         /\ ~lease.live
         /\ StepMayHaveEffect
      \/ /\ ~lease.live
-        /\ (StepCanPrune \/ (~PruneWhileTurnActive
-                              /\ StepMayHaveEffect
-                              /\ step.policy # "never"))
+        /\ (StepCanPrune \/ (~PruneWhileTurnActive /\ StepMayHaveEffect))
   /\ step' = NoStep
   /\ UNCHANGED <<policy, rstatus, wg, lease, wpc, effectPending, checked,
                  effects, staleWrite, liveSteal>>
   /\ RetireDead
 
 \* DELETE agent_execution_leases: updated_at older than the cutoff and no
-\* agent_runs row of the turn (RS:5178-5188). The lease must be expired; after
-\* the recovery window, the unresolved step receipt alone prevents an unsafe replay.
+\* agent_runs row of the turn (RS:5178-5188). The lease must be expired and
+\* recent unresolved steps keep its row until their recovery window passes.
 \* Mutation h drops the live-lease and recent-step guards. The next claim
 \* restarts at gen 1.
 PruneLease ==
@@ -551,6 +549,7 @@ PruneLease ==
        /\ PruneWhileTurnActive
        /\ EffectCanLand
      \/ /\ ~lease.live
+       /\ ~(PruneWhileTurnActive /\ StepMayHaveEffect)
   /\ lease' = NoLease
   /\ UNCHANGED <<policy, rstatus, wg, step, wpc, effectPending, checked,
                  effects, staleWrite, liveSteal>>
@@ -607,8 +606,8 @@ TypeOK ==
 
 IsNever(e) == e.policy = "never"
 
-\* P8: the external effect of a never-replay step runs at most once, across
-\* every run and every lease generation of the turn.
+\* P8: while the receipt is retained, a never-replay step's external effect
+\* runs at most once across every run and lease generation of the turn.
 P8 == Len(SelectSeq(effects, IsNever)) <= 1
 
 \* P8 read strictly when a deploy changes the policy between runs: once any

@@ -65,12 +65,18 @@
       "breaks": "retention pruning a dispatched step while its old handler can still complete"
     },
     {
-      "config": "mutations/i-prune-after-recovery-cutoff.cfg",
+      "config": "mutations/i-ignore-recovery-cutoff.cfg",
       "invariant": "P8",
-      "breaks": "retention pruning an unresolved never-replay receipt after the recovery cutoff while a late effect can still land"
+      "breaks": "retention pruning a recent unresolved receipt before the recovery cutoff after its lease expires"
     }
   ],
-  "findings": [],
+  "findings": [
+    {
+      "config": "findings/F7-post-retention-same-turn-replay.cfg",
+      "invariant": "P8Strict",
+      "finding": "replaying a turn id after retention prunes its journal can start a fresh effect while a prior handler may still land"
+    }
+  ],
   "coverage": {
     "syncCommit": "ff17febc0faca2c7f58d6d9000d3ce3ce0d5518a",
     "code": [
