@@ -319,18 +319,27 @@ export default defineAction({
     // once the recording is gone no frame can be added behind this. A frame
     // whose object stays keeps its row, and the result says so, as for the
     // app activity blob below.
+    let framesLeft = 0;
     let agentFrameCleanup:
       | { deleted: true }
       | { deleted: false; error: string };
     try {
-      await deleteStoredAgentFrames(deleted);
-      agentFrameCleanup = { deleted: true };
+      framesLeft = await deleteStoredAgentFrames(deleted);
+      agentFrameCleanup =
+        framesLeft === 0
+          ? { deleted: true }
+          : {
+              deleted: false,
+              error: `${framesLeft} stored agent frame(s) could not be deleted from storage.`,
+            };
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
       agentFrameCleanup = { deleted: false, error };
+    }
+    if (!agentFrameCleanup.deleted) {
       console.error(
         `[delete-recording-permanent] deleted ${args.id}, but its stored agent frames could not all be removed from storage.`,
-        error,
+        agentFrameCleanup.error,
       );
     }
 
@@ -348,7 +357,8 @@ export default defineAction({
           (url) => !cleanupProtectedUrls.has(url),
         ).length -
         mediaCleanup.deleted -
-        mediaCleanup.external
+        mediaCleanup.external +
+        framesLeft
       : 0;
     if (hostedFilesLeft > 0) {
       console.error(

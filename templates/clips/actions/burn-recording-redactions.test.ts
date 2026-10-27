@@ -148,7 +148,7 @@ vi.mock("../server/lib/recording-media-cleanup.js", () => ({
 vi.mock("../server/lib/agent-frame-store.js", () => ({
   deleteStoredAgentFrames: async (target: { id: string }) => {
     state.frameDeletes.push(target.id);
-    if (state.frameDeleteFails) throw new Error("frames stuck");
+    return state.frameDeleteFails ? 1 : 0;
   },
 }));
 vi.mock("../server/lib/ensure-recording-thumbnail.js", () => ({

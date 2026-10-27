@@ -345,7 +345,7 @@ describe("agent-frame.jpg route", () => {
 
     expect(mockLoadRecordingMediaFile).toHaveBeenCalledTimes(1);
     const [recording, extract, known] =
-      mockFillRecommendedAgentFrames.mock.calls[0];
+      mockFillRecommendedAgentFrames.mock.lastCall ?? [];
     expect(recording).toMatchObject({ id: "rec-1" });
     expect(known).toEqual({ atMs: 3000, frame: new Uint8Array([1, 2, 3]) });
     await extract(7000);

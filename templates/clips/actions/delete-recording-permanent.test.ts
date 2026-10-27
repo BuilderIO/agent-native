@@ -243,6 +243,7 @@ describe("delete-recording-permanent", () => {
     );
     mockLockRecording.mockImplementation(async () => [mockExistingRecording]);
     mockAdjustHostedClipRecordingBytes.mockResolvedValue({ ok: true });
+    mockDeleteStoredAgentFrames.mockResolvedValue(0);
     mockReleaseHostedClipRecording.mockResolvedValue({ ok: true });
     // A test that stops before the transaction leaves its reads queued.
     mockSelectWhere
@@ -268,9 +269,7 @@ describe("delete-recording-permanent", () => {
     const consoleError = vi
       .spyOn(console, "error")
       .mockImplementation(() => {});
-    mockDeleteStoredAgentFrames.mockRejectedValueOnce(
-      new Error("1 stored agent frame(s) could not be deleted."),
-    );
+    mockDeleteStoredAgentFrames.mockResolvedValueOnce(2);
 
     const result = await deleteRecordingPermanent.run({ id: "rec_1" });
 
@@ -278,10 +277,37 @@ describe("delete-recording-permanent", () => {
       success: true,
       agentFrameCleanup: {
         deleted: false,
-        error: "1 stored agent frame(s) could not be deleted.",
+        error: "2 stored agent frame(s) could not be deleted from storage.",
       },
     });
     expect(consoleError).toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
+  it("reports a stored agent frame cleanup that threw", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    mockDeleteStoredAgentFrames.mockRejectedValueOnce(new Error("db down"));
+
+    const result = await deleteRecordingPermanent.run({ id: "rec_1" });
+
+    expect(result).toMatchObject({
+      agentFrameCleanup: { deleted: false, error: "db down" },
+    });
+    consoleError.mockRestore();
+  });
+
+  it("keeps hosted bytes counted while a stored agent frame is still in storage", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    mockExistingRecording.storageMode = "hosted";
+    mockDeleteStoredAgentFrames.mockResolvedValueOnce(1);
+
+    await deleteRecordingPermanent.run({ id: "rec_1" });
+
+    expect(mockAdjustHostedClipRecordingBytes).not.toHaveBeenCalled();
     consoleError.mockRestore();
   });
 

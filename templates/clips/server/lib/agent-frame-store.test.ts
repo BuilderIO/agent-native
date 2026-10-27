@@ -26,6 +26,10 @@ vi.mock("@agent-native/core/server", () => ({
     mockRunWithRequestContext(context, callback),
 }));
 
+vi.mock("./recordings.js", () => ({
+  ownerEmailMatches: (column: unknown, email: string) => ({ column, email }),
+}));
+
 vi.mock("drizzle-orm", () => ({
   and: (...conditions: unknown[]) => conditions,
   eq: (column: unknown, value: unknown) => ({ column, value }),
@@ -73,7 +77,12 @@ vi.mock("../db/index.js", () => {
       }),
     }),
     schema: {
-      recordings: { id: "id", videoUrl: "videoUrl", editsJson: "editsJson" },
+      recordings: {
+        id: "id",
+        ownerEmail: "ownerEmail",
+        videoUrl: "videoUrl",
+        editsJson: "editsJson",
+      },
       recordingAgentFrames: {
         id: "id",
         recordingId: "recordingId",
@@ -197,13 +206,13 @@ describe("agent frame store", () => {
       {
         id: "a",
         storageUrl: "https://cdn.example.com/a.jpg",
-        storageProvider: "s3",
+        storageProvider: "gcs",
         storageId: null,
       },
       {
         id: "b",
         storageUrl: "https://cdn.example.com/b.jpg",
-        storageProvider: "s3",
+        storageProvider: "gcs",
         storageId: null,
       },
     ];
@@ -212,11 +221,46 @@ describe("agent frame store", () => {
         url.endsWith("a.jpg"),
     );
 
-    await expect(deleteStoredAgentFrames(recording)).rejects.toThrow(
-      "1 stored agent frame(s)",
-    );
+    expect(await deleteStoredAgentFrames(recording)).toBe(1);
     expect(mockDeleteUploadedFile).toHaveBeenCalledTimes(2);
     expect(mockDeleted).toHaveLength(1);
+  });
+
+  it("deletes a row only while it still points at the object just deleted", async () => {
+    mockRows.value = [
+      {
+        id: "a",
+        storageUrl: "https://cdn.example.com/a.jpg",
+        storageProvider: "gcs",
+        storageId: null,
+      },
+    ];
+
+    await deleteStoredAgentFrames(recording);
+
+    expect(mockDeleted[0]).toEqual([
+      { column: "id", value: "a" },
+      { column: "storageUrl", value: "https://cdn.example.com/a.jpg" },
+    ]);
+  });
+
+  it("deletes an own-S3 frame through the Clips storage path", async () => {
+    mockRows.value = [
+      {
+        id: "s",
+        storageUrl: "https://s3.example.com/s.jpg",
+        storageProvider: "s3",
+        storageId: null,
+      },
+    ];
+
+    expect(await deleteStoredAgentFrames(recording)).toBe(0);
+
+    expect(mockDeleteStoredMediaUrl).toHaveBeenCalledWith(
+      "https://s3.example.com/s.jpg",
+      { storageMode: "own", recordingId: "rec-1" },
+    );
+    expect(mockDeleteUploadedFile).not.toHaveBeenCalled();
   });
 
   describe("recommended frames", () => {
@@ -285,9 +329,13 @@ describe("agent frame store", () => {
         frame: new Uint8Array([1]),
       });
 
-      expect(mockDeleteUploadedFile).toHaveBeenCalledWith("s3", {
-        url: "https://cdn.example.com/old.jpg",
-      });
+      expect(mockDeleteStoredMediaUrl).toHaveBeenCalledWith(
+        "https://cdn.example.com/old.jpg",
+        {
+          storageMode: "own",
+          recordingId: "rec-1",
+        },
+      );
       expect(mockInserted).toContainEqual(
         expect.objectContaining({
           atMs: OPENING_MS,
@@ -306,7 +354,7 @@ describe("agent frame store", () => {
           storageId: null,
         },
       ];
-      mockDeleteUploadedFile.mockResolvedValue(false);
+      mockDeleteStoredMediaUrl.mockResolvedValue(false);
 
       await fillRecommendedAgentFrames(clip, async () => new Uint8Array([4]), {
         atMs: OPENING_MS,
@@ -333,9 +381,13 @@ describe("agent frame store", () => {
       await fillRecommendedAgentFrames(clip, async () => new Uint8Array([4]));
 
       expect(mockInserted).toHaveLength(0);
-      expect(mockDeleteUploadedFile).toHaveBeenCalledWith("s3", {
-        url: "https://cdn.example.com/late.jpg",
-      });
+      expect(mockDeleteStoredMediaUrl).toHaveBeenCalledWith(
+        "https://cdn.example.com/late.jpg",
+        {
+          storageMode: "own",
+          recordingId: "rec-1",
+        },
+      );
     });
 
     it("drops a frame whose recording was deleted while it was being cut", async () => {
@@ -348,7 +400,7 @@ describe("agent frame store", () => {
       await fillRecommendedAgentFrames(clip, async () => new Uint8Array([4]));
 
       expect(mockInserted).toHaveLength(0);
-      expect(mockDeleteUploadedFile).toHaveBeenCalled();
+      expect(mockDeleteStoredMediaUrl).toHaveBeenCalled();
     });
 
     it("does not overwrite a frame another fill recorded first", async () => {
@@ -364,9 +416,10 @@ describe("agent frame store", () => {
       await fillRecommendedAgentFrames(clip, async () => new Uint8Array([4]));
 
       expect(mockInserted).toHaveLength(0);
-      expect(mockDeleteUploadedFile).toHaveBeenCalledWith("s3", {
-        url: "https://cdn.example.com/mine.jpg",
-      });
+      expect(mockDeleteStoredMediaUrl).toHaveBeenCalledWith(
+        "https://cdn.example.com/mine.jpg",
+        { storageMode: "own", recordingId: "rec-1" },
+      );
     });
 
     it("deletes a hosted frame through the hosted storage path", async () => {

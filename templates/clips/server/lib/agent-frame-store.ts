@@ -13,6 +13,7 @@ import {
   type PublicAgentRecording,
 } from "./public-agent-context.js";
 import { deleteStoredMediaUrl } from "./recording-media-cleanup.js";
+import { ownerEmailMatches } from "./recordings.js";
 import { uploadRecordingMedia } from "./upload-recording-media.js";
 
 type FrameRecording = Pick<
@@ -48,8 +49,10 @@ type FrameObject = {
 };
 
 /**
- * Deletes through the provider that stored the object: the thumbnail uses the
- * same split, so a registered provider other than S3 is not skipped.
+ * Deletes through the provider that stored the object. The Clips S3 providers
+ * register no `delete` for the registry to call (the own one is "s3", the
+ * hosted one "clips-hosted"), so their objects go through the Clips storage
+ * path; any other registered provider deletes its own.
  */
 async function deleteFrameObject(
   recording: Pick<FrameRecording, "id">,
@@ -57,9 +60,11 @@ async function deleteFrameObject(
 ): Promise<boolean> {
   try {
     const deleted =
-      object.storageProvider === "clips-hosted"
+      object.storageProvider === "clips-hosted" ||
+      object.storageProvider === "s3"
         ? await deleteStoredMediaUrl(object.storageUrl, {
-            storageMode: "hosted",
+            storageMode:
+              object.storageProvider === "clips-hosted" ? "hosted" : "own",
             recordingId: recording.id,
           })
         : await deleteUploadedFile(object.storageProvider, {
@@ -224,9 +229,17 @@ async function storeAgentFrame(
           editsJson: schema.recordings.editsJson,
         })
         .from(schema.recordings)
-        .where(eq(schema.recordings.id, recording.id))
+        .where(
+          and(
+            eq(schema.recordings.id, recording.id),
+            ownerEmailMatches(
+              schema.recordings.ownerEmail,
+              recording.ownerEmail,
+            ),
+          ),
+        )
         .for("update");
-      if (current.length === 0 || agentFrameMediaKey(current[0]) !== mediaKey) {
+      if (!current.some((row) => agentFrameMediaKey(row) === mediaKey)) {
         return false;
       }
       // Only the row the caller saw may be replaced. Another fill that got
@@ -241,8 +254,10 @@ async function storeAgentFrame(
             eq(schema.recordingAgentFrames.atMs, atMs),
           ),
         );
-      const existingUrl = existing.length > 0 ? existing[0].storageUrl : null;
-      if (existingUrl !== (previous?.storageUrl ?? null)) return false;
+      const unchanged = previous
+        ? existing.some((row) => row.storageUrl === previous.storageUrl)
+        : existing.length === 0;
+      if (!unchanged) return false;
       await tx
         .insert(schema.recordingAgentFrames)
         .values({
@@ -300,7 +315,7 @@ export function fillRecommendedAgentFrames(
       runWithRequestContext(
         {
           userEmail: recording.ownerEmail,
-          orgId: recording.orgId ?? undefined,
+          ...(recording.orgId ? { orgId: recording.orgId } : {}),
         },
         async () => {
           const [times, rows] = await Promise.all([
@@ -356,11 +371,12 @@ export function fillRecommendedAgentFrames(
  * Removes every stored frame of a recording, objects then rows. Called when
  * the media changes or the recording goes: a frame cut before a redaction
  * must never be served again. A row stays until its object is confirmed gone,
- * so a failure here can be retried; it throws after trying every frame.
+ * so what is left can be retried. Returns how many frames could not be
+ * deleted from storage, which the caller must act on.
  */
 export async function deleteStoredAgentFrames(
   recording: Pick<FrameRecording, "id">,
-): Promise<void> {
+): Promise<number> {
   const db = getDb();
   const rows = await db
     .select({
@@ -371,20 +387,22 @@ export async function deleteStoredAgentFrames(
     })
     .from(schema.recordingAgentFrames)
     .where(eq(schema.recordingAgentFrames.recordingId, recording.id));
-  let failed = 0;
+  let remaining = 0;
   for (const row of rows) {
     if (!(await deleteFrameObject(recording, row))) {
-      failed += 1;
+      remaining += 1;
       continue;
     }
+    // Only the row whose object was just deleted: a fill may have pointed it
+    // at a new object since the read above, and that row must stay.
     await db
       .delete(schema.recordingAgentFrames)
-      .where(eq(schema.recordingAgentFrames.id, row.id));
+      .where(
+        and(
+          eq(schema.recordingAgentFrames.id, row.id),
+          eq(schema.recordingAgentFrames.storageUrl, row.storageUrl),
+        ),
+      );
   }
-  if (failed > 0) {
-    // guard:allow-bare-error — invariant: callers must know an unredacted frame may remain in storage.
-    throw new Error(
-      `${failed} stored agent frame(s) of ${recording.id} could not be deleted from storage.`,
-    );
-  }
+  return remaining;
 }

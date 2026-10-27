@@ -352,7 +352,10 @@ export async function burnRedactionsFor(args: {
 
   const failedDeletes: string[] = [];
   try {
-    await deleteStoredAgentFrames(existing);
+    const framesLeft = await deleteStoredAgentFrames(existing);
+    if (framesLeft > 0) {
+      failedDeletes.push(`${framesLeft} agent frame(s) of ${args.recordingId}`);
+    }
   } catch (err) {
     failedDeletes.push(`agent frames of ${args.recordingId}`);
     console.warn(
