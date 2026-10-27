@@ -7,6 +7,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { recordingExpiryQuery } from "../server/lib/recording-expiry-query.js";
 import { CLIPS_AI_REQUEST_KINDS } from "../shared/ai-request-status.js";
 import { listAutoTitleCandidates } from "./lib/auto-title-candidates.js";
 
@@ -141,6 +142,7 @@ async function listQueuedRequests(): Promise<{
         accessFilter(schema.recordings, schema.recordingShares),
         inArray(schema.recordings.id, recordingIds),
         eq(schema.recordings.status, "ready"),
+        recordingExpiryQuery(getRequestUserEmail()).available,
       ),
     );
 

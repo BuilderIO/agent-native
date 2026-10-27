@@ -375,6 +375,8 @@ const database = {
   failedToCreateRow: "行を作成できませんでした",
   pageCreatedCollectionRefreshFailed:
     "ページは作成されましたが、このコレクションを更新できませんでした。再読み込みしてください。",
+  builderPushResultNotLoaded:
+    "更新は Builder に届きましたが、このレビューで結果を読み込めませんでした。再読み込みしてください。",
   failedToDeleteRow: "行を削除できませんでした",
   failedToDeleteSelectedRows: "選択した行を削除できませんでした",
   failedToDuplicateEverySelectedRow: "選択したすべての行を複製できませんでした",

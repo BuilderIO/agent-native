@@ -135,6 +135,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleOther": "Autre",
   "onboarding.roleOtherInputLabel": "Décrivez votre rôle",
   "onboarding.skipForNow": "Ignorer pour l’instant",
+  "onboarding.builderProvisionFailedDetail":
+    "Impossible de créer votre compte Builder.io. Réessayez ou connectez-vous avec un compte existant.",
   "onboarding.saveRoleError": "Impossible d’enregistrer votre rôle.",
   "onboarding.builderCreateAccount": "Utiliser Builder.io",
   "onboarding.builderSignInWithAccount":
@@ -436,6 +438,9 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.openDesktop":
     "Ouvrez l’application de bureau pour utiliser ce chat.",
   "composer.removeAttachment": "Supprimer {{name}}",
+  "composer.attachmentReadFailed": "Impossible de lire ce fichier",
+  "composer.attachmentTooLarge": "Le fichier dépasse 8 Mo",
+  "composer.attachmentNotUtf8": "Le fichier n'est pas du texte UTF-8",
   "composer.scrollToBottom": "Faire défiler jusqu’en bas",
   "composer.suggestedPrompts": "Prompts suggérés",
   "composer.stopResponse": "Arrêter la réponse",

@@ -215,7 +215,7 @@ describe("clips activity notifications", () => {
     expect(notifyArgs().candidates).toEqual(["owner@example.com"]);
   });
 
-  it("drops all comment activity after a recording expires", async () => {
+  it("preserves only owner comment activity after a recording expires", async () => {
     stubDb({
       recording: {
         ...RECORDING,
@@ -230,7 +230,7 @@ describe("clips activity notifications", () => {
       content: "Expired note",
     });
 
-    expect(notifyArgs().candidates).toEqual([]);
+    expect(notifyArgs().candidates).toEqual(["owner@example.com"]);
   });
 
   it("builds the reaction email for each recipient", async () => {

@@ -48,6 +48,7 @@ import {
   CIRCULAR_RESULT,
   EMBED_RESULT_SENSITIVE_KEYS,
   HIDDEN_EMBED_URL,
+  IMAGE_BYTES,
   isEmbedCredentialKey,
   readString,
   redactEmbedText,
@@ -161,9 +162,6 @@ const MIN_HIDDEN_CREDENTIAL_LENGTH = 8;
 // A ticket is base64url, so a ticket that ends a sentence is read without
 // the punctuation after it.
 const TICKET_PARAMETER = /[?&#;]ticket=([A-Za-z0-9_-]+)/gi;
-// Image bytes, plain or as an image data URL. They can run to megabytes, and
-// cannot hold a start URL: its `?` and `_` are in neither form.
-const IMAGE_BYTES = /^(?:data:image\/[a-z0-9.+-]+;base64,)?[A-Za-z0-9+/=\s]*$/i;
 const TICKET_RUN = /^[A-Za-z0-9_-]+/;
 
 /**
@@ -325,8 +323,9 @@ export function embedCredentialSources(): (
  *
  * It hides accidental echoes: a credential the call holds, repeated raw or
  * under any escaping `StringReading` decodes. A result it cannot fully read,
- * because it is not JSON data or a string in it or in the call's `guard` is
- * escaped past `MAX_DECODE_ROUNDS`, is withheld whole: this throws. The
+ * because it is not JSON data or a string in it or in the call's `guard`
+ * exceeds the decoding or reference-inspection work limit, is withheld whole:
+ * this throws. The
  * direct adapter then reports a write, told by its effect and not by whether
  * it notifies, as a success, as it does any failure after the action ran,
  * unless its upstream reported failure or its status could not be read; a

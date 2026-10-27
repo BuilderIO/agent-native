@@ -701,7 +701,8 @@
       --agentkit-transcript-font-family,
       var(--font-sans, inherit)
     );
-    line-height: var(--agentkit-transcript-message-line-height, 1.52);
+    /* 14px text on a 20px line, so text-driven heights land on the 4px grid. */
+    line-height: var(--agentkit-transcript-message-line-height, 1.25rem);
   }
 
   /* A user message's footer overlays the 28px zone under its bubble on hover
@@ -714,7 +715,7 @@
       calc(1.75rem + var(--agentkit-transcript-message-gap, 1.5rem));
     line-height: var(
       --agentkit-user-bubble-line-height,
-      var(--agentkit-transcript-message-line-height, 1.52)
+      var(--agentkit-transcript-message-line-height, 1.25rem)
     );
   }
 
@@ -1111,8 +1112,11 @@
     font-family: var(--font-mono, ui-monospace, monospace);
   }
 
+  /* A code span's own line, on a different font's baseline, would stretch
+   its line past the 20px grid. */
   .agentkit-markdown :not(pre) > code {
     padding: 0.125rem 0.25rem;
+    line-height: 1;
     border-radius: var(--radius-sm, calc(var(--radius, 0.75rem) / 2));
     background: var(--agentkit-subtle);
     font-size: 0.875em;

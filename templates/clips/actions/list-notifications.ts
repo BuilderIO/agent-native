@@ -11,6 +11,7 @@ import {
   sameOwnerEmail,
 } from "../server/lib/recordings.js";
 import { profileNameFor } from "../server/lib/user-identities.js";
+import { canReadRecordingComments } from "../shared/comment-access.js";
 import { parseCommentMentions } from "../shared/comment-mentions.js";
 
 export default defineAction({
@@ -33,6 +34,7 @@ export default defineAction({
         password: schema.recordings.password,
         expiresAt: schema.recordings.expiresAt,
         trashedAt: schema.recordings.trashedAt,
+        enableComments: schema.recordings.enableComments,
       })
       .from(schema.recordings)
       .where(accessFilter(schema.recordings, schema.recordingShares));
@@ -53,7 +55,14 @@ export default defineAction({
       .filter((recording) => sameOwnerEmail(recording.ownerEmail, me))
       .map((recording) => recording.id);
     const myRecordingIdSet = new Set(myRecordingIds);
-    const ids = accessibleRecordings.map((recording) => recording.id);
+    const commentRecordingIds = accessibleRecordings
+      .filter((recording) =>
+        canReadRecordingComments({
+          enableComments: recording.enableComments,
+          viewerIsOwner: sameOwnerEmail(recording.ownerEmail, me),
+        }),
+      )
+      .map((recording) => recording.id);
     const titleById = new Map(
       accessibleRecordings.map(
         (recording) => [recording.id, recording.title] as const,
@@ -73,18 +82,23 @@ export default defineAction({
       : sql`lower(${schema.recordingComments.mentionsJson}) LIKE ${mentionPattern}`;
 
     const [comments, reactions] = await Promise.all([
-      db
-        .select()
-        .from(schema.recordingComments)
-        .where(
-          and(
-            inArray(schema.recordingComments.recordingId, ids),
-            gte(schema.recordingComments.createdAt, cutoff),
-            commentScope,
-          ),
-        )
-        .orderBy(desc(schema.recordingComments.createdAt))
-        .limit(args.limit),
+      commentRecordingIds.length
+        ? db
+            .select()
+            .from(schema.recordingComments)
+            .where(
+              and(
+                inArray(
+                  schema.recordingComments.recordingId,
+                  commentRecordingIds,
+                ),
+                gte(schema.recordingComments.createdAt, cutoff),
+                commentScope,
+              ),
+            )
+            .orderBy(desc(schema.recordingComments.createdAt))
+            .limit(args.limit)
+        : Promise.resolve([]),
       myRecordingIds.length
         ? db
             .select()

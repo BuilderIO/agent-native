@@ -335,6 +335,8 @@ const database = {
   failedToCreateRow: "创建行失败",
   pageCreatedCollectionRefreshFailed:
     "页面已创建，但此集合无法刷新。请重新加载以查看。",
+  builderPushResultNotLoaded:
+    "更新已送达 Builder，但此审阅无法加载结果。请重新加载以查看。",
   failedToDeleteRow: "删除行失败",
   failedToDeleteSelectedRows: "删除所选行失败",
   failedToDuplicateEverySelectedRow: "未能复制所有选中行",

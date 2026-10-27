@@ -730,9 +730,13 @@ describe("executeMcpActionCall sanitizing", () => {
     `https://redirect.example/?next=${EMBED_START.replaceAll("/", "\\u002f")}`,
   ];
 
-  // The embed start URL spelled with escapes a decoder resolves, with
+  // The embed start URL spelled relatively or with escapes a decoder resolves, with
   // characters a URL parser drops, or with forms a reader folds back into it.
   const disguisedEmbedStarts = [
+    "embed/start?ticket=secret-ticket",
+    "./embed/start?ticket=secret-ticket",
+    EMBED_START.replace("/start", "/./start"),
+    EMBED_START.replace("/start", "/././start"),
     EMBED_START.replace("_", "&UnderBar;"),
     EMBED_START.replace("_agent", "_ag&Tab;ent"),
     EMBED_START.replace("_agent", "_ag&NewLine;ent"),
@@ -808,11 +812,14 @@ describe("executeMcpActionCall sanitizing", () => {
 
   it("keeps ordinary nested URLs and ticket fields with no embed route beside them", async () => {
     const value = {
+      content:
+        "# Synthetic task\n\nCheck the embed start behavior. Read the Agent-Native embed start guide.",
       next: `https://redirect.example/?next=${encodeURIComponent("https://mail.agent-native.com/inbox")}`,
       support: {
         ticket: "SUP-12",
         url: "https://support.example/_agent-native/embed?step=1#started-guide",
         note: "Embedded charts &amp; start-up tips",
+        fragmentGuide: "https://support.example/_agent-native/embed#start",
       },
     };
     await expect(
@@ -823,10 +830,10 @@ describe("executeMcpActionCall sanitizing", () => {
     ).resolves.toEqual({ status: "completed", value, reportedError: false });
   });
 
-  it("treats any mention of embed start as a credential, even outside a URL", async () => {
+  it("redacts the framework route even when its separators are disguised", async () => {
     for (const mention of [
-      "https://support.example/_agent-native/embed#start",
-      "Embed start failed; retry.",
+      "https://support.example/_agent-native\\embed\\start",
+      "https://support.example/_agent-native/embed&#x2f;start",
     ]) {
       await expect(
         execute(
@@ -848,10 +855,7 @@ describe("executeMcpActionCall sanitizing", () => {
   });
 
   it("shows a hidden value as the placeholder under its key, so it reads as hidden, not missing", async () => {
-    // A text property whose prose names the route, as a collection row's
-    // read-back carries it.
-    const path =
-      "objectives/tasks/Fix chat failing because the embed start URL is redacted.md";
+    const path = EMBED_START;
     const outcome = await execute(
       {
         row: entry({
@@ -1034,14 +1038,14 @@ describe("executeMcpActionCall sanitizing", () => {
     };
 
     it("learns nothing from image bytes, but reads the rest of an image", () => {
-      // Base64 whose letters run "embedstart", which the loose route match
-      // reads as naming the route, so reading it would put the call in embed
-      // context.
-      const bytes = `${"QUJD".repeat(500_000)}embedstart`;
+      // These opaque base64 bytes contain route-shaped text, but no URL or
+      // credential. Neither an ordinary note nor image bytes establish embed
+      // context; the label and URL below still do.
+      const bytes = `${"QUJD".repeat(500_000)}/agentnative/embed/start`;
       const image = (fields: Record<string, unknown>) => ({
         _agentImages: [{ mediaType: "image/png", ...fields }],
       });
-      expect(embedCredentialGuard({ note: bytes }).embedContext).toBe(true);
+      expect(embedCredentialGuard({ note: bytes }).embedContext).toBe(false);
       expect(embedCredentialGuard(image({ data: bytes })).embedContext).toBe(
         false,
       );
@@ -1050,8 +1054,9 @@ describe("executeMcpActionCall sanitizing", () => {
           .embedContext,
       ).toBe(false);
       expect(
-        embedCredentialGuard(image({ data: "aGVsbG8=", label: "embedstart" }))
-          .embedContext,
+        embedCredentialGuard(
+          image({ data: "aGVsbG8=", label: "/_agent-native/embed/start" }),
+        ).embedContext,
       ).toBe(true);
       expect(embedCredentialGuard(image({ url: start })).credentials).toEqual([
         ticket,

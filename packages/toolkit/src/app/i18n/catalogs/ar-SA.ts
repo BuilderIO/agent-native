@@ -130,6 +130,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleOther": "أخرى",
   "onboarding.roleOtherInputLabel": "صف دورك",
   "onboarding.skipForNow": "تخطي الآن",
+  "onboarding.builderProvisionFailedDetail":
+    "تعذّر إنشاء حساب Builder.io الخاص بك. حاول مرة أخرى أو سجّل الدخول بحساب موجود.",
   "onboarding.saveRoleError": "تعذر حفظ دورك.",
   "onboarding.builderCreateAccount": "استخدم Builder.io",
   "onboarding.builderSignInWithAccount": "سجّل الدخول بحساب Builder.io",
@@ -411,6 +413,9 @@ const messages: ToolkitAgentChatTranslation = {
     "تعذّرت إضافة الملف الذي تم إفلاته. جرّب تنسيقًا آخر.",
   "composer.openDesktop": "افتح تطبيق سطح المكتب لاستخدام هذه المحادثة.",
   "composer.removeAttachment": "إزالة {{name}}",
+  "composer.attachmentReadFailed": "تعذّرت قراءة هذا الملف",
+  "composer.attachmentTooLarge": "حجم الملف أكبر من 8 ميغابايت",
+  "composer.attachmentNotUtf8": "الملف ليس نصًا بترميز UTF-8",
   "composer.scrollToBottom": "التمرير إلى الأسفل",
   "composer.suggestedPrompts": "اقتراحات المطالبات",
   "composer.stopResponse": "إيقاف الرد",

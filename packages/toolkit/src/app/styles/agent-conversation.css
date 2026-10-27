@@ -539,6 +539,13 @@
   line-height: 1.5;
 }
 
+/* Inside an AgentKit transcript, markdown follows its line height. The
+   default lives in this fallback, not a declaration on the chat root, so a
+   host can still set the variable on any ancestor. */
+:is(.agentkit-chat, .agentkit-tokens) .agent-markdown {
+  line-height: var(--agentkit-transcript-message-line-height, 1.25rem);
+}
+
 .agent-markdown > :last-child {
   margin-bottom: 0;
 }
@@ -604,6 +611,12 @@
   color: hsl(var(--foreground, 0 0% 90%));
   overflow-x: auto;
   border: 1px solid hsl(var(--border, 0 0% 80%));
+}
+
+/* A code span's own line, on a different font's baseline, would stretch its
+   line past the transcript's line height. */
+.agent-markdown :not(pre) > code {
+  line-height: 1;
 }
 
 .agent-markdown pre code {

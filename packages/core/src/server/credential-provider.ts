@@ -666,8 +666,19 @@ async function resolveScopedBuilderCredential(
         cause: orgLookupCause,
       };
     }
-    const personal = await readPersonal();
-    if (personal && !(await readsOrgCredentialFirst(orgId, email))) {
+    let personal: ScopedCredentialResult | null = null;
+    let personalReadError: AppSecretDecryptionError | undefined;
+    try {
+      personal = await readPersonal();
+    } catch (error) {
+      if (!(error instanceof AppSecretDecryptionError)) throw error;
+      personalReadError = error;
+    }
+    const orgCredentialFirst =
+      Boolean(personal || personalReadError) &&
+      (await readsOrgCredentialFirst(orgId, email));
+    if (personalReadError && !orgCredentialFirst) throw personalReadError;
+    if (personal && !orgCredentialFirst) {
       return personal;
     }
 
@@ -716,6 +727,7 @@ async function resolveScopedBuilderCredential(
         );
       }
     }
+    if (personalReadError) throw personalReadError;
     if (personal) return personal;
 
     // 3. Solo-workspace fallback: always checked, even when an org id was
@@ -753,7 +765,12 @@ async function resolveScopedBuilderCredential(
         `[builder-credential] key=${key} email=${email} scope=${scopeAttempted} error=${(err as Error)?.message ?? err}`,
       );
     }
-    return { value: null, source: null, lookupFailed: true, cause: err };
+    return {
+      value: null,
+      source: null,
+      lookupFailed: true,
+      cause: err,
+    };
   }
   return {
     value: null,
@@ -961,6 +978,8 @@ export async function resolveBuilderCredential(
   identity?: BuilderCredentialLookupIdentity,
 ): Promise<string | null> {
   const scoped = await resolveScopedBuilderCredential(key, identity);
+  if (scoped.lookupFailed)
+    throw new CredentialStoreUnavailableError(scoped.cause);
   if (scoped.value) return scoped.value;
   const storageOnly =
     identity === undefined && getRequestBuilderCredentialScope().storageOnly;
@@ -968,14 +987,7 @@ export async function resolveBuilderCredential(
     !storageOnly && canUseBuilderDeployCredentialFallbackForRequest()
       ? (readDeployCredentialEnv(key) ?? null)
       : null;
-  if (envValue) {
-    // A deploy fallback is still useful, but it must not turn a transient
-    // credential-store failure into a clean connected result for Builder.
-    assertCredentialStoreReadable(scoped);
-    return envValue;
-  }
-  assertCredentialStoreReadable(scoped);
-  return null;
+  return envValue;
 }
 
 export function isBuilderEnvManaged(): boolean {

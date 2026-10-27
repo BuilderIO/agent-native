@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const expiryAccess = vi.hoisted(() => ({
+  role: "editor",
+  expiresAt: null as string | null,
+}));
+
 const mockSelectRows = vi.hoisted(() => ({
   queue: [] as Array<Array<Record<string, unknown>>>,
 }));
@@ -26,11 +31,16 @@ vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
 }));
 
-vi.mock("@agent-native/core/sharing", () => ({
-  assertAccess: vi.fn(async () => ({ role: "editor" })),
+vi.mock("@agent-native/core/sharing", async (original) => ({
+  ...(await original<typeof import("@agent-native/core/sharing")>()),
+  assertAccess: vi.fn(async () => ({
+    role: expiryAccess.role,
+    resource: { expiresAt: expiryAccess.expiresAt },
+  })),
 }));
 
-vi.mock("drizzle-orm", () => ({
+vi.mock("drizzle-orm", async (original) => ({
+  ...(await original<typeof import("drizzle-orm")>()),
   eq: vi.fn((column: unknown, value: unknown) => ({ column, value })),
 }));
 
@@ -65,6 +75,8 @@ import regenerateSummary from "./regenerate-summary";
 
 describe("regenerate-summary", () => {
   beforeEach(() => {
+    expiryAccess.role = "editor";
+    expiryAccess.expiresAt = null;
     vi.clearAllMocks();
     mockSelectRows.queue = [];
     mockCleanupTranscriptRun.mockResolvedValue({
@@ -72,6 +84,28 @@ describe("regenerate-summary", () => {
       provider: "builder",
     });
   });
+
+  it.each([false, true])(
+    "rechecks summary expiry after cleanup (owner=%s)",
+    async (owner) => {
+      expiryAccess.role = owner ? "owner" : "editor";
+      mockSelectRows.queue = [
+        [{ id: "rec_1", title: "Fake Clip", description: "" }],
+        [{ status: "ready", fullText: "Fake transcript" }],
+      ];
+      mockCleanupTranscriptRun.mockImplementationOnce(async () => {
+        expiryAccess.expiresAt = "2000-01-01T00:00:00Z";
+        return { summaryMd: "Fake delayed summary", provider: "builder" };
+      });
+      const pending = regenerateSummary.run({ recordingId: "rec_1" });
+      if (owner)
+        await expect(pending).resolves.toMatchObject({ updated: true });
+      else {
+        await expect(pending).rejects.toMatchObject({ statusCode: 403 });
+        expect(mockUpdateSet).not.toHaveBeenCalled();
+      }
+    },
+  );
 
   it("uses the server cleanup path instead of starting an agent turn", async () => {
     mockSelectRows.queue = [

@@ -130,6 +130,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleOther": "기타",
   "onboarding.roleOtherInputLabel": "역할을 입력해 주세요",
   "onboarding.skipForNow": "지금 건너뛰기",
+  "onboarding.builderProvisionFailedDetail":
+    "Builder.io 계정을 만들지 못했습니다. 다시 시도하거나 기존 계정으로 로그인하세요.",
   "onboarding.saveRoleError": "역할을 저장하지 못했습니다.",
   "onboarding.builderCreateAccount": "Builder.io 사용",
   "onboarding.builderSignInWithAccount": "Builder.io 계정으로 로그인",
@@ -416,6 +418,9 @@ const messages: ToolkitAgentChatTranslation = {
     "놓은 파일을 추가할 수 없습니다. 다른 형식을 사용해 보세요.",
   "composer.openDesktop": "이 채팅을 사용하려면 데스크톱 앱을 여세요.",
   "composer.removeAttachment": "{{name}} 제거",
+  "composer.attachmentReadFailed": "이 파일을 읽을 수 없습니다",
+  "composer.attachmentTooLarge": "파일이 8MB를 초과합니다",
+  "composer.attachmentNotUtf8": "파일이 UTF-8 텍스트가 아닙니다",
   "composer.scrollToBottom": "맨 아래로 스크롤",
   "composer.suggestedPrompts": "추천 프롬프트",
   "composer.stopResponse": "응답 중지",

@@ -22,7 +22,7 @@ import {
   type BackgroundAgentTranscriptEvent,
   type ListBackgroundAgentRunsOptions,
 } from "./background-run.js";
-import type { AgentPromptAttachment } from "./prompt-attachments.js";
+import { promptAttachmentsFromMetadata } from "./prompt-attachments.js";
 
 export type BackgroundAgentControlCommand =
   | "approve"
@@ -359,23 +359,6 @@ function stopLocalCodeBackgroundAgentRun(
       : undefined,
     error: updated ? undefined : `Run not found: ${runId}`,
   };
-}
-
-function promptAttachmentsFromMetadata(
-  value: unknown,
-): AgentPromptAttachment[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .filter((item): item is Record<string, unknown> =>
-      Boolean(item && typeof item === "object" && !Array.isArray(item)),
-    )
-    .map((item) => ({
-      name: typeof item.name === "string" && item.name ? item.name : "file",
-      ...(typeof item.type === "string" ? { type: item.type } : {}),
-      ...(typeof item.size === "number" ? { size: item.size } : {}),
-      ...(typeof item.text === "string" ? { text: item.text } : {}),
-      ...(typeof item.dataUrl === "string" ? { dataUrl: item.dataUrl } : {}),
-    }));
 }
 
 function currentBackgroundRun(runId: string): BackgroundAgentRun | null {

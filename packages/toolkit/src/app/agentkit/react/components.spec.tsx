@@ -411,10 +411,10 @@ describe("AgentKitChat", () => {
       /font-family:\s*var\(\s*--agentkit-transcript-font-family,\s*var\(--font-sans,\s*inherit\)\s*\);/,
     );
     expect(styles).toContain(
-      "line-height: var(--agentkit-transcript-message-line-height, 1.52);",
+      "line-height: var(--agentkit-transcript-message-line-height, 1.25rem);",
     );
     expect(styles).toContain(
-      "--agentkit-user-bubble-line-height,\n    var(--agentkit-transcript-message-line-height, 1.52)",
+      "--agentkit-user-bubble-line-height,\n    var(--agentkit-transcript-message-line-height, 1.25rem)",
     );
     expect(styles).toContain("var(--agentkit-user-bubble-max-width, 38rem)");
     expect(styles).toContain(

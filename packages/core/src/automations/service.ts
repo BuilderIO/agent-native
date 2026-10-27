@@ -1,4 +1,4 @@
-import type { ActionCaller } from "../action.js";
+import type { ActionCaller, ActionRunContext } from "../action.js";
 import { getDbExec, type DbExec, type DbExecStatement } from "../db/client.js";
 import { RESUME_AUTOMATION_PATCH } from "../jobs/automation-outcome.js";
 import { isValidCron, isValidTimezone, nextOccurrence } from "../jobs/cron.js";
@@ -58,7 +58,7 @@ import {
   resolveAutomationAccess,
   type AccessibleAutomation,
 } from "./access.js";
-import { isMcpAutomationOrigin } from "./mcp-origin.js";
+import { isOutsideAutomationOrigin } from "./outside-origin.js";
 import {
   deleteAutomationSharingStateWithDb,
   ensureAutomationSharingTables,
@@ -76,6 +76,8 @@ export const DEFAULT_AUTOMATION_SCHEDULE = "0 * * * *";
 export interface AutomationActor {
   userEmail: string;
   caller?: ActionCaller;
+  networkProtocol?: ActionRunContext["networkProtocol"];
+  automation?: ActionRunContext["automation"];
   orgId?: string | null;
   appId?: string | null;
 }
@@ -202,7 +204,6 @@ function normalizeActor(actor: AutomationActor): AutomationActor {
   if (!userEmail) throw httpError("Not authenticated.", 401);
   return {
     userEmail,
-    caller: isMcpAutomationOrigin(actor.caller) ? "mcp" : actor.caller,
     orgId: actor.orgId?.trim() || null,
     appId: actor.appId?.trim() || null,
   };
@@ -693,6 +694,7 @@ export async function defineAutomation(
   input: DefineAutomationInput,
 ): Promise<DefinedAutomation> {
   const actor = normalizeActor(actorInput);
+  const outside = isOutsideAutomationOrigin(actorInput);
   if (input.scope === "organization") {
     await requireOrganizationMembership(actor);
   }
@@ -783,7 +785,7 @@ export async function defineAutomation(
     createdBy: actor.userEmail,
     orgId: input.scope === "organization" ? actor.orgId! : undefined,
     runAs: "creator",
-    ...(actor.caller === "mcp" ? { mcpManaged: true } : {}),
+    ...(outside ? { mcpManaged: true } : {}),
     ...(input.triggerType === "schedule"
       ? {
           nextRun: nextOccurrence(schedule, undefined, timezone).toISOString(),
@@ -891,6 +893,7 @@ export async function updateAutomation(
   input: UpdateAutomationInput,
 ): Promise<AutomationUpdateResult> {
   const actor = normalizeActor(actorInput);
+  const outside = isOutsideAutomationOrigin(actorInput);
   const { definition, access } = await readDefinitionForUpdate(actor, input);
   if (!access.capabilities.canEdit) {
     throw httpError(
@@ -903,10 +906,9 @@ export async function updateAutomation(
   }
 
   const currentMeta = { ...definition.meta };
-  const mcpMessages =
-    actor.caller === "mcp"
-      ? await automationOutcomeMessagesForUser(actor.userEmail)
-      : undefined;
+  const mcpMessages = outside
+    ? await automationOutcomeMessagesForUser(actor.userEmail)
+    : undefined;
   const assertMcpTakeoverAllowed = (latest: JobFrontmatter) => {
     if (mcpMessages && !latest.mcpManaged && latest.lastStatus === "running") {
       throw httpError(mcpMessages.mcpTakeoverWhileRunning, 409);
@@ -915,7 +917,7 @@ export async function updateAutomation(
   assertMcpTakeoverAllowed(currentMeta);
   const meta: AutomationDefinition["meta"] = { ...currentMeta };
   const fields: JobFrontmatterPatch = {};
-  if (actor.caller === "mcp") {
+  if (outside) {
     meta.mcpManaged = true;
     fields.mcpManaged = true;
   }
@@ -1315,7 +1317,7 @@ export async function updateAutomation(
   const replaced = parseJobResource(replacedContent);
   const changedField = (before: unknown, after: unknown) => before !== after;
   const requestedDiff =
-    (actor.caller === "mcp" && !replaced.meta.mcpManaged) ||
+    (outside && !replaced.meta.mcpManaged) ||
     (input.body !== undefined && changedField(replaced.body, body)) ||
     (input.enabled !== undefined &&
       changedField(replaced.meta.enabled, meta.enabled)) ||

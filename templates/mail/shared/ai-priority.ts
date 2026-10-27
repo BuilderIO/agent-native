@@ -1,6 +1,9 @@
 import { z } from "zod";
 
-import { aiFilterPreviewEmailSchema } from "./ai-filter.js";
+import {
+  aiFilterDecisionFailureReasonSchema,
+  aiFilterPreviewEmailSchema,
+} from "./ai-filter.js";
 
 export const AI_IMPORTANT_LABEL = "agent-native-important";
 export const AI_PRIORITY_MAX_EMAILS = 500;
@@ -18,6 +21,14 @@ export const aiPriorityScoreSchema = z.object({
   reason: z.string().max(500).optional(),
 });
 export type AiPriorityScore = z.infer<typeof aiPriorityScoreSchema>;
+
+export const aiPriorityFailureSchema = z.object({
+  emailId: z.string().min(1).max(256),
+  accountEmail: z.string().email().optional(),
+  reason: aiFilterDecisionFailureReasonSchema,
+  retryable: z.boolean().optional(),
+});
+export type AiPriorityFailure = z.infer<typeof aiPriorityFailureSchema>;
 
 export function aiPriorityEmailKey(
   accountEmail: string | undefined,

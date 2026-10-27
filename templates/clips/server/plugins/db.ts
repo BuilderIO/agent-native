@@ -1330,6 +1330,24 @@ export const migrations = runMigrations(
       name: "meeting-capture-stop-revision",
       sql: `ALTER TABLE clips_meetings ADD COLUMN IF NOT EXISTS capture_stop_revision INTEGER NOT NULL DEFAULT 0`,
     },
+    {
+      version: 94,
+      name: "recording-agent-frames",
+      // Additive. Mirrors `recordingAgentFrames` in server/db/schema.ts.
+      sql: `CREATE TABLE IF NOT EXISTS recording_agent_frames (
+        id TEXT PRIMARY KEY,
+        recording_id TEXT NOT NULL,
+        at_ms INTEGER NOT NULL,
+        media_key TEXT NOT NULL,
+        storage_url TEXT NOT NULL,
+        storage_provider TEXT NOT NULL,
+        storage_id TEXT,
+        size_bytes INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS recording_agent_frames_recording_at_unique_idx
+        ON recording_agent_frames (recording_id, at_ms)`,
+    },
   ]),
   { table: "clips_migrations" },
 );
