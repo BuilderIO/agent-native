@@ -1,0 +1,99 @@
+template: v2
+slug: ask-your-database
+app: analytics
+title: Ask your data questions in plain English
+seo_title: Ask your database questions without SQL
+meta_description: Type a question about your BigQuery data and Agent-Native Analytics answers it with read-only SQL you can check, then keeps repeat questions on a dashboard.
+updated: 2026-10-27
+hero:
+  body: Agent-Native Analytics answers them from your BigQuery data and keeps the ones you ask again on a dashboard. The agent writes read-only SQL you can check.
+  button:
+    label: Ask your data
+    url: https://analytics.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd1120abfcd1447b9ab48ff98a9b7592d
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2db877a772674ad4af41e7efbb062d50
+    alt: Analytics open on Ask. The agent answers a question about last week's signups with a bar chart by plan and the table it counted from. Below it, a follow-up shows Pro grew the most.
+how_to:
+  heading: How to ask your database questions in plain English
+  steps:
+    - title: Connect your data warehouse
+      body: On the **Data Sources** page, open BigQuery. Upload the JSON key of a service account with the BigQuery Data Viewer and BigQuery Job User roles, enter your project ID, then click **Save Credentials** and **Test connection**.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F62008ebd98594f02b1c0bf3ae565ef49
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb01d428bca15467eb4c04299dd9575b8
+        alt: Close-up of the BigQuery card on Data Sources, showing Connected, the project ID and service account marked Configured, and Connection successful.
+    - title: Ask your question in plain English
+      body: "In **Ask**, type a question the way you'd ask a teammate: \"How many accounts signed up last week, by plan?\" The agent finds the right tables, runs the query and answers with a chart."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F3e9ac5b30a924dab9b09bc76ed24b2de
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F31c48c5ccc9247b792c00474b01f97b0
+        alt: Close-up of the Ask chat. The agent searched the BigQuery schema, ran one query, and answered with 723 signups and a bar chart by plan.
+    - title: Keep the answer on a dashboard
+      body: Ask the agent to "add this to a dashboard." It builds the panel, checks that its SQL runs and saves the dashboard. The dashboard stays private until you share it with a teammate or your whole organization.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F957858f8613241a2b2249d88430b3cc4
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd0111e9f420149fc8a35cad845ad8e2e
+        alt: A new Weekly signups dashboard with the signups-by-plan panel and a signups-by-week chart. The agent chat beside it says both panels were checked against BigQuery.
+features:
+  heading: Everything you need to get answers from your database
+  items:
+    - title: The SQL behind every answer
+      body: Open **View SQL** on any dashboard chart, or ask in chat, to see the query the agent wrote, and copy it to run yourself.
+    - title: Your team's metric definitions
+      body: An admin writes down what "active" or "signup" means on the **Semantic Layer** page. The agent reads it before it writes SQL.
+    - title: Queries that can't change data
+      body: In BigQuery, the agent's SQL can't insert, update or delete, and it connects through a service account that can only read tables and run queries.
+    - title: Dashboards the agent edits
+      body: Ask in chat for another panel, a filter or a breakdown by plan, and the agent changes the dashboard for everyone you've shared it with.
+    - title: Questions across your tools
+      body: Ask one question that mixes your warehouse tables with Stripe revenue, HubSpot deals or PostHog events.
+    - title: The dashboard in your inbox
+      body: Get a dashboard by email every day at the time you pick, with its charts and tables in the email, for up to five people.
+integrations:
+  heading: Connect Analytics to the tools you already use
+  cards:
+    - title: Your warehouse and your metrics
+      logos:
+        - name: BigQuery
+      body: Analytics queries your BigQuery tables and answers with the metric definitions your team keeps in its **Semantic Layer**.
+    - title: Add revenue and product data
+      logos:
+        - name: Stripe
+        - name: HubSpot
+        - name: PostHog
+      body: Connect Stripe, HubSpot or PostHog, so an answer can put database numbers next to revenue, deals or product events.
+    - title: Connect anything through MCP
+      logos:
+        - name: Supabase
+        - name: Neon
+        - name: Notion
+      more: true
+      body: Connect the tools your team uses through MCP, or add any MCP server by its URL.
+other_uses:
+  heading: Other things you can do with Agent-Native Analytics
+  cards:
+    - title: Build a KPI dashboard for your startup
+      url: https://www.agent-native.com/use-cases/ai-kpi-dashboard/
+      body: Track your startup's revenue, pipeline and product usage on one dashboard you can question.
+    - title: Find where new users drop off
+      url: https://www.agent-native.com/use-cases/ai-funnel-analysis/
+      body: See the step where signups stall, and watch the session replays behind it.
+    - title: Review your sales pipeline with HubSpot and Gong data
+      url: https://www.agent-native.com/use-cases/ai-sales-analytics/
+      body: Check how deals are moving, with answers drawn from your CRM and recorded sales calls.
+faqs:
+  heading: Questions? We have answers
+  items:
+    - q: Is Agent-Native Analytics free?
+      a: Yes, Agent-Native Analytics is free and open source. Use the hosted app or run your own copy. The agent needs an AI connection, through Builder.io or your own model key, so AI use isn't unlimited. Analytics is in alpha, so expect changes.
+    - q: Do I need to know SQL?
+      a: No. You ask in plain English and the agent writes the SQL. Someone who knows your data may need to [connect BigQuery](https://www.agent-native.com/docs/template-analytics-connectors/) first. An admin can add your [metric definitions](https://www.agent-native.com/docs/template-analytics-dashboards/) on the **Semantic Layer** page, so the agent picks the right tables and columns.
+    - q: Does it work with Postgres, Supabase or Neon?
+      a: Yes, for Postgres on Supabase or Neon. Connect it [through MCP](https://www.agent-native.com/docs/mcp-clients/) from the chat's + menu and ask your question in chat. Those answers stay in the chat, because dashboard panels can't query Postgres yet. Other Postgres databases can't be queried yet, so the steps on this page use BigQuery.
+    - q: Can the agent change my data?
+      a: Not in BigQuery. Analytics rejects any query from the agent that would insert, update, delete or drop data there. The setup also asks for a service account with read-only roles, which can read your tables and run queries but not change them. Through Supabase or Neon, the agent can do what you allow that connection.
+    - q: How do I know an answer is right?
+      a: Check the query behind it. Ask the agent to show its SQL, or open **View SQL** on a dashboard chart. You can also ask which tables and filters it used. The agent marks a number **Unverified** when no live query ran.
+    - q: How is this different from asking ChatGPT about a CSV export?
+      a: "A chat assistant answers from the file you exported, so every new question starts with a new export. Analytics queries your warehouse directly, uses your team's metric definitions, and keeps the answers you need again on a dashboard. That's an [agentic app](https://www.agent-native.com/articles/what-is-an-agent-native-app/): the brains of an agent, the intuitiveness of an app."
