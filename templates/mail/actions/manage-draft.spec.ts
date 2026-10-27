@@ -794,4 +794,104 @@ describe("manage-draft create collisions", () => {
     });
     expect(mocks.writeAppState).not.toHaveBeenCalled();
   });
+
+  it("still reports the collision when removing its own Gmail draft fails", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    mocks.saveGmailDraft.mockImplementationOnce(async () => {
+      appState.set("compose-same-id", { id: "same-id", body: "Concurrent" });
+      return {
+        draftId: "gmail-new",
+        accountEmail: "owner@example.com",
+        created: true,
+      };
+    });
+    mocks.deleteGmailDraft.mockRejectedValueOnce(new Error("Gmail 503"));
+
+    await expect(
+      action.run({ action: "create", id: "same-id", body: "New draft" }),
+    ).rejects.toMatchObject({
+      errorCode: "draft_already_exists",
+      statusCode: 409,
+    });
+    expect(mocks.deleteGmailDraft).toHaveBeenCalledOnce();
+    consoleError.mockRestore();
+  });
+});
+
+describe("manage-draft create when the draft write throws", () => {
+  const writeError = new Error("connection reset");
+
+  beforeEach(() => {
+    mocks.saveGmailDraft.mockResolvedValueOnce({
+      draftId: "gmail-new",
+      accountEmail: "owner@example.com",
+      created: true,
+    });
+  });
+
+  it("removes its new Gmail draft and rethrows when the write didn't commit", async () => {
+    mocks.compareAndSetAppState.mockRejectedValueOnce(writeError);
+
+    await expect(
+      action.run({ action: "create", id: "fresh", body: "New draft" }),
+    ).rejects.toBe(writeError);
+
+    expect(appState.has("compose-fresh")).toBe(false);
+    expect(mocks.deleteGmailDraft).toHaveBeenCalledExactlyOnceWith({
+      ownerEmail: "owner@example.com",
+      accountEmail: "owner@example.com",
+      draftId: "gmail-new",
+    });
+  });
+
+  it("returns the draft when the write committed before throwing", async () => {
+    mocks.compareAndSetAppState.mockImplementationOnce(
+      async (key: string, _expected: unknown, next: unknown) => {
+        appState.set(key, next);
+        throw writeError;
+      },
+    );
+
+    const result = await action.run({
+      action: "create",
+      id: "fresh",
+      body: "New draft",
+    });
+
+    expect(result).toMatchObject({
+      id: "fresh",
+      draft: { savedDraftId: "gmail-new" },
+    });
+    expect(mocks.deleteGmailDraft).not.toHaveBeenCalled();
+  });
+
+  it("keeps the Gmail draft and rethrows when the outcome can't be read", async () => {
+    mocks.compareAndSetAppState.mockImplementationOnce(async () => {
+      mocks.readAppState.mockRejectedValue(new Error("database unavailable"));
+      throw writeError;
+    });
+
+    await expect(
+      action.run({ action: "create", id: "fresh", body: "New draft" }),
+    ).rejects.toBe(writeError);
+
+    expect(mocks.deleteGmailDraft).not.toHaveBeenCalled();
+  });
+
+  it("rethrows the write error when Gmail cleanup also fails", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    mocks.compareAndSetAppState.mockRejectedValueOnce(writeError);
+    mocks.deleteGmailDraft.mockRejectedValueOnce(new Error("Gmail 503"));
+
+    await expect(
+      action.run({ action: "create", id: "fresh", body: "New draft" }),
+    ).rejects.toBe(writeError);
+
+    expect(mocks.deleteGmailDraft).toHaveBeenCalledOnce();
+    consoleError.mockRestore();
+  });
 });

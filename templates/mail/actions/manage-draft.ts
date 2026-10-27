@@ -186,6 +186,26 @@ async function beforeFirstWrite<T>(work: () => Promise<T>): Promise<T> {
   }
 }
 
+/**
+ * Removes a Gmail draft this call saved when no Mail draft points at it.
+ * The caller is already failing with the error that matters, so a failed
+ * cleanup is logged rather than thrown in its place.
+ */
+async function discardUnstoredGmailDraft(
+  ownerEmail: string,
+  saved: { accountEmail: string; draftId: string },
+): Promise<void> {
+  try {
+    await deleteGmailDraft({
+      ownerEmail,
+      accountEmail: saved.accountEmail,
+      draftId: saved.draftId,
+    });
+  } catch (error) {
+    console.error("[manage-draft] unstored Gmail draft cleanup failed:", error);
+  }
+}
+
 export default defineAction({
   mcpAnnotations: {
     readOnlyHint: false,
@@ -356,14 +376,30 @@ export default defineAction({
       if (args.replyToThreadId) draft.replyToThreadId = args.replyToThreadId;
       const accountEmail = savedGmailDraft?.accountEmail ?? args.accountEmail;
       if (accountEmail) draft.accountEmail = accountEmail;
-      const created = await compareAndSetAppState(`compose-${id}`, null, draft);
+      let created: boolean;
+      try {
+        created = await compareAndSetAppState(`compose-${id}`, null, draft);
+      } catch (error) {
+        if (!savedGmailDraft?.created || !ownerEmail) throw error;
+        // The write can commit before it throws. Only a reread showing some
+        // other value proves it didn't, leaving the new Gmail draft with no
+        // Mail draft pointing at it. If the reread fails too, keep the Gmail
+        // draft rather than delete one Mail may still point at.
+        let stored: Record<string, unknown> | null;
+        try {
+          stored = await readAppState(`compose-${id}`);
+        } catch {
+          throw error;
+        }
+        if (stored?.savedDraftId !== savedGmailDraft.draftId) {
+          await discardUnstoredGmailDraft(ownerEmail, savedGmailDraft);
+          throw error;
+        }
+        created = true;
+      }
       if (!created) {
         if (savedGmailDraft?.created && ownerEmail) {
-          await deleteGmailDraft({
-            ownerEmail,
-            accountEmail: savedGmailDraft.accountEmail,
-            draftId: savedGmailDraft.draftId,
-          });
+          await discardUnstoredGmailDraft(ownerEmail, savedGmailDraft);
         }
         fail(`Draft "${id}" already exists; use update to revise it.`, {
           errorCode: "draft_already_exists",
