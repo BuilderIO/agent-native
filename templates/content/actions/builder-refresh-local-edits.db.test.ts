@@ -30,6 +30,9 @@ const builder = vi.hoisted(() => ({
   // How Builder reports an emptied body: an empty block list, or an empty
   // blocks string with no list.
   emptiedBodies: new Map<string, "blocks" | "blocksString">(),
+  // Runs once as the refresh reads the model's fields, after it read the
+  // collection's field mappings.
+  beforeModelFieldsRead: null as null | (() => Promise<void>),
 }));
 
 vi.mock("./_builder-cms-read-client.js", async () => {
@@ -56,10 +59,15 @@ vi.mock("./_builder-cms-read-client.js", async () => {
   });
   return {
     ...actual,
-    readBuilderCmsModelFields: vi.fn(async () => [
-      { name: "title", type: "string", required: true },
-      { name: "author", type: "string", required: false },
-    ]),
+    readBuilderCmsModelFields: vi.fn(async () => {
+      const beforeRead = builder.beforeModelFieldsRead;
+      builder.beforeModelFieldsRead = null;
+      await beforeRead?.();
+      return [
+        { name: "title", type: "string", required: true },
+        { name: "author", type: "string", required: false },
+      ];
+    }),
     readBuilderCmsContentEntries: vi.fn(async (args?: any) => {
       const entries = [...builder.entries].map(([id, entry]) => {
         if (!args?.includeBodies) return toEntry(id, entry);
@@ -868,6 +876,92 @@ it("doesn't put back a field's values when it is unbound before the refresh writ
     await db
       .delete(schema.documentPropertyDefinitions)
       .where(eq(schema.documentPropertyDefinitions.id, topicPropertyId));
+  }
+});
+
+it("keeps a field bound while the refresh was reading Builder", async () => {
+  const db = getDb();
+  const now = tick();
+  const subjectPropertyId = "prop_local_edits_subject";
+  const topicFieldId = "field_local_edits_bound_meanwhile";
+  await db.insert(schema.documentPropertyDefinitions).values({
+    id: subjectPropertyId,
+    ownerEmail: OWNER,
+    databaseId: DATABASE_ID,
+    name: "Subject",
+    type: "text",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSourceFields).values({
+    id: topicFieldId,
+    ownerEmail: OWNER,
+    sourceId: SOURCE_ID,
+    propertyId: null,
+    localFieldKey: "data.topic",
+    sourceFieldKey: "data.topic",
+    sourceFieldLabel: "Topic",
+    sourceFieldType: "text",
+    mappingType: "property",
+    writeOwner: "source",
+    createdAt: now,
+    updatedAt: now,
+  });
+  const id = "entry-bound-meanwhile";
+  try {
+    builder.entries.set(id, {
+      title: id,
+      author: "Bea",
+      topic: "Sync",
+      updatedAt: tick(),
+    });
+    // What binding the field writes, committed after the refresh read the
+    // collection's mappings and before it replaces them.
+    builder.beforeModelFieldsRead = async () => {
+      await db
+        .update(schema.contentDatabaseSourceFields)
+        .set({
+          propertyId: subjectPropertyId,
+          localFieldKey: subjectPropertyId,
+        })
+        .where(eq(schema.contentDatabaseSourceFields.id, topicFieldId));
+    };
+    await refresh();
+
+    expect(
+      await db
+        .select({
+          id: schema.contentDatabaseSourceFields.id,
+          propertyId: schema.contentDatabaseSourceFields.propertyId,
+          localFieldKey: schema.contentDatabaseSourceFields.localFieldKey,
+        })
+        .from(schema.contentDatabaseSourceFields)
+        .where(
+          and(
+            eq(schema.contentDatabaseSourceFields.sourceId, SOURCE_ID),
+            eq(schema.contentDatabaseSourceFields.sourceFieldKey, "data.topic"),
+          ),
+        ),
+    ).toEqual([
+      {
+        id: topicFieldId,
+        propertyId: subjectPropertyId,
+        localFieldKey: subjectPropertyId,
+      },
+    ]);
+  } finally {
+    builder.beforeModelFieldsRead = null;
+    const entry = builder.entries.get(id);
+    if (entry) builder.entries.set(id, { ...entry, topic: undefined });
+    await db
+      .delete(schema.documentPropertyValues)
+      .where(eq(schema.documentPropertyValues.propertyId, subjectPropertyId));
+    await db
+      .delete(schema.contentDatabaseSourceFields)
+      .where(eq(schema.contentDatabaseSourceFields.id, topicFieldId));
+    await db
+      .delete(schema.documentPropertyDefinitions)
+      .where(eq(schema.documentPropertyDefinitions.id, subjectPropertyId));
   }
 });
 

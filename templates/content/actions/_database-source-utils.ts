@@ -6093,17 +6093,48 @@ export function builderSourcePropertyAssignments(args: {
   });
 }
 
+/**
+ * Replaces a Builder source's field mappings under the collection lock that
+ * binding, unbinding, and staging take, building on the mappings read under
+ * it. A bind that landed since the refresh's first read keeps its property,
+ * and a stage that rechecked a mapping under the lock writes against the
+ * mapping it checked.
+ */
+async function reseedBuilderSourceFields(
+  args: Omit<
+    Parameters<typeof seedMockSourceFields>[0],
+    "existingFields" | "db"
+  > & {
+    databaseId: string;
+  },
+) {
+  const { databaseId, ...seed } = args;
+  await getDb().transaction(async (tx) => {
+    const db = tx as unknown as ReturnType<typeof getDb>;
+    await lockContentDatabaseMutation(db, databaseId);
+    const existingFields = await db
+      .select()
+      .from(schema.contentDatabaseSourceFields)
+      .where(eq(schema.contentDatabaseSourceFields.sourceId, seed.sourceId));
+    await db
+      .delete(schema.contentDatabaseSourceFields)
+      .where(eq(schema.contentDatabaseSourceFields.sourceId, seed.sourceId));
+    await seedMockSourceFields({ ...seed, existingFields, db });
+  });
+}
+
 export async function seedMockSourceFields(args: {
   sourceId: string;
   ownerEmail: string;
   sourceType: ContentDatabaseSourceType;
   properties: DocumentProperty[];
-  builderModelFields?: BuilderCmsModelFieldSummary[];
-  builderSampleEntries?: BuilderCmsSourceEntry[];
-  existingFields?: ContentDatabaseSourceFieldRowDb[];
+  builderModelFields?: BuilderCmsModelFieldSummary[] | undefined;
+  builderSampleEntries?: BuilderCmsSourceEntry[] | undefined;
+  existingFields?: ContentDatabaseSourceFieldRowDb[] | undefined;
   now: string;
+  db?: ReturnType<typeof getDb> | undefined;
 }) {
-  const db = getDb();
+  const db = args.db ?? getDb();
   const isBuilder = args.sourceType === "builder-cms";
   // Content keeps the Builder status itself; mapped to a field, a refresh
   // would overwrite it and a save would send it to Builder.
@@ -8114,17 +8145,14 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
     const shouldReseedSourceFields =
       !builderModelFieldsReadFailed || existingFields.length === 0;
     if (shouldReseedSourceFields) {
-      await db
-        .delete(schema.contentDatabaseSourceFields)
-        .where(eq(schema.contentDatabaseSourceFields.sourceId, args.source.id));
-      await seedMockSourceFields({
+      await reseedBuilderSourceFields({
+        databaseId: args.database.id,
         sourceId: args.source.id,
         ownerEmail: args.database.ownerEmail,
         sourceType: "builder-cms",
         properties,
         builderModelFields,
         builderSampleEntries: builderEntries,
-        existingFields,
         now: args.now,
       });
     }
@@ -8216,19 +8244,14 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
   const shouldReseedSourceFields =
     !builderModelFieldsReadFailed || existingFields.length === 0;
   if (shouldReseedSourceFields) {
-    await db
-      .delete(schema.contentDatabaseSourceFields)
-      .where(eq(schema.contentDatabaseSourceFields.sourceId, args.source.id));
-  }
-  if (shouldReseedSourceFields) {
-    await seedMockSourceFields({
+    await reseedBuilderSourceFields({
+      databaseId: args.database.id,
       sourceId: args.source.id,
       ownerEmail: args.database.ownerEmail,
       sourceType: "builder-cms",
       properties,
       builderModelFields,
       builderSampleEntries: builderEntries,
-      existingFields,
       now: args.now,
     });
   }
