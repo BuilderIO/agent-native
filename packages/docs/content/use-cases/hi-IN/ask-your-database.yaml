@@ -53,10 +53,11 @@ features:
 integrations:
   heading: "Analytics को उन टूल्स से जोड़ें जो आप पहले से इस्तेमाल करते हैं"
   cards:
-    - title: "आपका वेयरहाउस और आपके मेट्रिक्स"
+    - title: "आपका वेयरहाउस और आपकी साइट का ट्रैफ़िक"
       logos:
         - name: BigQuery
-      body: "Analytics आपकी BigQuery टेबल्स पर क्वेरी चलाता है और उन मेट्रिक परिभाषाओं से जवाब देता है जो आपकी टीम **सिमेंटिक लेयर** में रखती है।"
+        - name: Google Analytics
+      body: "Analytics आपकी BigQuery टेबल्स पर क्वेरी चलाता है और उसी Google सर्विस अकाउंट key से आपके Google Analytics ट्रैफ़िक पर भी।"
     - title: "रेवेन्यू और प्रोडक्ट डेटा जोड़ें"
       logos:
         - name: Stripe

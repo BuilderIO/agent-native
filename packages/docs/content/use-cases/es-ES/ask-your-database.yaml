@@ -53,10 +53,11 @@ features:
 integrations:
   heading: Conecta Analytics con las herramientas que ya usas
   cards:
-    - title: Tu almacén de datos y tus métricas
+    - title: Tu almacén de datos y el tráfico de tu web
       logos:
         - name: BigQuery
-      body: Analytics consulta tus tablas de BigQuery y responde con las definiciones de métricas que tu equipo guarda en **Capa semántica**.
+        - name: Google Analytics
+      body: Analytics consulta tus tablas de BigQuery y, con la misma clave de cuenta de servicio de Google, tu tráfico de Google Analytics.
     - title: Añade datos de ingresos y de producto
       logos:
         - name: Stripe

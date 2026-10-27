@@ -53,10 +53,11 @@ features:
 integrations:
   heading: 將 Analytics 連接到你已在用的工具
   cards:
-    - title: 你的資料倉儲和指標
+    - title: 你的資料倉儲和網站流量
       logos:
         - name: BigQuery
-      body: Analytics 查詢你的 BigQuery 資料表，並依照團隊在 **語意層** 維護的指標定義來回答。
+        - name: Google Analytics
+      body: Analytics 查詢你的 BigQuery 資料表，並用同一把 Google 服務帳戶金鑰查詢你的 Google Analytics 流量。
     - title: 加入營收和產品資料
       logos:
         - name: Stripe

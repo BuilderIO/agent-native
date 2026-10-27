@@ -53,10 +53,11 @@ features:
 integrations:
   heading: いつものツールとAnalyticsを連携
   cards:
-    - title: ウェアハウスと指標
+    - title: ウェアハウスとサイトのトラフィック
       logos:
         - name: BigQuery
-      body: AnalyticsはBigQueryのテーブルにクエリを実行し、チームが**セマンティックレイヤー**に書いた指標の定義に沿って答えます。
+        - name: Google Analytics
+      body: AnalyticsはBigQueryのテーブルに加え、同じGoogleサービスアカウントのキーでGoogle Analyticsのトラフィックにもクエリを実行します。
     - title: 売上と製品のデータを追加
       logos:
         - name: Stripe

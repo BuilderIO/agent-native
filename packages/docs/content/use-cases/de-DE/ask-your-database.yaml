@@ -53,10 +53,11 @@ features:
 integrations:
   heading: Verbinden Sie Analytics mit den Tools, die Sie schon nutzen
   cards:
-    - title: Ihr Warehouse und Ihre Kennzahlen
+    - title: Ihr Warehouse und Ihr Website-Traffic
       logos:
         - name: BigQuery
-      body: Analytics fragt Ihre BigQuery-Tabellen ab und antwortet mit den Kennzahl-Definitionen, die Ihr Team auf der Seite **Semantische Ebene** pflegt.
+        - name: Google Analytics
+      body: Analytics fragt Ihre BigQuery-Tabellen ab und, mit demselben Google-Dienstkonto-Schlüssel, Ihren Traffic in Google Analytics.
     - title: Umsatz- und Produktdaten ergänzen
       logos:
         - name: Stripe

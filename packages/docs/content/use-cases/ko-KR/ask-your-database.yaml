@@ -53,10 +53,11 @@ features:
 integrations:
   heading: 이미 쓰는 도구와 Analytics 연결하기
   cards:
-    - title: 웨어하우스와 지표
+    - title: 웨어하우스와 사이트 트래픽
       logos:
         - name: BigQuery
-      body: "Analytics는 BigQuery 테이블을 쿼리하고, 팀이 **시맨틱 레이어**에 정리해 둔 지표 정의로 답해요."
+        - name: Google Analytics
+      body: "Analytics는 BigQuery 테이블을 쿼리하고, 같은 Google 서비스 계정 키로 Google Analytics 트래픽도 조회해요."
     - title: 매출과 제품 데이터 더하기
       logos:
         - name: Stripe

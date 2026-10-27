@@ -53,10 +53,11 @@ features:
 integrations:
   heading: "اربط Analytics بالأدوات التي تستخدمها بالفعل"
   cards:
-    - title: "مستودعك ومقاييسك"
+    - title: "مستودعك وزيارات موقعك"
       logos:
         - name: BigQuery
-      body: "يستعلم Analytics جداولك في BigQuery ويجيب بتعريفات المقاييس التي يحفظها فريقك في **الطبقة الدلالية**."
+        - name: Google Analytics
+      body: "يستعلم Analytics جداولك في BigQuery، وبمفتاح حساب الخدمة نفسه من Google يستعلم أيضًا زيارات موقعك في Google Analytics."
     - title: "أضف بيانات الإيرادات والمنتج"
       logos:
         - name: Stripe

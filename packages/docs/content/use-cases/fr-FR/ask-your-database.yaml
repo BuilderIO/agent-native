@@ -53,10 +53,11 @@ features:
 integrations:
   heading: Connectez Analytics aux outils que vous utilisez déjà
   cards:
-    - title: Votre entrepôt et vos métriques
+    - title: Votre entrepôt et le trafic de votre site
       logos:
         - name: BigQuery
-      body: Analytics interroge vos tables BigQuery et répond avec les définitions de métriques que votre équipe tient à jour dans **Couche sémantique**.
+        - name: Google Analytics
+      body: Analytics interroge vos tables BigQuery et, avec la même clé de compte de service Google, votre trafic Google Analytics.
     - title: Ajoutez revenus et données produit
       logos:
         - name: Stripe
