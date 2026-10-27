@@ -44,6 +44,12 @@ describe("decision action", () => {
     mocks.decide.mockReset();
   });
 
+  it("describes verified score support through the Builder Jev proxy", () => {
+    expect(action.tool.description).toContain(
+      "Builder Jev proxy is verified for predicate, choice, and score questions",
+    );
+  });
+
   it("passes the authenticated request and score question to decide", async () => {
     const signal = new AbortController().signal;
     const result = {

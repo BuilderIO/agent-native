@@ -83,7 +83,7 @@ const decisionOutputSchema = z.discriminatedUnion("status", [
 
 export default defineAction({
   description:
-    "Make a read-only typed decision from text, JSON, or an image URL using the configured provider order. The Builder Jev proxy is verified for predicate and choice; Jev score is unverified and disabled, so score questions skip Jev and continue to the next provider. Returns keyed answers without executing the decision or changing app state.",
+    "Make a read-only typed decision from text, JSON, or an image URL using the configured provider order. The Builder Jev proxy is verified for predicate, choice, and score questions. Returns keyed answers without executing the decision or changing app state.",
   schema: DecideInputSchema,
   outputSchema: decisionOutputSchema,
   readOnly: true,

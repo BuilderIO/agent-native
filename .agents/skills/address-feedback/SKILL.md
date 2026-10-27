@@ -1,9 +1,12 @@
 ---
 name: address-feedback
 description: >-
-  Triage feedback from docs, issues, Slack threads, or pasted notes into
-  verified bugs, UX proposals, unclear questions, and skipped noise. Use when a
-  user asks you to address product feedback or investigate a reported workflow.
+  Go through a feedback list (Notion, Google Doc, Linear, GitHub issue, pasted
+  notes) and fix the real bugs, propose small UX changes, and flag the rest.
+  Use when someone shares a feedback link or paste and says "address this
+  feedback", "fix the bugs in this doc", or runs /address-feedback. For Slack
+  feedback channels use review-latest-feedback; for specific Slack threads use
+  address-feedback-with-replies.
 scope: dev
 metadata:
   internal: true
@@ -11,299 +14,107 @@ metadata:
 
 # Address Feedback
 
-Use this skill when the user shares a feedback document, issue, thread, or pasted notes and asks you to address the feedback.
+Take a pile of feedback, fix what is objectively broken, verify it, and report
+back briefly. Lean toward fixing, but don't agree with every suggestion or
+bundle unrelated cleanups. If no link or text was given, ask for it. Use the
+matching connector (Notion, Drive, Linear, `gh`, Slack) rather than scraping
+authenticated pages. Slack reactions and replies follow `review-latest-feedback`.
 
-The default posture is judgment plus action: fix clear, verified bugs and
-handle concrete design/UX feedback about existing surfaces. In a Slack sweep,
-new capability requests still need the invoking identity's `:upvote:`; praise,
-status updates, merge/review requests, bot forwards, duplicates, and noise stay
-out of scope. Do not exclude Design feedback just because it is visual or
-subjective. Before leaving a report with another owner, confirm current thread
-status or linked work; an eye alone is not active ownership. If a previous run
-claimed an out-of-scope item, keep `👀` and record **Skipped** once in the
-thread. Preserve this actor's accurate marks and every other actor's mark.
-After a fresh root reaction read, correct and record this actor's stale or
-misapplied root mark; newer thread evidence determines its status.
+## 1. Read it and check for repeats
 
-## Choose the fix altitude
+Read the whole source, including comments, screenshots, and linked recordings.
+The error text in a screenshot is often the diagnosis.
 
-Before coding, name the smallest invariant that explains the report and the
-boundary that owns it. Use the evidence to choose the altitude:
+Then check whether it was reported before; the same defect gets filed weeks
+apart by different people, and one came back fifteen times. Search three months
+back: the source, Sentry, Analytics errors, and merged PR titles, using the
+feature name, error text, and surface separately.
 
-- One isolated report -> fix the local seam and add a focused regression check.
-- Repeated or cross-surface reports -> consider the shared primitive or
-  contract, but only after confirming the reports share the same failure mode.
-- Missing capability or wrong tool -> fix discovery, the registry, or the
-  action contract rather than coaching the agent around the gap.
-- Source behavior differs from the reported live behavior -> check the build,
-  deploy, and version state before changing code.
+- No earlier report: carry on.
+- Earlier report, no fix: say how long it has been open.
+- Earlier report, fix landed: a regression. Find why the first fix stopped
+  holding and leave a test of the user's path that fails if it breaks again.
 
-Do not turn one data point into a global agent rule. For subjective feedback,
-state the underlying invariant and wait for repeated evidence before broadening
-it. Keep a concrete local fix when it solves the reported boundary; the goal is
-the right abstraction, not the most general one.
+## 2. Sort each item
 
-## Prerequisites
+Checklist each item: symptom, expected behavior, evidence, owning surface.
 
-- If no link or feedback text is provided, ask for it.
-- Read the repo `AGENTS.md` before touching code.
-- Use the relevant connector/plugin/skill for the source when available, instead of scraping authenticated pages.
-- For Slack, use the connected identity contract in
-  `address-feedback-with-replies`; verify the invoking user's profile and use
-  that same identity for all reads, reactions, replies, and read-backs.
-- Before starting work, search available task history and local Git/PR metadata for the exact feedback link or issue identifiers. Reuse existing work instead of creating a duplicate fix.
+- **Bug:** broken behavior, crash, wrong or lost data, dead link, API mismatch,
+  captured exception, and objective visual defects such as clipped or
+  overlapping text, bad contrast, or a broken layout. Separate the observed
+  failure from the reporter's proposed remedy; fix the failure even if the
+  remedy is out of scope.
+- **UX proposal:** adding, moving, hiding, or restyling controls, or anything
+  "hard to find". These are product calls. Don't build them on your own; write
+  the proposal (what changes, why, the tradeoff) and flag it for a person. A
+  proposal Steve has explicitly approved (such as an `:upvote:`) is a request to
+  build the smallest version.
+- **Unclear:** you've read everything and one concrete detail still blocks a
+  safe fix.
+- **Out of scope:** praise, chatter, other repos, intentionally unsupported.
+  Note it and move on.
 
-## Steps
+For data, permissions, or lifecycle feedback, check the whole capability before
+calling it UX: does the action exist when a control is missing, and do owner,
+shared, and non-owner access behave? Use safe fixtures, never another user's
+production data. Possible cross-user exposure is a security bug.
 
-1. Read the feedback source.
+## 3. Ask only when you must
 
-   | Source | Reader |
-   | --- | --- |
-   | Notion link | Notion connector or Notion skill |
-   | Google Docs/Drive link | Google Drive connector or Google Docs skill |
-   | Linear link | Linear connector if installed; otherwise ask for pasted content |
-   | GitHub issue or PR | GitHub connector or `gh issue view` / `gh pr view` |
-   | Slack thread | Slack connector with the invoking user's identity |
-   | Public URL | Web browsing |
-   | Pasted text | Read directly |
+Before asking the reporter anything, read the full thread and every accessible
+attachment, and list what is already known: surface, repro, exact error, run
+IDs. Never ask for something already there. If someone in the thread already
+named the cause, fixed it, or is fixing it, verify that and continue instead of
+asking again. If a run ID is given, inspect that run first.
 
-   Use web browsing only for public URLs. Auth-gated docs usually need their matching connector. For Slack threads, use the invoking user's connected Slack identity for the parent, replies, reactions, and Slack metadata; fetch linked external artifacts through their owning connector or public URL.
+When one specific detail still blocks the fix, ask one plain question, and
+only one pending question per thread. Don't ask a subjective question just to
+choose between plausible designs.
 
-2. Check whether this defect has already been reported.
+## 4. Check error sources
 
-   A feedback channel holds months of reports and nobody remembers all of them,
-   so the same defect gets filed by different people weeks apart and every
-   filing reads as new. One recorded case: the same Clips recording bug was
-   filed almost word-for-word 29 days apart by the same reporter, and neither
-   message mentions the other. Another defect was reported fifteen times by
-   nine people across three months, was announced as fixed once in the middle,
-   and was reported again two weeks later.
+When it smells like an error, search Sentry (org `builder-io`) and Analytics
+`list-error-issues` / `get-error-issue` by route, stack symbol, and error text.
+Cite the match and its source. An unreadable source is "unavailable", never
+"no match"; don't invent matches or repro steps.
 
-   Search before fixing, going back at least three months: the source channel
-   in the reporter's words and in your own, Sentry, first-party Agent-Native
-   Analytics error issues, and merged PR titles. Search the feature name, the
-   error text, and the surface separately - repeat reports rarely share
-   vocabulary.
+## 5. Choose the fix altitude
 
-   - **No prior report** — proceed normally.
-   - **Prior report, no fix landed** — say how long it has been open. The person
-     forwarding it to you is likely seeing it for the second time too.
-   - **Prior report, fix landed** — this is a regression, and the bar is now
-     different. Patching it again and reporting done is exactly how it returns a
-     third time. Find why the first fix stopped holding, and leave behind
-     something that fails when it breaks again: a test that reproduces the
-     user's path, or an assertion in the flow the report names.
+Name the smallest invariant that explains the report and the boundary that owns
+it.
 
-   Report the repeat explicitly, with dates and reporters. A defect on its third
-   report is not a bug ticket, it is a missing check — and the missing check is
-   the deliverable, not the patch.
+- One isolated report: fix the local seam and add a focused regression check.
+- Repeated or cross-surface reports: look at the shared primitive or contract,
+  once you've confirmed they fail the same way.
+- Missing capability or wrong tool: fix discovery, the registry, or the action
+  contract rather than coaching the agent around the gap.
+- Source works but live differs: check build, deploy, and version state first.
 
-## Clarification gate
+Never turn one data point into a global agent rule.
 
-Before asking a reporter for clarification, read the complete parent thread,
-every reply, and every accessible linked artifact. Build a short ledger of the
-surface, URL, repro, exact error, screenshots or files, run or request IDs, and
-answers already present. A detail found anywhere in that evidence is available
-context - never ask the reporter to repeat it.
+## 6. Fix and verify
 
-Look for resolution or ownership signals before classifying an item as missing
-evidence. A substantive reply from the invoking Slack identity, a legacy
-`@agent-native` message, or any participant that identifies the cause, supplies
-the repro, links a fix, or says the issue is fixed, landed, or being fixed is
-evidence, not a clarification gap. Verify the claim when needed and record the
-item as already owned, fixed, or in progress; do not ask a duplicate question
-while that work is being verified or handed off. Ask only when one concrete
-reporter detail still blocks a safe fix to an otherwise clear bug after this
-review. Do not ask a subjective product question merely to choose between
-plausible UX options.
+Reproduce first where you can, keep each fix narrow and mapped to an item, and
+add a focused test when the risk warrants it. Verify as `verifying-changes` describes: a test that fails before and passes
+after, or the flow working in the running app. For UI, look at the real screen
+with a browser tool you already have; don't script browser automation for a
+small fix. Reading the code is not verification.
 
-Every human-facing feedback reply starts with a brief thank-you. When
-clarification is genuinely required, say `thanks for the feedback -` first and
-then ask one specific question. `Clarification needed` is an internal ledger
-state, never the opening or the prose of the reporter-facing reply.
+For approved UX work, make the smallest change that clarifies the current state
+or next step: remove competing elements before adding controls or text, and put
+secondary actions in a menu or popover. Read `frontend-design`.
 
-3. Decompose and categorize every actionable item.
+## 7. Report
 
-   Build a compact checklist before changing code. For each item, record the
-   symptom, expected behavior, evidence, and owning surface: UI, action/tool,
-   data model, provider/runtime, or product policy.
-
-   - **Bug**: Broken behavior, crash, wrong data, dead link, package/API mismatch, or captured exception. Separate the observed failure from the proposed remedy. Fix verified breakage at its owning seam even when the suggested UX change is out of scope; skip only that remedy. If the failure is unverified, keep it evidence-limited or ask for the detail that would unblock reproduction.
-   - **UX suggestion**: Design, discoverability, workflow, or feature feedback. For concrete critique of an existing surface, choose and implement the smallest coherent treatment when it is in scope. A request for a new capability still needs the invoking identity's `:upvote:` in a Slack sweep.
-   - **Question or unclear**: Missing detail, contradictory feedback, or behavior you cannot inspect after the clarification gate. Ask or flag it only when the missing detail still blocks a safe fix.
-   - **Out of scope**: Outside this repo, already shipped, intentionally unsupported, or too low-signal. Note briefly and skip.
-
-4. For data, permissions, or resource-lifecycle feedback, verify the whole capability boundary before calling it UX.
-
-   - Check the supported create/read/update/delete lifecycle, including whether the backend/action exists when a UI control is missing.
-   - Inspect both the UI and the shared action/tool surface so agent and UI behavior stay in parity.
-   - Verify scope semantics such as owner/private, organization, shared, and public access. Test owner and non-owner paths with safe fixtures or read-only checks; never use another user's production data to test access.
-   - Treat possible cross-user or cross-organization exposure as a security/correctness bug and verify it before proposing polish.
-   - Keep undefined product policy separate from implementation bugs. If supported source types or scope semantics are not defined, flag the contract question instead of inventing behavior.
-
-5. Check Sentry and first-party Agent-Native Analytics when the feedback smells
-   like an error.
-
-   - Use the Sentry skill/plugin if available, or the repo's Sentry scripts if documented.
-   - Use authenticated Agent-Native Analytics `list-error-issues` for captured
-     client/server issue groups, then `get-error-issue` for stack and occurrence
-     details. Use the linked session replay when it is available.
-   - Search by route, stack symbol, error text, and symptom keywords.
-   - Default org is `builder-io` unless the user specifies another.
-   - Query both when available. If Sentry is unavailable or rate-limited,
-     Analytics is the fallback for errors it captured.
-   - Cite the matching issue ID or link and say which source it came from.
-   - If a source cannot be read, record it as unavailable; do not say nothing
-     matched for that source.
-
-## Fix-altitude gate
-
-Before editing a verified bug, choose the narrowest seam supported by the
-evidence:
-
-- One isolated report -> fix the owning local seam and add a regression check.
-- Repeated or cross-surface evidence -> inspect the shared primitive or
-  contract before patching a leaf.
-- Missing capability or wrong tool -> fix discovery, registry, or action-contract
-  wiring.
-- Source-vs-live mismatch -> diagnose build/deploy state before changing source.
-- Do not turn one data point into a global agent instruction. For subjective
-  feedback, name the invariant and require repeated evidence before broadening
-  it.
-
-6. Fix verified bugs and actionable UX feedback that is in scope.
-
-   - Verify before fixing: reproduce locally, read the relevant code, inspect logs, or confirm with a stack trace.
-   - Keep each fix narrow and mapped to a feedback item.
-   - Follow existing project conventions and nearby patterns.
-   - In a task-owned worktree, create or switch to a safe task branch when
-     needed without asking; preserve local changes and never move a branch
-     used by another worktree. In a shared checkout, keep its branch. If the
-     user explicitly asks to ship or open or update a PR and the checkout is
-     unsafe as a source, follow `new-branch` to create a managed task-owned
-     worktree from the correct base, carry only this task's changes, and create
-     its branch without asking.
-     Otherwise work on the current branch; direct branch movement in a shared
-     checkout still requires the exact operation.
-     Stash, reset, force-push, and PR creation still require explicit scope.
-   - Add or update focused tests when the bug risk warrants it.
-
-7. Treat UX feedback with product judgment.
-
-   Do not add visible UI as the default response. Address the underlying user
-   problem first, then choose the smallest change that makes the current state,
-   decision, action, or recovery path clearer.
-
-   - Make the current intent, state, and meaningful next step easier to find.
-   - Remove competing or redundant elements before adding controls, helper
-     text, banners, top-level navigation, or always-open panels.
-   - Put secondary or advanced actions in a `DropdownMenu`, `Popover`, `Sheet`,
-     `Collapsible`, tabs, or another contextual surface. Keep essential meaning,
-     labels, focus, hit targets, and recovery in the default path.
-   - Improve empty, loading, and error states around the user's actual need.
-
-   When the user has corrected the same visual preference more than once, treat
-   it as an acceptance criterion for the surface, not as a one-off copy edit.
-   State the underlying invariant before coding, such as “the default state
-   makes one next decision obvious and defers secondary detail,” then check the
-   rendered result against it. A screenshot showing unrelated forms, repeated
-   explanatory copy, documentation links, or competing controls in the default
-   state fails the review. Subtract that competition instead of explaining the
-   UI with more copy.
-
-   When proposing a UX change, write it as: what to change, why it helps, and the tradeoff. Keep each proposal short.
-
-8. Verify changed behavior.
-
-   - Run the smallest relevant test or typecheck command.
-   - For UI fixes, inspect the actual screen with a browser tool you already
-     have. Do not write a browser-automation script to check a small fix.
-   - For resource visibility or lifecycle changes, verify both the screen and
-     shared action/tool behavior, including owner versus non-owner access when
-     relevant.
-   - If you cannot run a useful verification, record the reason internally. In
-     the user-facing reply, use only "[plain-language item] - Verification
-     pending. Timing not confirmed yet." unless the user explicitly asks why.
-
-## User-Facing Reply
-
-Keep the outward reply to a status update, not an implementation report. The
-technical investigation, reproduction details, test results, file names, and
-internal reasoning stay internal unless the user explicitly asks for them.
-
-For every actionable item, use a plain-language label and one short status:
-
-- For a requested change: **Fixed** or **Not fixed yet**.
-- For an unclear request: **Needs clarification**.
-- For a declined, skipped, or out-of-scope request: **Not planned** or **Not in
-  scope**.
-- For any item that still needs verification: **Verification pending**.
-
-Add one timing phrase to every status. If the current ship is expected to
-finish that day and the completed fix is confirmed to be included in that
-ship, use "Expected live by EOD." Otherwise use "Timing not confirmed yet."
-For items that are not planned or out of scope, use "No live date." Do not
-invent a release date.
-
-If a requested change is implemented but not yet verified, use
-"[plain-language item] - Verification pending. Timing not confirmed yet."
-instead of **Fixed** until verification is complete.
-
-When this skill is used by `address-feedback-with-replies`, that skill's Slack
-reply states take precedence: a Slack thread must receive **Fixed**, **In
-progress**, or **Clarification needed** for the current run. **In progress** is
-valid only when the invoking Slack identity, a legacy `@agent-native` message,
-or another participant already owns the issue or is actively fixing it; it is
-an open handoff that the next run must resolve to **Fixed** or **Clarification
-needed**. Do not post **Not fixed yet**, **Needs
-clarification**, or a bare **Verification pending** status in Slack. Ask one
-concrete, plain-language clarification question only when reporter or product
-input is still missing after the complete-thread and resolution-signal checks.
-If the invoking Slack identity, a legacy `@agent-native` message, or another
-participant already found, fixed, or is fixing the issue, do not ask the
-reporter to restate it - verify the claim or continue the existing ownership
-instead. Start any **In progress** or clarification reply
-with a thank-you. For clarification, ask the question second;
-**Clarification needed** remains an internal ledger state and must not appear as
-the reporter-facing opening. **Clarification needed** is the one timing
-exception: do not give a live estimate until the question is answered and the
-fix is complete. If only internal test, deployment, or tooling verification is
-unavailable, keep that blocker internal, do not post an external Slack status
-solely for that reason, and resume the thread after verification is available.
-Do not turn it into a reporter question. Keep the no-technical-details rule in
-all cases.
-
-Use this format:
+Reply with a status, not an implementation report: one plain line per item, no
+file paths, PR numbers, or test counts unless asked:
 
 ```md
 ## Feedback Status
-- [plain-language item] - Fixed. Expected live by EOD.
-- [plain-language item] - Not fixed yet. Timing not confirmed yet.
-- [plain-language item] - Needs clarification. Timing not confirmed yet.
-- [plain-language item] - Not planned. No live date.
+- <item> - Fixed. It will be on beta shortly after it merges.
+- <item> - Needs a person: <what's needed, from whom>.
+- <item> - Needs your answer: <one question>.
+- <item> - Not planned.
 ```
 
-Do not include implementation details, technical explanations, file paths,
-line numbers, test counts, PR numbers, worktree names, stack traces, or
-internal labels in the user-facing reply. Do not add separate sections for
-bugs, UX suggestions, skipped items, or technical evidence. Keep each item to
-one short sentence.
-
-## Avoid
-
-- Do not agree with every suggestion by default.
-- Do not bundle unrelated cleanups.
-- Do not implement UX changes that make an important screen busier without explicit user approval.
-- Do not claim a UI change is done without browser verification when a local app can be run.
-- Do not invent Sentry or Agent-Native Analytics matches, affected users, or
-  reproduction steps.
-- Do not expose the technical details used to verify or implement the work unless the user asks for them.
-
-## Related Skills
-
-- `github:gh-address-comments` for GitHub PR review threads.
-- `github:gh-fix-ci` for failing GitHub checks.
-- `sentry:sentry` for external Sentry investigation; use Analytics error issue
-  actions for first-party captured errors.
-- `frontend-design` for approved UI implementation work.
-- `qa` for broader browser verification.
+Don't say Fixed until it's verified.

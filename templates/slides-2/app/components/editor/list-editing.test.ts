@@ -224,7 +224,7 @@ describe("toggleSlideList review round 3", () => {
 
   it("numbers each group of styled rows where it stands", () => {
     const host = element(
-      `${row("Alpha")}${row("Beta")}<p>Between</p>${row("Gamma")}`,
+      `${row("Alpha")}${row("Beta")}<p>Between</p>${row("Three")}`,
     );
     toggleSlideList(host, "ordered");
     expect(Array.from(host.children, (child) => child.tagName)).toEqual([
@@ -235,7 +235,7 @@ describe("toggleSlideList review round 3", () => {
     expect(Array.from(host.children, (child) => child.textContent)).toEqual([
       "AlphaBeta",
       "Between",
-      "Gamma",
+      "Three",
     ]);
   });
 

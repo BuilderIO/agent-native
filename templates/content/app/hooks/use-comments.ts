@@ -2,6 +2,7 @@ import {
   useActionQuery,
   useActionMutation,
 } from "@agent-native/core/client/hooks";
+import type { CommentAnchorBlockType } from "@shared/comment-block-anchor";
 import {
   parseCommentMentions,
   type CommentMention,
@@ -53,6 +54,9 @@ export interface Comment {
   field_id?: string | null;
   /** The field's name when the thread started. */
   field_name?: string | null;
+  /** Set on the root of a thread about a whole block, such as a video. */
+  block_id?: string | null;
+  block_type?: string | null;
   mentions: CommentMention[];
   author_email: string;
   author_name: string | null;
@@ -87,6 +91,12 @@ export interface CommentThreadField {
   fieldName: string | null;
 }
 
+/** The block a thread is about as a whole, in place of quoted text. */
+export interface CommentThreadBlock {
+  blockId: string;
+  blockType: string;
+}
+
 export interface CommentThread {
   threadId: string;
   quotedText: string | null;
@@ -97,6 +107,7 @@ export interface CommentThread {
   property?: CommentThreadProperty | null;
   /** Set when the thread is in a Blocks field tab other than the body. */
   field?: CommentThreadField | null;
+  block?: CommentThreadBlock | null;
   resolved: boolean;
   comments: Comment[];
 }
@@ -137,6 +148,9 @@ export interface CreateCommentVariables {
   databaseId?: string;
   /** Starts a thread in this Blocks field's tab instead of the body. */
   fieldId?: string;
+  /** Starts a thread on this whole block instead of on quoted text. */
+  blockId?: string;
+  blockType?: CommentAnchorBlockType;
   mentions?: string;
 }
 
@@ -459,6 +473,9 @@ function groupCommentThreads(data: unknown): CommentThread[] {
               fieldName: comment.field_name ?? null,
             }
           : null,
+        block: comment.block_id
+          ? { blockId: comment.block_id, blockType: comment.block_type ?? "" }
+          : null,
         resolved: !!comment.resolved,
         comments: [],
       });
@@ -520,6 +537,8 @@ export function useCreateComment(author: CommentAuthor = {}) {
         property_database_id: variables.databaseId ?? null,
         field_id: variables.fieldId ?? null,
         field_name: null,
+        block_id: variables.blockId ?? null,
+        block_type: variables.blockType ?? null,
         mentions:
           variables.mentions === undefined
             ? []
