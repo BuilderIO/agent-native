@@ -150,6 +150,18 @@ function addDays(date: string, amount: number): string {
   return result.toISOString().slice(0, 10);
 }
 
+export function filterPrefetchedEventRowsForWatch(
+  rows: readonly Record<string, unknown>[],
+  date: string,
+  window: "hourly" | "daily",
+): Record<string, unknown>[] {
+  const startDate = addDays(date, window === "daily" ? -30 : -14);
+  return rows.filter((row) => {
+    const rowDate = asDate(row.period_start);
+    return rowDate >= startDate && rowDate <= date;
+  });
+}
+
 function bigQueryFreshOptions(fresh: boolean | undefined) {
   return fresh ? { fresh: true, cache: false } : {};
 }
@@ -1244,7 +1256,11 @@ export async function runWatch(
   const eventBucket = window === "hourly" ? "HOUR" : "DAY";
   let eventRowsData: QueryRow[];
   if (options.prefetched) {
-    eventRowsData = options.prefetched.eventRows as QueryRow[];
+    eventRowsData = filterPrefetchedEventRowsForWatch(
+      options.prefetched.eventRows,
+      date,
+      window,
+    ) as QueryRow[];
   } else {
     const eventStatsSql =
       backend.sink === "bigquery"
@@ -1279,7 +1295,7 @@ export async function runWatch(
           ]);
     eventRowsData = eventResult.rows as QueryRow[];
   }
-  const queryCount = options.prefetched ? 2 : 3;
+  const queryCount = options.prefetched ? 0 : 3;
   let funnelRows: QueryRow[] = [];
   let troubleRows: QueryRow[] = [];
   let uploadRows: QueryRow[] = [];
@@ -1364,7 +1380,12 @@ export async function runWatch(
       ? loadedSloRows.filter((row) => asDate(row.target_date) === date)
       : loadedSloRows;
     additionalQueries = options.prefetched
-      ? 2 + 1
+      ? 2 +
+        (options.prefetched.uploadRows.some(
+          (row) => asDate(row.event_date) === date,
+        )
+          ? 1
+          : 0)
       : 5 + (backend.sink === "bigquery" ? 1 : 0);
     if (options.includeCampaign !== false) {
       additionalQueries += 1;

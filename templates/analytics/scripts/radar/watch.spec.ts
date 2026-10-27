@@ -7,6 +7,7 @@ import {
   campaignUnavailableCheck,
   safeCampaignLabel,
   createEventChecks,
+  filterPrefetchedEventRowsForWatch,
   matureFunnelCohortDate,
   runWatch,
   uploadRejectionCheck,
@@ -92,6 +93,19 @@ describe("hourly event query", () => {
 });
 
 describe("weekly prefetched SLO rows", () => {
+  it("filters weekly event rows to each daily watch's rolling window", () => {
+    const rows = [
+      { period_start: "2026-09-25T00:00:00.000Z", event_name: "old" },
+      { period_start: "2026-09-26T00:00:00.000Z", event_name: "start" },
+      { period_start: "2026-10-26T00:00:00.000Z", event_name: "current" },
+      { period_start: "2026-10-27T00:00:00.000Z", event_name: "future" },
+    ];
+
+    expect(
+      filterPrefetchedEventRowsForWatch(rows, "2026-10-26", "daily"),
+    ).toEqual([rows[1], rows[2]]);
+  });
+
   it("evaluates only SLO rows for the current watch date", async () => {
     queryMocks.resolveRadarOrganizationId.mockResolvedValue("org-id");
     queryMocks.resolveRadarFirstPartyBackend.mockResolvedValue({
@@ -134,6 +148,8 @@ describe("weekly prefetched SLO rows", () => {
         numerator: 500,
       }),
     ]);
+    expect(run.queryCount).toBe(2);
+    expect(queryMocks.runPostgresQuery).toHaveBeenCalledTimes(2);
   });
 });
 
