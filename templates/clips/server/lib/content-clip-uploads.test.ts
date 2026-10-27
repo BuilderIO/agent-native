@@ -1092,6 +1092,35 @@ describe("a start Content repeats for one picked file", () => {
     ]);
   });
 
+  it.each(["confirmed", "unconfirmed"] as const)(
+    "leaves the binding of a repeat that took over a slow start, when the slow start then fails %s",
+    async (failure) => {
+      const editor = await clipsEditor();
+      const bearer = await token({ sub: editor });
+      let retake: Awaited<ReturnType<typeof startUpload>> | undefined;
+      state.duringCreate = async () => {
+        const longAgo = new Date(Date.now() - 11 * 60 * 1000).toISOString();
+        await state.db
+          .update(schema.recordingContentBindings)
+          .set({ updatedAt: longAgo });
+        retake = await startUpload(bearer, { ...START, uploadKey: KEY });
+        await failCreate(failure);
+      };
+
+      await expect(
+        startUpload(bearer, { ...START, uploadKey: KEY }),
+      ).rejects.toThrow();
+
+      expect(retake?.status).toBe(200);
+      expect(await rows("recording_content_bindings")).toEqual([
+        expect.objectContaining({
+          recording_id: retake?.body.recordingId,
+          upload_start_failed_at: null,
+        }),
+      ]);
+    },
+  );
+
   it("answers even when the first start took the last free clip", async () => {
     const { first, repeat } = await startTwice({}, async () => {
       state.storageStatus = {

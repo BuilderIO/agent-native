@@ -270,13 +270,25 @@ async function readUploadStart(
   return parsed.success ? parsed.data : invalidStart();
 }
 
-async function deleteBinding(id: string): Promise<void> {
+/**
+ * The binding as this start left it. A repeat takes over a start that went
+ * stale, so by the time a slow start fails its binding may be the repeat's.
+ */
+function asStartLeftIt(bound: BoundStart) {
+  const bindings = schema.recordingContentBindings;
+  return and(
+    eq(bindings.id, bound.id),
+    eq(bindings.updatedAt, bound.updatedAt),
+  );
+}
+
+async function deleteBinding(bound: BoundStart): Promise<void> {
   await getDb()
     .delete(schema.recordingContentBindings)
-    .where(eq(schema.recordingContentBindings.id, id))
+    .where(asStartLeftIt(bound))
     .catch((error: unknown) => {
       console.warn("[content-clip-uploads] binding cleanup failed", {
-        id,
+        id: bound.id,
         error: error instanceof Error ? error.message : String(error),
       });
     });
@@ -287,16 +299,16 @@ async function deleteBinding(id: string): Promise<void> {
  * left no recording, the next repeat starts it again under the same recording
  * id; a recording it left answers for itself.
  */
-async function markStartFailed(id: string): Promise<void> {
+async function markStartFailed(bound: BoundStart): Promise<void> {
   const now = new Date().toISOString();
   await getDb()
     .update(schema.recordingContentBindings)
     .set({ uploadStartFailedAt: now, updatedAt: now })
-    .where(eq(schema.recordingContentBindings.id, id))
+    .where(asStartLeftIt(bound))
     .catch((error: unknown) => {
       // Unmarked, the binding is taken over once it is stale instead.
       console.warn("[content-clip-uploads] failed start not marked", {
-        id,
+        id: bound.id,
         error: error instanceof Error ? error.message : String(error),
       });
     });
@@ -357,11 +369,11 @@ const uploadStarting = () =>
 interface BoundStart {
   id: string;
   recordingId: string;
+  updatedAt: string;
 }
 
 /** A bound start with no recording, which failed or stalled. */
 interface StalledStart extends BoundStart {
-  updatedAt: string;
   uploadStartFailedAt: string | null;
 }
 
@@ -487,7 +499,7 @@ export async function handleContentClipUploadStart(
         response !== null ||
         (isActionContractError(error) &&
           error.details?.cleanupConfirmed === true);
-      await (leftNothing ? deleteBinding(bound.id) : markStartFailed(bound.id));
+      await (leftNothing ? deleteBinding(bound) : markStartFailed(bound));
       if (response) return response;
       throw error;
     }
@@ -522,7 +534,7 @@ async function bindNewStart(
   const bindingId = nanoid(16);
   const now = new Date().toISOString();
   const bindings = schema.recordingContentBindings;
-  const [bound] = await getDb()
+  const inserted = await getDb()
     .insert(bindings)
     .values({
       id: bindingId,
@@ -549,7 +561,9 @@ async function bindNewStart(
       ],
     })
     .returning({ id: bindings.id });
-  if (bound) return { id: bound.id, recordingId };
+  if (inserted.length > 0) {
+    return { id: bindingId, recordingId, updatedAt: now };
+  }
   // A start with the same key bound first, since the lookup above.
   const repeated = await repeatedStart(uploader, start);
   if (repeated instanceof Response) return repeated;
@@ -566,9 +580,10 @@ async function takeOverStart(
   stalled: StalledStart,
 ): Promise<BoundStart | Response> {
   const bindings = schema.recordingContentBindings;
+  const updatedAt = new Date().toISOString();
   const [taken] = await getDb()
     .update(bindings)
-    .set({ uploadStartFailedAt: null, updatedAt: new Date().toISOString() })
+    .set({ uploadStartFailedAt: null, updatedAt })
     .where(
       and(
         eq(bindings.id, stalled.id),
@@ -580,7 +595,7 @@ async function takeOverStart(
     )
     .returning({ id: bindings.id });
   return taken
-    ? { id: stalled.id, recordingId: stalled.recordingId }
+    ? { id: stalled.id, recordingId: stalled.recordingId, updatedAt }
     : uploadStarting();
 }
 
