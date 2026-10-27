@@ -76,6 +76,11 @@ import {
   renewMcpDirectoryWidgetCapabilityScope,
 } from "../shared/embed-auth.js";
 import {
+  isAutoReadExcludedActionName,
+  isMcpActionInputEligible,
+  isMcpActionNameEligible,
+} from "./action-eligibility.js";
+import {
   type McpAnalyticsContext,
   describeMcpError,
   readClientInfoFromRequest,
@@ -84,6 +89,7 @@ import {
   trackMcpToolCall,
   trackMcpToolsList,
 } from "./analytics.js";
+export { isAutoReadExcludedActionName } from "./action-eligibility.js";
 import { getBuiltinCrossAppTools } from "./builtin-tools.js";
 import {
   MCP_CONNECT_OAUTH_CLIENT_ID,
@@ -426,7 +432,9 @@ function withoutExternalOptOuts(
   return Object.fromEntries(
     Object.entries(actions).filter(
       ([name, entry]) =>
-        !denyNames.has(name) && isActionExposedToExternalAgents(entry),
+        !denyNames.has(name) &&
+        isActionExposedToExternalAgents(entry) &&
+        isMcpActionNameEligible(name, entry),
     ),
   );
 }
@@ -439,13 +447,20 @@ function withoutExternalOptOuts(
  * `tools/call` resolves. A request converts only the schemas it reads, and
  * the next request converts them again.
  */
-function advertisedInputSchemas(actions: Record<string, ActionEntry>) {
-  const verdicts = new Map<string, Tool["inputSchema"] | UnusableSchemaError>();
+function advertisedInputSchemas(actions: Partial<Record<string, ActionEntry>>) {
+  const verdicts = new Map<
+    string,
+    Tool["inputSchema"] | UnusableSchemaError | null
+  >();
   const verdict = (name: string) => {
     let advertised = verdicts.get(name);
-    if (!advertised) {
-      advertised = usableInputSchema(actions[name]!, (parameters) =>
-        mcpToolInputSchema(name, parameters),
+    if (advertised === undefined) {
+      const entry = actions[name];
+      if (entry === undefined) return null;
+      advertised = usableInputSchema(entry, (parameters) =>
+        isMcpActionInputEligible(entry, parameters)
+          ? mcpToolInputSchema(name, parameters)
+          : null,
       );
       if (advertised instanceof UnusableSchemaError) {
         reportUnusableToolSchema("mcp", name, advertised);
@@ -454,9 +469,11 @@ function advertisedInputSchemas(actions: Record<string, ActionEntry>) {
     }
     return advertised;
   };
-  const isAdvertisable = (name: string) =>
-    !Object.hasOwn(actions, name) ||
-    !(verdict(name) instanceof UnusableSchemaError);
+  const isAdvertisable = (name: string) => {
+    if (!Object.hasOwn(actions, name)) return true;
+    const advertised = verdict(name);
+    return advertised !== null && !(advertised instanceof UnusableSchemaError);
+  };
   return {
     isAdvertisable,
     advertisable: <T>(set: Record<string, T>) =>
@@ -466,6 +483,9 @@ function advertisedInputSchemas(actions: Record<string, ActionEntry>) {
     inputSchema: (name: string): Tool["inputSchema"] => {
       const advertised = verdict(name);
       if (advertised instanceof Error) throw advertised;
+      if (advertised === null) {
+        throw new Error(`Action "${name}" input is not exposed to MCP.`);
+      }
       return advertised;
     },
   };
@@ -973,34 +993,6 @@ export function isAuthenticatedReadAction(entry: ActionEntry): boolean {
     entry.publicAgent?.expose === true &&
     entry.publicAgent.readOnly === true &&
     entry.publicAgent.requiresAuth === true
-  );
-}
-
-const AUTO_READ_EXCLUDED_ACTION_NAMES = new Set([
-  "db-query",
-  "db-schema",
-  "db-exec",
-  "db-patch",
-  "context-manifest-get",
-  "context-preview-get",
-  "context-pin",
-  "context-evict",
-  "context-restore",
-  "context-report",
-  "context-compact",
-  "context-compaction-get",
-]);
-
-const AUTO_READ_EXCLUDED_ACTION_PATTERNS: RegExp[] = [
-  /^seed-/,
-  /extension/,
-  /browser-session/,
-];
-
-export function isAutoReadExcludedActionName(name: string): boolean {
-  return (
-    AUTO_READ_EXCLUDED_ACTION_NAMES.has(name) ||
-    AUTO_READ_EXCLUDED_ACTION_PATTERNS.some((pattern) => pattern.test(name))
   );
 }
 

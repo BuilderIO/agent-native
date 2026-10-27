@@ -1,4 +1,5 @@
 import type { ActionEntry } from "../agent/production-agent.js";
+import { frameworkMcpTools } from "../mcp/framework-tools.js";
 import {
   applyMutations,
   getRows,
@@ -22,7 +23,7 @@ function parseJson<T>(value: unknown, field: string): T | undefined {
 }
 
 export function createDbAdminAgentTools(): Record<string, ActionEntry> {
-  return {
+  return frameworkMcpTools({
     "db-admin-tables": {
       tool: {
         description:
@@ -186,5 +187,5 @@ export function createDbAdminAgentTools(): Record<string, ActionEntry> {
         }
       },
     },
-  };
+  });
 }

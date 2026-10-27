@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { runWithRequestContext } from "@agent-native/core/server";
 import { asc, eq, inArray, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -1488,6 +1490,13 @@ New body.
       }),
     );
   return { ids, rows, sync };
+}
+
+function setFolderTruthPolicy(db: Db, sourceId: string, truthPolicy: string) {
+  return db
+    .update(schema.contentDatabaseSources)
+    .set({ metadataJson: JSON.stringify({ truthPolicy }) })
+    .where(eq(schema.contentDatabaseSources.id, sourceId));
 }
 
 /**
@@ -3020,6 +3029,145 @@ describe.skipIf(!POSTGRES_URL)(
         sourcePath: "moved.md",
         sourceRootPath: `${seed.key}_folder_b`,
       });
+    });
+
+    it("plans a folder sync again from its pages as locked, so a save that lands while it waits is a conflict", async () => {
+      const seed = await seedLocalFolderPage();
+      // A folder edit applies unless the page changed too.
+      await setFolderTruthPolicy(
+        getDb(),
+        seed.ids.source,
+        "reviewed_bidirectional",
+      );
+      await seed.sync();
+      const page = seed.ids.page;
+      const saved = "Saved while the sync waited for the page.";
+      const { action } = await raceAgainst(
+        // A save: the page, then its body.
+        async (tx) => {
+          await lockDocumentRows(tx, [page]);
+          await tx
+            .update(schema.documents)
+            .set({ content: saved, updatedAt: new Date().toISOString() })
+            .where(eq(schema.documents.id, page));
+        },
+        () =>
+          asOwner(() =>
+            syncLocalFolder.run({
+              sourceId: seed.ids.source,
+              files: {
+                "page.md": `---
+id: "${page}"
+title: "Folder page"
+---
+Folder edit.
+`,
+              },
+            }),
+          ),
+      );
+      await expect(action).resolves.toMatchObject({
+        conflicts: [expect.objectContaining({ id: page })],
+      });
+      expect((await readPage(page)).content).toBe(saved);
+    });
+
+    it("proposes a folder conflict from its page as locked, so a save that lands while the sync waits is the Content side", async () => {
+      const seed = await seedLocalFolderPage();
+      const page = seed.ids.page;
+      const unchanged = `${page}_unchanged`;
+      const sync = (body: string) =>
+        asOwner(() =>
+          syncLocalFolder.run({
+            sourceId: seed.ids.source,
+            files: {
+              "page.md": `---
+id: "${page}"
+title: "Folder page"
+---
+${body}
+`,
+              "unchanged.md": `---
+id: "${unchanged}"
+title: "Unchanged page"
+---
+Unchanged body.
+`,
+            },
+          }),
+        );
+      // Under the seed's database_primary policy, a folder edit to a linked
+      // page is a conflict.
+      await sync("New body.");
+      const saved = "Saved while the sync waited for the page.";
+      const { action } = await raceAgainst(
+        // A save to the conflict page. Holding the unchanged page as well
+        // keeps a sync that locks only the pages it writes waiting too.
+        async (tx) => {
+          await lockDocumentRows(tx, [page, unchanged]);
+          await tx
+            .update(schema.documents)
+            .set({ content: saved, updatedAt: new Date().toISOString() })
+            .where(eq(schema.documents.id, page));
+        },
+        () => sync("Folder edit."),
+      );
+      await expect(action).resolves.toMatchObject({
+        conflicts: [expect.objectContaining({ id: page })],
+      });
+      // The same folder again: a proposal built before the save would be
+      // joined by one built after it.
+      await sync("Folder edit.");
+      const proposals = await getDb()
+        .select()
+        .from(schema.contentDatabaseSourceChangeSets)
+        .where(eq(schema.contentDatabaseSourceChangeSets.documentId, page));
+      expect(proposals).toEqual([
+        expect.objectContaining({ direction: "incoming", state: "proposed" }),
+      ]);
+      expect(JSON.parse(proposals[0]!.bodyChangeJson)).toMatchObject({
+        currentHash: createHash("sha256").update(saved).digest("hex"),
+      });
+      expect((await readPage(page)).content).toBe(saved);
+    });
+
+    it("syncs under the truth policy a reconnect sets while the sync waits for its folder", async () => {
+      const seed = await seedLocalFolderPage();
+      await setFolderTruthPolicy(getDb(), seed.ids.source, "source_primary");
+      await seed.sync();
+      const { action } = await raceAgainst(
+        // connect-local-folder-source run again, which rewrites the policy in
+        // place.
+        (tx) => setFolderTruthPolicy(tx, seed.ids.source, "database_primary"),
+        () =>
+          asOwner(() =>
+            syncLocalFolder.run({ sourceId: seed.ids.source, files: {} }),
+          ),
+      );
+      await expect(action).resolves.toMatchObject({
+        truthPolicy: "database_primary",
+      });
+      // A file gone from the folder: database_primary proposes unlinking its
+      // page, where source_primary unlinks it.
+      expect(
+        await getDb()
+          .select({ id: schema.contentDatabaseSourceRows.id })
+          .from(schema.contentDatabaseSourceRows)
+          .where(
+            eq(schema.contentDatabaseSourceRows.sourceId, seed.ids.source),
+          ),
+      ).toHaveLength(1);
+      expect(
+        await getDb()
+          .select({ state: schema.contentDatabaseSourceChangeSets.state })
+          .from(schema.contentDatabaseSourceChangeSets)
+          .where(
+            eq(
+              schema.contentDatabaseSourceChangeSets.sourceId,
+              seed.ids.source,
+            ),
+          ),
+      ).toEqual([{ state: "proposed" }]);
     });
 
     it.each([

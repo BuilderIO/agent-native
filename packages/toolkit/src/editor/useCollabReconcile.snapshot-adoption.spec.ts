@@ -1206,4 +1206,28 @@ describe("useCollabReconcile — snapshot adoption", () => {
       tabs.dispose();
     }
   });
+
+  it("takes in an outside paragraph added right after a block with sent typing", async () => {
+    vi.useFakeTimers();
+    const tabs = makeTabs(1, { visible: true, adoption: "server" });
+    try {
+      tabs.render(FIRST);
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      tabs.type(0, "Sent typing ");
+      tabs.push(0);
+      tabs.saveRevision(SECOND.revision);
+      tabs.render(SECOND);
+      for (let step = 0; step < 4; step += 1) {
+        await act(async () => vi.advanceTimersByTimeAsync(8000));
+        tabs.settleAdoptions();
+        tabs.push(0);
+      }
+
+      const expected = `Sent typing ${OUTSIDE}`;
+      expect(tabs.serverMarkdown()).toBe(expected);
+      expect(tabs.markdown()).toEqual([expected]);
+    } finally {
+      tabs.dispose();
+    }
+  });
 });

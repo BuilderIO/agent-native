@@ -438,6 +438,26 @@ describe("reconcileDocAgainstBase", () => {
     },
   );
 
+  it.each([
+    ["after", "Alpha\n\nServer\n\nBravo", "Alpha local\n\nServer\n\nBravo"],
+    ["before", "Server\n\nAlpha\n\nBravo", "Server\n\nAlpha local\n\nBravo"],
+  ])(
+    "applies a server insertion right %s a locally edited block",
+    (_side, serverMarkdown, merged) => {
+      const editor = makeEditor("Alpha local\n\nBravo");
+      try {
+        const base = parse(editor, "Alpha\n\nBravo");
+        const server = parse(editor, serverMarkdown);
+        const result = reconcileDocAgainstBase(editor, base, server);
+
+        expect(result.status).toBe("applied");
+        expect(md(editor)).toBe(merged);
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
   it.each(["prefer-live", "conflict"] as const)(
     "still treats an insertion inside a replaced range as an overlap (%s)",
     (overlapPolicy) => {
@@ -536,6 +556,21 @@ describe("reconcileDocAgainstBase", () => {
       }
     },
   );
+
+  it("treats a server insertion inside a local change as overlapping", () => {
+    const editor = makeEditor("Alpha local\n\nBravo local\n\nCharlie");
+    try {
+      const before = editor.state.doc;
+      const base = parse(editor, "Alpha\n\nBravo\n\nCharlie");
+      const server = parse(editor, "Alpha\n\nServer\n\nBravo\n\nCharlie");
+      const result = reconcileDocAgainstBase(editor, base, server);
+
+      expect(result.status).toBe("conflict");
+      expect(editor.state.doc).toBe(before);
+    } finally {
+      editor.destroy();
+    }
+  });
 
   it("fails closed when repeated blocks make alignment ambiguous", () => {
     const editor = makeEditor("Same\n\nLocal\n\nSame");

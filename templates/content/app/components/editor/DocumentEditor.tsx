@@ -303,6 +303,17 @@ import {
 } from "./property-comments";
 import { StaticDocumentBody } from "./StaticDocumentBody";
 import {
+  enqueueSuggestionDecision,
+  queuedSuggestionDecisions,
+  singleDecisionMember,
+  suggestionDecisionsSettled,
+  suggestionDecisionView,
+  updateQueuedSuggestionDecisions,
+  useQueuedSuggestionDecisions,
+  useSuggestionDecisionView,
+  type QueuedSuggestionDecision,
+} from "./suggestion-decision-queue";
+import {
   createSuggestionAutosave,
   markSuggestionAutosaveSaved,
   queueSuggestionAutosave,
@@ -372,6 +383,7 @@ import type {
   VisualEditorPersistenceController,
   VisualEditorSelectionController,
   VisualEditorSelectionSnapshot,
+  VisualEditorSuggestionPlacements,
 } from "./VisualEditor";
 import { WidgetVisualEditorBoundary } from "./WidgetLoadDiagnostic";
 
@@ -583,7 +595,81 @@ export function visibleSavedSuggestionsDuringDraftMaterialization(
   materializedIds: ReadonlySet<string>,
 ) {
   if (!submitting || drafts.length === 0) return saved;
-  return saved.filter((suggestion) => !materializedIds.has(suggestion.id));
+  // The session's other saved suggestions stay on screen while it saves.
+  const draftKeys = new Set(
+    drafts.flatMap((draft) =>
+      draft.operations[0] ? [suggestionOperationKey(draft.operations[0])] : [],
+    ),
+  );
+  return saved.filter(
+    (suggestion) =>
+      !materializedIds.has(suggestion.id) ||
+      !suggestion.operations[0] ||
+      !draftKeys.has(suggestionOperationKey(suggestion.operations[0])),
+  );
+}
+
+type SuggestionPresentationRecord = Pick<
+  ResourceSuggestion,
+  "id" | "status" | "operations"
+> & { revision?: ResourceSuggestion["revision"] };
+
+// While a decision made in Suggesting mode saves, the editor shows the Page as
+// the decision leaves it, not the draft. The session's other edits are drawn
+// on that Page the way saved suggestions are: drawn as drafts, they'd look for
+// their typed text, which isn't on it, and drop out until the Page reads back.
+export function sessionEditsDrawnAsSaved(
+  saved: ResourceSuggestion[],
+  sessionEdits: DraftSuggestion[],
+  deciding: ReadonlySet<string>,
+): SuggestionPresentationRecord[] {
+  const edits = new Map(sessionEdits.map((edit) => [edit.id, edit]));
+  const drawn: SuggestionPresentationRecord[] = saved.map((suggestion) => {
+    const edit = edits.get(suggestion.id);
+    return edit && !deciding.has(suggestion.id)
+      ? { ...suggestion, operations: edit.operations }
+      : suggestion;
+  });
+  const savedIds = new Set(saved.map((suggestion) => suggestion.id));
+  for (const edit of sessionEdits) {
+    if (savedIds.has(edit.id) || deciding.has(edit.id)) continue;
+    drawn.push({ id: edit.id, status: "pending", operations: edit.operations });
+  }
+  return drawn;
+}
+
+type EditedSuggestionRevision = Pick<
+  ResourceSuggestion,
+  "id" | "revision" | "baseRevision"
+>;
+
+// A suggestion typed in Suggesting mode is saved before it's decided. Its
+// saved copy is the one the save matched to it, and a saved suggestion the
+// save amended is decided at the revision the save gave it. The suggestion
+// being edited comes back from a save with nothing left to change when an
+// earlier save already amended it, so it takes the revision the session
+// recorded then, unless the card already shows a newer one.
+export function suggestionToDecideAfterSave(
+  persisted: ReadonlyMap<string, ResourceSuggestion>,
+  target: ResourceSuggestion | DraftSuggestion,
+  editing: EditedSuggestionRevision | null,
+): ResourceSuggestion | null {
+  if ("durability" in target)
+    return materializedSuggestionForDraft(persisted, target);
+  if (target.id === editing?.id)
+    return (
+      [...persisted.values()][0] ??
+      (editing.revision > target.revision
+        ? {
+            ...target,
+            revision: editing.revision,
+            baseRevision: editing.baseRevision,
+          }
+        : target)
+    );
+  return (
+    [...persisted.values()].find((saved) => saved.id === target.id) ?? target
+  );
 }
 
 export function sameSuggestionAnchorIds(
@@ -772,7 +858,7 @@ export function suggestionPresentations(
 }
 
 export function documentEditorSuggestionPresentations(args: {
-  savedSuggestions: ResourceSuggestion[];
+  savedSuggestions: SuggestionPresentationRecord[];
   drafts: DraftSuggestion[];
   currentMarkdown: string;
   editingSuggestionId: string | null;
@@ -931,6 +1017,64 @@ export function observedSuggestionDecisionTransition(
       ? (createObservedSuggestionPresentationTransition(proposal.members) ??
         undefined)
       : undefined;
+}
+
+export function suggestionsWithQueuedDecisions(
+  suggestions: ResourceSuggestion[],
+  queued: readonly QueuedSuggestionDecision[],
+): ResourceSuggestion[] {
+  if (queued.length === 0) return suggestions;
+  const decisions = new Map<string, SuggestionDecision>();
+  for (const entry of queued)
+    for (const member of entry.members)
+      decisions.set(member.id, entry.decision);
+  return suggestions.map((suggestion) => {
+    const decision = decisions.get(suggestion.id);
+    return decision && suggestion.status === "pending"
+      ? { ...suggestion, status: decision }
+      : suggestion;
+  });
+}
+
+/** Accepted text shown over the original until the server's change arrives. */
+export function queuedAcceptedPresentations(
+  queued: readonly QueuedSuggestionDecision[],
+): VisualEditorSuggestion[] {
+  return queued.flatMap((entry) =>
+    entry.decision !== "accepted"
+      ? []
+      : entry.members.flatMap((member) => {
+          const before = member.operations[0]?.before as
+            | { markdown?: unknown }
+            | undefined;
+          const source =
+            entry.proposalId === null && typeof before?.markdown === "string"
+              ? before.markdown
+              : entry.beforeContent;
+          return suggestionPresentations(
+            { ...member, status: "pending" },
+            source,
+          ).map((presentation) => ({
+            ...presentation,
+            presentation: canProjectAcceptedSuggestion(presentation)
+              ? ("settling" as const)
+              : ("canonical" as const),
+            frozen: true,
+            settlementReadbackContent: null,
+          }));
+        }),
+  );
+}
+
+export function queuedDecisionTransition(
+  queued: readonly QueuedSuggestionDecision[],
+) {
+  const accepted = queued.flatMap((entry) =>
+    entry.decision === "accepted" ? entry.members : [],
+  );
+  return accepted.length > 0
+    ? (createObservedSuggestionPresentationTransition(accepted) ?? undefined)
+    : undefined;
 }
 
 export function createDocumentSuggestionDraftSession(
@@ -2709,7 +2853,10 @@ function PageEditorSessionBody({
   const [isStartingSuggestion, setIsStartingSuggestion] = useState(false);
   const startingSuggestionRef = useRef(false);
   const [pendingSuggestionDecision, setPendingSuggestionDecision] = useState<{
-    suggestion: ResourceSuggestion;
+    // A suggestion typed in Suggesting mode shows its decision before it's
+    // saved, so this starts as the draft and becomes its saved copy.
+    suggestion: Pick<ResourceSuggestion, "id" | "status" | "operations">;
+    draftKey?: string | undefined;
     decision: SuggestionDecision;
     continueSuggesting: boolean;
     optimistic: boolean;
@@ -2731,6 +2878,7 @@ function PageEditorSessionBody({
     documentId: string;
     entries: SuggestionPresentationTransitions;
   }>(() => ({ documentId, entries: new Map() }));
+  const queuedDecisions = useQueuedSuggestionDecisions(documentId);
   const proposalDecisionInFlightRef = useRef(false);
   const proposalDecisionKeysRef = useRef(new Map<string, string>());
   const [decisionRefreshFailed, setDecisionRefreshFailed] = useState(false);
@@ -5720,7 +5868,9 @@ function PageEditorSessionBody({
           ? suggestionPresentationTransitions.entries
           : new Map(),
         savedSuggestions,
-        pendingSuggestionDecision || pendingProposalDecision
+        pendingSuggestionDecision ||
+          pendingProposalDecision ||
+          queuedDecisions.length > 0
           ? []
           : savedSuggestions,
         document.content,
@@ -5730,6 +5880,7 @@ function PageEditorSessionBody({
       documentId,
       pendingProposalDecision,
       pendingSuggestionDecision,
+      queuedDecisions.length,
       savedSuggestions,
       suggestionPresentationTransitions,
     ],
@@ -5760,19 +5911,36 @@ function PageEditorSessionBody({
     },
     [documentId, savedSuggestions],
   );
+  // The suggestion a Suggesting-mode decision is for: the draft that was
+  // clicked, and once its save records it, the saved copy.
+  const decidingSuggestionIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (!pendingSuggestionDecision) return ids;
+    ids.add(pendingSuggestionDecision.suggestion.id);
+    const { draftKey } = pendingSuggestionDecision;
+    const saved = draftKey
+      ? createdSuggestionOperationsRef.current.get(draftKey)?.suggestion.id
+      : undefined;
+    if (saved) ids.add(saved);
+    return ids;
+  }, [pendingSuggestionDecision, suggestionPersistenceRevision]);
   const presentedSuggestions = useMemo(() => {
     // Accept or Reject remaining shows its outcome on every member at once,
     // in the same render that projects the Page, until the server answers.
+    const queuedSuggestions = suggestionsWithQueuedDecisions(
+      savedSuggestions,
+      queuedDecisions,
+    );
     const proposalMembers = pendingProposalDecision
       ? new Set(pendingProposalDecision.members.map((member) => member.id))
       : null;
     if (!pendingSuggestionDecision?.continueSuggesting && !proposalMembers)
-      return savedSuggestions;
-    return savedSuggestions.map((suggestion) =>
+      return queuedSuggestions;
+    return queuedSuggestions.map((suggestion) =>
       proposalMembers?.has(suggestion.id) && suggestion.status === "pending"
         ? { ...suggestion, status: pendingProposalDecision!.requestedDecision }
         : pendingSuggestionDecision?.continueSuggesting &&
-            suggestion.id === pendingSuggestionDecision.suggestion.id
+            decidingSuggestionIds.has(suggestion.id)
           ? {
               ...suggestion,
               status: pendingSuggestionDecision.optimistic
@@ -5781,7 +5949,13 @@ function PageEditorSessionBody({
             }
           : suggestion,
     );
-  }, [pendingProposalDecision, pendingSuggestionDecision, savedSuggestions]);
+  }, [
+    decidingSuggestionIds,
+    pendingProposalDecision,
+    pendingSuggestionDecision,
+    queuedDecisions,
+    savedSuggestions,
+  ]);
   const pendingSuggestionDecisionContent =
     pendingSuggestionDecision?.continueSuggesting
       ? suggestionDecisionPreviewContent(
@@ -6771,6 +6945,8 @@ function PageEditorSessionBody({
         startingSuggestionRef.current = true;
         setIsStartingSuggestion(true);
         try {
+          // A suggestion starts from the Page with every decision in it.
+          await suggestionDecisionsSettled(documentId);
           if (document.databaseMembership) {
             try {
               await flushAllBlockFieldSaveControllersForDocument(documentId);
@@ -6867,6 +7043,14 @@ function PageEditorSessionBody({
   const handleSelectionControllerChange = useCallback(
     (controller: VisualEditorSelectionController | null) => {
       editorSelectionControllerRef.current = controller;
+    },
+    [],
+  );
+  const suggestionPlacementsRef =
+    useRef<VisualEditorSuggestionPlacements | null>(null);
+  const handleSuggestionPlacementsChange = useCallback(
+    (read: VisualEditorSuggestionPlacements | null) => {
+      suggestionPlacementsRef.current = read;
     },
     [],
   );
@@ -7017,15 +7201,23 @@ function PageEditorSessionBody({
     const currentMarkdown =
       pendingSuggestionDecisionContent ??
       (isSuggesting ? suggestionDraft : document.content);
-    const observedTransition = observedSuggestionDecisionTransition(
-      pendingSuggestionDecision,
-      pendingProposalDecision,
-    );
+    const observedTransition =
+      observedSuggestionDecisionTransition(
+        pendingSuggestionDecision,
+        pendingProposalDecision,
+      ) ?? queuedDecisionTransition(queuedDecisions);
+    const showsDecidedPage = pendingSuggestionDecisionContent !== null;
     const ordinaryPresentations = documentEditorSuggestionPresentations({
-      savedSuggestions: displaySavedSuggestions,
-      drafts: sessionSuggestionVisuals,
+      savedSuggestions: showsDecidedPage
+        ? sessionEditsDrawnAsSaved(
+            displaySavedSuggestions,
+            sessionSuggestionVisuals,
+            decidingSuggestionIds,
+          )
+        : displaySavedSuggestions,
+      drafts: showsDecidedPage ? [] : sessionSuggestionVisuals,
       currentMarkdown,
-      editingSuggestionId,
+      editingSuggestionId: showsDecidedPage ? null : editingSuggestionId,
       pendingSuggestionId: pendingSuggestionDecision?.suggestion.id ?? null,
       transitions: renderedSuggestionTransitions,
       observedTransition,
@@ -7052,13 +7244,17 @@ function PageEditorSessionBody({
     }
     const presentations = replaceAcceptedSuggestionPresentations(
       ordinaryPresentations,
-      acceptedPresentations,
+      [
+        ...acceptedPresentations,
+        ...queuedAcceptedPresentations(queuedDecisions),
+      ],
     );
     return proposalDecisionPresentations(
       presentations,
       pendingProposalDecision,
     );
   }, [
+    decidingSuggestionIds,
     document.content,
     editingSuggestionId,
     isSuggesting,
@@ -7066,6 +7262,7 @@ function PageEditorSessionBody({
     pendingProposalDecision,
     pendingSuggestionDecisionContent,
     displaySavedSuggestions,
+    queuedDecisions,
     sessionSuggestionVisuals,
     suggestionDraft,
     documentId,
@@ -8062,9 +8259,18 @@ function PageEditorSessionBody({
       const suggestion = savedSuggestions.find(
         (candidate) => candidate.id === suggestionId,
       );
-      if (suggestion && !isStartingSuggestion) {
+      if (
+        suggestion &&
+        !startingSuggestionRef.current &&
+        !queuedSuggestionDecisions(documentId).some((entry) =>
+          entry.members.some((member) => member.id === suggestionId),
+        )
+      ) {
+        startingSuggestionRef.current = true;
         setIsStartingSuggestion(true);
         try {
+          // A suggestion starts from the Page with every decision in it.
+          await suggestionDecisionsSettled(documentId);
           const readyDocument = await prepareSuggestionDraftDocument();
           if (
             readyDocument &&
@@ -8079,6 +8285,7 @@ function PageEditorSessionBody({
           }
           if (!readyDocument) return;
         } finally {
+          startingSuggestionRef.current = false;
           setIsStartingSuggestion(false);
         }
       }
@@ -8087,7 +8294,7 @@ function PageEditorSessionBody({
     [
       activateCommentThread,
       activateSuggestion,
-      isStartingSuggestion,
+      documentId,
       isSuggesting,
       prepareSuggestionDraftDocument,
       savedSuggestions,
@@ -8667,6 +8874,358 @@ function PageEditorSessionBody({
     [contentSpaces, navigate, setStoredSpaceId],
   );
 
+  // While editing, Accept and Reject leave the Page editable: the server writes
+  // each decision into the live copy, which merges it with what was typed.
+  const decisionQueueActive =
+    !isSuggesting &&
+    collabEditorEnabled &&
+    !!ydoc &&
+    suggestionEditorIsolation.bindCanonicalYDoc;
+  useSuggestionDecisionView(documentId, {
+    failed: (entry, error) => {
+      void suggestionsQuery.refetch();
+      const member = singleDecisionMember(entry);
+      if (!member || !isSuggestionStaleActionError(error)) return;
+      setUnplaceableSuggestionRevisions((revisions) =>
+        new Map(revisions).set(member.id, member.revision),
+      );
+      setSelectedSuggestionId(member.id);
+      setUtilityPanel("comments");
+      setCommentsBrowseOpen(true);
+    },
+    decided: (entry, decided) => {
+      if (
+        entry.decision === "accepted" &&
+        decided.every((suggestion) => suggestion.status === "accepted")
+      )
+        retainCommittedPresentationTransitions(decided);
+      setLocallyCreatedSuggestions((current) => {
+        const byId = new Map(current.map((item) => [item.id, item]));
+        for (const suggestion of decided) byId.set(suggestion.id, suggestion);
+        return [...byId.values()];
+      });
+      void suggestionsQuery.refetch();
+    },
+    catchUp: async () => (await requestCollabSync()).status === "synced",
+    placements: async (suggestionIds) => {
+      const placements = suggestionPlacementsRef.current?.(suggestionIds) ?? {};
+      await flushBeforeSave(flushCollabUpdates);
+      return placements;
+    },
+  });
+  // Each decision is sent even if the editor closes or opens another Page
+  // first; what it shows goes to whichever editor has its Page open then.
+  const runQueuedDecision =
+    (pageId: string) => async (entry: QueuedSuggestionDecision) => {
+      const leave = () =>
+        updateQueuedSuggestionDecisions(pageId, (queued) =>
+          queued.filter((candidate) => candidate.key !== entry.key),
+        );
+      const single = entry.proposalId === null;
+      let decided: ResourceSuggestion[];
+      try {
+        // An accept lands where this tab shows the words, read as it's sent.
+        const placements =
+          entry.decision === "accepted"
+            ? ((await suggestionDecisionView(pageId)?.placements(
+                entry.members.map((member) => member.id),
+              )) ?? {})
+            : {};
+        if (entry.proposalId === null) {
+          const member = singleDecisionMember(entry);
+          if (!member) throw new Error("A single decision names one edit");
+          const result = await decideSuggestion.mutateAsync({
+            id: member.id,
+            decision: entry.decision,
+            idempotencyKey: globalThis.crypto.randomUUID(),
+            observedBase: member.baseRevision,
+            observedRevision: member.revision,
+            placement: placements[member.id],
+          });
+          decided = [result.suggestion];
+        } else {
+          const observed = entry.members.map((member) => ({
+            id: member.id,
+            observedRevision: member.revision,
+            observedBase: member.baseRevision,
+          }));
+          const decisionKey = JSON.stringify([
+            entry.proposalId,
+            entry.decision,
+            observed,
+          ]);
+          const idempotencyKey =
+            proposalDecisionKeysRef.current.get(decisionKey) ??
+            globalThis.crypto.randomUUID();
+          proposalDecisionKeysRef.current.set(decisionKey, idempotencyKey);
+          const result = await decideSuggestionProposal.mutateAsync({
+            proposalId: entry.proposalId,
+            decision: entry.decision,
+            idempotencyKey,
+            members: observed.map((member) => ({
+              ...member,
+              placement: placements[member.id],
+            })),
+          });
+          decided = result.suggestions;
+        }
+      } catch (error) {
+        leave();
+        suggestionDecisionView(pageId)?.failed(entry, error);
+        const unplaceable = isSuggestionStaleActionError(error);
+        const accepting = entry.decision === "accepted";
+        toast.error(
+          t(
+            single
+              ? accepting
+                ? "editor.suggestionAcceptFailed"
+                : "editor.suggestionRejectFailed"
+              : accepting
+                ? "editor.proposalAcceptFailed"
+                : "editor.proposalRejectFailed",
+          ),
+          {
+            description: t(
+              unplaceable
+                ? single
+                  ? "editor.suggestionUnplaceable"
+                  : "editor.proposalUnplaceable"
+                : single
+                  ? "editor.suggestionDecisionReverted"
+                  : "editor.proposalDecisionReverted",
+            ),
+          },
+        );
+        return;
+      }
+      const accepted = decided.filter(
+        (suggestion) => suggestion.status === "accepted",
+      );
+      suggestionDecisionView(pageId)?.decided(entry, decided);
+      // Accepting moves each asking thread's quote onto the new text.
+      if (accepted.some((suggestion) => suggestionSourceThreadId(suggestion)))
+        void queryClient.invalidateQueries({
+          queryKey: ["action", "list-comments", { documentId: pageId }],
+        });
+      if (accepted.length === 0) {
+        leave();
+        return;
+      }
+      // Keep showing the accepted text until this tab has the server's change.
+      updateQueuedSuggestionDecisions(pageId, (queued) =>
+        queued.map((candidate) =>
+          candidate.key === entry.key
+            ? { ...candidate, decision: "accepted", members: accepted }
+            : candidate,
+        ),
+      );
+      const view = suggestionDecisionView(pageId);
+      if (!view || !(await view.catchUp()))
+        void queryClient.invalidateQueries(documentQueryFilter(pageId));
+      leave();
+    };
+  const queueSuggestionDecision = (
+    proposalId: string | null,
+    decision: SuggestionDecision,
+    members: ResourceSuggestion[],
+  ) => {
+    if (showInlineComments) setPreserveInlineReviewSpace(true);
+    enqueueSuggestionDecision(
+      documentId,
+      {
+        key: globalThis.crypto.randomUUID(),
+        proposalId,
+        decision,
+        members,
+        beforeContent: document.content,
+      },
+      runQueuedDecision(documentId),
+    );
+  };
+  const suggestionDecisionQueued = (suggestionId: string) =>
+    queuedSuggestionDecisions(documentId).some((entry) =>
+      entry.members.some((member) => member.id === suggestionId),
+    );
+
+  const decideSingleSuggestion = async (
+    target: ResourceSuggestion | DraftSuggestion,
+    decision: SuggestionDecision,
+  ) => {
+    const draft = "durability" in target ? target : null;
+    const saved = "durability" in target ? null : target;
+    if (decisionQueueActive && saved) {
+      if (
+        suggestionDecisionQueued(saved.id) ||
+        commentAiWorkingOnSource(saved) ||
+        startingSuggestionRef.current ||
+        pendingSuggestionDecision ||
+        pendingProposalDecision ||
+        isSubmittingSuggestions
+      )
+        return;
+      queueSuggestionDecision(null, decision, [saved]);
+      return;
+    }
+    if (
+      queuedSuggestionDecisions(documentId).length > 0 ||
+      suggestionDecisionInFlightRef.current ||
+      proposalDecisionInFlightRef.current ||
+      pendingSuggestionDecision ||
+      pendingProposalDecision ||
+      decideSuggestion.isPending ||
+      decideSuggestionProposal.isPending ||
+      isSubmittingSuggestions ||
+      (saved && commentAiWorkingOnSource(saved)) ||
+      (draft && !isSuggesting)
+    )
+      return;
+    suggestionDecisionInFlightRef.current = true;
+    suggestionDecisionGenerationRef.current += 1;
+    const decisionGeneration = suggestionDecisionGenerationRef.current;
+    const continueSuggesting = isSuggesting;
+    // The decision shows at once. In Suggesting mode the draft saves first,
+    // and the decision goes to the suggestion that save leaves.
+    if (showInlineComments) setPreserveInlineReviewSpace(true);
+    activeSuggestionDecisionIdRef.current = target.id;
+    const draftOperation = draft?.operations[0];
+    setPendingSuggestionDecision({
+      suggestion: saved ?? {
+        id: target.id,
+        status: "pending",
+        operations: target.operations,
+      },
+      draftKey: draftOperation
+        ? suggestionOperationKey(draftOperation)
+        : undefined,
+      decision,
+      continueSuggesting,
+      optimistic: true,
+      readbackContent: null,
+    });
+    setDecisionRefreshFailed(false);
+    let observedSuggestion = saved;
+    if (continueSuggesting) {
+      const persisted = await flushSuggestionDraft({ keepMode: true });
+      if (
+        decisionGeneration !== suggestionDecisionGenerationRef.current ||
+        documentId !== suggestionDecisionDocumentIdRef.current
+      )
+        return;
+      observedSuggestion = persisted
+        ? suggestionToDecideAfterSave(
+            persisted,
+            target,
+            suggestionBaseRef.current?.existingSuggestion ?? null,
+          )
+        : null;
+    }
+    if (!observedSuggestion) {
+      activeSuggestionDecisionIdRef.current = null;
+      setPendingSuggestionDecision(null);
+      suggestionDecisionInFlightRef.current = false;
+      return;
+    }
+    const decided = observedSuggestion;
+    activeSuggestionDecisionIdRef.current = decided.id;
+    setPendingSuggestionDecision((current) =>
+      current?.suggestion.id === target.id
+        ? { ...current, suggestion: decided }
+        : current,
+    );
+    // Saved, a draft joins the session's other edits in one group; selecting
+    // it keeps that group open, so their cards stay on screen.
+    if (draft) setSelectedSuggestionId(decided.id);
+    let result: Awaited<ReturnType<typeof decideSuggestion.mutateAsync>>;
+    try {
+      result = await decideSuggestion.mutateAsync({
+        id: decided.id,
+        decision,
+        idempotencyKey: globalThis.crypto.randomUUID(),
+        observedBase: decided.baseRevision,
+        observedRevision: decided.revision,
+      });
+    } catch (error) {
+      if (
+        decisionGeneration !== suggestionDecisionGenerationRef.current ||
+        documentId !== suggestionDecisionDocumentIdRef.current
+      )
+        return;
+      activeSuggestionDecisionIdRef.current = null;
+      setPendingSuggestionDecision(null);
+      setDecisionRefreshFailed(false);
+      suggestionDecisionInFlightRef.current = false;
+      const unplaceable = isSuggestionStaleActionError(error);
+      if (unplaceable) {
+        setUnplaceableSuggestionRevisions((current) =>
+          new Map(current).set(decided.id, decided.revision),
+        );
+        setSelectedSuggestionId(decided.id);
+        setUtilityPanel("comments");
+        setCommentsBrowseOpen(true);
+      }
+      toast.error(
+        t(unplaceable ? "editor.toolbar.conflict" : "empty.genericError"),
+        {
+          description: unplaceable
+            ? t("editor.suggestionUnplaceable")
+            : (actionErrorMessage(error) ?? t("empty.genericError")),
+        },
+      );
+      return;
+    }
+    if (
+      decisionGeneration !== suggestionDecisionGenerationRef.current ||
+      documentId !== suggestionDecisionDocumentIdRef.current
+    )
+      return;
+    if (decision === "accepted" && result.suggestion.status === "accepted")
+      retainCommittedPresentationTransitions([result.suggestion]);
+    if (result.suggestion.status !== decision) {
+      const lock = singleSuggestionDecisionLockAfterMismatch(
+        {
+          inFlight: suggestionDecisionInFlightRef.current,
+          activeSuggestionId: activeSuggestionDecisionIdRef.current,
+        },
+        decision,
+        result.suggestion.status,
+      );
+      suggestionDecisionInFlightRef.current = lock.inFlight;
+      activeSuggestionDecisionIdRef.current = lock.activeSuggestionId;
+      setPendingSuggestionDecision((current) =>
+        current?.suggestion.id === decided.id
+          ? {
+              ...current,
+              suggestion: result.suggestion,
+              optimistic: false,
+            }
+          : current,
+      );
+    }
+    setLocallyCreatedSuggestions((current) => {
+      const byId = new Map(
+        current.map((candidate) => [candidate.id, candidate]),
+      );
+      byId.set(result.suggestion.id, result.suggestion);
+      return [...byId.values()];
+    });
+    void suggestionsQuery.refetch();
+    // Accepting moves the asking thread's quote onto the new text.
+    if (
+      result.suggestion.status === "accepted" &&
+      suggestionSourceThreadId(result.suggestion)
+    ) {
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "list-comments", { documentId }],
+      });
+    }
+    await refreshSuggestionDecisionDocument(
+      continueSuggesting,
+      result.suggestion.status === "accepted"
+        ? "single-accepted"
+        : "single-other",
+    );
+  };
+
   const renderCommentsSidebar = (
     visibleThreadId?: string | null,
     alignToAnchors = hasInlineCommentSpace,
@@ -8744,15 +9303,36 @@ function PageEditorSessionBody({
         return suggestion ?? null;
       }}
       canDecideSuggestions={canEdit}
-      decidingSuggestion={() =>
-        decideSuggestion.isPending ||
-        decideSuggestionProposal.isPending ||
+      decidingSuggestion={(suggestionId) =>
         isSubmittingSuggestions ||
+        isStartingSuggestion ||
         !!pendingSuggestionDecision ||
-        !!pendingProposalDecision
+        !!pendingProposalDecision ||
+        (decisionQueueActive
+          ? queuedDecisions.some((entry) =>
+              entry.members.some((member) => member.id === suggestionId),
+            )
+          : decideSuggestion.isPending ||
+            decideSuggestionProposal.isPending ||
+            queuedDecisions.length > 0)
       }
       onDecideSuggestionProposal={async (proposalId, decision, members) => {
+        if (decisionQueueActive) {
+          if (
+            members.length === 0 ||
+            members.some(commentAiWorkingOnSource) ||
+            members.some((member) => suggestionDecisionQueued(member.id)) ||
+            startingSuggestionRef.current ||
+            pendingSuggestionDecision ||
+            pendingProposalDecision ||
+            isSubmittingSuggestions
+          )
+            return;
+          queueSuggestionDecision(proposalId, decision, members);
+          return;
+        }
         if (
+          queuedSuggestionDecisions(documentId).length > 0 ||
           proposalDecisionInFlightRef.current ||
           suggestionDecisionInFlightRef.current ||
           pendingSuggestionDecision ||
@@ -8913,145 +9493,12 @@ function PageEditorSessionBody({
           }
         }
       }}
-      onDecideSuggestion={async (suggestion, decision) => {
-        if (
-          suggestionDecisionInFlightRef.current ||
-          proposalDecisionInFlightRef.current ||
-          pendingSuggestionDecision ||
-          pendingProposalDecision ||
-          decideSuggestion.isPending ||
-          decideSuggestionProposal.isPending ||
-          isSubmittingSuggestions ||
-          commentAiWorkingOnSource(suggestion)
-        )
-          return;
-        suggestionDecisionInFlightRef.current = true;
-        suggestionDecisionGenerationRef.current += 1;
-        const decisionGeneration = suggestionDecisionGenerationRef.current;
-        const continueSuggesting = isSuggesting;
-        let observedSuggestion = suggestion;
-        if (continueSuggesting) {
-          const persisted = await flushSuggestionDraft({ keepMode: true });
-          if (!persisted) {
-            if (
-              decisionGeneration === suggestionDecisionGenerationRef.current &&
-              documentId === suggestionDecisionDocumentIdRef.current
-            )
-              suggestionDecisionInFlightRef.current = false;
-            return;
-          }
-          if (
-            decisionGeneration !== suggestionDecisionGenerationRef.current ||
-            documentId !== suggestionDecisionDocumentIdRef.current
-          )
-            return;
-          if (suggestion.id === editingSuggestionId) {
-            observedSuggestion = [...persisted.values()][0] ?? suggestion;
-          }
-        }
-        if (showInlineComments) setPreserveInlineReviewSpace(true);
-        activeSuggestionDecisionIdRef.current = observedSuggestion.id;
-        setPendingSuggestionDecision({
-          suggestion: observedSuggestion,
-          decision,
-          continueSuggesting,
-          optimistic: true,
-          readbackContent: null,
-        });
-        setDecisionRefreshFailed(false);
-        let result: Awaited<ReturnType<typeof decideSuggestion.mutateAsync>>;
-        try {
-          result = await decideSuggestion.mutateAsync({
-            id: observedSuggestion.id,
-            decision,
-            idempotencyKey: globalThis.crypto.randomUUID(),
-            observedBase: observedSuggestion.baseRevision,
-            observedRevision: observedSuggestion.revision,
-          });
-        } catch (error) {
-          if (
-            decisionGeneration !== suggestionDecisionGenerationRef.current ||
-            documentId !== suggestionDecisionDocumentIdRef.current
-          )
-            return;
-          activeSuggestionDecisionIdRef.current = null;
-          setPendingSuggestionDecision(null);
-          setDecisionRefreshFailed(false);
-          suggestionDecisionInFlightRef.current = false;
-          const unplaceable = isSuggestionStaleActionError(error);
-          if (unplaceable) {
-            setUnplaceableSuggestionRevisions((current) =>
-              new Map(current).set(
-                observedSuggestion.id,
-                observedSuggestion.revision,
-              ),
-            );
-            setSelectedSuggestionId(observedSuggestion.id);
-            setUtilityPanel("comments");
-            setCommentsBrowseOpen(true);
-          }
-          toast.error(
-            t(unplaceable ? "editor.toolbar.conflict" : "empty.genericError"),
-            {
-              description: unplaceable
-                ? t("editor.suggestionUnplaceable")
-                : (actionErrorMessage(error) ?? t("empty.genericError")),
-            },
-          );
-          return;
-        }
-        if (
-          decisionGeneration !== suggestionDecisionGenerationRef.current ||
-          documentId !== suggestionDecisionDocumentIdRef.current
-        )
-          return;
-        if (decision === "accepted" && result.suggestion.status === "accepted")
-          retainCommittedPresentationTransitions([result.suggestion]);
-        if (result.suggestion.status !== decision) {
-          const lock = singleSuggestionDecisionLockAfterMismatch(
-            {
-              inFlight: suggestionDecisionInFlightRef.current,
-              activeSuggestionId: activeSuggestionDecisionIdRef.current,
-            },
-            decision,
-            result.suggestion.status,
-          );
-          suggestionDecisionInFlightRef.current = lock.inFlight;
-          activeSuggestionDecisionIdRef.current = lock.activeSuggestionId;
-          setPendingSuggestionDecision((current) =>
-            current?.suggestion.id === observedSuggestion.id
-              ? {
-                  ...current,
-                  suggestion: result.suggestion,
-                  optimistic: false,
-                }
-              : current,
-          );
-        }
-        setLocallyCreatedSuggestions((current) => {
-          const byId = new Map(
-            current.map((candidate) => [candidate.id, candidate]),
-          );
-          byId.set(result.suggestion.id, result.suggestion);
-          return [...byId.values()];
-        });
-        void suggestionsQuery.refetch();
-        // Accepting moves the asking thread's quote onto the new text.
-        if (
-          result.suggestion.status === "accepted" &&
-          suggestionSourceThreadId(result.suggestion)
-        ) {
-          void queryClient.invalidateQueries({
-            queryKey: ["action", "list-comments", { documentId }],
-          });
-        }
-        await refreshSuggestionDecisionDocument(
-          continueSuggesting,
-          result.suggestion.status === "accepted"
-            ? "single-accepted"
-            : "single-other",
-        );
-      }}
+      onDecideSuggestion={(suggestion, decision) =>
+        void decideSingleSuggestion(suggestion, decision)
+      }
+      onDecideDraftSuggestion={(suggestion, decision) =>
+        void decideSingleSuggestion(suggestion, decision)
+      }
       canSuggest={canSuggest}
       commentAi={commentAi}
       visibleThreadId={visibleThreadId}
@@ -9746,13 +10193,21 @@ function PageEditorSessionBody({
                               />
                             </div>
                           ) : null}
-                          {pendingSuggestionDecision?.decision === "accepted" &&
-                          pendingSuggestionDecision.optimistic &&
-                          visualSuggestions.some(
+                          {visualSuggestions.some(
                             (suggestion) =>
-                              suggestion.id ===
-                                pendingSuggestionDecision.suggestion.id &&
-                              suggestion.presentation === "canonical",
+                              suggestion.presentation === "canonical" &&
+                              ((pendingSuggestionDecision?.decision ===
+                                "accepted" &&
+                                pendingSuggestionDecision.optimistic &&
+                                suggestion.id ===
+                                  pendingSuggestionDecision.suggestion.id) ||
+                                queuedDecisions.some(
+                                  (entry) =>
+                                    entry.decision === "accepted" &&
+                                    entry.members.some(
+                                      (member) => member.id === suggestion.id,
+                                    ),
+                                )),
                           ) ? (
                             <div
                               role="status"
@@ -9996,6 +10451,9 @@ function PageEditorSessionBody({
                                 }
                                 onPersistenceControllerChange={
                                   handlePersistenceControllerChange
+                                }
+                                onSuggestionPlacementsChange={
+                                  handleSuggestionPlacementsChange
                                 }
                               />
                             </WidgetVisualEditorBoundary>

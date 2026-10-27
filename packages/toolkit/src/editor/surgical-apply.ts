@@ -132,30 +132,33 @@ export function diffTopLevelHunks(
   return hunks;
 }
 
-// An insertion beside a replaced range, rather than inside it, has one place
-// to go: next to the replacement, on the side it was inserted. Two insertions
-// at the same index have no order, so they overlap.
-function hunksOverlap(left: TopLevelHunk, right: TopLevelHunk): boolean {
-  const leftInsert = left.baseFromIndex === left.baseToIndex;
-  const rightInsert = right.baseFromIndex === right.baseToIndex;
-  if (leftInsert && rightInsert) {
-    return left.baseFromIndex === right.baseFromIndex;
+// `local` is the live doc's change, `server` the snapshot's. An insertion
+// beside the other side's change, rather than inside it, has one place to go:
+// next to that change, on the side it was inserted. For a local insertion at
+// a server replacement's edge, `mappedLocalIndex` keeps it out of the
+// replaced range. Two insertions at the same index have no order, so they
+// overlap.
+function hunksOverlap(local: TopLevelHunk, server: TopLevelHunk): boolean {
+  const localInsert = local.baseFromIndex === local.baseToIndex;
+  const serverInsert = server.baseFromIndex === server.baseToIndex;
+  if (localInsert && serverInsert) {
+    return local.baseFromIndex === server.baseFromIndex;
   }
-  if (leftInsert) {
+  if (localInsert) {
     return (
-      left.baseFromIndex > right.baseFromIndex &&
-      left.baseFromIndex < right.baseToIndex
+      local.baseFromIndex > server.baseFromIndex &&
+      local.baseFromIndex < server.baseToIndex
     );
   }
-  if (rightInsert) {
+  if (serverInsert) {
     return (
-      right.baseFromIndex > left.baseFromIndex &&
-      right.baseFromIndex < left.baseToIndex
+      server.baseFromIndex > local.baseFromIndex &&
+      server.baseFromIndex < local.baseToIndex
     );
   }
   return (
-    left.baseFromIndex < right.baseToIndex &&
-    right.baseFromIndex < left.baseToIndex
+    local.baseFromIndex < server.baseToIndex &&
+    server.baseFromIndex < local.baseToIndex
   );
 }
 
