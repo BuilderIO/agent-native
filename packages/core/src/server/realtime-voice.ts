@@ -12,6 +12,7 @@ import { actionCallReadOnly } from "../action-call-classification.js";
 import { getBuilderGatewayRequestHeaders } from "../agent/engine/builder-gateway-headers.js";
 import {
   actionsToEngineTools,
+  toolCallCacheKey,
   type ActionEntry,
   type AgentApprovalBinding,
 } from "../agent/production-agent.js";
@@ -85,7 +86,6 @@ const DEFAULT_TOOL_INSTRUCTIONS =
 const MAX_INSTRUCTIONS_CHARS = 16_000;
 const MAX_TOOL_DESCRIPTION_CHARS = 2_000;
 const MAX_APPROVAL_KEY_CHARS = 1_024;
-const MAX_APPROVED_TOOL_CALLS = 4;
 const REALTIME_TOOL_NAME = /^[A-Za-z0-9_-]{1,64}$/;
 const CALL_ID = /^[A-Za-z0-9_-]{1,256}$/;
 const SESSION_ID = /^[A-Za-z0-9_.:-]{1,256}$/;
@@ -148,11 +148,9 @@ export interface RealtimeVoiceToolExecutionRequest extends RealtimeVoiceRequestC
   /** The mounted actions plus the caller's own; run the call against these. */
   actions: Record<string, ActionEntry>;
   /**
-   * Approval keys the user approved for this call. A key only runs a call the
-   * server recorded an approval for in this voice session.
+   * The approval record the user approved, from the call that asked. It runs
+   * only this call's exact arguments, and only once.
    */
-  approvedToolCalls?: string[];
-  /** The approval record the user approved, from the call that asked. */
   approvalId?: string;
   sessionId?: string;
 }
@@ -1008,7 +1006,6 @@ function parseToolRequest(value: unknown): {
   callId: string;
   sessionId?: string;
   browserTabId?: string;
-  approvedToolCalls?: string[];
   approvalId?: string;
   declinedApprovalId?: string;
 } | null {
@@ -1019,7 +1016,6 @@ function parseToolRequest(value: unknown): {
     callId,
     sessionId,
     browserTabId,
-    approvedToolCalls,
     approvalId,
     declinedApprovalId,
   } = value;
@@ -1038,19 +1034,6 @@ function parseToolRequest(value: unknown): {
   ) {
     return null;
   }
-  if (
-    approvedToolCalls !== undefined &&
-    (!Array.isArray(approvedToolCalls) ||
-      approvedToolCalls.length > MAX_APPROVED_TOOL_CALLS ||
-      !approvedToolCalls.every(
-        (key) =>
-          typeof key === "string" &&
-          key.length > 0 &&
-          key.length <= MAX_APPROVAL_KEY_CHARS,
-      ))
-  ) {
-    return null;
-  }
   for (const id of [approvalId, declinedApprovalId]) {
     if (id !== undefined && (typeof id !== "string" || !APPROVAL_ID.test(id))) {
       return null;
@@ -1062,9 +1045,6 @@ function parseToolRequest(value: unknown): {
     callId,
     ...(sessionId ? { sessionId } : {}),
     ...(browserTabId ? { browserTabId } : {}),
-    ...(approvedToolCalls?.length
-      ? { approvedToolCalls: approvedToolCalls as string[] }
-      : {}),
     ...(typeof approvalId === "string" ? { approvalId } : {}),
     ...(typeof declinedApprovalId === "string" ? { declinedApprovalId } : {}),
   };
@@ -1279,7 +1259,8 @@ export function realtimeVoiceApprovalHooks(
     | "orgId"
     | "sessionId"
     | "callId"
-    | "approvedToolCalls"
+    | "name"
+    | "args"
     | "approvalId"
   >,
 ) {
@@ -1301,13 +1282,14 @@ export function realtimeVoiceApprovalHooks(
     ...(binding.approvalId ? { approvalId: binding.approvalId } : {}),
   });
   return {
-    ...(request.approvedToolCalls
-      ? { approvedToolCalls: request.approvedToolCalls }
-      : {}),
-    // Consuming that exact record keeps a duplicate pending request from
+    // The key comes from this call, not the client, so it fits any argument
+    // size; consuming the exact record keeps a duplicate pending request from
     // making the match ambiguous.
     ...(request.approvalId
-      ? { approvedToolCallAskId: request.approvalId }
+      ? {
+          approvedToolCalls: [toolCallCacheKey(request.name, request.args)],
+          approvedToolCallAskId: request.approvalId,
+        }
       : {}),
     onApprovalRequired: async (binding: AgentApprovalBinding) => {
       recordedApprovalId = await createAgentToolApproval(storeBinding(binding));

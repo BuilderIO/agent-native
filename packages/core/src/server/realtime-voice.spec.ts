@@ -56,6 +56,8 @@ vi.mock("./framework-request-handler.js", () => ({
 const actionsToEngineTools = vi.hoisted(() => vi.fn());
 vi.mock("../agent/production-agent.js", () => ({
   actionsToEngineTools: (...args: unknown[]) => actionsToEngineTools(...args),
+  toolCallCacheKey: (name: string, input: unknown) =>
+    `${name}:${JSON.stringify(input)}`,
 }));
 
 const approvalStore = vi.hoisted(() => ({
@@ -1938,13 +1940,13 @@ describe("realtime voice tool route", () => {
     );
   });
 
-  it("passes the keys the user approved to the tool, and rejects malformed ones", async () => {
+  it("passes the approval the user approved to the tool, and rejects a malformed one", async () => {
     const executeTool = vi
       .fn()
       .mockResolvedValue({ status: "completed", output: "{}" });
     const { handlers } = mount({ executeTool });
     const capability = await issueToolCapability(handlers);
-    const call = (approvedToolCalls: unknown) =>
+    const call = (approvalId: unknown) =>
       handlers.get(REALTIME_VOICE_TOOL_PATH)!(
         toolEvent(
           {
@@ -1952,26 +1954,45 @@ describe("realtime voice tool route", () => {
             args: {},
             callId: "call_approved",
             sessionId: "voice-session-1",
-            approvedToolCalls,
+            approvalId,
           },
           withToolCapability(capability),
         ),
       );
 
-    await call(["navigate:approval-key"]);
+    await call("agent-tool-approval-1");
     expect(executeTool).toHaveBeenCalledWith(
-      expect.objectContaining({ approvedToolCalls: ["navigate:approval-key"] }),
+      expect.objectContaining({ approvalId: "agent-tool-approval-1" }),
     );
-    for (const malformed of [
-      "navigate:approval-key",
-      [42],
-      Array(5).fill("k"),
-    ]) {
+    for (const malformed of [42, "has spaces", "x".repeat(200)]) {
       expect(await call(malformed)).toEqual({
         error: "Invalid realtime tool request",
       });
     }
     expect(executeTool).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the approval id of a call whose arguments make its key too long to return", async () => {
+    const executeTool = vi.fn().mockResolvedValue({
+      status: "approval_required",
+      output: "Awaiting approval",
+      approvalKey: `navigate:${"x".repeat(2_000)}`,
+      approvalId: "agent-tool-approval-3",
+    });
+    const { handlers } = mount({ executeTool });
+    const capability = await issueToolCapability(handlers);
+
+    const result = await handlers.get(REALTIME_VOICE_TOOL_PATH)!(
+      toolEvent(
+        { name: "navigate", args: {}, callId: "call_large" },
+        withToolCapability(capability),
+      ),
+    );
+    expect(result).toMatchObject({
+      status: "approval_required",
+      approvalId: "agent-tool-approval-3",
+    });
+    expect(result).not.toHaveProperty("approvalKey");
   });
 
   it("scopes a voice approval to its session, so an approved retry consumes it", async () => {
@@ -1986,22 +2007,27 @@ describe("realtime voice tool route", () => {
       callId,
       approvalKey: "delete-slide:key",
     });
+    const call = { name: "delete-slide", args: { slideId: "s1" } };
     const asked = realtimeVoiceApprovalHooks({
+      ...call,
       userEmail: "person@example.com",
       orgId: "org-session",
       sessionId: "voice-session-1",
       callId: "call_asked",
     });
     const retry = realtimeVoiceApprovalHooks({
+      ...call,
       userEmail: "person@example.com",
       orgId: "org-session",
       sessionId: "voice-session-1",
       callId: "call_asked_approved",
-      approvedToolCalls: ["delete-slide:key"],
+      approvalId: "approval-1",
     });
 
     expect(asked).not.toHaveProperty("approvedToolCalls");
-    expect(retry.approvedToolCalls).toEqual(["delete-slide:key"]);
+    // The key is rebuilt from the call itself, and the exact record is named.
+    expect(retry.approvedToolCalls).toEqual(['delete-slide:{"slideId":"s1"}']);
+    expect(retry.approvedToolCallAskId).toBe("approval-1");
     await asked.onApprovalRequired(binding("call_asked"));
     await retry.consumeApproval(binding("call_asked_approved"));
     const scope = {
@@ -2024,14 +2050,6 @@ describe("realtime voice tool route", () => {
     });
 
     expect(asked.recordedApprovalId()).toBe("approval-1");
-    const exactRetry = realtimeVoiceApprovalHooks({
-      userEmail: "person@example.com",
-      sessionId: "voice-session-1",
-      callId: "call_exact",
-      approvedToolCalls: ["delete-slide:key"],
-      approvalId: "approval-1",
-    });
-    expect(exactRetry.approvedToolCallAskId).toBe("approval-1");
 
     await asked.isToolAlwaysAllowed(binding("call_asked"));
     expect(approvalStore.isAgentToolAlwaysAllowed).toHaveBeenCalledWith({

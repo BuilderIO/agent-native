@@ -299,13 +299,13 @@ describe("realtime voice session controls", () => {
           >;
           requests.push(body);
           return Response.json(
-            body.approvedToolCalls || body.declinedApprovalId
+            body.approvalId || body.declinedApprovalId
               ? { callId: body.callId, status: "completed", output: "deleted" }
-              : {
+              : // No key: arguments too long for one still get an approval.
+                {
                   callId: body.callId,
                   status: "approval_required",
                   output: "Awaiting approval",
-                  approvalKey: "delete-slide:key",
                   approvalId: "approval-1",
                 },
           );
@@ -341,7 +341,6 @@ describe("realtime voice session controls", () => {
           ? expect.objectContaining({
               name: "delete-slide",
               args: { slideId: "s1" },
-              approvedToolCalls: ["delete-slide:key"],
               approvalId: "approval-1",
             })
           : expect.objectContaining({ declinedApprovalId: "approval-1" }),

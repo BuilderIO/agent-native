@@ -530,8 +530,8 @@ interface PendingApproval {
   callId: string;
   name: string;
   args: Record<string, unknown>;
-  approvalKey: string;
-  approvalId: string | undefined;
+  /** The server's approval record; a decision names exactly this one. */
+  approvalId: string;
   workCall: RealtimeVoiceWorkCall;
   workSegment: RealtimeVoiceWorkSegment | null;
 }
@@ -1232,7 +1232,7 @@ export async function executeRealtimeVoiceTool(input: {
   browserTabId?: string | undefined;
   capability?: string | undefined;
   signal?: AbortSignal | undefined;
-  approvedToolCalls?: readonly string[] | undefined;
+  /** Runs the call this approval record was asked for, once. */
   approvalId?: string | undefined;
   /** Declines that approval record instead of running the call. */
   declinedApprovalId?: string | undefined;
@@ -1255,9 +1255,6 @@ export async function executeRealtimeVoiceTool(input: {
       callId: input.callId,
       sessionId: input.sessionId,
       browserTabId: input.browserTabId,
-      ...(input.approvedToolCalls?.length
-        ? { approvedToolCalls: input.approvedToolCalls }
-        : {}),
       ...(input.approvalId ? { approvalId: input.approvalId } : {}),
       ...(input.declinedApprovalId
         ? { declinedApprovalId: input.declinedApprovalId }
@@ -2496,14 +2493,14 @@ function useRealtimeVoiceModeController(
       }
       // Session teardown aborted the call, so it did not fail. A call that
       // asks for approval stays running until the user decides.
-      const approvalKey =
+      const approvalId =
         !toolAbortController.signal.aborted &&
         result.status === "approval_required" &&
         workCall.input &&
         transportGeneration === transportGenerationRef.current
-          ? result.approvalKey
+          ? result.approvalId
           : undefined;
-      const awaitingApproval = Boolean(approvalKey);
+      const awaitingApproval = Boolean(approvalId);
       if (!awaitingApproval) {
         workCall.status =
           toolAbortController.signal.aborted ||
@@ -2534,13 +2531,12 @@ function useRealtimeVoiceModeController(
         return;
       }
       if (result.capability) capabilityRef.current = result.capability;
-      if (approvalKey && workCall.input) {
+      if (approvalId && workCall.input) {
         pendingApprovalsRef.current.set(call.callId, {
           callId: call.callId,
           name: call.name,
           args: workCall.input,
-          approvalKey,
-          approvalId: result.approvalId,
+          approvalId,
           workCall,
           workSegment,
         });
@@ -2582,7 +2578,6 @@ function useRealtimeVoiceModeController(
             browserTabId,
             capability: capabilityRef.current,
             signal: toolAbortController.signal,
-            approvedToolCalls: [pending.approvalKey],
             approvalId: pending.approvalId,
           });
         } catch (toolError) {
@@ -2596,7 +2591,7 @@ function useRealtimeVoiceModeController(
           trackRunningTool(callId, null);
         }
         aborted = toolAbortController.signal.aborted;
-      } else if (pending.approvalId) {
+      } else {
         // A declined record left pending would make a later identical
         // request's approval ambiguous on the server.
         await executeRealtimeVoiceTool({
@@ -2619,15 +2614,14 @@ function useRealtimeVoiceModeController(
         channelRef.current !== transportChannel;
       // An approval that expired or no longer applies asks again; the call
       // stays running and the user sees the new request.
-      const renewedApprovalKey =
+      const renewedApprovalId =
         !aborted && !transportChanged && result?.status === "approval_required"
-          ? result.approvalKey
+          ? result.approvalId
           : undefined;
-      if (renewedApprovalKey) {
+      if (renewedApprovalId) {
         pendingApprovalsRef.current.set(callId, {
           ...pending,
-          approvalKey: renewedApprovalKey,
-          approvalId: result?.approvalId,
+          approvalId: renewedApprovalId,
         });
         syncApprovals();
       } else {
