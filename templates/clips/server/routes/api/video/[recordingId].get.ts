@@ -636,7 +636,7 @@ export default defineEventHandler(async (event: H3Event) => {
           setResponseStatus(event, notGrantExpiry(upstream.status));
           return { error: upstream.error };
         }
-        if (upstream.status >= 500) {
+        if (notGrantExpiry(upstream.status) >= 500) {
           captureRouteError(
             new Error(
               `Storage provider returned ${upstream.status} for recording media`,
