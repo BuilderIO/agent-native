@@ -1,4 +1,5 @@
 import type { ActionEntry } from "../agent/production-agent.js";
+import { frameworkMcpTools } from "../mcp/framework-tools.js";
 import { notify, listNotifications, countUnread } from "./registry.js";
 import type { NotificationSeverity } from "./types.js";
 
@@ -11,7 +12,7 @@ function parseLimit(value: unknown, fallback = 20): number {
 export function createNotificationToolEntries(
   getCurrentUser: () => string,
 ): Record<string, ActionEntry> {
-  return {
+  return frameworkMcpTools({
     "manage-notifications": {
       tool: {
         description: [
@@ -144,5 +145,5 @@ export function createNotificationToolEntries(
         }
       },
     },
-  };
+  });
 }

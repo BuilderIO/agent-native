@@ -474,6 +474,12 @@ const messages: ToolkitAgentChatTranslation = {
   "history.copyLink": "Copiar link",
   "history.linkCopied": "Link copiado",
   "history.copyLinkFailed": "Não foi possível copiar o link",
+  "history.onlyYou": "Só você",
+  "history.hide": "Ocultar da minha lista",
+  "history.hidden": "Oculto da sua lista",
+  "history.undo": "Desfazer",
+  "history.hideFailed": "Não foi possível ocultar o chat",
+  "history.unhideFailed": "Não foi possível restaurar o chat",
   "integrations.availableSection": "Integrações disponíveis",
   "integrations.connectedSection": "Conectado",
   "integrations.goToApiKeys": "Ir para chaves de API",
@@ -2323,6 +2329,9 @@ const messages: ToolkitAgentChatTranslation = {
     "Não foi possível alterar {{lab}}. Tente novamente.",
   "settingsShell.appGroup.mcpAbout":
     "Conecte {{app}} ao Claude, ao ChatGPT, ao Cursor ou a qualquer app de IA compatível com MCP. Esse app poderá trabalhar em {{app}} por você. Ele só vê o que você pode ver.",
+  "settingsShell.appGroup.mcpAppCards": "Cartões do app em apps de chat",
+  "settingsShell.appGroup.mcpAppCardsDescription":
+    "As ferramentas mostram cartões interativos, como um rascunho de e-mail que você pode editar e enviar, em apps de chat compatíveis com MCP Apps, como Claude e ChatGPT. Depois de mudar isso, reconecte este app no seu app de chat.",
   "settingsShell.appGroup.mcpFootnote":
     "Para as ferramentas que o próprio agente usa, consulte {{integrations}}.",
   "settingsShell.appGroup.newAutomation": "Nova automação",

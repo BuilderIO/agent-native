@@ -35,6 +35,12 @@ export interface GitHubSourceState extends GitHubFolderLocation {
   connectionId: string | null;
   /** Who linked the folder; background syncs read GitHub as them. */
   linkedBy: string;
+  /**
+   * The workspace they linked it from. Their GitHub connection is saved
+   * under it, so a collection with no workspace of its own, in a Personal
+   * space, reads GitHub through this one.
+   */
+  linkedOrgId: string | null;
   linkedAt: string;
   mode: "view_only";
   headEtag: string | null;
@@ -183,6 +189,7 @@ export function readGitHubSourceState(
     path: github.path,
     connectionId: stringOrNull(github.connectionId),
     linkedBy: typeof github.linkedBy === "string" ? github.linkedBy : "",
+    linkedOrgId: stringOrNull(github.linkedOrgId),
     linkedAt: typeof github.linkedAt === "string" ? github.linkedAt : "",
     mode: "view_only",
     headEtag: stringOrNull(github.headEtag),

@@ -16,6 +16,7 @@ import {
 } from "./ask-app-task-handle.js";
 import type { MCPConfig } from "./build-server.js";
 import { embedApp } from "./embed-app.js";
+import { frameworkMcpTool } from "./framework-tools.js";
 import { fetchOrgApps, type OrgApp } from "./org-directory.js";
 
 type Params = Record<
@@ -1513,7 +1514,7 @@ export function getBuiltinCrossAppTools(
     create_embed_session: createEmbedSessionTool(requestMeta),
     ask_app: askAppTool(config, requestMeta),
     ask_app_status: askAppStatusTool(config, requestMeta),
-    create_workspace_app: createWorkspaceAppTool(),
-    list_templates: listTemplatesTool(),
+    create_workspace_app: frameworkMcpTool(createWorkspaceAppTool()),
+    list_templates: frameworkMcpTool(listTemplatesTool()),
   };
 }

@@ -885,8 +885,7 @@ export function getConfiguredLoginHtml(
   const requestPath = `${rawPath}${search}`;
   const setupRequiredHtml = config.getSetupRequiredHtml?.(event, requestPath);
   if (setupRequiredHtml) return { html: setupRequiredHtml, status: 503 };
-  const loginHtml =
-    config.getLoginHtml?.(event, requestPath) ?? config.loginHtml ?? null;
+  const loginHtml = config.getLoginHtml(event, requestPath);
   if (!loginHtml) return null;
 
   const appOriginConfigScript = getAppOriginClientConfigScript();
@@ -2326,8 +2325,7 @@ let customGetSession: ((event: H3Event) => Promise<AuthSession | null>) | null =
 let trustCustomEmailVerification = false;
 
 interface AuthGuardConfig {
-  loginHtml: string;
-  getLoginHtml?: (event: H3Event, rawPath: string) => string;
+  getLoginHtml: (event: H3Event, rawPath: string) => string;
   /**
    * The page served instead of sign-in, or null when sign-in can work. Set
    * only where the framework's own accounts sign people in; a custom
@@ -2536,24 +2534,22 @@ function getOnboardingLoginHtmlConfig(
   authMode?: OnboardingHtmlOptions["authMode"],
 ): Pick<
   AuthGuardConfig,
-  | "loginHtml"
-  | "getLoginHtml"
-  | "getSetupRequiredHtml"
-  | "authMode"
-  | "rootAuth"
+  "getLoginHtml" | "getSetupRequiredHtml" | "authMode" | "rootAuth"
 > {
-  if (options.loginHtml) {
+  const { loginHtml } = options;
+  if (loginHtml) {
     return {
-      loginHtml: options.loginHtml,
+      getLoginHtml: () => loginHtml,
       getSetupRequiredHtml: getDeploySettingsRequiredPage,
       authMode,
       rootAuth: options.rootAuth ?? true,
     };
   }
+  // Rendered only for a request that shows it: rendering a copy up front cost
+  // every cold instance's first request.
   return {
     authMode,
     rootAuth: options.rootAuth ?? options.marketing !== undefined,
-    loginHtml: getAuthOnboardingHtml(options, undefined, undefined, authMode),
     getLoginHtml: (event, rawPath) =>
       getAuthOnboardingHtml(options, event, rawPath, authMode),
     getSetupRequiredHtml: getDeploySettingsRequiredPage,
@@ -3849,7 +3845,7 @@ function loginHtmlResponse(
   if (setupRequiredHtml) return setupRequiredResponse(setupRequiredHtml);
   const { search } = getRequestPathAndSearch(event);
   const appOriginConfigScript = getAppOriginClientConfigScript();
-  let html = config.getLoginHtml?.(event, requestPath) ?? config.loginHtml;
+  let html = config.getLoginHtml(event, requestPath);
   if (
     appOriginConfigScript &&
     !html.includes("data-agent-native-app-origin-config")
@@ -7284,7 +7280,6 @@ export async function autoMountAuth(
           options,
           _authGuardConfig.authMode,
         );
-        _authGuardConfig.loginHtml = loginHtmlConfig.loginHtml;
         _authGuardConfig.getLoginHtml = loginHtmlConfig.getLoginHtml;
       }
       if (options.rootAuth !== undefined) {
@@ -7382,14 +7377,11 @@ export async function autoMountAuth(
       }),
     );
 
-    const byoaLoginHtml = options.loginHtml ?? getCustomAuthRequiredHtml();
+    const { loginHtml } = options;
     _authGuardConfig = {
-      loginHtml: byoaLoginHtml,
-      ...(options.loginHtml
-        ? {}
-        : {
-            getLoginHtml: () => getCustomAuthRequiredHtml(),
-          }),
+      getLoginHtml: loginHtml
+        ? () => loginHtml
+        : () => getCustomAuthRequiredHtml(),
       rootAuth: options.rootAuth ?? Boolean(options.loginHtml),
       publicPaths,
       publicPathsWithQueryToken: options.publicPathsWithQueryToken ?? [],

@@ -115,6 +115,7 @@ import {
   resolveOrgScopeForEmail,
 } from "../org/context.js";
 import { isMissingOrganizationTableError } from "../org/membership.js";
+import { ensureS3PrivateBlobProviders } from "../private-blob/s3-private.js";
 import { createProgressHandler } from "../progress/routes.js";
 import { REALTIME_POLL_LIVE_QUERY_PARAM } from "../realtime-protocol.js";
 import {
@@ -3120,6 +3121,57 @@ export function mountMcpConnectRoutes(
   }
 }
 
+// Each image module loads on the first request for its route. The OG image
+// module embeds its background image, over a megabyte of source, and loading
+// it while the routes mount would cost every cold instance its first request.
+// A failed load isn't kept, so the route's next request tries again.
+export function mountImageRoutes(
+  app: H3AppShim,
+  routePrefix: string = FRAMEWORK_ROUTE_PREFIX,
+): void {
+  app.use(
+    `${routePrefix}/og-image.png`,
+    lazyRouteHandler(async () => {
+      const { createAgentNativeOgImageHandler } =
+        await import("./social-og-image.js");
+      return createAgentNativeOgImageHandler();
+    }),
+  );
+
+  // Signed, content-only recap PNG images. POST (authenticated with the
+  // same `agent-native connect` bearer token the action surface accepts)
+  // stores a PNG and returns a public image URL; GET <token>.png serves
+  // the opaque bytes anonymously so GitHub's camo proxy can inline a recap
+  // screenshot into a private-repo PR comment. Mounted as a prefix so it
+  // owns both `/_agent-native/recap-image` (POST) and
+  // `/_agent-native/recap-image/<token>.png` (GET).
+  app.use(
+    `${routePrefix}/recap-image`,
+    lazyRouteHandler(async () => {
+      const { createRecapImageHandler } =
+        await import("./recap-image-route.js");
+      return createRecapImageHandler();
+    }),
+  );
+}
+
+type RouteHandler = (event: H3Event) => unknown;
+
+// h3's `defineLazyEventHandler` keeps any rejected load, which would fail the
+// route for the rest of the instance's life. This one retries a handler that
+// failed to build or a module Node couldn't find or read. A module whose
+// evaluation threw stays failed, because Node keeps that error.
+function lazyRouteHandler(load: () => Promise<RouteHandler>) {
+  let loaded: Promise<RouteHandler> | undefined;
+  return defineEventHandler(async (event: H3Event) => {
+    const handler = await (loaded ??= load().catch((error: unknown) => {
+      loaded = undefined;
+      throw error;
+    }));
+    return handler(event);
+  });
+}
+
 export function mountApplicationStateRoutes(
   nitroApp: any,
   routePrefix: string = FRAMEWORK_ROUTE_PREFIX,
@@ -3248,8 +3300,10 @@ export function createCoreRoutesPlugin(
       // app does not mount the optional onboarding plugin. The settings CTA and
       // the upload route share this registry. An app may register its own
       // provider under the conventional `s3` id, so preserve that explicit
-      // registration instead of replacing it during core bootstrap.
+      // registration instead of replacing it during core bootstrap. The
+      // private-blob side gets the workspace and hosted private buckets.
       ensureS3FileUploadProvider();
+      ensureS3PrivateBlobProviders();
 
       getH3App(nitroApp).use(
         `${P}/oauth/popup`,
@@ -4160,27 +4214,7 @@ export function createCoreRoutesPlugin(
         }),
       );
 
-      {
-        const { createAgentNativeOgImageHandler } =
-          await import("./social-og-image.js");
-        getH3App(nitroApp).use(
-          `${P}/og-image.png`,
-          createAgentNativeOgImageHandler(),
-        );
-      }
-
-      // Signed, content-only recap PNG images. POST (authenticated with the
-      // same `agent-native connect` bearer token the action surface accepts)
-      // stores a PNG and returns a public image URL; GET <token>.png serves
-      // the opaque bytes anonymously so GitHub's camo proxy can inline a recap
-      // screenshot into a private-repo PR comment. Mounted as a prefix so it
-      // owns both `/_agent-native/recap-image` (POST) and
-      // `/_agent-native/recap-image/<token>.png` (GET).
-      {
-        const { createRecapImageHandler } =
-          await import("./recap-image-route.js");
-        getH3App(nitroApp).use(`${P}/recap-image`, createRecapImageHandler());
-      }
+      mountImageRoutes(getH3App(nitroApp), P);
 
       mountBrowserSessionRoutes(nitroApp, { routePrefix: P });
 

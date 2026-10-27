@@ -634,11 +634,10 @@ const messages = {
     automate: "Automatiser",
     reviewNewClipsCalls: "Examiner les nouveaux appels Clips",
     reviewDescription:
-      "Préparez une recette d’examen pour cet enregistrement CRM sans copier de média ni de transcription Clips.",
-    disabledAutomationDescription:
-      "Cette automatisation commence désactivée et reste liée à {{name}}. Une fois explicitement activée, chaque nouveau clip ne peut joindre à cet enregistrement que sa référence de page d’enregistrement dont l’accès est vérifié.",
+      "La configuration des automatisations d’appels de CRM vers Clips n’est pas encore disponible.",
+    disabledAutomationDescription: "Fiche CRM sélectionnée : {{name}}.",
     handoffDescription:
-      "Le transfert ne conserve qu’un ID de clip opaque, une URL de page {{path}} durable et l’heure de capture. Il rejette les URL d’événement, les médias, les jetons d’accès, les transcriptions, les enregistrements déduits et les écritures fournisseur.",
+      "L’ajout automatique de liens vers des pages {{path}} n’est pas disponible.",
     manageAutomations: "Gérer les automatisations",
     configureWithAgent: "Configurer avec l’agent",
     editField: "Modifier un champ",

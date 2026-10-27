@@ -9,6 +9,7 @@ import {
   DATA_WIDGET_MAX_ROWS,
   dataWidgetResultSchema,
 } from "../../data-widgets/index.js";
+import { frameworkMcpTools } from "../../mcp/framework-tools.js";
 import { getRequestRunContext } from "../request-context.js";
 import { createOpenSettingsPageTool } from "./open-settings-page-tool.js";
 
@@ -208,7 +209,7 @@ The \`db-*\` tools ONLY query the app's own SQL database. They do NOT reach exte
 
 export function createFrameworkContextEntry(): Record<string, ActionEntry> {
   const topicList = Object.keys(FRAMEWORK_CONTEXT_SECTIONS).join(", ");
-  return {
+  return frameworkMcpTools({
     "get-framework-context": {
       tool: {
         description: `Read detailed framework instructions for a specific capability. Available topics: ${topicList}. Call with topic="all" to get everything.`,
@@ -236,11 +237,11 @@ export function createFrameworkContextEntry(): Record<string, ActionEntry> {
       },
       readOnly: true,
     },
-  };
+  });
 }
 
 export function createRefreshScreenEntry(): Record<string, ActionEntry> {
-  return {
+  return frameworkMcpTools({
     "refresh-screen": {
       readOnly: true,
       dedupe: false,
@@ -270,7 +271,7 @@ export function createRefreshScreenEntry(): Record<string, ActionEntry> {
         return `refreshed${scope ? ` (scope: ${scope})` : ""}`;
       },
     },
-  };
+  });
 }
 
 const SCREEN_REFRESH_KEY = "__screen_refresh__";
@@ -286,7 +287,7 @@ export function appStateKeyForBrowserTab(
 }
 
 export function createUrlTools(): Record<string, ActionEntry> {
-  return {
+  return frameworkMcpTools({
     "set-search-params": {
       readOnly: true,
       tool: {
@@ -397,7 +398,7 @@ export function createUrlTools(): Record<string, ActionEntry> {
     },
     "open-settings-page": createOpenSettingsPageTool(),
     "ask-question": createAskQuestionTool(),
-  };
+  });
 }
 
 function parseAskQuestion(args: any) {
@@ -552,7 +553,7 @@ function createAskQuestionTool(): ActionEntry {
 }
 
 export function createDataWidgetActionEntries(): Record<string, ActionEntry> {
-  return {
+  return frameworkMcpTools({
     "render-data-widget": {
       readOnly: true,
       parallelSafe: true,
@@ -713,5 +714,5 @@ export function createDataWidgetActionEntries(): Record<string, ActionEntry> {
       run: async (args) =>
         clampDataWidgetRows(dataWidgetResultSchema.parse(args)),
     },
-  };
+  });
 }
