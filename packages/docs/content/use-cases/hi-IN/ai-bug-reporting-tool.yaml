@@ -1,0 +1,108 @@
+slug: ai-bug-reporting-tool
+app: clips
+roles:
+  - product
+  - engineering
+  - design
+title: "कंसोल और नेटवर्क लॉग्स के साथ बग रिकॉर्ड करें"
+seo_title: "कंसोल लॉग्स के साथ AI बग रिपोर्टिंग टूल"
+meta_description: "Chrome में बग दिखाएँ, और Agent-Native Clips आपकी रिकॉर्डिंग को आपके इंजीनियर या कोडिंग एजेंट के लिए एक लिंक में बदल देता है, जिसमें पेज के एरर और फ़ेल हुए रिक्वेस्ट होते हैं।"
+updated: 2026-10-27
+hero:
+  body: "Agent-Native Clips बग की रिकॉर्डिंग को एक ऐसे लिंक में बदल देता है जिस पर आपका इंजीनियर या कोडिंग एजेंट काम कर सके। आप Chrome में बग दिखाते हैं, और पेज के एरर और फ़ेल हुए रिक्वेस्ट उसके साथ आ जाते हैं।"
+  button:
+    label: "बग रिकॉर्ड करें"
+    url: https://clips.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe36fd7fdff9b49bca2c6787f302964c6
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff375e2d60b2048508c23ea90a9761e08
+    alt: "Clips में खुली बग रिकॉर्डिंग, चेकआउट पेज पर रुकी हुई जहाँ एक एरर मैसेज दिख रहा है। वीडियो के बगल के डीबग टैब में एक लाल कंसोल एरर और 500 स्टेटस वाला फ़ेल हुआ रिक्वेस्ट लिस्ट है।"
+how_to:
+  heading: "AI से बग की रिपोर्ट कैसे करें"
+  steps:
+    - title: "Chrome से रिकॉर्डिंग शुरू करें"
+      body: "अपने टूलबार में Clips Chrome एक्सटेंशन पर क्लिक करें और सोर्स चुनें: एक ब्राउज़र टैब, एक विंडो या पूरी स्क्रीन। अपना कैमरा और माइक्रोफ़ोन चालू या बंद करें, फिर Start recording पर क्लिक करें।"
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6996593713c74108967e120111378c14
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff7991811f7a346e0a99cf9fe81496e34
+        alt: "वेब ऐप के ऊपर Clips एक्सटेंशन पॉपअप का क्लोज़-अप, जिसमें सोर्स के रूप में Browser tab चुना हुआ है, कैमरा और माइक्रोफ़ोन चालू हैं, और Start recording बटन है।"
+    - title: "बग दिखाएँ और समझाएँ"
+      body: "जिन स्टेप्स में बग आता है उन पर क्लिक करें और बताएँ कि आप क्या होने की उम्मीद कर रहे थे। रिकॉर्डिंग के दौरान एक्सटेंशन पेज के एरर और उसके भेजे रिक्वेस्ट सेव करता है, वही डिटेल्स जो इंजीनियर को वरना Chrome के डेवलपर टूल्स में खोदने पड़ते।"
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe01ffb73c62c427b8077f05657fdeb47
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff895d85667344971baec96eb0b2ec956
+        alt: 'एक वेब ऐप के चेकआउट पेज पर Clips के रिकॉर्डिंग कंट्रोल और कैमरा बबल, जहाँ "Something went wrong" मैसेज दिख रहा है।'
+    - title: "एक लिंक शेयर करें"
+      body: "रोकते ही Clips रिकॉर्डिंग का लिंक आपके लिए कॉपी कर देता है। उसे टिकट, चैट या अपने कोडिंग एजेंट में पेस्ट करें। शेयर मेन्यू का एजेंट टैब उसे सीधे Claude, Claude Code या Codex में भी खोलता है।"
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F10933b64225545e1b5ecd666f5803832
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2894036362f7409d8a4961536719b399
+        alt: "Clips के शेयर मेन्यू का एजेंट टैब पर क्लोज़-अप, जिसमें एजेंट प्रॉम्प्ट कॉपी करें और Claude में खोलें, Claude Code में खोलें और Codex में खोलें बटन हैं।"
+features:
+  heading: "बग रिपोर्ट करने के लिए आपको जो कुछ चाहिए"
+  items:
+    - title: "आपके कोडिंग एजेंट के लिए बना"
+      body: "लिंक को Claude Code, Cursor या Codex में पेस्ट करें। एजेंट वीडियो डाउनलोड किए बिना ट्रांसक्रिप्ट, फ़्रेम्स और लॉग्स पढ़ लेता है।"
+    - title: "कंसोल और नेटवर्क लॉग्स"
+      body: "Clips पाँच टैब तक के कंसोल मैसेज, एरर और रिक्वेस्ट सेव करता है, हर रिक्वेस्ट के स्टेटस, टाइमिंग और फ़ेल होने की जानकारी के साथ।"
+    - title: "पहले के 30 सेकंड"
+      body: "Clips आपके रिकॉर्ड दबाने से 30 सेकंड पहले तक पीछे जाता है, इसलिए पेज लोड होते समय आया एरर भी रिपोर्ट में आ सकता है।"
+    - title: "सीक्रेट्स बाहर रहते हैं"
+      body: "Clips रिक्वेस्ट बॉडी, हेडर, कुकीज़ या आपका टाइप किया हुआ कभी सेव नहीं करता, और टोकन या पासवर्ड जैसी दिखने वाली वैल्यू छिपा देता है।"
+    - title: "सीधे एरर पर जाएँ"
+      body: "क्लिप के डीबग टैब में किसी एरर या फ़ेल हुए रिक्वेस्ट के बगल के समय पर क्लिक करें और वीडियो उसी पल पर पहुँच जाता है।"
+    - title: "हर बग रिपोर्ट खोजें"
+      body: "किसी भी बग रिपोर्ट को उसमें कही गई बात से ढूँढें, या अपनी लाइब्रेरी की हर रिकॉर्डिंग के बारे में Clips एजेंट से पूछें।"
+integrations:
+  heading: "Clips को उन टूल्स से जोड़ें जो आप पहले से इस्तेमाल करते हैं"
+  cards:
+    - title: "इसे अपने AI एजेंट को दें"
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+        - name: ChatGPT
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9dad7db0d3d24127aaf6d7eb1bfa2b09
+          mono: true
+      body: "क्लिप को Claude Code या Codex में खोलें, या उसका लिंक Cursor या ChatGPT में पेस्ट करें, और एजेंट बिना यह पूछे शुरू हो जाता है कि क्या हुआ था।"
+    - title: "इसे वहाँ डालें जहाँ बग फ़ाइल होते हैं"
+      logos:
+        - name: Slack
+        - name: GitHub
+        - name: Jira
+      body: "Clips Slack ऐप के साथ पब्लिक रिकॉर्डिंग्स सीधे Slack में चलती हैं। एक्सटेंशन इंस्टॉल होने पर उनके लिंक GitHub issues और Jira टिकट्स में भी प्रीव्यू होते हैं।"
+    - title: "MCP से कुछ भी कनेक्ट करें"
+      logos:
+        - name: Sentry
+        - name: Linear
+        - name: FullStory
+      more: true
+      body: "आपकी टीम जो टूल्स इस्तेमाल करती है, उन्हें MCP से कनेक्ट करें, या किसी भी MCP सर्वर को उसके URL से जोड़ें।"
+other_uses:
+  heading: "Agent-Native Clips से आप और क्या कर सकते हैं"
+  cards:
+    - title: "कॉल में बिना बॉट के मीटिंग नोट्स पाएँ"
+      url: https://www.agent-native.com/use-cases/ai-meeting-notes/
+      body: "कॉल में बिना किसी बॉट के, हर मीटिंग से समरी, नोट्स और एक्शन आइटम्स पाएँ।"
+    - title: "अपने प्रॉम्प्ट टाइप करने के बजाय बोलकर लिखें"
+      url: https://www.agent-native.com/use-cases/ai-dictation/
+      body: "टाइप करने के बजाय बोलें, और साफ़-सुथरा टेक्स्ट उसी ऐप में आ जाता है जिसे आप इस्तेमाल कर रहे हैं।"
+faqs:
+  heading: "सवाल हैं? हमारे पास जवाब हैं"
+  items:
+    - q: "क्या Agent-Native Clips फ़्री है?"
+      a: "हाँ। Agent-Native Clips फ़्री और ओपन सोर्स है, Chrome एक्सटेंशन समेत। टाइटल, समरी और ट्रांसक्रिप्ट क्लीनअप डिफ़ॉल्ट रूप से Builder.io AI क्रेडिट्स पर चलते हैं, इसलिए AI का इस्तेमाल अनलिमिटेड नहीं है, और रिकॉर्डिंग्स के वीडियो के लिए स्टोरेज की जगह चाहिए। Clips अभी alpha में है, इसलिए आगे बदलाव होते रहेंगे।"
+    - q: "Clips मेरे ब्राउज़र से क्या कैप्चर करता है?"
+      a: "Clips Chrome एक्सटेंशन पाँच टैब तक के [कंसोल मैसेज, JavaScript एरर और नेटवर्क रिक्वेस्ट](https://www.agent-native.com/docs/template-clips-features/#chrome-extension-browser-logs) कैप्चर करता है, और आपके रिकॉर्ड दबाने से 30 सेकंड पहले तक पीछे जाता है। हर रिक्वेस्ट का एड्रेस, स्टेटस, टाइमिंग और फ़ेल होने की जानकारी रखी जाती है। एडिटर्स यह सब क्लिप के डीबग टैब में देखते हैं, और एजेंट्स इसे लिंक से पाते हैं।"
+    - q: "क्या Clips पासवर्ड या प्राइवेट डेटा रिकॉर्ड करता है?"
+      a: "Clips रिक्वेस्ट या रिस्पॉन्स बॉडी, हेडर, कुकीज़ या आपका टाइप किया टेक्स्ट कभी सेव नहीं करता, और टोकन, पासवर्ड या key जैसी दिखने वाली वैल्यू छिपा देता है। आप एक्सटेंशन की सेटिंग्स में डेवलपर लॉग्स बंद कर सकते हैं। नई रिकॉर्डिंग्स लिंक वाले किसी भी व्यक्ति के लिए पब्लिक होती हैं, इसलिए जब बग रिपोर्ट में इंटरनल डेटा दिखे, तो उसे प्राइवेट या अपने ऑर्गनाइज़ेशन तक सीमित कर दें।"
+    - q: "बग रिकॉर्डिंग Claude Code, Cursor या Codex को कैसे दें?"
+      a: "क्लिप का लिंक Claude Code, Cursor या Codex में पेस्ट करें, और एजेंट वीडियो डाउनलोड किए बिना [ट्रांसक्रिप्ट, फ़्रेम्स और ब्राउज़र लॉग्स पढ़ लेता है](https://www.agent-native.com/docs/template-clips-integrations/#agent-readable-clips)। प्राइवेट क्लिप के लिए शेयर मेन्यू के एजेंट टैब में एजेंट प्रॉम्प्ट कॉपी करें पर क्लिक करें, जो एजेंट को दो घंटे चलने वाला लिंक देता है। वही टैब क्लिप को Claude Code या Codex में भी खोलता है।"
+    - q: "क्या Clips दूसरे ब्राउज़र्स या डेस्कटॉप ऐप में भी लॉग्स कैप्चर करता है?"
+      a: "नहीं। कंसोल और नेटवर्क लॉग्स सिर्फ़ Clips Chrome एक्सटेंशन से आते हैं। Clips Desktop और वेब ऐप फिर भी आपकी स्क्रीन, कैमरा और आवाज़ को ट्रांसक्रिप्ट और समरी के साथ रिकॉर्ड करते हैं, लेकिन रिकॉर्डिंग में ब्राउज़र लॉग्स नहीं होंगे।"
+    - q: "क्या Clips, Jira जैसा बग ट्रैकर है?"
+      a: "नहीं। Clips [ऐसी बग रिपोर्ट बनाता है जिस पर इंजीनियर काम कर सके](https://www.agent-native.com/articles/how-to-write-a-bug-report/), और उसे आपका ट्रैकर स्टोर करता है: लिंक को Jira, GitHub, Linear या Slack में पेस्ट करें। आपका कोडिंग एजेंट या [Clips एजेंट](https://www.agent-native.com/docs/template-clips-agent/) खुद रिकॉर्डिंग और उसके लॉग्स पढ़ता है। यही Clips को एक [एजेंटिक ऐप](https://www.agent-native.com/articles/what-is-an-agent-native-app/) बनाता है: एजेंट का दिमाग, ऐप जैसी आसानी।"

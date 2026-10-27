@@ -397,7 +397,9 @@ describe("AgentChat lifecycle", () => {
     );
 
     const transcript = tree.container.querySelector(".agentkit-transcript");
-    expect(transcript?.getAttribute("role")).toBeNull();
+    expect(transcript?.getAttribute("role")).toBe("region");
+    expect(transcript?.getAttribute("aria-label")).toBe("Agent conversation");
+    expect(transcript?.getAttribute("tabindex")).toBe("0");
     expect(transcript?.getAttribute("aria-live")).toBe("off");
     expect(transcript?.getAttribute("aria-relevant")).toBeNull();
 
@@ -970,11 +972,11 @@ describe("AgentChat lifecycle", () => {
       </AgentKitProvider>,
     );
 
-    const runWorkBefore = tree.container.querySelector<HTMLDetailsElement>(
+    const runWorkBefore = tree.container.querySelector<HTMLElement>(
       ".agentkit-activities",
     );
     expect(runWorkBefore).not.toBeNull();
-    expect(runWorkBefore?.open).toBe(false);
+    expect(runWorkBefore?.dataset.open).toBe("false");
     expect(
       runWorkBefore?.querySelector("[data-agentkit-current-activity]")
         ?.textContent,
@@ -1080,7 +1082,7 @@ describe("AgentChat lifecycle", () => {
     });
     await flush();
 
-    const runWorkAfter = tree.container.querySelector<HTMLDetailsElement>(
+    const runWorkAfter = tree.container.querySelector<HTMLElement>(
       ".agentkit-activities",
     );
     const response = tree.container.querySelector(
@@ -1150,8 +1152,14 @@ describe("AgentChat lifecycle", () => {
       revision: 2,
     });
     await flush();
-    expect(tree.container.querySelector(".agentkit-activities")).toBeNull();
-    expect(tree.container.textContent).not.toContain("Worked for");
+    // The saved reply kept no reasoning, so only the turn's time is left, and
+    // with no model or usage recorded it has nothing to open to.
+    const settled = tree.container.querySelectorAll<HTMLElement>(
+      ".agentkit-activities",
+    );
+    expect(settled).toHaveLength(1);
+    expect(settled[0]?.dataset.expandable).toBe("false");
+    expect(settled[0]?.textContent).toBe("Worked for 4s");
     expect(
       tree.container
         .querySelector('[data-message-id="assistant-1"]')
@@ -1191,7 +1199,7 @@ describe("AgentChat lifecycle", () => {
       </AgentKitProvider>,
     );
 
-    const work = tree.container.querySelector<HTMLDetailsElement>(
+    const work = tree.container.querySelector<HTMLElement>(
       ".agentkit-activities",
     );
     expect(
@@ -1935,14 +1943,14 @@ describe("AgentChat lifecycle", () => {
         <AgentKitChat composer={false} />
       </AgentKitRoot>,
     );
-    const work = tree.container.querySelector<HTMLDetailsElement>(
+    const work = tree.container.querySelector<HTMLElement>(
       ".agentkit-activities",
     )!;
     expect(
       work.querySelector<HTMLElement>(".agentkit-activities-summary")?.style
         .marginBlockStart,
     ).toBe("-12px");
-    expect(work.open).toBe(false);
+    expect(work.dataset.open).toBe("false");
     expect(
       tree.container.querySelectorAll(".agentkit-activities"),
     ).toHaveLength(1);
@@ -1952,7 +1960,7 @@ describe("AgentChat lifecycle", () => {
       "First thought",
     );
     expect(
-      work.querySelector('[data-thought][data-thought$="assistant-2:0"]')
+      work.querySelector('[data-thought][data-thought$="assistant-2:0:0"]')
         ?.textContent,
     ).toContain("Second thought");
     expect(work.querySelector("[data-protocol-reasoning]")?.textContent).toBe(
@@ -1964,14 +1972,17 @@ describe("AgentChat lifecycle", () => {
     ).toBe("Searching documentation");
     expect(
       work.querySelector(
-        ".agentkit-activities-summary > .agentkit-summary-chevron",
+        ".agentkit-activities-summary > .agentkit-disclosure-chevron",
       ),
     ).not.toBeNull();
-    expect(work.querySelector("summary")?.getAttribute("style")).toContain(
-      "gap: 8px",
-    );
     expect(
-      work.querySelector<HTMLElement>(".agentkit-summary-chevron")?.style.width,
+      work
+        .querySelector<HTMLElement>(".agentkit-disclosure-summary")
+        ?.getAttribute("style"),
+    ).toContain("gap: 8px");
+    expect(
+      work.querySelector<HTMLElement>(".agentkit-disclosure-chevron")?.style
+        .width,
     ).toBe("12px");
     await tree.render(
       <AgentKitRoot
@@ -2040,39 +2051,56 @@ describe("AgentChat lifecycle", () => {
     });
     await act(async () => observable.update(snapshot(1)));
     await flush();
-    expect(tree.container.querySelector(".agentkit-activities")).toBe(work);
-    expect(work.open).toBe(false);
-    expect(work.querySelector("summary")?.textContent).toBe(
-      "Worked for 18 seconds›",
-    );
-    expect(work.querySelector<HTMLElement>("summary")?.style.fontSize).toBe(
-      "13px",
-    );
-    expect(work.querySelector<HTMLElement>("summary")?.style.lineHeight).toBe(
-      "16px",
-    );
-    expect(work.querySelector("[data-agentkit-current-activity]")).toBeNull();
+    // Once the reply finishes, its work moves onto the reply's footer line.
+    const settled = tree.container.querySelector<HTMLElement>(
+      ".agentkit-activities",
+    )!;
+    expect(settled.closest(".agentkit-message-actions")).not.toBeNull();
+    expect(settled.dataset.open).toBe("false");
+    expect(
+      settled.querySelector<HTMLElement>(".agentkit-disclosure-summary")
+        ?.textContent,
+    ).toBe("Worked for 18 seconds›");
+    expect(
+      settled.querySelector<HTMLElement>(".agentkit-disclosure-summary")?.style
+        .fontSize,
+    ).toBe("13px");
+    expect(
+      settled.querySelector<HTMLElement>(".agentkit-disclosure-summary")?.style
+        .lineHeight,
+    ).toBe("16px");
+    expect(
+      settled.querySelector("[data-agentkit-current-activity]"),
+    ).toBeNull();
     expect(tree.container.querySelectorAll("article")).toHaveLength(1);
     const answer = tree.container.querySelector(
       '[data-message-id="assistant-2"]',
     )!;
     expect(answer.textContent).toContain("Here is the answer.");
-    expect(answer.querySelector("[data-thought]")).toBeNull();
     expect(
-      work.compareDocumentPosition(answer) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).not.toBe(0);
-    expect(work.querySelectorAll("[data-thought]")).toHaveLength(2);
-    await act(async () => work.querySelector("summary")!.click());
-    expect(work.open).toBe(true);
-    expect(work.querySelectorAll("[data-thought]")).toHaveLength(2);
-    expect(work.querySelector("[data-protocol-reasoning]")?.textContent).toBe(
-      "Checking assumptions",
+      answer.querySelector(".agentkit-message-content [data-thought]"),
+    ).toBeNull();
+    expect(settled.closest('[data-message-id="assistant-2"]')).toBe(answer);
+    expect(settled.querySelectorAll("[data-thought]")).toHaveLength(2);
+    await act(async () =>
+      settled
+        .querySelector<HTMLElement>(".agentkit-disclosure-summary")!
+        .click(),
     );
-    expect(work.textContent).toContain("First thought");
-    expect(work.textContent).toContain("Second thought");
-    expect(work.textContent).not.toContain("Hidden thought");
-    await act(async () => work.querySelector("summary")!.click());
-    expect(work.open).toBe(false);
+    expect(settled.dataset.open).toBe("true");
+    expect(settled.querySelectorAll("[data-thought]")).toHaveLength(2);
+    expect(
+      settled.querySelector("[data-protocol-reasoning]")?.textContent,
+    ).toBe("Checking assumptions");
+    expect(settled.textContent).toContain("First thought");
+    expect(settled.textContent).toContain("Second thought");
+    expect(settled.textContent).not.toContain("Hidden thought");
+    await act(async () =>
+      settled
+        .querySelector<HTMLElement>(".agentkit-disclosure-summary")!
+        .click(),
+    );
+    expect(settled.dataset.open).toBe("false");
   });
 
   it("shows localized Thinking before the first activity arrives", async () => {
@@ -2118,7 +2146,7 @@ describe("AgentChat lifecycle", () => {
       )?.textContent,
     ).toBe("Thinking in Spanish");
     expect(tree.container.textContent).not.toContain("Working for");
-    const work = tree.container.querySelector<HTMLDetailsElement>(
+    const work = tree.container.querySelector<HTMLElement>(
       ".agentkit-activities",
     );
     expect(work?.dataset.expandable).toBe("false");
@@ -2277,10 +2305,13 @@ describe("AgentChat lifecycle", () => {
       </AgentKitProvider>,
     );
 
-    const work = tree.container.querySelector<HTMLDetailsElement>(
+    const work = tree.container.querySelector<HTMLElement>(
       ".agentkit-activities",
     );
-    expect(work?.querySelector("summary")?.textContent).toBe("Worked for 1s");
+    expect(
+      work?.querySelector<HTMLElement>(".agentkit-disclosure-summary")
+        ?.textContent,
+    ).toBe("Worked for 1s");
     expect(work?.hasAttribute("data-running")).toBe(false);
     expect(work?.querySelector("[data-agentkit-current-activity]")).toBeNull();
     await tree.unmount();
@@ -2335,14 +2366,15 @@ describe("AgentChat lifecycle", () => {
           <AgentKitChat composer={false} />
         </AgentKitProvider>,
       );
-      const work = tree.container.querySelector<HTMLDetailsElement>(
+      const work = tree.container.querySelector<HTMLElement>(
         ".agentkit-activities",
       );
       expect(work).not.toBeNull();
-      expect(work?.open).toBe(false);
-      expect(work?.querySelector("summary")?.textContent).toBe(
-        "Worked for 18s",
-      );
+      expect(work?.dataset.open).toBe("false");
+      expect(
+        work?.querySelector<HTMLElement>(".agentkit-disclosure-summary")
+          ?.textContent,
+      ).toBe("Worked for 18s");
       expect(work?.textContent).toContain("Reviewing the request");
       expect(work?.textContent).not.toContain("Thinking");
       expect(tree.container.querySelector(".agentkit-reasoning")).toBeNull();
@@ -2389,11 +2421,15 @@ describe("AgentChat lifecycle", () => {
         <AgentKitChat composer={false} />
       </AgentKitProvider>,
     );
-    const work = tree.container.querySelector<HTMLDetailsElement>(
+    const work = tree.container.querySelector<HTMLElement>(
       ".agentkit-activities",
     )!;
-    expect(work.open).toBe(false);
-    expect(work.querySelector("summary")?.textContent).toBe("Worked");
+    expect(work.dataset.open).toBe("false");
+    // Snapshot reasoning has no events, so its duration is unknown.
+    expect(
+      work.querySelector<HTMLElement>(".agentkit-disclosure-summary")
+        ?.textContent,
+    ).toBe("Worked");
     expect(work.textContent).toContain("Earlier thought");
     expect(work.textContent).not.toContain("Thinking");
     expect(work.querySelector(".agentkit-reasoning")).toBeNull();
@@ -2514,7 +2550,7 @@ describe("AgentChat lifecycle", () => {
       </AgentKitProvider>,
     );
 
-    const work = tree.container.querySelector<HTMLDetailsElement>(
+    const work = tree.container.querySelector<HTMLElement>(
       ".agentkit-activities",
     );
     expect(
@@ -2526,7 +2562,7 @@ describe("AgentChat lifecycle", () => {
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    const timeline = work?.querySelector(".agentkit-activities-list");
+    const timeline = work?.querySelector(".agentkit-work-steps");
     expect(timeline?.querySelector("[data-activity-bucket]")).toBeNull();
     const timelineText = timeline?.textContent ?? "";
     expect(timelineText.indexOf("Claude Sonnet 5")).toBeLessThan(
@@ -2539,14 +2575,16 @@ describe("AgentChat lifecycle", () => {
     ).find(
       (row) =>
         row.querySelector(".agentkit-activity-label")?.textContent ===
-        "Update Slide",
+        "Update slide",
     );
     expect(failedToolRow?.textContent).not.toContain(
       "slide_content_edit_failed",
     );
     await act(async () => {
       failedToolRow
-        ?.querySelector<HTMLElement>(".agentkit-activity-disclosure")
+        ?.querySelector<HTMLElement>(
+          ".agentkit-activity-row > .agentkit-disclosure-summary",
+        )
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     expect(
@@ -2678,54 +2716,55 @@ describe("AgentChat lifecycle", () => {
         await Promise.resolve();
       });
 
-      const work = tree.container.querySelector<HTMLDetailsElement>(
+      const work = tree.container.querySelector<HTMLElement>(
         ".agentkit-activities",
       );
-      const cluster = work?.querySelector<HTMLDetailsElement>(
-        ".agentkit-activity-cluster",
-      );
+      const cluster = work?.querySelector<HTMLElement>(".agentkit-work-group");
       expect(
         work?.querySelector(".agentkit-activities-summary")?.textContent,
       ).toBe("Reviewing results");
-      expect(work?.open).toBe(false);
+      expect(work?.dataset.open).toBe("false");
       expect(
         work?.querySelector("[data-agentkit-current-activity]")?.textContent,
       ).toBe("Reviewing results");
       expect(work?.querySelector(".agentkit-activities-count")).toBeNull();
-      const timeline = work?.querySelector(".agentkit-activities-list");
+      const timeline = work?.querySelector(".agentkit-work-steps");
       expect(timeline?.querySelector("[data-activity-bucket]")).toBeNull();
+      // One untitled step: activities of one kind group together, in the
+      // order each first appeared.
+      expect(timeline?.children).toHaveLength(1);
       expect(
         Array.from(
-          timeline?.children ?? [],
+          timeline?.querySelectorAll(".agentkit-work-groups > li") ?? [],
           (row) => row.querySelector(".agentkit-activity-label")?.textContent,
         ),
       ).toEqual([
         "Docs search",
         "Updating slide",
-        "Docs search",
         "Reading a file",
         "Reviewing results",
       ]);
       expect(timeline?.textContent).not.toContain("Contacting model");
-      expect(cluster?.open).toBe(false);
-      expect(cluster?.querySelector("summary")?.textContent).toContain(
-        "Docs search×2",
-      );
+      expect(cluster?.dataset.open).toBe("false");
+      expect(
+        cluster?.querySelector<HTMLElement>(".agentkit-disclosure-summary")
+          ?.textContent,
+      ).toContain("Docs search×3");
       expect(
         cluster?.querySelectorAll(".agentkit-activity-cluster-items > *"),
-      ).toHaveLength(2);
+      ).toHaveLength(3);
       await act(async () => {
         work
           ?.querySelector<HTMLElement>(".agentkit-activities-summary")
           ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       });
-      expect(work?.open).toBe(true);
+      expect(work?.dataset.open).toBe("true");
       await act(async () => {
         cluster
-          ?.querySelector<HTMLElement>("summary")
+          ?.querySelector<HTMLElement>(".agentkit-disclosure-summary")
           ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       });
-      expect(cluster?.open).toBe(true);
+      expect(cluster?.dataset.open).toBe("true");
       expect(
         timeline?.querySelectorAll('[data-status="completed"]'),
       ).toHaveLength(4);
@@ -2806,13 +2845,13 @@ describe("AgentChat lifecycle", () => {
       </AgentKitProvider>,
     );
 
-    const timeline = tree.container.querySelector(".agentkit-activities-list");
+    const timeline = tree.container.querySelector(".agentkit-work-steps");
     expect(timeline?.tagName).toBe("OL");
     expect(timeline?.getAttribute("role")).toBe("list");
     expect(timeline?.getAttribute("aria-label")).toBe("Agent activity");
     expect(
       Array.from(
-        timeline?.children ?? [],
+        timeline?.querySelectorAll(".agentkit-work-groups > li") ?? [],
         (row) => row.querySelector(".agentkit-activity-label")?.textContent,
       ),
     ).toEqual(["Run A first", "Run A second", "Run B first"]);
@@ -2854,7 +2893,7 @@ describe("AgentChat lifecycle", () => {
       </AgentKitProvider>,
     );
 
-    const work = tree.container.querySelector<HTMLDetailsElement>(
+    const work = tree.container.querySelector<HTMLElement>(
       ".agentkit-activities",
     );
     expect(work?.dataset.expandable).toBe("false");
@@ -2965,26 +3004,29 @@ describe("AgentChat lifecycle", () => {
         <AgentActivityGroup runId={runId} />
       </AgentKitProvider>,
     );
-    const work = tree.container.querySelector<HTMLDetailsElement>(
+    const work = tree.container.querySelector<HTMLElement>(
       ".agentkit-activities",
     );
-    expect(work?.open).toBe(false);
+    expect(work?.dataset.open).toBe("false");
     expect(
       work?.querySelector(
-        '[data-agentkit-current-activity] [data-source-id="figma"]',
+        '.agentkit-activities-summary > .agentkit-disclosure-icon-slot [data-source-id="figma"]',
       ),
     ).not.toBeNull();
-    const clusters = work?.querySelectorAll(".agentkit-activity-cluster");
+    const clusters = work?.querySelectorAll(".agentkit-work-group");
     expect(clusters).toHaveLength(1);
     expect(
-      clusters?.[0]?.querySelector('summary [data-source-id="slack"]'),
+      clusters?.[0]?.querySelector(
+        ':scope > .agentkit-work-group-row [data-source-id="slack"]',
+      ),
     ).not.toBeNull();
-    expect(clusters?.[0]?.querySelector("summary")?.textContent).toContain(
-      "×2",
-    );
+    expect(
+      clusters?.[0]?.querySelector<HTMLElement>(".agentkit-disclosure-summary")
+        ?.textContent,
+    ).toContain("×2");
     expect(clusters?.[0]?.querySelector('[data-source-id="gong"]')).toBeNull();
     expect(
-      work?.querySelector('.agentkit-activities-list [data-source-id="gong"]'),
+      work?.querySelector('.agentkit-work-steps [data-source-id="gong"]'),
     ).not.toBeNull();
     await tree.unmount();
   });
@@ -3097,12 +3139,16 @@ describe("AgentChat lifecycle", () => {
       </AgentKitProvider>,
     );
 
-    const cluster = tree.container.querySelector(".agentkit-activity-cluster");
+    const cluster = tree.container.querySelector(".agentkit-work-group");
     expect(
-      cluster?.querySelector("summary .agentkit-agent-name")?.textContent,
+      cluster?.querySelector(
+        ":scope > .agentkit-work-group-row .agentkit-agent-name",
+      )?.textContent,
     ).toBe("Assistant");
     expect(
-      cluster?.querySelector("summary .agentkit-object-label")?.textContent,
+      cluster?.querySelector(
+        ":scope > .agentkit-work-group-row .agentkit-object-label",
+      )?.textContent,
     ).toBe("Source Agent");
     expect(
       cluster?.querySelector(
@@ -3206,7 +3252,7 @@ describe("AgentChat lifecycle", () => {
       </AgentKitProvider>,
     );
 
-    const work = tree.container.querySelector<HTMLDetailsElement>(
+    const work = tree.container.querySelector<HTMLElement>(
       ".agentkit-activities",
     );
     const genericResult = tree.container.querySelector(
@@ -3215,9 +3261,9 @@ describe("AgentChat lifecycle", () => {
     const richResult = tree.container.querySelector(
       '[data-testid="rich-tool-result"]',
     );
-    expect(work?.open).toBe(false);
-    expect(genericResult?.closest("details")).toBe(work);
-    expect(richResult?.closest("details")).toBeNull();
+    expect(work?.dataset.open).toBe("false");
+    expect(genericResult?.closest(".agentkit-activities")).toBe(work);
+    expect(richResult?.closest(".agentkit-activities")).toBeNull();
     expect(
       tree.container
         .querySelector("[data-agentkit-tool-results]")
@@ -3274,14 +3320,16 @@ describe("AgentChat lifecycle", () => {
         <AgentKitChat composer={false} />
       </AgentKitProvider>,
     );
-    const work = tree.container.querySelector<HTMLDetailsElement>(
+    const work = tree.container.querySelector<HTMLElement>(
       ".agentkit-activities",
     );
     expect(tree.container.querySelector(".agentkit-run-failure")).toBeNull();
-    expect(work?.open).toBe(false);
+    expect(work?.dataset.open).toBe("false");
     expect(work?.querySelector(".agentkit-activity-summary")).toBeNull();
-    await act(async () => work?.querySelector("summary")?.click());
-    expect(work?.open).toBe(true);
+    await act(async () =>
+      work?.querySelector<HTMLElement>(".agentkit-disclosure-summary")?.click(),
+    );
+    expect(work?.dataset.open).toBe("true");
     const failedTool = work?.querySelector(
       '.agentkit-activity-item[data-status="failed"]',
     );
@@ -3339,16 +3387,18 @@ describe("AgentChat lifecycle", () => {
       </AgentKitProvider>,
     );
 
-    const work = tree.container.querySelector<HTMLDetailsElement>(
+    const work = tree.container.querySelector<HTMLElement>(
       ".agentkit-activities",
     );
-    await act(async () => work?.querySelector("summary")?.click());
+    await act(async () =>
+      work?.querySelector<HTMLElement>(".agentkit-disclosure-summary")?.click(),
+    );
     const row = Array.from(
       work?.querySelectorAll<HTMLElement>(".agentkit-activity-item") ?? [],
     ).find(
       (item) =>
         item.querySelector(".agentkit-activity-label")?.textContent ===
-        "Read File",
+        "Read file",
     );
     expect(row?.textContent).not.toContain(internalId);
     await act(async () => row?.querySelector("button")?.click());
@@ -3433,10 +3483,12 @@ describe("AgentChat lifecycle", () => {
       </AgentKitProvider>,
     );
 
-    const work = tree.container.querySelector<HTMLDetailsElement>(
+    const work = tree.container.querySelector<HTMLElement>(
       ".agentkit-activities",
     );
-    await act(async () => work?.querySelector("summary")?.click());
+    await act(async () =>
+      work?.querySelector<HTMLElement>(".agentkit-disclosure-summary")?.click(),
+    );
     const row = tree.container.querySelector<HTMLElement>(
       ".agentkit-activity-item",
     );
@@ -3526,17 +3578,17 @@ describe("AgentChat lifecycle", () => {
       </AgentKitProvider>,
     );
 
-    const work = tree.container.querySelector<HTMLDetailsElement>(
+    const work = tree.container.querySelector<HTMLElement>(
       ".agentkit-activities",
     );
     expect(
       work?.querySelectorAll(
-        ".agentkit-activity-cluster summary .agentkit-object-label",
+        ".agentkit-work-group > .agentkit-work-group-row .agentkit-object-label",
       ),
     ).toHaveLength(1);
     expect(
       work?.querySelector(
-        ".agentkit-activity-cluster summary .agentkit-object-label",
+        ".agentkit-work-group > .agentkit-work-group-row .agentkit-object-label",
       )?.textContent,
     ).toBe("Different source agent");
     const privateRow = Array.from(
@@ -3606,16 +3658,18 @@ describe("AgentChat lifecycle", () => {
       </AgentKitProvider>,
     );
 
-    const work = tree.container.querySelector<HTMLDetailsElement>(
+    const work = tree.container.querySelector<HTMLElement>(
       ".agentkit-activities",
     );
-    await act(async () => work?.querySelector("summary")?.click());
+    await act(async () =>
+      work?.querySelector<HTMLElement>(".agentkit-disclosure-summary")?.click(),
+    );
     const row = Array.from(
       tree.container.querySelectorAll<HTMLElement>(".agentkit-activity-item"),
     ).find(
       (item) =>
         item.querySelector(".agentkit-activity-label")?.textContent ===
-        "Read File",
+        "Read file",
     );
     await act(async () => row?.querySelector("button")?.click());
     const result = row?.querySelectorAll<HTMLPreElement>(
@@ -3657,16 +3711,18 @@ describe("AgentChat lifecycle", () => {
         </AgentKitProvider>,
       );
     await render("thread-a");
-    const first = tree.container.querySelector<HTMLDetailsElement>(
+    const first = tree.container.querySelector<HTMLElement>(
       ".agentkit-activities",
     )!;
-    await act(async () => first.querySelector("summary")!.click());
-    expect(first.open).toBe(true);
+    await act(async () =>
+      first.querySelector<HTMLElement>(".agentkit-disclosure-summary")!.click(),
+    );
+    expect(first.dataset.open).toBe("true");
     await render("thread-b");
     expect(
-      tree.container.querySelector<HTMLDetailsElement>(".agentkit-activities")
-        ?.open,
-    ).toBe(false);
+      tree.container.querySelector<HTMLElement>(".agentkit-activities")?.dataset
+        .open,
+    ).toBe("false");
   });
 
   it("filters internal activity IDs and preserves provider labels", async () => {
@@ -3950,9 +4006,7 @@ describe("AgentChat lifecycle", () => {
     );
 
     const work = Array.from(
-      tree.container.querySelectorAll<HTMLDetailsElement>(
-        ".agentkit-activities",
-      ),
+      tree.container.querySelectorAll<HTMLElement>(".agentkit-activities"),
     );
     const firstMessage = tree.container.querySelector(
       '[data-message-id="assistant-first"]',
@@ -3973,24 +4027,13 @@ describe("AgentChat lifecycle", () => {
     expect(work[1]?.textContent).not.toContain("Read framework files");
     expect(work[0]?.hasAttribute("data-running")).toBe(false);
     expect(work[1]?.hasAttribute("data-running")).toBe(false);
+    // Each finished segment sits on the footer line of the reply it produced.
     expect(
-      work[0] && firstMessage
-        ? work[0].compareDocumentPosition(firstMessage) &
-            Node.DOCUMENT_POSITION_FOLLOWING
-        : 0,
-    ).not.toBe(0);
+      work[0]?.closest('[data-message-id="assistant-first"]'),
+    ).not.toBeNull();
     expect(
-      firstMessage && work[1]
-        ? firstMessage.compareDocumentPosition(work[1]) &
-            Node.DOCUMENT_POSITION_FOLLOWING
-        : 0,
-    ).not.toBe(0);
-    expect(
-      work[1] && secondMessage
-        ? work[1].compareDocumentPosition(secondMessage) &
-            Node.DOCUMENT_POSITION_FOLLOWING
-        : 0,
-    ).not.toBe(0);
+      work[1]?.closest('[data-message-id="assistant-second"]'),
+    ).not.toBeNull();
   });
 
   it("formats completed run durations without noisy zero units", () => {
@@ -4058,10 +4101,10 @@ describe("AgentChat lifecycle", () => {
       </AgentKitProvider>,
     );
 
-    const pendingBefore = tree.container.querySelector<HTMLDetailsElement>(
+    const pendingBefore = tree.container.querySelector<HTMLElement>(
       ".agentkit-activities",
     );
-    expect(pendingBefore?.open).toBe(false);
+    expect(pendingBefore?.dataset.open).toBe("false");
     expect(pendingBefore?.getAttribute("data-running")).toBe("true");
     expect(
       pendingBefore?.querySelector("[data-agentkit-current-activity]")
@@ -4115,21 +4158,17 @@ describe("AgentChat lifecycle", () => {
     });
     await flush();
 
-    const pendingAfter = tree.container.querySelector<HTMLDetailsElement>(
+    const pendingAfter = tree.container.querySelector<HTMLElement>(
       ".agentkit-activities",
     );
     const secondMessage = tree.container.querySelector(
       '[data-message-id="assistant-second"]',
     );
-    expect(pendingAfter).toBe(pendingBefore);
-    expect(pendingAfter?.open).toBe(false);
+    expect(pendingBefore).not.toBeNull();
+    expect(pendingAfter?.dataset.open).toBe("false");
     expect(pendingAfter?.hasAttribute("data-running")).toBe(false);
-    expect(
-      pendingAfter && secondMessage
-        ? pendingAfter.compareDocumentPosition(secondMessage) &
-            Node.DOCUMENT_POSITION_FOLLOWING
-        : 0,
-    ).not.toBe(0);
+    // The settled work joins the reply it came before, on its footer line.
+    expect(secondMessage?.contains(pendingAfter ?? null)).toBe(true);
   });
 
   it("does not move later work ahead of an already emitted response", async () => {
@@ -4301,10 +4340,10 @@ describe("AgentChat lifecycle", () => {
       </AgentKitProvider>,
     );
 
-    const work = tree.container.querySelector<HTMLDetailsElement>(
+    const work = tree.container.querySelector<HTMLElement>(
       ".agentkit-activities",
     );
-    expect(work?.open).toBe(false);
+    expect(work?.dataset.open).toBe("false");
     expect(work?.hasAttribute("data-running")).toBe(false);
     expect(
       work?.querySelector(".agentkit-activities-summary")?.textContent,
@@ -4671,41 +4710,37 @@ describe("AgentKit subscriptions and recovery", () => {
         />
       </AgentKitProvider>,
     );
-    const helpful = tree.container.querySelector(
-      'button[aria-label="Helpful"]',
-    );
-    await act(async () => {
-      helpful?.click();
-      await Promise.resolve();
-    });
+    const press = async (element: Element | null | undefined) => {
+      await act(async () => {
+        (element as HTMLElement | null | undefined)?.click();
+        await Promise.resolve();
+      });
+    };
+    const thumb = (value: "positive" | "negative") =>
+      tree.container.querySelector(
+        `button[data-message-action="feedback-${value}"]`,
+      );
+    await press(thumb("positive"));
 
     expect(submitFeedback).toHaveBeenCalledWith(
       "thread-explicit",
       "assistant-1",
       "positive",
     );
-    expect(helpful?.getAttribute("aria-pressed")).toBe("true");
+    expect(thumb("positive")?.getAttribute("aria-pressed")).toBe("true");
 
-    await act(async () => {
-      helpful?.click();
-      await Promise.resolve();
-    });
-    expect(submitFeedback).toHaveBeenCalledTimes(1);
-
-    const notHelpful = tree.container.querySelector(
-      'button[aria-label="Not helpful"]',
-    );
-    await act(async () => {
-      notHelpful?.click();
-      await Promise.resolve();
-    });
+    // An unchanged rating cannot resend; the other thumb switches it.
+    await press(thumb("positive"));
+    expect(submitFeedback).toHaveBeenCalledOnce();
+    await press(thumb("negative"));
+    expect(submitFeedback).toHaveBeenCalledTimes(2);
     expect(submitFeedback).toHaveBeenLastCalledWith(
       "thread-explicit",
       "assistant-1",
       "negative",
     );
-    expect(helpful?.getAttribute("aria-pressed")).toBe("false");
-    expect(notHelpful?.getAttribute("aria-pressed")).toBe("true");
+    expect(thumb("negative")?.getAttribute("aria-pressed")).toBe("true");
+    expect(thumb("positive")?.getAttribute("aria-pressed")).toBe("false");
   });
 
   it("copies both message roles and completes a fork with visible state", async () => {
@@ -4764,23 +4799,19 @@ describe("AgentKit subscriptions and recovery", () => {
       const assistantActions = tree.container.querySelectorAll(
         ".agentkit-message-actions",
       )[1];
-      expect(
+      const labelsIn = (selector: string) =>
         Array.from(
-          assistantActions?.querySelectorAll(
-            ".agentkit-message-actions-leading button",
-          ) ?? [],
-        ).map((button) => button.getAttribute("aria-label")),
-      ).toEqual(["Copy message", "Helpful", "Not helpful"]);
+          assistantActions?.querySelectorAll(`${selector} button`) ?? [],
+        ).map((button) => button.getAttribute("aria-label"));
+      expect(labelsIn('[data-set="primary"]')).toEqual([
+        "Copy message",
+        "Good response",
+        "Bad response",
+      ]);
+      expect(labelsIn('[data-set="secondary"]')).toEqual(["Fork from here"]);
       expect(
         assistantActions?.querySelector(".agentkit-message-actions-trailing"),
-      ).toBeTruthy();
-      expect(
-        assistantActions
-          ?.querySelector(
-            '.agentkit-message-actions-trailing button[aria-label="Message actions"]',
-          )
-          ?.getAttribute("aria-expanded"),
-      ).toBe("false");
+      ).toBeNull();
       const copyButtons = tree.container.querySelectorAll(
         'button[aria-label="Copy message"]',
       );
@@ -4799,25 +4830,19 @@ describe("AgentKit subscriptions and recovery", () => {
         tree.container.querySelectorAll('button[aria-label="Copied"]'),
       ).toHaveLength(2);
 
-      const more = assistantActions?.querySelector(
-        'button[aria-label="Message actions"]',
-      );
       await act(async () => {
-        more?.dispatchEvent(
-          new PointerEvent("pointerdown", {
-            bubbles: true,
-            button: 0,
-            pointerType: "mouse",
-          }),
-        );
+        assistantActions
+          ?.querySelector<HTMLButtonElement>(
+            "button[data-message-actions-toggle]",
+          )
+          ?.click();
         await Promise.resolve();
       });
-      const fork = Array.from(
-        document.body.querySelectorAll(
-          '.agentkit-message-menu [role="menuitem"]',
-        ),
-      ).find((button) => button.textContent?.trim() === "Fork conversation");
+      const fork = assistantActions?.querySelector(
+        'button[aria-label="Fork from here"]',
+      );
       expect(fork).toBeTruthy();
+      expect(document.activeElement).toBe(fork);
       await act(async () => {
         (fork as HTMLButtonElement | null)?.click();
         await Promise.resolve();
@@ -4874,82 +4899,36 @@ describe("AgentKit subscriptions and recovery", () => {
           />
         </AgentKitProvider>,
       );
-      const trigger = tree.container.querySelector(
-        'button[aria-label="Message actions"]',
-      );
-      expect(trigger).toBeTruthy();
-      expect(trigger?.getAttribute("aria-haspopup")).toBe("menu");
-      expect(trigger?.getAttribute("aria-expanded")).toBe("false");
-      const leadingActions = tree.container.querySelector(
-        ".agentkit-message-actions-leading",
-      );
-      expect(
-        Array.from(leadingActions?.querySelectorAll("button") ?? []).map(
-          (button) => button.getAttribute("aria-label"),
-        ),
-      ).toEqual(["Copy message"]);
-      expect(
-        tree.container.querySelector(".agentkit-message-actions-trailing"),
-      ).toBeTruthy();
+      const labelsIn = (set: string) =>
+        Array.from(
+          tree.container.querySelectorAll(`[data-set="${set}"] button`),
+        ).map((button) => button.getAttribute("aria-label"));
+      expect(labelsIn("primary")).toEqual(["Copy message"]);
+      expect(labelsIn("secondary")).toEqual(["Copy request ID"]);
       await act(async () => {
-        (trigger as HTMLElement | null)?.focus();
-        trigger?.dispatchEvent(
-          new KeyboardEvent("keydown", { bubbles: true, key: "ArrowDown" }),
-        );
+        tree.container
+          .querySelector<HTMLButtonElement>(
+            "button[data-message-actions-toggle]",
+          )
+          ?.click();
         await Promise.resolve();
       });
-      expect(
-        tree.container
-          .querySelector(".agentkit-message-actions")
-          ?.querySelector('[aria-label="Message actions"]')
-          ?.getAttribute("aria-expanded"),
-      ).toBe("true");
-      const actionMenu = document.body.querySelector(
-        '.agentkit-message-menu[role="menu"]',
-      );
-      expect(actionMenu).toBeTruthy();
-      const requestIdButton = Array.from(
-        actionMenu?.querySelectorAll('[role="menuitem"]') ?? [],
-      ).find((button) => button.textContent?.trim() === "Copy request ID");
-      expect(requestIdButton).toBeTruthy();
       await act(async () => {
-        requestIdButton?.click();
+        tree.container
+          .querySelector<HTMLButtonElement>(
+            'button[aria-label="Copy request ID"]',
+          )
+          ?.click();
         await Promise.resolve();
       });
 
       expect(writeText).toHaveBeenCalledWith("server-run-id");
       expect(
-        tree.container.querySelector('button[aria-label="Message actions"]'),
+        tree.container.querySelector('button[aria-label="Copied"]'),
       ).toBeTruthy();
-      expect(trigger?.getAttribute("aria-expanded")).toBe("false");
-      await act(async () => {
-        trigger?.dispatchEvent(
-          new PointerEvent("pointerdown", {
-            bubbles: true,
-            button: 0,
-            pointerType: "mouse",
-          }),
-        );
-        await Promise.resolve();
-      });
-      expect(trigger?.getAttribute("aria-expanded")).toBe("true");
-      const copiedRequestId = Array.from(
-        document.body.querySelectorAll(
-          '.agentkit-message-menu [role="menuitem"]',
-        ),
-      ).find((button) => button.textContent?.trim() === "Copied");
-      expect(copiedRequestId).toBeTruthy();
-      await act(async () => {
-        trigger?.dispatchEvent(
-          new PointerEvent("pointerdown", {
-            bubbles: true,
-            button: 0,
-            pointerType: "mouse",
-          }),
-        );
-        await Promise.resolve();
-      });
-      expect(trigger?.getAttribute("aria-expanded")).toBe("false");
+      expect(
+        tree.container.querySelector('button[aria-label="Copy request ID"]'),
+      ).toBeNull();
     } finally {
       if (clipboardDescriptor) {
         Object.defineProperty(navigator, "clipboard", clipboardDescriptor);
@@ -4960,33 +4939,85 @@ describe("AgentKit subscriptions and recovery", () => {
     }
   });
 
-  it("retries usage details after a streaming run completes", async () => {
-    const thread = createAgentThreadState("thread-run-usage");
-    const message = {
-      id: "assistant-run-usage",
-      role: "assistant" as const,
-      parts: [{ type: "text" as const, text: "Ready." }],
-      metadata: { runId: "run-usage" },
+  function runDetailsThread(threadId: string, runId: string) {
+    const request = {
+      id: `${threadId}-user`,
+      role: "user" as const,
+      parts: [{ type: "text" as const, text: "Search it" }],
     };
-    thread.messages = [message];
-    thread.events = [
-      {
-        id: "run-usage-started",
-        threadId: thread.id,
-        runId: "run-usage",
-        sequence: 1,
-        occurredAt: "2026-10-06T00:00:00.000Z",
-        type: "run.started",
-      },
+    const reply = {
+      id: `${threadId}-reply`,
+      role: "assistant" as const,
+      status: "complete" as const,
+      parts: [{ type: "text" as const, text: "Ready." }],
+    };
+    const event = (sequence: number, body: Record<string, unknown>) =>
+      ({
+        ...body,
+        id: `${runId}-${sequence}`,
+        threadId,
+        runId,
+        sequence,
+      }) as AgentEvent;
+    const events = [
+      event(1, { type: "run.started", occurredAt: "2026-10-06T00:00:00.000Z" }),
+      event(2, {
+        type: "tool.updated",
+        occurredAt: "2026-10-06T00:00:00.500Z",
+        toolCall: { id: `${runId}-tool`, name: "search", status: "completed" },
+      }),
+      event(3, {
+        type: "message.completed",
+        occurredAt: "2026-10-06T00:00:01.000Z",
+        message: reply,
+      }),
     ];
-    const initialSnapshot: AgentKitSnapshot = {
+    const thread = {
+      ...events.reduce(reduceAgentEvent, createAgentThreadState(threadId)),
+      messages: [request, reply],
+    };
+    const snapshot: AgentKitSnapshot = {
       connection: "connected",
       capabilities: {},
       capabilitiesStatus: "ready",
-      threads: { [thread.id]: thread },
+      threads: { [threadId]: thread },
       revision: 0,
     };
-    const store = observableController(initialSnapshot);
+    const completed = (): AgentKitSnapshot => {
+      const done = reduceAgentEvent(
+        thread,
+        event(4, {
+          type: "run.completed",
+          occurredAt: "2026-10-06T00:00:02.000Z",
+        }),
+      );
+      return {
+        ...snapshot,
+        revision: 1,
+        threads: { [threadId]: { ...done, messages: [request, reply] } },
+      };
+    };
+    return { snapshot, completed };
+  }
+
+  async function openRunDetails(tree: ReturnType<typeof mount>) {
+    await act(async () => {
+      tree.container
+        .querySelector<HTMLButtonElement>(".agentkit-activities-summary")
+        ?.click();
+      await Promise.resolve();
+    });
+    await flush();
+    return () =>
+      tree.container.querySelector('[data-detail="credits"] dd')?.textContent;
+  }
+
+  it("reloads run details when a run that was still streaming completes", async () => {
+    const { snapshot, completed } = runDetailsThread(
+      "thread-run-usage",
+      "run-usage",
+    );
+    const store = observableController(snapshot);
     const loadRunUsage = vi
       .fn<AgentKitRunUsageLoader>()
       .mockResolvedValueOnce(null)
@@ -5006,91 +5037,34 @@ describe("AgentKit subscriptions and recovery", () => {
       await tree.render(
         <AgentKitProvider
           controller={store.controller}
-          threadId={thread.id}
+          threadId="thread-run-usage"
           loadRunUsage={loadRunUsage}
         >
-          <AgentMessageActions threadId={thread.id} value={message} />
+          <AgentKitChat composer={false} />
         </AgentKitProvider>,
       );
-      const trigger = tree.container.querySelector(
-        'button[aria-label="Message actions"]',
-      );
-      await act(async () => {
-        trigger?.dispatchEvent(
-          new PointerEvent("pointerdown", {
-            bubbles: true,
-            button: 0,
-            pointerType: "mouse",
-          }),
-        );
-        await Promise.resolve();
-      });
-      await flush();
+      expect(loadRunUsage).not.toHaveBeenCalled();
+      const credits = await openRunDetails(tree);
 
       expect(loadRunUsage).toHaveBeenCalledTimes(1);
-      expect(
-        document.body.querySelector(".agentkit-message-menu")?.textContent,
-      ).toContain("Usage not recorded");
+      expect(credits()).toBe("Not recorded");
 
-      const completedEvent: AgentEvent = {
-        id: "run-usage-completed",
-        threadId: thread.id,
-        runId: "run-usage",
-        sequence: 2,
-        occurredAt: "2026-10-06T00:00:01.000Z",
-        type: "run.completed",
-      };
-      store.update({
-        ...initialSnapshot,
-        revision: 1,
-        threads: {
-          [thread.id]: {
-            ...thread,
-            events: [...thread.events, completedEvent],
-          },
-        },
-      });
+      store.update(completed());
       await flush();
 
       expect(loadRunUsage).toHaveBeenCalledTimes(2);
-      const menuText = document.body.querySelector(
-        ".agentkit-message-menu",
-      )?.textContent;
-      expect(menuText).toContain("Worked for 1s");
-      expect(menuText).toContain("Reported and estimated cost $0.02");
-      expect(menuText).toContain("Reported and estimated Builder credits 2");
+      expect(credits()).toBe("2.0 reported and estimated");
     } finally {
       await tree.unmount();
     }
   });
 
-  it("refreshes partial usage details when a streaming run completes", async () => {
-    const thread = createAgentThreadState("thread-partial-run-usage");
-    const message = {
-      id: "assistant-partial-run-usage",
-      role: "assistant" as const,
-      parts: [{ type: "text" as const, text: "Ready." }],
-      metadata: { runId: "run-partial-usage" },
-    };
-    thread.messages = [message];
-    thread.events = [
-      {
-        id: "partial-run-started",
-        threadId: thread.id,
-        runId: "run-partial-usage",
-        sequence: 1,
-        occurredAt: "2026-10-06T00:00:00.000Z",
-        type: "run.started",
-      },
-    ];
-    const initialSnapshot: AgentKitSnapshot = {
-      connection: "connected",
-      capabilities: {},
-      capabilitiesStatus: "ready",
-      threads: { [thread.id]: thread },
-      revision: 0,
-    };
-    const store = observableController(initialSnapshot);
+  it("refreshes partial run details when the run completes", async () => {
+    const { snapshot, completed } = runDetailsThread(
+      "thread-partial-run-usage",
+      "run-partial-usage",
+    );
+    const store = observableController(snapshot);
     const loadRunUsage = vi
       .fn<AgentKitRunUsageLoader>()
       .mockResolvedValueOnce({
@@ -5119,88 +5093,39 @@ describe("AgentKit subscriptions and recovery", () => {
       await tree.render(
         <AgentKitProvider
           controller={store.controller}
-          threadId={thread.id}
+          threadId="thread-partial-run-usage"
           loadRunUsage={loadRunUsage}
         >
-          <AgentMessageActions threadId={thread.id} value={message} />
+          <AgentKitChat composer={false} />
         </AgentKitProvider>,
       );
-      const trigger = tree.container.querySelector(
-        'button[aria-label="Message actions"]',
-      );
-      await act(async () => {
-        trigger?.dispatchEvent(
-          new PointerEvent("pointerdown", {
-            bubbles: true,
-            button: 0,
-            pointerType: "mouse",
-          }),
-        );
-        await Promise.resolve();
-      });
-      await flush();
-
+      const credits = await openRunDetails(tree);
       expect(loadRunUsage).toHaveBeenCalledTimes(1);
-      expect(
-        document.body.querySelector(".agentkit-message-menu")?.textContent,
-      ).toContain("Estimated cost $0.01");
+      expect(credits()).toBe("1.0 estimated");
 
-      const completedEvent: AgentEvent = {
-        id: "partial-run-completed",
-        threadId: thread.id,
-        runId: "run-partial-usage",
-        sequence: 2,
-        occurredAt: "2026-10-06T00:00:02.000Z",
-        type: "run.completed",
-      };
-      store.update({
-        ...initialSnapshot,
-        revision: 1,
-        threads: {
-          [thread.id]: {
-            ...thread,
-            events: [...thread.events, completedEvent],
-          },
-        },
-      });
+      store.update(completed());
       await flush();
 
       expect(loadRunUsage).toHaveBeenCalledTimes(2);
-      const menuText = document.body.querySelector(
-        ".agentkit-message-menu",
-      )?.textContent;
-      expect(menuText).toContain("Worked for 2s");
-      expect(menuText).toContain("$0.05");
-      expect(menuText).toContain("Builder credits used 6");
+      expect(credits()).toBe("6.0");
     } finally {
       await tree.unmount();
     }
   });
 
-  it("explains when per-message usage totals are incomplete", async () => {
-    const thread = createAgentThreadState("thread-incomplete-run-usage");
-    const message = {
-      id: "assistant-incomplete-run-usage",
-      role: "assistant" as const,
-      parts: [{ type: "text" as const, text: "Ready." }],
-      metadata: { runId: "run-incomplete-usage" },
-    };
-    thread.messages = [message];
-    const initialSnapshot: AgentKitSnapshot = {
-      connection: "connected",
-      capabilities: {},
-      capabilitiesStatus: "ready",
-      threads: { [thread.id]: thread },
-      revision: 0,
-    };
-    const store = observableController(initialSnapshot);
+  it("says run credits are incomplete instead of showing a partial total", async () => {
+    const { snapshot } = runDetailsThread(
+      "thread-incomplete-run-usage",
+      "run-incomplete-usage",
+    );
+    const store = observableController(snapshot);
     const loadRunUsage = vi.fn<AgentKitRunUsageLoader>().mockResolvedValue({
       durationMs: 1_000,
       billing: {
-        providerCostUsd: null,
-        providerCostSource: null,
-        builderCredits: null,
-        builderCreditsSource: null,
+        providerCostUsd: 0.01,
+        providerCostSource: "reported",
+        builderCredits: 3,
+        builderCreditsSource: "reported",
         incomplete: true,
       },
     });
@@ -5210,36 +5135,103 @@ describe("AgentKit subscriptions and recovery", () => {
       await tree.render(
         <AgentKitProvider
           controller={store.controller}
-          threadId={thread.id}
+          threadId="thread-incomplete-run-usage"
           loadRunUsage={loadRunUsage}
         >
-          <AgentMessageActions threadId={thread.id} value={message} />
+          <AgentKitChat composer={false} />
         </AgentKitProvider>,
       );
-      const trigger = tree.container.querySelector(
-        'button[aria-label="Message actions"]',
-      );
-      await act(async () => {
-        trigger?.dispatchEvent(
-          new PointerEvent("pointerdown", {
-            bubbles: true,
-            button: 0,
-            pointerType: "mouse",
-          }),
-        );
-        await Promise.resolve();
-      });
-      await flush();
-
-      expect(
-        document.body.querySelector(".agentkit-message-menu")?.textContent,
-      ).toContain("Some usage could not be classified; totals are hidden.");
+      const credits = await openRunDetails(tree);
+      expect(credits()).toBe("Incomplete");
     } finally {
       await tree.unmount();
     }
   });
 
-  it("omits the message menu when no actions are available", async () => {
+  it("offers Retry only on the latest reply and disables it while a run is active", async () => {
+    const thread = createAgentThreadState("thread-retry-gating");
+    thread.messages = [
+      { id: "retry-user", role: "user", parts: [{ type: "text", text: "Hi" }] },
+      {
+        id: "retry-older",
+        role: "assistant",
+        parts: [{ type: "text", text: "First." }],
+      },
+      {
+        id: "retry-user-2",
+        role: "user",
+        parts: [{ type: "text", text: "More" }],
+      },
+      {
+        id: "retry-latest",
+        role: "assistant",
+        parts: [{ type: "text", text: "Second." }],
+      },
+    ];
+    const idle: AgentKitSnapshot = {
+      connection: "connected",
+      capabilities: { threadForking: true },
+      capabilitiesStatus: "ready",
+      threads: { [thread.id]: thread },
+      revision: 0,
+    };
+    const store = observableController(idle);
+    const tree = mount();
+
+    try {
+      await tree.render(
+        <AgentKitProvider
+          controller={store.controller}
+          threadId={thread.id}
+          onThreadForked={() => undefined}
+        >
+          <AgentMessageActions
+            threadId={thread.id}
+            value={thread.messages[1]!}
+          />
+          <AgentMessageActions
+            threadId={thread.id}
+            value={thread.messages[3]!}
+          />
+        </AgentKitProvider>,
+      );
+      const retries = () =>
+        tree.container.querySelectorAll<HTMLButtonElement>(
+          'button[aria-label="Retry"]',
+        );
+      expect(retries()).toHaveLength(1);
+      expect(
+        retries()[0]
+          ?.closest(".agentkit-message-toolbar")
+          ?.getAttribute("data-latest"),
+      ).toBe("true");
+      expect(retries()[0]?.disabled).toBe(false);
+
+      store.update({
+        ...idle,
+        revision: 1,
+        threads: {
+          [thread.id]: {
+            ...thread,
+            activeRunIds: ["run-active"],
+            runs: {
+              "run-active": {
+                id: "run-active",
+                status: "running",
+                lastSequence: 0,
+              },
+            },
+          },
+        },
+      });
+      await flush();
+      expect(retries()[0]?.disabled).toBe(true);
+    } finally {
+      await tree.unmount();
+    }
+  });
+
+  it("omits the more actions toggle when no secondary actions are available", async () => {
     const thread = createAgentThreadState("thread-no-request-id");
     thread.messages = [
       {
@@ -5270,10 +5262,12 @@ describe("AgentKit subscriptions and recovery", () => {
         </AgentKitProvider>,
       );
       expect(
-        tree.container.querySelector('button[aria-label="Message actions"]'),
+        tree.container.querySelector('button[aria-label="More actions"]'),
       ).toBeNull();
       expect(
-        document.body.querySelector('.agentkit-message-menu[role="menu"]'),
+        tree.container.querySelector(
+          '.agentkit-message-actions-set[data-set="secondary"]',
+        ),
       ).toBeNull();
     } finally {
       await tree.unmount();
@@ -5336,12 +5330,21 @@ describe("AgentKit subscriptions and recovery", () => {
       type: "client.effect",
       name: "focus-editor",
     } satisfies AgentEvent;
+    // Effects of a live run still owe the page their delivery after a load.
+    const liveRun = {
+      runs: {
+        "run-1": { id: "run-1", status: "running" as const, lastSequence: 1 },
+      },
+      activeRunIds: ["run-1"],
+    };
     const threadOne = {
       ...createAgentThreadState("thread-one"),
+      ...liveRun,
       events: [event],
     };
     const threadTwo = {
       ...createAgentThreadState("thread-two"),
+      ...liveRun,
       events: [{ ...event, threadId: "thread-two" }],
     };
     const snapshot = {
@@ -5385,6 +5388,69 @@ describe("AgentKit subscriptions and recovery", () => {
     );
 
     expect(onClientEffect).toHaveBeenCalledTimes(3);
+  });
+
+  it("delivers only client effects that stream after a thread loads", async () => {
+    const effect = (id: string, runId: string, sequence: number) =>
+      ({
+        id,
+        threadId: "thread-one",
+        runId,
+        sequence,
+        occurredAt: "2026-08-29T00:00:00.000Z",
+        type: "client.effect",
+        name: `effect-${id}`,
+      }) satisfies AgentEvent;
+    const hydrated = {
+      ...createAgentThreadState("thread-one"),
+      runs: {
+        "run-old": {
+          id: "run-old",
+          status: "completed" as const,
+          lastSequence: 1,
+        },
+      },
+      events: [effect("historical", "run-old", 1)],
+    };
+    const snapshot = (thread: typeof hydrated, revision: number) => ({
+      connection: "connected" as const,
+      capabilities: {},
+      capabilitiesStatus: "ready" as const,
+      threads: { "thread-one": thread },
+      revision,
+    });
+    const observable = observableController(snapshot(hydrated, 1));
+    const onClientEffect = vi.fn();
+    const tree = mount();
+
+    await tree.render(
+      <AgentKitProvider
+        controller={observable.controller}
+        threadId="thread-one"
+        onClientEffect={onClientEffect}
+      >
+        <span />
+      </AgentKitProvider>,
+    );
+    expect(onClientEffect).not.toHaveBeenCalled();
+
+    act(() => {
+      observable.update(
+        snapshot(
+          {
+            ...hydrated,
+            events: [...hydrated.events, effect("streamed", "run-new", 2)],
+          },
+          2,
+        ),
+      );
+    });
+    expect(onClientEffect).toHaveBeenCalledOnce();
+    expect(onClientEffect).toHaveBeenCalledWith({
+      type: "client.effect",
+      name: "effect-streamed",
+      data: undefined,
+    });
   });
 
   it("keeps failed recovery focused and hides stale errors after recovery", async () => {
@@ -6282,5 +6348,341 @@ describe("AgentKit subscriptions and recovery", () => {
     expect(tree.container.textContent).not.toContain("Contacting model");
     expect(tree.container.textContent).not.toContain("Other");
     await tree.unmount();
+  });
+});
+
+describe("AgentKit thread loading", () => {
+  function deferredSnapshotTransport(
+    snapshot: () => Awaited<
+      ReturnType<NonNullable<AgentTransport["getThreadSnapshot"]>>
+    >,
+  ) {
+    const gate = Promise.withResolvers<void>();
+    const transport: AgentTransport = {
+      ...baseTransport(),
+      async getThreadSnapshot() {
+        await gate.promise;
+        return snapshot();
+      },
+    };
+    return { transport, release: gate.resolve };
+  }
+
+  function EmptyState() {
+    return <p data-empty-state>Start a chat</p>;
+  }
+
+  it("shows the transcript skeleton, not the empty state, while history loads", async () => {
+    const { transport, release } = deferredSnapshotTransport(() => ({
+      id: "thread-loading",
+      createdAt: "2026-10-23T00:00:00.000Z",
+      updatedAt: "2026-10-23T00:00:00.000Z",
+      messages: [
+        {
+          id: "assistant-loaded",
+          role: "assistant",
+          status: "complete",
+          parts: [{ type: "text", text: "Loaded history" }],
+        },
+      ],
+    }));
+    const tree = mount();
+
+    await tree.render(
+      <AgentChat
+        transport={transport}
+        threadId="thread-loading"
+        composer={false}
+        expectExistingThread
+        slots={{ emptyState: EmptyState }}
+      />,
+    );
+
+    const chat = tree.container.querySelector<HTMLElement>(".agentkit-chat");
+    const skeleton = tree.container.querySelector(
+      ".agentkit-transcript-skeleton",
+    );
+    expect(skeleton?.getAttribute("role")).toBe("status");
+    expect(skeleton?.getAttribute("aria-busy")).toBe("true");
+    expect(skeleton?.textContent).toBe("Loading chat…");
+    expect(tree.container.querySelector("[data-empty-state]")).toBeNull();
+    expect(chat?.dataset.empty).toBe("false");
+    expect(chat?.dataset.emptyComposerPlacement).toBe("bottom");
+
+    await act(async () => {
+      release();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await flush();
+
+    expect(
+      tree.container.querySelector(".agentkit-transcript-skeleton"),
+    ).toBeNull();
+    expect(tree.container.querySelector("[data-empty-state]")).toBeNull();
+    expect(tree.container.textContent).toContain("Loaded history");
+  });
+
+  it("shows the empty state only once an expected empty thread has loaded", async () => {
+    const { transport, release } = deferredSnapshotTransport(() => ({
+      id: "thread-empty",
+      createdAt: "2026-10-23T00:00:00.000Z",
+      updatedAt: "2026-10-23T00:00:00.000Z",
+      messages: [],
+    }));
+    const tree = mount();
+
+    await tree.render(
+      <AgentChat
+        transport={transport}
+        threadId="thread-empty"
+        composer={false}
+        expectExistingThread
+        slots={{ emptyState: EmptyState }}
+      />,
+    );
+    expect(tree.container.querySelector("[data-empty-state]")).toBeNull();
+
+    await act(async () => {
+      release();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await flush();
+
+    expect(tree.container.querySelector("[data-empty-state]")).not.toBeNull();
+    expect(
+      tree.container.querySelector<HTMLElement>(".agentkit-chat")?.dataset
+        .empty,
+    ).toBe("true");
+  });
+
+  it("shows the empty state immediately when the host does not expect a thread", async () => {
+    const { transport } = deferredSnapshotTransport(() => null);
+    const tree = mount();
+
+    await tree.render(
+      <AgentChat
+        transport={transport}
+        threadId="thread-unknown"
+        composer={false}
+        slots={{ emptyState: EmptyState }}
+      />,
+    );
+
+    expect(
+      tree.container.querySelector(".agentkit-transcript-skeleton"),
+    ).toBeNull();
+    expect(tree.container.querySelector("[data-empty-state]")).not.toBeNull();
+  });
+
+  it("skips the skeleton for a thread the host knows is new", async () => {
+    const { transport } = deferredSnapshotTransport(() => null);
+    const tree = mount();
+
+    await tree.render(
+      <AgentChat
+        transport={transport}
+        threadId="thread-new"
+        composer={false}
+        expectExistingThread={false}
+        slots={{ emptyState: EmptyState }}
+      />,
+    );
+
+    expect(tree.container.querySelector("[data-empty-state]")).not.toBeNull();
+    expect(
+      tree.container.querySelector(".agentkit-transcript-skeleton"),
+    ).toBeNull();
+  });
+
+  it("says a missing thread is unavailable and offers a new chat", async () => {
+    const { transport, release } = deferredSnapshotTransport(() => null);
+    const onLoadError = vi.fn();
+    const onStartNewChat = vi.fn();
+    const tree = mount();
+
+    await tree.render(
+      <AgentChat
+        transport={transport}
+        threadId="thread-deleted"
+        composer={false}
+        expectExistingThread
+        onStartNewChat={onStartNewChat}
+        onLoadError={onLoadError}
+        slots={{ emptyState: EmptyState }}
+      />,
+    );
+    await act(async () => {
+      release();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await flush();
+
+    const unavailable = tree.container.querySelector(
+      ".agentkit-thread-unavailable",
+    );
+    expect(unavailable?.textContent).toContain(
+      "This chat thread is no longer available",
+    );
+    expect(tree.container.querySelector("[data-empty-state]")).toBeNull();
+    expect(onLoadError).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 404 }),
+    );
+    await act(async () =>
+      Array.from(unavailable?.querySelectorAll("button") ?? [])
+        .find((button) => button.textContent === "New chat")
+        ?.click(),
+    );
+    expect(onStartNewChat).toHaveBeenCalledOnce();
+  });
+
+  it("shows a recoverable failure, not the new-chat empty state, when an existing thread fails to load", async () => {
+    let attempts = 0;
+    const transport: AgentTransport = {
+      ...baseTransport(),
+      async getThreadSnapshot({ threadId }) {
+        attempts += 1;
+        if (attempts === 1) throw new Error("History service unavailable");
+        return {
+          id: threadId,
+          createdAt: "2026-10-23T00:00:00.000Z",
+          updatedAt: "2026-10-23T00:00:00.000Z",
+          messages: [
+            {
+              id: "assistant-recovered",
+              role: "assistant",
+              status: "complete",
+              parts: [{ type: "text", text: "Recovered history" }],
+            },
+          ],
+        };
+      },
+    };
+    const onLoadError = vi.fn();
+    const tree = mount();
+
+    await tree.render(
+      <AgentChat
+        transport={transport}
+        threadId="thread-load-failed"
+        composer={false}
+        expectExistingThread
+        onLoadError={onLoadError}
+        slots={{ emptyState: EmptyState }}
+      />,
+    );
+    await flush();
+
+    const failure = tree.container.querySelector<HTMLElement>(
+      '[data-load-status="failed"]',
+    );
+    expect(failure?.getAttribute("role")).toBe("alert");
+    expect(failure?.textContent).toContain("Couldn't load this chat.");
+    expect(tree.container.querySelector("[data-empty-state]")).toBeNull();
+    expect(
+      tree.container.querySelector<HTMLElement>(".agentkit-chat")?.dataset
+        .empty,
+    ).toBe("false");
+    expect(onLoadError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "History service unavailable" }),
+    );
+
+    await act(async () =>
+      Array.from(failure?.querySelectorAll("button") ?? [])
+        .find((button) => button.textContent === "Retry")
+        ?.click(),
+    );
+    await flush();
+
+    expect(attempts).toBe(2);
+    expect(tree.container.querySelector('[data-load-status="failed"]')).toBe(
+      null,
+    );
+    expect(tree.container.textContent).toContain("Recovered history");
+  });
+
+  it("lets the host replace the unavailable state", async () => {
+    const { transport, release } = deferredSnapshotTransport(() => null);
+    const tree = mount();
+
+    await tree.render(
+      <AgentChat
+        transport={transport}
+        threadId="thread-host-missing"
+        composer={false}
+        expectExistingThread
+        slots={{ threadUnavailable: () => null }}
+      />,
+    );
+    await act(async () => {
+      release();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await flush();
+
+    expect(
+      tree.container.querySelector(".agentkit-thread-unavailable"),
+    ).toBeNull();
+    expect(
+      tree.container.querySelector(".agentkit-transcript-skeleton"),
+    ).toBeNull();
+  });
+
+  it("keeps the managed client and its stream across inline option re-renders", async () => {
+    const signals: AbortSignal[] = [];
+    const transport: AgentTransport = {
+      ...baseTransport(),
+      async getThreadSnapshot({ threadId }) {
+        return {
+          id: threadId,
+          createdAt: "2026-10-23T00:00:00.000Z",
+          updatedAt: "2026-10-23T00:00:00.000Z",
+          messages: [],
+          activeRunIds: ["run-inline"],
+          runs: [{ id: "run-inline", status: "running" as const }],
+        };
+      },
+      async *subscribeToRun({ signal }) {
+        if (!signal) throw new Error("Managed streams need a release signal.");
+        signals.push(signal);
+        await new Promise<void>((resolve) => {
+          if (signal.aborted) resolve();
+          else
+            signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+    };
+    const dispose = vi.spyOn(AgentKitClient.prototype, "dispose");
+    const firstOnError = vi.fn();
+    const secondOnError = vi.fn();
+    const tree = mount();
+    const render = (onError: () => void) =>
+      tree.render(
+        <AgentChat
+          transport={transport}
+          clientOptions={{
+            onError,
+            now: () => "2026-10-23T00:00:00.000Z",
+            createId: (prefix) => `${prefix}-inline`,
+          }}
+          threadId="thread-inline-options"
+          composer={false}
+          onThreadForked={() => undefined}
+          onCopyMessage={() => true}
+          onClientEffect={() => undefined}
+        />,
+      );
+
+    await render(firstOnError);
+    await flush();
+    expect(signals).toHaveLength(1);
+
+    await render(secondOnError);
+    await flush();
+    await render(firstOnError);
+    await flush();
+
+    expect(dispose).not.toHaveBeenCalled();
+    expect(signals).toHaveLength(1);
+    expect(signals[0]?.aborted).toBe(false);
   });
 });

@@ -53,6 +53,7 @@ vi.mock("../server/lib/factory-definitions.js", async () => {
   return kit.factoryDefinitionsModule;
 });
 
+import { WORKFLOW_JOB_APP_ID } from "../server/lib/factory-workflow-runner.js";
 import * as kit from "../server/workflow-host/testing/workflow-actions-kit.js";
 import { WORKFLOW_STORE_LIMITS } from "../server/workflow/adapter.js";
 import { STORY_GRAPHS } from "../server/workflow/story-graphs.fixture.js";
@@ -131,6 +132,7 @@ describe("run-factory-workflow", () => {
         userEmail: kit.USER_EMAIL,
         orgId: kit.ORG_ID,
         appId: "factory",
+        additionalJobAppIds: [WORKFLOW_JOB_APP_ID],
         scope: "organization",
         path: created.job.path,
       }),

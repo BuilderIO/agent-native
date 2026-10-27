@@ -59,6 +59,20 @@ export function editorSaveIsInSql(
   );
 }
 
+export type DocumentTitleRow = { title: string };
+
+export async function readDocumentTitleRow(
+  documentId: string,
+): Promise<DocumentTitleRow | null> {
+  // guard:allow-unscoped — every title barrier caller authorizes the document first and writes nothing from this read.
+  const [row] = await getDb()
+    .select({ title: schema.documents.title })
+    .from(schema.documents)
+    .where(eq(schema.documents.id, documentId))
+    .limit(1);
+  return row ?? null;
+}
+
 export type DocumentFlushSnapshot =
   | (DocumentSaveRow & { kind: "document"; contentHash: string })
   | {

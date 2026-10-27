@@ -1377,6 +1377,10 @@ export default {
     drilldownHideSql: "SQLを非表示",
     drilldownDownloadCsv: "CSVをダウンロード",
     drilldownShowing: "{{total}} 件中 {{shown}} 件を表示",
+    drilldownShowingLoaded:
+      "読み込み済み {{loaded}} 件中 {{shown}} 件を表示。総件数は不明です。",
+    drilldownCsvTruncatedUnknownTotal:
+      "エクスポートが完全かどうかは不明です。このファイルには、読み込まれた {{loaded}} 件のレコードのうち、フィルター後の {{exported}} 件が含まれます。",
     drilldownCsvTruncated:
       "不完全なエクスポート: クエリに一致した {{total}} 件のうち、最初の {{loaded}} 件のみ読み込まれました。フィルター適用後、このファイルには {{exported}} 件が含まれます。",
     drilldownCountMismatch:
@@ -1384,7 +1388,13 @@ export default {
     drilldownAggregateOnly:
       "このパネルには集計行しかありません。クリックしたポイントに一致する行を強調表示しています。",
     drilldownNoRecords: "一致するレコードがありません",
+    drilldownNoRecordsIncomplete:
+      "レコードは読み込まれませんでした。結果が不完全なため、一致するレコードがある可能性があります。",
+    drilldownNoLoadedMatches:
+      "読み込まれたレコードに一致するものはありませんが、完全な結果には読み込まれていないレコードが含まれている可能性があります。",
     drilldownLoadFailed: "レコードを読み込めませんでした",
+    drilldownOverByteCap:
+      "これらのレコードは {{gib}} GiB を超えて読み込むため、読み込みませんでした。ダッシュボードのフィルターか期間を絞ってから、もう一度お試しください。",
     filterSeries: "Filter",
     chartTimeRangeOverride: "このチャートの期間を上書き",
     chartTimeRangeInherit: "ダッシュボードの期間",
@@ -1456,12 +1466,25 @@ export default {
     columnFormatCurrency: "通貨",
     columnFormatPercent: "パーセント",
     columnFormatDate: "日付",
+    columnFormatDuration: "所要時間（秒）",
     columnRename: "列の名前を変更",
     columnHide: "列を非表示",
     columnShow: '"{{name}}" を表示',
     columnShowHidden: "非表示の列を表示",
     columnName: "列名",
     columnResize: "列の幅を変更",
+    metricComparisonVs: "{{period}}との比較",
+    metricComparisonPreviousPeriod: "前の期間",
+    metricComparisonNoChange: "変化なし",
+    metricComparisonPoints: "{{value}}ポイント",
+    metricComparisonUp: "{{period}}の{{previous}}から{{change}}増加",
+    metricComparisonDown: "{{period}}の{{previous}}から{{change}}減少",
+    metricComparisonFlat: "{{period}}の{{previous}}から変化なし",
+    metricComparisonBetter: "{{comparison}}（改善）",
+    metricComparisonWorse: "{{comparison}}（悪化）",
+    calloutSeverityCritical: "重大",
+    calloutSeverityWarning: "警告",
+    calloutSeverityInfo: "情報",
     rowBreakdownBy: "内訳の基準",
     rowBreakdownAll: "すべて",
     rowBreakdownOther: "その他",

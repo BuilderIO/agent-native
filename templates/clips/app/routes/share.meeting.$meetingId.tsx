@@ -51,6 +51,7 @@ import {
 } from "@/lib/public-meeting";
 
 import { getDb, schema } from "../../server/db";
+import { loadMeetingRecordingContent } from "../../server/lib/meeting-recording-access.js";
 import { CLIPS_MEETING_AGENT_RESOURCE_KIND } from "../../shared/meeting-agent-access";
 import { privateShareLoaderData } from "../../shared/share-loader-response";
 import {
@@ -135,7 +136,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
     );
   }
 
-  const [participants, actionItems, transcriptRows] = await Promise.all([
+  const [participants, actionItems] = await Promise.all([
     getDb()
       .select({
         email: schema.meetingParticipants.email,
@@ -153,25 +154,12 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
       })
       .from(schema.meetingActionItems)
       .where(eq(schema.meetingActionItems.meetingId, meetingId)),
-    meeting.shareTranscript && meeting.recordingId
-      ? getDb()
-          .select({
-            status: schema.recordingTranscripts.status,
-            language: schema.recordingTranscripts.language,
-            fullText: schema.recordingTranscripts.fullText,
-            failureReason: schema.recordingTranscripts.failureReason,
-            segmentsJson: schema.recordingTranscripts.segmentsJson,
-            updatedAt: schema.recordingTranscripts.updatedAt,
-          })
-          .from(schema.recordingTranscripts)
-          .where(
-            eq(schema.recordingTranscripts.recordingId, meeting.recordingId),
-          )
-          .limit(1)
-      : Promise.resolve([]),
   ]);
 
-  const transcript = transcriptRows[0] ?? null;
+  const linked = meeting.shareTranscript
+    ? await loadMeetingRecordingContent(meeting, undefined)
+    : null;
+  const transcript = linked?.transcript ?? null;
   const transcriptPresentation = resolveTranscriptPresentation(transcript);
   const transcriptSegments = transcript
     ? normalizeTranscriptSegments({

@@ -137,7 +137,7 @@ function childPathSelectorWithin(scope: Element, element: Element) {
   const parts: string[] = [];
   let current: Element | null = element;
   while (current && current !== scope) {
-    const parent = current.parentElement;
+    const parent: Element | null = current.parentElement;
     if (!parent) return undefined;
     const tag = current.tagName.toLowerCase();
     parts.unshift(`${tag}:nth-of-type(${elementIndexAmongType(current)})`);

@@ -3,6 +3,7 @@ import { IconLayoutGrid, IconPlus } from "@tabler/icons-react";
 import { useRef, useState } from "react";
 
 import { Spinner } from "@/components/ui/spinner";
+import { cn } from "@/lib/utils";
 
 import { TYPE_ICONS, displayValue } from "../DocumentProperties";
 import {
@@ -16,6 +17,7 @@ import {
   databaseViewHasNoMatchingPages,
   databaseViewItemGroups,
   databaseVisibleGroups,
+  openDatabaseItemOnClick,
   type CreateDatabaseRowHandler,
   type DatabaseBoardGroup,
   type DatabaseFilter,
@@ -255,48 +257,54 @@ function DatabaseGalleryCard({
   const visibleProperties = properties.slice(0, 4);
 
   return (
-    <div className="group overflow-hidden rounded-md border border-border bg-background shadow-sm transition-colors hover:bg-accent/40">
+    <div
+      className="group cursor-pointer overflow-hidden rounded-md border border-border bg-background shadow-sm transition-colors hover:bg-accent/40"
+      onClick={openDatabaseItemOnClick(onPreview)}
+    >
       <button
         type="button"
-        className="block w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="block w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         onClick={onPreview}
       >
-        <div className="flex aspect-[5/3] items-center justify-center border-b border-border bg-muted/45">
+        <span className="flex aspect-[5/3] items-center justify-center border-b border-border bg-muted/45">
           <DatabaseItemPageIcon
             document={item.document}
             className="size-10 text-4xl"
             fallbackClassName="size-8 text-muted-foreground/70"
           />
-        </div>
-        <div className="grid gap-2 p-3">
-          <span className="min-w-0 truncate text-sm font-medium">
-            {item.document.title || "Untitled"}
-          </span>
-          {visibleProperties.length > 0 ? (
-            <span className="grid gap-1">
-              {visibleProperties.map((property) => {
-                const itemProperty =
-                  item.properties.find(
-                    (candidate) =>
-                      candidate.definition.id === property.definition.id,
-                  ) ?? property;
-                const Icon = TYPE_ICONS[property.definition.type];
-                return (
-                  <span
-                    key={property.definition.id}
-                    className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground"
-                  >
-                    <Icon className="size-3.5 shrink-0" />
-                    <span className="truncate">
-                      {displayValue(itemProperty)}
-                    </span>
-                  </span>
-                );
-              })}
-            </span>
-          ) : null}
-        </div>
+        </span>
+        <span className="block min-w-0 truncate px-3 pt-3 text-sm font-medium">
+          {item.document.title || "Untitled"}
+        </span>
       </button>
+      {/* Values sit outside the button, so web addresses stay links. */}
+      <div className={cn("px-3 pb-3", visibleProperties.length > 0 && "pt-2")}>
+        {visibleProperties.length > 0 ? (
+          <span className="grid gap-1">
+            {visibleProperties.map((property) => {
+              const itemProperty =
+                item.properties.find(
+                  (candidate) =>
+                    candidate.definition.id === property.definition.id,
+                ) ?? property;
+              const Icon = TYPE_ICONS[property.definition.type];
+              return (
+                <span
+                  key={property.definition.id}
+                  className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground"
+                >
+                  <Icon className="size-3.5 shrink-0" />
+                  <span className="truncate">
+                    {displayValue(itemProperty, undefined, "compact", {
+                      interactiveUrls: true,
+                    })}
+                  </span>
+                </span>
+              );
+            })}
+          </span>
+        ) : null}
+      </div>
       {canEdit ? (
         <div className="flex justify-end border-t border-border/70 px-2 py-1">
           <RowActionsCell

@@ -41,6 +41,8 @@ function FirstRunOnboarding({
 
 const mocks = vi.hoisted(() => ({
   completeFirstRun: vi.fn(),
+  recordCreditsV2Exposure: vi.fn(),
+  useActionMutation: vi.fn(),
   useBuilderConnectFlow: vi.fn(),
   routePathname: "/",
   useActualRouter: false,
@@ -52,6 +54,11 @@ const mocks = vi.hoisted(() => ({
   useOnboardingPreviewStep: vi.fn(),
   setOnboardingExperiment: vi.fn(),
   setupVariant: "control" as "control" | "credits" | null,
+  creditsV2FlagState: { status: "ready", enabled: false } as {
+    status: "ready" | "loading" | "unavailable";
+    enabled: boolean;
+  },
+  recordCreditsV2Exposure: vi.fn(),
 }));
 
 vi.mock("react-router", async (importOriginal) => {
@@ -69,7 +76,23 @@ vi.mock("react-router", async (importOriginal) => {
 });
 
 vi.mock("@agent-native/core/client/feature-flags/use-feature-flag", () => ({
-  useFeatureFlagState: () => ({ status: "ready", enabled: true }),
+  useFeatureFlagState: (key: string) =>
+    key === "clips-first-run-credits-v2"
+      ? mocks.creditsV2FlagState
+      : { status: "ready", enabled: true },
+}));
+
+vi.mock("@agent-native/core/client/use-action", () => ({
+  useActionMutation: () => ({
+    mutateAsync: (...args: unknown[]) => mocks.recordCreditsV2Exposure(...args),
+  }),
+}));
+
+vi.mock("@agent-native/core/client/use-action", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/use-action")
+  >()),
+  useActionMutation: mocks.useActionMutation,
 }));
 
 vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
@@ -85,10 +108,6 @@ vi.mock("@agent-native/core/client/onboarding/use-preview-mode", () => ({
   ONBOARDING_PREVIEW_STEP_QUERY_PARAM: "step",
   useOnboardingPreviewMode: mocks.useOnboardingPreviewMode,
   useOnboardingPreviewStep: mocks.useOnboardingPreviewStep,
-}));
-
-vi.mock("@agent-native/core/client/feature-flags/use-feature-flag", () => ({
-  useFeatureFlagState: () => ({ status: "ready", enabled: true }),
 }));
 
 vi.mock("./first-run-experiment.js", async (importOriginal) => ({
@@ -107,6 +126,12 @@ describe("FirstRunOnboarding", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.completeFirstRun.mockReset();
+    mocks.recordCreditsV2Exposure.mockReset().mockResolvedValue({
+      assignment: null,
+    });
+    mocks.useActionMutation.mockReset().mockReturnValue({
+      mutateAsync: mocks.recordCreditsV2Exposure,
+    });
     mocks.routePathname = "/";
     mocks.useActualRouter = false;
     mocks.navigate.mockReset();
@@ -120,6 +145,9 @@ describe("FirstRunOnboarding", () => {
     mocks.useOnboarding.mockReset();
     mocks.useOnboardingPreviewMode.mockReset();
     mocks.useOnboardingPreviewStep.mockReset();
+    mocks.creditsV2FlagState = { status: "ready", enabled: false };
+    mocks.recordCreditsV2Exposure.mockReset();
+    mocks.recordCreditsV2Exposure.mockResolvedValue({ assignment: null });
     mocks.useOnboardingPreviewMode.mockReturnValue(false);
     mocks.useOnboardingPreviewStep.mockReturnValue(null);
     mocks.useBuilderConnectFlow.mockReturnValue({
@@ -978,6 +1006,7 @@ describe("FirstRunOnboarding", () => {
   ])(
     "restarts the prior $mode mode after a $failure",
     ({
+      mode,
       choiceId,
       provisionAccount,
       statusUnavailable,
@@ -1018,12 +1047,25 @@ describe("FirstRunOnboarding", () => {
       });
 
       expect(start).toHaveBeenCalledOnce();
-      expect(document.body.textContent).toContain(error);
-      act(() => {
-        [...document.body.querySelectorAll("button")]
-          .find((button) => button.textContent === "Try again")
-          ?.click();
-      });
+      if (mode === "provision" && terminalError) {
+        expect(document.body.textContent).toContain(
+          "Builder.io setup didn't finish. Try again, or use your own keys.",
+        );
+        act(() => {
+          document.body
+            .querySelector<HTMLButtonElement>(
+              '[data-testid="first-run-retry-builder"]',
+            )
+            ?.click();
+        });
+      } else {
+        expect(document.body.textContent).toContain(error);
+        act(() => {
+          [...document.body.querySelectorAll("button")]
+            .find((button) => button.textContent === "Try again")
+            ?.click();
+        });
+      }
 
       expect(start).toHaveBeenCalledTimes(2);
       expect(start).toHaveBeenLastCalledWith(
@@ -1563,7 +1605,8 @@ describe("FirstRunOnboarding", () => {
     ).toBeTruthy();
   });
 
-  it("returns to setup choices after Builder provisioning fails", () => {
+  it("offers retry, own-key, and skip actions after Builder provisioning fails", () => {
+    const start = vi.fn();
     const flow = {
       hasFetchedStatus: true,
       statusResolved: true,
@@ -1572,7 +1615,7 @@ describe("FirstRunOnboarding", () => {
       connecting: false,
       terminalError: "Builder account provisioning failed (503).",
       error: "Builder account provisioning failed (503).",
-      start: vi.fn(),
+      start,
       retry: vi.fn(),
     };
     mocks.useBuilderConnectFlow.mockReturnValue(flow);
@@ -1597,26 +1640,138 @@ describe("FirstRunOnboarding", () => {
         ?.click();
     });
 
-    expect(
-      document.body.querySelector('[data-testid="first-run-back-to-choice"]'),
-    ).toBeTruthy();
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_step_viewed",
+      expect.objectContaining({ step_id: "connecting", optional: true }),
+    );
 
+    expect(
+      document.body.querySelector('[data-testid="first-run-retry-builder"]'),
+    ).toBeTruthy();
+    expect(
+      document.body.querySelector(
+        '[data-testid="first-run-open-key-settings-after-failure"]',
+      ),
+    ).toBeTruthy();
+    expect(
+      document.body.querySelector(
+        '[data-testid="first-run-skip-builder-after-failure"]',
+      ),
+    ).toBeTruthy();
     act(() => {
       document.body
         .querySelector<HTMLButtonElement>(
-          '[data-testid="first-run-back-to-choice"]',
+          '[data-testid="first-run-retry-builder"]',
+        )
+        ?.click();
+    });
+    expect(start).toHaveBeenCalledTimes(2);
+    expect(start).toHaveBeenLastCalledWith(
+      expect.objectContaining({ provisionAccount: true }),
+    );
+  });
+
+  it("opens AI key settings directly from a failed Builder connection", async () => {
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      hasFetchedStatus: true,
+      statusResolved: true,
+      configured: false,
+      agentNativeProvisioningEnabled: true,
+      connecting: false,
+      terminalError: "Builder account provisioning failed (503).",
+      error: "Builder account provisioning failed (503).",
+      start: vi.fn(),
+      retry: vi.fn(),
+    });
+
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector<HTMLButtonElement>('[data-testid="first-run-role-skip"]')
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="first-run-builder-create-account"]',
         )
         ?.click();
     });
 
-    expect(
-      document.body.querySelector('[data-onboarding-screen="choice"]'),
-    ).toBeTruthy();
-    expect(
-      document.body.querySelector(
-        '[data-testid="first-run-open-key-settings"]',
-      ),
-    ).toBeTruthy();
+    await act(async () => {
+      document.body
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="first-run-open-key-settings-after-failure"]',
+        )
+        ?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.navigate).toHaveBeenCalledWith(
+      manualSetupSettingsRoute({ redesign: true }),
+    );
+  });
+
+  it("can skip onboarding setup after a failed Builder connection", async () => {
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      hasFetchedStatus: true,
+      statusResolved: true,
+      configured: false,
+      agentNativeProvisioningEnabled: true,
+      connecting: false,
+      terminalError: "Builder account provisioning failed (503).",
+      error: "Builder account provisioning failed (503).",
+      start: vi.fn(),
+      retry: vi.fn(),
+    });
+
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector<HTMLButtonElement>('[data-testid="first-run-role-skip"]')
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="first-run-builder-create-account"]',
+        )
+        ?.click();
+    });
+
+    await act(async () => {
+      document.body
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="first-run-skip-builder-after-failure"]',
+        )
+        ?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.completeFirstRun).toHaveBeenCalledOnce();
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_step_skipped",
+      expect.objectContaining({
+        flow: "first_run",
+        step_id: "connecting",
+        optional: true,
+        reason: "builder_provision_failed",
+      }),
+    );
   });
 
   it("shows the role step first", () => {
@@ -1639,6 +1794,13 @@ describe("FirstRunOnboarding", () => {
   });
 
   it("labels Clips setup as Builder, custom keys, or an optional skip", async () => {
+    mocks.creditsV2FlagState = { status: "ready", enabled: true };
+    mocks.recordCreditsV2Exposure.mockResolvedValue({
+      assignment: {
+        experiment_id: "first_run_builder_credits_v2",
+        experiment_variant: "control",
+      },
+    });
     mocks.useOnboarding.mockReturnValue({
       firstRun: true,
       loading: false,
@@ -1684,7 +1846,136 @@ describe("FirstRunOnboarding", () => {
       customKeysAction: "Open AI key settings",
       skip: "Skip for now",
     });
+    expect(mocks.useActionMutation).toHaveBeenCalledWith(
+      "record-first-run-builder-credits-v2-exposure",
+      { uiOnly: true, skipActionQueryInvalidation: true },
+    );
+    expect(mocks.recordCreditsV2Exposure).toHaveBeenCalledTimes(2);
+    expect(mocks.recordCreditsV2Exposure).toHaveBeenNthCalledWith(1, {});
+    expect(mocks.recordCreditsV2Exposure).toHaveBeenNthCalledWith(2, {
+      confirmedVariant: "control",
+    });
+    expect(mocks.setOnboardingExperiment).toHaveBeenCalledWith({
+      id: "first_run_builder_credits_v2",
+      variant: "control",
+    });
+    expect(mocks.setOnboardingExperiment).not.toHaveBeenCalledWith({
+      id: "first_run_builder_credits_v2",
+      variant: "credits",
+    });
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_experiment_exposed",
+      {
+        flow: "first_run",
+        step_id: "choice",
+        experiment_id: "first_run_builder_credits_v2",
+        experiment_variant: "control",
+      },
+    );
+    expect(
+      document.body.querySelector("[data-testid='first-run-credits-offer']"),
+    ).toBeNull();
   });
+
+  it("does not hold another app's first-run screen while the v2 flag loads", async () => {
+    mocks.creditsV2FlagState = { status: "loading", enabled: false };
+    mocks.useOnboarding.mockReturnValue({
+      firstRun: true,
+      loading: false,
+      error: null,
+      profile: { appId: "forms", appName: "Forms", capabilities: [] },
+      completeFirstRun: mocks.completeFirstRun,
+      completeFirstRunError: null,
+    });
+
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    await act(async () => {
+      document.body
+        .querySelector<HTMLButtonElement>("[data-testid='first-run-role-skip']")
+        ?.click();
+    });
+
+    expect(
+      document.body.querySelector("[data-onboarding-loading='true']"),
+    ).toBeNull();
+    expect(
+      document.body.querySelector('[data-onboarding-screen="choice"]'),
+    ).not.toBeNull();
+    expect(mocks.recordCreditsV2Exposure).not.toHaveBeenCalled();
+  });
+
+  it.each(["design", "slides", "clips"])(
+    "shows the v2 credits actions in %s",
+    async (appId) => {
+      mocks.creditsV2FlagState = { status: "ready", enabled: true };
+      mocks.recordCreditsV2Exposure.mockResolvedValue({
+        assignment: {
+          experiment_id: "first_run_builder_credits_v2",
+          experiment_variant: "credits",
+        },
+      });
+      mocks.useOnboarding.mockReturnValue({
+        firstRun: true,
+        loading: false,
+        error: null,
+        profile: { appId, appName: appId, capabilities: [] },
+        completeFirstRun: mocks.completeFirstRun,
+        completeFirstRunError: null,
+      });
+
+      await act(async () => {
+        root.render(
+          <TooltipProvider>
+            <FirstRunOnboarding />
+          </TooltipProvider>,
+        );
+      });
+      await act(async () => {
+        document.body
+          .querySelector<HTMLButtonElement>(
+            "[data-testid='first-run-role-skip']",
+          )
+          ?.click();
+      });
+
+      const primary = document.body.querySelector<HTMLButtonElement>(
+        "[data-testid='first-run-credits-activate']",
+      );
+      const existingAccount = document.body.querySelector<HTMLButtonElement>(
+        "[data-testid='first-run-credits-connect-existing']",
+      );
+      const ownKeys = document.body.querySelector<HTMLButtonElement>(
+        "[data-testid='first-run-credits-own-api-keys']",
+      );
+      expect(primary?.textContent).toBe("Activate free credits");
+      expect(existingAccount?.textContent).toBe("I have a Builder.io account");
+      expect(ownKeys?.textContent).toBe("Use my own API keys");
+      expect(
+        document.body.querySelector(
+          "[data-testid='first-run-credits-skip-confirm']",
+        ),
+      ).toBeNull();
+      expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+        "onboarding_experiment_exposed",
+        expect.objectContaining({
+          experiment_id: "first_run_builder_credits_v2",
+          experiment_variant: "credits",
+        }),
+      );
+
+      await act(async () => {
+        ownKeys?.click();
+        await Promise.resolve();
+      });
+      expect(mocks.navigate).toHaveBeenCalled();
+    },
+  );
 
   it("opens the app directly after a configured Builder connection", () => {
     mocks.useBuilderConnectFlow.mockReturnValue({
@@ -2865,7 +3156,12 @@ describe("FirstRunOnboarding", () => {
       });
       expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
         "onboarding_experiment_exposed",
-        { flow: "first_run", step_id: "choice" },
+        expect.objectContaining({
+          flow: "first_run",
+          step_id: "choice",
+          experiment_id: "first_run_builder_credits",
+          experiment_variant: "credits",
+        }),
       );
     });
 
@@ -2932,8 +3228,13 @@ describe("FirstRunOnboarding", () => {
       expect(mocks.setOnboardingExperiment).not.toHaveBeenCalled();
     });
 
-    const openClipsChoice = (start = vi.fn()) => {
-      mocks.useBuilderConnectFlow.mockReturnValue(flow({ start }));
+    const openClipsChoice = (
+      start = vi.fn(),
+      overrides: Record<string, unknown> = {},
+    ) => {
+      mocks.useBuilderConnectFlow.mockReturnValue(
+        flow({ start, ...overrides }),
+      );
       mocks.useOnboarding.mockReturnValue({
         ...mocks.useOnboarding(),
         profile: { ...mocks.useOnboarding().profile, appId: "clips" },
@@ -2941,6 +3242,176 @@ describe("FirstRunOnboarding", () => {
       openChoice();
       return start;
     };
+
+    it("does not expose the credits v2 experiment when connection status is unavailable", () => {
+      mocks.creditsV2FlagState = { status: "ready", enabled: true };
+      openClipsChoice(vi.fn(), { statusUnavailable: true });
+
+      expect(mocks.recordCreditsV2Exposure).not.toHaveBeenCalled();
+      expect(mocks.trackOnboardingEvent).not.toHaveBeenCalledWith(
+        "onboarding_experiment_exposed",
+        expect.objectContaining({
+          experiment_id: "first_run_builder_credits_v2",
+        }),
+      );
+    });
+
+    it("retries credits v2 exposure after a transient mutation failure", async () => {
+      mocks.creditsV2FlagState = { status: "ready", enabled: true };
+      mocks.recordCreditsV2Exposure
+        .mockRejectedValueOnce(new Error("temporary failure"))
+        .mockResolvedValue({
+          assignment: {
+            experiment_id: "first_run_builder_credits_v2",
+            experiment_variant: "credits",
+          },
+        });
+
+      openClipsChoice();
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(mocks.recordCreditsV2Exposure).toHaveBeenCalledOnce();
+
+      mocks.useBuilderConnectFlow.mockReturnValue(flow({ configured: true }));
+      await act(async () => {
+        root.render(
+          <TooltipProvider>
+            <FirstRunOnboarding />
+          </TooltipProvider>,
+        );
+      });
+      mocks.useBuilderConnectFlow.mockReturnValue(flow());
+      await act(async () => {
+        root.render(
+          <TooltipProvider>
+            <FirstRunOnboarding />
+          </TooltipProvider>,
+        );
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(mocks.recordCreditsV2Exposure).toHaveBeenCalledTimes(3);
+      expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+        "onboarding_experiment_exposed",
+        {
+          flow: "first_run",
+          step_id: "choice",
+          experiment_id: "first_run_builder_credits_v2",
+          experiment_variant: "credits",
+        },
+      );
+    });
+
+    it("retries exposure persistence after tracking the rendered v2 arm", async () => {
+      mocks.creditsV2FlagState = { status: "ready", enabled: true };
+      let confirmationAttempts = 0;
+      mocks.recordCreditsV2Exposure.mockImplementation((...args: unknown[]) => {
+        const input = args[0] as { confirmedVariant?: string } | undefined;
+        if (input?.confirmedVariant) {
+          confirmationAttempts += 1;
+          if (confirmationAttempts === 1) {
+            return Promise.reject(new Error("temporary confirmation failure"));
+          }
+        }
+        return Promise.resolve({
+          assignment: {
+            experiment_id: "first_run_builder_credits_v2",
+            experiment_variant: "credits",
+          },
+        });
+      });
+      mocks.trackOnboardingEvent.mockImplementation((name: string) => {
+        if (name === "onboarding_experiment_exposed") {
+          expect(q("first-run-credits-offer")).not.toBeNull();
+        }
+      });
+
+      openClipsChoice();
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(mocks.recordCreditsV2Exposure).toHaveBeenCalledTimes(3);
+      expect(mocks.recordCreditsV2Exposure).toHaveBeenNthCalledWith(1, {});
+      expect(mocks.recordCreditsV2Exposure).toHaveBeenNthCalledWith(2, {
+        confirmedVariant: "credits",
+      });
+      expect(mocks.recordCreditsV2Exposure).toHaveBeenNthCalledWith(3, {
+        confirmedVariant: "credits",
+      });
+      expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+        "onboarding_experiment_exposed",
+        {
+          flow: "first_run",
+          step_id: "choice",
+          experiment_id: "first_run_builder_credits_v2",
+          experiment_variant: "credits",
+        },
+      );
+    });
+
+    it("reconciles failed exposure persistence without blocking the rendered v2 arm", async () => {
+      vi.useFakeTimers();
+      try {
+        mocks.creditsV2FlagState = { status: "ready", enabled: true };
+        mocks.recordCreditsV2Exposure
+          .mockResolvedValueOnce({
+            assignment: {
+              experiment_id: "first_run_builder_credits_v2",
+              experiment_variant: "credits",
+            },
+          })
+          .mockRejectedValueOnce(new Error("first confirmation unavailable"))
+          .mockRejectedValueOnce(new Error("second confirmation unavailable"))
+          .mockResolvedValueOnce({
+            assignment: {
+              experiment_id: "first_run_builder_credits_v2",
+              experiment_variant: "credits",
+            },
+          });
+
+        openClipsChoice();
+        await act(async () => {
+          await Promise.resolve();
+          await Promise.resolve();
+          await Promise.resolve();
+        });
+
+        expect(mocks.recordCreditsV2Exposure).toHaveBeenCalledTimes(3);
+        expect(q("first-run-credits-offer")).not.toBeNull();
+        expect(q("first-run-credits-own-api-keys")).not.toBeNull();
+        expect(
+          document.body.querySelector("[data-onboarding-loading='true']"),
+        ).toBeNull();
+        expect(mocks.setOnboardingExperiment).toHaveBeenCalledWith({
+          id: "first_run_builder_credits_v2",
+          variant: "credits",
+        });
+        expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+          "onboarding_experiment_exposed",
+          expect.objectContaining({
+            experiment_id: "first_run_builder_credits_v2",
+          }),
+        );
+        expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+          "onboarding_step_viewed",
+          expect.objectContaining({ step_id: "choice" }),
+        );
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(1_000);
+        });
+
+        expect(mocks.recordCreditsV2Exposure).toHaveBeenCalledTimes(4);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
 
     it("shows one activate action instead of the two setup cards", () => {
       mocks.useBuilderConnectFlow.mockReturnValue(flow());
@@ -3121,6 +3592,102 @@ describe("FirstRunOnboarding", () => {
       },
     );
 
+    it("keeps a late Builder status response out of Clips v2 after timeout", () => {
+      vi.useFakeTimers();
+      try {
+        mocks.creditsV2FlagState = { status: "ready", enabled: true };
+        openClipsChoice(vi.fn(), { hasFetchedStatus: false });
+
+        expect(mocks.recordCreditsV2Exposure).not.toHaveBeenCalled();
+        act(() => {
+          vi.advanceTimersByTime(4000);
+        });
+        expect(q("first-run-open-key-settings")).not.toBeNull();
+        expect(q("first-run-credits-offer")).toBeNull();
+
+        mocks.useBuilderConnectFlow.mockReturnValue(flow());
+        act(() => {
+          root.render(
+            <TooltipProvider>
+              <FirstRunOnboarding />
+            </TooltipProvider>,
+          );
+        });
+
+        expect(q("first-run-open-key-settings")).not.toBeNull();
+        expect(q("first-run-credits-offer")).toBeNull();
+        expect(mocks.recordCreditsV2Exposure).not.toHaveBeenCalled();
+        expect(mocks.setOnboardingExperiment).not.toHaveBeenCalled();
+        expect(mocks.trackOnboardingEvent).not.toHaveBeenCalledWith(
+          "onboarding_experiment_exposed",
+          expect.objectContaining({
+            experiment_id: "first_run_builder_credits_v2",
+          }),
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("falls back if the Clips v2 exposure mutation stalls and ignores a late assignment", async () => {
+      vi.useFakeTimers();
+      try {
+        mocks.creditsV2FlagState = { status: "ready", enabled: true };
+        let resolveAssignment:
+          | ((result: {
+              assignment: {
+                experiment_id: string;
+                experiment_variant: string;
+              };
+            }) => void)
+          | undefined;
+        mocks.recordCreditsV2Exposure.mockImplementation(
+          () =>
+            new Promise((resolve) => {
+              resolveAssignment = resolve;
+            }),
+        );
+
+        openClipsChoice();
+        expect(mocks.recordCreditsV2Exposure).toHaveBeenCalledOnce();
+        expect(
+          document.body.querySelector("[data-onboarding-loading='true']"),
+        ).not.toBeNull();
+
+        act(() => {
+          vi.advanceTimersByTime(4000);
+        });
+        expect(
+          document.body.querySelector("[data-onboarding-loading='true']"),
+        ).toBeNull();
+        expect(q("first-run-open-key-settings")).not.toBeNull();
+        expect(q("first-run-credits-offer")).toBeNull();
+
+        await act(async () => {
+          resolveAssignment?.({
+            assignment: {
+              experiment_id: "first_run_builder_credits_v2",
+              experiment_variant: "credits",
+            },
+          });
+        });
+
+        expect(q("first-run-open-key-settings")).not.toBeNull();
+        expect(q("first-run-credits-offer")).toBeNull();
+        expect(mocks.setOnboardingExperiment).not.toHaveBeenCalled();
+        expect(mocks.trackOnboardingEvent).not.toHaveBeenCalledWith(
+          "onboarding_experiment_exposed",
+          expect.objectContaining({
+            experiment_id: "first_run_builder_credits_v2",
+          }),
+        );
+        expect(mocks.recordCreditsV2Exposure).toHaveBeenCalledOnce();
+        expect(mocks.recordCreditsV2Exposure).toHaveBeenCalledWith({});
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("falls back to the full setup where activation is unavailable", () => {
       mocks.useBuilderConnectFlow.mockReturnValue(
         flow({ agentNativeProvisioningEnabled: false }),
@@ -3129,6 +3696,149 @@ describe("FirstRunOnboarding", () => {
       expect(q("first-run-credits-offer")).toBeNull();
       expect(q("first-run-open-key-settings")).not.toBeNull();
       expect(q("first-run-credits-more-info")).toBeNull();
+    });
+
+    it("renders and attributes the v2 choice while exposure persistence is pending", async () => {
+      mocks.creditsV2FlagState = { status: "ready", enabled: true };
+      mocks.useBuilderConnectFlow.mockReturnValue(flow());
+      mocks.useOnboarding.mockReturnValue({
+        ...mocks.useOnboarding(),
+        profile: { ...mocks.useOnboarding().profile, appId: "clips" },
+      });
+      let resolveAssignment:
+        | ((result: {
+            assignment: {
+              experiment_id: string;
+              experiment_variant: string;
+            };
+          }) => void)
+        | undefined;
+      let resolveConfirmation:
+        | ((result: {
+            assignment: {
+              experiment_id: string;
+              experiment_variant: string;
+            };
+          }) => void)
+        | undefined;
+      mocks.recordCreditsV2Exposure.mockImplementation((...args: unknown[]) => {
+        const input = args[0] as { confirmedVariant?: string } | undefined;
+        if (input?.confirmedVariant) {
+          return new Promise((resolve) => {
+            resolveConfirmation = resolve;
+          });
+        }
+        return new Promise((resolve) => {
+          resolveAssignment = resolve;
+        });
+      });
+      mocks.trackOnboardingEvent.mockImplementation(
+        (name: string, properties?: Record<string, unknown>) => {
+          if (name === "onboarding_experiment_exposed") {
+            expect(q("first-run-credits-offer")).not.toBeNull();
+          }
+          if (
+            name === "onboarding_step_viewed" &&
+            properties?.step_id === "choice"
+          ) {
+            expect(mocks.setOnboardingExperiment).toHaveBeenCalledWith({
+              id: "first_run_builder_credits_v2",
+              variant: "credits",
+            });
+          }
+        },
+      );
+
+      await act(async () => {
+        root.render(
+          <TooltipProvider>
+            <FirstRunOnboarding />
+          </TooltipProvider>,
+        );
+      });
+      await act(async () => {
+        document.body
+          .querySelector<HTMLButtonElement>(
+            "[data-testid='first-run-role-skip']",
+          )
+          ?.click();
+      });
+
+      expect(mocks.recordCreditsV2Exposure).toHaveBeenCalledOnce();
+      expect(
+        document.body.querySelector("[data-onboarding-loading='true']"),
+      ).not.toBeNull();
+      expect(q("first-run-credits-offer")).toBeNull();
+
+      await act(async () => {
+        resolveAssignment?.({
+          assignment: {
+            experiment_id: "first_run_builder_credits_v2",
+            experiment_variant: "credits",
+          },
+        });
+      });
+
+      expect(mocks.recordCreditsV2Exposure).toHaveBeenNthCalledWith(2, {
+        confirmedVariant: "credits",
+      });
+      expect(
+        document.body.querySelector("[data-onboarding-loading='true']"),
+      ).toBeNull();
+      expect(q("first-run-credits-offer")).not.toBeNull();
+      expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+        "onboarding_step_viewed",
+        expect.objectContaining({ step_id: "choice" }),
+      );
+      expect(mocks.setOnboardingExperiment).toHaveBeenCalledWith({
+        id: "first_run_builder_credits_v2",
+        variant: "credits",
+      });
+
+      await act(async () => {
+        resolveConfirmation?.({
+          assignment: {
+            experiment_id: "first_run_builder_credits_v2",
+            experiment_variant: "credits",
+          },
+        });
+      });
+
+      expect(mocks.setOnboardingExperiment).toHaveBeenCalledWith({
+        id: "first_run_builder_credits_v2",
+        variant: "credits",
+      });
+      expect(q("first-run-credits-offer")).not.toBeNull();
+      expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+        "onboarding_experiment_exposed",
+        {
+          flow: "first_run",
+          step_id: "choice",
+          experiment_id: "first_run_builder_credits_v2",
+          experiment_variant: "credits",
+        },
+      );
+      expect(q("first-run-credits-skip")).not.toBeNull();
+      expect(q("first-run-credits-skip-confirm")).toBeNull();
+      const exposureIndex = mocks.trackOnboardingEvent.mock.calls.findIndex(
+        ([name]) => name === "onboarding_experiment_exposed",
+      );
+      const choiceViewIndex = mocks.trackOnboardingEvent.mock.calls.findIndex(
+        ([name, properties]) =>
+          name === "onboarding_step_viewed" &&
+          (properties as Record<string, unknown> | undefined)?.step_id ===
+            "choice",
+      );
+      expect(exposureIndex).toBeGreaterThanOrEqual(0);
+      expect(choiceViewIndex).toBeGreaterThan(exposureIndex);
+      expect(mocks.recordCreditsV2Exposure).toHaveBeenCalledTimes(2);
+      expect(document.body.textContent).not.toContain("Are you sure?");
+
+      click("first-run-credits-skip");
+      expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+        "onboarding_step_skipped",
+        expect.objectContaining({ flow: "first_run", step_id: "choice" }),
+      );
     });
   });
 });

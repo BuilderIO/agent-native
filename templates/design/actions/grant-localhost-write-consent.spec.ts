@@ -1,3 +1,4 @@
+import type { ActionRunContext } from "@agent-native/core/action";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
@@ -18,6 +19,7 @@ const mocks = vi.hoisted(() => {
     mockExistingGrant: null as GrantRow | null,
     insertedValues: null as Record<string, unknown> | null,
     updatedSet: null as Record<string, unknown> | null,
+    authCapability: undefined as string | undefined,
   };
 
   const makeSelectChain = (rows: unknown[]) => ({
@@ -87,6 +89,7 @@ const mocks = vi.hoisted(() => {
   });
 
   return {
+    getBrowserCookieSession: vi.fn(),
     assertAccess,
     database,
     resolveLocalhostConnectionScope,
@@ -99,8 +102,14 @@ vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: mocks.assertAccess,
 }));
 
+vi.mock("@agent-native/core/server", () => ({
+  getBrowserCookieSession: mocks.getBrowserCookieSession,
+  hasSameOriginBrowserEvidence: () => true,
+}));
+
 vi.mock("@agent-native/core/server/request-context", () => ({
-  getRequestAuthCapability: () => undefined,
+  getRequestAuthCapability: () => mocks.state.authCapability,
+  getRequestContext: () => ({ requestOrigin: "https://design.example.com" }),
   getRequestUserEmail: () => "user@example.com",
   getRequestOrgId: () => "org_1",
 }));
@@ -141,6 +150,25 @@ vi.mock("nanoid", () => ({ nanoid: () => "fixed_grant_id" }));
 
 import action from "./grant-localhost-write-consent.js";
 
+function browserContext(): ActionRunContext {
+  return {
+    caller: "frontend",
+    userEmail: "user@example.com",
+    requestHeaders: new Headers({
+      origin: "https://design.example.com",
+      "sec-fetch-site": "same-origin",
+      cookie: "better-auth.session_token=fixture-browser-session",
+    }),
+  };
+}
+
+function runAction(
+  args: Parameters<typeof action.run>[0],
+  context = browserContext(),
+) {
+  return action.run(args, context);
+}
+
 beforeEach(() => {
   mocks.state.events.length = 0;
   mocks.state.inMutation = false;
@@ -149,6 +177,10 @@ beforeEach(() => {
   mocks.state.mockExistingGrant = null;
   mocks.state.insertedValues = null;
   mocks.state.updatedSet = null;
+  mocks.state.authCapability = undefined;
+  mocks.getBrowserCookieSession.mockReset().mockResolvedValue({
+    email: "user@example.com",
+  });
   mocks.assertAccess.mockClear();
   mocks.resolveLocalhostConnectionScope.mockClear();
   mocks.withDesignSourceMutationTransaction.mockClear();
@@ -169,15 +201,51 @@ describe("grant-localhost-write-consent", () => {
     ...overrides,
   });
 
-  it("is available to the capability-scoped visual-edit editor", () => {
-    expect(action.capabilityScopes).toEqual(["visual-edit"]);
-    expect(action.agentTool).toBe(false);
+  it.each([
+    "capability-only",
+    "capability identity with a browser cookie",
+    "bearer-only",
+    "MCP card",
+    "different browser user",
+  ])("refuses localhost consent from %s", async (credential) => {
+    mocks.state.mockConnection = connection();
+    const context = browserContext();
+    if (credential.startsWith("capability")) {
+      mocks.state.authCapability = "capability:visual-edit:design:design_1";
+    }
+    if (credential === "MCP card") {
+      context.caller = "mcp-widget";
+      mocks.state.authCapability = "capability:mcp-directory-widget:fixture";
+    }
+    if (credential === "capability-only" || credential === "MCP card") {
+      context.userEmail = undefined;
+    }
+    if (credential === "different browser user") {
+      mocks.getBrowserCookieSession.mockResolvedValue({
+        email: "other@example.com",
+      });
+    } else if (credential !== "capability identity with a browser cookie") {
+      mocks.getBrowserCookieSession.mockResolvedValue(null);
+      context.requestHeaders?.delete("cookie");
+      context.requestHeaders?.set("authorization", "Bearer fixture-token");
+    }
+
+    await expect(
+      runAction({ designId: "design_1", connectionId: "conn_1" }, context),
+    ).rejects.toMatchObject({
+      actionContractError: true,
+      errorCode: "browser_session_required",
+      statusCode: 401,
+    });
+    expect(mocks.assertAccess).not.toHaveBeenCalled();
+    expect(mocks.state.insertedValues).toBeNull();
+    expect(mocks.state.updatedSet).toBeNull();
   });
 
   it("persists the connection bridge token without returning it", async () => {
     mocks.state.mockConnection = connection();
 
-    const result = await action.run({
+    const result = await runAction({
       designId: "design_1",
       connectionId: "conn_1",
     });
@@ -200,7 +268,7 @@ describe("grant-localhost-write-consent", () => {
     mocks.state.rejectInside = true;
 
     await expect(
-      action.run({ designId: "design_1", connectionId: "conn_1" }),
+      runAction({ designId: "design_1", connectionId: "conn_1" }),
     ).rejects.toThrow("editor access revoked");
 
     expect(mocks.state.events).toEqual([
@@ -234,7 +302,7 @@ describe("grant-localhost-write-consent", () => {
       mocks.state.mockConnection = connection(patch);
 
       await expect(
-        action.run({ designId: "design_1", connectionId: "conn_1" }),
+        runAction({ designId: "design_1", connectionId: "conn_1" }),
       ).rejects.toMatchObject({
         actionContractError: true,
         errorCode,
@@ -248,7 +316,7 @@ describe("grant-localhost-write-consent", () => {
 
   it("returns a typed error when the connection row is not found", async () => {
     await expect(
-      action.run({ designId: "design_1", connectionId: "conn_missing" }),
+      runAction({ designId: "design_1", connectionId: "conn_missing" }),
     ).rejects.toMatchObject({
       actionContractError: true,
       errorCode: "connection-not-found",
@@ -263,7 +331,7 @@ describe("grant-localhost-write-consent", () => {
     });
     mocks.state.mockExistingGrant = { id: "existing_grant_id" };
 
-    const result = await action.run({
+    const result = await runAction({
       designId: "design_1",
       connectionId: "conn_1",
     });
@@ -282,7 +350,7 @@ describe("grant-localhost-write-consent", () => {
     mocks.state.mockConnection = connection();
 
     const before = Date.now();
-    const result = await action.run({
+    const result = await runAction({
       designId: "design_1",
       connectionId: "conn_1",
     });

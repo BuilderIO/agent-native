@@ -1392,6 +1392,10 @@ export default {
     drilldownHideSql: "Ocultar SQL",
     drilldownDownloadCsv: "Baixar CSV",
     drilldownShowing: "Mostrando {{shown}} de {{total}} registros",
+    drilldownShowingLoaded:
+      "Mostrando {{shown}} de {{loaded}} registros carregados; total desconhecido.",
+    drilldownCsvTruncatedUnknownTotal:
+      "Não se sabe se a exportação está completa; este arquivo inclui {{exported}} de {{loaded}} registros carregados após a filtragem.",
     drilldownCsvTruncated:
       "Exportação incompleta: a consulta encontrou {{total}} registros, mas apenas os primeiros {{loaded}} foram carregados; este arquivo inclui {{exported}} após a filtragem.",
     drilldownCountMismatch:
@@ -1399,7 +1403,13 @@ export default {
     drilldownAggregateOnly:
       "Este painel tem apenas linhas agregadas. As linhas do ponto clicado estão destacadas.",
     drilldownNoRecords: "Nenhum registro correspondente",
+    drilldownNoRecordsIncomplete:
+      "Nenhum registro foi carregado. O resultado está incompleto, então ainda pode haver registros correspondentes.",
+    drilldownNoLoadedMatches:
+      "Nenhum registro carregado corresponde, mas o resultado completo pode incluir registros que não foram carregados.",
     drilldownLoadFailed: "Não foi possível carregar os registros",
+    drilldownOverByteCap:
+      "Estes registros leriam mais de {{gib}} GiB, então não foram carregados. Restrinja os filtros ou o período do painel e tente de novo.",
     filterSeries: "Filter",
     chartTimeRangeOverride: "Substituir o intervalo de tempo deste gráfico",
     chartTimeRangeInherit: "Intervalo do painel",
@@ -1471,12 +1481,27 @@ export default {
     columnFormatCurrency: "Moeda",
     columnFormatPercent: "Porcentagem",
     columnFormatDate: "Data",
+    columnFormatDuration: "Duração (segundos)",
     columnRename: "Renomear coluna",
     columnHide: "Ocultar coluna",
     columnShow: 'Mostrar "{{name}}"',
     columnShowHidden: "Mostrar colunas ocultas",
     columnName: "Nome da coluna",
     columnResize: "Redimensionar coluna",
+    metricComparisonVs: "em relação a {{period}}",
+    metricComparisonPreviousPeriod: "o período anterior",
+    metricComparisonNoChange: "Sem alteração",
+    metricComparisonPoints: "{{value}} p.p.",
+    metricComparisonUp:
+      "Alta de {{change}} em relação a {{previous}}, {{period}}",
+    metricComparisonDown:
+      "Queda de {{change}} em relação a {{previous}}, {{period}}",
+    metricComparisonFlat: "Sem alteração em relação a {{previous}}, {{period}}",
+    metricComparisonBetter: "{{comparison}} (melhor)",
+    metricComparisonWorse: "{{comparison}} (pior)",
+    calloutSeverityCritical: "Crítico",
+    calloutSeverityWarning: "Aviso",
+    calloutSeverityInfo: "Informação",
     rowBreakdownBy: "Detalhar por",
     rowBreakdownAll: "Todos",
     rowBreakdownOther: "Outros",

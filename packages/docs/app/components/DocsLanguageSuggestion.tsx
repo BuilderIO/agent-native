@@ -18,6 +18,7 @@ import {
   sitePathForLocale,
   type DocsLocale,
 } from "./docs-locale";
+import { usePageLocales } from "./page-locales";
 import { Popover, PopoverAnchor, PopoverContent } from "./ui/popover";
 
 export const DOCS_LANGUAGE_SUGGESTION_DISMISSED_KEY =
@@ -33,14 +34,18 @@ export function shouldSuggestDocsLocale({
   browserLocale,
   storedPreference,
   dismissedTarget,
+  pageLocales,
 }: {
   pathname: string;
+  /** The languages this page exists in, when its route lists them. */
+  pageLocales?: readonly string[];
   routeLocale: DocsLocale;
   browserLocale: DocsLocale;
   storedPreference: LocalePreference | null;
   dismissedTarget: string | null;
 }) {
-  if (isCampaignPathname(pathname)) return false;
+  if (isCampaignPathname(pathname) && !pageLocales?.includes(browserLocale))
+    return false;
   if (routeLocale !== DEFAULT_DOCS_LOCALE) return false;
   if (browserLocale === DEFAULT_DOCS_LOCALE) return false;
   if (storedPreference && storedPreference !== "system") return false;
@@ -80,6 +85,7 @@ function readStoredPreference(): LocalePreference | null {
 export default function DocsLanguageSuggestion() {
   const t = useT();
   const location = useLocation();
+  const pageLocales = usePageLocales();
   const [suggestion, setSuggestion] = useState<SuggestionState | null>(null);
   const [open, setOpen] = useState(false);
 
@@ -93,13 +99,14 @@ export default function DocsLanguageSuggestion() {
       browserLocale,
       storedPreference: readStoredPreference(),
       dismissedTarget: readStorage(DOCS_LANGUAGE_SUGGESTION_DISMISSED_KEY),
+      pageLocales,
     })
       ? { targetLocale: browserLocale }
       : null;
 
     setSuggestion(nextSuggestion);
     setOpen(Boolean(nextSuggestion));
-  }, [location.pathname]);
+  }, [location.pathname, pageLocales]);
 
   const href = useMemo(() => {
     if (!suggestion) return "";

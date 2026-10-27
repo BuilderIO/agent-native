@@ -22,6 +22,8 @@ import {
   getRequestDbPool,
   replaceRequestDbPool,
 } from "./request-pool-context.js";
+import { getSqlFragmentParameterOffsets, isSqlFragment } from "./sql.js";
+import type { SqlFragment } from "./sql.js";
 export {
   isHostedFunctionInvocationRuntime,
   isProductionServerlessFunctionRuntime,
@@ -47,9 +49,10 @@ export interface DbExecQuery {
 }
 
 export type DbExecStatement = string | DbExecQuery;
+export type DbExecInput = DbExecStatement | SqlFragment;
 
 export interface DbExec {
-  execute(sql: DbExecStatement): Promise<{
+  execute(sql: DbExecInput): Promise<{
     rows: any[];
     rowsAffected: number;
   }>;
@@ -99,7 +102,11 @@ function getActivePgliteTransactionExec(url: string): DbExec | undefined {
     ?.exec;
 }
 
-export function getDatabaseUrl(fallback = ""): string {
+export function getDatabaseUrl(
+  fallback = "",
+  options: { explicitOnly?: boolean } = {},
+): string {
+  if (options.explicitOnly) return envDatabaseValue("DATABASE_URL") || fallback;
   const testUrl = getIsolatedTestDatabaseUrl();
   if (testUrl) return testUrl;
   const appName = getAppEnvPrefix();
@@ -783,13 +790,35 @@ export function isLocalDatabase(): boolean {
   return isPgliteUrl(getRuntimeDatabaseUrl("pglite:./data/pglite"));
 }
 
-export function toPostgresParams(sql: string): string {
+export function toPostgresParams(
+  sql: string,
+  parameterOffsets?: readonly number[],
+): string {
+  const expectedMarkers =
+    parameterOffsets === undefined ? undefined : new Set<number>();
+  for (const offset of parameterOffsets ?? []) {
+    if (
+      !Number.isInteger(offset) ||
+      offset < 0 ||
+      offset >= sql.length ||
+      sql[offset] !== "?" ||
+      expectedMarkers?.has(offset)
+    ) {
+      throw new TypeError(
+        "SQL fragment has invalid parameter marker metadata.",
+      );
+    }
+    expectedMarkers?.add(offset);
+  }
+
   let out = "";
   let param = 0;
   let i = 0;
+  const convertedMarkers = new Set<number>();
   let mode:
     | "normal"
     | "single"
+    | "escape-single"
     | "double"
     | "line-comment"
     | "block-comment"
@@ -819,8 +848,13 @@ export function toPostgresParams(sql: string): string {
       continue;
     }
 
-    if (mode === "single") {
+    if (mode === "single" || mode === "escape-single") {
       out += ch;
+      if (mode === "escape-single" && ch === "\\" && i + 1 < sql.length) {
+        out += next;
+        i += 2;
+        continue;
+      }
       if (ch === "'" && next === "'") {
         out += next;
         i += 2;
@@ -871,7 +905,12 @@ export function toPostgresParams(sql: string): string {
     if (ch === "'") {
       out += ch;
       i++;
-      mode = "single";
+      const prefix = sql[i - 2];
+      const previous = sql.charAt(i - 3);
+      mode =
+        (prefix === "E" || prefix === "e") && !/[A-Za-z0-9_$]/.test(previous)
+          ? "escape-single"
+          : "single";
       continue;
     }
     if (ch === '"') {
@@ -882,7 +921,8 @@ export function toPostgresParams(sql: string): string {
     }
     if (ch === "$") {
       const match = /^\$[A-Za-z_][A-Za-z0-9_]*\$|^\$\$/.exec(sql.slice(i));
-      if (match) {
+      const previous = sql.charAt(i - 1);
+      if (match && !/[A-Za-z0-9_$]/.test(previous)) {
         dollarTag = match[0];
         out += dollarTag;
         i += dollarTag.length;
@@ -890,8 +930,12 @@ export function toPostgresParams(sql: string): string {
         continue;
       }
     }
-    if (ch === "?") {
+    if (
+      ch === "?" &&
+      (expectedMarkers === undefined || expectedMarkers.has(i))
+    ) {
       out += `$${++param}`;
+      convertedMarkers.add(i);
       i++;
       continue;
     }
@@ -900,24 +944,45 @@ export function toPostgresParams(sql: string): string {
     i++;
   }
 
+  if (
+    expectedMarkers !== undefined &&
+    convertedMarkers.size !== expectedMarkers.size
+  ) {
+    throw new TypeError(
+      "SQL fragment bind marker appears inside a SQL literal.",
+    );
+  }
+
   return out;
 }
 
-function sqlAndArgs(sql: DbExecStatement): {
+// raw-sql-ok: unwrap fragments at the database adapter boundary.
+function sqlAndArgs(sql: DbExecInput): {
   rawSql: string;
   args: unknown[];
 } {
   return typeof sql === "string"
     ? { rawSql: sql, args: [] }
-    : { rawSql: sql.sql, args: sql.args || [] };
+    : { rawSql: sql.sql, args: [...(sql.args ?? [])] }; // raw-sql-ok: preserve the legacy execute shape while unwrapping a typed fragment.
+}
+
+function postgresSqlForStatement(
+  statement: DbExecInput,
+  rawSql: string,
+): string {
+  return isSqlFragment(statement)
+    ? toPostgresParams(rawSql, getSqlFragmentParameterOffsets(statement))
+    : toPostgresParams(rawSql);
 }
 
 const POSTGRES_STATEMENT_TIMEOUT_HEADROOM_MS = 250;
 const POSTGRES_STATEMENT_TIMEOUT_RESET_MS = 5_000;
 const POSTGRES_MAX_INT = 2_147_483_647;
 
-export function hasExplicitDbTimeout(statement: DbExecStatement): boolean {
-  if (typeof statement === "string") return false;
+export function hasExplicitDbTimeout(statement: DbExecInput): boolean {
+  if (typeof statement === "string" || !("timeoutMs" in statement)) {
+    return false;
+  }
   const timeoutMs = Number(statement.timeoutMs);
   return Number.isFinite(timeoutMs) && timeoutMs > 0;
 }
@@ -934,15 +999,17 @@ export function postgresStatementTimeoutMs(clientTimeoutMs: number): number {
   return Math.max(1, safeTimeoutMs - headroomMs);
 }
 
-export function dbExecQueryBudget(statement: DbExecStatement): {
+export function dbExecQueryBudget(statement: DbExecInput): {
   timeoutMs: number;
   maxAttempts: number;
 } {
   if (typeof statement === "string") {
     return { timeoutMs: dbOpTimeoutMs(), maxAttempts: 3 };
   }
-  const timeoutMs = Number(statement.timeoutMs);
-  const maxAttempts = Number(statement.maxAttempts);
+  const timeoutMs =
+    "timeoutMs" in statement ? Number(statement.timeoutMs) : Number.NaN;
+  const maxAttempts =
+    "maxAttempts" in statement ? Number(statement.maxAttempts) : Number.NaN;
   return {
     timeoutMs:
       Number.isFinite(timeoutMs) && timeoutMs > 0
@@ -1266,11 +1333,11 @@ export function assertHostedRuntimeDatabase(): void {
 const SCHEMA_MUTATION_STATEMENT =
   /^\s*(?:CREATE|ALTER|DROP|TRUNCATE|COMMENT|REINDEX|GRANT|REVOKE)\b/i;
 
-function rawSql(statement: DbExecStatement): string {
+function rawSql(statement: DbExecInput): string {
   return typeof statement === "string" ? statement : statement.sql;
 }
 
-export function isSchemaMutationStatement(statement: DbExecStatement): boolean {
+export function isSchemaMutationStatement(statement: DbExecInput): boolean {
   return SCHEMA_MUTATION_STATEMENT.test(rawSql(statement));
 }
 
@@ -1280,7 +1347,7 @@ export function isSchemaMutationStatement(statement: DbExecStatement): boolean {
  * reporting success against a missing table. The release migration wrapper
  * is the only supported production opt-in.
  */
-export function assertSchemaMutationAllowed(statement: DbExecStatement): void {
+export function assertSchemaMutationAllowed(statement: DbExecInput): void {
   const migrationRuntimeCanMutate =
     isMigrationExecutingRuntime() ||
     (isMigrationAuthorizedRuntime() && !isHostedFunctionInvocationRuntime());
@@ -1711,7 +1778,7 @@ async function executePglite(
   sql: Parameters<DbExec["execute"]>[0],
 ): ReturnType<DbExec["execute"]> {
   const { rawSql, args } = sqlAndArgs(sql);
-  const pgSql = toPostgresParams(rawSql);
+  const pgSql = postgresSqlForStatement(sql, rawSql);
   const result = await withDbTimeout(
     "query",
     () => client.query(pgSql, args as any[]),
@@ -1810,7 +1877,7 @@ async function createDbExecInternal(
     ) {
       const { rawSql, args } = sqlAndArgs(sql);
       const { timeoutMs } = dbExecQueryBudget(sql);
-      const pgSql = toPostgresParams(rawSql);
+      const pgSql = postgresSqlForStatement(sql, rawSql);
       const runQuery = () =>
         args.length === 0 && rawSql.includes(";")
           ? client.query(pgSql)
@@ -1863,7 +1930,7 @@ async function createDbExecInternal(
       }
       const { rawSql, args } = sqlAndArgs(sql);
       const { timeoutMs } = dbExecQueryBudget(sql);
-      const pgSql = toPostgresParams(rawSql);
+      const pgSql = postgresSqlForStatement(sql, rawSql);
       const controller = new AbortController();
       const run = async () => {
         if (!hasExplicitDbTimeout(sql)) {
@@ -2065,7 +2132,7 @@ async function createDbExecInternal(
           const rawSql = typeof sql === "string" ? sql : sql.sql;
           const args = typeof sql === "string" ? [] : sql.args || [];
           const { timeoutMs } = dbExecQueryBudget(sql);
-          const pgSql = toPostgresParams(rawSql);
+          const pgSql = postgresSqlForStatement(sql, rawSql);
           const result = await withDbTimeout<
             ArrayLike<unknown> & { count?: number }
           >(
@@ -2108,7 +2175,7 @@ async function createDbExecInternal(
               async execute(sql) {
                 const { rawSql, args } = sqlAndArgs(sql);
                 const { timeoutMs } = dbExecQueryBudget(sql);
-                const pgSql = toPostgresParams(rawSql);
+                const pgSql = postgresSqlForStatement(sql, rawSql);
                 const result = await withDbTimeout<
                   ArrayLike<unknown> & { count?: number }
                 >(
@@ -2166,7 +2233,7 @@ async function createDbExecInternal(
       async execute(sql) {
         const { rawSql, args } = sqlAndArgs(sql);
         const { timeoutMs, maxAttempts } = dbExecQueryBudget(sql);
-        const pgSql = toPostgresParams(rawSql);
+        const pgSql = postgresSqlForStatement(sql, rawSql);
         const result = await retryOnConnectionError<
           ArrayLike<unknown> & { count?: number }
         >(() => {
@@ -2193,7 +2260,7 @@ async function createDbExecInternal(
             async execute(sql) {
               const { rawSql, args } = sqlAndArgs(sql);
               const { timeoutMs } = dbExecQueryBudget(sql);
-              const pgSql = toPostgresParams(rawSql);
+              const pgSql = postgresSqlForStatement(sql, rawSql);
               const result = await withDbTimeout<
                 ArrayLike<unknown> & { count?: number }
               >(
@@ -2310,14 +2377,30 @@ export function annotateMissingTable(err: unknown, sql: unknown): unknown {
 }
 
 const scopedDbExec = new AsyncLocalStorage<DbExec>();
-const transactionCallbacks = new AsyncLocalStorage<{ active: boolean }>();
+const transactionCallbacks = new AsyncLocalStorage<{
+  active: boolean;
+  executors: WeakSet<DbExec>;
+}>();
 
 export function withDbExec<T>(exec: DbExec, run: () => T): T {
-  return scopedDbExec.run(guardSchemaMutations(exec), run);
+  const guarded = guardSchemaMutations(exec);
+  const callback = transactionCallbacks.getStore();
+  if (callback?.active && callback.executors.has(exec)) {
+    callback.executors.add(guarded);
+  }
+  return scopedDbExec.run(guarded, run);
 }
 
 export function getScopedDbExec(): DbExec | undefined {
   return scopedDbExec.getStore();
+}
+
+export function getScopedTransactionDbExec(): DbExec | undefined {
+  const scoped = getScopedDbExec();
+  const callback = transactionCallbacks.getStore();
+  return scoped && callback?.active && callback.executors.has(scoped)
+    ? scoped
+    : undefined;
 }
 
 /**
@@ -2329,8 +2412,11 @@ export function insideDbTransactionCallback(): boolean {
   return transactionCallbacks.getStore()?.active === true;
 }
 
-async function inTransactionCallback<T>(run: () => Promise<T>): Promise<T> {
-  const callback = { active: true };
+async function inTransactionCallback<T>(
+  exec: DbExec,
+  run: () => Promise<T>,
+): Promise<T> {
+  const callback = { active: true, executors: new WeakSet([exec]) };
   try {
     return await transactionCallbacks.run(callback, run);
   } finally {
@@ -2346,18 +2432,19 @@ export function getDbExec(): DbExec {
   // Never hand out the raw `_exec`: it bypasses the schema-mutation guard.
   if (_proxy) return _proxy;
 
+  function sanitize(sql: DbExecStatement): DbExecStatement;
+  function sanitize(sql: DbExecInput): DbExecInput;
   function sanitize(
-    sql: string | { sql: string; args?: unknown[] },
-  ): string | { sql: string; args?: unknown[] } {
-    if (typeof sql === "object" && sql.args) {
+    sql: DbExecInput, // raw-sql-ok: this wrapper forwards typed fragments and legacy statements unchanged.
+  ): DbExecInput {
+    if (isSqlFragment(sql)) return sql;
+    if (typeof sql === "object" && sql.args !== undefined) {
       return { ...sql, args: sql.args.map((a) => a ?? null) };
     }
     return sql;
   }
 
-  async function execAnnotated(
-    s: string | { sql: string; args?: unknown[] },
-  ): ReturnType<DbExec["execute"]> {
+  async function execAnnotated(s: DbExecInput): ReturnType<DbExec["execute"]> {
     assertSchemaMutationAllowed(s);
     try {
       return await getCurrentDbExec().execute(sanitize(s));
@@ -2405,19 +2492,25 @@ export function getDbExec(): DbExec {
               throw new Error("This database does not support transactions.");
             }
             return currentExec.transaction((tx) =>
-              inTransactionCallback(() =>
-                fn({
-                  execute: (s) => {
-                    assertSchemaMutationAllowed(s);
-                    return tx.execute(sanitize(s));
-                  },
-                  transaction: tx.transaction?.bind(tx),
-                }),
-              ),
+              runTransactionCallback(tx, fn),
             );
           }
         : undefined,
     };
+  }
+
+  function runTransactionCallback<T>(
+    tx: DbExec,
+    fn: (tx: DbExec) => Promise<T>,
+  ): Promise<T> {
+    const exec: DbExec = {
+      execute: (s) => {
+        assertSchemaMutationAllowed(s);
+        return tx.execute(sanitize(s));
+      },
+      transaction: tx.transaction?.bind(tx),
+    };
+    return inTransactionCallback(exec, () => fn(exec));
   }
 
   const proxy: DbExec = {
@@ -2431,17 +2524,7 @@ export function getDbExec(): DbExec {
       const exec = await initializeProxy();
       Object.assign(proxy, createInitializedProxy(exec));
       if (exec.transaction) {
-        return exec.transaction((tx) =>
-          inTransactionCallback(() =>
-            fn({
-              execute: (s) => {
-                assertSchemaMutationAllowed(s);
-                return tx.execute(sanitize(s));
-              },
-              transaction: tx.transaction?.bind(tx),
-            }),
-          ),
-        );
+        return exec.transaction((tx) => runTransactionCallback(tx, fn));
       }
       if (exec.atomicBatch) {
         throw new Error(
@@ -2450,7 +2533,7 @@ export function getDbExec(): DbExec {
       }
       const wrapper = createInitializedProxy(exec);
       return explicitTransaction(wrapper.execute.bind(wrapper))((tx) =>
-        inTransactionCallback(() => fn(tx)),
+        inTransactionCallback(tx, () => fn(tx)),
       );
     },
     async atomicBatch(statements) {

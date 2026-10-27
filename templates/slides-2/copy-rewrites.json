@@ -1,0 +1,95 @@
+{
+  "schemaVersion": 1,
+  "oracle-change": {
+    "category": "brand copy",
+    "manifest": "templates/slides-2/copy-rewrites.json",
+    "comparison": "geometry only"
+  },
+  "rewrites": [
+    {
+      "id": "i18n:designSystems.emptyDescription",
+      "reason": "Replaces promotional benefit copy with plain setup guidance and a user-centered outcome.",
+      "translations": {
+        "en-US": "Choose your colors, fonts, and logo once. New decks will carry that look across every slide, so you can focus on the story.",
+        "es-ES": "Elige una vez tus colores, tipografías y logotipo. Las nuevas presentaciones mantendrán ese estilo en cada diapositiva, para que puedas centrarte en la historia.",
+        "fr-FR": "Choisissez une fois vos couleurs, polices et logo. Les nouvelles présentations garderont ce style sur chaque diapositive, pour vous laisser vous concentrer sur le récit.",
+        "de-DE": "Wählen Sie Farben, Schriften und Logo einmal aus. Neue Präsentationen übernehmen den Stil auf allen Folien, damit Sie sich auf den Inhalt konzentrieren können.",
+        "ja-JP": "色、フォント、ロゴを一度選べば、新しいプレゼンテーションの全スライドに同じスタイルが反映されます。内容づくりに集中できます。",
+        "hi-IN": "रंग, फ़ॉन्ट और लोगो एक बार चुनें। हर नई प्रस्तुति में सभी स्लाइड पर यही शैली रहेगी, ताकि आप विषय पर ध्यान दे सकें।",
+        "ar-SA": "اختر الألوان والخطوط والشعار مرة واحدة. ستحافظ العروض الجديدة على الأسلوب نفسه في كل الشرائح، لتتفرغ للمحتوى.",
+        "ko-KR": "색상, 글꼴, 로고를 한 번 정해 두세요. 새 프레젠테이션의 모든 슬라이드에 같은 스타일을 적용해 내용에 집중할 수 있습니다.",
+        "pt-BR": "Escolha suas cores, fontes e logo uma vez. Novas apresentações vão manter esse visual em todos os slides, para você focar na história.",
+        "zh-CN": "一次选好颜色、字体和标志。新演示文稿的每张幻灯片都会沿用这一风格，让你专注于内容。",
+        "zh-TW": "一次選好色彩、字型和標誌。新簡報的每張投影片都會沿用這個風格，讓你專注於內容。"
+      }
+    },
+    {
+      "id": "i18n:generateSlides.description",
+      "reason": "Describes the agent's role plainly instead of promoting AI generation.",
+      "translations": {
+        "en-US": "Share a topic, and your agent will shape it into slides with you.",
+        "es-ES": "Comparte un tema y tu agente le dará forma en diapositivas contigo.",
+        "fr-FR": "Donnez un sujet, et votre agent le mettra en forme avec vous.",
+        "de-DE": "Teilen Sie ein Thema, und Ihr Agent gestaltet die Folien gemeinsam mit Ihnen.",
+        "ja-JP": "テーマを伝えると、エージェントが一緒にスライドを形にします。",
+        "hi-IN": "विषय साझा करें, और आपका एजेंट आपके साथ स्लाइड तैयार करेगा।",
+        "ar-SA": "شارك موضوعًا، وسيشكّل وكيلك الشرائح معك.",
+        "ko-KR": "주제를 알려 주시면 에이전트가 함께 슬라이드를 구성합니다.",
+        "pt-BR": "Compartilhe um tema, e seu agente vai montar os slides com você.",
+        "zh-CN": "告诉我们主题，智能代理会和你一起整理成幻灯片。",
+        "zh-TW": "告訴我們主題，智慧代理會和你一起整理成投影片。"
+      }
+    },
+    {
+      "id": "i18n:home.emptyDescription",
+      "reason": "Replaces a broad benefit claim with a concrete first step and collaborative workflow.",
+      "translations": {
+        "en-US": "Start with a prompt, then shape your presentation together.",
+        "es-ES": "Empieza con una idea y dale forma a tu presentación junto a tu agente.",
+        "fr-FR": "Partez d’une idée et façonnez votre présentation avec votre agent.",
+        "de-DE": "Beginnen Sie mit einem Thema und gestalten Sie Ihre Präsentation gemeinsam mit Ihrem Agenten.",
+        "ja-JP": "テーマを入力して、エージェントと一緒にプレゼンテーションを形にしましょう。",
+        "hi-IN": "एक विषय से शुरू करें और अपने एजेंट के साथ प्रस्तुति को आकार दें।",
+        "ar-SA": "ابدأ بفكرة، وشكّل عرضك التقديمي مع وكيلك خطوة بخطوة.",
+        "ko-KR": "주제를 정하고 에이전트와 함께 프레젠테이션을 만들어 보세요.",
+        "pt-BR": "Comece com uma ideia e monte sua apresentação com a ajuda do seu agente.",
+        "zh-CN": "从一个主题开始，和智能代理一起打磨你的演示文稿。",
+        "zh-TW": "從一個主題開始，和智慧代理一起打磨你的簡報。"
+      }
+    },
+    {
+      "id": "i18n:home.firstDeckPromptTitle",
+      "reason": "Recasts first-run onboarding in a warm, collaborative voice.",
+      "translations": {
+        "en-US": "Let's build your first presentation together.",
+        "es-ES": "Creemos juntos tu primera presentación.",
+        "fr-FR": "Créons votre première présentation ensemble.",
+        "de-DE": "Erstellen wir gemeinsam Ihre erste Präsentation.",
+        "ja-JP": "最初のプレゼンテーションを一緒に作りましょう。",
+        "hi-IN": "आइए, मिलकर आपकी पहली प्रस्तुति बनाएँ।",
+        "ar-SA": "لنُعدّ عرضك التقديمي الأول معًا.",
+        "ko-KR": "첫 프레젠테이션을 함께 만들어 보세요.",
+        "pt-BR": "Vamos criar sua primeira apresentação juntos.",
+        "zh-CN": "一起制作你的第一份演示文稿。",
+        "zh-TW": "一起製作你的第一份簡報。"
+      }
+    },
+    {
+      "id": "i18n:settings.mcpAbout",
+      "reason": "Explains MCP capabilities and access limits without product-branded framing.",
+      "translations": {
+        "en-US": "Connect this workspace to Claude, ChatGPT, Cursor, or another MCP-enabled app. It can create decks, add slides, and export to PowerPoint, with access limited to what you can see.",
+        "es-ES": "Conecta este espacio de trabajo con Claude, ChatGPT, Cursor u otra app compatible con MCP. Podrá crear presentaciones, añadir diapositivas y exportar a PowerPoint, con acceso limitado a lo que puedes ver.",
+        "fr-FR": "Connectez cet espace de travail à Claude, ChatGPT, Cursor ou à une autre application compatible avec MCP. Elle peut créer des présentations, ajouter des diapositives et exporter vers PowerPoint, avec un accès limité à ce que vous pouvez voir.",
+        "de-DE": "Verbinden Sie diesen Arbeitsbereich mit Claude, ChatGPT, Cursor oder einer anderen App mit MCP-Unterstützung. Sie kann Präsentationen erstellen, Folien ergänzen und nach PowerPoint exportieren. Der Zugriff bleibt auf das beschränkt, was Sie sehen können.",
+        "ja-JP": "このワークスペースをClaude、ChatGPT、CursorなどのMCP対応アプリに接続できます。アプリからプレゼンテーションの作成、スライドの追加、PowerPointへの書き出しができます。アクセス範囲は、あなたに表示されている内容に限られます。",
+        "hi-IN": "इस वर्कस्पेस को Claude, ChatGPT, Cursor या किसी अन्य MCP समर्थित ऐप से जोड़ें। यह ऐप प्रस्तुति बना सकता है, स्लाइड जोड़ सकता है और PowerPoint में निर्यात कर सकता है। पहुँच केवल उन चीज़ों तक रहेगी जिन्हें आप देख सकते हैं।",
+        "ar-SA": "اربط مساحة العمل هذه بتطبيق Claude أو ChatGPT أو Cursor أو أي تطبيق آخر يدعم MCP. يمكنه إنشاء العروض وإضافة الشرائح وتصديرها إلى PowerPoint، مع اقتصار الوصول على ما يمكنك رؤيته.",
+        "ko-KR": "이 워크스페이스를 Claude, ChatGPT, Cursor 등 MCP를 지원하는 앱과 연결하세요. 앱에서 프레젠테이션을 만들고, 슬라이드를 추가하고, PowerPoint로 내보낼 수 있습니다. 접근 범위는 내가 볼 수 있는 내용으로 제한됩니다.",
+        "pt-BR": "Conecte este espaço de trabalho ao Claude, ChatGPT, Cursor ou outro app compatível com MCP. Ele pode criar apresentações, adicionar slides e exportar para PowerPoint, com acesso limitado ao que você consegue ver.",
+        "zh-CN": "将此工作区连接到 Claude、ChatGPT、Cursor 或其他支持 MCP 的应用。它可以创建演示文稿、添加幻灯片并导出为 PowerPoint，访问范围仅限于你能查看的内容。",
+        "zh-TW": "將此工作區連結到 Claude、ChatGPT、Cursor 或其他支援 MCP 的應用程式。它可以建立簡報、加入投影片並匯出為 PowerPoint，存取範圍僅限於你能查看的內容。"
+      }
+    }
+  ]
+}

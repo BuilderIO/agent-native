@@ -2,10 +2,12 @@ import { createHash } from "node:crypto";
 
 import { defineAction, fail } from "@agent-native/core/action";
 import {
-  getJevContextCredentials,
-  getRequestUserEmail,
-  isJevEnabled,
-} from "@agent-native/core/server";
+  getDecisionsStatus,
+  JEV_DECISIONS_MODEL,
+  OPENAI_DECISIONS_MODEL,
+  type DecisionProvider,
+} from "@agent-native/core/decisions";
+import { getRequestUserEmail } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";
 
@@ -17,11 +19,6 @@ import {
   type AiPriorityCacheEntry,
 } from "../server/lib/ai-priority.js";
 import { previewAutomationPriority } from "../server/lib/automation-engine.js";
-import {
-  TYPESAFE_AUTOMATION_ENGINE,
-  TYPESAFE_AUTOMATION_MODEL,
-  type AutomationModelSettings,
-} from "../server/lib/automation-model.js";
 import { listAutomationRules } from "../server/lib/automations.js";
 import {
   AI_IMPORTANT_LABEL,
@@ -29,6 +26,8 @@ import {
   AI_PRIORITY_MAX_EMAILS,
   aiPriorityEmailKey,
   aiPriorityEmailSchema,
+  type AiPriorityFailure,
+  type AiPriorityScore,
 } from "../shared/ai-priority.js";
 import { mailLabelsInclude } from "../shared/gmail-labels.js";
 
@@ -70,9 +69,49 @@ function importantRules(
     .sort((a, b) => a.id.localeCompare(b.id));
 }
 
+function modelForProvider(provider: DecisionProvider): string {
+  return provider === "jev" ? JEV_DECISIONS_MODEL : OPENAI_DECISIONS_MODEL;
+}
+
+function instructionIdentity(
+  rules: ReturnType<typeof importantRules>,
+  instruction: string,
+): string {
+  return hash(
+    JSON.stringify(
+      rules.length
+        ? rules.map((rule) => `${rule.id}:${rule.updatedAt}:${rule.condition}`)
+        : [instruction],
+    ),
+  );
+}
+
+function instructionKey(
+  provider: DecisionProvider,
+  model: string,
+  identity: string,
+): string {
+  const modelIdentity =
+    provider === "jev"
+      ? { engine: "typesafe", model }
+      : { engine: "decisions", provider, model };
+  return hash(JSON.stringify({ model: modelIdentity, identity }));
+}
+
+function readyDecisionProviders(
+  status: Awaited<ReturnType<typeof getDecisionsStatus>>,
+): DecisionProvider[] {
+  return [...new Set(status.providerOrder)].filter((provider) =>
+    status.providers.some(
+      (candidate) =>
+        candidate.provider === provider && candidate.status === "ready",
+    ),
+  );
+}
+
 export default defineAction({
   description:
-    "Score up to 500 newest, non-archived Inbox emails with Jev for a cached Priority sort using Mail Important rules. Requires Builder Jev access or a direct Jev API key.",
+    "Score up to 500 newest, non-archived Inbox emails for a cached Priority sort using Mail Important rules. Uses the configured decision provider and returns per-email failures without fabricating scores.",
   schema: z.object({
     emails: z.array(aiPriorityEmailSchema).max(AI_PRIORITY_MAX_EMAILS),
   }),
@@ -80,38 +119,33 @@ export default defineAction({
   run: async ({ emails }) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) fail("Unauthenticated", { errorCode: "unauthenticated" });
-    const jevCredentials = await getJevContextCredentials(ownerEmail);
-    const [jevEnabled, rules, cache, storedFeedback] = await Promise.all([
-      isJevEnabled(jevCredentials),
-      listAutomationRules(ownerEmail),
-      getAiPriorityCache(ownerEmail),
-      getUserSetting(ownerEmail, "ai-priority-feedback"),
-    ]);
-    if (!jevEnabled) {
-      fail("Jev is not enabled for this account.", {
+    const status = await getDecisionsStatus(ownerEmail);
+    const readyProviders = readyDecisionProviders(status);
+    const selectedProvider = readyProviders.slice(0, 1).pop();
+    if (!selectedProvider) {
+      if (status.providers.some(({ status }) => status === "unknown")) {
+        fail("Decision provider availability could not be checked.", {
+          errorCode: "jev_availability_failed",
+          statusCode: 503,
+        });
+      }
+      fail("Connect an AI provider to use Priority sort.", {
+        // The code remains stable for clients that still map this legacy name.
         errorCode: "jev_not_enabled",
         statusCode: 403,
       });
     }
 
+    const [rules, cache, storedFeedback] = await Promise.all([
+      listAutomationRules(ownerEmail),
+      getAiPriorityCache(ownerEmail),
+      getUserSetting(ownerEmail, "ai-priority-feedback"),
+    ]);
     const priorityRules = importantRules(rules);
     const instruction = priorityRules.length
       ? priorityRules.map((rule) => rule.condition.trim()).join("\n")
       : AI_PRIORITY_DEFAULT_INSTRUCTION;
-    const modelSettings = {
-      engine: TYPESAFE_AUTOMATION_ENGINE,
-      model: TYPESAFE_AUTOMATION_MODEL,
-    };
-    const instructionKey = hash(
-      JSON.stringify({
-        model: modelSettings,
-        rules: priorityRules.length
-          ? priorityRules.map(
-              (rule) => `${rule.id}:${rule.updatedAt}:${rule.condition}`,
-            )
-          : [instruction],
-      }),
-    );
+    const identity = instructionIdentity(priorityRules, instruction);
     const eligibleEmails = emails
       .filter(
         (email) =>
@@ -127,10 +161,31 @@ export default defineAction({
       .slice(0, AI_PRIORITY_MAX_EMAILS);
     const fingerprints = eligibleEmails.map((email) => ({
       id: email.id,
-      accountEmail: email.accountEmail,
+      ...(email.accountEmail ? { accountEmail: email.accountEmail } : {}),
       fingerprint: emailFingerprint(email),
     }));
-    const scores = getCachedPriorityScores(cache, fingerprints, instructionKey);
+    const scores = new Map<string, AiPriorityScore>();
+    let rankingProvider = selectedProvider;
+    let rankingModel = modelForProvider(selectedProvider);
+    let cachedScores = new Map<string, AiPriorityScore>();
+    for (const provider of readyProviders) {
+      const model = modelForProvider(provider);
+      const providerScores = getCachedPriorityScores(
+        cache,
+        fingerprints,
+        instructionKey(provider, model, identity),
+        provider,
+        model,
+      );
+      if (providerScores.size > cachedScores.size) {
+        rankingProvider = provider;
+        rankingModel = model;
+        cachedScores = providerScores;
+      }
+    }
+    for (const [key, score] of cachedScores) {
+      scores.set(key, score);
+    }
     const feedbackValue =
       storedFeedback &&
       typeof storedFeedback === "object" &&
@@ -169,80 +224,129 @@ export default defineAction({
     const pending = eligibleEmails.filter(
       (email) => !scores.has(aiPriorityEmailKey(email.accountEmail, email.id)),
     );
-    let model: AutomationModelSettings = modelSettings;
+    let evaluatedCount = 0;
+    let failedCount = 0;
+    let failures: AiPriorityFailure[] = [];
+    let model: { provider: DecisionProvider; model: string } = {
+      provider: rankingProvider,
+      model: rankingModel,
+    };
 
     if (pending.length > 0) {
       const result = await previewAutomationPriority(
         pending,
         ownerEmail,
         instruction,
-        jevCredentials,
         AbortSignal.timeout(25_000),
+        cachedScores.size ? [rankingProvider] : readyProviders,
       );
-      model = result.model;
-      const incomplete = pending.some((email) => {
-        const score = result.scores.get(
-          aiPriorityEmailKey(email.accountEmail, email.id),
-        )?.score;
-        return (
-          score === undefined ||
-          !Number.isFinite(score) ||
-          score < 0 ||
-          score > 1
-        );
-      });
-      if (incomplete) {
-        throw new Error(
-          "Priority model returned incomplete results. Run Priority again.",
-        );
-      }
+      const resultProviders = new Set(
+        [...result.scores.values()].map((score) => score.provider),
+      );
+      const actualProvider = cachedScores.size
+        ? rankingProvider
+        : (result.model?.provider ??
+          resultProviders.values().next().value ??
+          rankingProvider);
+      model = {
+        provider: actualProvider,
+        model: modelForProvider(actualProvider),
+      };
+      failures = [...result.failures];
+      const failedKeys = new Set(
+        failures.map((failure) =>
+          aiPriorityEmailKey(failure.accountEmail, failure.emailId),
+        ),
+      );
       const now = Date.now();
-      const entries: AiPriorityCacheEntry[] = pending.map((email) => {
-        const score = result.scores.get(
-          aiPriorityEmailKey(email.accountEmail, email.id),
-        );
-        if (!score)
-          throw new Error("Priority model returned an invalid result.");
+      const entries: AiPriorityCacheEntry[] = [];
+      for (const email of pending) {
+        const key = aiPriorityEmailKey(email.accountEmail, email.id);
+        const score = result.scores.get(key);
+        if (score && score.provider !== actualProvider) {
+          if (!failedKeys.has(key)) {
+            failures.push({
+              emailId: email.id,
+              ...(email.accountEmail
+                ? { accountEmail: email.accountEmail }
+                : {}),
+              reason: "provider_error",
+              retryable: true,
+            });
+            failedKeys.add(key);
+          }
+          continue;
+        }
+        if (!score) {
+          if (!failedKeys.has(key)) {
+            fail("Priority decision returned an unclassified email.", {
+              errorCode: "decision_invalid_response",
+              statusCode: 502,
+            });
+          }
+          continue;
+        }
+        evaluatedCount += 1;
+        if (
+          !Number.isFinite(score.score) ||
+          score.score < 0 ||
+          score.score > 1
+        ) {
+          fail("Priority decision returned an invalid score.", {
+            errorCode: "decision_invalid_response",
+            statusCode: 502,
+          });
+        }
         const entry: AiPriorityCacheEntry = {
           emailId: email.id,
-          accountEmail: email.accountEmail,
+          ...(email.accountEmail ? { accountEmail: email.accountEmail } : {}),
           score: score.score,
           fingerprint: emailFingerprint(email),
-          instructionKey,
+          instructionKey: instructionKey(score.provider, score.model, identity),
+          instructionIdentity: identity,
           evaluatedAt: now,
+          provider: score.provider,
+          model: score.model,
         };
         if (score.reason) entry.reason = score.reason;
-        return entry;
-      });
-      const latestCache = await getAiPriorityCache(ownerEmail);
-      await saveAiPriorityCache(
-        ownerEmail,
-        mergePriorityCache(latestCache, entries, model),
-      );
-      for (const entry of entries) {
-        const key = aiPriorityEmailKey(entry.accountEmail, entry.emailId);
+        entries.push(entry);
         scores.set(key, {
-          emailId: entry.emailId,
-          ...(entry.accountEmail ? { accountEmail: entry.accountEmail } : {}),
-          score: entry.score,
-          ...(entry.reason ? { reason: entry.reason } : {}),
+          emailId: email.id,
+          ...(email.accountEmail ? { accountEmail: email.accountEmail } : {}),
+          score: score.score,
+          ...(score.reason ? { reason: score.reason } : {}),
         });
+      }
+      failedCount = failures.length;
+      if (result.evaluatedCount + result.failedCount !== pending.length) {
+        fail("Priority decision returned incomplete results.", {
+          errorCode: "decision_invalid_response",
+          statusCode: 502,
+        });
+      }
+      if (entries.length > 0) {
+        const latestCache = await getAiPriorityCache(ownerEmail);
+        await saveAiPriorityCache(
+          ownerEmail,
+          mergePriorityCache(latestCache, entries, {
+            provider: model.provider,
+            model: model.model,
+          }),
+        );
       }
     }
 
     return {
-      scores: eligibleEmails.map((email) => {
-        const key = aiPriorityEmailKey(email.accountEmail, email.id);
-        return (
-          scores.get(key) ?? {
-            emailId: email.id,
-            ...(email.accountEmail ? { accountEmail: email.accountEmail } : {}),
-            score: 0.5,
-          }
+      scores: eligibleEmails.flatMap((email) => {
+        const score = scores.get(
+          aiPriorityEmailKey(email.accountEmail, email.id),
         );
+        return score ? [score] : [];
       }),
+      failures,
       eligibleCount: eligibleEmails.length,
-      evaluatedCount: pending.length,
+      evaluatedCount,
+      failedCount,
       limit: AI_PRIORITY_MAX_EMAILS,
       model,
     };

@@ -12,7 +12,8 @@ import type {
   DocumentPropertyType,
   DocumentPropertyValue,
 } from "@shared/api";
-import { describe, expect, it } from "vitest";
+import { compactContentDatabaseItems } from "@shared/database-row-properties";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   DATABASE_NAVIGATION_STATE_MAX_BYTES,
@@ -60,6 +61,8 @@ import {
   databaseNavigationState,
   databaseAttachedBuilderModelNames,
   databaseAttachedBuilderSource,
+  databaseBuilderReviewAfterExecution,
+  databaseBuilderReviewAfterPartialExecution,
   builderReviewableChangeSets,
   builderReviewExecutableRows,
   builderSourceLiveWriteControlState,
@@ -1219,6 +1222,149 @@ describe("Builder source settings helpers", () => {
       message: "Builder push failed. The change remains retryable.",
     });
   });
+
+  it("builds a pushed review from every row's own execution response", () => {
+    const rowSource = (
+      id: string,
+      changeSet: Partial<ContentDatabaseSourceChangeSet> = {},
+    ) =>
+      builderSource({
+        capabilities: {
+          ...builderSource().capabilities,
+          liveWritesEnabled: true,
+        },
+        rows: builderSource().rows.map((row) => ({
+          ...row,
+          id: `row-source-${id}`,
+          databaseItemId: `item-${id}`,
+          documentId: id,
+          sourceDisplayKey: `Builder ${id}`,
+        })),
+        changeSets: [
+          builderChangeSet({
+            id: `change-${id}`,
+            databaseItemId: `item-${id}`,
+            documentId: id,
+            fieldChanges: [],
+            ...changeSet,
+          }),
+        ],
+      });
+    const preparedSecond = rowSource("second");
+    const prepared = [rowSource("first"), preparedSecond];
+    const preparedReview = buildClientBuilderReviewPayload(
+      { ...preparedSecond, rows: prepared.flatMap((source) => source.rows) },
+      prepared.flatMap((source) => source.changeSets),
+    );
+    const pushedRow = (id: string) => ({
+      changeSetId: `change-${id}`,
+      source: rowSource(id, {
+        state: "applied",
+        executions: [
+          builderExecution({ changeSetId: `change-${id}`, state: "succeeded" }),
+        ],
+      }),
+    });
+    const pushedFirst = pushedRow("first");
+    const pushed = [pushedFirst, pushedRow("second")];
+
+    const review = databaseBuilderReviewAfterExecution(preparedReview, pushed);
+
+    expect(
+      review?.rows.map((row) => [
+        row.changeSetId,
+        row.title,
+        row.execution?.state,
+      ]),
+    ).toEqual([
+      ["change-first", "Builder first", "succeeded"],
+      ["change-second", "Builder second", "succeeded"],
+    ]);
+    expect(review?.result).toMatchObject({
+      status: "succeeded",
+      message: "Pushed to Builder and reconciled locally.",
+    });
+    expect(
+      databaseBuilderReviewAfterExecution(preparedReview, [
+        pushedFirst,
+        { changeSetId: "change-second", source: pushedFirst.source },
+      ]),
+    ).toBeNull();
+
+    const skipped = databaseBuilderReviewAfterExecution(
+      preparedReview,
+      pushed.slice(1),
+    );
+    expect(
+      skipped?.rows.map((row) => [row.changeSetId, row.execution?.state]),
+    ).toEqual([
+      [
+        "change-first",
+        preparedReview.rows.find((row) => row.changeSetId === "change-first")
+          ?.execution?.state,
+      ],
+      ["change-second", "succeeded"],
+    ]);
+    expect(skipped?.result.status).toBe("succeeded");
+    expect(skipped?.summary).toBe(preparedReview.summary);
+
+    const failedAfterFirst = databaseBuilderReviewAfterPartialExecution(
+      preparedReview,
+      [pushedFirst],
+      "Builder rejected the second entry.",
+    );
+    expect(
+      failedAfterFirst?.rows.map((row) => [
+        row.changeSetId,
+        row.execution?.state,
+      ]),
+    ).toEqual([
+      ["change-first", "succeeded"],
+      [
+        "change-second",
+        preparedReview.rows.find((row) => row.changeSetId === "change-second")
+          ?.execution?.state,
+      ],
+    ]);
+    expect(failedAfterFirst?.result).toEqual({
+      status: "failed",
+      message: "Builder rejected the second entry.",
+    });
+    const unconfirmedSecond = databaseBuilderReviewAfterPartialExecution(
+      preparedReview,
+      [
+        pushedFirst,
+        { changeSetId: "change-second", source: pushedFirst.source },
+      ],
+      "Builder rejected the third entry.",
+    );
+    expect(
+      unconfirmedSecond?.rows.map((row) => [
+        row.changeSetId,
+        row.execution?.state,
+      ]),
+    ).toEqual(
+      failedAfterFirst?.rows.map((row) => [
+        row.changeSetId,
+        row.execution?.state,
+      ]),
+    );
+    expect(unconfirmedSecond?.result.status).toBe("failed");
+    expect(
+      databaseBuilderReviewAfterPartialExecution(
+        preparedReview,
+        [pushedFirst],
+        "Builder execution is already running.",
+      )?.result.status,
+    ).toBe("running");
+    expect(
+      databaseBuilderReviewAfterPartialExecution(
+        preparedReview,
+        [],
+        "Builder rejected the first entry.",
+      ),
+    ).toBeNull();
+  });
 });
 
 describe("database view sorting", () => {
@@ -1797,6 +1943,55 @@ describe("new database item defaults", () => {
         [property("status", "Status", "select"), createdProperty],
       ),
     ).toEqual({});
+  });
+
+  it("seeds the day a relative date filter names and nothing for ranges", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date(2026, 9, 22, 23, 30));
+      const dueProperty = property("due", "Due", "date");
+      const titleProperty = property("summary", "Summary", "text");
+      const due = (
+        operator: DatabaseFilter["operator"],
+        value: string,
+      ): DatabaseFilter => ({ key: "due", label: "Due", operator, value });
+
+      expect(
+        databasePropertyValuesForNewItem(
+          [due("equals", "today")],
+          [dueProperty],
+        ),
+      ).toEqual({ due: { start: "2026-10-22", includeTime: false } });
+      expect(
+        databasePropertyValuesForNewItem(
+          [due("equals", "tomorrow")],
+          [dueProperty],
+        ),
+      ).toEqual({ due: { start: "2026-10-23", includeTime: false } });
+      for (const filter of [
+        due("on_or_before", "today"),
+        due("on_or_after", "2026-10-22"),
+        due("is_within", "next_7_days"),
+      ]) {
+        expect(
+          databasePropertyValuesForNewItem([filter], [dueProperty]),
+        ).toEqual({});
+      }
+      for (const operator of [
+        "does_not_contain",
+        "starts_with",
+        "ends_with",
+      ] as const) {
+        expect(
+          databasePropertyValuesForNewItem(
+            [{ key: "summary", label: "Summary", operator, value: "Draft" }],
+            [titleProperty],
+          ),
+        ).toEqual({});
+      }
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -2405,23 +2600,33 @@ describe("database item preview", () => {
 
   it("finds the duplicated row returned by a duplicate database item action", () => {
     const alpha = item("alpha", "Alpha", {});
-    const beta = item("beta", "Beta", {});
+    const beta = item("beta", "Beta", { number: 2 });
 
     expect(
       databaseDuplicatedItemFromResponse({
         items: [alpha, beta],
+        properties,
         duplicatedItemId: beta.id,
       })?.document.title,
     ).toBe("Beta");
     expect(
       databaseDuplicatedItemFromResponse({
+        items: compactContentDatabaseItems([alpha, beta]),
+        properties,
+        duplicatedItemId: beta.id,
+      }),
+    ).toEqual(beta);
+    expect(
+      databaseDuplicatedItemFromResponse({
         items: [alpha],
+        properties,
         duplicatedItemId: "missing",
       }),
     ).toBeNull();
     expect(
       databaseDuplicatedItemFromResponse({
         items: [alpha, beta],
+        properties,
       }),
     ).toBeNull();
   });

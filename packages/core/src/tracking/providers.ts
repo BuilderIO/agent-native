@@ -12,6 +12,8 @@ const AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT =
 export const AGENT_NATIVE_ANALYTICS_PROVIDER = "agent-native-analytics";
 const BATCH_INTERVAL_MS = 10_000;
 const MAX_BATCH_SIZE = 50;
+// The PostHog, Segment and Amplitude Node SDKs' default request timeout.
+const SEND_TIMEOUT_MS = 10_000;
 
 interface QueuedEvent {
   url: string;
@@ -80,6 +82,7 @@ function drainQueue(): Promise<void[]> {
         method: "POST",
         headers: { "Content-Type": "application/json", ...item.headers },
         body: item.body,
+        signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
       }).then(
         () => undefined,
         () => undefined,

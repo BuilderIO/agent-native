@@ -2,6 +2,9 @@ import type { ReactNode } from "react";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
+const TAB_CLASS =
+  "h-auto px-0 py-0 text-lg leading-[27px] font-medium group-data-[variant=line]/tabs-list:h-auto group-data-[variant=line]/tabs-list:border-b group-data-[variant=line]/tabs-list:text-muted-foreground";
+
 export type DesignHomeLibraryTab = "templates" | "recent";
 
 interface DesignHomeLibraryProps {
@@ -29,7 +32,8 @@ export function DesignHomeLibrary({
 
   return (
     <section
-      className="agent-prompt-home-library"
+      id="design-home-library"
+      className="agent-prompt-home-library mx-auto w-full max-w-[63rem]"
       aria-label={labels.templates}
     >
       <Tabs
@@ -42,18 +46,18 @@ export function DesignHomeLibrary({
         }}
       >
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <TabsList variant="line">
-            <TabsTrigger value="recent" className="flex-none">
-              {labels.recent}
-            </TabsTrigger>
+          <TabsList variant="line" className="gap-2 border-b-0">
             <TabsTrigger
               value="templates"
-              className="flex-none"
+              className={TAB_CLASS}
               onClick={() => {
                 if (activeValue === "templates") onValueChange("templates");
               }}
             >
               {labels.templates}
+            </TabsTrigger>
+            <TabsTrigger value="recent" className={TAB_CLASS}>
+              {labels.recent}
             </TabsTrigger>
           </TabsList>
           {activeValue === "recent" ? (
@@ -65,8 +69,12 @@ export function DesignHomeLibrary({
             browseAll
           )}
         </div>
-        <TabsContent value="templates">{templates}</TabsContent>
-        <TabsContent value="recent">{recent}</TabsContent>
+        <TabsContent value="templates" className="mt-4">
+          {templates}
+        </TabsContent>
+        <TabsContent value="recent" className="mt-4">
+          {recent}
+        </TabsContent>
       </Tabs>
     </section>
   );

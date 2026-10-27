@@ -1,5 +1,9 @@
 import { appStatePut } from "@agent-native/core/application-state";
 
+// Long enough for a sign-in round trip; an older request no longer reopens
+// the dialog on its own.
+export const LOCALHOST_CONSENT_REQUEST_TTL_MS = 30 * 60 * 1000;
+
 export function localhostConsentRequestStateAddress(designId: string) {
   const capability = `capability:visual-edit:design:${encodeURIComponent(designId)}`;
   return {

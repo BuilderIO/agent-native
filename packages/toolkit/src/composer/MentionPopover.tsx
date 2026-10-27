@@ -15,8 +15,8 @@ import React, {
   useImperativeHandle,
   forwardRef,
 } from "react";
-import { createPortal } from "react-dom";
 
+import { Popover, PopoverAnchor, PopoverContent } from "../ui/popover.js";
 import {
   Tooltip,
   TooltipContent,
@@ -24,6 +24,7 @@ import {
   TooltipTrigger,
 } from "../ui/tooltip.js";
 import { MentionItemMedia } from "./MentionItemMedia.js";
+import { COMPOSER_POPOVER_SURFACE_CLASS } from "./popover-surface.js";
 import { useComposerRuntimeAdapters } from "./runtime-adapters.js";
 import type { MentionItem, SkillResult, SlashCommand } from "./types.js";
 
@@ -62,6 +63,26 @@ interface MentionPopoverProps {
 
 const iconProps = { size: 16, className: "shrink-0 text-muted-foreground" };
 const COMPOSER_POPOVER_GAP = 8;
+const COMPOSER_POPOVER_EDGE = 16;
+
+function composerAnchorRect(
+  position: { top: number; left: number; width?: number } | null,
+): DOMRect {
+  const left = position?.left ?? 0;
+  const top = position?.top ?? 0;
+  const width = position?.width ?? 0;
+  return {
+    x: left,
+    y: top,
+    left,
+    top,
+    width,
+    height: 0,
+    right: left + width,
+    bottom: top,
+    toJSON: () => ({ left, top, width, height: 0 }),
+  } as DOMRect;
+}
 
 function CommandIcon({ icon }: { icon?: string }) {
   switch (icon) {
@@ -298,33 +319,51 @@ export const MentionPopover = forwardRef<
     },
   }));
 
+  const anchorRef = useRef<{ getBoundingClientRect: () => DOMRect }>({
+    getBoundingClientRect: () => composerAnchorRect(null),
+  });
+  anchorRef.current = {
+    getBoundingClientRect: () => composerAnchorRect(position),
+  };
+
   if (!position) return null;
 
-  const content = (
-    <>
-      {/* Backdrop to capture outside clicks */}
-      <div className="fixed inset-0 z-[9998]" onClick={onClose} />
-      <div
+  return (
+    <Popover
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <PopoverAnchor virtualRef={anchorRef} />
+      <PopoverContent
         ref={containerRef}
+        side="top"
+        align="start"
+        sideOffset={COMPOSER_POPOVER_GAP}
+        collisionPadding={COMPOSER_POPOVER_EDGE}
         data-agent-native-composer-popover="true"
         data-agent-native-mention-popover="true"
-        className="fixed z-[9999] overflow-y-auto rounded-lg border border-border/80 bg-popover p-1 shadow-2xl"
+        // Focus stays in the editor, which owns the arrow keys and Enter.
+        onOpenAutoFocus={(event) => event.preventDefault()}
+        onCloseAutoFocus={(event) => event.preventDefault()}
+        onFocusOutside={(event) => event.preventDefault()}
+        onEscapeKeyDown={(event) => {
+          event.preventDefault();
+          // An IME uses Escape to cancel its composition; leave that to it.
+          if (event.isComposing || event.keyCode === 229) return;
+          // This Escape is spent closing the panel; the editor and host must
+          // not also act on it.
+          event.stopPropagation();
+          onClose();
+        }}
+        className={`overflow-y-auto rounded-lg border-border/80 p-1 shadow-2xl ${COMPOSER_POPOVER_SURFACE_CLASS}`}
         style={{
-          bottom: `calc(100vh - ${position.top}px + ${COMPOSER_POPOVER_GAP}px)`,
-          left: Math.max(
-            16,
-            Math.min(
-              position.left,
-              window.innerWidth -
-                Math.min(position.width ?? 640, window.innerWidth - 32) -
-                16,
-            ),
+          width: Math.min(
+            position.width ?? 640,
+            window.innerWidth - COMPOSER_POPOVER_EDGE * 2,
           ),
-          width: Math.min(position.width ?? 640, window.innerWidth - 32),
-          maxHeight: Math.max(
-            0,
-            Math.min(440, position.top - COMPOSER_POPOVER_GAP - 16),
-          ),
+          maxHeight: `min(27.5rem, var(--radix-popover-content-available-height, 27.5rem))`,
         }}
       >
         {type === "@" && error && (
@@ -366,9 +405,11 @@ export const MentionPopover = forwardRef<
               )
             ) : hint ? (
               <HintWithLink hint={hint} />
+            ) : query ? (
+              t("agentChat.mentions.noMatches", { defaultValue: "No matches" })
             ) : (
-              t("agentChat.mentions.noSkills", {
-                defaultValue: "No skills available",
+              t("agentChat.mentions.noCommands", {
+                defaultValue: "No commands",
               })
             )}
           </div>
@@ -383,8 +424,8 @@ export const MentionPopover = forwardRef<
                       <div
                         className={
                           stacked
-                            ? "px-2.5 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70"
-                            : "px-3 pb-2 pt-2 text-[12px] font-medium uppercase tracking-wide text-muted-foreground/70"
+                            ? "px-2.5 pb-1 pt-2 agent-kit-caption-copy font-medium uppercase tracking-wide text-muted-foreground/70"
+                            : "px-3 pb-2 pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground/70"
                         }
                       >
                         {sectionLabel(group.section)}
@@ -396,11 +437,7 @@ export const MentionPopover = forwardRef<
                             key={item.id}
                             data-mention-index={idx}
                             data-mention-density={density}
-                            className={`flex w-full items-center text-start ${
-                              stacked
-                                ? "min-h-12 gap-3 rounded-lg px-2.5 py-1.5"
-                                : "min-h-14 gap-4 rounded-xl px-3 py-2.5"
-                            } ${
+                            className={`flex min-h-8 w-full min-w-0 cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-start ${
                               idx === selectedIndex
                                 ? "bg-muted text-foreground"
                                 : "hover:bg-accent/50"
@@ -415,25 +452,25 @@ export const MentionPopover = forwardRef<
                               size={stacked ? "lg" : "md"}
                             />
                             {stacked ? (
-                              <span className="flex min-w-0 flex-col">
+                              <span className="flex min-w-0 flex-col overflow-hidden">
                                 <span className="truncate text-sm font-medium leading-5">
                                   {item.label}
                                 </span>
                                 {item.description && (
-                                  <span className="truncate text-[13px] leading-4 text-muted-foreground">
+                                  <span className="truncate text-sm leading-4 text-muted-foreground">
                                     {item.description}
                                   </span>
                                 )}
                               </span>
                             ) : (
                               <>
-                                <span className="truncate text-[15px]">
+                                <span className="min-w-0 truncate text-[0.8125rem] leading-4">
                                   {item.label}
                                 </span>
                                 {item.description && (
                                   <span
                                     data-mention-description
-                                    className="ms-auto max-w-[45%] shrink-0 truncate text-[14px] text-muted-foreground"
+                                    className="ms-auto max-w-[60%] shrink-0 truncate text-[0.8125rem] leading-4 text-muted-foreground"
                                   >
                                     {item.description}
                                   </span>
@@ -452,7 +489,7 @@ export const MentionPopover = forwardRef<
                     <>
                       {commands.length > 0 && (
                         <div>
-                          <div className="px-2 pb-1 pt-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
+                          <div className="px-2 pb-1 pt-1 agent-kit-micro-copy font-medium uppercase tracking-wide text-muted-foreground/70">
                             {t("agentChat.mentions.commands", {
                               defaultValue: "Commands",
                             })}
@@ -463,7 +500,7 @@ export const MentionPopover = forwardRef<
                               <button
                                 key={cmd.name}
                                 data-mention-index={i}
-                                className={`flex min-h-8 w-full items-center gap-2 rounded-md px-2 py-1 text-start ${
+                                className={`flex min-h-8 w-full min-w-0 cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-start ${
                                   i === selectedIndex
                                     ? "bg-muted text-foreground"
                                     : "hover:bg-accent/50"
@@ -472,13 +509,13 @@ export const MentionPopover = forwardRef<
                                 onClick={() => onSelectCommand?.(cmd)}
                               >
                                 <CommandIcon icon={cmd.icon} />
-                                <span className="min-w-0 truncate text-[13px] font-medium leading-4">
+                                <span className="min-w-0 truncate text-[0.8125rem] font-medium leading-4">
                                   /{cmd.name}
                                 </span>
                                 {cmd.description && (
                                   <span
                                     data-mention-description
-                                    className="ms-auto max-w-[60%] shrink-0 truncate text-[13px] leading-4 text-muted-foreground"
+                                    className="ms-auto max-w-[60%] shrink-0 truncate text-[0.8125rem] leading-4 text-muted-foreground"
                                   >
                                     {cmd.description}
                                   </span>
@@ -491,7 +528,7 @@ export const MentionPopover = forwardRef<
                       {skills.length > 0 && (
                         <div>
                           {commands.length > 0 && (
-                            <div className="px-2 pb-1 pt-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
+                            <div className="px-2 pb-1 pt-1.5 agent-kit-micro-copy font-medium uppercase tracking-wide text-muted-foreground/70">
                               {t("agentChat.mentions.skills", {
                                 defaultValue: "Skills",
                               })}
@@ -507,7 +544,7 @@ export const MentionPopover = forwardRef<
                                 >
                                   <button
                                     data-mention-index={i}
-                                    className={`flex min-h-8 w-full items-center gap-2 rounded-md px-2 py-1 text-start ${
+                                    className={`flex min-h-8 w-full min-w-0 cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-start ${
                                       i === selectedIndex
                                         ? "bg-muted text-foreground"
                                         : "hover:bg-accent/50"
@@ -516,13 +553,13 @@ export const MentionPopover = forwardRef<
                                     onClick={() => onSelectSkill(skill)}
                                   >
                                     <IconStack2 {...iconProps} />
-                                    <span className="min-w-0 truncate text-[13px] font-medium leading-4">
+                                    <span className="min-w-0 truncate text-[0.8125rem] font-medium leading-4">
                                       {skill.name}
                                     </span>
                                     {skill.description && (
                                       <span
                                         data-mention-description
-                                        className="ms-auto max-w-[60%] shrink-0 truncate text-[13px] leading-4 text-muted-foreground"
+                                        className="ms-auto max-w-[60%] shrink-0 truncate text-[0.8125rem] leading-4 text-muted-foreground"
                                       >
                                         {skill.description}
                                       </span>
@@ -539,9 +576,7 @@ export const MentionPopover = forwardRef<
                 })()}
           </div>
         )}
-      </div>
-    </>
+      </PopoverContent>
+    </Popover>
   );
-
-  return createPortal(content, document.body);
 });

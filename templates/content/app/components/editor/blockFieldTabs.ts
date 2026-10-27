@@ -1,9 +1,8 @@
 import type {
-  DocumentPropertiesResponse,
+  ConfigureDocumentPropertyResponse,
   DocumentPropertyDefinition,
 } from "@shared/api";
 import { blocksContentHash } from "@shared/blocks-field-identity";
-import { isBlocksPropertyType } from "@shared/properties";
 
 export const BLOCK_FIELD_SEARCH_PARAM = "field";
 
@@ -178,23 +177,19 @@ export function blockFieldTabDropGap(
   return index === -1 ? tabs.length : index;
 }
 
-/** The Blocks field a `configure-document-property` create just added. */
+/**
+ * The Blocks field a `configure-document-property` create just added: the id
+ * the action reports, not a guess from the properties it returns, which can
+ * include a field a collaborator added at the same moment.
+ */
 export function createdBlocksFieldId(
   result:
-    | DocumentPropertiesResponse
+    | Pick<ConfigureDocumentPropertyResponse, "propertyId">
     | { value: Pick<DocumentPropertyDefinition, "id"> },
   existingIds: ReadonlySet<string>,
 ): string | null {
-  if ("value" in result) {
-    return existingIds.has(result.value.id) ? null : result.value.id;
-  }
-  return (
-    result.properties.find(
-      (property) =>
-        isBlocksPropertyType(property.definition.type) &&
-        !existingIds.has(property.definition.id),
-    )?.definition.id ?? null
-  );
+  const id = "value" in result ? result.value.id : result.propertyId;
+  return existingIds.has(id) ? null : id;
 }
 
 export type BlockFieldSeen = { revision: number; contentHash: string };

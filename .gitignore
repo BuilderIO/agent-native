@@ -88,6 +88,10 @@ db-exec
 *.bak
 *.orig
 test-reports/
+
+# Stryker mutation testing: the JSON report and its sandbox copy.
+packages/core/reports/mutation/
+.stryker-tmp/
 *.tsbuildinfo
 
 tsup.config.bundled_*.mjs
@@ -104,3 +108,6 @@ packages/core/corpus.tmp-*/
 
 e2e/beta/playwright-report/
 e2e/beta/test-results/
+
+# Written by scripts/mutation-changed.ts
+packages/core/vitest.mutation.generated.mts

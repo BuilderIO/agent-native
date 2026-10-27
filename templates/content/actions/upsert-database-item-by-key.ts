@@ -3,6 +3,7 @@ import { buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
 
 import type { ContentDatabaseRowMutationResult } from "../shared/api.js";
+import { withContentWebhookDelivery } from "./_content-webhooks.js";
 import {
   canonicalizeDatabasePropertyInput,
   databasePropertyEntriesSchema,
@@ -58,7 +59,9 @@ export default defineAction({
   },
   run: (args, context) => {
     if (context?.caller === "mcp") agentSchema.parse(args);
-    return upsertDatabaseRow(canonicalizeDatabasePropertyInput(args));
+    return withContentWebhookDelivery(context, () =>
+      upsertDatabaseRow(canonicalizeDatabasePropertyInput(args)),
+    );
   },
   link: ({ result }) => {
     const receipt = (result as ContentDatabaseRowMutationResult | null)

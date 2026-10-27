@@ -1,49 +1,25 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  isRealtimeVoiceSetupRequired,
-  normalizeVoiceInputPreference,
-} from "./VoiceButton.js";
+import { isRealtimeVoiceChatAvailable } from "./VoiceButton.js";
 
-describe("normalizeVoiceInputPreference", () => {
-  it("accepts only persisted realtime and dictation choices", () => {
-    expect(normalizeVoiceInputPreference({ mode: "realtime" })).toBe(
-      "realtime",
-    );
-    expect(normalizeVoiceInputPreference({ mode: "dictation" })).toBe(
-      "dictation",
-    );
-    expect(normalizeVoiceInputPreference({ mode: "voice" })).toBeNull();
-    expect(normalizeVoiceInputPreference(null)).toBeNull();
-  });
-});
-
-describe("isRealtimeVoiceSetupRequired", () => {
-  it("waits for the voice-specific provider status before prompting setup", () => {
-    expect(isRealtimeVoiceSetupRequired(null, false)).toBe(false);
-  });
-
-  it("does not wait on the redundant Builder status after voice status resolves", () => {
-    expect(
-      isRealtimeVoiceSetupRequired({ builder: false, openai: false }, null),
-    ).toBe(true);
+// oracle-change: the realtime/dictation chooser and its remembered preference were removed, so setup gating is one availability check.
+describe("isRealtimeVoiceChatAvailable", () => {
+  it("treats an unresolved provider status as unavailable", () => {
+    expect(isRealtimeVoiceChatAvailable(null)).toBe(false);
   });
 
   it("accepts either managed Builder voice or an OpenAI key", () => {
-    expect(
-      isRealtimeVoiceSetupRequired({ builder: true, openai: false }, false),
-    ).toBe(false);
-    expect(
-      isRealtimeVoiceSetupRequired({ builder: false, openai: true }, false),
-    ).toBe(false);
-    expect(
-      isRealtimeVoiceSetupRequired({ builder: false, openai: false }, true),
-    ).toBe(false);
+    expect(isRealtimeVoiceChatAvailable({ builder: true, openai: false })).toBe(
+      true,
+    );
+    expect(isRealtimeVoiceChatAvailable({ builder: false, openai: true })).toBe(
+      true,
+    );
   });
 
-  it("prompts setup only when neither realtime provider is configured", () => {
+  it("is unavailable when neither realtime provider is configured", () => {
     expect(
-      isRealtimeVoiceSetupRequired({ builder: false, openai: false }, false),
-    ).toBe(true);
+      isRealtimeVoiceChatAvailable({ builder: false, openai: false }),
+    ).toBe(false);
   });
 });

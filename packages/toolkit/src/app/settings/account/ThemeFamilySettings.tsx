@@ -13,7 +13,7 @@ const key = (name: string) => `agentChat.settingsShell.account.${name}`;
 
 export function ThemeFamilySettings() {
   const t = useT();
-  const { family, status, setFamily } = useThemeFamily();
+  const { family, status, isForcedByUrl, setFamily } = useThemeFamily();
   const [saving, setSaving] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
 
@@ -37,7 +37,7 @@ export function ThemeFamilySettings() {
       <Select
         value={family}
         onValueChange={(value) => void changeFamily(value)}
-        disabled={saving || status === "loading"}
+        disabled={saving || status === "loading" || isForcedByUrl}
       >
         <SelectTrigger aria-label={t(key("themeFamily"))}>
           <SelectValue />

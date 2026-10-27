@@ -291,6 +291,9 @@ const leaseIds = {
   ...noReplayIds,
   threadId: a2aTaskLeaseThreadId(TASK),
   turnId: TASK,
+  caller: "tool",
+  networkProtocol: "a2a",
+  networkId: TASK,
 };
 
 async function replay(

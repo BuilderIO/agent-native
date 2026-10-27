@@ -4,16 +4,13 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  TemplateLibraryGrid,
-  TemplatePreviewDialog,
-} from "@agent-native/toolkit/app-shell";
+import { TemplatePreviewDialog } from "@agent-native/toolkit/app-shell";
 import { ShareButton } from "@agent-native/toolkit/app/sharing";
 import { designTemplateRetryKey } from "@shared/design-template-retry";
 import { IconDots } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { nanoid } from "nanoid";
-import { useRef, useState, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
@@ -36,6 +33,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
+import { DesignTemplateGrid } from "./DesignTemplateGrid";
 import { TemplatePreview } from "./TemplatePreview";
 
 export interface DesignLibraryTemplate {
@@ -78,9 +76,11 @@ function previewFilenameForHref(
 export function DesignTemplateLibrary({
   templates,
   loading = false,
+  previewParam = "templateId",
 }: {
   templates: readonly DesignLibraryTemplate[];
   loading?: boolean;
+  previewParam?: string;
 }) {
   const t = useT();
   const navigate = useNavigate();
@@ -92,16 +92,17 @@ export function DesignTemplateLibrary({
   const pending = useRef(false);
   const retryIds = useRef(new Map<string, { key: string; id: string }>());
   const preview = templates.find(
-    (template) => template.id === params.get("templateId"),
+    (template) => template.id === params.get(previewParam),
   );
   const [deleting, setDeleting] = useState<DesignLibraryTemplate | null>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
   const selectPreview = (id: string | null) => {
+    if (id === params.get(previewParam)) return;
     setParams(
       (current) => {
         const next = new URLSearchParams(current);
-        if (id) next.set("templateId", id);
-        else next.delete("templateId");
+        if (id) next.set(previewParam, id);
+        else next.delete(previewParam);
         return next;
       },
       { replace: true },
@@ -158,41 +159,28 @@ export function DesignTemplateLibrary({
   };
   return (
     <>
-      <TemplateLibraryGrid
-        items={templates}
+      <DesignTemplateGrid
+        templates={templates}
         loading={loading}
         pendingId={pendingId}
         pendingLabel={t("templatesPage.opening")}
         disabled={Boolean(pendingId)}
         selectedId={preview?.id}
-        onSelect={(template) => void copy(template)}
-        labels={{
-          loading: t("templatesPage.loading"),
-          empty: t("promptDialog.noTemplatesFound"),
-          retry: t("homeContext.retry"),
+        loadingLabel={t("templatesPage.loading")}
+        emptyLabel={t("promptDialog.noTemplatesFound")}
+        onSelect={(template, element) => {
+          restoreFocusRef.current = element;
+          selectPreview(template.id);
         }}
-        renderPreview={(template) => (
-          <div className="design-library-card-preview">
-            <TemplatePreview
-              html={template.previewHtml}
-              title={template.title}
-              width={template.width}
-              height={template.height}
-              className="h-full w-full"
+        renderActions={(template) =>
+          !template.isBuiltIn && template.isOwner ? (
+            <TemplateMenu
+              template={template}
+              disabled={pendingId !== null}
+              onDelete={() => setDeleting(template)}
             />
-          </div>
-        )}
-        renderActions={(template) => (
-          <TemplateMenu
-            template={template}
-            disabled={pendingId !== null}
-            onDelete={() => setDeleting(template)}
-            onPreview={(trigger) => {
-              restoreFocusRef.current = trigger;
-              selectPreview(template.id);
-            }}
-          />
-        )}
+          ) : null
+        }
       />
       {preview ? (
         <DesignTemplatePreviewDialog
@@ -235,24 +223,19 @@ export function DesignTemplateLibrary({
 function TemplateMenu({
   template,
   disabled,
-  onPreview,
   onDelete,
 }: {
   template: DesignLibraryTemplate;
   disabled: boolean;
-  onPreview: (trigger: HTMLElement | null) => void;
   onDelete: () => void;
 }) {
   const t = useT();
-  const trigger = useRef<HTMLButtonElement>(null);
-  const openingPreview = useRef(false);
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild disabled={disabled}>
         <Button
-          ref={trigger}
-          variant="ghost"
-          size="icon"
+          variant="secondary"
+          size="icon-sm"
           disabled={disabled}
           aria-label={t("templatesPage.templateActions", {
             title: template.title,
@@ -261,39 +244,18 @@ function TemplateMenu({
           <IconDots />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="end"
-        onCloseAutoFocus={(event) => {
-          if (openingPreview.current) {
-            event.preventDefault();
-            openingPreview.current = false;
-          }
-        }}
-      >
+      <DropdownMenuContent align="end">
         <DropdownMenuGroup>
-          <DropdownMenuItem
-            disabled={disabled}
-            onSelect={() => {
-              openingPreview.current = true;
-              onPreview(trigger.current);
-            }}
-          >
-            {t("creativeContext.preview")}
+          <ShareButton
+            resourceType="design-template"
+            resourceId={template.id}
+            allowedRoles={["viewer", "editor", "admin"]}
+            resourceTitle={template.title}
+            trigger="label"
+          />
+          <DropdownMenuItem disabled={disabled} onSelect={onDelete}>
+            {t("home.delete")}
           </DropdownMenuItem>
-          {!template.isBuiltIn && template.isOwner ? (
-            <>
-              <ShareButton
-                resourceType="design-template"
-                resourceId={template.id}
-                allowedRoles={["viewer", "editor", "admin"]}
-                resourceTitle={template.title}
-                trigger="label"
-              />
-              <DropdownMenuItem disabled={disabled} onSelect={onDelete}>
-                {t("home.delete")}
-              </DropdownMenuItem>
-            </>
-          ) : null}
         </DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -321,12 +283,38 @@ function DesignTemplatePreviewDialog({
     { templateId: template.id },
   );
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const files =
-    data && "files" in data
-      ? data.files.filter((file) => file.fileType === "html")
-      : [];
+  const files = useMemo(
+    () =>
+      data && "files" in data
+        ? data.files.filter((file) => file.fileType === "html")
+        : [],
+    [data],
+  );
   const active =
     files.find((file) => file.templateFileId === selectedId) ?? files[0];
+  const activeId = active?.templateFileId;
+  useEffect(() => {
+    if (files.length < 2) return;
+    const step = (event: KeyboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        event.altKey ||
+        event.metaKey ||
+        event.ctrlKey
+      )
+        return;
+      const offset =
+        event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+      if (!offset) return;
+      const index = files.findIndex((file) => file.templateFileId === activeId);
+      const next = files[(index + offset + files.length) % files.length];
+      if (!next) return;
+      event.preventDefault();
+      setSelectedId(next.templateFileId);
+    };
+    window.addEventListener("keydown", step);
+    return () => window.removeEventListener("keydown", step);
+  }, [files, activeId]);
   return (
     <TemplatePreviewDialog
       open

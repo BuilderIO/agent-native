@@ -3,6 +3,7 @@ import {
   useRecentEdits,
   type AttributedRecentEdit,
 } from "@agent-native/core/client/collab";
+import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import {
   callAction,
   getBrowserTabId,
@@ -23,7 +24,9 @@ import {
   type UseCollabReconcileResult,
 } from "@agent-native/toolkit/editor";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
+import { isContentClipUploadMimeType } from "@shared/clips-peer-contract";
 import type { EditorMountMode } from "@shared/editor-mount-outcomes";
+import { CLIP_EMBED_FLAG } from "@shared/feature-flags";
 import { isMarkdownFilePath } from "@shared/import/paths";
 import { canonicalizeNfm, docToNfm, nfmToDoc } from "@shared/nfm";
 import {
@@ -32,6 +35,7 @@ import {
   type ParsedRegistryBlock,
 } from "@shared/nfm-registry";
 import { suggestionFormattingSourceRange } from "@shared/suggestion-formatting";
+import type { SuggestionPlacement } from "@shared/suggestion-placement";
 import {
   suggestionAnchorText,
   suggestionTextPresentationForSource,
@@ -112,20 +116,37 @@ import {
   markStartupMilestone,
 } from "@/lib/startup-timing";
 
+import { BlockActionsMenu } from "./BlockActionsMenu";
 import { BubbleToolbar, ReadOnlyCommentBubble } from "./BubbleToolbar";
+import { announceClipCancel } from "./clip-embed/clip-upload-notices";
+import {
+  holdDroppedClipFile,
+  watchClipUploadBlocks,
+} from "./clip-embed/clip-uploads";
 import {
   buildDocText,
   resolveAnchor,
   resolveAnchorPoint,
   type CommentTextAnchor,
 } from "./comment-anchors";
+import {
+  commentAnchorBlockAt,
+  commentThreadAt,
+  threadCommentBlock,
+  type CommentBlockTarget,
+} from "./comment-block-anchors";
 import { buildContentSelectionPayload } from "./content-selection";
 import {
   isEditorDraftSaveAccepted,
   type EditorDraftSaveResult,
 } from "./editor-draft-save";
+import { reportEditorMerge } from "./editor-merge-telemetry";
 import { observeEditorMount } from "./editor-mount-telemetry";
-import { EDITOR_NON_EDIT_META } from "./editor-transaction-meta";
+import {
+  EDITOR_NON_EDIT_META,
+  isActiveSlashCommandDraft,
+  runPersistableHistoryCommand,
+} from "./editor-transaction-meta";
 import { AudioNode } from "./extensions/AudioNode";
 import { BodyElementTiming } from "./extensions/BodyElementTiming";
 import { CodeBlock } from "./extensions/CodeBlockNode";
@@ -150,6 +171,7 @@ import {
 } from "./extensions/NotionExtensions";
 import { notionFidelityExtensions } from "./extensions/NotionFidelity";
 import {
+  createContentBlockId,
   LockedSourceComponentBlocks,
   RegistryBlockNode,
 } from "./extensions/registryBlocks";
@@ -157,10 +179,15 @@ import {
   SuggestionHighlight,
   acceptedSuggestionAtRange,
   editorDocumentSource,
+  isProvisionalDraftSpec,
   setSuggestionHighlights,
+  suggestionDecisionHoldsHistory,
+  suggestionHighlightKey,
   type SuggestionHighlightSpec,
 } from "./extensions/SuggestionHighlight";
-import { VideoNode } from "./extensions/VideoNode";
+import { TablePresentation } from "./extensions/TablePresentation";
+import { VideoBlockIds } from "./extensions/VideoBlockIds";
+import { VideoNode, type ContentVideoOptions } from "./extensions/VideoNode";
 import {
   getImageFiles,
   getAudioFiles,
@@ -187,12 +214,13 @@ import {
 } from "./live-body-parity";
 import { SlashCommandMenu } from "./SlashCommandMenu";
 import { StaticDocumentBody } from "./StaticDocumentBody";
+import { suggestionPlacements } from "./suggestion-placement";
 import {
   resolveSuggestionPresentationRange,
   type SuggestionPresentationTransition,
 } from "./suggestions/presentation-rebase";
 import { SuggestingReadOnlyBlocks } from "./suggestions/read-only-blocks";
-import { ContentTableView } from "./table-view";
+import { ContentTableView, contentTableColumnSizing } from "./table-view";
 import { TableHoverControls } from "./TableHoverControls";
 import { WidgetLoadDiagnostic } from "./WidgetLoadDiagnostic";
 
@@ -864,14 +892,18 @@ const CustomTable = BaseTable.extend({
       },
     };
   },
+  addProseMirrorPlugins() {
+    // Ahead of Table's own `columnResizing`, whose mousedown starts a drag.
+    return [contentTableColumnSizing(), ...(this.parent?.() ?? [])];
+  },
 });
 
 const NotionTableHeader = TableHeader.extend({
   addAttributes() {
     return { ...this.parent?.(), ...tableAlignmentAttribute };
   },
-  // Header cells render as <td>, so copying or pasting a table reads them back
-  // from their class. The higher priority puts this rule before tableCell's.
+  // Header cells rendered as <td> before they were <th>, and clipboards may
+  // still hold those. The higher priority puts this rule before tableCell's.
   parseHTML() {
     return [
       { tag: "td.content-table-header-cell", priority: 60 },
@@ -880,7 +912,7 @@ const NotionTableHeader = TableHeader.extend({
   },
   renderHTML({ HTMLAttributes }) {
     return [
-      "td",
+      "th",
       mergeAttributes(this.options.HTMLAttributes, HTMLAttributes, {
         class: "content-table-header-cell",
       }),
@@ -1255,6 +1287,8 @@ export interface VisualEditorSuggestion {
   anchor: { from: number; prefix: string; suffix: string };
   settlementReadbackContent?: string | null;
   presentation: "draft" | "canonical" | "settling";
+  /** Accepted but not saved yet: its words can't be edited until it is. */
+  frozen?: boolean;
 }
 
 export function acceptedSuggestionRendered(
@@ -1439,7 +1473,26 @@ function suggestionAnchorRange(
   const collapsedRange = collapsedDeletionTextblock();
   if (collapsedRange) return collapsedRange;
   if (sourceMatches) {
-    const exactRange = sourceRangeToPm(sourceFrom, sourceTo);
+    // An empty paragraph has no text to map, so a span that opens or closes
+    // with one maps the text beside it, or the place it starts when that's
+    // all it holds.
+    const emptyLine = "<empty-block/>";
+    let mapFrom = sourceFrom;
+    let mapTo = sourceTo;
+    for (;;) {
+      if (
+        mapTo - mapFrom > emptyLine.length &&
+        source.slice(mapTo - emptyLine.length - 1, mapTo) === `\n${emptyLine}`
+      )
+        mapTo -= emptyLine.length + 1;
+      else if (
+        mapTo - mapFrom > emptyLine.length &&
+        source.startsWith(`${emptyLine}\n`, mapFrom)
+      )
+        mapFrom += emptyLine.length + 1;
+      else break;
+    }
+    const exactRange = sourceRangeToPm(mapFrom, mapTo);
     if (exactRange) return exactRange;
   }
   const mappedSource = suggestionAnchorText(source);
@@ -1575,6 +1628,7 @@ export function suggestionHighlightSpec(
         deletedText: suggestion.beforeText,
         deletedPresentation: suggestion.beforePresentation,
         editableBoundary: true,
+        draft: true,
       };
     }
     return {
@@ -1582,6 +1636,7 @@ export function suggestionHighlightSpec(
       kind: "mark",
       from: range.from,
       to: range.to,
+      draft: true,
       deletedText:
         suggestion.kind === "replace_text" ? suggestion.beforeText : undefined,
       deletedPresentation:
@@ -1592,11 +1647,18 @@ export function suggestionHighlightSpec(
       editableText: true,
     };
   }
+  // Removed syntax with no text, such as indentation, a list marker, or an
+  // empty paragraph, is not in the document text, so it is drawn instead.
   const structuralDeletion =
     /^\n+$/.test(suggestionAnchorText(suggestion.beforeText)) ||
     (beforePresentation &&
       beforePresentation.length > 0 &&
-      beforePresentation.every((node) => node.type === "indent"));
+      beforePresentation.every(
+        (node) =>
+          node.type === "indent" ||
+          node.type === "block" ||
+          (node.type === "text" && /^↵+$/.test(node.value)),
+      ));
   return {
     suggestionId: suggestion.id,
     kind:
@@ -1617,6 +1679,7 @@ export function suggestionHighlightSpec(
     deletedPresentation: structuralDeletion
       ? suggestion.beforePresentation
       : undefined,
+    ...(suggestion.frozen ? { frozen: true } : {}),
   };
 }
 
@@ -1712,10 +1775,12 @@ interface VisualEditorProps {
     range?: { from: number; to: number },
     suggestionId?: string,
   ) => void;
+  /** Starts a comment on a whole block, such as a video. */
+  onBlockComment?: (target: CommentBlockTarget, offsetTop: number) => void;
   commentThreads?: CommentThread[];
   activeThreadId?: string | null;
   hoveredThreadId?: string | null;
-  pendingHighlight?: { from: number; to: number } | null;
+  pendingHighlight?: { from: number; to: number; blockId?: string } | null;
   onActivateThread?: (threadId: string) => void;
   suggestions?: VisualEditorSuggestion[];
   acceptedDecisionReadback?: { id: string; content: string } | null;
@@ -1760,7 +1825,15 @@ interface VisualEditorProps {
   onPersistenceControllerChange?: (
     controller: VisualEditorPersistenceController | null,
   ) => void;
+  /** Receives a reader for where the editor shows suggestions' words. */
+  onSuggestionPlacementsChange?: (
+    read: VisualEditorSuggestionPlacements | null,
+  ) => void;
 }
+
+export type VisualEditorSuggestionPlacements = (
+  suggestionIds: readonly string[],
+) => Record<string, SuggestionPlacement>;
 
 export interface VisualEditorHistoryState {
   canUndo: boolean;
@@ -2075,38 +2148,6 @@ export function shouldPersistEffectivelyEmptyEditorUpdate({
   return userInitiated;
 }
 
-function isActiveSlashCommandDraft(editor: CoreEditor): boolean {
-  const { state } = editor;
-  if (!state.selection.empty) return false;
-  const { from, $from } = state.selection;
-  if (!$from.parent.isTextblock) return false;
-
-  const blockStart = $from.start();
-  const textBefore = state.doc.textBetween(blockStart, from, "\n");
-  return /^\s*\/[a-zA-Z0-9]*$/.test(textBefore);
-}
-
-export function runPersistableHistoryCommand(
-  editor: CoreEditor,
-  command: "undo" | "redo",
-): boolean {
-  let applied = false;
-  for (let index = 0; index < 20; index += 1) {
-    const changed = editor
-      .chain()
-      .focus()
-      .command(({ tr }) => {
-        tr.setMeta(LOCAL_FILE_USER_EDIT_META, true);
-        return true;
-      })
-      [command]()
-      .run();
-    applied ||= changed;
-    if (!changed || !isActiveSlashCommandDraft(editor)) break;
-  }
-  return applied;
-}
-
 interface VisualEditorExtensionOptions {
   documentId?: string;
   ydoc?: YDoc | null;
@@ -2118,6 +2159,8 @@ interface VisualEditorExtensionOptions {
     avatarUrl?: string;
   } | null;
   onImageComment?: (quotedText: string, offsetTop: number) => void;
+  onVideoComment?: ContentVideoOptions["onVideoComment"];
+  canCommentOnVideo?: ContentVideoOptions["canCommentOnVideo"];
   onImageFilePickerRequest?: (request: PendingImagePicker) => void;
   canMutateMedia?: () => boolean;
   isSuggesting?: () => boolean;
@@ -2175,6 +2218,7 @@ function threadAnchor(thread: CommentThread) {
     prefix: thread.prefix ?? undefined,
     suffix: thread.suffix ?? undefined,
     startOffset: thread.startOffset ?? undefined,
+    blockId: thread.block?.blockId,
   };
 }
 
@@ -2275,6 +2319,7 @@ function insertPendingMediaNodes(
   typeName: MediaNodeType,
   files: File[],
   position: number,
+  beforeInsert?: (pending: PendingMediaUpload[]) => void,
 ): PendingMediaUpload[] {
   const nodeType = view.state.schema.nodes[typeName];
   if (!nodeType) {
@@ -2299,6 +2344,7 @@ function insertPendingMediaNodes(
     pendingUploads.push({ file, uploadId });
   }
 
+  beforeInsert?.(pendingUploads);
   view.dispatch(tr.scrollIntoView());
   return pendingUploads;
 }
@@ -2620,6 +2666,34 @@ export async function uploadAndInsertImageFiles(
   }
 }
 
+/**
+ * Video files dropped or pasted while Clips in pages is on: each of a type
+ * Clips takes becomes an empty video block that uploads its file to Clips as
+ * the Upload tab does, never to Content's own file storage. Any other is
+ * refused with `refusedMessage` and gets no block.
+ */
+export function insertVideoFilesForClips(
+  view: EditorView,
+  files: File[],
+  position: number,
+  refusedMessage: string,
+) {
+  const taken = files.filter((file) => isContentClipUploadMimeType(file.type));
+  if (taken.length < files.length) toast.error(refusedMessage);
+  if (taken.length === 0) return;
+  try {
+    // The blocks may start as soon as they're in the page, so their files
+    // must be waiting first.
+    insertPendingMediaNodes(view, "video", taken, position, (pending) => {
+      for (const { uploadId, file } of pending) {
+        holdDroppedClipFile(uploadId, file);
+      }
+    });
+  } catch (error) {
+    toast.error(videoUploadErrorMessage(error));
+  }
+}
+
 export async function uploadAndInsertVideoFiles(
   view: EditorView,
   files: File[],
@@ -2730,6 +2804,8 @@ export function createVisualEditorExtensions({
   localAwareness,
   user,
   onImageComment,
+  onVideoComment,
+  canCommentOnVideo,
   onImageFilePickerRequest,
   canMutateMedia,
   isSuggesting,
@@ -2794,8 +2870,13 @@ export function createVisualEditorExtensions({
       VideoNode.configure({
         HTMLAttributes: { class: "content-video" },
         documentId,
-        onVideoComment: onImageComment,
+        onVideoComment,
+        canCommentOnVideo,
         canMutateMedia,
+      }),
+      VideoBlockIds.configure({
+        isEdit: isLocalEditorEdit,
+        canAssign: canMutateMedia,
       }),
       AudioNode.configure({
         HTMLAttributes: { class: "content-audio" },
@@ -2814,6 +2895,7 @@ export function createVisualEditorExtensions({
       NotionTableCell,
       NormalizeTableHeaders,
       NormalizeTableAlignment,
+      TablePresentation,
       ...(isSuggesting
         ? [SuggestingReadOnlyBlocks.configure({ isSuggesting })]
         : []),
@@ -3180,6 +3262,7 @@ export function VisualEditor({
   localFilePath,
   referenceDepth,
   onComment,
+  onBlockComment,
   commentThreads,
   activeThreadId,
   hoveredThreadId,
@@ -3207,8 +3290,11 @@ export function VisualEditor({
   onHistoryStateChange,
   onSelectionControllerChange,
   onPersistenceControllerChange,
+  onSuggestionPlacementsChange,
 }: VisualEditorProps) {
   const t = useT();
+  const tRef = useRef(t);
+  tRef.current = t;
   const widgetBridgeActive = isEmbedMcpChatBridgeActive();
   const widgetDiagnosticsActive =
     widgetBridgeActive || widgetLoadDiagnosticsActive;
@@ -3230,6 +3316,9 @@ export function VisualEditor({
   const [isDraggingMedia, setIsDraggingMedia] = useState(false);
   const suggestingRef = useRef(suggesting);
   suggestingRef.current = suggesting;
+  const clipsEnabled = useFeatureFlag(CLIP_EMBED_FLAG.key);
+  const videosGoToClipsRef = useRef(false);
+  videosGoToClipsRef.current = clipsEnabled && Boolean(documentId);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const imageFileInputRef = useRef<HTMLInputElement>(null);
   const pendingImagePickerRef = useRef<PendingImagePicker | null>(null);
@@ -3280,6 +3369,8 @@ export function VisualEditor({
   onSaveContentRef.current = onSaveContent;
   const onActivateThreadRef = useRef(onActivateThread);
   onActivateThreadRef.current = onActivateThread;
+  const activeThreadIdRef = useRef(activeThreadId);
+  activeThreadIdRef.current = activeThreadId;
   const onActivateSuggestionRef = useRef(onActivateSuggestion);
   onActivateSuggestionRef.current = onActivateSuggestion;
   const onHoverSuggestionRef = useRef(onHoverSuggestion);
@@ -3350,6 +3441,56 @@ export function VisualEditor({
   );
   const threadsRef = useRef(commentThreads);
   threadsRef.current = commentThreads;
+  const onBlockCommentRef = useRef(onBlockComment);
+  onBlockCommentRef.current = onBlockComment;
+  const canCommentOnBlocks = !!onBlockComment;
+  const savesVideoIds = useCallback(
+    (view: EditorView) => view.editable && !suggestingRef.current,
+    [],
+  );
+  // A tab that can't save an id comments on a video only by the id it already
+  // goes by, so a video that goes by none shows no Comment button there.
+  const canCommentOnVideo = useCallback(
+    (view: EditorView, pos: number) =>
+      savesVideoIds(view) || !!commentAnchorBlockAt(view.state.doc, pos),
+    [savesVideoIds],
+  );
+  const onVideoComment = useMemo<ContentVideoOptions["onVideoComment"]>(
+    () =>
+      canCommentOnBlocks
+        ? (view, pos, offsetTop) => {
+            const { doc } = view.state;
+            const node = doc.nodeAt(pos);
+            if (!node) return;
+            const canWrite = savesVideoIds(view);
+            // A video whose id another video shares goes by none, so it gets
+            // an id of its own before a thread can point at it.
+            const blockId =
+              commentAnchorBlockAt(doc, pos)?.blockId ??
+              (canWrite ? createContentBlockId("video") : null);
+            if (!blockId) return;
+            // A thread names a video saved without an id by its derived id.
+            // Writing that down saves the id with the page, so an agent that
+            // reads the page finds it instead of minting one that strands it.
+            if (node.attrs.blockId !== blockId && canWrite)
+              view.dispatch(
+                view.state.tr
+                  .setNodeAttribute(pos, "blockId", blockId)
+                  .setMeta("addToHistory", false),
+              );
+            onBlockCommentRef.current?.(
+              {
+                blockId,
+                blockType: "video",
+                from: pos,
+                to: pos + node.nodeSize,
+              },
+              offsetTop,
+            );
+          }
+        : undefined,
+    [canCommentOnBlocks, savesVideoIds],
+  );
   const findCommentQuote = useCallback(
     (threadId: string, doc: ProseMirrorNode) => {
       const thread = threadsRef.current?.find((t) => t.threadId === threadId);
@@ -3455,6 +3596,8 @@ export function VisualEditor({
         localAwareness,
         user,
         onImageComment: onComment,
+        onVideoComment,
+        canCommentOnVideo,
         onImageFilePickerRequest,
         canMutateMedia,
         isSuggesting,
@@ -3501,6 +3644,8 @@ export function VisualEditor({
       localAwareness,
       user,
       onComment,
+      onVideoComment,
+      canCommentOnVideo,
       onImageFilePickerRequest,
       canMutateMedia,
       isSuggesting,
@@ -3530,6 +3675,9 @@ export function VisualEditor({
   // Set by a person's typing that lands before the live copy's seed check
   // finishes, and cleared when a seed, a restore or another tab replaces it.
   const unseededEditRef = useRef(false);
+  // The Page text sent up for each version of the editor's document, so the
+  // highlights can tell whether the Page's drafts have caught up with it.
+  const sentContentRef = useRef(new WeakMap<ProseMirrorNode, string>());
   const markUserEditIntent = useCallback(() => {
     lastUserEditIntentAtRef.current = Date.now();
     hasUserEditIntentRef.current = true;
@@ -3554,6 +3702,7 @@ export function VisualEditor({
             : ("unchanged" as const);
         scheduleLiveBodyParity(editorToPersist);
         const normalized = options?.markdown ?? serialized;
+        sentContentRef.current.set(editorToPersist.state.doc, normalized);
         if (localFileMode && normalized === content && options?.strict !== true)
           return "unchanged" as const;
         if (
@@ -3684,12 +3833,24 @@ export function VisualEditor({
             top: event.clientY,
           });
           const position = coords?.pos ?? view.state.selection.from;
+          const videosToClips =
+            videosGoToClipsRef.current && videoFiles.length > 0;
+          const storedVideoFiles = videosToClips ? [] : videoFiles;
+          if (videosToClips) {
+            insertVideoFilesForClips(
+              view,
+              videoFiles,
+              position,
+              tRef.current("clipEmbed.uploadType"),
+            );
+            if (imageFiles.length === 0 && audioFiles.length === 0) return;
+          }
           if (fileStorageStateRef.current !== "configured") {
             pendingMediaFilesRef.current = {
               view,
               documentId: documentId ?? null,
               imageFiles,
-              videoFiles,
+              videoFiles: storedVideoFiles,
               audioFiles,
               position,
             };
@@ -3699,8 +3860,8 @@ export function VisualEditor({
           if (imageFiles.length > 0) {
             void uploadAndInsertImageFiles(view, imageFiles, position);
           }
-          if (videoFiles.length > 0) {
-            void uploadAndInsertVideoFiles(view, videoFiles, position);
+          if (storedVideoFiles.length > 0) {
+            void uploadAndInsertVideoFiles(view, storedVideoFiles, position);
           }
           if (audioFiles.length > 0) {
             void uploadAndInsertAudioFiles(view, audioFiles, position);
@@ -3723,12 +3884,24 @@ export function VisualEditor({
         }
         return runIfMediaCreationAllowed(suggestingRef.current, () => {
           event.preventDefault();
+          const videosToClips =
+            videosGoToClipsRef.current && videoFiles.length > 0;
+          const storedVideoFiles = videosToClips ? [] : videoFiles;
+          if (videosToClips) {
+            insertVideoFilesForClips(
+              view,
+              videoFiles,
+              view.state.selection.from,
+              tRef.current("clipEmbed.uploadType"),
+            );
+            if (imageFiles.length === 0 && audioFiles.length === 0) return;
+          }
           if (fileStorageStateRef.current !== "configured") {
             pendingMediaFilesRef.current = {
               view,
               documentId: documentId ?? null,
               imageFiles,
-              videoFiles,
+              videoFiles: storedVideoFiles,
               audioFiles,
               position: view.state.selection.from,
             };
@@ -3742,10 +3915,10 @@ export function VisualEditor({
               view.state.selection.from,
             );
           }
-          if (videoFiles.length > 0) {
+          if (storedVideoFiles.length > 0) {
             void uploadAndInsertVideoFiles(
               view,
-              videoFiles,
+              storedVideoFiles,
               view.state.selection.from,
             );
           }
@@ -3759,12 +3932,30 @@ export function VisualEditor({
         });
       },
       handleDOMEvents: {
-        beforeinput(view) {
+        beforeinput(view, event) {
+          if (
+            (event.inputType === "historyUndo" ||
+              event.inputType === "historyRedo") &&
+            suggestionDecisionHoldsHistory(view.state)
+          ) {
+            event.preventDefault();
+            return true;
+          }
           if (view.editable) markUserEditIntent();
           return false;
         },
         keydown(view, event) {
           if (view.editable) markUserEditIntent();
+          if (
+            (event.metaKey || event.ctrlKey) &&
+            !event.altKey &&
+            (event.key.toLowerCase() === "z" ||
+              event.key.toLowerCase() === "y") &&
+            suggestionDecisionHoldsHistory(view.state)
+          ) {
+            event.preventDefault();
+            return true;
+          }
           if (
             view.editable &&
             (event.metaKey || event.ctrlKey) &&
@@ -3964,6 +4155,18 @@ export function VisualEditor({
     };
   }, [editor]);
 
+  // It checks the page's blocks at once, so not before the page is in.
+  useEffect(() => {
+    if (!documentId || !collabSynced) return;
+    return watchClipUploadBlocks(editor, documentId, (upload, cancelled) => {
+      void announceClipCancel(cancelled, {
+        recordingId: upload.recordingId,
+        cancelledKey: "clipEmbed.uploadCancelledBlockGone",
+        t: tRef.current,
+      });
+    });
+  }, [collabSynced, documentId, editor]);
+
   useEffect(() => {
     if (!editor) {
       onPersistenceControllerChange?.(null);
@@ -4054,6 +4257,16 @@ export function VisualEditor({
     onHistoryControllerChange,
     onHistoryStateChange,
   ]);
+
+  useEffect(() => {
+    if (!onSuggestionPlacementsChange) return;
+    onSuggestionPlacementsChange((suggestionIds) =>
+      editor.isDestroyed
+        ? {}
+        : suggestionPlacements(editor.state, suggestionIds),
+    );
+    return () => onSuggestionPlacementsChange(null);
+  }, [editor, onSuggestionPlacementsChange]);
 
   useEffect(() => {
     if (!editor) {
@@ -4312,6 +4525,33 @@ export function VisualEditor({
     },
     [documentId],
   );
+  const requestSnapshotAdoption = useCallback(
+    async ({ revision, update }: { revision: string; update: Uint8Array }) => {
+      if (!documentId)
+        throw new Error("A document ID is required to adopt a snapshot.");
+      let binary = "";
+      for (const byte of update) binary += String.fromCharCode(byte);
+      const result = await callAction<{
+        status: "adopted" | "already-adopted" | "rebase" | "stale";
+        adoptedRevision: string | null;
+        adoptedBody: string | null;
+        stateBase64: string;
+      }>("adopt-document-snapshot", {
+        id: documentId,
+        revision,
+        adoptionUpdateBase64: btoa(binary),
+      });
+      return {
+        status: result.status,
+        adoptedRevision: result.adoptedRevision,
+        adoptedBody: result.adoptedBody,
+        state: Uint8Array.from(atob(result.stateBase64), (char) =>
+          char.charCodeAt(0),
+        ),
+      };
+    },
+    [documentId],
+  );
   const onInitialSeedError = useCallback(
     (error: unknown) => {
       if (initialSeedErrorShownRef.current) return;
@@ -4388,12 +4628,17 @@ export function VisualEditor({
       : collabContentRevision,
     requestCollabSync,
     onBaseAwareReconcile,
+    onBaseAwareMerge: documentId
+      ? (outcome) => reportEditorMerge(documentId, "open_editor", outcome)
+      : undefined,
     onRemoteSnapshotChange: onRemoteSnapshotChange
       ? reportRemoteSnapshot
       : undefined,
     isEditorClean,
     requestInitialSeed:
       ydoc && editable && documentId ? requestInitialSeed : undefined,
+    requestSnapshotAdoption:
+      ydoc && editable && documentId ? requestSnapshotAdoption : undefined,
     onInitialSeedError,
     overlapPolicy: "prefer-live",
     editable,
@@ -4610,7 +4855,7 @@ export function VisualEditor({
     [commentThreads],
   );
   const pendingKey = pendingHighlight
-    ? `${pendingHighlight.from}-${pendingHighlight.to}`
+    ? `${pendingHighlight.from}-${pendingHighlight.to}-${pendingHighlight.blockId ?? ""}`
     : "";
   const resolvedQuotesRef = useRef(new Map<string, string>());
 
@@ -4646,14 +4891,19 @@ export function VisualEditor({
         specs.push(existing);
         continue;
       }
-      const range = resolveAnchor(view.state.doc, anchor);
+      const block = threadCommentBlock(view.state.doc, thread);
+      const range = block
+        ? {
+            from: block.pos,
+            to: block.pos + block.nodeSize,
+            blockId: block.blockId,
+          }
+        : thread.block
+          ? null
+          : resolveAnchor(view.state.doc, anchor);
       if (range) {
         resolvedQuotesRef.current.set(thread.threadId, quote);
-        specs.push({
-          threadId: thread.threadId,
-          from: range.from,
-          to: range.to,
-        });
+        specs.push({ threadId: thread.threadId, ...range });
       } else if (existing) {
         // An edit to the quoted text, such as an accepted suggestion, can
         // reach the editor before the thread's re-anchored quote does.
@@ -4736,31 +4986,71 @@ export function VisualEditor({
         .join("|"),
     [suggestions],
   );
-  const applySuggestionsRef = useRef<((report?: boolean) => void) | null>(null);
+  const applySuggestionsRef = useRef<
+    ((report?: boolean, transaction?: Transaction) => void) | null
+  >(null);
 
   useLayoutEffect(() => {
     if (!editor || editor.isDestroyed) return;
-    const apply = (report = true) => {
+    const apply = (report = true, transaction?: Transaction) => {
       if (editor.isDestroyed) return;
+      const drafting = suggesting && editable;
+      // The Page redraws the author's drafts a frame or two after their
+      // typing, and until then the highlight plugin moves the drafts along
+      // with it. Undo puts the original words back, so it waits instead.
+      const typed =
+        drafting && !transaction?.getMeta("history$")
+          ? (suggestionHighlightKey.getState(editor.state)?.specs ?? [])
+          : [];
+      const sent = sentContentRef.current.get(editor.state.doc);
+      let lagging = !!transaction || (sent !== undefined && sent !== content);
       const specs = suggestions
-        .map((suggestion) =>
-          suggestionHighlightSpec(editor.state.doc, suggestion),
-        )
+        .map((suggestion) => {
+          const spec = suggestionHighlightSpec(editor.state.doc, suggestion);
+          if (!spec && drafting && suggestion.presentation === "draft") {
+            lagging = true;
+            return (
+              typed.find(
+                (held) => held.draft && held.suggestionId === suggestion.id,
+              ) ?? null
+            );
+          }
+          // While suggesting, a saved suggestion's text outside the document
+          // is somewhere to type beside, not a control to focus.
+          return spec &&
+            suggesting &&
+            editable &&
+            suggestion.presentation === "canonical"
+            ? { ...spec, editableBoundary: true }
+            : spec;
+        })
         .filter((spec): spec is SuggestionHighlightSpec => spec !== null);
+      if (lagging) specs.push(...typed.filter(isProvisionalDraftSpec));
       if (report)
         onSuggestionAnchorsChange?.(
-          Array.from(new Set(specs.map((spec) => spec.suggestionId))),
+          Array.from(
+            new Set(
+              specs
+                .filter((spec) => !isProvisionalDraftSpec(spec))
+                .map((spec) => spec.suggestionId),
+            ),
+          ),
         );
+      // A decision that's saving keeps its words drawn and held either way.
       const visibleSpecs = showCommentIndicators
         ? specs
-        : specs.filter((spec) => spec.settling);
+        : specs.filter((spec) => spec.settling || spec.frozen);
       const selection = pendingNativeSuggestionSelection(
         editor.view,
         visibleSpecs,
       );
       setSuggestionHighlights(
         editor.view,
-        { specs: visibleSpecs, activeId: activeSuggestionId ?? null },
+        {
+          specs: visibleSpecs,
+          activeId: activeSuggestionId ?? null,
+          drafting,
+        },
         selection.status === "mapped" ? selection.selection : undefined,
       );
     };
@@ -4771,8 +5061,11 @@ export function VisualEditor({
     };
   }, [
     activeSuggestionId,
+    content,
+    editable,
     editor,
     onSuggestionAnchorsChange,
+    suggesting,
     suggestions,
     suggestionsSignature,
     showCommentIndicators,
@@ -4788,7 +5081,7 @@ export function VisualEditor({
       // Collaboration redraws an identical Page when the editor's plugins
       // change, and the highlight plugin keeps its highlights for that.
       if (transaction.docChanged && !transaction.before.eq(transaction.doc))
-        applySuggestionsRef.current?.(!suggestingRef.current);
+        applySuggestionsRef.current?.(!suggestingRef.current, transaction);
     };
     editor.on("transaction", onTransaction);
     return () => {
@@ -4796,34 +5089,46 @@ export function VisualEditor({
     };
   }, [editor]);
 
+  // Callers build the readbacks inline and render again on every report, so
+  // these checks key on the readbacks' fields and report each divergent body
+  // once: keyed on the objects, each report re-runs its check until React
+  // aborts the render.
+  const acceptedReadbackId = acceptedDecisionReadback?.id ?? null;
+  const acceptedReadbackContent = acceptedDecisionReadback?.content ?? null;
   useLayoutEffect(() => {
-    if (!editor || editor.isDestroyed || !acceptedDecisionReadback) return;
+    if (
+      !editor ||
+      editor.isDestroyed ||
+      acceptedReadbackId === null ||
+      acceptedReadbackContent === null
+    )
+      return;
     const settlingSuggestion = suggestions.find(
-      (suggestion) => suggestion.id === acceptedDecisionReadback.id,
+      (suggestion) => suggestion.id === acceptedReadbackId,
     );
     if (!settlingSuggestion) return;
+    let reported: string | null = null;
     const check = () => {
       if (editor.isDestroyed) return;
       const actualContent = docToNfm(editor.getJSON() as any);
       if (
         acceptedSuggestionRendered(
           actualContent,
-          acceptedDecisionReadback.content,
+          acceptedReadbackContent,
           settlingSuggestion,
         )
       ) {
-        onAcceptedDecisionRendered?.(acceptedDecisionReadback.id);
+        onAcceptedDecisionRendered?.(acceptedReadbackId);
       } else if (
+        actualContent !== reported &&
         acceptedSuggestionReadbackOutdated(
           actualContent,
-          acceptedDecisionReadback.content,
+          acceptedReadbackContent,
           settlingSuggestion,
         )
       ) {
-        onAcceptedDecisionReadbackOutdated?.(
-          acceptedDecisionReadback.id,
-          actualContent,
-        );
+        reported = actualContent;
+        onAcceptedDecisionReadbackOutdated?.(acceptedReadbackId, actualContent);
       }
     };
     editor.on("transaction", check);
@@ -4832,27 +5137,44 @@ export function VisualEditor({
       editor.off("transaction", check);
     };
   }, [
-    acceptedDecisionReadback,
+    acceptedReadbackContent,
+    acceptedReadbackId,
     editor,
     onAcceptedDecisionRendered,
     onAcceptedDecisionReadbackOutdated,
     suggestions,
   ]);
 
+  const proposalReadbackGeneration =
+    proposalDecisionReadback?.generation ?? null;
+  const proposalReadbackContent = proposalDecisionReadback?.content ?? null;
+  const proposalReadbackBefore =
+    proposalDecisionReadback?.beforeContent ?? null;
   useLayoutEffect(() => {
-    if (!editor || editor.isDestroyed || !proposalDecisionReadback) return;
+    if (
+      !editor ||
+      editor.isDestroyed ||
+      proposalReadbackGeneration === null ||
+      proposalReadbackContent === null ||
+      proposalReadbackBefore === null
+    )
+      return;
+    let reported: string | null = null;
     const check = () => {
       if (editor.isDestroyed) return;
       const actual = canonicalizeNfm(docToNfm(editor.getJSON() as any));
-      if (actual === canonicalizeNfm(proposalDecisionReadback.content))
-        onProposalDecisionRendered?.(proposalDecisionReadback.generation);
+      if (actual === canonicalizeNfm(proposalReadbackContent))
+        onProposalDecisionRendered?.(proposalReadbackGeneration);
       else if (
-        actual !== canonicalizeNfm(proposalDecisionReadback.beforeContent)
-      )
+        actual !== reported &&
+        actual !== canonicalizeNfm(proposalReadbackBefore)
+      ) {
+        reported = actual;
         onProposalDecisionReadbackOutdated?.(
-          proposalDecisionReadback.generation,
+          proposalReadbackGeneration,
           actual,
         );
+      }
     };
     editor.on("transaction", check);
     check();
@@ -4863,7 +5185,9 @@ export function VisualEditor({
     editor,
     onProposalDecisionReadbackOutdated,
     onProposalDecisionRendered,
-    proposalDecisionReadback,
+    proposalReadbackBefore,
+    proposalReadbackContent,
+    proposalReadbackGeneration,
   ]);
 
   useEffect(() => {
@@ -4925,10 +5249,8 @@ export function VisualEditor({
         onActivateSuggestionRef.current?.(suggestion.dataset.suggestionId);
         return;
       }
-      const comment = target?.closest<HTMLElement>("[data-comment-thread]");
-      if (comment?.dataset.commentThread) {
-        onActivateThreadRef.current?.(comment.dataset.commentThread);
-      }
+      const threadId = commentThreadAt(target, activeThreadIdRef.current);
+      if (threadId) onActivateThreadRef.current?.(threadId);
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Enter" && event.key !== " ") return;
@@ -5034,6 +5356,13 @@ export function VisualEditor({
       ) : null}
       <LinkHoverPreview editor={editor} editable={editable} />
       {editable && !suggesting ? <TableHoverControls editor={editor} /> : null}
+      {editable ? (
+        <BlockActionsMenu
+          editor={editor}
+          onComment={onComment}
+          suggesting={suggesting}
+        />
+      ) : null}
       {editable && isDraggingMedia ? (
         <div className="media-drop-overlay">
           <div className="media-drop-overlay__content">

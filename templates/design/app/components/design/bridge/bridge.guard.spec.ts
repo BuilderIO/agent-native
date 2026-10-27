@@ -24,6 +24,7 @@ import { embeddedWheelBridgeScript } from "../../../../.generated/bridge/embedde
 import { hitTestBridgeScript } from "../../../../.generated/bridge/hit-test.generated";
 import { buildCodeLayerProjection } from "../../../../shared/code-layer";
 import {
+  availableSizingForElement,
   inferElementSizing,
   isTextElement,
 } from "../edit-panel/element-classification";
@@ -594,6 +595,8 @@ describe("source vector stroke overlay reconciliation", () => {
 
 const BRIDGE_SAFE_IMPORTS: Readonly<Record<string, readonly string[]>> = {
   "editor-chrome.bridge.ts": [
+    "../../../../shared/export-image-source",
+    "../../../../shared/srcset",
     "./native-region-export",
     "@agent-native/toolkit/canvas-interactions",
     "@jridgewell/trace-mapping",
@@ -3315,7 +3318,7 @@ it(
 );
 
 it(
-  "uses direct single-click selection inside screens while board clicks use container-first selection",
+  "a plain click selects the top-level layer inside a screen, as on the board",
   { timeout: 30_000 },
   async () => {
     const browser = await chromium.launch({ headless: true });
@@ -3362,8 +3365,6 @@ it(
           });
         });
 
-        // HUMAN-DIRECTED UX EXCEPTION: the screen path is intentionally a
-        // direct single-click selection, unlike the board's app behavior.
         await page.mouse.click(160, 160);
         await page.waitForFunction(
           () => ((window as any).__selectedIds as string[]).length > 0,
@@ -3377,7 +3378,7 @@ it(
 
       const screen = await openSurface(false);
       const board = await openSurface(true);
-      expect(screen.selectedId).toBe("heading");
+      expect(screen.selectedId).toBe("screen");
       expect(board.selectedId).toBe("screen");
       expect(pageErrors).toEqual([]);
     } finally {
@@ -3572,7 +3573,7 @@ it(
 );
 
 it(
-  "editor chrome bridge promotes generated groups, but not authored or copied Group layers",
+  "editor chrome bridge answers a plain click with the top-level group and a Cmd+click with the leaf",
   { timeout: 30_000 },
   async () => {
     const browser = await chromium.launch({ headless: true });
@@ -3611,7 +3612,11 @@ it(
     </div>
   </body>
 </html>`);
-      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      // Screen content: a plain click selects the screen's top-level layer,
+      // whether or not it is a promoted group.
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(false, "bridge-guard", false),
+      });
       await page
         .waitForSelector('[data-agent-native-edit-overlay="shield"]', {
           timeout: 2_000,
@@ -3649,11 +3654,16 @@ it(
         undefined,
         { timeout: 2_000 },
       );
+      // Cmd+click deep-selects the leaf, so it never stops at a group.
       const generatedSelection = await page.evaluate(() =>
         (window as any).__selectedIds.at(-1),
       );
-      expect(generatedSelection).toBe("generated-group");
+      expect(generatedSelection).toBe("generated-child");
+      await page.keyboard.up("Meta");
 
+      // A plain click is what a generated group answers as a unit.
+      await page.waitForTimeout(500);
+      await page.mouse.click(840, 600);
       await page.waitForTimeout(500);
       await page.mouse.click(440, 140);
       await page.waitForFunction(
@@ -3661,11 +3671,12 @@ it(
         undefined,
         { timeout: 2_000 },
       );
-      const generatedChildSelection = await page.evaluate(() =>
+      const plainGeneratedSelection = await page.evaluate(() =>
         (window as any).__selectedIds.at(-1),
       );
-      expect(generatedChildSelection).toBe("generated-child");
+      expect(plainGeneratedSelection).toBe("generated-group");
 
+      await page.waitForTimeout(500);
       await page.mouse.click(740, 140);
       await page.waitForFunction(
         () => ((window as any).__selectedIds as string[]).length >= 4,
@@ -3677,6 +3688,7 @@ it(
       );
       expect(legacySelection).toBe("an-legacygroup");
 
+      await page.waitForTimeout(500);
       await page.mouse.click(140, 340);
       await page.waitForFunction(
         () => ((window as any).__selectedIds as string[]).length >= 5,
@@ -3686,9 +3698,7 @@ it(
       const clonedSelection = await page.evaluate(() =>
         (window as any).__selectedIds.at(-1),
       );
-      expect(clonedSelection).toBe("cloned-child");
-
-      await page.keyboard.up("Meta");
+      expect(clonedSelection).toBe("copy-cloned-group");
     } finally {
       await browser.close();
     }
@@ -6575,7 +6585,10 @@ describe("editor chrome bridge — text editing session", () => {
             "[data-agent-native-text-editing]",
           )!;
           const range = document.createRange();
-          range.selectNodeContents(target);
+          // Part of the text: a style for all of it is the layer's own.
+          const text = target.firstChild as Text;
+          range.setStart(text, 0);
+          range.setEnd(text, 5);
           const selection = window.getSelection()!;
           selection.removeAllRanges();
           selection.addRange(range);
@@ -6789,7 +6802,10 @@ describe("editor chrome bridge — text editing session", () => {
             "[data-agent-native-text-editing]",
           )!;
           const range = document.createRange();
-          range.selectNodeContents(target);
+          // Part of the text: a style for all of it is the layer's own.
+          const text = target.firstChild as Text;
+          range.setStart(text, 0);
+          range.setEnd(text, 5);
           const selection = window.getSelection()!;
           selection.removeAllRanges();
           selection.addRange(range);
@@ -6999,7 +7015,10 @@ describe("editor chrome bridge — text editing session", () => {
             "[data-agent-native-text-editing]",
           )!;
           const range = document.createRange();
-          range.selectNodeContents(target);
+          // Part of the text: a style for all of it is the layer's own.
+          const text = target.firstChild as Text;
+          range.setStart(text, 0);
+          range.setEnd(text, 5);
           const selection = window.getSelection()!;
           selection.removeAllRanges();
           selection.addRange(range);
@@ -11898,7 +11917,7 @@ it(
             ?.getAttribute("src"),
           imageSrcset: doc
             .querySelector("#responsive-image")
-            ?.hasAttribute("srcset"),
+            ?.getAttribute("srcset"),
           pictureSources: doc.querySelectorAll("picture source").length,
           resourceRequests: (window as any).__resourceRequests,
         };
@@ -11911,9 +11930,140 @@ it(
         "https://export.test/assets/pixel.svg",
       ]);
       expect(snapshot.bodyRules).toContain("letter-spacing: 3px");
-      expect(snapshot.imageSrc).toContain("id='chosen'");
-      expect(snapshot.imageSrcset).toBe(false);
+      expect(snapshot.imageSrc).toBeNull();
+      expect(snapshot.imageSrcset).toContain("id='chosen'");
       expect(snapshot.pictureSources).toBe(0);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "ordinary image events skip captured sources and refresh changed sources",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(`<!doctype html>
+<html><head><base href="https://export.test/"></head><body><img id="ordinary-image"></body></html>`);
+      const ordinaryImageUrl = "https://export.test/assets/ordinary-image.svg";
+      const updatedImageUrl =
+        "https://export.test/assets/updated-ordinary-image.svg";
+      await page.route(ordinaryImageUrl, async (route) => {
+        await new Promise((resolve) => setTimeout(resolve, 1_200));
+        await route.fulfill({
+          status: 200,
+          contentType: "image/svg+xml",
+          body: '<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"/>',
+        });
+      });
+      await page.route(updatedImageUrl, async (route) => {
+        await new Promise((resolve) => setTimeout(resolve, 1_200));
+        await route.fulfill({
+          status: 200,
+          contentType: "image/svg+xml",
+          body: '<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"/>',
+        });
+      });
+      await page.evaluate(() => {
+        (window as any).__resourceRequests = [];
+        (window as any).__ordinaryImageLoaded = false;
+        window.fetch = (async (input: RequestInfo | URL) => {
+          const source = String(input);
+          (window as any).__resourceRequests.push(source);
+          return new Response(
+            new Blob(
+              [
+                `<svg xmlns="http://www.w3.org/2000/svg"><title>${source}</title></svg>`,
+              ],
+              { type: "image/svg+xml" },
+            ),
+            { status: 200 },
+          );
+        }) as typeof fetch;
+        const image =
+          document.querySelector<HTMLImageElement>("#ordinary-image")!;
+        image.addEventListener(
+          "load",
+          () => ((window as any).__ordinaryImageLoaded = true),
+          { once: true },
+        );
+        image.setAttribute("src", "assets/ordinary-image.svg");
+      });
+      await collectBridgeMessages(page);
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(true),
+      });
+      await page.waitForFunction(() =>
+        ((window as any).__bridgeMessages ?? []).some(
+          (message: any) =>
+            message.type === "agent-native:runtime-layer-snapshot",
+        ),
+      );
+
+      const initialRequests = await page.evaluate(
+        () => (window as any).__resourceRequests as string[],
+      );
+      expect(initialRequests).toEqual([ordinaryImageUrl]);
+      await page.waitForFunction(() => (window as any).__ordinaryImageLoaded);
+      await page.waitForTimeout(500);
+
+      const requestsAfterLoad = await page.evaluate(
+        () => (window as any).__resourceRequests as string[],
+      );
+      expect(requestsAfterLoad).toEqual(initialRequests);
+
+      await page.locator("#ordinary-image").evaluate((image, source) => {
+        (image as HTMLImageElement).src = source;
+      }, updatedImageUrl);
+      await page.waitForFunction((source) => {
+        return ((window as any).__bridgeMessages ?? []).some((message: any) => {
+          if (
+            message.type !== "agent-native:runtime-layer-snapshot" ||
+            typeof message.payload?.html !== "string"
+          ) {
+            return false;
+          }
+          const doc = new DOMParser().parseFromString(
+            message.payload.html,
+            "text/html",
+          );
+          const imageSource =
+            doc.querySelector<HTMLImageElement>("#ordinary-image")?.src || "";
+          return (
+            imageSource.startsWith("data:image/svg+xml;base64,") &&
+            atob(imageSource.split(",")[1] || "").includes(source)
+          );
+        });
+      }, updatedImageUrl);
+
+      const finalState = await page.evaluate(() => ({
+        resourceRequests: (window as any).__resourceRequests as string[],
+        ordinaryImageSource: document
+          .querySelector<HTMLImageElement>("#ordinary-image")
+          ?.getAttribute("src"),
+        latestSnapshotSource: (() => {
+          const snapshots = ((window as any).__bridgeMessages ?? []).filter(
+            (message: any) =>
+              message.type === "agent-native:runtime-layer-snapshot",
+          );
+          const html = snapshots.at(-1)?.payload?.html as string | undefined;
+          if (!html) return "";
+          const doc = new DOMParser().parseFromString(html, "text/html");
+          const imageSource =
+            doc.querySelector<HTMLImageElement>("#ordinary-image")?.src || "";
+          return imageSource.startsWith("data:image/svg+xml;base64,")
+            ? atob(imageSource.split(",")[1] || "")
+            : imageSource;
+        })(),
+      }));
+      expect(finalState.resourceRequests).toEqual(
+        expect.arrayContaining([updatedImageUrl]),
+      );
+      expect(finalState.ordinaryImageSource).toBe(updatedImageUrl);
+      expect(finalState.latestSnapshotSource).toContain(updatedImageUrl);
     } finally {
       await browser.close();
     }
@@ -16868,13 +17018,14 @@ const PRIMARY_HOTKEY_FORWARDING_CASES: Array<{
   // the one chord shouldForwardDesignHotkey defers instead of forwarding
   // immediately (see plainPasteHotkey in editor-chrome.bridge.ts): the
   // keydown handler leaves the browser's native paste alone and schedules a
-  // design-hotkey post on a 0ms timer, but the document-level "paste"
-  // listener unconditionally cancels that timer the instant a real paste
-  // DOMEvent arrives (provider-specific or not) so paste is never
-  // double-handled. Chromium's synthetic CDP keyboard input dispatches that
-  // real paste event even against a non-editable, unfocused document body,
-  // so this chord can't be exercised as a simple "did a design-hotkey
-  // message arrive" assertion the way every other chord here can. The
+  // design-hotkey post on a 0ms timer, which the document-level "paste"
+  // listener cancels when it relays that paste itself, so paste is never
+  // double-handled. Whether a design-hotkey arrives therefore depends on the
+  // real clipboard's contents (Chromium's synthetic CDP keyboard input
+  // dispatches that paste event even against a non-editable, unfocused
+  // document body), so this chord can't be a simple "did a design-hotkey
+  // message arrive" assertion; plain-paste-hotkey.bridge.spec.ts covers it
+  // with controlled clipboard data. The
   // Cmd+Alt+V / Cmd+Shift+V variants below aren't `plainPasteHotkey` (that
   // flag requires !altKey && !shiftKey) and forward immediately and
   // synchronously like every other chord, so they cover the same "v" array
@@ -20032,9 +20183,84 @@ it(
           width: "auto",
           height: "auto",
         });
-        expect(inferElementSizing(payload, "horizontal")).toBe("hug");
+        // An auto-width block-level box spans its block parent: Fill, not Hug.
+        expect(inferElementSizing(payload, "horizontal")).toBe("fill");
         expect(inferElementSizing(payload, "vertical")).toBe("hug");
       }
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "reports each direct child's layout so Hug and Fill come from the rendered page",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 800, height: 500 },
+      });
+      await page.setContent(`<!doctype html><style>
+        html, body { margin: 0; }
+        .grow { flex-grow: 1; }
+      </style>
+      <div id="row" data-agent-native-node-id="row" style="display:flex;width:300px;height:60px;padding:10px;border:2px solid black;position:relative">
+        <div data-agent-native-node-id="grow" class="grow" style="height:20px"></div>
+        <div data-agent-native-node-id="fixed" style="width:40px;height:20px"></div>
+        <div data-agent-native-node-id="badge" style="position:absolute;right:4px;top:4px;width:8px;height:8px"></div>
+        loose
+      </div>`);
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(),
+      });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await page.evaluate(() => {
+        window.addEventListener("message", (event: MessageEvent) => {
+          if (event.data?.type === "element-select") {
+            (window as any).__lastElementSelection = event.data.payload;
+          }
+        });
+        window.postMessage(
+          {
+            type: "select-element",
+            selector: "#row",
+            selectorCandidates: ["#row"],
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(
+        () => (window as any).__lastElementSelection?.sourceId === "row",
+      );
+      const payload = await page.evaluate(
+        () => (window as any).__lastElementSelection,
+      );
+
+      expect(payload.childLayouts.complete).toBe(true);
+      expect(payload.childLayouts.looseText).toBe(true);
+      const byId = Object.fromEntries(
+        payload.childLayouts.children.map((child: { nodeId: string }) => [
+          child.nodeId,
+          child,
+        ]),
+      );
+      expect(byId.grow).toMatchObject({
+        flexGrow: "1",
+        position: "static",
+        width: "auto",
+        rect: { x: 10, y: 10, height: 20 },
+      });
+      expect(byId.fixed).toMatchObject({ width: "40px" });
+      expect(byId.badge).toMatchObject({
+        position: "absolute",
+        rect: { x: 308, y: 4, width: 8, height: 8 },
+      });
+      // The grow child fills the row, so Hug stays on offer only because
+      // the child's rendered width can be frozen when Hug is chosen.
+      expect(availableSizingForElement(payload).horizontal).toContain("hug");
+      expect(inferElementSizing(payload, "horizontal")).toBe("fixed");
     } finally {
       await browser.close();
     }
@@ -20196,6 +20422,57 @@ it(
         screenId: "screen-target",
         svg: '<svg width="17" height="9"><path d="M0 0h17"/></svg>',
       });
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "relays a Design layer copy pasted into a focused iframe whole, not as its lone SVG",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent("<!doctype html><html><body></body></html>");
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(
+          false,
+          "screen-target",
+          false,
+        ),
+      });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+
+      const html =
+        '<div><svg width="16" height="16"></svg>Icon row</div>\n<!--agent-native-clipboard-v1:token.ZGF0YQ==-->';
+      const defaultPrevented = await page.evaluate((markerHtml) => {
+        const transfer = new DataTransfer();
+        transfer.setData("text/html", markerHtml);
+        transfer.setData("text/plain", "Icon row");
+        const event = new ClipboardEvent("paste", {
+          bubbles: true,
+          cancelable: true,
+          clipboardData: transfer,
+        });
+        document.dispatchEvent(event);
+        return event.defaultPrevented;
+      }, html);
+
+      expect(defaultPrevented).toBe(true);
+      const pastes = (await readBridgeMessages(page)).filter(
+        (message) => message.type === "figma-clipboard-paste",
+      );
+      expect(pastes).toHaveLength(1);
+      expect(pastes[0]).toMatchObject({
+        content: "",
+        html,
+        text: "Icon row",
+        screenId: "screen-target",
+      });
+      expect(pastes[0]).not.toHaveProperty("svg");
     } finally {
       await browser.close();
     }

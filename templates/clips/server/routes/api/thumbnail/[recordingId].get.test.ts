@@ -35,6 +35,10 @@ vi.mock("drizzle-orm", () => ({
   eq: vi.fn(),
 }));
 
+vi.mock("@agent-native/core/a2a", () => ({
+  getGlobalA2ASecret: vi.fn(() => undefined),
+}));
+
 vi.mock("@agent-native/core/extensions/url-safety", () => ({
   createSsrfSafeDispatcher: (...args: unknown[]) =>
     mockCreateSsrfSafeDispatcher(...args),
@@ -201,6 +205,51 @@ describe("/api/thumbnail/:recordingId route", () => {
     mockVerifyShortLivedToken.mockReturnValue({ ok: false });
     mockSignShortLivedToken.mockReturnValue("renewed-token");
   });
+
+  it.each([null, "viewer", "editor", "admin"])(
+    "does not serve trashed thumbnails to %s callers",
+    async (role) => {
+      const recording = makeRow({ trashedAt: "2026-10-22T12:00:00.000Z" });
+      mockGetDb.mockReturnValue(createDbWithRow(recording));
+      if (role)
+        mockResolveAccess.mockResolvedValue({ role, resource: recording });
+      vi.mocked(fetch).mockResolvedValue(
+        new Response("thumbnail", {
+          headers: { "content-type": "image/jpeg" },
+        }),
+      );
+      const event = makeEvent();
+
+      expect(
+        await handler(event as unknown as Parameters<typeof handler>[0]),
+      ).toEqual({ error: "Not found" });
+      expect(event.status).toBe(404);
+      expect(fetch).not.toHaveBeenCalled();
+      expect(mockFetchS3ObjectByUrl).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    { role: "owner", trashedAt: "2026-10-22T12:00:00.000Z" },
+    { role: "viewer", trashedAt: null },
+  ])(
+    "serves owner Trash previews and restored thumbnails: $role",
+    async ({ role, trashedAt }) => {
+      const recording = makeRow({ trashedAt });
+      mockGetDb.mockReturnValue(createDbWithSelectSequence([]));
+      mockResolveAccess.mockResolvedValue({ role, resource: recording });
+      vi.mocked(fetch).mockResolvedValue(
+        new Response("thumbnail", {
+          headers: { "content-type": "image/jpeg" },
+        }),
+      );
+      const result = await handler(
+        makeEvent() as unknown as Parameters<typeof handler>[0],
+      );
+      expect(result).toBeInstanceOf(Response);
+      expect(await (result as Response).text()).toBe("thumbnail");
+    },
+  );
 
   it("proxies a public provider thumbnail", async () => {
     mockGetDb.mockReturnValue(createDbWithRow(makeRow()));

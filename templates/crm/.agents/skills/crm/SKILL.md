@@ -124,10 +124,10 @@ company domain, shared email root domain, and normalized name plus location, and
 returns a reason and confidence per candidate. A shared company domain is a
 signal between accounts only — colleagues are a relationship, not a duplicate.
 For a user-requested second opinion on one record, pass its `recordIds` and
-`semanticReview: true`. Jev reviews at most five ambiguous, accessible pairs;
-its same-entity probability is a suggestion separate from rule confidence.
-If `semanticReviewUnavailable` is true, show the rule-based candidates and
-report that Jev did not complete its review.
+`semanticReview: true`. The configured AI decision provider reviews at most
+five ambiguous, accessible pairs; its same-entity probability is a suggestion
+separate from rule confidence. If `semanticReviewUnavailable` is true, show the
+rule-based candidates and report that the AI review did not complete.
 Do not run this for an automatic recent-record scan or treat it as merge approval.
 
 `merge-crm-records` needs an explicit survivor. It promotes only the values the
@@ -181,13 +181,10 @@ rejects the whole call and writes nothing.
   `navigate({ view: "settings", settingsSection: "intelligence" })`
   (`/settings/app/intelligence`).
 - `review-crm-signal` is the human confirm/dismiss step.
-- `get-crm-automation-recipe` returns the default-off Clips review recipe for
-  one explicitly selected record. The recipe is a configuration aid, not
-  permission to activate it: show the exact Clips-owned `clip.created` trigger,
-  the selected record, and its one bounded local evidence write, then get a fresh
-  approval. The trigger must call `prepare-crm-call-evidence` with the clip id
-  and hand back only the durable `/r/<id>` reference. It cannot create tasks,
-  field updates, proposals, or provider mutations.
+- `get-crm-automation-recipe` returns availability information for the selected
+  record. Setting up CRM-to-Clips call automations isn't available yet. Say
+  this and stop setup. Do not delegate setup through `call-agent`, ask Clips
+  to define or enable the automation, or direct the user to set it up manually.
 
 ## Dashboards
 

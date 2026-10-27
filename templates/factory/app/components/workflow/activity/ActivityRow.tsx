@@ -9,6 +9,7 @@ import { useItemsStrings, type ItemsStrings } from "../items-strings";
 import { formatClock } from "../items/format";
 import type { ChipTone } from "../items/item-status";
 import type { ActivityEntry } from "../items/read-types";
+import { succeededItemFailures } from "../workflow-list-model";
 import {
   actorLabel,
   describeRunCounts,
@@ -49,7 +50,11 @@ interface EntryView {
 function describe(entry: ActivityEntry, s: ItemsStrings): EntryView {
   switch (entry.kind) {
     case "run": {
-      const status = runStatusView(entry.status, s);
+      const status = runStatusView(
+        entry.status,
+        s,
+        succeededItemFailures(entry),
+      );
       return {
         kindLabel: s.activity.kindChip.run,
         kindTone: "neutral",

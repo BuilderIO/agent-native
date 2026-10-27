@@ -1,6 +1,6 @@
 ---
 slug: how-to-write-a-bug-report
-use_case: bug-reports-with-console-logs
+use_case: ai-bug-reporting-tool
 job_id: job-bug-report
 title: "How do you write a bug report an engineer can act on?"
 meta_description: "A good bug report answers four questions without a follow-up. Here's a copy-and-paste template, how to capture console errors, and when a recording beats text."

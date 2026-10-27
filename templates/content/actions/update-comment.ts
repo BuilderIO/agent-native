@@ -16,11 +16,17 @@ import {
 import { notifyEditedCommentMentions } from "../server/lib/comment-notifications.js";
 import { commentSubmissionSource } from "../server/lib/comment-submission-source.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
+import { firstRow } from "../server/lib/first-row.js";
 import {
   personMentions,
   readStoredCommentMentions,
   serializeStoredCommentMentions,
 } from "../shared/comment-mentions.js";
+import {
+  contentChangeActor,
+  enqueueCommentWebhooks,
+  scheduleContentWebhookDelivery,
+} from "./_content-webhooks.js";
 
 export default defineAction({
   description:
@@ -115,19 +121,27 @@ export default defineAction({
           : {}),
       };
 
+    let webhookEvents = 0;
     if (args.resolved !== undefined) {
       await db.transaction(async (tx) => {
-        await tx
-          .select({ id: schema.documentComments.id })
-          .from(schema.documentComments)
-          .where(
-            and(
-              eq(schema.documentComments.id, comment.threadId),
-              eq(schema.documentComments.documentId, comment.documentId),
-            ),
-          )
-          .limit(1)
-          .for("update");
+        const root = firstRow(
+          await tx
+            .select({
+              id: schema.documentComments.id,
+              authorEmail: schema.documentComments.authorEmail,
+              content: schema.documentComments.content,
+              resolved: schema.documentComments.resolved,
+            })
+            .from(schema.documentComments)
+            .where(
+              and(
+                eq(schema.documentComments.id, comment.threadId),
+                eq(schema.documentComments.documentId, comment.documentId),
+              ),
+            )
+            .limit(1)
+            .for("update"),
+        );
         if (args.content !== undefined || args.mentions !== undefined) {
           await tx
             .update(schema.documentComments)
@@ -148,7 +162,30 @@ export default defineAction({
               eq(schema.documentComments.threadId, comment.threadId),
             ),
           );
+        if (args.resolved && root && !root.resolved) {
+          webhookEvents = await enqueueCommentWebhooks(
+            tx as unknown as ReturnType<typeof getDb>,
+            {
+              type: "comment.resolved",
+              comment: {
+                id: root.id,
+                documentId: comment.documentId,
+                threadId: comment.threadId,
+                parentId: null,
+                authorEmail: root.authorEmail,
+                // The thread's first comment may have been edited just above.
+                content:
+                  args.id === root.id && args.content !== undefined
+                    ? args.content
+                    : root.content,
+                resolved: true,
+              },
+              actor: contentChangeActor(ctx),
+            },
+          );
+        }
       });
+      if (webhookEvents) scheduleContentWebhookDelivery();
     } else {
       await db
         .update(schema.documentComments)

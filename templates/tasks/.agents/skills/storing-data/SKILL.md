@@ -29,6 +29,24 @@ Agent-Native apps use Drizzle ORM over PostgreSQL. Local development uses PGlite
 
 For app code, use Drizzle's schema/query DSL by default. Raw SQL is an escape hatch for additive migrations, health checks, or one-off maintenance, not the normal way to build features.
 
+### Typed raw SQL fragments
+
+When Drizzle cannot express a PostgreSQL query, import `sql` from
+`@agent-native/core/db` and pass its fragment directly to
+`getDbExec().execute()`. Use `sql.value(value)` for bound values,
+`sql.ident(name)` for validated lowercase identifiers, `sql.in(values)` for a
+nonempty list (it includes parentheses), and `sql.join(fragments, separator)`
+or nested fragments for composition. The tag rejects plain string interpolation
+at compile time; do not build `{ sql: `...${value}...` }` or pass interpolated
+templates directly to `execute()`. The diff-scoped guard checks new
+interpolated SQL reaching `getDbExec().execute()` through the helper and wrapper
+paths it analyzes. A reviewed exception needs `// raw-sql-ok: <reason>` as
+a standalone comment immediately before the sink statement or after it on the
+same line. Markers inside SQL text, callbacks, and object properties do not opt
+out. The guard does not audit Drizzle `sql.raw()` or raw adapter `query()` calls,
+so use bound Drizzle fragments or the typed kernel instead of interpolating
+dynamic values through those APIs.
+
 ### Schema and migration ownership
 
 Define PostgreSQL tables with Drizzle's `drizzle-orm/pg-core` exports and use
@@ -132,6 +150,22 @@ offboarding hands them to the successor. A table without `org_id` needs
 | **Content**  | documents in SQL; connected local-folder sources sync separately |
 | **Slides**   | decks (JSON stored in SQL)                    |
 | **Clips**    | recording metadata in SQL; video and image files use blob storage |
+
+#### Lifecycle status columns are state machines
+
+A status column with more than two values gets a `defineMachine` from
+`@agent-native/core/state-machine` beside its store; the SQL derives from it.
+
+- Read stored values with `machine.parseState(row.status)`, never `as Status`.
+  An unknown value throws instead of flowing on as a plausible state.
+- Write each transition as a compare-and-set against its source states —
+  `WHERE status IN (${machine.sqlStateList("claim")})`, or
+  `inArray(table.status, machine.fromStates("claim"))` in Drizzle — and treat
+  zero updated rows as a lost race or an illegal transition, never success.
+- Pin each event's source and target states in a spec, so a lifecycle change
+  is a visible test diff.
+
+Core's A2A task store (`a2a/task-lifecycle` in `@agent-native/core`) is the reference.
 
 ### Agent Access
 

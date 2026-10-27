@@ -1,7 +1,7 @@
 interface ActionQuery {
   queryKey: readonly unknown[];
   isActive?: () => boolean;
-  meta?: Record<string, unknown>;
+  meta?: Record<string, unknown> | undefined;
 }
 
 interface ActionEvent {
@@ -103,6 +103,8 @@ const DATABASE_RESULT_MUTATIONS = new Set([
 ]);
 
 const DATABASE_PRESENTATION_MUTATIONS = new Set([
+  // Deleting a property drops it from saved personal sorts and filters.
+  "delete-document-property",
   "update-content-database-personal-view",
 ]);
 

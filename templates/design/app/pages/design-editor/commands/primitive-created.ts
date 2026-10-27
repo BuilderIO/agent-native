@@ -6,6 +6,7 @@ import {
   armPendingTextCapture,
   beginTextEditForOwner,
   failPendingTextCapture,
+  isPendingTextDeliveryInFlight,
   isPendingTextRequestLive,
   isPendingTextWriteInFlight,
   onPendingTextCaptureCancel,
@@ -218,7 +219,9 @@ export function runPrimitiveCreated(
       boardFileId,
       afterPointerGesture: true,
       isAbandoned: () =>
-        abandoned || !isPendingTextRequestLive(screenId, textNodeId),
+        abandoned ||
+        !isPendingTextRequestLive(screenId, textNodeId) ||
+        isPendingTextDeliveryInFlight(screenId, textNodeId),
       onExhausted: (finalStatus) => {
         if (canceledByPendingOwner) return;
         const pending = pendingEmptyTextEditRef.current;

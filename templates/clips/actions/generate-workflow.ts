@@ -11,6 +11,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import { withFullVideoAiInstructions } from "../shared/clips-ai-prefs.js";
 import {
   isRecentWorkflowGeneration,
@@ -58,8 +59,10 @@ export default defineAction({
       .optional()
       .describe("Open the user-visible agent chat for this request"),
   }),
-  run: async (args) => {
-    await assertAccess("recording", args.recordingId, "viewer");
+  run: async (args, ctx) => {
+    assertRecordingNotExpired(
+      await assertAccess("recording", args.recordingId, "viewer"),
+    );
 
     const stateKey = `clips-workflow-${args.recordingId}`;
     if (workflowGenerationLocks.has(stateKey)) {
@@ -105,12 +108,14 @@ export default defineAction({
       const existingRequest = await readAppState(requestKey);
       const requestedAt = new Date().toISOString();
       const requestId = randomUUID();
+      const requestedBy = ctx?.userEmail?.trim().toLowerCase();
       const workflowState = {
         kind: args.kind,
         status: "generating",
         recordingId: args.recordingId,
         requestedAt,
         requestId,
+        ...(requestedBy ? { requestedBy } : {}),
       };
 
       const baseMessage =
@@ -129,6 +134,7 @@ export default defineAction({
         recordingId: args.recordingId,
         requestedAt,
         requestId,
+        ...(requestedBy ? { requestedBy } : {}),
         recordingTitle: rec.title,
         recordingDescription: rec.description,
         transcriptStatus: transcript?.status ?? "pending",

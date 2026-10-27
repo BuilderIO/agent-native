@@ -12,6 +12,7 @@ import { z } from "zod";
 import { createTestPglite } from "../a2a/test-pglite.js";
 import { actionArgumentsHash } from "../action-arguments-identity.js";
 import { defineAction } from "../action.js";
+import { realtimeVoiceApprovalHooks } from "../server/realtime-voice.js";
 import { withExecutionFence } from "./execution-fence.js";
 import type { ActionEntry } from "./production-agent.js";
 import { executeAgentToolCall, toolCallCacheKey } from "./production-agent.js";
@@ -77,6 +78,7 @@ const {
   AgentToolApprovalNotFoundError,
   consumeAgentToolApproval,
   createAgentToolApproval,
+  denyAgentToolApproval,
   hashAgentToolApprovalKey,
   isAgentToolAlwaysAllowed,
   setAgentToolApprovalPolicy,
@@ -176,6 +178,43 @@ describe("tool approvals bound to the arguments that run", () => {
     await expect(
       consumeAgentToolApproval({ ...call, argumentsHash: "args-1" }),
     ).resolves.toBe(false);
+  });
+
+  it("allows an expired pending approval to be durably denied", async () => {
+    const approvalId = await createAgentToolApproval({
+      ...call,
+      expiresAt: Date.now() - 1,
+    });
+
+    await expect(
+      denyAgentToolApproval({
+        approvalId,
+        ownerEmail: scope.ownerEmail,
+        orgId: scope.orgId,
+        threadId: scope.threadId,
+      }),
+    ).resolves.toBe("denied");
+    await expect(consumeAgentToolApproval(call)).resolves.toBe(false);
+    await expect(
+      pglite.query<{ status: string }>(
+        "SELECT status FROM agent_tool_approvals WHERE id = ?",
+        [approvalId],
+      ),
+    ).resolves.toMatchObject({ rows: [{ status: "denied" }] });
+  });
+
+  it("distinguishes a consumed approval from a denial that was not applied", async () => {
+    const approvalId = await createAgentToolApproval(call);
+    await expect(consumeAgentToolApproval(call)).resolves.toBe(true);
+
+    await expect(
+      denyAgentToolApproval({
+        approvalId,
+        ownerEmail: scope.ownerEmail,
+        orgId: scope.orgId,
+        threadId: scope.threadId,
+      }),
+    ).resolves.toBe("already_resolved");
   });
 
   it("fences approval creation and consumption to the live worker generation", async () => {
@@ -340,6 +379,117 @@ describe("tool approval and turn cancellation ordering", () => {
     );
     expect(approval.rows[0]?.status).toBe("consumed");
     expect(await markTurnAborted(turn.threadId, turn.turnId)).toBe("aborted");
+  });
+});
+
+describe("voice chat approvals", () => {
+  it.each([
+    ["short", "s1"],
+    ["long", `s1-${"x".repeat(2_000)}`],
+  ])(
+    "asks once, runs the approved retry of %s arguments, and does not let it be reused",
+    async (_size, slideId) => {
+      const run = vi.fn(async () => ({ deleted: true }));
+      const actions = {
+        "delete-slide": defineAction({
+          description: "Delete a slide.",
+          schema: z.object({ slideId: z.string() }),
+          needsApproval: true,
+          run,
+        }) as unknown as ActionEntry,
+      };
+      const voiceCall = (callId: string, approvalId?: string) => {
+        const args = { slideId };
+        const { recordedApprovalId, ...approvalHooks } =
+          realtimeVoiceApprovalHooks({
+            userEmail: scope.ownerEmail,
+            orgId: scope.orgId,
+            sessionId: `voice-session-${slideId.length}`,
+            callId,
+            name: "delete-slide",
+            args,
+            ...(approvalId ? { approvalId } : {}),
+          });
+        return executeAgentToolCall({
+          actions,
+          name: "delete-slide",
+          input: args,
+          callId,
+          ownerEmail: scope.ownerEmail,
+          orgId: scope.orgId,
+          threadId: `realtime:voice-session-${slideId.length}`,
+          turnId: callId,
+          ...approvalHooks,
+        }).then((result) => ({ result, approvalId: recordedApprovalId() }));
+      };
+
+      const asked = await voiceCall("call_asked");
+      expect(asked.result).toMatchObject({ status: "approval_required" });
+      expect(run).not.toHaveBeenCalled();
+
+      expect(
+        (await voiceCall("call_asked_approved", asked.approvalId)).result,
+      ).toMatchObject({ status: "completed" });
+      expect(run).toHaveBeenCalledOnce();
+
+      // The approval was used up; the same record cannot run the call again.
+      expect(
+        (await voiceCall("call_again", asked.approvalId)).result,
+      ).toMatchObject({ status: "approval_required" });
+      expect(run).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("runs the exact approval the user approved after an identical request was declined", async () => {
+    const run = vi.fn(async () => ({ deleted: true }));
+    const actions = {
+      "delete-slide": defineAction({
+        description: "Delete a slide.",
+        schema: z.object({ slideId: z.string() }),
+        needsApproval: true,
+        run,
+      }) as unknown as ActionEntry,
+    };
+    const voiceCall = (callId: string, approvalId?: string) => {
+      const hooks = realtimeVoiceApprovalHooks({
+        userEmail: scope.ownerEmail,
+        orgId: scope.orgId,
+        sessionId: "voice-session-2",
+        callId,
+        name: "delete-slide",
+        args: { slideId: "s1" },
+        ...(approvalId ? { approvalId } : {}),
+      });
+      const { recordedApprovalId, ...approvalHooks } = hooks;
+      return executeAgentToolCall({
+        actions,
+        name: "delete-slide",
+        input: { slideId: "s1" },
+        callId,
+        ownerEmail: scope.ownerEmail,
+        orgId: scope.orgId,
+        threadId: "realtime:voice-session-2",
+        turnId: callId,
+        ...approvalHooks,
+      }).then((result) => ({ result, approvalId: recordedApprovalId() }));
+    };
+
+    const declined = await voiceCall("call_first");
+    expect(
+      await denyAgentToolApproval({
+        approvalId: declined.approvalId!,
+        ownerEmail: scope.ownerEmail,
+        orgId: scope.orgId,
+        threadId: "realtime:voice-session-2",
+      }),
+    ).toBe("denied");
+    // Left pending, the first record would sit beside this one.
+    const asked = await voiceCall("call_second");
+    await voiceCall("call_third");
+    const approved = await voiceCall("call_second_approved", asked.approvalId);
+
+    expect(approved.result).toMatchObject({ status: "completed" });
+    expect(run).toHaveBeenCalledOnce();
   });
 });
 

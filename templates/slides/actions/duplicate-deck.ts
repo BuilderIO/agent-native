@@ -90,7 +90,7 @@ export default defineAction({
       orgId: getRequestOrgId() || null,
     });
 
-    trackDeckCreated(
+    await trackDeckCreated(
       newId,
       {
         creationMethod: "duplicate",

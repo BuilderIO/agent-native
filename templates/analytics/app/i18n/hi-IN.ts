@@ -1336,6 +1336,10 @@ export default {
     drilldownHideSql: "SQL छिपाएँ",
     drilldownDownloadCsv: "CSV डाउनलोड करें",
     drilldownShowing: "{{total}} रिकॉर्ड में से {{shown}} दिखाए जा रहे हैं",
+    drilldownShowingLoaded:
+      "लोड किए गए {{loaded}} रिकॉर्ड में से {{shown}} दिखाए जा रहे हैं; कुल संख्या अज्ञात है।",
+    drilldownCsvTruncatedUnknownTotal:
+      "निर्यात पूरा है या नहीं, यह अज्ञात है; फ़िल्टर करने के बाद इस फ़ाइल में लोड किए गए {{loaded}} रिकॉर्ड में से {{exported}} शामिल हैं।",
     drilldownCsvTruncated:
       "अधूरा निर्यात: क्वेरी में {{total}} रिकॉर्ड मिले, लेकिन केवल पहले {{loaded}} लोड किए गए; फ़िल्टर के बाद इस फ़ाइल में {{exported}} शामिल हैं।",
     drilldownCountMismatch:
@@ -1343,7 +1347,13 @@ export default {
     drilldownAggregateOnly:
       "इस पैनल में केवल समेकित पंक्तियाँ हैं। क्लिक किए गए बिंदु से मेल खाने वाली पंक्तियाँ हाइलाइट की गई हैं।",
     drilldownNoRecords: "कोई मेल खाता रिकॉर्ड नहीं",
+    drilldownNoRecordsIncomplete:
+      "कोई रिकॉर्ड लोड नहीं हुआ। परिणाम अधूरा है, इसलिए कुछ रिकॉर्ड अब भी मेल खा सकते हैं।",
+    drilldownNoLoadedMatches:
+      "कोई लोड किया गया रिकॉर्ड मेल नहीं खाता, लेकिन पूरे परिणाम में ऐसे रिकॉर्ड हो सकते हैं जो लोड नहीं हुए।",
     drilldownLoadFailed: "रिकॉर्ड लोड नहीं हो सके",
+    drilldownOverByteCap:
+      "ये रिकॉर्ड {{gib}} GiB से ज़्यादा पढ़ेंगे, इसलिए लोड नहीं हुए। डैशबोर्ड के फ़िल्टर या तारीख की सीमा छोटी करें और फिर से कोशिश करें।",
     filterSeries: "Filter",
     chartTimeRangeOverride: "इस चार्ट के लिए समय सीमा ओवरराइड करें",
     chartTimeRangeInherit: "डैशबोर्ड सीमा",
@@ -1412,12 +1422,25 @@ export default {
     columnFormatCurrency: "मुद्रा",
     columnFormatPercent: "प्रतिशत",
     columnFormatDate: "तारीख",
+    columnFormatDuration: "अवधि (सेकंड)",
     columnRename: "कॉलम का नाम बदलें",
     columnHide: "कॉलम छिपाएँ",
     columnShow: '"{{name}}" दिखाएँ',
     columnShowHidden: "छिपे हुए कॉलम दिखाएँ",
     columnName: "कॉलम का नाम",
     columnResize: "कॉलम का आकार बदलें",
+    metricComparisonVs: "{{period}} की तुलना में",
+    metricComparisonPreviousPeriod: "पिछली अवधि",
+    metricComparisonNoChange: "कोई बदलाव नहीं",
+    metricComparisonPoints: "{{value}} अंक",
+    metricComparisonUp: "{{period}} के {{previous}} से {{change}} ऊपर",
+    metricComparisonDown: "{{period}} के {{previous}} से {{change}} नीचे",
+    metricComparisonFlat: "{{period}} के {{previous}} से कोई बदलाव नहीं",
+    metricComparisonBetter: "{{comparison}} (बेहतर)",
+    metricComparisonWorse: "{{comparison}} (खराब)",
+    calloutSeverityCritical: "गंभीर",
+    calloutSeverityWarning: "चेतावनी",
+    calloutSeverityInfo: "जानकारी",
     rowBreakdownBy: "इसके अनुसार विभाजित करें",
     rowBreakdownAll: "सभी",
     rowBreakdownOther: "अन्य",

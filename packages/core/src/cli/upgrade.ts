@@ -23,6 +23,7 @@ import {
 } from "./workspace-yaml.js";
 
 const AGENT_NATIVE_SCOPE = "@agent-native/";
+const SAFE_AGENT_NATIVE_PACKAGE_NAME = /^@agent-native\/[a-z0-9][a-z0-9._-]*$/;
 // New workspaces exclude every first-party package from pnpm's release-age
 // gate; older ones only excluded core, so same-day dependencies of a fresh
 // core release failed to install.
@@ -53,6 +54,7 @@ export interface UpgradeCliOptions {
 export interface PackageJsonLike {
   name?: string;
   version?: string;
+  packageManager?: string;
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
   optionalDependencies?: Record<string, string>;
@@ -1022,6 +1024,209 @@ function installArgs(pm: "pnpm" | "npm" | "yarn"): string[] {
   return ["install"];
 }
 
+type PinnableSection = (typeof PINNABLE_SECTIONS)[number];
+
+interface LatestAgentNativeDependencyDeclaration {
+  section: PinnableSection;
+  name: string;
+  originalVersion: string;
+  restoreToLatest: boolean;
+}
+
+interface LatestAgentNativeDependencyGroup {
+  file: string;
+  names: string[];
+  declarations: LatestAgentNativeDependencyDeclaration[];
+}
+
+function collectLatestAgentNativeDependencies(
+  project: UpgradeProject,
+  pendingBumps: AgentNativeDepBump[],
+): LatestAgentNativeDependencyGroup[] {
+  const byFile = new Map<string, Map<PinnableSection, Set<string>>>();
+  const add = (file: string, section: PinnableSection, name: string) => {
+    const sections =
+      byFile.get(file) ?? new Map<PinnableSection, Set<string>>();
+    const names = sections.get(section) ?? new Set<string>();
+    names.add(name);
+    sections.set(section, names);
+    byFile.set(file, sections);
+  };
+
+  for (const file of project.packageFiles) {
+    const read = readJsonFile(file);
+    if (!read.ok) continue;
+    for (const section of PINNABLE_SECTIONS) {
+      const dependencies = read.value[section] ?? {};
+      for (const [name, version] of Object.entries(dependencies)) {
+        if (
+          isAgentNativePackageName(name) &&
+          version.trim() === PINNABLE_VERSION
+        ) {
+          add(file, section, name);
+        }
+      }
+    }
+  }
+  for (const bump of pendingBumps) {
+    add(bump.file, bump.section, bump.name);
+  }
+
+  return [...byFile]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([file, targetSections]) => {
+      const names = [
+        ...new Set(
+          [...targetSections.values()].flatMap((section) => [...section]),
+        ),
+      ].sort();
+      const targetNames = new Set(names);
+      const read = readJsonFile(file);
+      const declarations: LatestAgentNativeDependencyDeclaration[] = [];
+      if (read.ok) {
+        for (const section of PINNABLE_SECTIONS) {
+          for (const [name, originalVersion] of Object.entries(
+            read.value[section] ?? {},
+          )) {
+            if (!targetNames.has(name)) continue;
+            declarations.push({
+              section,
+              name,
+              originalVersion,
+              restoreToLatest: targetSections.get(section)?.has(name) ?? false,
+            });
+          }
+        }
+      }
+      return { file, names, declarations };
+    });
+}
+
+function yarnMajorVersion(
+  project: UpgradeProject,
+  io: UpgradeIo,
+): number | null {
+  const rootPackage = readJsonFile(path.join(project.root, "package.json"));
+  const packageManager = rootPackage.ok
+    ? rootPackage.value.packageManager
+    : null;
+  const pinnedMajor = packageManager?.match(/^yarn@(\d+)/)?.[1];
+  if (pinnedMajor) return Number(pinnedMajor);
+
+  const version = io.spawn("yarn", ["--version"], {
+    cwd: project.root,
+    stdio: "pipe",
+  });
+  if (version.status !== 0) return null;
+  const output = String(version.stdout ?? version.output?.[1] ?? "").trim();
+  const major = Number(output.match(/^(\d+)/)?.[1]);
+  return Number.isSafeInteger(major) && major > 0 ? major : null;
+}
+
+function hasInvalidAgentNativePackageName(
+  groups: LatestAgentNativeDependencyGroup[],
+): boolean {
+  return groups.some(({ names }) =>
+    names.some((name) => !SAFE_AGENT_NATIVE_PACKAGE_NAME.test(name)),
+  );
+}
+
+function refreshLatestAgentNativeDependencies(
+  project: UpgradeProject,
+  groups: LatestAgentNativeDependencyGroup[],
+  pm: "pnpm" | "npm" | "yarn",
+  io: UpgradeIo,
+  stdio: "inherit" | "pipe",
+): { ok: true } | { ok: false; message: string } {
+  if (groups.length === 0) return { ok: true };
+  const yarnMajor = pm === "yarn" ? yarnMajorVersion(project, io) : null;
+  if (pm === "yarn" && yarnMajor === null) {
+    return {
+      ok: false,
+      message:
+        "Could not determine the Yarn version to refresh latest packages.",
+    };
+  }
+
+  const usesModernYarn = pm === "yarn" && yarnMajor !== null && yarnMajor >= 2;
+  const updateGroups: Array<
+    LatestAgentNativeDependencyGroup & { section?: PinnableSection }
+  > = usesModernYarn
+    ? groups.flatMap(({ file, declarations }) => {
+        const namesBySection = new Map<PinnableSection, Set<string>>();
+        for (const declaration of declarations) {
+          if (!declaration.restoreToLatest) continue;
+          const names =
+            namesBySection.get(declaration.section) ?? new Set<string>();
+          names.add(declaration.name);
+          namesBySection.set(declaration.section, names);
+        }
+        return [...namesBySection].map(([section, names]) => ({
+          file,
+          section,
+          names: [...names].sort(),
+          declarations,
+        }));
+      })
+    : groups;
+
+  let updateFailure: string | null = null;
+  for (const group of updateGroups) {
+    const args =
+      pm === "pnpm"
+        ? ["update", "--latest", ...group.names]
+        : pm === "npm"
+          ? ["update", "--save", ...group.names]
+          : usesModernYarn
+            ? [
+                "add",
+                ...(group.section === "devDependencies" ? ["--dev"] : []),
+                ...(group.section === "optionalDependencies"
+                  ? ["--optional"]
+                  : []),
+                ...group.names.map((name) => `${name}@latest`),
+              ]
+            : ["upgrade", ...group.names.map((name) => `${name}@latest`)];
+    const result = io.spawn(pm, args, {
+      cwd: path.dirname(group.file),
+      stdio,
+    });
+    if (result.status !== 0) {
+      updateFailure = `${pm} ${args.join(" ")} failed during package refresh.`;
+      break;
+    }
+  }
+
+  for (const group of groups) {
+    const read = readJsonFile(group.file);
+    if (!read.ok) {
+      return {
+        ok: false,
+        message: `Could not read ${relativeTo(
+          project.root,
+          group.file,
+        )} after refreshing latest packages.${
+          updateFailure ? ` ${updateFailure}` : ""
+        }`,
+      };
+    }
+    for (const declaration of group.declarations) {
+      const dependencies = read.value[declaration.section];
+      if (!dependencies || dependencies[declaration.name] === undefined) {
+        continue;
+      }
+      dependencies[declaration.name] = declaration.restoreToLatest
+        ? PINNABLE_VERSION
+        : declaration.originalVersion;
+    }
+    writeJsonFile(group.file, read.value);
+  }
+
+  if (updateFailure) return { ok: false, message: updateFailure };
+
+  return { ok: true };
+}
+
 export function buildUpgradeDoctorReport(
   project: UpgradeProject,
 ): UpgradeDoctorReport {
@@ -1238,6 +1443,24 @@ export async function runUpgrade(
         : "No framework overrides/patches",
   });
 
+  const latestDependencies = collectLatestAgentNativeDependencies(
+    project,
+    doctor.bumps,
+  );
+  if (hasInvalidAgentNativePackageName(latestDependencies)) {
+    result.ok = false;
+    result.exitCode = 1;
+    result.message =
+      "Refusing to refresh an invalid @agent-native package name.";
+    result.steps.push({
+      id: "refresh-latest",
+      status: "failed",
+      detail: result.message,
+    });
+    emitResult(io, opts, result);
+    return result.exitCode;
+  }
+
   // Before any manifest edit: if the exclusion cannot be written, the install
   // would hit the same release-age gate, so stop with the workspace untouched.
   const releaseAgeStep = alignReleaseAgeExclude(project, dryRun);
@@ -1413,6 +1636,51 @@ export async function runUpgrade(
     }
   }
 
+  const pm = detectPackageManager(project.root);
+  if (latestDependencies.length === 0) {
+    result.steps.push({
+      id: "refresh-latest",
+      status: "skipped",
+      detail: "No floating @agent-native/* package specs need refreshing",
+    });
+  } else if (opts.skipInstall) {
+    result.steps.push({
+      id: "refresh-latest",
+      status: "skipped",
+      detail: "--skip-install leaves latest package specs unresolved",
+    });
+  } else if (dryRun) {
+    result.steps.push({
+      id: "refresh-latest",
+      status: "planned",
+      detail: `Would refresh ${latestDependencies
+        .flatMap(({ names }) => names)
+        .join(", ")} before installing`,
+    });
+  } else {
+    const refreshed = refreshLatestAgentNativeDependencies(
+      project,
+      latestDependencies,
+      pm,
+      io,
+      opts.json ? "pipe" : "inherit",
+    );
+    result.steps.push({
+      id: "refresh-latest",
+      status: refreshed.ok ? "ok" : "failed",
+      detail: refreshed.ok
+        ? "Refreshed floating @agent-native/* packages"
+        : refreshed.message,
+    });
+    if (!refreshed.ok) {
+      result.ok = false;
+      result.exitCode = 1;
+      result.message = refreshed.message;
+      emitResult(io, opts, result);
+      return result.exitCode;
+    }
+  }
+
   if (opts.skipInstall) {
     result.steps.push({
       id: "install",
@@ -1423,10 +1691,9 @@ export async function runUpgrade(
     result.steps.push({
       id: "install",
       status: "planned",
-      detail: `${detectPackageManager(project.root)} install`,
+      detail: `${pm} install`,
     });
   } else {
-    const pm = detectPackageManager(project.root);
     const spawned = io.spawn(pm, installArgs(pm), {
       cwd: project.root,
       stdio: opts.json ? "pipe" : "inherit",

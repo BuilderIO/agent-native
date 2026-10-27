@@ -59,6 +59,302 @@ describe("DataChartRenderer theme colors", () => {
     expect(markup).toContain('stroke="hsl(var(--chart-grid, var(--border)))"');
   });
 
+  it("applies app chart sizing, plot insets, typography, and integer tick labels", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "line",
+          xKey: "day",
+          series: [{ key: "value", label: "Value" }],
+          data: [
+            { day: "First", value: 0 },
+            { day: "Last", value: 1 },
+          ],
+          valueAxisTickInterval: 0.1,
+        }}
+        layout={{
+          plotInsets: { top: 6, right: 8, bottom: 29 },
+          labelFontFamily: "IBM Plex Sans",
+          labelFontSize: 14,
+          labelTone: "foreground",
+        }}
+      />,
+    );
+
+    expect(markup).toContain('font-family="IBM Plex Sans"');
+    expect(markup).toContain('font-size="14"');
+    expect(markup).toMatch(
+      /<text[^>]*fill="hsl\(var\(--foreground\)\)"[^>]*>First<\/text>/,
+    );
+    expect(markup).toMatch(/<line x1="[^"]+" x2="632" y1="6" y2="6"/);
+    expect(markup).toMatch(/<line x1="[^"]+" x2="632" y1="331" y2="331"/);
+    expect(markup).toContain(">1</text>");
+    expect(markup).not.toContain(">1.0</text>");
+  });
+
+  it("preserves one-decimal ticks without an app layout override", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "line",
+          xKey: "day",
+          series: [{ key: "value", label: "Value" }],
+          data: [
+            { day: "First", value: 0 },
+            { day: "Last", value: 1 },
+          ],
+          valueAxisTickInterval: 0.1,
+        }}
+      />,
+    );
+
+    expect(markup).toContain(">0.0</text>");
+    expect(markup).toContain(">1.0</text>");
+  });
+
+  it("keeps positive value labels outside horizontal bars with a right inset", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "bar",
+          layout: "horizontal",
+          xKey: "day",
+          series: [{ key: "value", label: "Value" }],
+          data: [{ day: "Monday", value: 3 }],
+          showValueLabels: true,
+          valueAxisTickInterval: 0.2,
+        }}
+        layout={{ plotInsets: { right: 8 } }}
+      />,
+    );
+
+    const plotRightEdge = Number(
+      markup.match(/<line x1="[\d.]+" x2="([\d.]+)" y1="14" y2="326"/)?.[1],
+    );
+    expect(plotRightEdge).toBeLessThanOrEqual(632);
+    expect(markup).toContain('fill="hsl(var(--muted-foreground))"');
+    const maximumBarValueLabel = markup.match(
+      /<text[^>]*x="([\d.]+)" y="[^"]+" fill="hsl\(var\(--muted-foreground\)\)" font-size="11" font-weight="400" text-anchor="start">3<\/text>/,
+    );
+    expect(maximumBarValueLabel).not.toBeNull();
+    expect(Number(maximumBarValueLabel?.[1])).toBeGreaterThan(plotRightEdge);
+    expect(Number(maximumBarValueLabel?.[1]) + 8).toBeLessThanOrEqual(640);
+  });
+
+  it("rejects inset combinations that leave no positive plot area", () => {
+    const renderWithInsets = (plotInsets: { right?: number; top?: number }) =>
+      renderToStaticMarkup(
+        <DataChartRenderer
+          chart={{
+            type: "line",
+            xKey: "day",
+            series: [{ key: "value", label: "Value" }],
+            data: [{ day: "Monday", value: 1 }],
+          }}
+          layout={{ plotInsets }}
+        />,
+      );
+
+    expect(() => renderWithInsets({ right: 600 })).toThrow(
+      "positive chart plot area",
+    );
+    expect(() => renderWithInsets({ top: 400 })).toThrow(
+      "positive chart plot area",
+    );
+  });
+
+  it("keeps a vertical bar chart's final category label inside the SVG", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "bar",
+          xKey: "day",
+          series: [{ key: "value", label: "Value" }],
+          data: Array.from({ length: 10 }, (_, index) => ({
+            day: index === 9 ? "Last category label" : `Day ${index}`,
+            value: index,
+          })),
+        }}
+        layout={{ plotInsets: { right: 8 } }}
+      />,
+    );
+    const finalCategory = markup.match(
+      /<text[^>]*x="([\d.]+)" y="348"[^>]*text-anchor="end">Last category\.\.\.<\/text>/,
+    );
+
+    expect(finalCategory).not.toBeNull();
+    expect(Number(finalCategory?.[1])).toBeLessThanOrEqual(632);
+  });
+
+  it("keeps a long first category label inside the SVG", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "line",
+          xKey: "day",
+          series: [{ key: "value", label: "Value" }],
+          data: [
+            { day: "First category label", value: 0 },
+            { day: "Last", value: 1 },
+          ],
+        }}
+      />,
+    );
+
+    expect(markup).toMatch(
+      /<text[^>]*x="46" y="348"[^>]*text-anchor="start">First categor\.\.\.<\/text>/,
+    );
+  });
+
+  it("keeps top vertical-bar value labels above the bar at a zero inset", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "bar",
+          xKey: "day",
+          series: [{ key: "value", label: "Value" }],
+          data: [{ day: "Monday", value: 1 }],
+          showValueLabels: true,
+        }}
+        layout={{ plotInsets: { top: 0 } }}
+      />,
+    );
+    const valueLabel = markup.match(
+      /<text(?=[^>]*data-value-label="true")(?=[^>]*>1<\/text>)[^>]*y="([\d.]+)"[^>]*>/,
+    );
+    const bar = markup.match(/<rect[^>]*y="([\d.]+)"/);
+
+    expect(valueLabel).not.toBeNull();
+    expect(Number(valueLabel?.[1])).toBeGreaterThanOrEqual(11);
+    expect(bar).not.toBeNull();
+    expect(Number(bar?.[1]) - Number(valueLabel?.[1])).toBeGreaterThanOrEqual(
+      5,
+    );
+  });
+
+  it("keeps final vertical-bar value labels inside the SVG at a small right inset", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "bar",
+          xKey: "day",
+          series: [{ key: "value", label: "Value" }],
+          data: Array.from({ length: 60 }, (_, index) => ({
+            day: `Day ${index}`,
+            value: index === 59 ? 1_234_567 : 0,
+          })),
+          showValueLabels: true,
+        }}
+        layout={{ plotInsets: { right: 8 } }}
+      />,
+    );
+    const valueLabels = Array.from(
+      markup.matchAll(
+        /<text(?=[^>]*data-value-label="true")([^>]*)>([^<]+)<\/text>/g,
+      ),
+    );
+    const finalValueLabel = valueLabels.at(-1);
+    const finalLabelX = Number(
+      finalValueLabel?.[1].match(/\bx="([\d.]+)"/)?.[1],
+    );
+    const finalLabelWidth =
+      Array.from(finalValueLabel?.[2] ?? "").length * 11 * 0.65;
+
+    expect(finalValueLabel).toBeDefined();
+    expect(finalLabelX + finalLabelWidth / 2).toBeLessThanOrEqual(640);
+  });
+
+  it("preserves the top value-axis label when the configured top inset is zero", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "line",
+          xKey: "day",
+          series: [{ key: "value", label: "Value" }],
+          data: [
+            { day: "Monday", value: 0 },
+            { day: "Tuesday", value: 1 },
+          ],
+          valueAxisTickInterval: 0.5,
+        }}
+        layout={{ labelFontSize: 12, plotInsets: { top: 0 } }}
+      />,
+    );
+    const topTick = markup.match(
+      /<text(?=[^>]*data-value-axis-tick="true")[^>]*y="([\d.]+)"[^>]*>1<\/text>/,
+    );
+
+    expect(topTick).not.toBeNull();
+    expect(Number(topTick?.[1])).toBeGreaterThanOrEqual(12);
+  });
+
+  it("keeps horizontal axis tick labels inside the chart at zero edge insets", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "bar",
+          layout: "horizontal",
+          xKey: "day",
+          series: [{ key: "value", label: "Value" }],
+          data: [{ day: "Monday", value: 3 }],
+          valueAxisTickInterval: 1,
+          xAxisTitle: "Value",
+        }}
+        layout={{ plotInsets: { right: 0, bottom: 0 } }}
+      />,
+    );
+    const finalTick = Array.from(
+      markup.matchAll(
+        /<text[^>]*x="([\d.]+)" y="([\d.]+)"[^>]*>([^<]+)<\/text>/g,
+      ),
+    )
+      .filter((match) => match[3] === "3")
+      .slice(-1)[0];
+
+    expect(finalTick).toBeDefined();
+    expect(Number(finalTick?.[1])).toBeLessThan(640);
+    expect(Number(finalTick?.[1]) + 4).toBeLessThanOrEqual(640);
+    expect(Number(finalTick?.[2])).toBeLessThan(340);
+  });
+
+  it("keeps vertical axis ticks and category labels clear at a zero bottom inset", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "line",
+          xKey: "day",
+          series: [{ key: "value", label: "Value" }],
+          data: [
+            { day: "Monday", value: 0 },
+            { day: "Tuesday", value: 1 },
+          ],
+          valueAxisTickInterval: 0.5,
+        }}
+        layout={{ labelFontSize: 12, plotInsets: { bottom: 0 } }}
+      />,
+    );
+    const minimumTick = markup.match(
+      /<text(?=[^>]*data-value-axis-tick="true")(?=[^>]*>0<\/text>)[^>]*y="([\d.]+)"/,
+    );
+    const categoryLabel = markup.match(
+      /<text[^>]*y="([\d.]+)"[^>]*>Tuesday<\/text>/,
+    );
+    const plotBaseline = Math.max(
+      ...Array.from(
+        markup.matchAll(/<line[^>]*y1="([\d.]+)" y2="([\d.]+)"/g),
+        (match) =>
+          match[1] === match[2] ? Number(match[1]) : Number.NEGATIVE_INFINITY,
+      ),
+    );
+
+    expect(minimumTick).not.toBeNull();
+    expect(Number(minimumTick?.[1]) + 3).toBeLessThanOrEqual(360);
+    expect(categoryLabel).not.toBeNull();
+    expect(Number(categoryLabel?.[1]) - plotBaseline).toBeGreaterThanOrEqual(
+      12,
+    );
+  });
+
   it("uses the requested chart content height", () => {
     const markup = renderToStaticMarkup(
       <DataChartRenderer chart={{ ...chart, contentHeight: 400 }} />,
@@ -217,7 +513,7 @@ describe("DataChartRenderer theme colors", () => {
     expect(numericLabels.at(-1)).toBe("99");
     const tickLabelPositions = Array.from(
       markup.matchAll(
-        /<text x="([\d.]+)"[^>]*text-anchor="middle">\d+<\/text>/g,
+        /<text[^>]*x="([\d.]+)"[^>]*text-anchor="middle">\d+<\/text>/g,
       ),
       (match) => Number(match[1]),
     );
@@ -290,7 +586,7 @@ describe("DataChartRenderer theme colors", () => {
     );
     const valueTickLabels = Array.from(
       markup.matchAll(
-        /<text x="([\d.]+)" y="340"[^>]*text-anchor="middle">([^<]+)<\/text>/g,
+        /<text[^>]*x="([\d.]+)" y="340"[^>]*text-anchor="middle">([^<]+)<\/text>/g,
       ),
       (match) => ({ x: Number(match[1]), label: match[2] ?? "" }),
     );
@@ -321,7 +617,7 @@ describe("DataChartRenderer theme colors", () => {
     );
     const valueTickLabels = Array.from(
       markup.matchAll(
-        /<text x="([\d.]+)" y="340"[^>]*text-anchor="middle">([^<]+)<\/text>/g,
+        /<text[^>]*x="([\d.]+)" y="340"[^>]*text-anchor="middle">([^<]+)<\/text>/g,
       ),
       (match) => ({ x: Number(match[1]), label: match[2] ?? "" }),
     );
@@ -344,7 +640,7 @@ describe("DataChartRenderer theme colors", () => {
     );
     const valueTickLabels = Array.from(
       markup.matchAll(
-        /<text x="([\d.]+)" y="340"[^>]*text-anchor="middle">([^<]+)<\/text>/g,
+        /<text[^>]*x="([\d.]+)" y="340"[^>]*text-anchor="middle">([^<]+)<\/text>/g,
       ),
       (match) => ({ x: Number(match[1]), label: match[2] ?? "" }),
     );
@@ -379,7 +675,7 @@ describe("DataChartRenderer theme colors", () => {
     );
     const valueLabels = Array.from(
       markup.matchAll(
-        /<text x="([\d.-]+)" y="([\d.]+)"[^>]*font-size="24"[^>]*text-anchor="(start|end)">([^<]+)<\/text>/g,
+        /<text[^>]*x="([\d.-]+)" y="([\d.]+)"[^>]*font-size="24"[^>]*text-anchor="(start|end)">([^<]+)<\/text>/g,
       ),
       (match) => ({
         x: Number(match[1]),
@@ -426,7 +722,9 @@ describe("DataChartRenderer theme colors", () => {
       />,
     );
     const tickLabels = Array.from(
-      markup.matchAll(/<text[^>]*text-anchor="end">([^<]+)<\/text>/g),
+      markup.matchAll(
+        /<text(?=[^>]*data-value-axis-tick="true")[^>]*>([^<]+)<\/text>/g,
+      ),
       (match) => match[1],
     );
 
@@ -454,7 +752,9 @@ describe("DataChartRenderer theme colors", () => {
       />,
     );
     const tickLabels = Array.from(
-      markup.matchAll(/<text[^>]*text-anchor="end">([^<]+)<\/text>/g),
+      markup.matchAll(
+        /<text(?=[^>]*data-value-axis-tick="true")[^>]*>([^<]+)<\/text>/g,
+      ),
       (match) => match[1],
     );
 
@@ -464,6 +764,40 @@ describe("DataChartRenderer theme colors", () => {
       "0.0000000000024",
       "0.0000000000036",
     ]);
+  });
+
+  it("keeps integer data labels compact while axis ticks retain interval precision", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "line",
+          xKey: "day",
+          series: [{ key: "value", label: "Value" }],
+          data: [
+            { day: "Monday", value: 0 },
+            { day: "Tuesday", value: 7 },
+          ],
+          showValueLabels: true,
+          valueAxisTickInterval: 0.5,
+        }}
+      />,
+    );
+    const axisLabels = Array.from(
+      markup.matchAll(
+        /<text(?=[^>]*data-value-axis-tick="true")[^>]*>([^<]+)<\/text>/g,
+      ),
+      (match) => match[1],
+    );
+    const valueLabels = Array.from(
+      markup.matchAll(
+        /<text(?=[^>]*data-value-label="true")[^>]*>([^<]+)<\/text>/g,
+      ),
+      (match) => match[1],
+    );
+
+    expect(axisLabels).toContain("7.0");
+    expect(valueLabels).toContain("7");
+    expect(valueLabels).not.toContain("7.0");
   });
 
   it("compacts wide vertical ticks while keeping them clear of the axis title", () => {
@@ -484,7 +818,7 @@ describe("DataChartRenderer theme colors", () => {
     );
     const tickLabels = Array.from(
       markup.matchAll(
-        /<text x="([\d.]+)" y="([\d.]+)"[^>]*text-anchor="end">([^<]+)<\/text>/g,
+        /<text[^>]*x="([\d.]+)" y="([\d.]+)"[^>]*text-anchor="end">([^<]+)<\/text>/g,
       ),
       (match) => ({
         x: Number(match[1]),
@@ -503,7 +837,7 @@ describe("DataChartRenderer theme colors", () => {
       Number(plotBounds?.[2]) - Number(plotBounds?.[1]),
     ).toBeGreaterThanOrEqual(32);
     const title = markup.match(
-      /<text x="([\d.]+)" y="[\d.]+" transform="rotate\(-90 [\d.]+ [\d.]+\)"[^>]*font-size="([\d.]+)"[^>]*>Revenue<\/text>/,
+      /<text[^>]*x="([\d.]+)" y="[\d.]+" transform="rotate\(-90 [\d.]+ [\d.]+\)"[^>]*font-size="([\d.]+)"[^>]*>Revenue<\/text>/,
     );
     expect(title).not.toBeNull();
     const titleRight = Number(title?.[1]) + Number(title?.[2]) / 2;
@@ -563,7 +897,7 @@ describe("DataChartRenderer theme colors", () => {
     );
     const horizontalLabels = Array.from(
       horizontalMarkup.matchAll(
-        /<text x="([\d.]+)" y="340"[^>]*text-anchor="middle">([^<]+)<\/text>/g,
+        /<text[^>]*x="([\d.]+)" y="340"[^>]*text-anchor="middle">([^<]+)<\/text>/g,
       ),
       (match) => ({ x: Number(match[1]), label: match[2] ?? "" }),
     );
@@ -602,7 +936,7 @@ describe("DataChartRenderer theme colors", () => {
     );
     const verticalLabels = Array.from(
       verticalMarkup.matchAll(
-        /<text x="[\d.]+" y="([\d.]+)"[^>]*text-anchor="end">([^<]+)<\/text>/g,
+        /<text[^>]*x="[\d.]+" y="([\d.]+)"[^>]*text-anchor="end">([^<]+)<\/text>/g,
       ),
       (match) => ({ y: Number(match[1]), label: match[2] ?? "" }),
     ).sort((first, second) => first.y - second.y);
@@ -619,6 +953,32 @@ describe("DataChartRenderer theme colors", () => {
     ).toBe(true);
   });
 
+  it("keeps line value labels inside the canvas with no bottom inset", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "line",
+          xKey: "day",
+          series: [{ key: "value", label: "Value" }],
+          data: [
+            { day: "First", value: 0 },
+            { day: "Last", value: 1 },
+          ],
+          showValueLabels: true,
+        }}
+        layout={{ plotInsets: { bottom: 0 } }}
+      />,
+    );
+    const minimumValueLabelY = Array.from(
+      markup.matchAll(
+        /<text(?=[^>]*data-value-label="true")(?=[^>]*>0<\/text>)[^>]*y="([\d.]+)"[^>]*>/g,
+      ),
+      (match) => Number(match[1]),
+    ).filter((y) => y < 360);
+
+    expect(minimumValueLabelY.some((y) => y <= 356)).toBe(true);
+  });
+
   it("reserves room for custom decimal value-axis labels", () => {
     const markup = renderToStaticMarkup(
       <DataChartRenderer
@@ -632,7 +992,7 @@ describe("DataChartRenderer theme colors", () => {
       />,
     );
     const tickLabels = Array.from(
-      markup.matchAll(/<text x="([\d.]+)"[^>]*>(0\.000[123])<\/text>/g),
+      markup.matchAll(/<text[^>]*x="([\d.]+)"[^>]*>(0\.000[123])<\/text>/g),
       (match) => ({ x: Number(match[1]), label: match[2] }),
     );
 
@@ -752,10 +1112,10 @@ describe("DataChartRenderer theme colors", () => {
       />,
     );
     const categoryLabel = markup.match(
-      /<text x="([\d.]+)" y="[^"]+" fill="hsl\(var\(--muted-foreground\)\)" font-size="10" text-anchor="end">A very long c\.\.\.<\/text>/,
+      /<text[^>]*x="([\d.]+)" y="[^"]+" fill="hsl\(var\(--muted-foreground\)\)" font-size="10" text-anchor="end">A very long c\.\.\.<\/text>/,
     );
     const largestValueLabel = markup.match(
-      /<text x="([\d.]+)" y="[^"]+" fill="hsl\(var\(--muted-foreground\)\)" font-size="11" font-weight="400" text-anchor="start">123,456<\/text>/,
+      /<text[^>]*x="([\d.]+)" y="[^"]+" fill="hsl\(var\(--muted-foreground\)\)" font-size="11" font-weight="400" text-anchor="start">123,456<\/text>/,
     );
 
     expect(categoryLabel).not.toBeNull();
@@ -779,10 +1139,10 @@ describe("DataChartRenderer theme colors", () => {
     );
     const negativeBarX = markup.match(/<rect x="([\d.]+)"/);
     const negativeBarLabel = markup.match(
-      /<text x="([\d.]+)"[^>]*text-anchor="end">-123,456<\/text>/,
+      /<text[^>]*x="([\d.]+)"[^>]*text-anchor="end">-123,456<\/text>/,
     );
     const categoryLabel = markup.match(
-      /<text x="([\d.]+)" y="[^"]+" fill="hsl\(var\(--muted-foreground\)\)" font-size="11" text-anchor="end">Monday<\/text>/,
+      /<text[^>]*x="([\d.]+)" y="[^"]+" fill="hsl\(var\(--muted-foreground\)\)" font-size="11" text-anchor="end">Monday<\/text>/,
     );
 
     expect(negativeBarX).not.toBeNull();
@@ -839,7 +1199,7 @@ describe("DataChartRenderer theme colors", () => {
         />,
       );
       const finalValueLabel = markup.match(
-        /<text x="([\d.]+)" y="[\d.]+" fill="hsl\(var\(--muted-foreground\)\)" font-size="11" font-weight="400" text-anchor="end">123,456,789<\/text>/,
+        /<text[^>]*x="([\d.]+)" y="[\d.]+" fill="hsl\(var\(--muted-foreground\)\)" font-size="11" font-weight="400" text-anchor="end">123,456,789<\/text>/,
       );
 
       expect(finalValueLabel).not.toBeNull();

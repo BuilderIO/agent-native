@@ -382,11 +382,12 @@ function lexBigQuery(s: Scanner): void {
       // A bare prefix letter is an identifier unless a quote follows it.
       (literal[1].length > 0 || ch === "'" || ch === '"')
     ) {
-      const raw = /[rR]/.test(literal[1]);
       s.pos += literal[1].length;
+      // Raw strings keep their backslashes, but a backslash still protects
+      // the next quote from closing the literal.
       s.readQuoted(
         literal[2],
-        { backslashEscapes: !raw, doubledQuoteEscapes: false },
+        { backslashEscapes: true, doubledQuoteEscapes: false },
         "string",
       );
       s.push("string", start);

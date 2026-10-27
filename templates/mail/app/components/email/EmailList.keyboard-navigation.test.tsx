@@ -23,8 +23,10 @@ const mocks = vi.hoisted(() => ({
   freezeVirtualStart: false,
   view: "all",
   headerActions: null as unknown,
+  priorityToast: vi.fn(),
   priorityRequest: vi.fn(),
   priorityFeedback: vi.fn(),
+  priorityToastError: vi.fn(),
   confirmUncertainScheduled: vi.fn(),
   retryUncertainScheduled: vi.fn(),
   automations: [] as unknown[],
@@ -37,6 +39,13 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
+}));
+
+vi.mock("sonner", () => ({
+  toast: Object.assign(mocks.priorityToast, {
+    error: mocks.priorityToastError,
+    info: vi.fn(),
+  }),
 }));
 
 vi.mock("@agent-native/core/client/analytics", () => ({
@@ -272,6 +281,7 @@ function Harness({
   showPrioritySort,
   jevConfigured = showPrioritySort,
   jevAvailabilityError,
+  priorityProviderIdentity,
   onJevRetry,
   sortMode,
 }: {
@@ -289,6 +299,7 @@ function Harness({
   showPrioritySort?: boolean;
   jevConfigured?: boolean;
   jevAvailabilityError?: boolean;
+  priorityProviderIdentity?: string;
   onJevRetry?: React.ComponentProps<typeof EmailList>["onJevRetry"];
   sortMode?: "newest" | "priority";
 }) {
@@ -317,6 +328,7 @@ function Harness({
         showPrioritySort={showPrioritySort}
         jevConfigured={jevConfigured}
         jevAvailabilityError={jevAvailabilityError}
+        priorityProviderIdentity={priorityProviderIdentity}
         onJevRetry={onJevRetry}
         sortMode={sortMode}
       />
@@ -396,15 +408,19 @@ describe("EmailList keyboard navigation interactions", () => {
     mocks.view = "all";
     mocks.headerActions = null;
     mocks.automations = [];
+    mocks.priorityToast.mockReset();
     mocks.queryClient = {
       getQueryData: vi.fn(),
       setQueryData: vi.fn(),
       invalidateQueries: vi.fn(),
     };
-    mocks.priorityRequest.mockReset().mockResolvedValue({ scores: [] });
+    mocks.priorityRequest
+      .mockReset()
+      .mockResolvedValue({ scores: [], failures: [] });
     mocks.priorityFeedback
       .mockReset()
       .mockResolvedValue({ totalVotes: 1, recentVotes: [] });
+    mocks.priorityToastError.mockReset();
     mocks.confirmUncertainScheduled.mockReset();
     mocks.retryUncertainScheduled.mockReset();
   });
@@ -595,6 +611,29 @@ describe("EmailList keyboard navigation interactions", () => {
     expect(hasJevConnectionPrompt(mocks.headerActions)).toBe(false);
   });
 
+  it("shows the localized provider setup message when Priority cannot run", async () => {
+    mocks.view = "inbox";
+    mocks.priorityRequest.mockRejectedValue(
+      Object.assign(new Error("Connect an AI provider to use Priority sort."), {
+        errorCode: "jev_not_enabled",
+      }),
+    );
+
+    render(
+      <Harness
+        emails={messages.map((email) => ({ ...email, labelIds: ["inbox"] }))}
+        showPrioritySort
+        sortMode="priority"
+      />,
+    );
+
+    await waitFor(() =>
+      expect(mocks.priorityToastError).toHaveBeenCalledWith(
+        "mail.sort.priorityProviderRequired",
+      ),
+    );
+  });
+
   it("surfaces newly visible inbox emails while reusing their cached scores", async () => {
     mocks.view = "inbox";
     mocks.priorityRequest.mockImplementation(
@@ -608,6 +647,7 @@ describe("EmailList keyboard navigation interactions", () => {
           accountEmail,
           score: id === "middle" ? 0.9 : id === "last" ? 0.05 : 0.1,
         })),
+        failures: [],
       }),
     );
     const firstTabEmails = [messages[0], messages[1]].map((email) => ({
@@ -686,6 +726,7 @@ describe("EmailList keyboard navigation interactions", () => {
             accountEmail,
             score: id === "email-0" ? 0.9 : 0.5,
           })),
+          failures: [],
         }),
       )
       .mockImplementationOnce(
@@ -699,6 +740,7 @@ describe("EmailList keyboard navigation interactions", () => {
             accountEmail,
             score: id === `email-${AI_PRIORITY_MAX_EMAILS}` ? 0.99 : 0.4,
           })),
+          failures: [],
         }),
       );
 
@@ -763,6 +805,7 @@ describe("EmailList keyboard navigation interactions", () => {
             accountEmail,
             score: id === `email-${AI_PRIORITY_MAX_EMAILS - 1}` ? 0.99 : 0.2,
           })),
+          failures: [],
         }),
       )
       .mockImplementationOnce(
@@ -776,6 +819,7 @@ describe("EmailList keyboard navigation interactions", () => {
             accountEmail,
             score: 0.8,
           })),
+          failures: [],
         }),
       );
 
@@ -828,6 +872,7 @@ describe("EmailList keyboard navigation interactions", () => {
       updatedAt,
     });
     let resolveUpdatedScores!: (result: {
+      failures: [];
       scores: Array<{
         emailId: string;
         accountEmail: string;
@@ -837,6 +882,7 @@ describe("EmailList keyboard navigation interactions", () => {
     mocks.automations = [importantRule("Prioritize the team", "1")];
     mocks.priorityRequest
       .mockResolvedValueOnce({
+        failures: [],
         scores: inboxEmails.map((email) => ({
           emailId: email.id,
           accountEmail: email.accountEmail,
@@ -865,6 +911,7 @@ describe("EmailList keyboard navigation interactions", () => {
 
     await act(async () => {
       resolveUpdatedScores({
+        failures: [],
         scores: [
           {
             emailId: "first",
@@ -899,6 +946,7 @@ describe("EmailList keyboard navigation interactions", () => {
     }));
     mocks.priorityRequest
       .mockResolvedValueOnce({
+        failures: [],
         scores: inboxEmails.map((email) => ({
           emailId: email.id,
           accountEmail: email.accountEmail,
@@ -906,6 +954,7 @@ describe("EmailList keyboard navigation interactions", () => {
         })),
       })
       .mockResolvedValueOnce({
+        failures: [],
         scores: [
           {
             emailId: "first",
@@ -915,6 +964,7 @@ describe("EmailList keyboard navigation interactions", () => {
         ],
       })
       .mockResolvedValueOnce({
+        failures: [],
         scores: [
           {
             emailId: "new",
@@ -984,6 +1034,7 @@ describe("EmailList keyboard navigation interactions", () => {
     }));
     let rejectOlderVote!: (error: Error) => void;
     mocks.priorityRequest.mockResolvedValue({
+      failures: [],
       scores: inboxEmails.map((email) => ({
         emailId: email.id,
         accountEmail: email.accountEmail,
@@ -1023,6 +1074,7 @@ describe("EmailList keyboard navigation interactions", () => {
   it("keeps cached priority scores when volatile labels change", async () => {
     mocks.view = "inbox";
     mocks.priorityRequest.mockResolvedValue({
+      failures: [],
       scores: messages.map((email) => ({
         emailId: email.id,
         accountEmail: email.accountEmail,
@@ -1061,13 +1113,12 @@ describe("EmailList keyboard navigation interactions", () => {
 
   it("reuses priority scores on the first render after the list remounts", async () => {
     mocks.view = "inbox";
-    const inboxEmails = [messages[0], messages[1], messages[2]].map(
-      (email) => ({
-        ...email,
-        labelIds: ["inbox"],
-      }),
-    );
+    const inboxEmails = messages.slice(0, 3).map((email) => ({
+      ...email,
+      labelIds: ["inbox"],
+    }));
     let resolvePriority!: (result: {
+      failures: [];
       scores: Array<{
         emailId: string;
         accountEmail: string;
@@ -1086,6 +1137,7 @@ describe("EmailList keyboard navigation interactions", () => {
     expect(mocks.priorityRequest).toHaveBeenCalledTimes(1);
     await act(async () => {
       resolvePriority({
+        failures: [],
         scores: [
           {
             emailId: "first",
@@ -1116,6 +1168,60 @@ describe("EmailList keyboard navigation interactions", () => {
     expect(mocks.priorityRequest).toHaveBeenCalledTimes(1);
   });
 
+  it("recomputes cached priority scores when the decision provider changes", async () => {
+    mocks.view = "inbox";
+    const inboxEmails = messages.slice(0, 3).map((email) => ({
+      ...email,
+      labelIds: ["inbox"],
+    }));
+    mocks.priorityRequest.mockImplementation(async () => {
+      const isJev = mocks.priorityRequest.mock.calls.length === 1;
+      return {
+        failures: [],
+        model: isJev
+          ? { provider: "jev", model: "jev-latest" }
+          : { provider: "openai", model: "gpt-6-luna" },
+        scores: inboxEmails.map((email) => ({
+          emailId: email.id,
+          accountEmail: email.accountEmail,
+          score: isJev
+            ? email.id === "middle"
+              ? 0.9
+              : 0.1
+            : email.id === "last"
+              ? 0.95
+              : 0.1,
+        })),
+      };
+    });
+
+    const { rerender } = render(
+      <Harness
+        emails={inboxEmails}
+        priorityProviderIdentity="jev-ready"
+        showPrioritySort
+        sortMode="priority"
+      />,
+    );
+    await waitFor(() =>
+      expect(rows()[0]?.textContent).toContain("Subject middle"),
+    );
+
+    rerender(
+      <Harness
+        emails={inboxEmails}
+        priorityProviderIdentity="openai-ready"
+        showPrioritySort
+        sortMode="priority"
+      />,
+    );
+
+    await waitFor(() =>
+      expect(rows()[0]?.textContent).toContain("Subject last"),
+    );
+    expect(mocks.priorityRequest).toHaveBeenCalledTimes(2);
+  });
+
   it("keeps duplicate message IDs separate across accounts", async () => {
     mocks.view = "inbox";
     const inboxEmails = [
@@ -1137,6 +1243,7 @@ describe("EmailList keyboard navigation interactions", () => {
       },
     ];
     mocks.priorityRequest.mockResolvedValue({
+      failures: [],
       scores: [
         {
           emailId: "shared-message-id",

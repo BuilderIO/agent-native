@@ -269,6 +269,12 @@ export function accessFilter(
   const publicAllowed = reg?.allowPublic !== false;
   const includePublic = (options.includePublic ?? false) && publicAllowed;
   const clauses: SQL[] = [];
+  // A resource-specific manager callback cannot be evaluated by this SQL
+  // filter, so admin queries must not admit raw share roles for that policy.
+  const shareRoleFilter =
+    minRole === "admin" && reg?.canManageAccess
+      ? sql`1=0`
+      : minRoleSql(minRole);
   const orgMembership = orgId ? orgMembershipScope(ctx, orgId) : sql`1=1`;
 
   if (normalizedUserEmail) {
@@ -301,7 +307,7 @@ export function accessFilter(
                     and ${sharesTable.principalType} = 'user'
                     and lower(${sharesTable.principalId}) = ${normalizedUserEmail}
                     and ${shareScope}
-                    and ${minRoleSql(minRole)})`,
+                    and ${shareRoleFilter})`,
     );
   }
   if (orgId) {
@@ -313,7 +319,7 @@ export function accessFilter(
                     and ${sharesTable.principalId} = ${orgId}
                     and ${orgMembership}
                     and ${shareScope}
-                    and ${minRoleSql(minRole)})`,
+                    and ${shareRoleFilter})`,
     );
   }
 
@@ -341,7 +347,7 @@ export function accessFilter(
       sql`exists (select 1 from ${sharesTable}
                   where ${sharesTable.resourceId} = ${resourceTable.id}
                     and ${sharesTable.principalType} = 'group'
-                    and ${minRoleSql(minRole)}
+                    and ${shareRoleFilter}
                     and exists (
                       select 1 from ${groupTable} as workspace_group
                       where workspace_group.id = ${sharesTable.principalId}
@@ -668,21 +674,41 @@ async function loadAndResolveAccess(
  * to a Builder project), the host is the authority on who may open them. The
  * resolver returns a role, `null` to deny, or `undefined` to fall through to
  * AN's own owner/org/share rules. AN keeps no copy of the host's members,
- * orgs or roles: it asks, per resource, per request.
+ * orgs or roles: it asks, per resource, per request. It is asked only about
+ * signed-in requests unless registered with `includeSignedOut`.
  */
 export type HostAccessResolver = (
   resource: any,
   ctx: AccessContext,
 ) => Promise<ResolvedAccess["role"] | null | undefined>;
 
-const hostAccessResolvers = new Map<string, HostAccessResolver>();
+export interface HostAccessResolverOptions {
+  /**
+   * Also ask about signed-out requests, with `ctx.userEmail` unset. Only a
+   * resolver written to vouch for someone with no identity may set this: any
+   * role it returns then goes to an anonymous request.
+   */
+  includeSignedOut?: boolean;
+}
+
+const hostAccessResolvers = new Map<
+  string,
+  { resolve: HostAccessResolver; includeSignedOut: boolean }
+>();
 
 export function registerHostAccessResolver(
   resourceType: string,
   resolver: HostAccessResolver | null,
+  options?: HostAccessResolverOptions,
 ): void {
-  if (resolver) hostAccessResolvers.set(resourceType, resolver);
-  else hostAccessResolvers.delete(resourceType);
+  if (resolver) {
+    hostAccessResolvers.set(resourceType, {
+      resolve: resolver,
+      includeSignedOut: options?.includeSignedOut === true,
+    });
+  } else {
+    hostAccessResolvers.delete(resourceType);
+  }
 }
 
 async function ownerOrAdminRole(
@@ -726,10 +752,10 @@ async function accessToResource(
 
   // A host can deny outright. When it grants access, the resource's owner
   // and admins keep their own roles; the host's role covers everyone else.
-  const hostResolver = hostAccessResolvers.get(reg.type);
+  const host = hostAccessResolvers.get(reg.type);
   const hosted =
-    hostResolver && normalizedUserEmail
-      ? await hostResolver(resource, ctx)
+    host && (normalizedUserEmail || host.includeSignedOut)
+      ? await host.resolve(resource, ctx)
       : undefined;
   if (hosted === null) return null;
 
@@ -748,11 +774,14 @@ async function accessToResource(
     resource,
     isOrgMember,
   );
+  const shareRole = role === "admin" && reg.canManageAccess ? "editor" : role;
   if (resource.visibility === "public" && reg.allowPublic !== false) {
     const publicRole = await publicAccessRoleForResource(reg, resource, ctx);
-    return { role: higherShareRole(publicRole, role), resource };
+    const effectivePublicRole =
+      publicRole === "admin" && reg.canManageAccess ? "editor" : publicRole;
+    return { role: higherShareRole(effectivePublicRole, shareRole), resource };
   }
-  if (role) return { role, resource };
+  if (shareRole) return { role: shareRole, resource };
   if (
     resource.visibility === "org" &&
     resource.orgId &&

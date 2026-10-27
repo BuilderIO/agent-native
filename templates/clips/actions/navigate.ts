@@ -7,6 +7,7 @@ const Views = [
   "shared",
   "spaces",
   "space",
+  "from-content",
   "archive",
   "trash",
   "record",
