@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import path from "node:path";
+import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 import {
@@ -340,11 +340,10 @@ function isDirectRun(): boolean {
   const entrypoint = process.argv[1];
   return Boolean(
     entrypoint &&
-    import.meta.url === pathToFileURL(path.resolve(entrypoint)).href,
+    import.meta.url === pathToFileURL(realpathSync(entrypoint)).href,
   );
 }
 
-console.log("shomix - 123");
 if (isDirectRun()) {
   loadEnv();
   try {
