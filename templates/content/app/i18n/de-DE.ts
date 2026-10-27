@@ -733,6 +733,17 @@ const editor = {
     duplicate: "Duplizieren",
     delete: "Löschen",
     insertBelow: "Block darunter einfügen",
+    search: "Aktionen suchen...",
+    noResults: "Keine Ergebnisse",
+    block: "Block",
+    keyCtrl: "Strg",
+    keyShift: "Umschalt",
+    keyDelete: "Entf",
+    lockedSource:
+      "Komponenten aus der Quelldatei können hier nicht dupliziert oder gelöscht werden.",
+    lockedSuggesting:
+      "Vorschläge können diese Art von Block nicht hinzufügen oder entfernen.",
+    lockedPage: "Diese Seite lässt diese Änderung nicht zu.",
   },
   noDocumentSelected: "Kein Dokument ausgewählt",
   registryBlockLoadError:
@@ -1079,7 +1090,7 @@ const editor = {
     todoListDescription: "Checklistenpunkte",
     toggle: "Umschalten",
     toggleDescription: "Umschaltzeile im Notion-Stil",
-    turnInto: "Verwandle dich in",
+    turnInto: "Umwandeln in",
     video: "Video [de-DE]",
     videoDescription: "Video hochladen oder einbetten",
   },
