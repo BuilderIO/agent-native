@@ -1,0 +1,102 @@
+template: v2
+slug: ai-kpi-dashboard
+app: analytics
+title: 스타트업 KPI 대시보드를 만들어 보세요
+seo_title: 스타트업 창업자를 위한 AI KPI 대시보드
+meta_description: "추적하는 지표를 설명하면, Agent-Native Analytics가 Stripe, HubSpot, 제품 데이터로 스타트업 KPI 대시보드를 만들고 무엇이 움직였는지 알려 줘요."
+updated: 2026-10-27
+hero:
+  body: "Agent-Native Analytics는 Stripe, HubSpot, 제품 데이터로 MRR, 이탈률, 가입자를 대시보드 하나에 모아 줘요. 추적하는 지표를 설명하면 에이전트가 대시보드를 만들고, 숫자가 왜 움직였는지 알려 줘요."
+  button:
+    label: 대시보드 만들기
+    url: https://analytics.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb23d4e197c9841e7b0eeaefc15090443
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F260764ee953f4b4f80f6a6cf631b2143
+    alt: "Analytics의 스타트업 KPI 대시보드. MRR, 이탈률, 신규 가입, 활성화 카드 아래에 월별 MRR과 가입 차트가 있어요. 에이전트 사이드바는 이번 분기 MRR 성장을 이끈 요금제가 무엇인지 요금제별 표로 답해요."
+how_to:
+  heading: AI로 KPI 대시보드를 만드는 방법
+  steps:
+    - title: 매출과 제품 데이터 연결하기
+      body: "**데이터 소스** 페이지에서 Stripe 시크릿 키를 붙여 넣고, HubSpot과 쓰고 있는 제품 분석 도구를 추가하세요. 소스 메뉴에서 **연결 테스트**을 골라 Analytics가 데이터를 읽을 수 있는지 확인하세요."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6ea7e1568d3b4afd9fc6a2a01bc969b0
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F78b97b8d077644f28c627377157f1331
+        alt: "Data Sources 페이지의 Stripe 확대 화면. Connected로 표시되고 시크릿 키가 설정돼 있으며, 연결 테스트 후 “Connection successful”이 보여요."
+    - title: 원하는 대시보드 설명하기
+      body: "**새로운 대시보드**를 클릭하고 [추적하는 SaaS 지표](https://www.agent-native.com/articles/what-should-a-saas-metrics-dashboard-include/)를 설명하세요. 예를 들어 “Stripe의 MRR과 이탈률, PostHog의 신규 가입과 활성화를 월별로”처럼요. 에이전트가 먼저 질문할 수도 있고, 그다음 패널을 하나씩 만들어 대시보드를 열어요."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fca8b7f3746ca419383e042cc0c142271
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb167e98f0ac049fa8ad4b169e8f77ec9
+        alt: "사이드바의 Dashboards 목록에서 연 New dashboard 상자 확대 화면. 스타트업 KPI 대시보드에 대한 설명이 입력돼 있어요."
+    - title: 숫자가 왜 움직였는지 묻기
+      body: "차트 메뉴에서 **패널에 대해 채팅**을 고르고 “9월에 이탈률이 왜 올랐어?” 같은 질문을 하세요. 에이전트가 연결된 데이터로 답하고, 요청하면 대시보드에 패널을 추가해요."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9b18fbf5a7cd4b4ba65d9efede75538b
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9edee9cd613741e2ba670e414be767c7
+        alt: "월별 이탈률 패널과 옆의 에이전트 채팅. 9월에 이탈률이 왜 올랐는지 묻자, 에이전트가 상승분을 요금제별로 나눠 보여 줘요. Starter 요금제의 이탈률이 거의 두 배가 됐어요."
+features:
+  heading: 스타트업 KPI 추적에 필요한 모든 것
+  items:
+    - title: 매출, 파이프라인, 사용량을 함께
+      body: "Stripe의 MRR, HubSpot의 딜, PostHog나 Mixpanel의 가입자가 대시보드 하나에 나란히 놓여요."
+    - title: 직접 고치거나 요청하거나
+      body: "필터는 직접 바꾸고, 새 패널은 에이전트에게 요청하세요. 둘 다 같은 대시보드에 반영되고, 기록에서 이전 버전을 복원할 수 있어요."
+    - title: 숫자마다 쿼리 확인
+      body: "차트의 아무 지점이나 클릭하면 그 뒤의 레코드, 레코드를 찾은 SQL, CSV 다운로드를 볼 수 있어요."
+    - title: 우리 회사의 MRR 정의
+      body: "**시맨틱 레이어** 페이지에 우리 회사가 MRR이나 활성 사용자를 세는 방식을 적어 두세요. 에이전트가 쿼리를 쓰기 전에 확인해요."
+    - title: 공유 전까지는 비공개
+      body: "새 대시보드는 나만 볼 수 있어요. 준비되면 공동 창업자나 회사 전체와 보기 또는 편집 권한으로 공유하세요."
+    - title: 이메일로 받는 KPI
+      body: "숫자가 나를 찾아와요. 매일 아침 원하는 시간에 대시보드를 이메일로 받고, 최대 다섯 명까지 함께 받을 수 있어요."
+integrations:
+  heading: 이미 쓰는 도구와 Analytics 연결하기
+  cards:
+    - title: 매출과 파이프라인
+      logos:
+        - name: Stripe
+        - name: HubSpot
+      body: "Analytics는 Stripe에서 구독과 결제를, HubSpot에서 딜을 읽으니 매출 숫자가 원본에서 바로 나와요."
+    - title: 제품 사용량
+      logos:
+        - name: PostHog
+        - name: Mixpanel
+        - name: Amplitude
+        - name: Google Analytics
+        - name: BigQuery
+      body: "가입자, 활성 사용자, 활성화는 이미 쓰고 있는 제품 분석 도구나 데이터 웨어하우스에서 가져와요."
+    - title: MCP로 무엇이든 연결하기
+      logos:
+        - name: Notion
+        - name: Intercom
+        - name: Linear
+      more: true
+      body: "팀이 쓰는 도구를 MCP로 연결하거나, URL로 어떤 MCP 서버든 추가하세요."
+other_uses:
+  heading: Agent-Native Analytics로 할 수 있는 다른 일
+  cards:
+    - title: 데이터에 평소 말로 질문해 보세요
+      url: https://www.agent-native.com/use-cases/ask-your-database/
+      body: "BigQuery 데이터에 대해 질문하고, SQL을 쓰지 않고 답을 받아 보세요."
+    - title: 신규 사용자가 이탈하는 지점을 찾아보세요
+      url: https://www.agent-native.com/use-cases/ai-funnel-analysis/
+      body: "가입과 온보딩 단계에서 신규 사용자가 어디서 멈추는지 확인하세요."
+    - title: 스프레드시트 없이 주간 마케팅 리포트를 만들어 보세요
+      url: https://www.agent-native.com/use-cases/weekly-marketing-report/
+      body: "주간 마케팅 리포트를 한 번 만들어 두고, 더는 손으로 다시 만들지 마세요."
+faqs:
+  heading: 궁금한 점이 있으신가요? 답해 드릴게요
+  items:
+    - q: Agent-Native Analytics는 무료인가요?
+      a: "네, Agent-Native Analytics는 무료 오픈 소스예요. 에이전트는 Builder.io AI 크레딧이나 내 모델 키로 실행되고, 데이터 소스마다 Stripe 시크릿 키 같은 자격 증명이 필요해요. Analytics는 알파 버전이라 화면과 기능이 바뀔 수 있어요."
+    - q: Analytics는 어떤 도구에서 KPI를 가져올 수 있나요?
+      a: "Analytics는 Stripe, HubSpot, PostHog, Mixpanel, Amplitude, Google Analytics(GA4), BigQuery 외에도 십여 개가 넘는 소스에 연결돼요. 각 소스는 [데이터 소스 페이지](https://www.agent-native.com/docs/template-analytics-connectors/)에서 자체 키로 추가하고, 대시보드 하나에 여러 소스를 섞을 수 있어요."
+    - q: KPI 대시보드를 만들려면 SQL을 알아야 하나요?
+      a: "아니요. 대시보드를 설명하거나 평소 말로 질문하면 에이전트가 SQL을 써요. 모든 차트 뒤의 쿼리는 계속 볼 수 있으니, 데이터를 아는 사람이 확인하거나 고칠 수 있어요."
+    - q: 숫자가 맞는지 어떻게 알 수 있나요?
+      a: "대시보드의 모든 숫자는 에이전트가 연결된 데이터에 실행한 쿼리에서 나오고, 어느 차트든 쿼리와 그 뒤의 레코드를 열어 볼 수 있어요. 쿼리를 실행하지 못했을 때는 수치를 “Unverified”로 표시해요. 대시보드를 믿기 전에 몇 가지 숫자를 Stripe와 비교해 보세요."
+    - q: 내 KPI 대시보드는 누가 볼 수 있나요?
+      a: "공유하기 전까지는 나만 볼 수 있어요. 팀원이나 조직 전체와 보기, 편집, 관리자 권한으로 [대시보드를 공유](https://www.agent-native.com/docs/sharing/)할 수 있어요. 내가 바꾼 필터는 나에게만 적용되니, 공유하려면 뷰를 저장하거나 링크를 보내세요."
+    - q: Analytics는 내 분석 도구에 들어 있는 AI와 무엇이 다른가요?
+      a: "분석 도구 안의 AI 어시스턴트는 그 도구의 데이터로만 일해요. Analytics는 Stripe, CRM, 제품 데이터를 넘나들고, 에이전트가 내가 보는 대시보드를 직접 만들고 고치니 답이 그대로 남는 패널이 돼요. 그래서 Analytics는 [에이전틱 앱](https://www.agent-native.com/articles/what-is-an-agent-native-app/)이에요. 에이전트의 두뇌와 앱의 직관성을 함께 갖췄죠."
