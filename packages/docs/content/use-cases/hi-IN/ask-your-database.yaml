@@ -1,6 +1,10 @@
 template: v2
 slug: ask-your-database
 app: analytics
+roles:
+  - engineering
+  - product
+  - founders
 title: "अपने डेटा से आसान भाषा में सवाल पूछें"
 seo_title: "SQL के बिना अपने डेटाबेस से सवाल पूछें"
 meta_description: "अपने BigQuery डेटा के बारे में सवाल पूछें, Agent-Native Analytics जाँचने लायक read-only SQL से जवाब देता है और बार-बार पूछे जाने वाले सवाल डैशबोर्ड पर रखता है।"

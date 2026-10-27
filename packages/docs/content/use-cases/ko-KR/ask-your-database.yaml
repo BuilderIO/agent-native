@@ -1,6 +1,10 @@
 template: v2
 slug: ask-your-database
 app: analytics
+roles:
+  - engineering
+  - product
+  - founders
 title: 데이터에 평소 말로 질문해 보세요
 seo_title: SQL 없이 데이터베이스에 질문하기
 meta_description: "BigQuery 데이터에 대해 질문하면, Agent-Native Analytics가 직접 확인할 수 있는 읽기 전용 SQL로 답하고, 반복되는 질문은 대시보드에 남겨 둬요."

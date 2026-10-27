@@ -1,6 +1,10 @@
 template: v2
 slug: ask-your-database
 app: analytics
+roles:
+  - engineering
+  - product
+  - founders
 title: Interrogez vos données en langage courant
 seo_title: Interrogez votre base de données sans SQL
 meta_description: "Posez une question sur vos données BigQuery : Agent-Native Analytics répond en SQL lecture seule vérifiable et garde vos questions récurrentes en tableau de bord."

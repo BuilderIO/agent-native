@@ -1,6 +1,10 @@
 template: v2
 slug: ask-your-database
 app: analytics
+roles:
+  - engineering
+  - product
+  - founders
 title: 用日常语言向你的数据提问
 seo_title: 不写 SQL，直接向数据库提问
 meta_description: 就你的 BigQuery 数据提个问题，Agent-Native Analytics 会用可检查的只读 SQL 回答，并把反复问到的问题保留在仪表板上。

@@ -1,6 +1,10 @@
 template: v2
 slug: ask-your-database
 app: analytics
+roles:
+  - engineering
+  - product
+  - founders
 title: "اطرح أسئلتك على بياناتك بلغة عادية"
 seo_title: "اسأل قاعدة بياناتك دون كتابة SQL"
 meta_description: "اطرح سؤالًا عن بياناتك في BigQuery، فيجيب Agent-Native Analytics باستعلام SQL للقراءة فقط يمكنك مراجعته، ويحفظ الأسئلة المتكررة في لوحة تحكم."
