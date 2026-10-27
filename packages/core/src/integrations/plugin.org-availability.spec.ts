@@ -5,6 +5,7 @@ const fixture = vi.hoisted(() => ({
   session: { email: "member@example.test", orgId: "fake-org" } as {
     email: string;
     orgId?: string;
+    orgRole?: string;
   },
   role: "member",
   failure: undefined as unknown,
@@ -62,6 +63,8 @@ describe("integration membership HTTP boundary", () => {
   it.each([
     "denied-read",
     "delegated-transient",
+    "ordinary-owner-transient",
+    "ordinary-admin-transient",
     "delegated-revoked",
     "personal",
     "owner",
@@ -73,17 +76,20 @@ describe("integration membership HTTP boundary", () => {
     fixture.session = {
       email: `member+${scenario}@example.test`,
       ...(scenario === "personal" ? {} : { orgId: "fake-org" }),
+      ...(scenario === "ordinary-owner-transient"
+        ? { orgRole: "owner" }
+        : scenario === "ordinary-admin-transient"
+          ? { orgRole: "admin" }
+          : {}),
     };
     fixture.role = scenario;
-    fixture.failure =
-      scenario === "delegated-transient"
-        ? Object.assign(new Error("db query timed out"), { code: "57014" })
-        : scenario === "denied-read"
-          ? Object.assign(
-              new Error("permission denied for table org_members"),
-              { code: "42501" },
-            )
-          : undefined;
+    fixture.failure = scenario.endsWith("-transient")
+      ? Object.assign(new Error("db query timed out"), { code: "57014" })
+      : scenario === "denied-read"
+        ? Object.assign(new Error("permission denied for table org_members"), {
+            code: "42501",
+          })
+        : undefined;
     fixture.execute.mockImplementation(async ({ sql }: { sql: string }) => {
       if (sql.includes("FROM org_members")) {
         if (fixture.failure) throw fixture.failure;
@@ -128,7 +134,7 @@ describe("integration membership HTTP boundary", () => {
         ),
     );
     const unavailable =
-      scenario === "denied-read" || scenario === "delegated-transient";
+      scenario === "denied-read" || scenario.endsWith("-transient");
     const forbidden = scenario === "member" || scenario === "delegated-revoked";
     expect(response.status).toBe(unavailable ? 503 : forbidden ? 403 : 200);
     expect(response.headers.get("retry-after")).toBe(unavailable ? "5" : null);

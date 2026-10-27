@@ -388,8 +388,8 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
     // A transient membership read must not downgrade an authenticated request
     // to a private/solo scope when the session already carries its org.
     if (sessionOrgId && isTransientDatabaseError(err)) {
+      markOrgScopeResolutionUnavailable(event);
       if (isDelegatedOrgMember) {
-        markOrgScopeResolutionUnavailable(event);
         return { email, orgId: null, orgName: null, role: null };
       }
       return {
