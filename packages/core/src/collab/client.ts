@@ -43,7 +43,7 @@ export interface UseCollaborativeDocOptions {
    * email scopes what is kept.
    */
   durableUpdates?: boolean;
-  /** Keeps updates pending until a current strict subscriber receives a known live-copy outcome. */
+  /** New updates need a known live-copy outcome handled by a current strict subscriber. */
   requireLiveCopyOutcome?: boolean;
   /**
    * Called for each update the server acknowledged, with the live-copy
@@ -277,9 +277,9 @@ interface CollabDocSubscription {
   pauseWhenHidden: boolean;
   requestSource?: string;
   durableUpdates?: boolean;
-  requireLiveCopyOutcome?: boolean;
+  requireLiveCopyOutcome: () => boolean;
+  canAcknowledge: () => boolean;
   onUpdateAcknowledged?: (ack: CollabUpdateAck) => void;
-  acknowledgementScope: object;
   onSnapshot: (snapshot: CollabDocSnapshot) => void;
   onEvent: (event: SyncEvent) => void;
 }
@@ -320,15 +320,65 @@ function readUpdateAck(body: unknown): CollabUpdateAck {
 // integrates an update once, so sending one the server already holds again
 // changes nothing.
 const OUTBOX_PREFIX = "agent-native-collab-outbox-v1:";
+const VERSIONED_OUTBOX_PREFIX = "agent-native-collab-outbox-v2:";
 const OUTBOX_ORIGIN = "collab-outbox";
 
-function outboxPrefix(docKey: string, email: string): string {
-  return `${OUTBOX_PREFIX}${encodeURIComponent(docKey)}:${encodeURIComponent(email)}:`;
+function outboxPrefix(
+  docKey: string,
+  email: string,
+  prefix = OUTBOX_PREFIX,
+): string {
+  return `${prefix}${encodeURIComponent(docKey)}:${encodeURIComponent(email)}:`;
+}
+
+interface PendingCollabUpdate {
+  update: Uint8Array;
+  readonly requireLiveCopyOutcome: boolean;
 }
 
 interface StoredOutbox {
   key: string;
   raw: string;
+  version: 1 | 2;
+}
+
+function readStoredUpdates(
+  entry: StoredOutbox,
+  legacyRequireLiveCopyOutcome: boolean,
+): PendingCollabUpdate[] {
+  if (entry.version === 1)
+    return [
+      {
+        update: base64ToUint8Array(entry.raw),
+        requireLiveCopyOutcome: legacyRequireLiveCopyOutcome,
+      },
+    ];
+  const body = JSON.parse(entry.raw) as {
+    version?: unknown;
+    updates?: unknown;
+  } | null;
+  if (
+    body?.version !== 2 ||
+    !Array.isArray(body.updates) ||
+    body.updates.length === 0 ||
+    body.updates.length > 2
+  )
+    throw new Error("The collab outbox has an unreadable update list.");
+  return body.updates.map((value: unknown) => {
+    const item = value as {
+      update?: unknown;
+      requireLiveCopyOutcome?: unknown;
+    } | null;
+    if (
+      typeof item?.update !== "string" ||
+      typeof item.requireLiveCopyOutcome !== "boolean"
+    )
+      throw new Error("The collab outbox has an unreadable update.");
+    return {
+      update: base64ToUint8Array(item.update),
+      requireLiveCopyOutcome: item.requireLiveCopyOutcome,
+    };
+  });
 }
 
 const requestSyncUnavailable = (): Promise<CollaborativeDocSyncResult> =>
@@ -353,7 +403,9 @@ class CollabDocConnection {
   private lastSetUser: CollabUser | null = null;
   private userGeneration = 0;
 
-  private pendingUpdates: Uint8Array[] = [];
+  private pendingUpdates: PendingCollabUpdate[] = [];
+  private readonly deliveredUpdates = new WeakSet<PendingCollabUpdate>();
+  private deliveryVersion = 0;
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private updateInFlight = false;
   private keepaliveInFlight = false;
@@ -362,7 +414,6 @@ class CollabDocConnection {
   private updateAbortController: AbortController | null = null;
   private updateHandlerAttached = false;
   private keepsUnsentUpdates = false;
-  private requiresLiveCopyOutcome = false;
   private unsentUpdatesRestored = false;
   private onlineDuringUpdate = false;
   private readonly outboxOwnerId = `${Date.now().toString(36)}-${Math.random()
@@ -426,10 +477,8 @@ class CollabDocConnection {
       : null;
   }
 
-  add(id: symbol, sub: CollabDocSubscription): void {
+  add(id: symbol, sub: CollabDocSubscription, user?: CollabUser): void {
     this.subscribers.set(id, sub);
-    // Keep delivery requirements through unsubscribe and the final keepalive.
-    if (sub.requireLiveCopyOutcome) this.requiresLiveCopyOutcome = true;
     if (this.disposeTimer) {
       clearTimeout(this.disposeTimer);
       this.disposeTimer = null;
@@ -438,6 +487,7 @@ class CollabDocConnection {
       this.requestSource = sub.requestSource;
       registerOwnCollabSource(sub.requestSource);
     }
+    if (user) this.setUser(user);
     // Once kept, updates stay kept until acknowledged, even if the caller
     // stops asking.
     if (sub.durableUpdates && !this.keepsUnsentUpdates) {
@@ -549,11 +599,32 @@ class CollabDocConnection {
     }
   }
 
-  private get outboxScope(): { prefix: string; key: string } | null {
+  private get hasStrictSubscriber(): boolean {
+    return Array.from(this.subscribers.values()).some((sub) =>
+      sub.requireLiveCopyOutcome(),
+    );
+  }
+
+  private get outboxScope(): {
+    prefix: string;
+    key: string;
+    versionedPrefix: string;
+    versionedKey: string;
+  } | null {
     const email = this.lastSetUser?.email?.trim().toLowerCase();
     if (!email || typeof window === "undefined") return null;
     const prefix = outboxPrefix(this.registryKey, email);
-    return { prefix, key: prefix + this.outboxOwnerId };
+    const versionedPrefix = outboxPrefix(
+      this.registryKey,
+      email,
+      VERSIONED_OUTBOX_PREFIX,
+    );
+    return {
+      prefix,
+      key: prefix + this.outboxOwnerId,
+      versionedPrefix,
+      versionedKey: versionedPrefix + this.outboxOwnerId,
+    };
   }
 
   private markDurableUpdatesFailed(): void {
@@ -569,15 +640,29 @@ class CollabDocConnection {
     try {
       if (this.pendingUpdates.length === 0) {
         window.localStorage.removeItem(scope.key);
+        window.localStorage.removeItem(scope.versionedKey);
       } else {
-        window.localStorage.setItem(
-          scope.key,
+        const encode = (items: PendingCollabUpdate[]) =>
           uint8ArrayToBase64(
-            this.pendingUpdates.length === 1
-              ? this.pendingUpdates[0]
-              : Y.mergeUpdates(this.pendingUpdates),
-          ),
+            items.length === 1
+              ? items[0].update
+              : Y.mergeUpdates(items.map((item) => item.update)),
+          );
+        const updates = [true, false].flatMap((requireLiveCopyOutcome) => {
+          const items = this.pendingUpdates.filter(
+            (item) => item.requireLiveCopyOutcome === requireLiveCopyOutcome,
+          );
+          return items.length
+            ? [{ update: encode(items), requireLiveCopyOutcome }]
+            : [];
+        });
+        // Older clients only understand v1's bare Yjs bytes and must not
+        // adopt or delete a versioned custody record.
+        window.localStorage.setItem(
+          scope.versionedKey,
+          JSON.stringify({ version: 2, updates }),
         );
+        window.localStorage.removeItem(scope.key);
       }
     } catch {
       this.markDurableUpdatesFailed();
@@ -608,9 +693,21 @@ class CollabDocConnection {
       const storage = window.localStorage;
       for (let index = 0; index < storage.length; index += 1) {
         const key = storage.key(index);
-        if (!key?.startsWith(scope.prefix) || key === scope.key) continue;
+        if (
+          !key ||
+          (!key.startsWith(scope.prefix) &&
+            !key.startsWith(scope.versionedPrefix)) ||
+          key === scope.key ||
+          key === scope.versionedKey
+        )
+          continue;
         const raw = storage.getItem(key);
-        if (raw !== null) stored.push({ key, raw });
+        if (raw !== null)
+          stored.push({
+            key,
+            raw,
+            version: key.startsWith(scope.versionedPrefix) ? 2 : 1,
+          });
       }
     } catch {
       this.markDurableUpdatesFailed();
@@ -618,14 +715,15 @@ class CollabDocConnection {
     }
     for (const entry of stored) {
       try {
-        const update = base64ToUint8Array(entry.raw);
-        if (this.requiresLiveCopyOutcome) {
-          Y.applyUpdate(this.ydoc, update, "remote");
-          // The initial state may already contain this update, but its
-          // outcome still needs to reach the current strict owner.
-          this.handleDocUpdate(update, OUTBOX_ORIGIN);
-        } else {
-          Y.applyUpdate(this.ydoc, update, OUTBOX_ORIGIN);
+        for (const item of readStoredUpdates(entry, this.hasStrictSubscriber)) {
+          if (entry.version === 2 || item.requireLiveCopyOutcome) {
+            Y.applyUpdate(this.ydoc, item.update, "remote");
+            // Applying one custody group can integrate another's pending
+            // dependencies without emitting a separate update event.
+            this.enqueueUpdate(item.update, item.requireLiveCopyOutcome);
+          } else {
+            Y.applyUpdate(this.ydoc, item.update, OUTBOX_ORIGIN);
+          }
         }
         // Kept nowhere else while this connection cannot keep its own.
         if (this.snapshot.durableUpdatesFailed) continue;
@@ -700,8 +798,8 @@ class CollabDocConnection {
       retiredCollabUpdates.delete(retiredKey);
       this.pendingUpdates.push(...retired);
       if (this.snapshot.initialization.status === "ready") {
-        for (const update of retired)
-          Y.applyUpdate(this.ydoc, update, "remote");
+        for (const item of retired)
+          Y.applyUpdate(this.ydoc, item.update, "remote");
         void this.flushPendingUpdates();
       }
     }
@@ -846,8 +944,8 @@ class CollabDocConnection {
               validationDoc.destroy();
             }
             Y.applyUpdate(this.ydoc, binary, "remote");
-            for (const update of this.pendingUpdates) {
-              Y.applyUpdate(this.ydoc, update, "remote");
+            for (const item of this.pendingUpdates) {
+              Y.applyUpdate(this.ydoc, item.update, "remote");
             }
           } catch {
             this.markInitializationFailed("invalid-payload");
@@ -929,15 +1027,30 @@ class CollabDocConnection {
         clearTimeout(this.flushTimer);
         this.flushTimer = null;
       }
+      const deliveryVersion = this.deliveryVersion;
       await this.flushPendingUpdates();
-      if (this.updateErrors > 0 || this.snapshot.updatesRefused) return false;
+      if (this.snapshot.updatesRefused) return false;
+      if (
+        this.updateErrors > 0 &&
+        (deliveryVersion === this.deliveryVersion ||
+          !this.pendingUpdates.some((item) => item.requireLiveCopyOutcome) ||
+          !this.pendingUpdates.some((item) => !item.requireLiveCopyOutcome))
+      )
+        return false;
     }
     return this.pendingUpdates.length === 0;
   };
 
   private handleDocUpdate = (update: Uint8Array, origin: unknown): void => {
     if (origin === "remote") return;
-    this.pendingUpdates.push(update);
+    this.enqueueUpdate(update, this.hasStrictSubscriber);
+  };
+
+  private enqueueUpdate(
+    update: Uint8Array,
+    requireLiveCopyOutcome: boolean,
+  ): void {
+    this.pendingUpdates.push({ update, requireLiveCopyOutcome });
     this.storeUnsentUpdates();
     if (this.updateErrors && this.flushTimer) return;
     if (this.flushTimer) clearTimeout(this.flushTimer);
@@ -945,7 +1058,7 @@ class CollabDocConnection {
       this.flushTimer = null;
       void this.flushPendingUpdates();
     }, UPDATE_DEBOUNCE_MS);
-  };
+  }
 
   private handlePageHide = (): void => {
     this.flushPendingUpdates(true);
@@ -1001,9 +1114,29 @@ class CollabDocConnection {
       this.flushTimer = null;
     }
     if (this.pendingUpdates.length === 0) return;
-    const toSend = this.pendingUpdates.slice(0, this.updateBatchLimit);
+    const ordinary = this.pendingUpdates.filter(
+      (item) => !item.requireLiveCopyOutcome,
+    );
+    // Ordinary successors may depend on retained strict bytes. Transport
+    // acceptance does not release those bytes' outcome custody.
+    const predecessors = ordinary.length
+      ? this.pendingUpdates.filter(
+          (item) =>
+            item.requireLiveCopyOutcome && !this.deliveredUpdates.has(item),
+        )
+      : [];
+    const toSend = (
+      predecessors.length
+        ? predecessors
+        : ordinary.length
+          ? ordinary
+          : this.pendingUpdates
+    ).slice(0, this.updateBatchLimit);
     const retiredKey = this.retiredUpdatesKey;
-    const merged = toSend.length === 1 ? toSend[0] : Y.mergeUpdates(toSend);
+    const merged =
+      toSend.length === 1
+        ? toSend[0].update
+        : Y.mergeUpdates(toSend.map((item) => item.update));
     const controller = new AbortController();
     if (keepalive) this.keepaliveInFlight = true;
     else {
@@ -1015,12 +1148,10 @@ class CollabDocConnection {
       STATE_VECTOR_FETCH_TIMEOUT_MS,
     );
     const userGeneration = this.userGeneration;
-    const requireLiveCopyOutcome = this.requiresLiveCopyOutcome;
-    const acknowledgementScopes = new Set(
-      Array.from(this.subscribers.values())
-        .filter((sub) => sub.onUpdateAcknowledged !== undefined)
-        .map((sub) => sub.acknowledgementScope),
+    const requireLiveCopyOutcome = toSend.some(
+      (item) => item.requireLiveCopyOutcome,
     );
+    const acknowledgedOwners = new Set<CollabDocSubscription>();
     let ack: CollabUpdateAck | null = null;
     try {
       const response = await fetch(`${this.baseUrl}/${this.docId}/update`, {
@@ -1045,38 +1176,41 @@ class CollabDocConnection {
         return;
       }
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (userGeneration !== this.userGeneration) return;
+      for (const item of toSend) {
+        if (!this.deliveredUpdates.has(item)) {
+          this.deliveredUpdates.add(item);
+          this.deliveryVersion++;
+        }
+      }
       const parsedAck =
-        acknowledgementScopes.size ||
         requireLiveCopyOutcome ||
-        this.requiresLiveCopyOutcome
+        Array.from(this.subscribers.values()).some(
+          (sub) =>
+            sub.onUpdateAcknowledged !== undefined && sub.canAcknowledge(),
+        )
           ? readUpdateAck(await response.json())
           : null;
-      const requiresOutcome =
-        requireLiveCopyOutcome || this.requiresLiveCopyOutcome;
-      if (requiresOutcome) {
-        if (userGeneration !== this.userGeneration) return;
+      if (userGeneration !== this.userGeneration) return;
+      if (requireLiveCopyOutcome) {
         if (!parsedAck?.liveCopy)
           throw new Error(
             "The collab update response omitted its live-copy outcome.",
           );
-        const listeners = Array.from(this.subscribers.values()).filter(
-          (sub) => sub.onUpdateAcknowledged !== undefined,
-        );
-        if (
-          this.disposed ||
-          listeners.some(
-            (sub) =>
-              sub.requireLiveCopyOutcome &&
-              !acknowledgementScopes.has(sub.acknowledgementScope),
-          ) ||
-          !listeners.some(
-            (sub) =>
-              sub.requireLiveCopyOutcome &&
-              acknowledgementScopes.has(sub.acknowledgementScope),
-          )
-        )
+        for (const sub of this.subscribers.values()) {
+          if (this.disposed || userGeneration !== this.userGeneration) break;
+          if (
+            sub.requireLiveCopyOutcome() &&
+            sub.canAcknowledge() &&
+            sub.onUpdateAcknowledged
+          ) {
+            sub.onUpdateAcknowledged(parsedAck);
+            acknowledgedOwners.add(sub);
+          }
+        }
+        if (acknowledgedOwners.size === 0)
           throw new Error(
-            "The live-copy acknowledgment no longer has its subscriber.",
+            "The live-copy acknowledgment has no current strict subscriber.",
           );
       }
       ack = parsedAck;
@@ -1128,11 +1262,16 @@ class CollabDocConnection {
         );
       }
     }
-    // After the bookkeeping, so a listener that throws cannot send an
-    // acknowledged update again.
+    // Ordinary receipts keep nullable-ACK compatibility. Strict owners have
+    // already handled their outcome before its pending bytes were removed.
     if (ack && !this.disposed && userGeneration === this.userGeneration) {
       for (const sub of this.subscribers.values()) {
-        if (acknowledgementScopes.has(sub.acknowledgementScope))
+        if (
+          userGeneration === this.userGeneration &&
+          !acknowledgedOwners.has(sub) &&
+          sub.canAcknowledge() &&
+          (!sub.requireLiveCopyOutcome() || ack.liveCopy !== null)
+        )
           sub.onUpdateAcknowledged?.(ack);
       }
     }
@@ -1616,7 +1755,7 @@ class CollabDocConnection {
 const collabConnectionRegistry = new Map<string, CollabDocConnection>();
 // In-memory retention survives component remounts; a connection with durable
 // updates also keeps them in localStorage. No retired retry loop.
-const retiredCollabUpdates = new Map<string, Uint8Array[]>();
+const retiredCollabUpdates = new Map<string, PendingCollabUpdate[]>();
 
 function collabRegistryKey(docId: string, baseUrl: string): string {
   return `${baseUrl}\0${docId}`;
@@ -1671,6 +1810,8 @@ export function useCollaborativeDoc(
   } = options;
   const onUpdateAcknowledgedRef = useRef(onUpdateAcknowledged);
   onUpdateAcknowledgedRef.current = onUpdateAcknowledged;
+  const requireLiveCopyOutcomeRef = useRef(requireLiveCopyOutcome);
+  requireLiveCopyOutcomeRef.current = requireLiveCopyOutcome;
   const wantsAcks = onUpdateAcknowledged !== undefined;
   const onEventRef = useRef(onEvent);
   onEventRef.current = onEvent;
@@ -1721,25 +1862,33 @@ export function useCollaborativeDoc(
       return;
     }
     const id = Symbol("useCollaborativeDoc");
-    conn.add(id, {
-      pollInterval,
-      pollIntervalWithSse,
-      pauseWhenHidden,
-      requestSource,
-      durableUpdates,
-      requireLiveCopyOutcome,
-      acknowledgementScope,
-      ...(wantsAcks
-        ? {
-            onUpdateAcknowledged: (ack: CollabUpdateAck) => {
-              if (activeAcknowledgementScope.current === acknowledgementScope)
-                onUpdateAcknowledgedRef.current?.(ack);
-            },
-          }
-        : {}),
-      onSnapshot: setSnapshot,
-      onEvent: (event) => onEventRef.current?.(event),
-    });
+    conn.add(
+      id,
+      {
+        pollInterval,
+        pollIntervalWithSse,
+        pauseWhenHidden,
+        requestSource,
+        durableUpdates,
+        requireLiveCopyOutcome: () =>
+          activeAcknowledgementScope.current === acknowledgementScope &&
+          requireLiveCopyOutcomeRef.current,
+        canAcknowledge: () =>
+          activeAcknowledgementScope.current === acknowledgementScope &&
+          onUpdateAcknowledgedRef.current !== undefined,
+        ...(wantsAcks
+          ? {
+              onUpdateAcknowledged: (ack: CollabUpdateAck) => {
+                if (activeAcknowledgementScope.current === acknowledgementScope)
+                  onUpdateAcknowledgedRef.current?.(ack);
+              },
+            }
+          : {}),
+        onSnapshot: setSnapshot,
+        onEvent: (event) => onEventRef.current?.(event),
+      },
+      resolvedUser,
+    );
     setSnapshot(conn.snapshot);
     return () => {
       conn.remove(id);
