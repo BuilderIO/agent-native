@@ -138,6 +138,7 @@ import {
   resolvePinnedLabels,
   resolveDefaultMailHref,
   labelTabHref,
+  isLabelCountLowerBound,
   resolveInboxEmailQueryScope,
   filterInboxTabEmails,
 } from "@/lib/inbox-tabs";
@@ -582,9 +583,11 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       );
     }
   }, [activeAccounts]);
-  const { data: labelsData } = useLabels(
-    activeAccounts.size > 0 ? [...activeAccounts] : undefined,
-  );
+  const {
+    data: labelsData,
+    accountErrors: labelAccountErrors,
+    isError: labelsFailed,
+  } = useLabels(activeAccounts.size > 0 ? [...activeAccounts] : undefined);
   // The Filtered shortcut describes the whole connected mailbox, regardless
   // of which accounts are selected for the current label list.
   const {
@@ -837,12 +840,24 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         color: label?.color,
         tooltip: tab.query,
         total: mailboxWideLabelTab ? label?.totalCount : tab.total,
-        totalIsLowerBound: mailboxWideLabelTab ? false : tab.totalIsLowerBound,
+        totalIsLowerBound: mailboxWideLabelTab
+          ? isLabelCountLowerBound(labelsFailed, labelAccountErrors)
+          : tab.totalIsLowerBound,
         unread: mailboxWideLabelTab ? label?.unreadCount : tab.unread,
         isSystemView: false,
       };
     });
-  }, [aiTagDisplayNames, inboxTabs, activeInboxTabId, labels, t, view]);
+  }, [
+    activeLabel,
+    activeInboxTabId,
+    aiTagDisplayNames,
+    inboxTabs,
+    labels,
+    labelsFailed,
+    labelAccountErrors,
+    t,
+    view,
+  ]);
 
   const topBarTabs = useMemo<RenderedTab[]>(
     () => [

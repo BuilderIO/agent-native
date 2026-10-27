@@ -118,6 +118,13 @@ export function labelTabHref(
   return `/${view}?label=${encodeURIComponent(labelId)}`;
 }
 
+export function isLabelCountLowerBound(
+  hasError: boolean,
+  accountErrors?: readonly unknown[],
+): boolean {
+  return hasError || Boolean(accountErrors?.length);
+}
+
 export function resolveDefaultMailHref(opts: {
   combineInbox?: boolean;
   showAllTab?: boolean;
