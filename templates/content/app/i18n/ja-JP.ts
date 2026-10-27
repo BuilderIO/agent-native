@@ -913,6 +913,8 @@ const editor = {
     moveColumnLeft: "列を左に移動",
     moveColumnRight: "列を右に移動",
     editProperty: "{{name}}を編集",
+    builderStatusPublishInBuilder:
+      "Builder のエディターで保存された変更は、Builder からのみ公開できます。",
     editStartDate: "{{name}} 開始日の編集",
     editValue: "{{name}} 値を編集する",
     empty: "空の",

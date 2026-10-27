@@ -860,6 +860,8 @@ const editor = {
     moveColumnLeft: "向左移动列",
     moveColumnRight: "向右移动列",
     editProperty: "编辑 {{name}}",
+    builderStatusPublishInBuilder:
+      "在 Builder 编辑器中保存的更改只能从 Builder 发布。",
     editStartDate: "编辑 {{name}} 开始日期",
     editValue: "编辑 {{name}} 值",
     empty: "空",

@@ -7,16 +7,22 @@ import type {
   DocumentPropertyOption,
   DocumentPropertyValue,
 } from "../shared/api.js";
+import { withoutDeletedDatabaseProperty } from "../shared/database-table-columns.js";
 import {
   serializePropertyOptions,
   serializePropertyValue,
 } from "../shared/properties.js";
 import { chunks, bulkChunkSizeForColumnCount } from "./_batch-utils.js";
-import { builderCmsEntryStatus } from "./_builder-cms-unpublished-changes.js";
+import { builderCmsShownEntryStatus } from "./_builder-cms-unpublished-changes.js";
+import { builderCmsWriteSettingsFromJson } from "./_builder-cms-write-settings.js";
 import {
   propertyDefinitionsPositionScope,
   withPositionLock,
 } from "./_position-utils.js";
+import {
+  parseDatabaseViewConfig,
+  serializeDatabaseViewConfig,
+} from "./_property-utils.js";
 
 type Db = Pick<
   ReturnType<typeof getDb>,
@@ -52,6 +58,8 @@ async function builderStatusTarget(db: Db, sourceId: string) {
       databaseId: schema.contentDatabases.id,
       ownerEmail: schema.contentDatabases.ownerEmail,
       orgId: schema.contentDatabases.orgId,
+      capabilitiesJson: schema.contentDatabaseSources.capabilitiesJson,
+      metadataJson: schema.contentDatabaseSources.metadataJson,
     })
     .from(schema.contentDatabaseSources)
     .innerJoin(
@@ -147,9 +155,10 @@ export async function ensureBuilderStatusProperty(args: {
 
 /**
  * Writes each row's Builder status from the source values just stored for it.
- * Every path that stores a Builder row's `published`, autosave flag, or
- * unpublished-changes record calls this in the same transaction, or a write
- * racing it can leave the status stale until the next refresh.
+ * Every path that stores a Builder row's `published`, autosave flag,
+ * unpublished-changes record, or staged publication change calls this in the
+ * same transaction, or a write racing it can leave the status stale until the
+ * next refresh. So does a change to the source's publication settings.
  */
 export async function writeBuilderStatusValues(
   db: Db,
@@ -177,10 +186,14 @@ export async function writeBuilderStatusValues(
   );
   if (!propertyId) return;
 
+  const { allowPublicationTransitions } =
+    builderCmsWriteSettingsFromJson(target);
   const statusByDocumentId = new Map(
     rows.map((row) => [
       row.documentId,
-      builderCmsEntryStatus(row.sourceValues),
+      builderCmsShownEntryStatus(row.sourceValues, {
+        publicationTransitionsAllowed: allowPublicationTransitions,
+      }),
     ]),
   );
   const documentIds = [...statusByDocumentId.keys()];
@@ -318,4 +331,68 @@ export async function clearBuilderStatusValues(
         ),
       );
   }
+}
+
+/**
+ * Removes the status property, with every view reference to it, once the
+ * collection has no Builder source left. Call it in the transaction that
+ * removed the source, after the source row is gone.
+ */
+export async function removeBuilderStatusPropertyWithoutSource(
+  db: Db,
+  args: { databaseId: string; now: string },
+) {
+  const [remaining = null] = await db
+    .select({ id: schema.contentDatabaseSources.id })
+    .from(schema.contentDatabaseSources)
+    .where(
+      and(
+        eq(schema.contentDatabaseSources.databaseId, args.databaseId),
+        eq(schema.contentDatabaseSources.sourceType, "builder-cms"),
+      ),
+    )
+    .limit(1);
+  if (remaining) return;
+  const propertyId = await existingBuilderStatusPropertyId(db, args.databaseId);
+  if (!propertyId) return;
+
+  await db
+    .delete(schema.documentPropertyValues)
+    .where(eq(schema.documentPropertyValues.propertyId, propertyId));
+  await db
+    .delete(schema.contentDatabaseItemKeyClaims)
+    .where(
+      and(
+        eq(schema.contentDatabaseItemKeyClaims.databaseId, args.databaseId),
+        eq(schema.contentDatabaseItemKeyClaims.propertyId, propertyId),
+      ),
+    );
+  await db
+    .delete(schema.documentPropertyDefinitions)
+    .where(eq(schema.documentPropertyDefinitions.id, propertyId));
+
+  const [database = null] = await db
+    .select({
+      naturalKeyPropertyId: schema.contentDatabases.naturalKeyPropertyId,
+      viewConfigJson: schema.contentDatabases.viewConfigJson,
+    })
+    .from(schema.contentDatabases)
+    .where(eq(schema.contentDatabases.id, args.databaseId));
+  if (!database) return;
+  const viewConfig = parseDatabaseViewConfig(database.viewConfigJson);
+  await db
+    .update(schema.contentDatabases)
+    .set({
+      viewConfigJson: serializeDatabaseViewConfig({
+        ...viewConfig,
+        views: viewConfig.views.map((view) =>
+          withoutDeletedDatabaseProperty(view, propertyId),
+        ),
+      }),
+      ...(database.naturalKeyPropertyId === propertyId
+        ? { naturalKeyPropertyId: null }
+        : {}),
+      updatedAt: args.now,
+    })
+    .where(eq(schema.contentDatabases.id, args.databaseId));
 }

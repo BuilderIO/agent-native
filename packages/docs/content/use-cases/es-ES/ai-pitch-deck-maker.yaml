@@ -29,7 +29,7 @@ how_to:
       image:
         dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F40529b37d7614ccc8ec582e933e57034
         light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F3d3dd1d6c9eb4aafb791d086b46b4cd1
-        alt: "El editor de Slides con las diapositivas 1 y 2 terminadas y la 3, la solución, generándose en el lienzo. El chat del agente muestra el esquema y \"Añadiendo diapositiva 3 · La solución\"."
+        alt: 'El editor de Slides con las diapositivas 1 y 2 terminadas y la 3, la solución, generándose en el lienzo. El chat del agente muestra el esquema y "Añadiendo diapositiva 3 · La solución".'
     - title: Presenta o exporta el deck terminado
       body: Presenta tu pitch deck a pantalla completa desde Slides o expórtalo. Puedes exportar un archivo de PowerPoint editable, un archivo para importar en Google Slides o un único archivo HTML.
       image:
@@ -94,4 +94,4 @@ faqs:
     - q: ¿Puede mi cofundador editar el pitch deck conmigo?
       a: Tú, tu cofundador y el agente podéis editar el mismo deck a la vez. Puedes comentar una diapositiva o una parte concreta de ella. Slides guarda una versión antes de cada cambio importante, así que puedes restaurar una versión anterior en cualquier momento.
     - q: ¿Cuántas diapositivas debe tener un pitch deck?
-      a: "Unas diez es una buena extensión para un primer pitch ([qué incluir en un pitch deck](https://www.agent-native.com/articles/how-to-make-a-pitch-deck-with-ai/)), y Slides sugiere \"Crea un pitch de 10 diapositivas desde este doc\". Si quieres otra extensión, díselo al agente y planificará el esquema para ajustarse a ella."
+      a: 'Unas diez es una buena extensión para un primer pitch ([qué incluir en un pitch deck](https://www.agent-native.com/articles/how-to-make-a-pitch-deck-with-ai/)), y Slides sugiere "Crea un pitch de 10 diapositivas desde este doc". Si quieres otra extensión, díselo al agente y planificará el esquema para ajustarse a ella.'

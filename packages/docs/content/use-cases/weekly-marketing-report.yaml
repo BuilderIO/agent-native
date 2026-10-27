@@ -25,7 +25,7 @@ how_to:
         light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa38de1d80c2e4f7fb8e1407d95f97984
         alt: Close-up of the Data Sources page with Google Analytics and HubSpot listed as connected. HubSpot's setup panel is open beside them, with its token configured and Test connection showing Connection successful.
     - title: Ask how the week went
-      body: "Ask what you'd ask an analyst. For example: \"How did signups from organic search do this week compared with last week?\" The agent runs a live query on your data and answers with a chart."
+      body: 'Ask what you''d ask an analyst. For example: "How did signups from organic search do this week compared with last week?" The agent runs a live query on your data and answers with a chart.'
       image:
         dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fcd7a4f648f5b4dee8a6282c3f512f698
         light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F74bf8b013f944b96a414979ff7234deb

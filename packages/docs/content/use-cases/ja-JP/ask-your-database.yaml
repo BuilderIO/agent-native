@@ -21,13 +21,13 @@ how_to:
   heading: 普段の言葉でデータベースに質問する方法
   steps:
     - title: データウェアハウスを接続する
-      body: '**データソース**ページでBigQueryを開きます。BigQuery Data ViewerとBigQuery Job Userのロールを持つサービスアカウントのJSONキーをアップロードし、プロジェクトIDを入力して、**認証情報の保存**と**接続をテスト**をクリックします。'
+      body: "**データソース**ページでBigQueryを開きます。BigQuery Data ViewerとBigQuery Job Userのロールを持つサービスアカウントのJSONキーをアップロードし、プロジェクトIDを入力して、**認証情報の保存**と**接続をテスト**をクリックします。"
       image:
         dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F62008ebd98594f02b1c0bf3ae565ef49
         light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb01d428bca15467eb4c04299dd9575b8
         alt: データソースページのBigQueryカードの拡大図。「接続済み」と表示され、プロジェクトIDとサービスアカウントが設定済みで、「接続成功」と表示されています。
     - title: 普段の言葉で質問する
-      body: '**質問**で、同僚に聞くように質問を入力します。たとえば「先週登録したアカウント数をプラン別に教えて」。エージェントが適切なテーブルを探してクエリを実行し、グラフで答えます。'
+      body: "**質問**で、同僚に聞くように質問を入力します。たとえば「先週登録したアカウント数をプラン別に教えて」。エージェントが適切なテーブルを探してクエリを実行し、グラフで答えます。"
       image:
         dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F3e9ac5b30a924dab9b09bc76ed24b2de
         light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F31c48c5ccc9247b792c00474b01f97b0

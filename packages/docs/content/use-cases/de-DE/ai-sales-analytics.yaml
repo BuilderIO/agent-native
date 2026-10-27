@@ -26,7 +26,7 @@ how_to:
         light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd918aa95f46047559b1f30c42d89d62f
         alt: Die Seite „Datenquellen“ mit HubSpot unter „Verbunden“ und Gong unter „CRM & Sales“. Das Gong-Einrichtungsfenster ist beim Schritt „Access Key Secret“ geöffnet, mit eingefügtem Wert, über „Anmeldeinformationen speichern“.
     - title: Fragen zur Pipeline stellen
-      body: 'Fragen Sie unter **Fragen** in normaler Sprache: „Welche offenen Deals stehen seit 30 Tagen oder länger in derselben Phase?“ Der Agent durchsucht Ihre HubSpot-Deals und antwortet mit einer sortierbaren Tabelle für Folgefragen.'
+      body: "Fragen Sie unter **Fragen** in normaler Sprache: „Welche offenen Deals stehen seit 30 Tagen oder länger in derselben Phase?“ Der Agent durchsucht Ihre HubSpot-Deals und antwortet mit einer sortierbaren Tabelle für Folgefragen."
       image:
         dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7acaa378761c453bb79f9f246d8cab72
         light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe66acdb3c24e41c7b5caef3e0251b17a

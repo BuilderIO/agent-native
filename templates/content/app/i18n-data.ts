@@ -808,6 +808,8 @@ const editorPropertiesMessages = {
   duplicateProperty: "Duplicate property",
   editEndDate: "Edit {{name}} end date",
   editProperty: "Edit {{name}}",
+  builderStatusPublishInBuilder:
+    "Changes saved in Builder's editor can only be published from Builder.",
   editStartDate: "Edit {{name}} start date",
   editValue: "Edit {{name}} value",
   moveColumnLeft: "Move column left",

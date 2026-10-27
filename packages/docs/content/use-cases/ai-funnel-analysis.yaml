@@ -16,12 +16,12 @@ hero:
   image:
     dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F55295bda356c490984f639946e838ebe
     light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd84d0fd7f856406e85b739ac0429b0f3
-    alt: "The Analytics window on an \"Activation funnel\" dashboard. Its funnel has four steps: Signed up, Created a project, Connected a data source and Invited a teammate. Each step shows its count, its share of signups and the drop from the step before, and the biggest drop is at Created a project. The agent chat beside it explains where last week's signups stopped."
+    alt: 'The Analytics window on an "Activation funnel" dashboard. Its funnel has four steps: Signed up, Created a project, Connected a data source and Invited a teammate. Each step shows its count, its share of signups and the drop from the step before, and the biggest drop is at Created a project. The agent chat beside it explains where last week''s signups stopped.'
 how_to:
   heading: How to do funnel analysis with AI
   steps:
     - title: Ask where new users stop
-      body: "Get your signup events into Analytics. Ask on **Ask**, and the agent writes SQL and adds a [funnel panel](https://www.agent-native.com/docs/template-analytics-dashboards/) with each step's count and drop. Try: \"Add a funnel to my Activation funnel dashboard: where did last week's signups stop?\""
+      body: 'Get your signup events into Analytics. Ask on **Ask**, and the agent writes SQL and adds a [funnel panel](https://www.agent-native.com/docs/template-analytics-dashboards/) with each step''s count and drop. Try: "Add a funnel to my Activation funnel dashboard: where did last week''s signups stop?"'
       image:
         dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa752431cecb8420c88d3d6a8f7980ea9
         light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F16ab210c27504ed1b71c37ebdabea744

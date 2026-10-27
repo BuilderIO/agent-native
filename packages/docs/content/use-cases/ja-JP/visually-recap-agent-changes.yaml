@@ -19,7 +19,7 @@ how_to:
   heading: エージェントの変更をビジュアルで要約する方法
   steps:
     - title: エージェントに要約を頼む
-      body: '[1行のインストール](https://www.agent-native.com/docs/template-plan/#install)でコーディングエージェントにPlanを追加します。エージェントが変更を行ったチャットで`/visual-recap`を実行し、返ってきたリンクを開きます。'
+      body: "[1行のインストール](https://www.agent-native.com/docs/template-plan/#install)でコーディングエージェントにPlanを追加します。エージェントが変更を行ったチャットで`/visual-recap`を実行し、返ってきたリンクを開きます。"
       image:
         dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F060c82d850f34b3096f166c04ead386c
         light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F287f076a9ec84124a0afc7fbaeda2ece

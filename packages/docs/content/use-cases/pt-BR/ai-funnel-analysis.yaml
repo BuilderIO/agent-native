@@ -16,12 +16,12 @@ hero:
   image:
     dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F55295bda356c490984f639946e838ebe
     light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd84d0fd7f856406e85b739ac0429b0f3
-    alt: "A janela do Analytics no dashboard \"Activation funnel\". O funil tem quatro etapas: Signed up, Created a project, Connected a data source e Invited a teammate. Cada etapa mostra o total, a fatia dos cadastros e a queda em relação à etapa anterior, e a maior queda está em Created a project. O chat do agente, ao lado, explica onde os cadastros da semana passada pararam."
+    alt: 'A janela do Analytics no dashboard "Activation funnel". O funil tem quatro etapas: Signed up, Created a project, Connected a data source e Invited a teammate. Cada etapa mostra o total, a fatia dos cadastros e a queda em relação à etapa anterior, e a maior queda está em Created a project. O chat do agente, ao lado, explica onde os cadastros da semana passada pararam.'
 how_to:
   heading: Como fazer análise de funil com IA
   steps:
     - title: Pergunte onde os novos usuários param
-      body: "Leve seus eventos de cadastro para o Analytics. Pergunte em **Perguntar**, e o agente escreve o SQL e adiciona um [painel de funil](https://www.agent-native.com/docs/template-analytics-dashboards/) com o total e a queda de cada etapa. Experimente: \"Adicione um funil ao meu dashboard Activation funnel: onde os cadastros da semana passada pararam?\""
+      body: 'Leve seus eventos de cadastro para o Analytics. Pergunte em **Perguntar**, e o agente escreve o SQL e adiciona um [painel de funil](https://www.agent-native.com/docs/template-analytics-dashboards/) com o total e a queda de cada etapa. Experimente: "Adicione um funil ao meu dashboard Activation funnel: onde os cadastros da semana passada pararam?"'
       image:
         dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa752431cecb8420c88d3d6a8f7980ea9
         light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F16ab210c27504ed1b71c37ebdabea744

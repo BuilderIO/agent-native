@@ -20,13 +20,13 @@ how_to:
   heading: AIでKPIダッシュボードを作る方法
   steps:
     - title: 売上と製品のデータを連携する
-      body: '**データソース**ページでStripeのシークレットキーを貼り付け、HubSpotと使っている製品分析ツールを追加します。データソースのメニューから**接続をテスト**を選べば、Analyticsがデータを読み取れるか確認できます。'
+      body: "**データソース**ページでStripeのシークレットキーを貼り付け、HubSpotと使っている製品分析ツールを追加します。データソースのメニューから**接続をテスト**を選べば、Analyticsがデータを読み取れるか確認できます。"
       image:
         dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6ea7e1568d3b4afd9fc6a2a01bc969b0
         light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F78b97b8d077644f28c627377157f1331
         alt: データソースページのStripeの拡大図。「接続済み」と表示され、シークレットキーが設定済みで、接続テスト後に「接続成功」と表示されています。
     - title: 欲しいダッシュボードを説明する
-      body: '**新しいダッシュボード**をクリックし、「StripeのMRRと解約率、PostHogの新規登録数とアクティベーションを月ごとに」のように、[追っているSaaS指標](https://www.agent-native.com/articles/what-should-a-saas-metrics-dashboard-include/)を説明します。エージェントは必要なら先に質問し、各パネルを作ってダッシュボードを開きます。'
+      body: "**新しいダッシュボード**をクリックし、「StripeのMRRと解約率、PostHogの新規登録数とアクティベーションを月ごとに」のように、[追っているSaaS指標](https://www.agent-native.com/articles/what-should-a-saas-metrics-dashboard-include/)を説明します。エージェントは必要なら先に質問し、各パネルを作ってダッシュボードを開きます。"
       image:
         dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fca8b7f3746ca419383e042cc0c142271
         light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb167e98f0ac049fa8ad4b169e8f77ec9

@@ -36,7 +36,7 @@ how_to:
       image:
         dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F5e344071b49f4e51ae5eef2708c46605
         light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F13f558e09094404f975350ad0c359acc
-        alt: 'Le menu de recherche de Clips avec « webhook » saisi, qui liste deux dictées passées sous Dicter : un prompt dicté dans Cursor et un message dicté dans Slack.'
+        alt: "Le menu de recherche de Clips avec « webhook » saisi, qui liste deux dictées passées sous Dicter : un prompt dicté dans Cursor et un message dicté dans Slack."
 features:
   heading: Tout ce qu'il faut pour dicter au lieu de taper
   items:

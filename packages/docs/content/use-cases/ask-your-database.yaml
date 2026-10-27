@@ -27,7 +27,7 @@ how_to:
         light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb01d428bca15467eb4c04299dd9575b8
         alt: Close-up of the BigQuery card on Data Sources, showing Connected, the project ID and service account marked Configured, and Connection successful.
     - title: Ask your question in plain English
-      body: "In **Ask**, type a question the way you'd ask a teammate: \"How many accounts signed up last week, by plan?\" The agent finds the right tables, runs the query and answers with a chart."
+      body: 'In **Ask**, type a question the way you''d ask a teammate: "How many accounts signed up last week, by plan?" The agent finds the right tables, runs the query and answers with a chart.'
       image:
         dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F3e9ac5b30a924dab9b09bc76ed24b2de
         light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F31c48c5ccc9247b792c00474b01f97b0
