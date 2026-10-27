@@ -129,6 +129,39 @@ describe("collab flushUpdates", () => {
     expect(ydoc.getText("t").toString()).toBe("before after");
   });
 
+  it("coalesces identical exit snapshots without postponing new edits", async () => {
+    const fetchMock = vi.mocked(fetch);
+    const originalFetch = fetchMock.getMockImplementation()!;
+    const result = await mountReady();
+    const requests: RequestInit[] = [];
+    const finish: Array<(response: Response) => void> = [];
+    fetchMock.mockImplementation((input, init) => {
+      if (!String(input).endsWith("/update")) return originalFetch(input, init);
+      if (init?.keepalive) requests.push(init);
+      return new Promise<Response>((resolve) => {
+        finish.push(resolve);
+      });
+    });
+    result.ydoc!.getText("t").insert(0, "before");
+    window.dispatchEvent(new Event("pagehide"));
+    window.dispatchEvent(new Event("pagehide"));
+    expect(requests).toHaveLength(1);
+    window.dispatchEvent(new Event("pageshow"));
+    result.ydoc!.getText("t").insert(6, " after");
+    window.dispatchEvent(new Event("pagehide"));
+    window.dispatchEvent(new Event("pagehide"));
+    expect(requests).toHaveLength(2);
+    act(() => root.unmount());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(requests).toHaveLength(2);
+    await act(async () => {
+      for (const resolve of finish) resolve(new Response("{}"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+  });
+
   it.each([200, 500])(
     "sends restored edits before teardown while the first keepalive later settles with %s",
     async (firstStatus) => {

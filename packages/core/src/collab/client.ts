@@ -274,6 +274,8 @@ class CollabDocConnection {
   private presenceClear: Promise<Response> | null = null;
 
   private pendingUpdates: Uint8Array[] = [];
+  private keepaliveSnapshots = new Set<readonly Uint8Array[]>();
+  private signedOut = false;
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private updateInFlight = false;
   private updateErrors = 0;
@@ -388,6 +390,10 @@ class CollabDocConnection {
   remove(id: symbol): void {
     this.subscribers.delete(id);
     if (this.subscribers.size === 0) {
+      if (this.signedOut) {
+        this.dispose();
+        return;
+      }
       cancelAwarenessPush(this.baseUrl, this.docId, this.ydoc.clientID);
       // A lingering connection may outlive its document (a deleted Screen).
       this.stopSync();
@@ -463,10 +469,14 @@ class CollabDocConnection {
 
   async clearPresenceBeforeSignOut(): Promise<void> {
     if (this.disposed) return;
+    this.signedOut = true;
     this.stopSync();
     const clear = this.clearPresence();
     this.awareness.setLocalState(null);
-    this.dispose();
+    if (collabConnectionRegistry.get(this.registryKey) === this) {
+      collabConnectionRegistry.delete(this.registryKey);
+    }
+    if (this.subscribers.size === 0) this.dispose();
     if (!clear) return;
     const response = await clear;
     if (!response.ok) {
@@ -489,7 +499,12 @@ class CollabDocConnection {
   }
 
   private get canPublishPresence(): boolean {
-    return !this.disposed && !this.pageHidden && this.presenceClear === null;
+    return (
+      !this.disposed &&
+      !this.signedOut &&
+      !this.pageHidden &&
+      this.presenceClear === null
+    );
   }
 
   private get effectivePollInterval(): number {
@@ -822,7 +837,7 @@ class CollabDocConnection {
   };
 
   private handlePageShow = (): void => {
-    if (!this.pageHidden || this.disposed) return;
+    if (!this.pageHidden || this.disposed || this.signedOut) return;
     this.pageHidden = false;
     // BFCache must retain the doc's sequence/token until it is retired.
     this.presenceClear = null;
@@ -863,7 +878,15 @@ class CollabDocConnection {
       this.flushTimer = null;
     }
     if (this.pendingUpdates.length === 0) return;
+    if (
+      keepalive &&
+      [...this.keepaliveSnapshots].some((snapshot) =>
+        this.pendingUpdates.every((update) => snapshot.includes(update)),
+      )
+    )
+      return;
     const toSend = this.pendingUpdates.slice();
+    if (keepalive) this.keepaliveSnapshots.add(toSend);
     const retiredKey = this.retiredUpdatesKey;
     const merged = toSend.length === 1 ? toSend[0] : Y.mergeUpdates(toSend);
     const controller = new AbortController();
@@ -907,6 +930,7 @@ class CollabDocConnection {
     } catch {
       this.updateErrors++;
     } finally {
+      if (keepalive) this.keepaliveSnapshots.delete(toSend);
       clearTimeout(timeout);
       if (!keepalive) {
         this.updateInFlight = false;
@@ -930,6 +954,7 @@ class CollabDocConnection {
   private startSync(): void {
     if (
       this.syncActive ||
+      this.signedOut ||
       this.docMissing ||
       this.disposed ||
       this.subscribers.size === 0

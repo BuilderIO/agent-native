@@ -741,6 +741,47 @@ describe("useCollaborativeDoc connection registry", () => {
     },
   );
 
+  it("captures edits while sign-out cleanup is pending and the editor remains mounted", async () => {
+    const { mock } = makeFetchMock();
+    const originalFetch = mock.getMockImplementation()!;
+    let finishClear!: (response: Response) => void;
+    mock.mockImplementation((input, init) => {
+      if (
+        String(input).endsWith("/awareness") &&
+        init?.body &&
+        JSON.parse(String(init.body)).state === null
+      )
+        return new Promise<Response>((resolve) => {
+          finishClear = resolve;
+        });
+      return originalFetch(input, init);
+    });
+    vi.stubGlobal("fetch", mock);
+    const { result } = await mountPresence();
+    const cleanup = runBeforeSignOutCleanups();
+    expect(result.ydoc!.isDestroyed).toBe(false);
+    result.ydoc!.getText("logout-edit").insert(0, "still mounted");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+    const requests = mock.mock.calls.filter(([input]) =>
+      String(input).endsWith("/update"),
+    );
+    expect(requests.length).toBeGreaterThan(0);
+    const received = new Y.Doc();
+    try {
+      for (const [, init] of requests) {
+        const { update } = JSON.parse(String(init?.body));
+        Y.applyUpdate(received, new Uint8Array(Buffer.from(update, "base64")));
+      }
+      expect(received.getText("logout-edit").toString()).toBe("still mounted");
+    } finally {
+      received.destroy();
+    }
+    finishClear(new Response("{}"));
+    await cleanup;
+  });
+
   it("clears local presence and stops polling before sign-out", async () => {
     const { mock } = makeFetchMock();
     vi.stubGlobal("fetch", mock);
