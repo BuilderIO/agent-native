@@ -576,7 +576,9 @@ function appendParamsToPath(
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
-function safeAppOrigin(app: DispatchMcpAccessibleApp): string | null {
+function safeAppOrigin(
+  app: Pick<DispatchMcpAccessibleApp, "url">,
+): string | null {
   try {
     const url = new URL(app.url);
     return url.protocol === "http:" || url.protocol === "https:"
@@ -585,6 +587,20 @@ function safeAppOrigin(app: DispatchMcpAccessibleApp): string | null {
   } catch {
     return null;
   }
+}
+
+function mountedWorkspaceAppHomeUrl(app: {
+  path: string;
+  url: string | null;
+}): string | null {
+  const appUrl = app.url;
+  const origin = appUrl ? safeAppOrigin({ url: appUrl }) : null;
+  const path = safeAppPath(app.path);
+  if (!origin || !path) return null;
+  const url = new URL(path, `${origin}/`);
+  url.search = "";
+  url.hash = "";
+  return url.toString().replace(/\/+$/, "");
 }
 
 function appBaseUrl(app: DispatchMcpAccessibleApp): string {
@@ -771,17 +787,44 @@ export async function listDispatchMcpApps(): Promise<{
   settings: DispatchMcpAppAccessSettings;
   apps: DispatchMcpAccessibleApp[];
 }> {
-  const [settings, agents] = await Promise.all([
+  const [settings, agents, mountedApps] = await Promise.all([
     getDispatchMcpAppAccessSettings(),
     discoverAgents("dispatch"),
+    listWorkspaceApps({ includeAgentCards: false }).catch((error: unknown) => {
+      console.warn(
+        "[dispatch] Workspace app lookup failed during MCP app discovery",
+        { status: httpStatusFromError(error) },
+      );
+      return [];
+    }),
   ]);
+  const mountedAppsById = new Map(
+    mountedApps.map((app) => [normalizeAppId(app.id), app]),
+  );
   return {
     settings,
     apps: [
       dispatchSelfApp(settings),
       ...agents
         .filter((agent) => normalizeAppId(agent.id) !== DISPATCH_APP_ID)
-        .map((agent) => toAccessibleApp(agent, settings)),
+        .map((agent) => {
+          const accessible = toAccessibleApp(agent, settings);
+          const mountedApp = mountedAppsById.get(normalizeAppId(agent.id));
+          const mountedUrl = mountedApp?.url;
+          if (
+            !mountedApp ||
+            !mountedUrl ||
+            safeAppOrigin({ url: mountedUrl }) !== safeAppOrigin(accessible)
+          ) {
+            return accessible;
+          }
+          const homeUrl = mountedWorkspaceAppHomeUrl(mountedApp);
+          if (!homeUrl) return accessible;
+          return {
+            ...accessible,
+            homeUrl,
+          };
+        }),
     ],
   };
 }
@@ -862,12 +905,15 @@ async function listWorkspaceSsoApps(): Promise<DispatchMcpAccessibleApp[]> {
   }
   for (const app of mountedApps) {
     if (app.isDispatch || !app.url) continue;
+    const homeUrl = mountedWorkspaceAppHomeUrl(app);
+    if (!homeUrl) continue;
     const mcpUrl = workspaceGatewayMcpUrl(app.url);
     candidatesById.set(app.id, {
       id: app.id,
       name: app.name,
       description: app.description,
       url: app.url,
+      homeUrl,
       ...(mcpUrl ? { mcpUrl } : {}),
       color: DISPATCH_COLOR,
       granted: true,
