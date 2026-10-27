@@ -57,13 +57,19 @@ function docWith(...tables: ProseMirrorNode[]) {
   ]);
 }
 
+function firstTable(doc: ProseMirrorNode) {
+  const table = findTableByIndex(doc, 0);
+  if (!table) throw new Error("The document has no table");
+  return table;
+}
+
 function edit(
   node: ProseMirrorNode,
   change: (tr: Transaction, table: TableAt) => void,
 ) {
   const tr = EditorState.create({ doc: docWith(node) }).tr;
-  change(tr, findTableByIndex(tr.doc, 0)!);
-  return findTableByIndex(tr.doc, 0)!.node;
+  change(tr, firstTable(tr.doc));
+  return firstTable(tr.doc).node;
 }
 
 function cells(node: ProseMirrorNode) {
@@ -383,7 +389,7 @@ describe("a merged cell's rows and columns", () => {
       ["A", "C"],
       ["D", "E", "E", "F"],
     ]);
-    expect(next.firstChild!.firstChild!.attrs.colspan).toBe(3);
+    expect(next.child(0).child(0).attrs.colspan).toBe(3);
     expect(columnColors(next)).toEqual([null, "red", "red", null]);
     expect(TableMap.get(next).problems).toBeNull();
   });
@@ -393,7 +399,7 @@ describe("a merged cell's rows and columns", () => {
 
     const next = tableWithDuplicatedColumn(node, 0);
     expect(cells(next)).toEqual([["A", "A", "B"], ["C"], ["D", "D", "E"]]);
-    expect(next.firstChild!.child(1).attrs.rowspan).toBe(2);
+    expect(next.child(0).child(1).attrs.rowspan).toBe(2);
     expect(TableMap.get(next).problems).toBeNull();
   });
 
