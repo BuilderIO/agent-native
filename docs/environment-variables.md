@@ -288,7 +288,7 @@ production deployment:
 | `DEV` / `MODE` / `SSR`                                                                                                                                                                | Vite-provided build-mode flags exposed through `import.meta.env`.                                                                                                                  |
 | `ALLOW_DRIZZLE_PUSH_ON_NEON` / `AN_*` / `AUTO_CREATE_DEFAULT_ORG` / `DO_NOT_TRACK` / `ENABLE_*` / `PI_*`                                                                              | Explicitly opt-in local or maintainer controls. Read the owning source before setting them.                                                                                        |
 | `CLAUDE_PROJECT_DIR` / `CODE_AGENTS_PROJECT_ROOT` / `LANES` / `FORCE_COLOR` / `LC_ALL` / `LC_CTYPE` / `NO_COLOR` / `PNPM_HOME`                                                        | Local coding-agent, shell, package-manager, and test-lane tooling.                                                                                                                 |
-| `ALL_PROXY` / `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` | Proxy settings used by Core CLI archive downloads. Lowercase forms are also supported. |
+| `ALL_PROXY` / `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`                                                                                                                               | Proxy settings used by Core CLI archive downloads. Lowercase forms are also supported.                                                                                             |
 
 ## CI-only variables
 
