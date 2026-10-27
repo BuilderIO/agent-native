@@ -5725,6 +5725,7 @@ export interface ExecuteAgentToolCallOptions {
   ) => Promise<string | void>;
   consumeApproval?: (binding: AgentApprovalBinding) => Promise<boolean>;
   isToolAlwaysAllowed?: (binding: AgentApprovalBinding) => Promise<boolean>;
+  requireWriteApproval?: boolean;
   beforeWrite?: () => Promise<void>;
   send?: (event: AgentChatEvent) => void;
 }
@@ -5843,6 +5844,7 @@ export async function executeAgentToolCall(
       onApprovalRequired: options.onApprovalRequired,
       consumeApproval: options.consumeApproval,
       isToolAlwaysAllowed: options.isToolAlwaysAllowed,
+      requireWriteApproval: options.requireWriteApproval,
       beforeWrite: options.beforeWrite,
     });
   } catch (error) {
@@ -7427,6 +7429,8 @@ export async function runAgentLoop(opts: {
   ) => Promise<string | void>;
   consumeApproval?: (binding: AgentApprovalBinding) => Promise<boolean>;
   isToolAlwaysAllowed?: (binding: AgentApprovalBinding) => Promise<boolean>;
+  /** Unattended MCP runs require approval for every prepared write call. */
+  requireWriteApproval?: boolean;
   processors?: Processor[];
 }): Promise<AgentLoopUsage> {
   const {
@@ -9699,19 +9703,40 @@ export async function runAgentLoop(opts: {
         requestedApproval && opts.consumeApproval
           ? await opts.consumeApproval(approvalBinding())
           : requestedApproval;
-      if (actionEntry.needsApproval && !wasApproved) {
-        let mustApprove = await preparedCallNeedsApproval(actionEntry, intent, {
-          userEmail: getRequestUserEmail(),
-          orgId: getRequestOrgId() ?? null,
-          appId: opts.appId,
-          caller: opts.actionCaller ?? "tool",
-          automation: opts.automation,
-          networkProtocol: opts.networkProtocol,
-          networkId: opts.networkId,
-          networkPeer: opts.networkPeer,
-        });
+      const requiresWriteApproval =
+        opts.requireWriteApproval === true && intent.readOnly !== true;
+      if (
+        (actionEntry.needsApproval || requiresWriteApproval) &&
+        !wasApproved
+      ) {
+        const approvalUserEmail = requiresWriteApproval
+          ? undefined
+          : getRequestUserEmail();
+        let mustApprove =
+          requiresWriteApproval ||
+          (await preparedCallNeedsApproval(actionEntry, intent, {
+            ...(approvalUserEmail === undefined
+              ? {}
+              : { userEmail: approvalUserEmail }),
+            orgId: getRequestOrgId() ?? null,
+            ...(opts.appId === undefined ? {} : { appId: opts.appId }),
+            caller: opts.actionCaller ?? "tool",
+            ...(opts.automation === undefined
+              ? {}
+              : { automation: opts.automation }),
+            ...(opts.networkProtocol === undefined
+              ? {}
+              : { networkProtocol: opts.networkProtocol }),
+            ...(opts.networkId === undefined
+              ? {}
+              : { networkId: opts.networkId }),
+            ...(opts.networkPeer === undefined
+              ? {}
+              : { networkPeer: opts.networkPeer }),
+          }));
         if (
           mustApprove &&
+          opts.requireWriteApproval !== true &&
           actionEntry.allowPersistentApproval !== false &&
           opts.isToolAlwaysAllowed
         ) {

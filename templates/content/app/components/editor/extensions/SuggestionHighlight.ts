@@ -1,5 +1,7 @@
+import { RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION } from "@agent-native/toolkit/editor";
 import { canonicalizeNfm, docToNfm } from "@shared/nfm";
 import { suggestionFormattingSourceRange } from "@shared/suggestion-formatting";
+import { WORD_CHARACTER } from "@shared/suggestion-placement";
 import {
   resolveMarkdownSuggestionRange,
   resolveMarkdownSuggestionRangeInContext,
@@ -11,8 +13,15 @@ import {
   type SuggestionPresentationNode,
 } from "@shared/suggestion-text";
 import { Extension } from "@tiptap/core";
+import { isChangeOrigin } from "@tiptap/extension-collaboration";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { Plugin, PluginKey, type Selection } from "@tiptap/pm/state";
+import {
+  Plugin,
+  PluginKey,
+  type EditorState,
+  type Selection,
+  type Transaction,
+} from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 
 import { buildDocText } from "../comment-anchors";
@@ -36,6 +45,8 @@ export interface SuggestionHighlightSpec {
   editableBoundary?: boolean;
   editableText?: boolean;
   settling?: boolean;
+  /** Accepted but not saved yet, drawn as a suggestion: its words hold still. */
+  frozen?: boolean;
   settlingBeforePresentation?: SuggestionPresentationContext;
   settlingAfterSource?: string;
   settlingReadbackContent?: string | null;
@@ -815,6 +826,115 @@ function buildDecorations(
   return DecorationSet.create(doc, decorations);
 }
 
+/**
+ * Whether a local edit touches words an accepted suggestion is replacing.
+ * They stay fixed until the server's change arrives over live sync, so a
+ * keystroke can't land in text that's about to be replaced.
+ */
+export function editsSettlingSuggestion(
+  transaction: Transaction,
+  specs: readonly SuggestionHighlightSpec[],
+): boolean {
+  if (
+    !transaction.docChanged ||
+    isChangeOrigin(transaction) ||
+    transaction.getMeta(RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION) ||
+    transaction.getMeta("addToHistory") === false
+  )
+    return false;
+  // Each held range as the transaction moves it, and where it began.
+  let ranges = specs
+    .filter((spec) => spec.settling || spec.frozen)
+    .map(({ from, to }) => ({ from, to, was: { from, to } }));
+  for (const step of transaction.steps) {
+    if (ranges.length === 0) return false;
+    const touched: Array<{ from: number; to: number }> = [];
+    const { from, to } = step as { from?: unknown; to?: unknown };
+    if (typeof from === "number" && typeof to === "number")
+      touched.push({ from, to });
+    const map = step.getMap();
+    map.forEach((oldStart, oldEnd) =>
+      touched.push({ from: oldStart, to: oldEnd }),
+    );
+    // Typing right beside the words leaves them as reviewed. A point has no
+    // inside, so typing exactly there waits.
+    if (
+      touched.some((edit) =>
+        ranges.some((range) =>
+          range.from === range.to
+            ? edit.from <= range.to && edit.to >= range.from
+            : edit.from < range.to && edit.to > range.from,
+        ),
+      )
+    )
+      return true;
+    ranges = ranges.map((range) => ({
+      from: map.map(range.from, 1),
+      to: map.map(range.to, -1),
+      was: range.was,
+    }));
+  }
+  // A letter typed onto either end, or a space taken away there, makes a
+  // different word than was reviewed, which the server would turn down. So
+  // that waits too. An end that is a space or punctuation has no word to join.
+  return ranges.some(
+    (range) =>
+      range.was.from !== range.was.to &&
+      (["before", "after"] as const).some((side) => {
+        const was = side === "before" ? range.was.from : range.was.to;
+        const is = side === "before" ? range.from : range.to;
+        const outside = characterBeside(transaction.doc, is, side);
+        return (
+          WORD_CHARACTER.test(outside) &&
+          WORD_CHARACTER.test(
+            characterBeside(
+              transaction.doc,
+              is,
+              side === "before" ? "after" : "before",
+            ),
+          ) &&
+          outside !== characterBeside(transaction.before, was, side)
+        );
+      }),
+  );
+}
+
+/** The character beside `position` within its textblock, or "". */
+function characterBeside(
+  doc: ProseMirrorNode,
+  position: number,
+  side: "before" | "after",
+): string {
+  const $position = doc.resolve(position);
+  const { parent, parentOffset: offset } = $position;
+  if (!parent.isTextblock) return "";
+  const characters = Array.from(
+    side === "before"
+      ? parent.textBetween(Math.max(0, offset - 2), offset, "", "￼")
+      : parent.textBetween(
+          offset,
+          Math.min(parent.content.size, offset + 2),
+          "",
+          "￼",
+        ),
+  );
+  // Empty at either end of the textblock.
+  return (
+    side === "before" ? characters.slice(-1) : characters.slice(0, 1)
+  ).join("");
+}
+
+/**
+ * Whether undo and redo wait for a decision to save. Undo comes back through
+ * live sync, where an edit can't be refused, and it could rewrite the words
+ * an accepted suggestion is replacing.
+ */
+export function suggestionDecisionHoldsHistory(state: EditorState): boolean {
+  return (suggestionHighlightKey.getState(state)?.specs ?? []).some(
+    (spec) => spec.settling || spec.frozen,
+  );
+}
+
 export function createSuggestionHighlightPlugin(): Plugin<SuggestionHighlightState> {
   return new Plugin<SuggestionHighlightState>({
     key: suggestionHighlightKey,
@@ -869,6 +989,11 @@ export function createSuggestionHighlightPlugin(): Plugin<SuggestionHighlightSta
         };
       },
     },
+    filterTransaction: (transaction, state) =>
+      !editsSettlingSuggestion(
+        transaction,
+        suggestionHighlightKey.getState(state)?.specs ?? [],
+      ),
     props: {
       decorations(state) {
         return suggestionHighlightKey.getState(state)?.decorations ?? null;
