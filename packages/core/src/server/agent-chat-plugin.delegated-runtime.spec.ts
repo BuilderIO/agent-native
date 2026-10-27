@@ -1316,6 +1316,29 @@ describe.each(SURFACES)("$name surface", (surface) => {
     expect(modelInput).not.toContain("missing-payload");
   }, 240_000);
 
+  it("still runs the A2A turn when the app's upload hook throws", async () => {
+    const prepareRequest = vi.fn(async () => {
+      throw new Error("storage unavailable");
+    });
+    await bootRuntime({ prepareRequest });
+
+    const run = await receiveA2A("task-file-hook-throws", {}, [
+      { type: "text", text: "make slides from this PDF" },
+      {
+        type: "file",
+        file: {
+          uri: "https://files.example.test/report.pdf",
+          name: "report.pdf",
+          mimeType: "application/pdf",
+        },
+      },
+    ]);
+
+    const modelInput = JSON.stringify(run.runOptions.messages[0].content);
+    expect(modelInput).toContain("pre-upload-failed");
+    expect(modelInput).toContain("make slides from this PDF");
+  }, 240_000);
+
   it("takes the runtime inventory from the real factories", async () => {
     await bootRuntime();
 

@@ -113,6 +113,7 @@ import {
   abortTurnByRefDurably,
   abortTurnDurably,
   buildUserContentWithAttachments,
+  describeAttachmentPreUploadWarning,
   isAgentModelVisionCapable,
   subscribeToRun,
   type ActionEntry,
@@ -3127,29 +3128,37 @@ export function createAgentChatPlugin(
             : text;
           let a2aAttachments = inboundFiles.attachments;
           if (a2aAttachments.length > 0) {
-            const prepared = await options?.prepareRequest?.({
-              event: context.event,
-              ownerEmail: userEmail,
-              message: a2aText,
-              attachments: a2aAttachments,
-              references: [],
-              threadId: context.taskId,
-              requestContext: a2aText,
-              contextPrefetchDeadlineAt: Date.now() + 1_300,
-              dispatchToBackground: false,
-              mode: "act",
-            });
-            if (prepared?.message?.trim()) a2aText = prepared.message;
-            if (Array.isArray(prepared?.attachments)) {
-              a2aAttachments = prepared.attachments;
-            }
-            const preUpload = await preUploadAttachments({
-              attachments: a2aAttachments,
-              ownerEmail: userEmail,
-              includeFiles: true,
-            });
-            if (preUpload.injectedText) {
-              a2aText = `${a2aText}\n\n${preUpload.injectedText}`;
+            try {
+              const prepared = await options?.prepareRequest?.({
+                event: context.event,
+                ownerEmail: userEmail,
+                message: a2aText,
+                attachments: a2aAttachments,
+                references: [],
+                threadId: context.taskId,
+                requestContext: a2aText,
+                contextPrefetchDeadlineAt: Date.now() + 1_300,
+                dispatchToBackground: false,
+                mode: "act",
+              });
+              if (prepared?.message?.trim()) a2aText = prepared.message;
+              if (Array.isArray(prepared?.attachments)) {
+                a2aAttachments = prepared.attachments;
+              }
+              const preUpload = await preUploadAttachments({
+                attachments: a2aAttachments,
+                ownerEmail: userEmail,
+                includeFiles: true,
+              });
+              if (preUpload.injectedText) {
+                a2aText = `${a2aText}\n\n${preUpload.injectedText}`;
+              }
+            } catch (err) {
+              console.warn(
+                "[agent-native] A2A attachment preparation failed:",
+                err instanceof Error ? err.message : String(err),
+              );
+              a2aText = `${a2aText}\n\n${describeAttachmentPreUploadWarning()}`;
             }
           }
 

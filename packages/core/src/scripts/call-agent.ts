@@ -385,6 +385,7 @@ function buildMessageIdempotencyKey(
   originatingTurnId: string | undefined,
   target: string,
   exactMessage: string,
+  files: FilePart["file"][],
 ): string | undefined {
   if (!originatingTurnId) return undefined;
   const digest = createHash("sha256")
@@ -393,6 +394,8 @@ function buildMessageIdempotencyKey(
         originatingTurnId,
         target,
         message: exactMessage,
+        // A retry that adds attachments is a different request, not a duplicate.
+        ...(files.length > 0 ? { files } : {}),
       }),
     )
     .digest("hex");
@@ -1006,7 +1009,7 @@ export async function run(
   );
   const idempotencyKey =
     message && !taskId
-      ? buildMessageIdempotencyKey(context?.turnId, agent.url, message)
+      ? buildMessageIdempotencyKey(context?.turnId, agent.url, message, files)
       : undefined;
 
   if (agent.kind?.provider === "anthropic-managed-agents" && action) {
