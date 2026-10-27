@@ -794,10 +794,6 @@ export function FirstRunOnboarding({
           experiment_id: FIRST_RUN_BUILDER_CREDITS_V2_EXPERIMENT_ID,
           experiment_variant: assignment.experiment_variant,
         });
-        setOnboardingExperiment({
-          id: FIRST_RUN_BUILDER_CREDITS_V2_EXPERIMENT_ID,
-          variant: assignment.experiment_variant,
-        });
         setSetupExperimentDecision(true);
       })
       .catch(() => {
@@ -849,6 +845,10 @@ export function FirstRunOnboarding({
               "The server did not confirm the displayed first-run Builder credits v2 assignment.",
             );
           }
+          setOnboardingExperiment({
+            id: creditsV2Assignment.experiment_id,
+            variant: creditsV2Assignment.experiment_variant,
+          });
           creditsV2ExposureTrackedRef.current = true;
           trackOnboardingEvent("onboarding_experiment_exposed", {
             flow: "first_run",

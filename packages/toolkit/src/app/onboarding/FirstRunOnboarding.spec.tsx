@@ -3355,6 +3355,37 @@ describe("FirstRunOnboarding", () => {
       );
     });
 
+    it("does not attribute events when both post-render confirmations fail", async () => {
+      mocks.creditsV2FlagState = { status: "ready", enabled: true };
+      mocks.recordCreditsV2Exposure
+        .mockResolvedValueOnce({
+          assignment: {
+            experiment_id: "first_run_builder_credits_v2",
+            experiment_variant: "credits",
+          },
+        })
+        .mockRejectedValue(new Error("confirmation unavailable"));
+
+      openClipsChoice();
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(mocks.recordCreditsV2Exposure).toHaveBeenCalledTimes(3);
+      expect(mocks.setOnboardingExperiment).not.toHaveBeenCalledWith({
+        id: "first_run_builder_credits_v2",
+        variant: "credits",
+      });
+      expect(mocks.trackOnboardingEvent).not.toHaveBeenCalledWith(
+        "onboarding_experiment_exposed",
+        expect.objectContaining({
+          experiment_id: "first_run_builder_credits_v2",
+        }),
+      );
+    });
+
     it("shows one activate action instead of the two setup cards", () => {
       mocks.useBuilderConnectFlow.mockReturnValue(flow());
       openChoice();
