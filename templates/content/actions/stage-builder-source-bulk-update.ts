@@ -208,10 +208,9 @@ function mergedFieldChanges(
   current: ContentDatabaseSourceFieldChange[],
   next: ContentDatabaseSourceFieldChange,
 ) {
+  // The page title can push to the same Builder field and stays its own edit.
   const withoutExisting = current.filter(
-    (change) =>
-      change.sourceFieldKey !== next.sourceFieldKey &&
-      change.localFieldKey !== next.localFieldKey,
+    (change) => change.localFieldKey !== next.localFieldKey,
   );
   return [...withoutExisting, next];
 }

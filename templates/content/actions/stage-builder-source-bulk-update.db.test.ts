@@ -650,6 +650,53 @@ describe("stage-builder-source-bulk-update", () => {
     expect(JSON.parse(changeSet.fieldChangesJson)).toEqual([titleChange]);
   });
 
+  it("keeps the page title's change when a property on Builder's title field is staged", async () => {
+    const seeded = await seedBuilderDatabase({
+      existingOpenChangeIndex: 0,
+      sourceFieldKey: "data.title",
+    });
+    const [row] = seeded.rows;
+    const changeSetFilter = eq(
+      schema.contentDatabaseSourceChangeSets.id,
+      `change_${seeded.sourceId.slice("src_".length)}`,
+    );
+    const titleChange = {
+      propertyId: null,
+      propertyName: "Title",
+      localFieldKey: "title",
+      sourceFieldKey: "data.title",
+      currentValue: "Developers",
+      proposedValue: "My title",
+    };
+    await getDb()
+      .update(schema.contentDatabaseSourceChangeSets)
+      .set({ fieldChangesJson: JSON.stringify([titleChange]) })
+      .where(changeSetFilter);
+
+    await asOwner(() =>
+      stageBulkUpdate.run({
+        documentId: seeded.databaseDocumentId,
+        sourceId: seeded.sourceId,
+        itemIds: [row.itemId],
+        field: { propertyId: seeded.propertyId, value: "Operators" },
+        dryRun: false,
+      }),
+    );
+
+    const [changeSet] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(changeSetFilter);
+    expect(JSON.parse(changeSet.fieldChangesJson)).toEqual([
+      titleChange,
+      expect.objectContaining({
+        localFieldKey: seeded.propertyId,
+        sourceFieldKey: "data.title",
+        proposedValue: "Operators",
+      }),
+    ]);
+  });
+
   it("keeps a change saved to the review item after the stage read it", async () => {
     const seeded = await seedBuilderDatabase({ existingOpenChangeIndex: 0 });
     const [row] = seeded.rows;

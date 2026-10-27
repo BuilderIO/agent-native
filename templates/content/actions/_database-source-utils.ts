@@ -1349,13 +1349,19 @@ function normalizeHydrationLimit(limit: number | null | undefined) {
   );
 }
 
-function builderBodyIsRawPlaceholderOnly(content: string | null | undefined) {
+// Attribute values can hold "/>", so a tag is matched attribute by attribute.
+// One this can't read counts as authored text, which keeps the body.
+const BUILDER_RAW_BLOCK_TAG =
+  /<BuilderRawBlock(?:\s+[A-Za-z]+=(?:"[^"]*"|\{"(?:[^"\\]|\\.)*"\}))*\s*\/>/g;
+
+/** True when the body is nothing but raw Builder blocks, with no text of its own. */
+export function builderBodyIsRawPlaceholderOnly(
+  content: string | null | undefined,
+) {
   const trimmed = content?.trim() ?? "";
   return (
     trimmed.startsWith("<BuilderRawBlock") &&
-    !trimmed.includes("<BuilderText") &&
-    !trimmed.includes("<BuilderTabbedContent") &&
-    !trimmed.includes("<BuilderCodeBlock")
+    trimmed.replace(BUILDER_RAW_BLOCK_TAG, "").trim() === ""
   );
 }
 
