@@ -264,7 +264,7 @@ describe("delete-recording-permanent", () => {
     );
   });
 
-  it("still finishes the delete when a stored agent frame cannot be removed", async () => {
+  it("reports stored agent frames it could not remove instead of hiding them", async () => {
     const consoleError = vi
       .spyOn(console, "error")
       .mockImplementation(() => {});
@@ -272,13 +272,16 @@ describe("delete-recording-permanent", () => {
       new Error("1 stored agent frame(s) could not be deleted."),
     );
 
-    await expect(
-      deleteRecordingPermanent.run({ id: "rec_1" }),
-    ).resolves.toMatchObject({ success: true });
-    expect(consoleError).toHaveBeenCalledWith(
-      expect.stringContaining("stored agent frames could not all be removed"),
-      expect.any(String),
-    );
+    const result = await deleteRecordingPermanent.run({ id: "rec_1" });
+
+    expect(result).toMatchObject({
+      success: true,
+      agentFrameCleanup: {
+        deleted: false,
+        error: "1 stored agent frame(s) could not be deleted.",
+      },
+    });
+    expect(consoleError).toHaveBeenCalled();
     consoleError.mockRestore();
   });
 
@@ -345,6 +348,7 @@ describe("delete-recording-permanent", () => {
         errors: [],
       },
       appActivityCleanup: null,
+      agentFrameCleanup: { deleted: true },
     });
   });
 

@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 
+import { deleteUploadedFile } from "@agent-native/core/file-upload";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { buildRecommendedFrames } from "@shared/agent-context";
 import { and, eq } from "drizzle-orm";
@@ -39,18 +40,36 @@ export function clampAgentFrameAtMs(atMs: number, durationMs: number): number {
   return durationMs > 0 ? Math.min(atMs, Math.max(0, durationMs - 1)) : atMs;
 }
 
+/** A stored frame's object, as the provider that holds it recorded it. */
+type FrameObject = {
+  storageUrl: string;
+  storageProvider: string;
+  storageId: string | null;
+};
+
+/**
+ * Deletes through the provider that stored the object: the thumbnail uses the
+ * same split, so a registered provider other than S3 is not skipped.
+ */
 async function deleteFrameObject(
-  recording: Pick<FrameRecording, "id" | "storageMode">,
-  url: string,
+  recording: Pick<FrameRecording, "id">,
+  object: FrameObject,
 ): Promise<boolean> {
   try {
-    const deleted = await deleteStoredMediaUrl(url, {
-      storageMode: recording.storageMode,
-      recordingId: recording.id,
-    });
+    const deleted =
+      object.storageProvider === "clips-hosted"
+        ? await deleteStoredMediaUrl(object.storageUrl, {
+            storageMode: "hosted",
+            recordingId: recording.id,
+          })
+        : await deleteUploadedFile(object.storageProvider, {
+            url: object.storageUrl,
+            ...(object.storageId ? { id: object.storageId } : {}),
+          });
     if (!deleted) {
       console.warn("[agent-frame-store] stored frame cleanup unavailable", {
         recordingId: recording.id,
+        provider: object.storageProvider,
       });
     }
     return deleted;
@@ -148,20 +167,21 @@ export async function recommendedAgentFrameTimes(
 
 /**
  * Uploads `frame` and points the row at it. The caller already has the frame
- * to serve, so a failure is logged, not thrown.
+ * to serve, so a failure is logged, not thrown. `previous` is the row the
+ * caller saw for this timestamp, if any.
  */
 async function storeAgentFrame(
   recording: FrameRecording,
   mediaKey: string,
   atMs: number,
   frame: Uint8Array,
-  previousUrl: string | null,
+  previous: FrameObject | null,
 ): Promise<void> {
   // The object being replaced goes first and must be confirmed gone: once the
   // row points at the new object nothing records the old one, so a failed
   // delete afterwards would leak it for good. Left as is, the next fill
   // retries.
-  if (previousUrl && !(await deleteFrameObject(recording, previousUrl))) return;
+  if (previous && !(await deleteFrameObject(recording, previous))) return;
 
   let uploaded: Awaited<ReturnType<typeof uploadRecordingMedia>>;
   try {
@@ -196,7 +216,8 @@ async function storeAgentFrame(
     recorded = await getDb().transaction(async (tx) => {
       // Locked and re-read: a burn or delete changes the recording first and
       // deletes its frames after, so a frame cut from media that has since
-      // been replaced must not be recorded behind that cleanup.
+      // been replaced must not be recorded behind that cleanup. The lock also
+      // serializes fills of one clip, even across instances.
       const current = await tx
         .select({
           videoUrl: schema.recordings.videoUrl,
@@ -208,6 +229,20 @@ async function storeAgentFrame(
       if (current.length === 0 || agentFrameMediaKey(current[0]) !== mediaKey) {
         return false;
       }
+      // Only the row the caller saw may be replaced. Another fill that got
+      // here first has recorded its own object; overwriting it would leave
+      // that object with no row to find it by.
+      const existing = await tx
+        .select({ storageUrl: schema.recordingAgentFrames.storageUrl })
+        .from(schema.recordingAgentFrames)
+        .where(
+          and(
+            eq(schema.recordingAgentFrames.recordingId, recording.id),
+            eq(schema.recordingAgentFrames.atMs, atMs),
+          ),
+        );
+      const existingUrl = existing.length > 0 ? existing[0].storageUrl : null;
+      if (existingUrl !== (previous?.storageUrl ?? null)) return false;
       await tx
         .insert(schema.recordingAgentFrames)
         .values({
@@ -234,7 +269,13 @@ async function storeAgentFrame(
     recorded = false;
   }
   // The row never pointed at this object, so nothing else can find it.
-  if (!recorded) await deleteFrameObject(recording, uploaded.url);
+  if (!recorded) {
+    await deleteFrameObject(recording, {
+      storageUrl: uploaded.url,
+      storageProvider: uploaded.provider,
+      storageId: uploaded.id ?? null,
+    });
+  }
 }
 
 /**
@@ -292,7 +333,7 @@ export function fillRecommendedAgentFrames(
               mediaKey,
               atMs,
               frame,
-              existing?.storageUrl ?? null,
+              existing ?? null,
             );
           }
         },
@@ -318,19 +359,21 @@ export function fillRecommendedAgentFrames(
  * so a failure here can be retried; it throws after trying every frame.
  */
 export async function deleteStoredAgentFrames(
-  recording: Pick<FrameRecording, "id" | "storageMode">,
+  recording: Pick<FrameRecording, "id">,
 ): Promise<void> {
   const db = getDb();
   const rows = await db
     .select({
       id: schema.recordingAgentFrames.id,
       storageUrl: schema.recordingAgentFrames.storageUrl,
+      storageProvider: schema.recordingAgentFrames.storageProvider,
+      storageId: schema.recordingAgentFrames.storageId,
     })
     .from(schema.recordingAgentFrames)
     .where(eq(schema.recordingAgentFrames.recordingId, recording.id));
   let failed = 0;
   for (const row of rows) {
-    if (!(await deleteFrameObject(recording, row.storageUrl))) {
+    if (!(await deleteFrameObject(recording, row))) {
       failed += 1;
       continue;
     }

@@ -316,13 +316,21 @@ export default defineAction({
     });
 
     // After the rows: a fill locks the recording before it records a frame, so
-    // once the recording is gone no frame can be added behind this.
+    // once the recording is gone no frame can be added behind this. A frame
+    // whose object stays keeps its row, and the result says so, as for the
+    // app activity blob below.
+    let agentFrameCleanup:
+      | { deleted: true }
+      | { deleted: false; error: string };
     try {
       await deleteStoredAgentFrames(deleted);
+      agentFrameCleanup = { deleted: true };
     } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      agentFrameCleanup = { deleted: false, error };
       console.error(
         `[delete-recording-permanent] deleted ${args.id}, but its stored agent frames could not all be removed from storage.`,
-        err instanceof Error ? err.message : String(err),
+        error,
       );
     }
 
@@ -395,6 +403,12 @@ export default defineAction({
     console.log(
       `Permanently deleted recording "${existing.title}" (${args.id})`,
     );
-    return { success: true, id: args.id, mediaCleanup, appActivityCleanup };
+    return {
+      success: true,
+      id: args.id,
+      mediaCleanup,
+      appActivityCleanup,
+      agentFrameCleanup,
+    };
   },
 });
