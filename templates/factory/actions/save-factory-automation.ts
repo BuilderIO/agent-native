@@ -1,4 +1,3 @@
-import { isOutsideAgentCall } from "@agent-native/core";
 import { defineAction, fail } from "@agent-native/core/action";
 import { isValidCron, nextOccurrence } from "@agent-native/core/jobs";
 import {
@@ -6,6 +5,7 @@ import {
   resourcePutIfCurrent,
 } from "@agent-native/core/resources";
 import { isReasoningEffort } from "@agent-native/core/shared";
+import { isOutsideAutomationOrigin } from "@agent-native/core/triggers";
 import { z } from "zod";
 
 import {
@@ -109,7 +109,7 @@ export default defineAction({
       ),
   }),
   http: { method: "POST" },
-  needsApproval: (_input, ctx) => isOutsideAgentCall(ctx),
+  needsApproval: (_input, ctx) => isOutsideAutomationOrigin(ctx),
   run: async (input, context) => {
     assertSingleLineFactoryAutomationSettings({
       factoryId: input.factoryId,

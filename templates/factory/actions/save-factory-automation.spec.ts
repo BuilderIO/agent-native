@@ -1,3 +1,4 @@
+import { defineAction } from "@agent-native/core/action";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { runWithoutExecutionFence } from "../../../packages/core/src/agent/execution-fence.js";
@@ -451,6 +452,73 @@ describe("save-factory-automation", () => {
       expect(completed.status).toBe("completed");
       expect(resourcePutIfCurrentMock).toHaveBeenCalledOnce();
       expect(insertValuesMock).toHaveBeenCalledOnce();
+      const { parseJobResource } =
+        await import("@agent-native/core/jobs/frontmatter");
+      const saved = resourcePutIfCurrentMock.mock.calls[0][0];
+      expect(parseJobResource(saved.content).meta.mcpManaged).toBe(true);
+      expect(saved.expectedContent).toBe(existingContent);
+      expect(insertValuesMock.mock.calls[0][0].rawContent).toBe(
+        existingContent,
+      );
+    },
+  );
+
+  it.each(
+    (["mcp", "a2a"] as const).flatMap((networkProtocol) =>
+      (["tool", "frontend"] as const).map((caller) => ({
+        networkProtocol,
+        caller,
+      })),
+    ),
+  )(
+    "requires approval under a $networkProtocol ancestor with an inner $caller context",
+    async ({ networkProtocol, caller }) => {
+      const { default: action } = await import("./save-factory-automation.js");
+      const call = (args = input, approvedToolCalls?: string[]) => {
+        const outer = defineAction({
+          run: () =>
+            runWithoutExecutionFence(() =>
+              executeAgentToolCall({
+                actions: { "save-factory-automation": action },
+                name: "save-factory-automation",
+                callId: "nested-save",
+                input: args,
+                caller,
+                ownerEmail: "teammate@example.com",
+                approvedToolCalls,
+                consumeApproval: async () => true,
+              }),
+            ),
+        });
+        return outer.run({}, { caller: "tool", networkProtocol });
+      };
+      const paused = await call();
+      expect(paused.status).toBe("approval_required");
+      expect(requireWorkspaceMemberMock).not.toHaveBeenCalled();
+      expect(insertValuesMock).not.toHaveBeenCalled();
+      expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
+      if (paused.status !== "approval_required")
+        throw new Error("Missing approval");
+      expect(
+        (
+          await call({ ...input, prompt: "Changed after approval." }, [
+            paused.approvalKey,
+          ])
+        ).status,
+      ).toBe("approval_required");
+      expect(insertValuesMock).not.toHaveBeenCalled();
+      expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
+      expect((await call(input, [paused.approvalKey])).status).toBe(
+        "completed",
+      );
+      expect(resourcePutIfCurrentMock).toHaveBeenCalledOnce();
+      expect(insertValuesMock).toHaveBeenCalledOnce();
+      expect(
+        workspaceMemberIdentityFromContextMock.mock.calls[0][0].caller,
+      ).toBe(caller);
+      expect(
+        workspaceMemberIdentityFromContextMock.mock.calls[0][0].networkProtocol,
+      ).toBeUndefined();
       const { parseJobResource } =
         await import("@agent-native/core/jobs/frontmatter");
       const saved = resourcePutIfCurrentMock.mock.calls[0][0];

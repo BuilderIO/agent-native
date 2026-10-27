@@ -1,6 +1,6 @@
-import { isOutsideAgentCall } from "@agent-native/core";
 import { fail, type ActionRunContext } from "@agent-native/core/action";
 import { parseJobResource } from "@agent-native/core/jobs/frontmatter";
+import { isOutsideAutomationOrigin } from "@agent-native/core/triggers";
 import { and, eq, exists, type AnyColumn, type SQL } from "drizzle-orm";
 import { z } from "zod";
 
@@ -468,7 +468,8 @@ export function normalizeFactoryAutomationFrontmatter(
 ): string {
   const { lines, suffix } = automationFrontmatter(content);
   const last = new Map<string, number>();
-  let managed = origin !== undefined && isOutsideAgentCall(origin.context);
+  let managed =
+    origin !== undefined && isOutsideAutomationOrigin(origin.context);
   if (origin?.currentContent !== undefined) {
     const current = normalizeFactoryAutomationFrontmatter(
       origin.currentContent,
@@ -519,7 +520,7 @@ export function normalizeFactoryAutomationWriteContent(
     );
   };
   if (
-    (origin !== undefined && isOutsideAgentCall(origin.context)) ||
+    (origin !== undefined && isOutsideAutomationOrigin(origin.context)) ||
     carriesMarker(content) ||
     (origin?.currentContent !== undefined &&
       carriesMarker(origin.currentContent))

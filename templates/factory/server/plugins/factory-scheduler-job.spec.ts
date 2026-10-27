@@ -78,7 +78,8 @@ vi.mock("@agent-native/core/server", () => ({
     callback(),
 }));
 
-vi.mock("@agent-native/core/triggers", () => ({
+vi.mock("@agent-native/core/triggers", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/triggers")>()),
   deleteAutomationRuns: deleteAutomationRunsMock,
   listAutomationDefinitions: listAutomationDefinitionsMock,
 }));

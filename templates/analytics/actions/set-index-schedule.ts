@@ -1,4 +1,3 @@
-import { isOutsideAgentCall } from "@agent-native/core";
 import { defineAction, fail } from "@agent-native/core/action";
 import {
   getRequestOrgId,
@@ -6,6 +5,7 @@ import {
 } from "@agent-native/core/server";
 import {
   defineAutomation,
+  isOutsideAutomationOrigin,
   listAutomationDefinitions,
   updateAutomation,
 } from "@agent-native/core/triggers";
@@ -27,7 +27,7 @@ const INDEX_RUN_BODY = [
 ].join("\n");
 
 export default defineAction({
-  needsApproval: (_input, ctx) => isOutsideAgentCall(ctx),
+  needsApproval: (_input, ctx) => isOutsideAutomationOrigin(ctx),
   mcpAnnotations: {
     readOnlyHint: false,
     destructiveHint: false,
