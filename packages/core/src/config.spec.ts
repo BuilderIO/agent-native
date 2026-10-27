@@ -133,6 +133,26 @@ describe("agent-native app config", () => {
     });
   });
 
+  it("inherits an explicit lower-layer default when the override omits one", () => {
+    const lowerLayer = normalizeAgentNativeConfig({
+      themeFamily: {
+        families: ["original", "agent-native"],
+        defaultFamily: "agent-native",
+      },
+    });
+    const override = normalizeAgentNativeConfig({
+      themeFamily: { families: ["original", "agent-native"] },
+    });
+
+    expect(override.themeFamily).toEqual({
+      families: ["original", "agent-native"],
+    });
+    expect(mergeAgentNativeConfigs(lowerLayer, override).themeFamily).toEqual({
+      families: ["original", "agent-native"],
+      defaultFamily: "agent-native",
+    });
+  });
+
   it("normalizes and merges the public deployment environment", () => {
     expect(
       normalizeAgentNativeConfig({ deployment: { environment: "beta" } }),

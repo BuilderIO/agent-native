@@ -4,7 +4,7 @@ import { useSession } from "@agent-native/core/client/use-session";
 import { useEffect, useState } from "react";
 
 import { LanguagePicker } from "../../shared/index.js";
-import { isBuilderIoEmployee } from "../../shared/is-builder-io-employee.js";
+import { canShowThemeFamilySwitcher } from "../../shared/is-builder-io-employee.js";
 import { SchedulingTimezoneField } from "../SchedulingTimezoneField.js";
 import { SettingsGroup, SettingsRow } from "../SettingsRow.js";
 import { VoiceChatSettings } from "../VoiceChatSettings.js";
@@ -22,14 +22,13 @@ export function PreferencesSettings() {
   const hasLocale = useOptionalLocale() !== null;
   const { session, status } = useSession();
   const [clientReady, setClientReady] = useState(false);
-  const hasMultipleThemeFamilies =
-    (injectedAgentNativeConfig().themeFamily?.families.length ?? 1) > 1;
   const languageLabel = t("agentChat.settingsShell.interfaceLanguage");
-  const canSwitchTheme =
-    clientReady &&
-    hasMultipleThemeFamilies &&
-    status === "authenticated" &&
-    isBuilderIoEmployee(session?.email);
+  const canSwitchTheme = canShowThemeFamilySwitcher({
+    clientReady,
+    authenticated: status === "authenticated",
+    email: session?.email,
+    familyCount: injectedAgentNativeConfig().themeFamily?.families.length ?? 1,
+  });
 
   useEffect(() => setClientReady(true), []);
 

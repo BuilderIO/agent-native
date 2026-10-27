@@ -1,10 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const deps = vi.hoisted(() => ({
+  appConfig: {
+    themeFamily: {
+      families: ["original", "agent-native"],
+      defaultFamily: "agent-native",
+    },
+  } as { themeFamily?: { families?: string[]; defaultFamily?: string } },
   putUserSetting: vi.fn(),
   writeAppState: vi.fn(),
 }));
 
+vi.mock("../../client/app-config.js", () => ({
+  injectedAgentNativeConfig: () => deps.appConfig,
+}));
 vi.mock("../../settings/user-settings.js", () => ({
   putUserSetting: deps.putUserSetting,
 }));
@@ -18,6 +27,12 @@ import action from "./set-theme-family.js";
 describe("set-theme-family action", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    deps.appConfig = {
+      themeFamily: {
+        families: ["original", "agent-native"],
+        defaultFamily: "agent-native",
+      },
+    };
     deps.putUserSetting.mockResolvedValue(undefined);
     deps.writeAppState.mockResolvedValue(undefined);
   });
@@ -85,5 +100,27 @@ describe("set-theme-family action", () => {
 
   it("rejects unsupported family values", () => {
     expect(action.schema.safeParse({ family: "dark" }).success).toBe(false);
+  });
+
+  it("rejects a registered family that is disabled by the app config", async () => {
+    deps.appConfig = {
+      themeFamily: { families: ["original"], defaultFamily: "original" },
+    };
+
+    await expect(
+      action.run(
+        { family: "agent-native" },
+        {
+          caller: "tool",
+          userEmail: "steve@example.test",
+          appId: "sample-app",
+        },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "theme_family_not_enabled",
+      statusCode: 400,
+    });
+    expect(deps.putUserSetting).not.toHaveBeenCalled();
+    expect(deps.writeAppState).not.toHaveBeenCalled();
   });
 });

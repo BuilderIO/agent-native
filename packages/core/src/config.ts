@@ -89,7 +89,7 @@ export type AgentNativeHarnessSetting = boolean | AgentNativeHarnessConfig;
 
 export interface AgentNativeThemeFamilyConfig {
   families: ThemeFamily[];
-  defaultFamily: ThemeFamily;
+  defaultFamily?: ThemeFamily;
 }
 
 export interface AgentNativeConfig {
@@ -244,14 +244,14 @@ function normalizeThemeFamilyConfig(
       `${source}.defaultFamily must be a registered theme family`,
     );
   }
-  const resolvedDefault =
-    defaultFamily ??
-    (families.includes("original") ? "original" : families[0]!);
-  if (!families.includes(resolvedDefault)) {
+  if (defaultFamily !== undefined && !families.includes(defaultFamily)) {
     throw new Error(`${source}.defaultFamily must be included in families`);
   }
 
-  return { families, defaultFamily: resolvedDefault };
+  return {
+    families,
+    ...(defaultFamily === undefined ? {} : { defaultFamily }),
+  };
 }
 
 function parseAgentNativeConfigJson(raw: string, key: string): unknown {

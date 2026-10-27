@@ -180,4 +180,67 @@ describe("useThemeFamily", () => {
       "original",
     );
   });
+
+  it("updates URL pins on client-side history navigation", async () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => root?.render(<Probe />));
+
+    act(() =>
+      window.history.pushState(null, "", "/?theme-family=agent-native"),
+    );
+    expect(current?.family).toBe("agent-native");
+    expect(current?.isForcedByUrl).toBe(true);
+    expect(document.documentElement.getAttribute(THEME_FAMILY_ATTRIBUTE)).toBe(
+      "agent-native",
+    );
+
+    act(() => window.history.replaceState(null, "", "/"));
+    expect(window.location.search).toBe("");
+    expect(current?.isForcedByUrl).toBe(false);
+    expect(current?.family).toBe("original");
+    expect(document.documentElement.getAttribute(THEME_FAMILY_ATTRIBUTE)).toBe(
+      "original",
+    );
+  });
+
+  it("reconciles a failed save from a missing setting to the app default", async () => {
+    deps.appConfig = {
+      themeFamily: {
+        families: ["original", "agent-native"],
+        defaultFamily: "agent-native",
+      },
+    };
+    deps.query.data = {
+      family: "original",
+      source: "default",
+      appId: "sample-app",
+    };
+    deps.mutation.mutateAsync.mockRejectedValue(new Error("save failed"));
+    deps.query.refetch.mockResolvedValue({
+      data: {
+        family: "original",
+        source: "default",
+        appId: "sample-app",
+      },
+      isError: false,
+    });
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => root?.render(<Probe />));
+
+    await act(async () => {
+      await expect(current?.setFamily("original")).rejects.toThrow(
+        "save failed",
+      );
+    });
+
+    expect(current?.family).toBe("agent-native");
+    expect(window.localStorage.getItem("theme-family:sample-app")).toBe(
+      "agent-native",
+    );
+  });
 });

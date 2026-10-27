@@ -104,18 +104,89 @@ function getFamilySnapshot(
   return family && families.includes(family) ? family : defaultFamily;
 }
 
+const locationSubscribers = new Set<() => void>();
+let restoreHistoryObserver: (() => void) | undefined;
+
+function observeWindowLocation(): () => void {
+  const history = window.history;
+  const originalPushState = history.pushState;
+  const originalReplaceState = history.replaceState;
+  const notify = () => {
+    for (const listener of [...locationSubscribers]) listener();
+  };
+  const pushState = function (
+    this: History,
+    ...args: Parameters<History["pushState"]>
+  ) {
+    const result = originalPushState.apply(this, args);
+    notify();
+    return result;
+  } as History["pushState"];
+  const replaceState = function (
+    this: History,
+    ...args: Parameters<History["replaceState"]>
+  ) {
+    const result = originalReplaceState.apply(this, args);
+    notify();
+    return result;
+  } as History["replaceState"];
+
+  history.pushState = pushState;
+  history.replaceState = replaceState;
+  window.addEventListener("popstate", notify);
+
+  return () => {
+    window.removeEventListener("popstate", notify);
+    if (history.pushState === pushState) history.pushState = originalPushState;
+    if (history.replaceState === replaceState)
+      history.replaceState = originalReplaceState;
+  };
+}
+
+function subscribeToWindowLocation(onChange: () => void): () => void {
+  const listener = () => onChange();
+  if (locationSubscribers.size === 0) {
+    restoreHistoryObserver = observeWindowLocation();
+  }
+  locationSubscribers.add(listener);
+
+  return () => {
+    locationSubscribers.delete(listener);
+    if (locationSubscribers.size === 0) {
+      restoreHistoryObserver?.();
+      restoreHistoryObserver = undefined;
+    }
+  };
+}
+
 function subscribe(
   onChange: () => void,
   appId: string | null | undefined,
   families: readonly ThemeFamily[],
   defaultFamily: ThemeFamily,
-  forcedFamily: ThemeFamily | null,
 ): () => void {
-  if (typeof window === "undefined" || forcedFamily) return () => {};
+  if (typeof window === "undefined") return () => {};
 
   const refreshFromStorage = () => {
-    const stored = readStoredThemeFamily(appId);
     const key = scopeKey(appId);
+    const urlFamily = getThemeFamilyUrlOverride(
+      window.location.search,
+      families,
+    );
+    if (urlFamily) {
+      familySnapshots.set(key, urlFamily);
+      window.document.documentElement.setAttribute(
+        THEME_FAMILY_ATTRIBUTE,
+        urlFamily,
+      );
+      window.document.documentElement.removeAttribute(
+        THEME_FAMILY_STATUS_ATTRIBUTE,
+      );
+      onChange();
+      return;
+    }
+
+    const stored = readStoredThemeFamily(appId);
     if (stored.status === "valid" && families.includes(stored.family)) {
       familySnapshots.set(key, stored.family);
       window.document.documentElement.setAttribute(
@@ -156,9 +227,11 @@ function subscribe(
   };
   window.addEventListener("storage", onStorage);
   window.addEventListener(THEME_FAMILY_CHANGE_EVENT, onFamilyChange);
+  const unsubscribeFromLocation = subscribeToWindowLocation(refreshFromStorage);
   return () => {
     window.removeEventListener("storage", onStorage);
     window.removeEventListener(THEME_FAMILY_CHANGE_EVENT, onFamilyChange);
+    unsubscribeFromLocation();
   };
 }
 
@@ -251,10 +324,22 @@ export function useThemeFamily(): ThemeFamilyHook {
   );
   const [mutationError, setMutationError] = useState<Error>();
   const mutationPending = useRef(false);
+  const subscribeToFamilyChanges = useCallback(
+    (onChange: () => void) =>
+      subscribe(onChange, appId, families, defaultFamily),
+    [appId, defaultFamily, families],
+  );
+  const getFamilySnapshotForRender = useCallback(
+    () =>
+      (typeof window === "undefined"
+        ? null
+        : getThemeFamilyUrlOverride(window.location.search, families)) ??
+      getFamilySnapshot(appId, families, defaultFamily),
+    [appId, defaultFamily, families],
+  );
   const family = useSyncExternalStore(
-    (onChange) =>
-      subscribe(onChange, appId, families, defaultFamily, urlOverride),
-    () => urlOverride ?? getFamilySnapshot(appId, families, defaultFamily),
+    subscribeToFamilyChanges,
+    getFamilySnapshotForRender,
     () => defaultFamily,
   );
 
@@ -380,9 +465,12 @@ export function useThemeFamily(): ThemeFamilyHook {
           ) {
             reconciliationError = errorForState(data);
           } else {
-            reconciledFamily = families.includes(data.family)
-              ? data.family
-              : defaultFamily;
+            reconciledFamily =
+              data.source === "default"
+                ? defaultFamily
+                : families.includes(data.family)
+                  ? data.family
+                  : defaultFamily;
             reconciledAppId = data.appId;
           }
         } catch (refreshError) {
