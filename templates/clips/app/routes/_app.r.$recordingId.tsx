@@ -1508,7 +1508,6 @@ export default function RecordingPage() {
     return () => window.clearTimeout(timer);
   }, [
     canEdit,
-    recordingId,
     generatedWorkflow?.requestId,
     generatedWorkflow?.recordingId,
     generatedWorkflow?.requestedAt,
