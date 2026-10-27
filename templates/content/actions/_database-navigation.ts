@@ -423,12 +423,10 @@ export async function getContentDatabaseNavigationPage(args: {
   const effectiveFilterMode =
     personalView?.filterMode ?? sharedView.filterMode ?? "and";
   const sorts = personalView?.sorts ?? sharedView.sorts;
-  const sharedSort = sorts[0];
-  // A view can have no sorts, so check before reading the first one.
+  // A view can have no sorts.
+  const sharedSort = sorts.length > 0 ? sorts[0] : undefined;
   const configuredSort =
-    sorts.length > 0
-      ? (FILES_NAVIGATION_SORT_KEYS.get(sharedSort.key) ?? null)
-      : null;
+    (sharedSort && FILES_NAVIGATION_SORT_KEYS.get(sharedSort.key)) ?? null;
   const sidebarSort = personalView?.sidebarOrder?.mode;
   const effectiveSort = sidebarSort ?? configuredSort ?? args.sort;
   const descending = sidebarSort
