@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import {
   existsSync,
+  chmodSync,
   mkdirSync,
   readdirSync,
   readFileSync,
@@ -290,6 +291,14 @@ const AUDIT_ROW = `to_jsonb(a) - 'input' AS row`;
 const auditRows = async (tx: Tx, query: string, params: unknown[]) =>
   (await tx.unsafe(query, params)).map((r) => r.row as Row);
 
+const AUDIT_CAP = 2000;
+
+// Queries fetch the newest AUDIT_CAP + 1 rows so an over-full window is reported, not silently clipped.
+const newestFirst = (rows: Row[]) => ({
+  rows: rows.slice(0, AUDIT_CAP).reverse(),
+  truncated: rows.length > AUDIT_CAP,
+});
+
 const likeArg = (value: string) => `%${value.replace(/[\\%_]/g, "\\$&")}%`;
 
 async function threadsForRun(tx: Tx, input: Extract<Input, { kind: "run" }>) {
@@ -344,6 +353,7 @@ async function findInApp(
     let owners: Row[] = [];
     let audit: Row[] = [];
     let auditError: string | undefined;
+    let auditTruncated = false;
 
     if (input.kind === "run") {
       for (const match of await threadsForRun(tx, input))
@@ -351,15 +361,17 @@ async function findInApp(
     } else if (input.kind === "email") {
       const rows = await tx.unsafe(
         `SELECT id FROM chat_threads WHERE owner_email = $1 AND updated_at >= $2 ORDER BY updated_at DESC LIMIT $3`,
-        [input.value, sinceMs, limit],
+        [input.value, sinceMs, limit + 1],
       );
       for (const r of rows) add(String(r.id), "owner_email");
-      audit = await auditRows(
-        tx,
-        `SELECT ${AUDIT_ROW} FROM agent_audit_log a WHERE actor_email = $1 AND created_at >= $2 AND caller = ANY($3)
-         ORDER BY created_at LIMIT 2000`,
-        [input.value, sinceMs, EXTERNAL_CALLERS],
-      );
+      ({ rows: audit, truncated: auditTruncated } = newestFirst(
+        await auditRows(
+          tx,
+          `SELECT ${AUDIT_ROW} FROM agent_audit_log a WHERE actor_email = $1 AND created_at >= $2 AND caller = ANY($3)
+           ORDER BY created_at DESC LIMIT ${AUDIT_CAP + 1}`,
+          [input.value, sinceMs, EXTERNAL_CALLERS],
+        ),
+      ));
     } else {
       for (const r of await tx.unsafe(
         `SELECT id FROM chat_threads WHERE scope_id = $1 ORDER BY updated_at DESC LIMIT $2`,
@@ -386,11 +398,13 @@ async function findInApp(
       if (singleApp || owners.length || matches.size) {
         try {
           await tx.unsafe("SAVEPOINT audit_scan");
-          audit = await auditRows(
-            tx,
-            `SELECT ${AUDIT_ROW} FROM agent_audit_log a WHERE created_at >= $1 AND input LIKE $2 ORDER BY created_at LIMIT 2000`,
-            [sinceMs, likeArg(input.value)],
-          );
+          ({ rows: audit, truncated: auditTruncated } = newestFirst(
+            await auditRows(
+              tx,
+              `SELECT ${AUDIT_ROW} FROM agent_audit_log a WHERE created_at >= $1 AND input LIKE $2 ORDER BY created_at DESC LIMIT ${AUDIT_CAP + 1}`,
+              [sinceMs, likeArg(input.value)],
+            ),
+          ));
         } catch (error) {
           await tx.unsafe("ROLLBACK TO SAVEPOINT audit_scan");
           auditError = `${error instanceof Error ? error.message : String(error)}; retry with a smaller --days`;
@@ -429,6 +443,11 @@ async function findInApp(
       })),
       unlistedThreads: Math.max(0, matches.size - ids.length),
       ...(auditError ? { auditError } : {}),
+      ...(auditTruncated
+        ? {
+            auditTruncated: `only the newest ${AUDIT_CAP} audit rows in the window are included`,
+          }
+        : {}),
       externalAgentSessions: groupSessions(
         audit.filter(
           (r) =>
@@ -501,11 +520,22 @@ async function versionRows(tx: Tx, threadId: string) {
     `SELECT table_name FROM information_schema.columns WHERE table_schema = 'public' AND column_name = 'chat_context'`,
   );
   const out: Row[] = [];
-  for (const t of tables) {
-    const rows = await tx.unsafe(
-      `SELECT * FROM "${String(t.table_name)}" WHERE chat_context LIKE $1 LIMIT 200`,
-      [likeArg(threadId)],
-    );
+  for (const [i, t] of tables.entries()) {
+    let rows: Row[];
+    try {
+      await tx.unsafe(`SAVEPOINT version_scan_${i}`);
+      rows = await tx.unsafe(
+        `SELECT * FROM "${String(t.table_name)}" WHERE chat_context LIKE $1 LIMIT 200`,
+        [likeArg(threadId)],
+      );
+    } catch (error) {
+      await tx.unsafe(`ROLLBACK TO SAVEPOINT version_scan_${i}`);
+      out.push({
+        table: t.table_name,
+        scanError: error instanceof Error ? error.message : String(error),
+      });
+      continue;
+    }
     for (const row of rows) {
       out.push({
         table: t.table_name,
@@ -591,7 +621,8 @@ async function show(sources: Source[], raw: string) {
     const threadData = JSON.parse(String(thread.thread_data)) as Row;
     const runs = summarizeRuns(threadData);
     const dir = path.join(ROOT, ".tmp/debug-runs");
-    mkdirSync(dir, { recursive: true });
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    chmodSync(dir, 0o700);
     const base = path.join(dir, `${source.app}-${String(thread.id)}`);
     const { thread_data: _threadData, ...threadRow } = thread;
     writeFileSync(
@@ -601,6 +632,7 @@ async function show(sources: Source[], raw: string) {
         null,
         2,
       ),
+      { mode: 0o600 },
     );
     writeFileSync(
       `${base}.md`,
@@ -616,7 +648,10 @@ async function show(sources: Source[], raw: string) {
         `## audited actions (${live.audit.length})\n${fence(cap(live.audit, `${base}.json`))}`,
         `# transcript\n\n${renderTranscript(threadData, `${base}.json`)}`,
       ].join("\n\n"),
+      { mode: 0o600 },
     );
+    chmodSync(`${base}.json`, 0o600);
+    chmodSync(`${base}.md`, 0o600);
     console.log(
       JSON.stringify(
         {
