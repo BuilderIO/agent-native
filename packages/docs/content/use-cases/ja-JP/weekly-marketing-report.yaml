@@ -1,0 +1,100 @@
+template: v2
+slug: weekly-marketing-report
+app: analytics
+title: スプレッドシートなしで週次マーケティングレポートを作成
+seo_title: GA4とHubSpotで作る週次マーケティングレポート
+meta_description: Agent-Native Analyticsで、Google AnalyticsとHubSpotから週次マーケティングレポートを作成。1週間の成果を質問し、回答をダッシュボードとして共有できます。
+updated: 2026-10-27
+hero:
+  body: Agent-Native Analyticsは、Google AnalyticsとHubSpotのデータを月曜日のマーケティングレポートにします。1週間の成果を質問すれば、回答はダッシュボードに残り、作り直す必要はありません。
+  button:
+    label: ダッシュボードを作る
+    url: https://analytics.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8b9582619b1b42e4a44e6246e01ff7f8
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F70d3b80ce73f472c95b94f7f5c0d65d6
+    alt: Analyticsで開いた週次マーケティングダッシュボード。上部の指標カードには、今週のセッション数、自然検索からの登録数、HubSpotの新規コンタクト数、作成された取引数が、それぞれ先週からの変化とともに表示されています。その下には、チャネル別セッション数を今週と先週で比べる棒グラフと、HubSpotで1日に作成された取引数の折れ線グラフがあります。右側のエージェントチャットには「今週はどうだった？」という質問と、自然検索が最も伸びたと伝える短い回答があります。
+how_to:
+  heading: AIで週次マーケティングレポートを作る方法
+  steps:
+    - title: マーケティングデータを連携する
+      body: '**データソース**を開き、Google AnalyticsとHubSpotのカードにある[設定手順](https://www.agent-native.com/docs/template-analytics-connectors/)に従って、**接続をテスト**をクリックします。Google Analyticsには、プロパティへの閲覧者権限を持つGoogle Cloudのサービスアカウントが必要です。設定は一度だけです。'
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F0218d6c271db4bbe8534c00e6f5e85a6
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa38de1d80c2e4f7fb8e1407d95f97984
+        alt: Google AnalyticsとHubSpotが接続済みとして表示されたデータソースページの拡大図。横にHubSpotの設定パネルが開き、トークンが設定済みで、接続テストに「接続成功」と表示されています。
+    - title: 1週間の成果を質問する
+      body: アナリストに聞くように質問します。たとえば「今週の自然検索からの登録数は、先週と比べてどうだった？」と聞けば、エージェントがデータにライブクエリを実行し、グラフで答えます。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fcd7a4f648f5b4dee8a6282c3f512f698
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F74bf8b013f944b96a414979ff7234deb
+        alt: その質問と回答が表示されたエージェントチャット。自然検索からの登録数が前週より増えたと2文で伝え、その下に今週と先週のチャネル別登録数の棒グラフがあります。
+    - title: ダッシュボードを保存して共有する
+      body: エージェントに「これを週次マーケティングダッシュボードにして」と頼みます。**Share**をクリックしてチームメンバーや組織全体に[閲覧または編集の権限](https://www.agent-native.com/docs/sharing/)を与えるか、**メールレポート**を開いて毎日指定の時刻に送信できます。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F04feeeb2a1384ce0adecb7bee676b806
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F61fd64ac2bff4f53a3ca6cfbd97225fe
+        alt: メールレポートのダイアログを開いた週次マーケティングダッシュボード。送信先はメールとSlack、チームのアドレスが2件、送信時刻は9:00で、「今すぐ送信」ボタンがあります。
+features:
+  heading: マーケティングの1週間をレポートするために必要な機能がすべて揃っています
+  items:
+    - title: 1つの質問で両方のツール
+      body: Google AnalyticsのセッションとHubSpotのコンタクトについて同じ質問で尋ねれば、エージェントが両方を並べて答えます。
+    - title: 検索順位とトラフィックを並べて
+      body: DataForSEOを連携すれば、今週の自然検索セッションと並べて、キーワード順位の動きを質問できます。
+    - title: 常に最新の数値
+      body: Google Analyticsのグラフはライブでクエリし、HubSpotのグラフは自動で更新されるので、レポートには常に最新の週が表示されます。
+    - title: 先週の分析をもう一度
+      body: 調査を質問と手順ごと保存しておけば、今週のデータで再実行するようエージェントに頼めます。
+    - title: チームの定義を使う
+      body: 何をリードや登録と数えるかを管理者がセマンティックレイヤーページで設定しておけば、エージェントはどの回答にもその定義を使います。
+    - title: どのグラフにも質問
+      body: グラフをクリックして何が変わったかを質問します。エージェントはそのグラフと質問を受け取り、元データから答えます。
+integrations:
+  heading: いつものツールとAnalyticsを連携
+  cards:
+    - title: マーケティングデータを集める
+      logos:
+        - name: Google Analytics
+        - name: HubSpot
+        - name: X
+      body: トラフィックにはGoogle Analytics、コンタクトと取引にはHubSpot、投稿のエンゲージメントにはXを、それぞれデータソースページから連携します。
+    - title: チームが見る場所にレポートを届ける
+      logos:
+        - name: Slack
+        - name: Google Sheets
+      body: Slackのwebhookで毎日の要約とダッシュボードのリンクをSlackチャンネルに送れます。どの表も連携済みのGoogle Sheetsアカウントに書き出せます。
+    - title: MCPであらゆるツールと連携
+      logos:
+        - name: Notion
+        - name: Webflow
+        - name: Exa
+      more: true
+      body: チームが使っているツールをMCPで連携できます。URLを指定して任意のMCPサーバーを追加することもできます。
+other_uses:
+  heading: Agent-Native Analyticsでできるその他のこと
+  cards:
+    - title: スタートアップのKPIダッシュボードを作成
+      url: https://www.agent-native.com/use-cases/ai-kpi-dashboard/
+      body: スタートアップの売上、登録数、解約率を追い、数値が動いた理由をエージェントに質問できます。
+    - title: 新規ユーザーの離脱ポイントを見つける
+      url: https://www.agent-native.com/use-cases/ai-funnel-analysis/
+      body: 新規ユーザーが離脱するステップを見つけ、それが起きたセッションを確認できます。
+    - title: HubSpotとGongのデータで営業パイプラインを確認
+      url: https://www.agent-native.com/use-cases/ai-sales-analytics/
+      body: HubSpotの取引やGongの通話について、普段の言葉で質問できます。
+faqs:
+  heading: よくある質問
+  items:
+    - q: Agent-Native Analyticsは無料ですか？
+      a: はい、Agent-Native Analyticsは無料のオープンソースです。Google AnalyticsとHubSpotはご自身のアカウントを連携します。始める際に、エージェント用に無料のBuilder.io AIクレジットかご自身のAIモデルキーを選ぶため、AIの使用量には上限があります。Analyticsはアルファ版のため、今後変更が加わる可能性があります。
+    - q: どのマーケティングデータソースを連携できますか？
+      a: Agent-Native Analyticsは、Google Analytics（GA4）、HubSpot、キーワード順位と検索ボリューム用のDataForSEO、投稿のエンゲージメント用のXに接続します。BigQuery、Amplitude、Mixpanel、PostHog、Stripeにも接続できます。各データソースにはそれぞれの認証情報が必要で、Google AnalyticsにはGoogle Cloudのサービスアカウントが必要です。
+    - q: Agent-Native Analyticsは毎週月曜日にレポートを送れますか？
+      a: 週単位のスケジュールにはまだ対応していません。[ダッシュボードのメールレポート](https://www.agent-native.com/docs/template-analytics-dashboards/)は、指定した時刻とタイムゾーンで毎日、最大5件のメールアドレス、Slackチャンネル、またはその両方に送られます。月曜日の会議の前に、**メールレポート**で**今すぐ送信**をクリックすれば、最新のダッシュボードを送れます。
+    - q: SQLの知識は必要ですか？
+      a: いいえ。普段の言葉で質問すれば、エージェントがデータソースを選んでクエリを書きます。確認したいときは、どの回答でも裏にあるクエリを見せるようエージェントに頼めます。
+    - q: 数値は信頼できますか？
+      a: エージェントは数値を示す前にデータへのライブクエリを実行し、クエリが実行されなかった数値には「Unverified」と表示します。それでも、最初の週のレポートはチームに送る前にGoogle AnalyticsやHubSpotと照らし合わせましょう。
+    - q: Agent-Native AnalyticsはGA4やHubSpotのレポートと何が違いますか？
+      a: Google AnalyticsとHubSpotは、それぞれ自分のデータについてレポートします。Agent-Native Analyticsは、両方にまたがる1つの質問に普段の言葉で答え、その回答を、質問するだけで改善できる1つのダッシュボードに残します。これが[エージェント型アプリ](https://www.agent-native.com/articles/what-is-an-agent-native-app/)です。エージェントの頭脳と、アプリの直感的な使いやすさを兼ね備えています。
