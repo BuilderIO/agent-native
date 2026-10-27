@@ -1,6 +1,10 @@
 template: v2
 slug: ai-funnel-analysis
 app: analytics
+roles:
+  - product
+  - founders
+  - engineering
 title: Find where new users drop off
 seo_title: AI funnel analysis with session replays
 meta_description: Ask Agent-Native Analytics in plain English which signup step loses new users, get the funnel from your own events, then watch replays of the people who left.
