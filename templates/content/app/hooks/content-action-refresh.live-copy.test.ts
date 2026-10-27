@@ -34,7 +34,11 @@ function mount(
 ) {
   let version = 1;
   const queryFn = vi.fn(async () => ({ version: version++ }));
-  const observer = new QueryObserver(queryClient, { queryKey, queryFn, meta });
+  const observer = new QueryObserver(queryClient, {
+    queryKey,
+    queryFn,
+    ...(meta ? { meta } : {}),
+  });
   const unsubscribe = observer.subscribe(() => {});
   return { observer, queryFn, unsubscribe };
 }

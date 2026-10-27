@@ -3,6 +3,8 @@ import { putSetting } from "@agent-native/core/settings";
 import { eq, sql, type SQL } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+import { firstRow } from "../lib/first-row.js";
+
 vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@agent-native/creative-context/server")
@@ -120,9 +122,11 @@ function failures(results: PromiseSettledResult<unknown>[]): string[] {
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function backendPid(tx: Db): Promise<number> {
-  const rows = pidRows(await tx.execute(sql`SELECT pg_backend_pid() AS pid`));
-  if (rows.length === 0) throw new Error("pg_backend_pid() returned no row.");
-  return Number(rows[0].pid);
+  const row = firstRow(
+    pidRows(await tx.execute(sql`SELECT pg_backend_pid() AS pid`)),
+  );
+  if (!row) throw new Error("pg_backend_pid() returned no row.");
+  return Number(row.pid);
 }
 
 type Tracked = { settled: boolean; promise: Promise<unknown> };
@@ -145,7 +149,8 @@ async function sessionBlockedBy(
         sql`SELECT pid FROM pg_stat_activity WHERE datname = current_database() AND ${holderPid} = ANY(pg_blocking_pids(pid))`,
       ),
     );
-    if (waiting.length > 0) return Number(waiting[0].pid);
+    const blocked = firstRow(waiting);
+    if (blocked) return Number(blocked.pid);
     await sleep(5);
   }
   throw new Error(`Nothing finished or waited on session ${holderPid}.`);
@@ -287,8 +292,9 @@ async function storedBody(row: Row) {
     .select({ content: schema.documents.content })
     .from(schema.documents)
     .where(eq(schema.documents.id, row.id));
-  if (pages.length === 0) throw new Error(`Page ${row.id} is gone.`);
-  return pages[0].content;
+  const page = firstRow(pages);
+  if (!page) throw new Error(`Page ${row.id} is gone.`);
+  return page.content;
 }
 
 async function boundProperty(row: Row) {
@@ -296,10 +302,9 @@ async function boundProperty(row: Row) {
     .select({ propertyId: schema.contentDatabaseSourceFields.propertyId })
     .from(schema.contentDatabaseSourceFields)
     .where(eq(schema.contentDatabaseSourceFields.id, row.sourceFieldId));
-  if (fields.length === 0) {
-    throw new Error(`Source field ${row.sourceFieldId} is gone.`);
-  }
-  return fields[0].propertyId;
+  const field = firstRow(fields);
+  if (!field) throw new Error(`Source field ${row.sourceFieldId} is gone.`);
+  return field.propertyId;
 }
 
 /** The policy change: unbinding the source's field gives the field back to Content. */

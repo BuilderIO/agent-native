@@ -61,7 +61,7 @@ async function readPage(documentId: string) {
 export async function switchPageToLiveCopy(
   documentId: string,
   options: {
-    ctx?: ActionRunContext;
+    ctx?: ActionRunContext | undefined;
     keepLiveEdits?: true;
     unlessOptedOut?: true;
   } = {},

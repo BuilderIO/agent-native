@@ -2,6 +2,7 @@ import type { DbExec } from "@agent-native/core/db";
 import { eq, sql, type SQL } from "drizzle-orm";
 
 import { schema } from "../db/index.js";
+import { firstRow } from "../lib/first-row.js";
 import { drizzleOverExec } from "./exec-db.js";
 
 /**
@@ -91,8 +92,8 @@ export async function liveBodySwitchBlockers(
     .from(schema.documents)
     .where(eq(schema.documents.id, documentId))
     .limit(1);
-  if (rows.length === 0) return undefined;
-  const [row] = rows;
+  const row = firstRow(rows);
+  if (!row) return undefined;
   return LIVE_BODY_SWITCH_BLOCKERS.filter((blocker) => {
     const value = Number(row[blocker]);
     if (value !== 0 && value !== 1) {

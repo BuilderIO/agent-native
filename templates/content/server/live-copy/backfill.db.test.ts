@@ -25,6 +25,7 @@ import * as Y from "yjs";
 import { createContentEditorStructuralSchema } from "../../shared/content-editor-structural-schema.js";
 import { materializeLiveBody } from "../../shared/live-body.js";
 import { canonicalizeNfm, nfmToDoc } from "../../shared/nfm.js";
+import { firstRow } from "../lib/first-row.js";
 
 vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
   ...(await importOriginal<
@@ -256,8 +257,9 @@ async function page(id: string) {
     .select()
     .from(schema.documents)
     .where(eq(schema.documents.id, id));
-  if (rows.length === 0) throw new Error(`Page ${id} is gone.`);
-  return rows[0];
+  const row = firstRow(rows);
+  if (!row) throw new Error(`Page ${id} is gone.`);
+  return row;
 }
 
 async function collabVersion(id: string) {

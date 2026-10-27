@@ -146,7 +146,7 @@ function conversionRefusal(error: unknown): LiveBodyBackfillOutcome {
  */
 export async function convertPageToLiveCopyIfDue(
   documentId: string,
-  options: { ctx?: ActionRunContext; flagsOn?: FlagsOn } = {},
+  options: { ctx?: ActionRunContext | undefined; flagsOn?: FlagsOn } = {},
 ): Promise<LiveBodyBackfillOutcome> {
   // While no one has the flag on, a call costs one settings read rather than
   // the page's own flag reads.
@@ -469,7 +469,7 @@ function outcomeKey(outcome: LiveBodyBackfillOutcome): string {
  */
 export async function runLiveBodyBackfillSweep(context: {
   deadlineAt: number;
-  signal?: AbortSignal;
+  signal?: AbortSignal | undefined;
   now?: number;
   convert?: typeof convertPageToLiveCopyIfDue;
 }): Promise<LiveBodyBackfillSweepReport> {

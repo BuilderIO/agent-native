@@ -7,6 +7,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
+import { firstRow } from "../server/lib/first-row.js";
 import { isLiveBodyWriterPage } from "../server/lib/live-body-writer.js";
 import { CONTENT_LIVE_COPY_EDITS } from "../server/live-copy/binding.js";
 import { drizzleOverExec } from "../server/live-copy/exec-db.js";
@@ -106,13 +107,13 @@ async function setPrimaryBlocksThroughLiveCopy(args: {
     .select({ content: schema.documents.content })
     .from(schema.documents)
     .where(eq(schema.documents.id, args.documentId));
-  if (rows.length === 0) {
+  const current = firstRow(rows);
+  if (!current) {
     throw new ActionContractError(`Document "${args.documentId}" not found`, {
       errorCode: "DOCUMENT_NOT_FOUND",
       statusCode: 404,
     });
   }
-  const [current] = rows;
   if (current.content === args.content) return false;
   if (args.expectedRevision !== undefined) {
     const { revision } = await readBlocksFieldIdentity({

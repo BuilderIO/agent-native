@@ -31,7 +31,7 @@ export interface ContentBodyIntentRecord {
  * recorded twice would claim two revisions.
  */
 export interface ContentBodyWriteCause {
-  ctx?: ActionRunContext;
+  ctx?: ActionRunContext | undefined;
   /** The History operation, such as `"accept-suggestion"`. */
   operation: string;
   origin?: string;
