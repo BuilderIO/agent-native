@@ -1,4 +1,3 @@
-import { hydrateFirstRunBuilderCreditsV2ForTracking } from "@agent-native/core/onboarding/first-run-builder-credits-experiment";
 import type { TrackingSource } from "@agent-native/core/tracking";
 
 import {
@@ -34,7 +33,6 @@ export async function trackDesignCreated(
   },
   source?: TrackingSource,
 ): Promise<void> {
-  await hydrateFirstRunBuilderCreditsV2ForTracking();
   try {
     trackDesign(
       "design_created",

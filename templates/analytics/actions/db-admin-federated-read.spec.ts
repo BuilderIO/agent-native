@@ -57,8 +57,8 @@ describe("db-admin-federated-read", () => {
       }
       if (sql.includes("FROM analytics_events")) {
         return {
-          columns: ["auth_user_id", "event_variant"],
-          rows: [{ auth_user_id: "auth-user-1", event_variant: "credits" }],
+          columns: ["auth_user_id", "event_name"],
+          rows: [{ auth_user_id: "auth-user-1", event_name: "run_started" }],
           rowsAffected: 0,
           durationMs: 1,
         };
@@ -158,8 +158,8 @@ describe("db-admin-federated-read", () => {
           {
             connectionId: "analytics-db",
             sourceId: "events",
-            sql: "SELECT properties::jsonb ->> 'auth_user_id' AS auth_user_id, properties::jsonb ->> 'experiment_variant' AS event_variant FROM analytics_events WHERE properties::jsonb ->> 'experiment_id' = $1",
-            params: ["first_run_builder_credits_v2"],
+            sql: "SELECT properties::jsonb ->> 'auth_user_id' AS auth_user_id, event_name FROM analytics_events WHERE event_name = $1",
+            params: ["run_started"],
           },
         ],
         join: {
@@ -171,7 +171,7 @@ describe("db-admin-federated-read", () => {
         },
         projections: [
           { sourceId: "assignments", column: "variant_id" },
-          { sourceId: "events", column: "event_variant" },
+          { sourceId: "events", column: "event_name" },
         ],
       },
     );
@@ -182,9 +182,9 @@ describe("db-admin-federated-read", () => {
       table: {
         columns: [
           { key: "variant_id", label: "variant_id" },
-          { key: "event_variant", label: "event_variant" },
+          { key: "event_name", label: "event_name" },
         ],
-        rows: [{ variant_id: "credits", event_variant: "credits" }],
+        rows: [{ variant_id: "credits", event_name: "run_started" }],
       },
     });
   });

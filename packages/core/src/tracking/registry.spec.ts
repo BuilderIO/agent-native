@@ -247,7 +247,7 @@ describe("tracking registry", () => {
     });
   });
 
-  it("does not tag v1 or anonymous events before the v2 flag is exposed", async () => {
+  it("keeps unassigned events joinable without reading the arm on every run", async () => {
     const events = captureEvents();
 
     await runWithRequestContext(
@@ -259,8 +259,10 @@ describe("tracking registry", () => {
     );
 
     expect(events).toHaveLength(2);
+    expect(events[0]?.properties?.auth_user_id).toBe("better-auth-user-1");
     expect(events[0]?.properties).not.toHaveProperty("experiment_id");
     expect(events[1]?.properties).not.toHaveProperty("experiment_id");
+    expect(mockExperimentAssignments.getAssignment).not.toHaveBeenCalled();
   });
 
   it("derives experiment exposure only from the authenticated request id", async () => {

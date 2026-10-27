@@ -256,7 +256,6 @@ import {
   getMcpDirectoryWidgetResourceUri,
 } from "../mcp/build-server.js";
 import { preferMcpAppActions } from "../mcp/framework-tools.js";
-import { hydrateFirstRunBuilderCreditsV2ForTracking } from "../onboarding/first-run-builder-credits-experiment.js";
 import { setProgressPreListHook } from "../progress/store.js";
 import { getSkillNameFromPath } from "../resources/metadata.js";
 import {
@@ -5542,7 +5541,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             runCtx.threadId = threadId;
             runCtx.runId = runId;
           }
-          await hydrateFirstRunBuilderCreditsV2ForTracking();
           trackAgentChatRunStarted(
             threadId,
             runId,
@@ -5631,7 +5629,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   runCtx.threadId = threadId;
                   runCtx.runId = runId;
                 }
-                await hydrateFirstRunBuilderCreditsV2ForTracking();
                 trackAgentChatRunStarted(
                   threadId,
                   runId,
@@ -5886,7 +5883,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               runCtx.threadId = threadId;
               runCtx.runId = runId;
             }
-            await hydrateFirstRunBuilderCreditsV2ForTracking();
             trackAgentChatRunStarted(
               threadId,
               runId,

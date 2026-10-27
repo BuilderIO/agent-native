@@ -8,7 +8,6 @@ import {
 } from "@agent-native/core/application-state";
 import { emit } from "@agent-native/core/event-bus";
 import { uploadFile } from "@agent-native/core/file-upload";
-import { hydrateFirstRunBuilderCreditsV2ForTracking } from "@agent-native/core/onboarding/first-run-builder-credits-experiment";
 import {
   captureError,
   captureRouteError,
@@ -1230,7 +1229,6 @@ async function markRecordingReady(params: {
     seekableApplied,
   });
 
-  await hydrateFirstRunBuilderCreditsV2ForTracking();
   track(
     "recording_ready",
     {

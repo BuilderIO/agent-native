@@ -1,5 +1,3 @@
-import { hydrateFirstRunBuilderCreditsV2ForTracking } from "@agent-native/core/onboarding/first-run-builder-credits-experiment";
-
 import {
   generationAttemptIdOf,
   promptLengthBucket,
@@ -172,7 +170,6 @@ export async function trackDeckCreated(
   },
   source: TrackingSource,
 ): Promise<void> {
-  await hydrateFirstRunBuilderCreditsV2ForTracking();
   const generationAttemptId = generationAttemptIdOf(
     properties.generationContext,
   );

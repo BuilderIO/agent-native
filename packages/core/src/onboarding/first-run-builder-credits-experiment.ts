@@ -110,15 +110,3 @@ export async function loadFirstRunBuilderCreditsV2Assignment(): Promise<FirstRun
   setRequestAssignment(assignment);
   return assignment;
 }
-
-/** Best-effort hydration before tracking; assignment storage cannot block its event source. */
-export async function hydrateFirstRunBuilderCreditsV2ForTracking(): Promise<void> {
-  try {
-    await loadFirstRunBuilderCreditsV2Assignment();
-  } catch (error) {
-    const errorName = error instanceof Error ? error.name : "unknown_error";
-    console.warn(
-      `[tracking] Could not load the first-run Builder credits assignment (${errorName}).`,
-    );
-  }
-}
