@@ -1895,19 +1895,27 @@ describe("execute Builder source execution", () => {
     expect(values).not.toHaveProperty("data.blocks");
   });
 
-  it("settles a staged publish or unpublish only when the push sends it", () => {
+  it("settles a staged publish or unpublish the push sends or sends the other transition over", () => {
     const existingSourceValuesJson = JSON.stringify(
       withBuilderCmsPublicationIntent(
         { published: "draft", "data.title": "Old title" },
         "publish",
       ),
     );
-    const reconciled = (effect: string) =>
+    const reconciled = (
+      effect: string,
+      stagedPublicationTransition?: "publish" | "unpublish",
+    ) =>
       JSON.parse(
         builderCmsReconciledSourceValuesJson({
           existingSourceValuesJson,
           snapshotSourceValues: undefined,
-          changeSet: changeSet({ pushMode: "publish" }),
+          changeSet: {
+            ...changeSet({ pushMode: "publish" }),
+            ...(stagedPublicationTransition
+              ? { stagedPublicationTransition }
+              : {}),
+          },
           plan: {
             payload: { effect, request: { body: {} } },
           } as unknown as Parameters<
@@ -1919,12 +1927,16 @@ describe("execute Builder source execution", () => {
     expect(reconciled("publish")).not.toHaveProperty(
       BUILDER_CMS_PUBLICATION_INTENT_KEY,
     );
-    // A push that sends the other transition, or neither, keeps the staged
-    // change for a later push.
+    // The review saw the staged publish and sent an unpublish instead.
+    expect(reconciled("unpublish", "publish")).not.toHaveProperty(
+      BUILDER_CMS_PUBLICATION_INTENT_KEY,
+    );
+    // A publish staged after the unpublish started, or left out of a push
+    // that sends no transition, waits for a later push.
     expect(reconciled("unpublish")).toMatchObject({
       [BUILDER_CMS_PUBLICATION_INTENT_KEY]: "publish",
     });
-    expect(reconciled("update_in_place")).toMatchObject({
+    expect(reconciled("update_in_place", "publish")).toMatchObject({
       [BUILDER_CMS_PUBLICATION_INTENT_KEY]: "publish",
     });
   });

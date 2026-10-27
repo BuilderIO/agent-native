@@ -495,11 +495,15 @@ export function builderCmsReconciledSourceValuesJson(args: {
     ...parseSourceValues(args.existingSourceValuesJson),
   };
   const effect = args.plan.payload.effect;
-  // A push settles only the staged change it sent. One staged while it was
-  // in flight, or left out of its review, still waits for a push.
+  // A push settles the staged change it sent, and the one it started with
+  // when it sent the other transition instead. One staged while it was in
+  // flight, or left out of its review, still waits for a push.
   const staged = readBuilderCmsPublicationIntent(existing);
   const next =
-    staged.state === "staged" && staged.transition === effect
+    staged.state === "staged" &&
+    (staged.transition === effect ||
+      ((effect === "publish" || effect === "unpublish") &&
+        staged.transition === args.changeSet.stagedPublicationTransition))
       ? withBuilderCmsPublicationIntent(existing, null)
       : { ...existing };
   const published = builderCmsPublishedAfterWrite({
