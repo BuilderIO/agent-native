@@ -11,6 +11,7 @@ import {
   formatSeriesLabelForPanel,
   reorderColumnConfigs,
   sortTableRows,
+  type TableSort,
 } from "./SqlChart";
 
 describe("SqlChart table helpers", () => {
@@ -160,6 +161,17 @@ describe("SqlChart table helpers", () => {
         (row) => row.day,
       ),
     ).toEqual(["12 Jan", "28 Feb", "3 Feb"]);
+  });
+
+  it("uses the number columns a caller passes in", () => {
+    const prs = ["12 PRs", "3 PRs"].map((open) => ({ open }));
+    const sorts: TableSort[] = [{ key: "open", direction: "asc" }];
+    expect(
+      sortTableRows(prs, sorts, [], new Set(["open"])).map((row) => row.open),
+    ).toEqual(["3 PRs", "12 PRs"]);
+    expect(
+      sortTableRows(prs, sorts, [], new Set()).map((row) => row.open),
+    ).toEqual(["12 PRs", "3 PRs"]);
   });
 
   it("sorts unparseable values after numeric ones in a mixed column, regardless of direction", () => {
