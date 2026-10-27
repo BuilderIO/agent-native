@@ -1146,6 +1146,60 @@ describe("calendar event rules sweep", () => {
     expect(mocks.rsvpEvent).not.toHaveBeenCalled();
   });
 
+  it("defers an RSVP when another RSVP rule has an incomplete result", async () => {
+    configureOwnerSweep({
+      rules: {
+        accept: "Accept planning meetings",
+        decline: "Decline planning meetings",
+      },
+    });
+    mocks.decide.mockResolvedValueOnce({
+      ...decision(1),
+      answers: {
+        event_0_0: {
+          type: "predicate",
+          name: "event_0_0",
+          probability: 1,
+        },
+      },
+      questionFailures: { event_0_1: "invalid_response" },
+    });
+
+    await expect(runCalendarEventRulesOnce()).rejects.toMatchObject({
+      name: "AggregateError",
+    });
+
+    expect(mocks.getEvent).not.toHaveBeenCalled();
+    expect(mocks.rsvpEvent).not.toHaveBeenCalled();
+  });
+
+  it("allows a classified RSVP when only a hide rule result is incomplete", async () => {
+    configureOwnerSweep({
+      rules: {
+        accept: "Accept planning meetings",
+        hide: "Hide planning meetings",
+      },
+    });
+    mocks.decide.mockResolvedValueOnce({
+      ...decision(1),
+      answers: {
+        event_0_0: {
+          type: "predicate",
+          name: "event_0_0",
+          probability: 1,
+        },
+      },
+      questionFailures: { event_0_1: "invalid_response" },
+    });
+
+    await expect(runCalendarEventRulesOnce()).rejects.toMatchObject({
+      name: "AggregateError",
+    });
+
+    expect(mocks.rsvpEvent).toHaveBeenCalledTimes(1);
+    expect(mocks.rsvpEvent.mock.calls[0]?.[1]).toBe("accepted");
+  });
+
   it("keeps failed invitations pending while processing healthy later batches", async () => {
     const events = Array.from({ length: 11 }, (_, index) => ({
       id: `event-${index + 1}`,

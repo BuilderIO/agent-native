@@ -174,10 +174,18 @@ async function evaluate(
     return {
       decisions: new Map<string, Set<string>>(),
       failedEventIds: new Set<string>(),
+      failedRsvpEventIds: new Set<string>(),
     };
   }
   const decisions = new Map<string, Set<string>>();
   const failedEventIds = new Set<string>();
+  const failedRsvpEventIds = new Set<string>();
+  const recordFailure = (eventId: string, action: string) => {
+    failedEventIds.add(eventId);
+    if (action === "accept" || action === "decline") {
+      failedRsvpEventIds.add(eventId);
+    }
+  };
   for (let offset = 0; offset < events.length; offset += EVENT_BATCH_SIZE) {
     const batch = events.slice(offset, offset + EVENT_BATCH_SIZE);
     const entries: Array<{
@@ -218,12 +226,12 @@ async function evaluate(
       });
     } catch {
       signal?.throwIfAborted();
-      for (const event of batch) failedEventIds.add(event.id);
+      for (const entry of entries) recordFailure(entry.eventId, entry.action);
       continue;
     }
     signal?.throwIfAborted();
     if (result.status !== "ok") {
-      for (const event of batch) failedEventIds.add(event.id);
+      for (const entry of entries) recordFailure(entry.eventId, entry.action);
       continue;
     }
     for (const entry of entries) {
@@ -233,7 +241,7 @@ async function evaluate(
         answer.type !== "predicate" ||
         result.questionFailures?.[entry.name] !== undefined
       ) {
-        failedEventIds.add(entry.eventId);
+        recordFailure(entry.eventId, entry.action);
         continue;
       }
       if (answer.probability >= 0.8) {
@@ -243,7 +251,7 @@ async function evaluate(
       }
     }
   }
-  return { decisions, failedEventIds };
+  return { decisions, failedEventIds, failedRsvpEventIds };
 }
 
 async function persistEventRuleActivity(
@@ -592,6 +600,10 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
           );
         }),
       );
+      if (evaluation.failedRsvpEventIds.has(event.id)) {
+        actions.delete("accept");
+        actions.delete("decline");
+      }
       const failedEvaluation = evaluation.failedEventIds.has(event.id);
       let markProcessed = !failedEvaluation;
       if (actions.has("accept") && actions.has("decline")) {
