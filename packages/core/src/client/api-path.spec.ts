@@ -153,6 +153,19 @@ describe("agentNativePath", () => {
     );
   });
 
+  it("falls back to the configured app path when the external target has no workspace mount", () => {
+    vi.stubEnv("VITE_APP_BASE_PATH", "/deck");
+    vi.stubGlobal("window", {
+      location: { pathname: "srcdoc" },
+      __AGENT_NATIVE_EXTERNAL_EMBED: { target: "/deck/reports" },
+    });
+
+    expect(appBasePath()).toBe("/deck");
+    expect(agentNativePath("/_agent-native/agent-engine/status")).toBe(
+      "/deck/_agent-native/agent-engine/status",
+    );
+  });
+
   it("uses the external embed target's explicit root workspace mount", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     vi.stubGlobal("window", {
@@ -165,9 +178,9 @@ describe("agentNativePath", () => {
       __AGENT_NATIVE_EXTERNAL_EMBED: { target: "/deck/reports" },
     });
 
-    expect(appBasePath()).toBe("");
+    expect(appBasePath()).toBe("/deck");
     expect(agentNativePath("/_agent-native/agent-engine/status")).toBe(
-      "/_agent-native/agent-engine/status",
+      "/deck/_agent-native/agent-engine/status",
     );
   });
 

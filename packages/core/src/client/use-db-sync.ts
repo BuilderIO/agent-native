@@ -1830,7 +1830,7 @@ export function useDbSync(
       tool: string,
       completedSideEffect: boolean,
       failed: boolean,
-      tabId?: string,
+      browserTabId?: string,
     ) => {
       const events: SyncEvent[] = [];
       if (completedSideEffect) {
@@ -1839,7 +1839,7 @@ export function useDbSync(
       if (tool === "navigate" && completedSideEffect) {
         events.push({
           source: "app-state",
-          key: tabId ? `navigate:${tabId}` : "navigate",
+          key: browserTabId ? `navigate:${browserTabId}` : "navigate",
           version: 0,
         });
       }
@@ -1892,6 +1892,7 @@ export function useDbSync(
           completedSideEffect?: unknown;
           isError?: unknown;
           tabId?: unknown;
+          browserTabId?: unknown;
         }>
       ).detail;
       if (typeof detail?.tool !== "string") return;
@@ -1901,7 +1902,9 @@ export function useDbSync(
         tool,
         completedSideEffect,
         detail.isError === true,
-        typeof detail.tabId === "string" ? detail.tabId : undefined,
+        typeof detail.browserTabId === "string"
+          ? detail.browserTabId
+          : getBrowserTabId(),
       );
       if (events.length === 0) return;
       if (completedSideEffect) {
@@ -1922,7 +1925,11 @@ export function useDbSync(
     };
     const handleRunStatus = (event: Event) => {
       const detail = (
-        event as CustomEvent<{ isRunning?: unknown; tabId?: unknown }>
+        event as CustomEvent<{
+          isRunning?: unknown;
+          tabId?: unknown;
+          browserTabId?: unknown;
+        }>
       ).detail;
       if (detail?.isRunning === true) {
         const tabId =
@@ -1943,7 +1950,14 @@ export function useDbSync(
       applyRunEvents(
         event,
         [...tools].flatMap(([tool, failed]) =>
-          eventsForTool(tool, true, failed, tabId),
+          eventsForTool(
+            tool,
+            true,
+            failed,
+            typeof detail.browserTabId === "string"
+              ? detail.browserTabId
+              : getBrowserTabId(),
+          ),
         ),
         processedRunEndEvents,
       );

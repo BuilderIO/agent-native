@@ -238,7 +238,9 @@ export function configureClientRouterBasename(): boolean {
   return true;
 }
 
-export function resolveExternalEmbedTargetAppBasePath(target: string): string {
+export function resolveExternalEmbedTargetAppBasePath(
+  target: string,
+): string | undefined {
   const mounts = workspaceAppMountPaths();
   return resolveExternalEmbedTargetBasePath(target, {
     workspaceRuntime: isWorkspaceRuntime(),

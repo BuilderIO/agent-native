@@ -74,7 +74,7 @@ describe("MCP app widget embed boot storage", () => {
         workspaceAppPath: "/",
         workspaceAppMountPaths: ["/deck"],
       }),
-    ).toBe("");
+    ).toBe("/deck");
     expect(
       resolveExternalEmbedTargetBasePath("/mail/inbox/threads", {
         workspaceRuntime: true,
@@ -93,6 +93,10 @@ describe("MCP app widget embed boot storage", () => {
         workspaceAppMountPaths: ["/mail/inbox"],
       }),
     ).toBe("/mail");
+  });
+
+  it("leaves a non-workspace external target unresolved", () => {
+    expect(resolveExternalEmbedTargetBasePath("/deck/reports")).toBeUndefined();
   });
 
   it("reads bridge state only from the current workspace app mount", () => {

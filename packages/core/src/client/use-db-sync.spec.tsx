@@ -268,7 +268,8 @@ describe("useDbSync", () => {
           detail: {
             tool: "navigate",
             completedSideEffect: true,
-            tabId: "tab-a",
+            tabId: "chat-tab-a",
+            browserTabId: "browser-tab-a",
           },
         }),
       );
@@ -276,10 +277,14 @@ describe("useDbSync", () => {
     });
 
     const keys = invalidatedQueryKeys(queryClient.calls);
-    expect(keys).toContainEqual(["navigate-command", "tab-a"]);
+    expect(keys).toContainEqual(["navigate-command", "browser-tab-a"]);
+    expect(keys).not.toContainEqual(["navigate-command", "chat-tab-a"]);
     expect(keys).not.toContainEqual(["navigate-command"]);
     expect(observedEvents).toContainEqual(
-      expect.objectContaining({ source: "app-state", key: "navigate:tab-a" }),
+      expect.objectContaining({
+        source: "app-state",
+        key: "navigate:browser-tab-a",
+      }),
     );
     expect(fetchMock).not.toHaveBeenCalled();
   });

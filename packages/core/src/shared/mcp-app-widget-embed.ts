@@ -57,7 +57,6 @@ export function resolveWorkspaceAppMountPath(
   ) {
     return fallbackPath;
   }
-  if (explicitRootPath) return "";
 
   const matchingMount = (
     Array.isArray(options.workspaceAppMountPaths)
@@ -68,7 +67,9 @@ export function resolveWorkspaceAppMountPath(
     .map(normalize)
     .filter((basePath) => matches(basePath))
     .sort((left, right) => right.length - left.length)[0];
-  return matchingMount || fallbackPath || undefined;
+  if (matchingMount) return matchingMount;
+  if (explicitRootPath) return "";
+  return fallbackPath || undefined;
 }
 
 export function resolveExternalEmbedTargetBasePath(
@@ -77,8 +78,8 @@ export function resolveExternalEmbedTargetBasePath(
     frameworkRoutePrefix?: string;
     workspaceRuntime?: boolean;
   } = {},
-): string {
-  if (typeof target !== "string" || !target.startsWith("/")) return "";
+): string | undefined {
+  if (typeof target !== "string" || !target.startsWith("/")) return undefined;
 
   const url = new URL(target, "http://agent-native.invalid");
   const markers = [
@@ -98,7 +99,7 @@ export function resolveExternalEmbedTargetBasePath(
       }
     }
   }
-  if (!options.workspaceRuntime) return "";
+  if (!options.workspaceRuntime) return undefined;
 
   const segment = url.pathname.split("/").find(Boolean);
   const frameworkRoutePrefix = options.frameworkRoutePrefix || "/_agent-native";
@@ -109,12 +110,10 @@ export function resolveExternalEmbedTargetBasePath(
     segment !== "api"
       ? `/${segment}`
       : "";
-  return (
-    resolveWorkspaceAppMountPath(url.pathname, {
-      ...options,
-      fallbackPath,
-    }) ?? fallbackPath
-  );
+  return resolveWorkspaceAppMountPath(url.pathname, {
+    ...options,
+    fallbackPath,
+  });
 }
 
 function normalizedStorageBasePath(basePath: string | undefined): string {
