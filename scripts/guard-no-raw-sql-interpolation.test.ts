@@ -207,6 +207,20 @@ describe("raw SQL interpolation guard", () => {
     ).toEqual([2, 3]);
   });
 
+  it("tracks SQL passed through a variable argument list to apply", () => {
+    const text = source([
+      "const database = getDbExec();",
+      "const args = [`SELECT * FROM records WHERE id = ${recordId}`];",
+      "database.execute.apply(database, args);",
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolations(FILE, text, new Set([2, 3])).map(
+        (finding) => finding.line,
+      ),
+    ).toEqual([2]);
+  });
+
   it("recognizes awaited createDbExec results as SQL sinks", () => {
     const text = source([
       'import { createDbExec } from "./db/client.js";',
@@ -236,6 +250,18 @@ describe("raw SQL interpolation guard", () => {
       'import type { DbExec } from "./db/client.js";',
       "declare const transaction: DbExec;",
       "transaction.execute(`SELECT * FROM records WHERE id = ${recordId}`);",
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolations(FILE, text, new Set([3])),
+    ).toHaveLength(1);
+  });
+
+  it("recognizes optional execute calls on union-typed DbExec values", () => {
+    const text = source([
+      'import type { DbExec } from "./db/client.js";',
+      "declare const transaction: DbExec | undefined;",
+      "transaction?.execute(`SELECT * FROM records WHERE id = ${recordId}`);",
     ]);
 
     expect(
@@ -781,6 +807,40 @@ describe("raw SQL interpolation guard", () => {
     ]);
   });
 
+  it("re-traces a nested wrapper used at multiple call sites", () => {
+    const wrapperFile = "packages/core/src/sql-helpers.ts";
+    const storeFile = "packages/core/src/store.ts";
+    const wrapper = [
+      'import { getDbExec } from "./db/client.js";',
+      "function executeQuery(query: string) {",
+      "  getDbExec().execute({ sql: query, args: [] });",
+      "}",
+      "export function runQuery(query: string) {",
+      '  executeQuery("fixed SQL");',
+      "  executeQuery(query);",
+      "}",
+    ].join("\n");
+    const store = [
+      'import { runQuery } from "./sql-helpers.js";',
+      "runQuery(`SELECT * FROM records WHERE id = ${recordId}`);",
+    ].join("\n");
+
+    expect(
+      findRawSqlInterpolationViolationsInSources(
+        new Map([
+          [wrapperFile, { source: wrapper, addedLines: new Set<number>() }],
+          [storeFile, { source: store, addedLines: new Set([2]) }],
+        ]),
+      ),
+    ).toEqual([
+      {
+        file: storeFile,
+        line: 2,
+        snippet: "runQuery(`SELECT * FROM records WHERE id = ${recordId}`);",
+      },
+    ]);
+  });
+
   it("traces namespace element calls through re-exported wrappers", () => {
     const wrapperFile = "packages/core/src/sql-helpers.ts";
     const executorFile = "packages/core/src/query-executor.ts";
@@ -976,6 +1036,22 @@ describe("raw SQL interpolation guard", () => {
     ]);
   });
 
+  it("traces generic SQL helpers constrained to string", () => {
+    const helper = source([
+      "export function passthrough<T extends string>(value: T) {",
+      "  return value;",
+      "}",
+      "database.execute(`SELECT * FROM records WHERE id = ${passthrough(recordId)}`);",
+    ]);
+
+    expect(findChangedSqlHelperExports(helper, FILE, new Set([2]))).toEqual(
+      new Set(["passthrough"]),
+    );
+    expect(
+      findRawSqlInterpolationViolations(FILE, helper, new Set([2])),
+    ).toHaveLength(1);
+  });
+
   it("traces SQL passed through the PostgreSQL placeholder formatter", () => {
     const formatterFile = "packages/core/src/db/client.ts";
     const storeFile = "packages/core/src/store.ts";
@@ -1073,6 +1149,34 @@ describe("raw SQL interpolation guard", () => {
         },
       ],
     );
+  });
+
+  it("rechecks a sink when its raw-sql pragma was removed", () => {
+    const text = source([
+      "database.execute(`SELECT * FROM records WHERE id = ${recordId}`);",
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolationsInSources(
+        new Map([
+          [
+            FILE,
+            {
+              source: text,
+              addedLines: new Set<number>(),
+              removedPragmaLines: new Set([1]),
+            },
+          ],
+        ]),
+      ),
+    ).toEqual([
+      {
+        file: FILE,
+        line: 1,
+        snippet:
+          "database.execute(`SELECT * FROM records WHERE id = ${recordId}`);",
+      },
+    ]);
   });
 
   it("checks an overloaded SQL helper implementation before its alias", () => {

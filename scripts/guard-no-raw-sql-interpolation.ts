@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url";
 
 import ts from "typescript";
 
-import { requireAddedLines } from "./lib/changed-lines.mjs";
+import { removedLines, requireAddedLines } from "./lib/changed-lines.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const sourceExtension = /\.[cm]?[jt]sx?$/;
@@ -77,8 +77,11 @@ function executeArgument(
     isExecuteMethodWrapper(call.expression, "apply", checker, sourceFile)
   ) {
     const args = call.arguments[1];
-    argument =
-      args && ts.isArrayLiteralExpression(args) ? args.elements[0] : undefined;
+    argument = args
+      ? ts.isArrayLiteralExpression(args)
+        ? args.elements[0]
+        : args
+      : undefined;
   } else {
     argument = call.arguments[0];
   }
@@ -656,6 +659,11 @@ function isDbExecType(
   checker: ts.TypeChecker,
   sourceFile: ts.SourceFile,
 ): boolean {
+  if (ts.isUnionTypeNode(type)) {
+    return type.types.some((member) =>
+      isDbExecType(member, checker, sourceFile),
+    );
+  }
   if (isImportedDbExecType(type, checker, sourceFile)) return true;
   if (
     !ts.isTypeReferenceNode(type) ||
@@ -1732,12 +1740,22 @@ function isStringLikeType(
   expression: ts.Expression,
   checker: ts.TypeChecker,
 ): boolean {
-  return mayBeStringType(checker.getTypeAtLocation(expression));
+  return mayBeStringType(checker.getTypeAtLocation(expression), checker);
 }
 
-function mayBeStringType(type: ts.Type, seen = new Set<ts.Type>()): boolean {
+function mayBeStringType(
+  type: ts.Type,
+  checker: ts.TypeChecker,
+  seen = new Set<ts.Type>(),
+): boolean {
   if (seen.has(type)) return false;
   seen.add(type);
+  if ((type.flags & ts.TypeFlags.TypeParameter) !== 0) {
+    const constraint = checker.getBaseConstraintOfType(type);
+    return (
+      constraint !== undefined && mayBeStringType(constraint, checker, seen)
+    );
+  }
   if (
     (type.flags &
       (ts.TypeFlags.StringLike | ts.TypeFlags.Any | ts.TypeFlags.Unknown)) !==
@@ -1747,7 +1765,7 @@ function mayBeStringType(type: ts.Type, seen = new Set<ts.Type>()): boolean {
   }
   return (
     type.isUnionOrIntersection() &&
-    type.types.some((member) => mayBeStringType(member, seen))
+    type.types.some((member) => mayBeStringType(member, checker, seen))
   );
 }
 
@@ -1755,7 +1773,7 @@ function isPotentialStringType(
   expression: ts.Expression,
   checker: ts.TypeChecker,
 ): boolean {
-  return mayBeStringType(checker.getTypeAtLocation(expression));
+  return mayBeStringType(checker.getTypeAtLocation(expression), checker);
 }
 
 function isStaticStringExpression(expression: ts.Expression): boolean {
@@ -1937,7 +1955,8 @@ function findUnsafeSqlSources(
             );
             if (
               isPotentialStringType(current, analysis.checker) &&
-              (!elementType || mayBeStringType(elementType)) &&
+              (!elementType ||
+                mayBeStringType(elementType, analysis.checker)) &&
               !isStaticSqlValue(assignment.expression)
             ) {
               sources.add(assignment.node);
@@ -2237,109 +2256,121 @@ function executeWrapperArgumentIndexes(
   analysis: SqlAnalysis,
 ): number[] {
   const indexes = new Set<number>();
-  const visitedFunctions = new Set<ts.Node>();
+  const activeFunctions = new Set<ts.Node>();
+  const tracedFunctions = new Map<ts.Node, ReadonlySet<number>>();
 
   const traceWrapper = (
     declaration: ts.FunctionLikeDeclaration,
     wrapperAnalysis: SqlAnalysis,
   ): Set<number> => {
-    if (!declaration.body || visitedFunctions.has(declaration)) {
+    const cached = tracedFunctions.get(declaration);
+    if (cached) return new Set(cached);
+    if (!declaration.body || activeFunctions.has(declaration)) {
       return new Set();
     }
-    visitedFunctions.add(declaration);
+    activeFunctions.add(declaration);
 
-    const parameterIndexes = new Map<ts.Node, number>();
-    declaration.parameters.forEach((parameter, index) => {
-      if (!ts.isIdentifier(parameter.name)) return;
-      const parameterSymbol = wrapperAnalysis.checker.getSymbolAtLocation(
-        parameter.name,
-      );
-      if (parameterSymbol?.valueDeclaration) {
-        parameterIndexes.set(parameterSymbol.valueDeclaration, index);
+    try {
+      const parameterIndexes = new Map<ts.Node, number>();
+      declaration.parameters.forEach((parameter, index) => {
+        if (!ts.isIdentifier(parameter.name)) return;
+        const parameterSymbol = wrapperAnalysis.checker.getSymbolAtLocation(
+          parameter.name,
+        );
+        if (parameterSymbol?.valueDeclaration) {
+          parameterIndexes.set(parameterSymbol.valueDeclaration, index);
+        }
+      });
+      if (parameterIndexes.size === 0) {
+        tracedFunctions.set(declaration, new Set());
+        return new Set();
       }
-    });
-    if (parameterIndexes.size === 0) return new Set();
 
-    const indexesForExpression = (expression: ts.Expression): Set<number> => {
-      const indexes = new Set<number>();
-      const current = ts.isSpreadElement(expression)
-        ? expression.expression
-        : unwrapExecuteExpression(expression);
-      if (ts.isIdentifier(current)) {
-        const symbol = wrapperAnalysis.checker.getSymbolAtLocation(current);
-        const declaration = symbol?.valueDeclaration;
-        const index = declaration && parameterIndexes.get(declaration);
-        if (index !== undefined) indexes.add(index);
-      }
-      for (const source of findUnsafeSqlSources(
-        current,
-        wrapperAnalysis,
-        new Set(),
-        new Set(),
-        true,
-      )) {
-        const index = parameterIndexes.get(source);
-        if (index !== undefined) indexes.add(index);
-      }
-      return indexes;
-    };
+      const indexesForExpression = (expression: ts.Expression): Set<number> => {
+        const indexes = new Set<number>();
+        const current = ts.isSpreadElement(expression)
+          ? expression.expression
+          : unwrapExecuteExpression(expression);
+        if (ts.isIdentifier(current)) {
+          const symbol = wrapperAnalysis.checker.getSymbolAtLocation(current);
+          const declaration = symbol?.valueDeclaration;
+          const index = declaration && parameterIndexes.get(declaration);
+          if (index !== undefined) indexes.add(index);
+        }
+        for (const source of findUnsafeSqlSources(
+          current,
+          wrapperAnalysis,
+          new Set(),
+          new Set(),
+          true,
+        )) {
+          const index = parameterIndexes.get(source);
+          if (index !== undefined) indexes.add(index);
+        }
+        return indexes;
+      };
 
-    const forwarded = new Set<number>();
-    const visit = (node: ts.Node) => {
-      if (ts.isCallExpression(node)) {
-        if (
-          isExecuteCall(
-            node.expression,
-            wrapperAnalysis.checker,
-            node.getSourceFile(),
-            wrapperAnalysis.executeAliases,
-          )
-        ) {
-          const argument = executeArgument(
-            node,
-            wrapperAnalysis.checker,
-            node.getSourceFile(),
-          );
-          if (argument) {
-            for (const index of indexesForExpression(argument)) {
-              forwarded.add(index);
+      const forwarded = new Set<number>();
+      const visit = (node: ts.Node) => {
+        if (ts.isCallExpression(node)) {
+          if (
+            isExecuteCall(
+              node.expression,
+              wrapperAnalysis.checker,
+              node.getSourceFile(),
+              wrapperAnalysis.executeAliases,
+            )
+          ) {
+            const argument = executeArgument(
+              node,
+              wrapperAnalysis.checker,
+              node.getSourceFile(),
+            );
+            if (argument) {
+              for (const index of indexesForExpression(argument)) {
+                forwarded.add(index);
+              }
             }
-          }
-        } else {
-          const nestedDeclarations = callableDeclarations(
-            node,
-            wrapperAnalysis,
-          );
-          for (const nestedDeclaration of nestedDeclarations) {
-            const nestedAnalysis =
-              wrapperAnalysis.relatedAnalyses?.get(
-                nestedDeclaration.getSourceFile(),
-              ) ?? wrapperAnalysis;
-            for (const nestedIndex of traceWrapper(
-              nestedDeclaration,
-              nestedAnalysis,
-            )) {
-              const nestedParameter = nestedDeclaration.parameters[nestedIndex];
-              const nestedArgumentIndexes = nestedParameter?.dotDotDotToken
-                ? node.arguments.flatMap((_, index) =>
-                    index >= nestedIndex ? [index] : [],
-                  )
-                : [nestedIndex];
-              for (const argumentIndex of nestedArgumentIndexes) {
-                const argument = node.arguments[argumentIndex];
-                if (!argument) continue;
-                for (const index of indexesForExpression(argument)) {
-                  forwarded.add(index);
+          } else {
+            const nestedDeclarations = callableDeclarations(
+              node,
+              wrapperAnalysis,
+            );
+            for (const nestedDeclaration of nestedDeclarations) {
+              const nestedAnalysis =
+                wrapperAnalysis.relatedAnalyses?.get(
+                  nestedDeclaration.getSourceFile(),
+                ) ?? wrapperAnalysis;
+              for (const nestedIndex of traceWrapper(
+                nestedDeclaration,
+                nestedAnalysis,
+              )) {
+                const nestedParameter =
+                  nestedDeclaration.parameters[nestedIndex];
+                const nestedArgumentIndexes = nestedParameter?.dotDotDotToken
+                  ? node.arguments.flatMap((_, index) =>
+                      index >= nestedIndex ? [index] : [],
+                    )
+                  : [nestedIndex];
+                for (const argumentIndex of nestedArgumentIndexes) {
+                  const argument = node.arguments[argumentIndex];
+                  if (!argument) continue;
+                  for (const index of indexesForExpression(argument)) {
+                    forwarded.add(index);
+                  }
                 }
               }
             }
           }
         }
-      }
-      ts.forEachChild(node, visit);
-    };
-    visit(declaration.body);
-    return forwarded;
+        ts.forEachChild(node, visit);
+      };
+      visit(declaration.body);
+      tracedFunctions.set(declaration, new Set(forwarded));
+      return forwarded;
+    } finally {
+      activeFunctions.delete(declaration);
+    }
   };
 
   for (const declaration of callableDeclarations(call, analysis)) {
@@ -2400,6 +2431,7 @@ function hasPragma(node: ts.Node): boolean {
 export interface RawSqlGuardSource {
   source: string;
   addedLines: ReadonlySet<number>;
+  removedPragmaLines?: ReadonlySet<number>;
 }
 
 interface ImportedSqlCallTarget {
@@ -2599,7 +2631,7 @@ export function findRawSqlInterpolationViolationsInSources(
 ): RawSqlInterpolationFinding[] {
   const sourceFiles = new Map<string, ts.SourceFile>();
   const sources = new Map<string, string>();
-  const addedByPath = new Map<string, readonly number[]>();
+  const affectedByPath = new Map<string, readonly number[]>();
   const linesByPath = new Map<string, string[]>();
 
   for (const [file, input] of inputs) {
@@ -2636,9 +2668,11 @@ export function findRawSqlInterpolationViolationsInSources(
 
     sourceFiles.set(absoluteFile, sourceFile);
     sources.set(absoluteFile, input.source);
-    addedByPath.set(
+    affectedByPath.set(
       absoluteFile,
-      [...input.addedLines].sort((left, right) => left - right),
+      [
+        ...new Set([...input.addedLines, ...(input.removedPragmaLines ?? [])]),
+      ].sort((left, right) => left - right),
     );
   }
 
@@ -2665,31 +2699,31 @@ export function findRawSqlInterpolationViolationsInSources(
     linesByPath.set(filePath, lines);
     return lines;
   };
-  const touchesAddedLines = (node: ts.Node) => {
+  const touchesChangedLines = (node: ts.Node) => {
     const sourceFile = node.getSourceFile();
-    const addedLines = addedByPath.get(path.resolve(sourceFile.fileName));
-    if (!addedLines || addedLines.length === 0) return false;
+    const affectedLines = affectedByPath.get(path.resolve(sourceFile.fileName));
+    if (!affectedLines || affectedLines.length === 0) return false;
     const startLine = lineNumberAt(sourceFile, node.getStart(sourceFile));
     const endLine = lineNumberAt(sourceFile, node.end);
     let lower = 0;
-    let upper = addedLines.length;
+    let upper = affectedLines.length;
     while (lower < upper) {
       const middle = Math.floor((lower + upper) / 2);
-      const line = addedLines[middle];
+      const line = affectedLines[middle];
       if (line !== undefined && line < startLine) lower = middle + 1;
       else upper = middle;
     }
-    const firstLine = addedLines[lower];
+    const firstLine = affectedLines[lower];
     return firstLine !== undefined && firstLine <= endLine;
   };
 
-  const reportIfAdded = (node: ts.Node) => {
+  const reportIfChanged = (node: ts.Node) => {
     const sourceFile = node.getSourceFile();
     const startLine = lineNumberAt(sourceFile, node.getStart(sourceFile));
     const endLine = lineNumberAt(sourceFile, node.end);
     const filePath = path.resolve(sourceFile.fileName);
     const lines = linesFor(sourceFile);
-    if (!touchesAddedLines(node) || hasPragma(node)) return;
+    if (!touchesChangedLines(node) || hasPragma(node)) return;
     const file = path.relative(rootDir, filePath).replace(/\\/g, "/");
     const key = `${file}:${startLine}`;
     if (reportedLines.has(key)) return;
@@ -2730,18 +2764,18 @@ export function findRawSqlInterpolationViolationsInSources(
     if (
       (ts.isTemplateExpression(directValue) ||
         ts.isTaggedTemplateExpression(directValue)) &&
-      touchesAddedLines(directValue)
+      touchesChangedLines(directValue)
     ) {
-      reportIfAdded(directValue);
+      reportIfChanged(directValue);
       return;
     }
 
-    const changedSources = [...unsafeSources].filter(touchesAddedLines);
+    const changedSources = [...unsafeSources].filter(touchesChangedLines);
     if (changedSources.length === 0) {
-      reportIfAdded(sink);
+      reportIfChanged(sink);
       return;
     }
-    for (const source of changedSources) reportIfAdded(source);
+    for (const source of changedSources) reportIfChanged(source);
   };
 
   for (const sourceFile of sourceFiles.values()) {
@@ -2775,8 +2809,8 @@ export function findRawSqlInterpolationViolationsInSources(
           analysis.executeAliases,
         )
       ) {
-        const hasAddedSqlSource =
-          touchesAddedLines(node) ||
+        const hasChangedSqlSource =
+          touchesChangedLines(node) ||
           node.arguments.some((argument) =>
             [
               ...findUnsafeSqlSources(
@@ -2786,9 +2820,9 @@ export function findRawSqlInterpolationViolationsInSources(
                 new Set(),
                 true,
               ),
-            ].some(touchesAddedLines),
+            ].some(touchesChangedLines),
           );
-        if (hasAddedSqlSource) {
+        if (hasChangedSqlSource) {
           for (const index of executeWrapperArgumentIndexes(node, analysis)) {
             const argument = node.arguments[index];
             if (argument) reportUnsafeSqlValue(analysis, node, argument);
@@ -2837,7 +2871,7 @@ function isStringTypeNode(
   checker: ts.TypeChecker,
 ): boolean {
   if (!type) return false;
-  if (mayBeStringType(checker.getTypeAtLocation(type))) return true;
+  if (mayBeStringType(checker.getTypeAtLocation(type), checker)) return true;
   if (type.kind === ts.SyntaxKind.StringKeyword) return true;
   if (ts.isLiteralTypeNode(type) && ts.isStringLiteral(type.literal)) {
     return true;
@@ -3516,6 +3550,13 @@ function addChangedSqlHelperCallers(
 
 function main() {
   const added = requireAddedLines(rootDir, "guard:no-raw-sql-interpolation");
+  const removed = removedLines(rootDir);
+  if (removed === null) {
+    console.error(
+      "guard:no-raw-sql-interpolation: could not determine removed lines, so the check did not run.",
+    );
+    process.exit(2);
+  }
   const sources = new Map<string, RawSqlGuardSource>();
 
   for (const [absolutePath, addedLines] of added) {
@@ -3541,6 +3582,48 @@ function main() {
     }
 
     sources.set(absolutePath, { source, addedLines });
+  }
+
+  for (const [absolutePath, entry] of removed) {
+    const relativePath = path
+      .relative(rootDir, absolutePath)
+      .replace(/\\/g, "/");
+    if (
+      entry.deleted ||
+      !sourceExtension.test(relativePath) ||
+      generatedPath.test(relativePath)
+    ) {
+      continue;
+    }
+    const removedPragmaLines = new Set<number>();
+    for (const line of entry.lines) {
+      if (!pragma.test(line.text)) continue;
+      removedPragmaLines.add(line.line);
+      if (line.line > 1) removedPragmaLines.add(line.line - 1);
+    }
+    if (removedPragmaLines.size === 0) continue;
+
+    let source = sources.get(absolutePath)?.source;
+    if (source === undefined) {
+      try {
+        source = readFileSync(absolutePath, "utf8");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(
+          `guard:no-raw-sql-interpolation: could not read ${relativePath}: ${message}`,
+        );
+        process.exit(2);
+      }
+    }
+    const existing = sources.get(absolutePath);
+    sources.set(absolutePath, {
+      source,
+      addedLines: existing?.addedLines ?? new Set(),
+      removedPragmaLines: new Set([
+        ...(existing?.removedPragmaLines ?? []),
+        ...removedPragmaLines,
+      ]),
+    });
   }
 
   let findings: RawSqlInterpolationFinding[];
