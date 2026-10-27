@@ -828,8 +828,7 @@ export async function listDispatchMcpApps(): Promise<{
               : null;
           if (homeUrl) return { ...accessible, homeUrl };
           // A Dispatch app-page URL is only usable through a verified mount.
-          const mountUnverified = !mountedApp || (sameOriginMount && !homeUrl);
-          return mountUnverified && isDispatchAppPageUrl(accessible.url)
+          return isDispatchAppPageUrl(accessible.url)
             ? { ...accessible, mountedPathUnavailable: true }
             : accessible;
         }),
@@ -1148,6 +1147,7 @@ export async function openGrantedDispatchMcpApp(input: {
     try {
       embedSession = await createGrantedDispatchMcpEmbedSession({
         app: target.id,
+        resolvedApp: target,
         url,
         chrome: input.chrome,
       });
@@ -1454,6 +1454,7 @@ async function createTargetMcpUserCredentials(input: {
 async function resolveEmbedTarget(
   input: {
     app?: string;
+    resolvedApp?: DispatchMcpAccessibleApp;
     url?: string;
     path?: string;
   },
@@ -1463,9 +1464,9 @@ async function resolveEmbedTarget(
     urlError: string;
   },
 ): Promise<{ app: DispatchMcpAccessibleApp; path: string; url: string }> {
-  const explicitApp = input.app?.trim()
-    ? await options.resolveApp(input.app)
-    : null;
+  const explicitApp =
+    input.resolvedApp ??
+    (input.app?.trim() ? await options.resolveApp(input.app) : null);
   if (explicitApp && input.path) {
     const path = safeAppPath(input.path);
     if (!path) throw new Error("path must be a safe app-relative route");
@@ -1512,6 +1513,7 @@ async function resolveEmbedTarget(
 
 async function resolveDispatchEmbedTarget(input: {
   app?: string;
+  resolvedApp?: DispatchMcpAccessibleApp;
   url?: string;
   path?: string;
 }): Promise<{ app: DispatchMcpAccessibleApp; path: string; url: string }> {
@@ -1586,6 +1588,7 @@ function publicEmbedSession({
 
 async function createGrantedDispatchMcpEmbedSessionResult(input: {
   app?: string;
+  resolvedApp?: DispatchMcpAccessibleApp;
   url?: string;
   path?: string;
   chrome?: "full" | "minimal";
@@ -1604,6 +1607,7 @@ async function createGrantedDispatchMcpEmbedSessionResult(input: {
 
 export async function createGrantedDispatchMcpEmbedSession(input: {
   app?: string;
+  resolvedApp?: DispatchMcpAccessibleApp;
   url?: string;
   path?: string;
   chrome?: "full" | "minimal";

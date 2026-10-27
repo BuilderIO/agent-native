@@ -414,6 +414,77 @@ describe("Dispatch MCP gateway app discovery", () => {
     expect(mocks.managerCallTool).not.toHaveBeenCalled();
   });
 
+  it("refuses a Dispatch-page app whose mount is on a different origin", async () => {
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        id: "customer-ticket-triage",
+        name: "Customer Ticket Triage",
+        description: "Triage customer tickets",
+        url: "https://beta.agent-workspace.builder.io/dispatch/apps/customer-ticket-triage",
+        color: "#6366F1",
+      },
+    ]);
+    mocks.listWorkspaceApps.mockResolvedValue([
+      {
+        id: "customer-ticket-triage",
+        name: "Customer Ticket Triage",
+        description: "Triage customer tickets",
+        path: "/customer-ticket-triage",
+        url: "https://other.example.test/dispatch/apps/customer-ticket-triage",
+        isDispatch: false,
+      },
+    ]);
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "https://beta.dispatch.agent-native.com",
+        },
+        () => resolveGrantedDispatchMcpApp("customer-ticket-triage"),
+      ),
+    ).rejects.toThrow(
+      'Dispatch MCP app "customer-ticket-triage" is unavailable until its Workspace mount resolves.',
+    );
+  });
+
+  it("looks up the Workspace registry once when opening an app with an embed", async () => {
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        id: "customer-ticket-triage",
+        name: "Customer Ticket Triage",
+        description: "Triage customer tickets",
+        url: "https://beta.agent-workspace.builder.io/dispatch/apps/customer-ticket-triage",
+        color: "#6366F1",
+      },
+    ]);
+    mocks.listWorkspaceApps.mockResolvedValue([
+      {
+        id: "customer-ticket-triage",
+        name: "Customer Ticket Triage",
+        description: "Triage customer tickets",
+        path: "/customer-ticket-triage",
+        url: "https://beta.agent-workspace.builder.io/dispatch/apps/customer-ticket-triage",
+        isDispatch: false,
+      },
+    ]);
+
+    await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "https://beta.dispatch.agent-native.com",
+      },
+      () =>
+        openGrantedDispatchMcpApp({
+          app: "customer-ticket-triage",
+          path: "/triage",
+          embed: true,
+        }),
+    );
+
+    expect(mocks.listWorkspaceApps).toHaveBeenCalledTimes(1);
+  });
+
   it("defaults to exposing every discovered app", async () => {
     mocks.getUserSetting.mockResolvedValue(null);
     const apps = await runWithRequestContext(
