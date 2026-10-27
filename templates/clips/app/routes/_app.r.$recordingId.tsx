@@ -2222,7 +2222,7 @@ export default function RecordingPage() {
 
   if (!recordingId) return null;
 
-  if (playerDataQ.isPending || playerDataForbidden) {
+  if (playerDataQ.isPending || shouldFallbackToShare) {
     return <RecordingWorkspaceSkeleton />;
   }
 
