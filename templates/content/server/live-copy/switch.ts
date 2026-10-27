@@ -25,6 +25,7 @@ import {
   persistLiveBodyConversion,
 } from "./persist.js";
 import { withLiveBodyConversion } from "./write-cause.js";
+import { liveCopyBaseChanged } from "./write.js";
 
 const CONVERSION_ATTEMPTS = 3;
 
@@ -99,11 +100,22 @@ export async function switchPageToLiveCopy(
         async () => {
           const live = await readLiveCopy(contentLiveCopy, documentId);
           if (live.kind === "live") {
+            // A copy nothing has edited since the page's last live-copy
+            // commit, while legacy writes moved the stored body on, holds
+            // only text those writes replaced: the stored body replaces it,
+            // unless a tab edits it first.
+            const onlyBehind =
+              live.version === page.liveCopyVersion &&
+              page.collabBodyRevision !== page.bodyRevision;
             await mutateLiveCopy(contentLiveCopy, documentId, {
               edit: CONTENT_LIVE_COPY_EDITS.replaceBody,
               input: {
                 content: page.content,
-                ...(options.keepLiveEdits ? { keepLiveEdits: true } : {}),
+                ...(!options.keepLiveEdits
+                  ? {}
+                  : onlyBehind
+                    ? { expected: live.text }
+                    : { keepLiveEdits: true }),
               },
               // An edit that changes nothing commits no live copy, so the
               // binding's persist does not run; switch the page here.
@@ -134,8 +146,9 @@ export async function switchPageToLiveCopy(
       );
     } catch (error) {
       if (
-        error instanceof LiveBodyConversionError &&
-        error.code === "base_changed"
+        (error instanceof LiveBodyConversionError &&
+          error.code === "base_changed") ||
+        liveCopyBaseChanged(error)
       ) {
         continue;
       }

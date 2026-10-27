@@ -26,6 +26,7 @@ import * as Y from "yjs";
 import { createContentEditorStructuralSchema } from "../../shared/content-editor-structural-schema.js";
 import { materializeLiveBody } from "../../shared/live-body.js";
 import { canonicalizeNfm, nfmToDoc } from "../../shared/nfm.js";
+import { lockLegacyBodyWrites } from "../lib/document-body-revision.js";
 import { firstRow } from "../lib/first-row.js";
 
 vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
@@ -668,6 +669,69 @@ describe("a page whose live copy a tab already opened", () => {
       as(ownerEmail, () => switching.switchPageToLiveCopy(id, { ctx })),
     ).resolves.toEqual({ writePath: "live_copy" });
     expect((await page(id)).content).toBe(canonicalizeNfm(stored));
+  });
+
+  /**
+   * Writes page `id`'s body the legacy way while the owner's writer is off,
+   * as every legacy writer does, which leaves its live copy behind.
+   */
+  async function legacySaveWithWriterOff(id: string, content: string) {
+    const writer = "feature-flag:content.live-body-writer";
+    await putSetting(writer, rulesFor([writerOnlyEmail]));
+    try {
+      await getDb().transaction(async (tx) => {
+        const legacy = await lockLegacyBodyWrites(tx, [id], {
+          operation: "update-document",
+          content,
+        });
+        await tx
+          .update(schema.documents)
+          .set({ content, bodyRevision: legacy.bodyRevision(content) })
+          .where(eq(schema.documents.id, id));
+      });
+    } finally {
+      await putSetting(writer, rulesFor([ownerEmail, writerOnlyEmail]));
+    }
+    const behind = await page(id);
+    expect(behind.content).toBe(content);
+    expect(behind.collabBodyRevision).not.toBe(behind.bodyRevision);
+  }
+
+  it("replaces a live copy that legacy saves left behind while the writer was off, since nothing edited it", async () => {
+    const id = await insertPage(stored);
+    await as(ownerEmail, () => switching.switchPageToLiveCopy(id, { ctx }));
+    const saved = "Saved while the writer was off.";
+    await legacySaveWithWriterOff(id, saved);
+
+    await expect(convertOnOpen(id)).resolves.toMatchObject({
+      status: "converted",
+    });
+
+    const row = await page(id);
+    expect(row.content).toBe(saved);
+    expect(row.collabBodyRevision).toBe(row.bodyRevision);
+    expect(row.liveCopyVersion).toBe(await collabVersion(id));
+    const doc = new Y.Doc();
+    Y.applyUpdate(doc, await collab.getState(id));
+    expect(materializeLiveBody(doc)).toMatchObject({
+      kind: "body",
+      markdown: saved,
+    });
+    doc.destroy();
+  });
+
+  it("still defers that page when a tab edited its live copy after those saves", async () => {
+    const id = await insertPage(stored);
+    await as(ownerEmail, () => switching.switchPageToLiveCopy(id, { ctx }));
+    await legacySaveWithWriterOff(id, "Saved while the writer was off.");
+    await openInTab(id, stored, "A note typed in a tab.");
+    const version = await collabVersion(id);
+
+    await expect(convertOnOpen(id)).resolves.toMatchObject({
+      status: "deferred",
+      reason: "live_edits",
+    });
+    expect(await collabVersion(id)).toBe(version);
   });
 
   it("switches the page when its live copy already reads as the stored body does", async () => {
