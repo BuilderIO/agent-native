@@ -264,6 +264,7 @@ export const parityMatrix: ParityRow[] = [
     status: "action-backed",
     actions: [
       "adopt-document-snapshot",
+      "convert-page-to-live-copy-if-due",
       "edit-document",
       "get-document-save-attempt",
       "pull-document",
@@ -277,7 +278,7 @@ export const parityMatrix: ParityRow[] = [
       "update-document",
     ],
     exception:
-      "Save-attempt receipt lookup, live collaboration seeding and snapshot adoption, editor mount and merge counts, the flag-gated live-body parity count, and the per-page switch for the flag-gated live-copy writer are browser-only editor support actions hidden from agent tools with agentTool: false.",
+      "Save-attempt receipt lookup, live collaboration seeding and snapshot adoption, editor mount and merge counts, the flag-gated live-body parity count, and the per-page switch for the flag-gated live-copy writer and its backfill on an editor's open are browser-only editor support actions hidden from agent tools with agentTool: false.",
     reliabilityRisk: "none",
     spinePriority: "P0",
     testCoverage: "covered",
@@ -293,6 +294,7 @@ export const parityMatrix: ParityRow[] = [
       "app/components/editor/VisualEditor.merge-telemetry.test.tsx",
       "app/components/editor/VisualEditor.mount-telemetry.test.tsx",
       "server/live-copy/live-copy.test.ts",
+      "server/live-copy/backfill.db.test.ts",
     ],
     evalScenarioIds: ["document-search-edit"],
   },

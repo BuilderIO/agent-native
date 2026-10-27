@@ -156,14 +156,18 @@ Initialization rejects whitespace-only and all other nonempty bodies, preserves
 the Markdown bytes exactly, and safely replays an identical retry.
 
 Some pages take body writes through their live copy, the copy open tabs edit.
-A page linked to a local file never does. `edit-document` writes those bodies.
-Other writers, such as `update-document --content`, a property or collection
-block stored in the body, row migrations, and Notion or Builder syncs, refuse
-with `LIVE_BODY_WRITER_UNSUPPORTED` (409) and change nothing in Content.
-Retrying that writer won't help: make the body change with `edit-document`
-where it can, or tell the user which action refused and on which page. When the
-refusal's `details` name a Notion page (`remotePageId`) or a local file
-(`sourcePath`), that copy already changed; say so. A local-folder sync that
+Only pages Content owns outright take it: a page linked to a local file,
+Notion, GitHub or Builder, a shared copy of a local file, and a row of a
+collection someone made stay on the legacy writer. Every page is also a row of
+its space's Files collection, which doesn't count. `edit-document` writes those
+bodies, and so does `set-document-property` for a primary Blocks field, which
+is the page's body. Other writers, such as `update-document --content`, a
+collection block stored in the body, row migrations, and Notion or Builder
+syncs, refuse with `LIVE_BODY_WRITER_UNSUPPORTED` (409) and change nothing in
+Content. Retrying that writer won't help: make the body change with
+`edit-document` where it can, or tell the user which action refused and on which
+page. When the refusal's `details` name a Notion page (`remotePageId`) or a local
+file (`sourcePath`), that copy already changed; say so. A local-folder sync that
 would link such a page to a file, or a folder disconnect or accepted file
 deletion that would relink it to another folder's file, refuses with
 `LOCAL_FILE_LINK_SWITCHED_PAGE` (409) and changes nothing.

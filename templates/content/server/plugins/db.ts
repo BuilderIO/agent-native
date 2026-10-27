@@ -1531,6 +1531,11 @@ export const runContentMigrations = runMigrations(
     },
     {
       version: 130,
+      name: "content-live-body-opt-out",
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS live_body_opted_out_at TEXT`,
+    },
+    {
+      version: 131,
       name: "content-webhooks",
       sql: `CREATE TABLE IF NOT EXISTS content_webhooks (
           id TEXT PRIMARY KEY,
