@@ -174,6 +174,7 @@ import {
 import { isStreamingVoiceMessage } from "../agentkit/react/voice-transcripts.js";
 import { ThreadContextRing } from "../context-xray/ThreadContextRing.js";
 import { threadHasFinishedReply } from "../context-xray/use-thread-context-usage.js";
+import { useFirstRunOnboardingGateOwnsSurface } from "../onboarding/first-run-startup-gate.js";
 import {
   AgentKitDevCheckpointProvider,
   AgentKitDevCheckpointRestore,
@@ -5779,9 +5780,61 @@ function AgentKitComposerSurface({
   currentSubmissionScope.current = submissionScope;
   const { controller } = useAgentKit();
   const composerRef = useRef<TiptapComposerHandle>(null);
+  const firstRunOwnsSurface = useFirstRunOnboardingGateOwnsSurface();
+  const firstRunOwnsSurfaceRef = useRef(firstRunOwnsSurface);
+  const pendingSetupFocusRef = useRef(false);
+  firstRunOwnsSurfaceRef.current = firstRunOwnsSurface;
   const selectedSuggestionRef = useRef<
     Exclude<AgentSuggestionInput, string> | undefined
   >(undefined);
+  useEffect(() => {
+    if (!props.centerComposerWhenEmpty) return;
+
+    const focusAfterSetup = () => {
+      pendingSetupFocusRef.current = true;
+      if (firstRunOwnsSurfaceRef.current) return;
+      requestAnimationFrame(() => {
+        if (!firstRunOwnsSurfaceRef.current && pendingSetupFocusRef.current) {
+          pendingSetupFocusRef.current = false;
+          composerRef.current?.focus();
+        }
+      });
+    };
+
+    window.addEventListener(
+      "agent-native:first-run-completed",
+      focusAfterSetup,
+    );
+    window.addEventListener("agent-engine:configured-changed", focusAfterSetup);
+    return () => {
+      window.removeEventListener(
+        "agent-native:first-run-completed",
+        focusAfterSetup,
+      );
+      window.removeEventListener(
+        "agent-engine:configured-changed",
+        focusAfterSetup,
+      );
+    };
+  }, [props.centerComposerWhenEmpty]);
+
+  useEffect(() => {
+    if (
+      !props.centerComposerWhenEmpty ||
+      firstRunOwnsSurface ||
+      !pendingSetupFocusRef.current
+    ) {
+      return;
+    }
+
+    const frame = requestAnimationFrame(() => {
+      if (!firstRunOwnsSurfaceRef.current && pendingSetupFocusRef.current) {
+        pendingSetupFocusRef.current = false;
+        composerRef.current?.focus();
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [firstRunOwnsSurface, props.centerComposerWhenEmpty]);
   const submitComposer = async (
     message: string,
     files: PromptComposerFile[],

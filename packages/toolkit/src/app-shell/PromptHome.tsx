@@ -1,5 +1,8 @@
 import { Tabs } from "@agent-native/toolkit/design-system";
-import { useId, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
+
+import { useFirstRunOnboardingGateOwnsSurface } from "../app/onboarding/first-run-startup-gate.js";
+import { Skeleton } from "../ui/skeleton.js";
 
 export interface PromptHomeProps {
   title: ReactNode;
@@ -7,7 +10,10 @@ export interface PromptHomeProps {
   mobileToolbar?: ReactNode;
   connection?: ReactNode;
   connectionAttached?: boolean;
+  reserveConnectionSpace?: boolean;
+  connectionPending?: boolean;
   quickActions?: ReactNode;
+  focusComposer?: () => void;
   children?: ReactNode;
 }
 
@@ -17,10 +23,63 @@ export function PromptHome({
   mobileToolbar,
   connection,
   connectionAttached,
+  reserveConnectionSpace = false,
+  connectionPending = false,
   quickActions,
+  focusComposer,
   children,
 }: PromptHomeProps) {
   const titleId = useId();
+  const firstRunOwnsSurface = useFirstRunOnboardingGateOwnsSurface();
+  const firstRunOwnsSurfaceRef = useRef(firstRunOwnsSurface);
+  const pendingFocusRef = useRef(false);
+  const focusComposerRef = useRef(focusComposer);
+  firstRunOwnsSurfaceRef.current = firstRunOwnsSurface;
+  focusComposerRef.current = focusComposer;
+
+  useEffect(() => {
+    if (!focusComposer) return;
+    const focusWhenAvailable = () => {
+      pendingFocusRef.current = true;
+      if (firstRunOwnsSurfaceRef.current) return;
+      requestAnimationFrame(() => {
+        if (!firstRunOwnsSurfaceRef.current && pendingFocusRef.current) {
+          pendingFocusRef.current = false;
+          focusComposerRef.current?.();
+        }
+      });
+    };
+    window.addEventListener(
+      "agent-native:first-run-completed",
+      focusWhenAvailable,
+    );
+    window.addEventListener(
+      "agent-engine:configured-changed",
+      focusWhenAvailable,
+    );
+    return () => {
+      window.removeEventListener(
+        "agent-native:first-run-completed",
+        focusWhenAvailable,
+      );
+      window.removeEventListener(
+        "agent-engine:configured-changed",
+        focusWhenAvailable,
+      );
+    };
+  }, [focusComposer]);
+
+  useEffect(() => {
+    if (firstRunOwnsSurface || !pendingFocusRef.current) return;
+    const frame = requestAnimationFrame(() => {
+      if (!firstRunOwnsSurfaceRef.current && pendingFocusRef.current) {
+        pendingFocusRef.current = false;
+        focusComposerRef.current?.();
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [firstRunOwnsSurface]);
+
   return (
     <div className="agent-prompt-home mx-auto w-full min-w-0 px-4 pb-14 sm:px-6 lg:px-8">
       {mobileToolbar ? (
@@ -43,9 +102,23 @@ export function PromptHome({
           <div
             className="agent-prompt-home-connection"
             data-visible={connection ? "true" : undefined}
-            aria-hidden={!connection || undefined}
+            data-reserved={reserveConnectionSpace || undefined}
+            aria-hidden={(!connection && !connectionPending) || undefined}
           >
-            {connection}
+            {connection ??
+              (connectionPending ? (
+                <div
+                  aria-hidden="true"
+                  data-prompt-home-connection-skeleton="true"
+                  className="mt-3 flex h-[46px] items-center justify-between rounded-t-xl border border-border bg-card px-3"
+                >
+                  <Skeleton className="h-3 w-20" />
+                  <div className="flex items-center gap-2">
+                    <Skeleton className="h-6 w-24 rounded-md" />
+                    <Skeleton className="h-6 w-20 rounded-md" />
+                  </div>
+                </div>
+              ) : null)}
           </div>
           {composer}
         </div>

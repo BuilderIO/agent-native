@@ -2737,6 +2737,159 @@ export default {
   },
   home: {
     suggestedPrompts: "Indicaciones sugeridas",
+    suggestions: {
+      product: {
+        analyticsDashboard:
+          "Crea un panel de producto con KPI, conversión y actividad, en un tono seguro basado en datos.",
+        roadmapWorkspace:
+          "Diseña una hoja de ruta con cronología trimestral, prioridades y comentarios, en un tono colaborativo.",
+        onboardingFlow:
+          "Crea la bienvenida de una app de presupuesto con pasos, metas y cuenta, en un tono tranquilizador.",
+        featureComparison:
+          "Diseña una comparación SaaS con planes, matriz de funciones y FAQ, en un tono directo para convertir.",
+        feedbackPortal:
+          "Crea un portal de comentarios con tablero de ideas, votos y filtros, en un tono comunitario.",
+        releaseNotes:
+          "Diseña un centro de novedades con versiones, funciones y migraciones, en un tono editorial conciso.",
+        projectWorkspace:
+          "Crea un espacio de producto con kanban, responsables y metas, en un tono productivo.",
+        launchWaitlist:
+          "Diseña una lista de espera de lanzamiento con portada, pruebas y registro, en un tono optimista.",
+      },
+      design: {
+        portfolioHome:
+          "Diseña un portafolio con presentación, proyectos, perfil y contacto, en un tono editorial cuidado.",
+        designSystem:
+          "Crea una guía de diseño con tokens, componentes y notas de uso, en un tono documental preciso.",
+        bankingApp:
+          "Crea la pantalla de banca móvil con saldo, transacciones y ahorros, en un tono sereno y fiable.",
+        travelBooking:
+          "Diseña una búsqueda de viajes con filtros, itinerarios y mapa, en un tono ligero y aventurero.",
+        coffeeShop:
+          "Crea una tienda de café con mezclas, origen y suscripción, en un tono cálido y táctil.",
+        musicFestival:
+          "Diseña una página de festival con cartel, horarios y mapa, en un tono enérgico de póster.",
+        accessibilityAudit:
+          "Crea un panel de accesibilidad con puntuación, problemas y filtros, en un tono claro y contrastado.",
+        artBook:
+          "Diseña una página de libro de arte con obras, cita y capítulos, en un tono sobrio de galería.",
+      },
+      developer: {
+        apiDocs:
+          "Crea documentación de API con navegación, código y solicitudes, en un tono técnico preciso.",
+        deploymentDashboard:
+          "Diseña un panel de despliegues con entornos, registros y reversión, en un tono operativo sereno.",
+        componentPlayground:
+          "Crea un área de componentes con propiedades, estados y código, en un tono limpio para desarrollo.",
+        databaseConsole:
+          "Diseña una consola de datos con consultas, esquemas y resultados, en un tono técnico sobrio.",
+        issueTriage:
+          "Crea un tablero de incidencias con filtros, prioridad y responsables, en un tono claro y enfocado.",
+        authSettings:
+          "Diseña ajustes de autenticación con proveedores, URL de retorno y permisos, en un tono seguro.",
+        workflowBuilder:
+          "Crea un editor CI con pasos, historial y ramas, en un tono técnico preciso.",
+        developerPortfolio:
+          "Diseña un portafolio de desarrollo con proyectos, herramientas y cronología, en un tono oscuro y enfocado.",
+      },
+      marketing: {
+        campaignLanding:
+          "Diseña una campaña con portada, beneficios, pruebas y registro, en un tono enérgico.",
+        emailBuilder:
+          "Crea un editor de correo con asunto, bloques y audiencia, en un tono claro y cercano.",
+        socialCalendar:
+          "Diseña un calendario social con canales, publicaciones y métricas, en un tono editorial luminoso.",
+        brandCampaign:
+          "Crea una página de marca con titular, arte y recursos, en un tono seguro y coherente.",
+        webinarRegistration:
+          "Diseña un registro de seminario con ponentes, agenda y formulario, en un tono fiable y acogedor.",
+        seoBrief:
+          "Crea un brief SEO con palabras clave, esquema y competidores, en un tono de investigación.",
+        launchMetrics:
+          "Diseña métricas de lanzamiento con canales, conversión y campañas, en un tono analítico.",
+        newsletterSignup:
+          "Crea un boletín con vista editorial, temas y correo, en un tono cálido y conciso.",
+      },
+      sales: {
+        leadWorkspace:
+          "Crea un espacio de ventas con contacto, actividad y cualificación, en un tono profesional y resolutivo.",
+        accountBrief:
+          "Diseña un informe de cuenta con empresa, contactos y señales recientes, en un tono ejecutivo claro.",
+        productDemo:
+          "Crea una demo con casos de uso, capturas y pruebas, en un tono persuasivo y seguro.",
+        proposalBuilder:
+          "Diseña propuestas con alcance, precios y cronología, en un tono consultivo cuidado.",
+        pipelineDashboard:
+          "Crea un panel de oportunidades con etapas, importes y previsión, en un tono empresarial conciso.",
+        meetingBooking:
+          "Diseña reservas de reunión con horarios, agenda y formulario, en un tono profesional y acogedor.",
+        customerStory:
+          "Crea una historia de cliente con reto, resultados, cita y métricas, en un tono editorial basado en pruebas.",
+        accountHandoff:
+          "Diseña un traspaso de cuenta con metas, contactos y tareas, en un tono colaborativo sereno.",
+      },
+      ops: {
+        inventoryDashboard:
+          "Crea un panel de inventario con existencias, reposición y filtros, en un tono operativo práctico.",
+        staffScheduler:
+          "Diseña turnos con cuadrícula, disponibilidad y ausencias, en un tono fácil de consultar.",
+        vendorPortal:
+          "Crea un portal de proveedores con lista, documentos y contactos, en un tono claro y tranquilizador.",
+        incidentResponse:
+          "Diseña respuesta a incidentes con gravedad, cronología y responsable, en un tono sereno y enfocado.",
+        expenseApprovals:
+          "Crea aprobaciones de gastos con recibos, políticas e importes, en un tono neutral y eficiente.",
+        warehouseReceiving:
+          "Diseña recepción de almacén con envío, escaneo y artículos, en un tono muy claro.",
+        automationControl:
+          "Crea control de flujos con automatizaciones, historial y fallos, en un tono operativo seguro.",
+        helpdeskQueue:
+          "Diseña soporte interno con solicitudes, estados y responsables, en un tono claro y servicial.",
+      },
+      individual: {
+        personalPortfolio:
+          "Diseña un portafolio personal con biografía, trabajos, habilidades y contacto, en un tono editorial cálido.",
+        mealPlanner:
+          "Crea comidas semanales con recetas, compra y filtros dietéticos, en un tono práctico y amable.",
+        homeBudget:
+          "Diseña un presupuesto doméstico con resumen, categorías y facturas, en un tono sereno y alentador.",
+        tripPlanner:
+          "Crea un planificador de viaje con cronología, mapa y reservas, en un tono ligero y aventurero.",
+        readingJournal:
+          "Diseña un diario de lectura con portadas, progreso y valoraciones, en un tono literario tranquilo.",
+        invoiceTracker:
+          "Crea facturas freelance con clientes, pagos y vencimientos, en un tono profesional ordenado.",
+        habitTracker:
+          "Diseña hábitos diarios con rachas, registros y progreso, en un tono amable y motivador.",
+        neighborhoodEvents:
+          "Crea eventos del barrio con tarjetas, filtros y asistencia, en un tono acogedor y comunitario.",
+      },
+      general: {
+        saasHomepage:
+          "Crea una página SaaS con portada, funciones y pruebas de clientes, en un tono claro y acogedor.",
+        analyticsDashboard:
+          "Diseña analítica con KPI, tendencias y actividad, en un tono sereno basado en datos.",
+        habitApp:
+          "Crea una app móvil de hábitos con metas, progreso y recordatorios, en un tono amable y alentador.",
+        onlineStore:
+          "Diseña una tienda con productos, categorías y reseñas, en un tono cálido y cuidado.",
+        creativePortfolio:
+          "Crea un portafolio creativo con presentación, proyectos y perfil, en un tono editorial expresivo.",
+        bookingPage:
+          "Diseña reservas con calendario, servicios y opiniones, en un tono claro y fiable.",
+        adminDashboard:
+          "Crea administración con navegación, resúmenes y actividad, en un tono práctico sobrio.",
+        communityEvent:
+          "Diseña un evento comunitario con agenda, lugar y ponentes, en un tono festivo y acogedor.",
+      },
+    },
+    nextStepBar: {
+      ariaLabel: "Siguientes pasos",
+      refineWithPrompt: "Perfeccionar con una indicación",
+      export: "Exportar",
+      shareLink: "Compartir enlace",
+      dismiss: "Descartar",
+    },
     import: "Importar",
     importOptions: "Opciones de importación",
     figmaLink: "Enlace de Figma",

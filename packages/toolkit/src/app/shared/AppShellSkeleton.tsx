@@ -1,5 +1,22 @@
 import { MCP_APP_WIDGET_EMBED_ATTRIBUTE } from "@agent-native/core/shared/mcp-app-widget-embed";
-import type { CSSProperties, ReactNode } from "react";
+import {
+  useLayoutEffect,
+  useRef,
+  useEffect,
+  type CSSProperties,
+  type ComponentType,
+  type ReactNode,
+} from "react";
+
+import { writeFirstPaintPromptDraft } from "../../app-shell/first-paint-prompt-draft.js";
+import type { HomeSuggestionClick } from "../../app-shell/home-suggestions.js";
+import { PromptHome } from "../../app-shell/PromptHome.js";
+import { AgentSuggestionBar } from "../../composer/AgentSuggestionBar.js";
+import { Button } from "../../ui/button.js";
+import { AppSidebar, AppSidebarFooter } from "./AppSidebar.js";
+
+const useBrowserLayoutEffect =
+  typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 const MUTED = "hsl(var(--muted, 240 5% 96.1%))";
 const SIDEBAR_MUTED =
@@ -18,6 +35,37 @@ export type AppShellSkeletonLayout =
   | "mail"
   | "prompt-library"
   | "welcome";
+
+export interface AppShellFirstPaintHome {
+  appId: string;
+  appName: string;
+  pageTitle: string;
+  headerHeight?: number;
+  headerActionWidths?: readonly number[];
+  promptTitle: string;
+  promptPlaceholder: string;
+  suggestedPromptsLabel: string;
+  sidebarItems: readonly {
+    label: string;
+    to: string;
+    icon: ComponentType<{ className?: string }>;
+  }[];
+  sidebarGettingStartedSteps?: number;
+  templatesLabel: string;
+  recentLabel: string;
+  browseAllLabel: string;
+  library?: ReactNode;
+  skipPromptLabel?: string;
+  suggestionRole?: string;
+  suggestionSeed?: number;
+  onHomeSuggestionClick?: (click: HomeSuggestionClick) => void;
+  reserveConnectionBar?: boolean;
+  suggestions: readonly {
+    id: string;
+    label: string;
+    prompt: string;
+  }[];
+}
 
 function Block({
   style,
@@ -45,9 +93,36 @@ function Block({
 // hydrated width; everyone else keeps the 248px default.
 function Sidebar({
   width = "var(--chat-sidebar-width, 248px)",
+  firstPaintHome,
 }: {
   width?: number | string;
+  firstPaintHome?: AppShellFirstPaintHome;
 }) {
+  if (firstPaintHome) {
+    return (
+      <AppSidebar
+        appId={firstPaintHome.appId}
+        brandName={firstPaintHome.appName}
+        brandHref="/home"
+        badge={<Block style={{ width: 48, height: 20, borderRadius: 6 }} />}
+        items={firstPaintHome.sidebarItems.map((item, index) => ({
+          ...item,
+          active: index === 0,
+        }))}
+        footerContent={
+          <FirstPaintSidebarFooter
+            {...(firstPaintHome.sidebarGettingStartedSteps !== undefined
+              ? {
+                  gettingStartedSteps:
+                    firstPaintHome.sidebarGettingStartedSteps,
+                }
+              : {})}
+          />
+        }
+      />
+    );
+  }
+
   return (
     <aside
       data-agent-native-app-skeleton-sidebar="true"
@@ -77,34 +152,129 @@ function Sidebar({
   );
 }
 
-function Header({ titleWidth = 128 }: { titleWidth?: number }) {
+function FirstPaintSidebarFooter({
+  gettingStartedSteps,
+}: {
+  gettingStartedSteps?: number;
+}) {
+  return (
+    <>
+      {gettingStartedSteps ? (
+        <div className="mx-2 mb-2 overflow-hidden rounded-[14px] border border-border bg-card shadow-sm">
+          <div className="space-y-3 px-4 py-3">
+            <div className="flex h-6 items-center justify-between gap-2">
+              <Block style={{ width: 112, height: 18 }} />
+              <Block style={{ width: 24, height: 24, borderRadius: 4 }} />
+            </div>
+            <Block style={{ width: "100%", height: 6, borderRadius: 999 }} />
+          </div>
+          <div className="border-t border-border">
+            {Array.from({ length: gettingStartedSteps }, (_, index) => (
+              <div
+                key={index}
+                className="flex min-h-12 items-center gap-3 px-4"
+              >
+                <Block style={{ width: 16, height: 16, borderRadius: 999 }} />
+                <Block style={{ width: 112, height: 14 }} />
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      <AppSidebarFooter
+        feedback={
+          <div className="flex h-7 items-center gap-2 px-2">
+            <Block style={{ width: 16, height: 16 }} />
+            <Block style={{ width: 92, height: 12 }} />
+          </div>
+        }
+        orgSwitcher={
+          <div className="flex min-w-0 flex-1 items-center gap-2 px-1 py-1.5">
+            <Block style={{ width: 28, height: 28, borderRadius: 999 }} />
+            <div className="grid min-w-0 flex-1 gap-1">
+              <Block style={{ width: 84, height: 12 }} />
+              <Block style={{ width: 66, height: 11 }} />
+            </div>
+          </div>
+        }
+        footerExtras={
+          <div className="flex items-center gap-1">
+            <Block style={{ width: 24, height: 24, borderRadius: 6 }} />
+          </div>
+        }
+      />
+    </>
+  );
+}
+
+function Header({
+  titleWidth = 128,
+  title,
+  height = 48,
+  actionWidths = [],
+}: {
+  titleWidth?: number;
+  title?: string;
+  height?: number;
+  actionWidths?: readonly number[];
+}) {
   return (
     <header
-      aria-hidden="true"
+      aria-hidden={title ? undefined : "true"}
       style={{
         display: "flex",
-        height: 48,
+        height,
         flexShrink: 0,
         alignItems: "center",
         gap: 12,
         padding: "0 16px",
       }}
     >
-      <Block style={{ width: 32, height: 32, borderRadius: 8 }} />
-      <Block style={{ width: titleWidth, height: 14 }} />
+      {title ? (
+        <span className="text-base font-medium text-foreground">{title}</span>
+      ) : (
+        <>
+          <Block style={{ width: 32, height: 32, borderRadius: 8 }} />
+          <Block style={{ width: titleWidth, height: 14 }} />
+        </>
+      )}
       <div style={{ flex: 1 }} />
-      <Block style={{ width: 32, height: 32, borderRadius: 8 }} />
-      <Block style={{ width: 32, height: 32, borderRadius: 8 }} />
+      {actionWidths.map((width, index) => (
+        <Block
+          key={`${width}-${index}`}
+          style={{ width, height: 32, borderRadius: width > 40 ? 8 : 6 }}
+        />
+      ))}
+      {!title && actionWidths.length === 0 ? (
+        <>
+          <Block style={{ width: 32, height: 32, borderRadius: 8 }} />
+          <Block style={{ width: 32, height: 32, borderRadius: 8 }} />
+        </>
+      ) : null}
     </header>
   );
 }
 
-function Frame({ children }: { children: ReactNode }) {
+function Frame({
+  children,
+  firstPaintHome,
+}: {
+  children: ReactNode;
+  firstPaintHome?: AppShellFirstPaintHome;
+}) {
   return (
     <div
       style={{ display: "flex", minWidth: 0, flex: 1, flexDirection: "column" }}
     >
-      <Header />
+      <Header
+        {...(firstPaintHome ? { title: firstPaintHome.pageTitle } : {})}
+        {...(firstPaintHome?.headerHeight !== undefined
+          ? { height: firstPaintHome.headerHeight }
+          : {})}
+        {...(firstPaintHome?.headerActionWidths !== undefined
+          ? { actionWidths: firstPaintHome.headerActionWidths }
+          : {})}
+      />
       {children}
     </div>
   );
@@ -189,54 +359,213 @@ function AssistantNewChatLayout() {
   );
 }
 
-function PromptLibraryLayout() {
+function PromptLibraryLayout({
+  firstPaintHome,
+}: {
+  firstPaintHome?: AppShellFirstPaintHome;
+} = {}) {
   return (
     <>
-      <Sidebar />
-      <Frame>
-        <section
-          aria-hidden="true"
-          style={{
-            display: "flex",
-            width: "100%",
-            flex: 1,
-            flexDirection: "column",
-            gap: 24,
-            padding: 32,
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <Block style={{ width: 92, height: 28, borderRadius: 14 }} />
-            <Block style={{ width: 80, height: 14 }} />
-            <div style={{ flex: 1 }} />
-            <Block style={{ width: 144, height: 32, borderRadius: 8 }} />
-          </div>
-          <div
+      <Sidebar {...(firstPaintHome ? { firstPaintHome } : {})} />
+      <Frame {...(firstPaintHome ? { firstPaintHome } : {})}>
+        {firstPaintHome ? (
+          <FirstPaintPromptLibrary config={firstPaintHome} />
+        ) : (
+          <section
+            aria-hidden="true"
             style={{
-              display: "grid",
+              display: "flex",
+              width: "100%",
               flex: 1,
-              alignContent: "start",
-              gap: 16,
+              flexDirection: "column",
+              gap: 24,
+              padding: 32,
             }}
-            data-agent-native-app-skeleton-gallery-grid="true"
           >
-            {Array.from({ length: 8 }, (_, index) => (
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <Block style={{ width: 92, height: 28, borderRadius: 14 }} />
+              <Block style={{ width: 80, height: 14 }} />
+              <div style={{ flex: 1 }} />
+              <Block style={{ width: 144, height: 32, borderRadius: 8 }} />
+            </div>
+            <div
+              style={{
+                display: "grid",
+                flex: 1,
+                alignContent: "start",
+                gap: 16,
+              }}
+              data-agent-native-app-skeleton-gallery-grid="true"
+            >
+              {Array.from({ length: 8 }, (_, index) => (
+                <div
+                  key={index}
+                  style={{ display: "flex", flexDirection: "column", gap: 10 }}
+                >
+                  <Block
+                    style={{ width: "100%", height: 144, borderRadius: 12 }}
+                  />
+                  <Block
+                    style={{ width: `${56 + (index % 3) * 12}%`, height: 12 }}
+                  />
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+      </Frame>
+    </>
+  );
+}
+
+function FirstPaintPromptLibrary({
+  config,
+}: {
+  config: AppShellFirstPaintHome;
+}) {
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const sourceRef = useRef<"composer" | "home_suggestion">("composer");
+
+  useBrowserLayoutEffect(() => {
+    const text = inputRef.current?.value ?? "";
+    if (text) {
+      writeFirstPaintPromptDraft(config.appId, text, sourceRef.current);
+    }
+  }, [config.appId]);
+
+  const composer = (
+    <div
+      className={`h-[118px] rounded-3xl border border-border bg-background px-4 py-3 shadow-sm ${
+        config.reserveConnectionBar ? "agent-composer-area--attached-above" : ""
+      }`}
+    >
+      <textarea
+        ref={inputRef}
+        aria-label={config.promptPlaceholder}
+        data-first-paint-prompt-input="true"
+        className="h-[66px] w-full resize-none border-0 bg-transparent p-0 text-sm text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-0"
+        placeholder={config.promptPlaceholder}
+        rows={2}
+        onChange={(event) => {
+          writeFirstPaintPromptDraft(
+            config.appId,
+            event.currentTarget.value,
+            sourceRef.current,
+          );
+        }}
+      />
+      <div className="flex h-7 items-center justify-between pt-1">
+        <Block style={{ width: 16, height: 16, borderRadius: 4 }} />
+        <div className="flex items-center gap-3">
+          <Block style={{ width: 70, height: 12 }} />
+          <Block style={{ width: 16, height: 16, borderRadius: 999 }} />
+          <Block style={{ width: 32, height: 32, borderRadius: 999 }} />
+        </div>
+      </div>
+    </div>
+  );
+  const suggestionBar = (
+    <AgentSuggestionBar
+      suggestions={config.suggestions}
+      ariaLabel={config.suggestedPromptsLabel}
+      homeTracking={{
+        appId: config.appId,
+        ...(config.suggestionRole !== undefined
+          ? { role: config.suggestionRole }
+          : {}),
+        ...(config.suggestionSeed !== undefined
+          ? { seed: config.suggestionSeed }
+          : {}),
+      }}
+      {...(config.onHomeSuggestionClick
+        ? { onHomeSuggestionClick: config.onHomeSuggestionClick }
+        : {})}
+      layout="single-line"
+      className="px-0 py-0"
+      onSelect={(suggestion) => {
+        if (!inputRef.current) return;
+        sourceRef.current = "home_suggestion";
+        const prompt = suggestion.prompt ?? suggestion.label;
+        inputRef.current.value = prompt;
+        writeFirstPaintPromptDraft(
+          config.appId,
+          prompt,
+          "home_suggestion",
+          suggestion.id,
+        );
+        inputRef.current.focus();
+      }}
+    />
+  );
+  const quickActions = config.skipPromptLabel ? (
+    <div className="flex w-full min-w-0 items-center justify-between gap-1">
+      <div className="min-w-0 flex-1">{suggestionBar}</div>
+      <Button
+        type="button"
+        variant="ghost"
+        size="xs"
+        disabled
+        className="h-7 min-w-[85px] justify-center px-2 font-normal text-muted-foreground"
+      >
+        {config.skipPromptLabel}
+      </Button>
+    </div>
+  ) : (
+    suggestionBar
+  );
+
+  return (
+    <PromptHome
+      title={config.promptTitle}
+      composer={composer}
+      quickActions={quickActions}
+      {...(config.reserveConnectionBar
+        ? {
+            reserveConnectionSpace: true,
+            connectionAttached: true,
+            connectionPending: true,
+          }
+        : {})}
+    >
+      {config.library ?? (
+        <section
+          className="agent-prompt-home-library"
+          aria-label={config.templatesLabel}
+        >
+          <div className="flex min-h-10 items-center gap-4 border-b border-border bg-background py-2 text-sm">
+            <span className="border-b-2 border-foreground pb-2 font-medium text-foreground">
+              {config.templatesLabel}
+            </span>
+            <span className="pb-2 text-muted-foreground">
+              {config.recentLabel}
+            </span>
+            <div className="flex-1" />
+            <span className="pb-2 text-muted-foreground">
+              {config.browseAllLabel}
+            </span>
+          </div>
+          <div className="agent-template-library-grid" aria-busy="true">
+            {Array.from({ length: 4 }, (_, index) => (
               <div
                 key={index}
-                style={{ display: "flex", flexDirection: "column", gap: 10 }}
+                className="agent-template-library-card group relative min-w-0"
+                aria-hidden="true"
               >
-                <Block
-                  style={{ width: "100%", height: 144, borderRadius: 12 }}
-                />
-                <Block
-                  style={{ width: `${56 + (index % 3) * 12}%`, height: 12 }}
-                />
+                <div className="agent-template-library-primary overflow-hidden rounded-xl border border-border bg-card">
+                  <div className="agent-template-library-preview bg-muted/30">
+                    <Block style={{ width: "100%", height: "100%" }} />
+                  </div>
+                  <div className="agent-template-library-caption">
+                    <Block style={{ width: "62%", height: 14 }} />
+                    <Block style={{ width: "86%", height: 12, marginTop: 8 }} />
+                  </div>
+                </div>
               </div>
             ))}
           </div>
         </section>
-      </Frame>
-    </>
+      )}
+    </PromptHome>
   );
 }
 
@@ -1168,10 +1497,12 @@ export function AppShellSkeleton({
   ariaLabel = "Loading application",
   height = "var(--agent-native-viewport-height, 100vh)",
   layout,
+  firstPaintHome,
 }: {
   ariaLabel?: string;
   height?: CSSProperties["height"];
   layout?: AppShellSkeletonLayout;
+  firstPaintHome?: AppShellFirstPaintHome;
 }) {
   const layouts: Record<AppShellSkeletonLayout, ReactNode> = {
     assistant: <AssistantLayout />,
@@ -1183,15 +1514,17 @@ export function AppShellSkeleton({
     launchpad: <LaunchpadLayout />,
     list: <ListLayout />,
     mail: <MailLayout />,
-    "prompt-library": <PromptLibraryLayout />,
+    "prompt-library": (
+      <PromptLibraryLayout {...(firstPaintHome ? { firstPaintHome } : {})} />
+    ),
     welcome: <WelcomeLayout />,
   };
   const content = layout ? layouts[layout] : null;
 
   return (
     <div
-      role="status"
-      aria-label={ariaLabel}
+      role={firstPaintHome ? undefined : "status"}
+      aria-label={firstPaintHome ? undefined : ariaLabel}
       data-agent-native-app-skeleton="true"
       data-agent-native-app-skeleton-layout={layout ?? "default"}
       style={{

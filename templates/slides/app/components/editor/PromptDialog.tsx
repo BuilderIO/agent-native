@@ -146,6 +146,7 @@ type PromptModelSelection = Pick<
 >;
 
 export interface PromptPopoverHandle {
+  focus(): void;
   submitSource(
     prompt: string,
     files: File[],
@@ -587,6 +588,10 @@ export default function PromptPopover({
   useImperativeHandle(
     controllerRef,
     () => ({
+      focus() {
+        if (!open || !active || disabled || submissionDisabled) return;
+        composerRef.current?.focus();
+      },
       async submitSource(prompt, files, sourceContext) {
         if (
           !open ||
@@ -626,7 +631,15 @@ export default function PromptPopover({
         return composerRef.current?.getDraftSnapshot?.() ?? null;
       },
     }),
-    [open, disabled, submissionDisabled, loading, uploading, promptText],
+    [
+      open,
+      active,
+      disabled,
+      submissionDisabled,
+      loading,
+      uploading,
+      promptText,
+    ],
   );
 
   const { importingSource, runImport: runPromptImport } = usePromptImport({

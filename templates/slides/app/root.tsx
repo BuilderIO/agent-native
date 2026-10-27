@@ -14,16 +14,36 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { getLocaleInitScript } from "@agent-native/core/client/i18n";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
+import {
+  createHomeSuggestionRandom,
+  HomeSuggestionSeedProvider,
+  pickHomeSuggestions,
+  TemplateLibraryGrid,
+  useHomeSuggestionSeedForHome,
+} from "@agent-native/toolkit/app-shell";
 import { AppProviders } from "@agent-native/toolkit/app/providers";
+import {
+  AppShellSkeleton,
+  type AppShellFirstPaintHome,
+} from "@agent-native/toolkit/app/shared";
 import { useCommandMenuShortcut } from "@agent-native/toolkit/app/shared";
 import { CommandMenu } from "@agent-native/toolkit/app/shared";
-import { IconHierarchy2, IconSun, IconMoon } from "@tabler/icons-react";
+import {
+  IconArrowRight,
+  IconComponents,
+  IconHierarchy2,
+  IconLayoutGrid,
+  IconSun,
+  IconMoon,
+  IconTemplate,
+} from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useState } from "react";
 import {
   Links,
   Meta,
+  Link,
   Outlet,
   Scripts,
   ScrollRestoration,
@@ -36,7 +56,13 @@ import {
   getEditorCommands,
   type EditorCommandGroup,
 } from "@/components/editor/editor-command-model";
+import {
+  SlidesHomeLibrary,
+  type SlidesHomeLibraryTab,
+} from "@/components/home/SlidesHomeLibrary";
+import { SlidesRecentSkeleton } from "@/components/home/SlidesRecentSkeleton";
 import { Layout as AppLayout } from "@/components/layout/Layout";
+import { Button } from "@/components/ui/button";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { DeckProvider, deckIdFromPathname } from "@/context/DeckContext";
 import { useNavigationState } from "@/hooks/use-navigation-state";
@@ -44,7 +70,12 @@ import { TAB_ID } from "@/lib/tab-id";
 import "@/lib/register-chat-renderers";
 
 import changelog from "../CHANGELOG.md?raw";
+import {
+  slidesHomeSuggestionPools,
+  trackSlidesHomeSuggestionClick,
+} from "./home-suggestions";
 import { i18nCatalog } from "./i18n";
+import slidesEnglish from "./i18n/en-US";
 
 import stylesheet from "./global.css?url";
 
@@ -59,6 +90,94 @@ configureTracking({
 
 const BARE_ROUTES = new Set(["/slide"]);
 const BARE_PREFIXES = ["/share/", "/p/"];
+function slidesFirstPaintSuggestions(seed: number) {
+  return pickHomeSuggestions(
+    slidesHomeSuggestionPools,
+    "general",
+    createHomeSuggestionRandom(seed),
+  ).map(({ id, key }) => {
+    const promptKey = key.slice(
+      key.lastIndexOf(".") + 1,
+    ) as keyof typeof slidesEnglish.home.suggestionPrompts.general;
+    const prompt = slidesEnglish.home.suggestionPrompts.general[promptKey];
+    return { id, label: prompt, prompt };
+  });
+}
+
+function SlidesFirstPaintLibrary() {
+  const [value, setValue] = useState<SlidesHomeLibraryTab>("templates");
+  return (
+    <SlidesHomeLibrary
+      value={value}
+      onValueChange={setValue}
+      labels={{
+        templates: slidesEnglish.templatesPage.title,
+        recent: slidesEnglish.home.recent,
+      }}
+      browseAll={
+        <Button
+          variant="ghost"
+          size="sm"
+          className="min-w-[111px] justify-center"
+          asChild
+        >
+          <Link to="/templates">
+            {slidesEnglish.templatesPage.browseAll}
+            <IconArrowRight />
+          </Link>
+        </Button>
+      }
+      templates={
+        <TemplateLibraryGrid
+          items={[]}
+          renderPreview={() => null}
+          loading
+          onSelect={() => {}}
+          labels={{
+            loading: slidesEnglish.templatesPage.loading,
+            empty: slidesEnglish.templatesPage.empty,
+            retry: slidesEnglish.home.retry,
+          }}
+        />
+      }
+      recent={<SlidesRecentSkeleton />}
+    />
+  );
+}
+
+const slidesFirstPaintHome: Omit<AppShellFirstPaintHome, "suggestions"> = {
+  appId: "slides",
+  appName: slidesEnglish.navigation.brand,
+  pageTitle: slidesEnglish.root.commandPresentations,
+  headerHeight: 48,
+  headerActionWidths: [108, 32],
+  promptTitle: slidesEnglish.home.firstDeckPromptTitle,
+  promptPlaceholder: slidesEnglish.home.newDeckPlaceholder,
+  suggestedPromptsLabel: slidesEnglish.home.suggestedPrompts,
+  sidebarItems: [
+    {
+      label: slidesEnglish.header.decks,
+      to: "/home",
+      icon: IconLayoutGrid,
+    },
+    {
+      label: slidesEnglish.templatesPage.title,
+      to: "/templates",
+      icon: IconTemplate,
+    },
+    {
+      label: slidesEnglish.navigation.designSystems,
+      to: "/design-systems",
+      icon: IconComponents,
+    },
+  ],
+  templatesLabel: slidesEnglish.home.decksTitle,
+  recentLabel: slidesEnglish.home.recent,
+  browseAllLabel: slidesEnglish.home.showAllDecks,
+  library: <SlidesFirstPaintLibrary />,
+  suggestionRole: "general",
+  reserveConnectionBar: true,
+};
 
 export function isBareContentPath(pathname: string): boolean {
   const normalizedPath = pathname.replace(/\/+$/, "");
@@ -357,35 +476,54 @@ function AppContent() {
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   const location = useLocation();
+  const homeSuggestionSeed = useHomeSuggestionSeedForHome(
+    location.pathname === "/" || location.pathname === "/home",
+  );
   const sessionBypass = computeSessionBypass(location.pathname);
+  const firstPaintSuggestions = slidesFirstPaintSuggestions(homeSuggestionSeed);
+  const firstPaintHome =
+    location.pathname === "/" || location.pathname === "/home" ? (
+      <AppShellSkeleton
+        layout="prompt-library"
+        firstPaintHome={{
+          ...slidesFirstPaintHome,
+          suggestions: firstPaintSuggestions,
+          suggestionSeed: homeSuggestionSeed,
+          onHomeSuggestionClick: trackSlidesHomeSuggestionClick,
+        }}
+      />
+    ) : undefined;
 
   if (BARE_PREFIXES.some((p) => location.pathname.startsWith(p))) {
     return <Outlet />;
   }
 
   return (
-    <AppToolkitProvider>
-      <AppProviders
-        queryClient={queryClient}
-        skeletonLayout="prompt-library"
-        defaultTheme="dark"
-        i18n={{ catalog: i18nCatalog }}
-        sessionBypass={sessionBypass}
-        unsupportedDevice={
-          sessionBypass || isEmbedAuthActive()
-            ? undefined
-            : {
-                appName: "Slides",
-                subject: isDeckEditorPath(location.pathname)
-                  ? "deck"
-                  : undefined,
+    <HomeSuggestionSeedProvider seed={homeSuggestionSeed}>
+      <AppToolkitProvider>
+        <AppProviders
+          queryClient={queryClient}
+          skeletonLayout="prompt-library"
+          {...(firstPaintHome ? { clientOnlyFallback: firstPaintHome } : {})}
+          defaultTheme="dark"
+          i18n={{ catalog: i18nCatalog }}
+          sessionBypass={sessionBypass}
+          {...(!(sessionBypass || isEmbedAuthActive())
+            ? {
+                unsupportedDevice: {
+                  appName: "Slides",
+                  ...(isDeckEditorPath(location.pathname)
+                    ? { subject: "deck" }
+                    : {}),
+                },
               }
-        }
-        skipFirstRunOnboarding={isDeckEditorPath(location.pathname)}
-      >
-        <AppContent />
-      </AppProviders>
-    </AppToolkitProvider>
+            : {})}
+          skipFirstRunOnboarding={isDeckEditorPath(location.pathname)}
+        >
+          <AppContent />
+        </AppProviders>
+      </AppToolkitProvider>
+    </HomeSuggestionSeedProvider>
   );
 }
 

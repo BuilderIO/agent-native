@@ -147,9 +147,21 @@ describe("design_prompt_submitted helpers", () => {
       referenceTypes: [],
       startMode: "design",
     });
-    const [, properties] = mocks.trackDesignRelay.mock.calls[0]!;
+    const properties = mocks.trackDesignRelay.mock.calls[0]?.[1];
     expect(properties).not.toHaveProperty("source");
     expect(properties).toMatchObject({ prompt_source: "suggestion_chip" });
+  });
+
+  it("records home suggestion prompts with their own prompt source", () => {
+    trackDesignPromptSubmitted({
+      outputId: "design-1",
+      source: "home_suggestion",
+      prompt: "Create a mobile onboarding screen",
+      referenceTypes: [],
+      startMode: "design",
+    });
+    const properties = mocks.trackDesignRelay.mock.calls[0]?.[1];
+    expect(properties).toMatchObject({ prompt_source: "home_suggestion" });
   });
 
   it("buckets prompt length without carrying text", () => {

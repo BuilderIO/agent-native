@@ -17,7 +17,10 @@ import {
 } from "@/lib/design-relay-tracking";
 import { generationOutputFiles } from "@/lib/pending-generation";
 
-export type DesignPromptSource = "composer" | "suggestion_chip";
+export type DesignPromptSource =
+  | "composer"
+  | "suggestion_chip"
+  | "home_suggestion";
 
 export type DesignPromptReferenceType =
   | "template"

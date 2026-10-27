@@ -13,15 +13,29 @@ import {
 } from "@agent-native/core/client/host";
 import { getLocaleInitScript, useT } from "@agent-native/core/client/i18n";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
+import {
+  createHomeSuggestionRandom,
+  HomeSuggestionSeedProvider,
+  pickHomeSuggestions,
+  useHomeSuggestionSeedForHome,
+} from "@agent-native/toolkit/app-shell";
 import { AppProviders } from "@agent-native/toolkit/app/providers";
+import {
+  AppShellSkeleton,
+  type AppShellFirstPaintHome,
+} from "@agent-native/toolkit/app/shared";
 import { useCommandMenuShortcut } from "@agent-native/toolkit/app/shared";
 import { CommandMenu } from "@agent-native/toolkit/app/shared";
 import {
+  IconArrowRight,
   IconArrowsMaximize,
+  IconComponents,
+  IconHome,
   IconHierarchy2,
   IconHistory,
   IconSun,
   IconMoon,
+  IconTemplate,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
@@ -30,6 +44,7 @@ import {
   Links,
   Meta,
   Outlet,
+  Link,
   Scripts,
   ScrollRestoration,
   useLocation,
@@ -37,9 +52,20 @@ import {
 } from "react-router";
 import type { LinksFunction } from "react-router";
 
+import {
+  DesignHomeLibrary,
+  type DesignHomeLibraryTab,
+} from "@/components/home/DesignHomeLibrary";
+import { DesignRecentSkeleton } from "@/components/home/DesignRecentSkeleton";
 import { Layout as AppLayout } from "@/components/layout/Layout";
+import { DesignTemplateGrid } from "@/components/templates/DesignTemplateGrid";
+import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
+import {
+  DESIGN_HOME_SUGGESTION_POOLS,
+  trackDesignHomeSuggestionClick,
+} from "@/home-suggestions";
 import { DESIGN_CHAT_STORAGE_KEY } from "@/lib/agent-chat";
 import { isBuilderHostEmbed } from "@/lib/builder-host-origin";
 import { useDesignVariantPickTracking } from "@/lib/design-funnel-tracking";
@@ -52,6 +78,7 @@ import {
 import changelog from "../CHANGELOG.md?raw";
 import { getDesignGenerationPageviewProvenanceFromProperties } from "../shared/generation-provenance.js";
 import { i18nCatalog } from "./i18n";
+import designEnglish from "./i18n/en-US";
 import { OpenVisualEditWebMcp } from "./OpenVisualEditWebMcp";
 import { isPublicDesignAppPath } from "./public-routes";
 
@@ -88,6 +115,95 @@ export const links: LinksFunction = () => [
 const THEME_INIT_SCRIPT = getThemeInitScript();
 const LOCALE_INIT_SCRIPT = getLocaleInitScript();
 const DESIGN_WEBMCP_EXCLUDED_ACTIONS = ["open-visual-edit"] as const;
+function designFirstPaintSuggestions(seed: number) {
+  return pickHomeSuggestions(
+    DESIGN_HOME_SUGGESTION_POOLS,
+    "general",
+    createHomeSuggestionRandom(seed),
+  ).map(({ id, label }) => {
+    const promptKey = label.slice(
+      label.lastIndexOf(".") + 1,
+    ) as keyof typeof designEnglish.home.suggestions.general;
+    const prompt = designEnglish.home.suggestions.general[promptKey];
+    return { id, label: prompt, prompt };
+  });
+}
+
+function DesignFirstPaintLibrary() {
+  const [value, setValue] = useState<DesignHomeLibraryTab>("templates");
+  return (
+    <DesignHomeLibrary
+      value={value}
+      onValueChange={setValue}
+      labels={{
+        templates: designEnglish.navigation.templates,
+        recent: designEnglish.home.recent,
+      }}
+      browseAll={
+        <Button
+          variant="ghost"
+          size="sm"
+          className="min-w-[111px] justify-center"
+          asChild
+        >
+          <Link to="/templates">
+            {designEnglish.home.browseAllTemplates}
+            <IconArrowRight />
+          </Link>
+        </Button>
+      }
+      templates={
+        <DesignTemplateGrid
+          templates={[]}
+          loading
+          pendingId={null}
+          pendingLabel={designEnglish.templatesPage.opening}
+          disabled={false}
+          loadingLabel={designEnglish.templatesPage.loading}
+          emptyLabel={designEnglish.promptDialog.noTemplatesFound}
+          onSelect={() => {}}
+        />
+      }
+      recent={<DesignRecentSkeleton />}
+    />
+  );
+}
+
+const designFirstPaintHome: Omit<AppShellFirstPaintHome, "suggestions"> = {
+  appId: "design",
+  appName: designEnglish.navigation.brand,
+  pageTitle: designEnglish.home.pageTitle,
+  headerHeight: 56,
+  headerActionWidths: [108, 32],
+  promptTitle: designEnglish.home.designPromptTitle,
+  promptPlaceholder: designEnglish.home.describeBuild,
+  suggestedPromptsLabel: designEnglish.home.suggestedPrompts,
+  sidebarItems: [
+    {
+      label: designEnglish.navigation.home,
+      to: "/home",
+      icon: IconHome,
+    },
+    {
+      label: designEnglish.navigation.templates,
+      to: "/templates",
+      icon: IconTemplate,
+    },
+    {
+      label: designEnglish.navigation.designSystems,
+      to: "/design-systems",
+      icon: IconComponents,
+    },
+  ],
+  sidebarGettingStartedSteps: 5,
+  templatesLabel: designEnglish.navigation.templates,
+  recentLabel: designEnglish.home.recent,
+  browseAllLabel: designEnglish.home.browseAllTemplates,
+  library: <DesignFirstPaintLibrary />,
+  skipPromptLabel: designEnglish.promptDialog.skipPrompt,
+  suggestionRole: "general",
+  reserveConnectionBar: true,
+};
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -297,30 +413,49 @@ function supportsUnsupportedDeviceNotice(pathname: string): boolean {
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   const location = useLocation();
+  const homeSuggestionSeed = useHomeSuggestionSeedForHome(
+    location.pathname === "/" || location.pathname === "/home",
+  );
   const sessionBypass = computeSessionBypass(location.pathname);
+  const firstPaintSuggestions = designFirstPaintSuggestions(homeSuggestionSeed);
+  const firstPaintHome =
+    location.pathname === "/" || location.pathname === "/home" ? (
+      <AppShellSkeleton
+        layout="prompt-library"
+        firstPaintHome={{
+          ...designFirstPaintHome,
+          suggestions: firstPaintSuggestions,
+          suggestionSeed: homeSuggestionSeed,
+          onHomeSuggestionClick: trackDesignHomeSuggestionClick,
+        }}
+      />
+    ) : undefined;
   return (
-    <AppToolkitProvider>
-      <AppProviders
-        queryClient={queryClient}
-        skeletonLayout="prompt-library"
-        sessionBypass={sessionBypass}
-        unsupportedDevice={
-          supportsUnsupportedDeviceNotice(location.pathname)
+    <HomeSuggestionSeedProvider seed={homeSuggestionSeed}>
+      <AppToolkitProvider>
+        <AppProviders
+          queryClient={queryClient}
+          skeletonLayout="prompt-library"
+          {...(firstPaintHome ? { clientOnlyFallback: firstPaintHome } : {})}
+          sessionBypass={sessionBypass}
+          {...(supportsUnsupportedDeviceNotice(location.pathname)
             ? {
-                appName: "Design",
-                subject: isPrivateDesignEditorPath(location.pathname)
-                  ? "design"
-                  : undefined,
+                unsupportedDevice: {
+                  appName: "Design",
+                  ...(isPrivateDesignEditorPath(location.pathname)
+                    ? { subject: "design" }
+                    : {}),
+                },
               }
-            : undefined
-        }
-        webMcpExcludeActionNames={DESIGN_WEBMCP_EXCLUDED_ACTIONS}
-        i18n={{ catalog: i18nCatalog }}
-        toaster={<DesignToaster />}
-      >
-        <PrivateRootContent />
-      </AppProviders>
-    </AppToolkitProvider>
+            : {})}
+          webMcpExcludeActionNames={DESIGN_WEBMCP_EXCLUDED_ACTIONS}
+          i18n={{ catalog: i18nCatalog }}
+          toaster={<DesignToaster />}
+        >
+          <PrivateRootContent />
+        </AppProviders>
+      </AppToolkitProvider>
+    </HomeSuggestionSeedProvider>
   );
 }
 

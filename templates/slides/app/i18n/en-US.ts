@@ -136,7 +136,7 @@ const messages = {
     openChat: "Open chat",
     cloudAuthToken: "Auth token",
     cloudSetupSteps: "Setup steps",
-    cloudConnectedReloading: "Connected successfully. Reloading...",
+    cloudConnectedReloading: "Reloading...",
     cloudConnectionFailed: "Connection failed",
     cloudTestConnect: "Test & Connect",
     cloudServerlessPostgres: "Serverless Postgres",
@@ -1052,10 +1052,154 @@ const messages = {
     chooseAnotherFile: "Choose another file",
   },
   home: {
-    fallbackSuggestions: {
-      pitch: "Create a product pitch deck",
-      roadmap: "Create a product roadmap",
-      explainer: "Explain a topic in a presentation",
+    nextStepBar: {
+      ariaLabel: "Next steps for your first presentation",
+      refineWithPrompt: "Refine with a prompt",
+      export: "Export",
+      shareLink: "Share link",
+      dismiss: "Dismiss",
+    },
+    suggestionPrompts: {
+      product: {
+        launch:
+          "Create a product launch deck with the customer problem, key benefits, launch plan, and a confident customer-first tone.",
+        roadmap:
+          "Create a quarterly roadmap with strategic themes, milestones, dependencies, and a clear executive tone.",
+        opportunity:
+          "Create an opportunity brief with market context, customer pain points, solution, risks, and a decisive product tone.",
+        priorities:
+          "Create a feature prioritization deck with user impact, effort, evidence, tradeoffs, and a concise decision-ready tone.",
+        metrics:
+          "Create a product metrics review with adoption, activation, retention, insights, and a candid analytical tone.",
+        discovery:
+          "Create a customer discovery readout with research themes, key quotes, unmet needs, and an empathetic evidence-led tone.",
+        vision:
+          "Create a product vision deck with a future state, guiding principles, product bets, and an inspiring practical tone.",
+        release:
+          "Create a release review with goals, outcomes, customer feedback, open issues, and an accountable learning tone.",
+      },
+      design: {
+        caseStudy:
+          "Create a design case study with the brief, process, key screens, outcomes, and a warm editorial tone.",
+        system:
+          "Create a design system overview with color, type, components, usage examples, and a crisp visual tone.",
+        critique:
+          "Create a design critique deck with goals, current screens, feedback themes, next steps, and a constructive tone.",
+        research:
+          "Create a user research readout with study context, patterns, quotes, opportunities, and an empathetic tone.",
+        concepts:
+          "Create a concept exploration with three visual directions, sample screens, tradeoffs, and a playful tone.",
+        accessibility:
+          "Create an accessibility review with key barriers, annotated examples, fixes, and a clear inclusive tone.",
+        brand:
+          "Create a brand direction deck with audience, visual references, color, typography, and a distinctive tone.",
+        sprint:
+          "Create a design sprint recap with the challenge, ideas, prototype, test findings, and an optimistic tone.",
+      },
+      developer: {
+        architecture:
+          "Create a system architecture deck with components, data flow, tradeoffs, and a precise technical tone.",
+        api: "Create an API onboarding guide with setup, authentication, examples, errors, and a developer-friendly tone.",
+        release:
+          "Create an engineering release plan with scope, milestones, dependencies, rollout, and a practical tone.",
+        incident:
+          "Create an incident review with impact, timeline, root cause, actions, and a blameless tone.",
+        migration:
+          "Create a platform migration plan with current state, stages, risks, validation, and a reassuring tone.",
+        security:
+          "Create a security review with system boundaries, threats, controls, gaps, and a direct technical tone.",
+        demo: "Create a technical demo deck with the problem, architecture, live workflow, results, and a clear tone.",
+        metrics:
+          "Create an engineering metrics review with delivery, reliability, trends, lessons, and a candid tone.",
+      },
+      marketing: {
+        campaign:
+          "Create a campaign launch deck with audience, message, channels, schedule, and an energetic tone.",
+        story:
+          "Create a customer story with the challenge, solution, results, proof points, and a human tone.",
+        content:
+          "Create a content strategy deck with audience needs, themes, formats, calendar, and an editorial tone.",
+        positioning:
+          "Create a brand positioning deck with audience, category, promise, proof, and a distinctive tone.",
+        channels:
+          "Create a channel performance review with reach, engagement, conversion, lessons, and a clear tone.",
+        messaging:
+          "Create a product messaging deck with audience, benefits, proof points, examples, and a persuasive tone.",
+        event:
+          "Create an event promotion plan with audience, hook, schedule, channels, and a welcoming tone.",
+        competition:
+          "Create a competitive landscape deck with alternatives, strengths, gaps, opportunities, and a balanced tone.",
+      },
+      sales: {
+        pitch:
+          "Create a customer pitch deck with their goals, proposed solution, outcomes, proof, and a confident tone.",
+        proposal:
+          "Create a solution proposal with needs, approach, timeline, investment, and a clear customer-focused tone.",
+        quarterlyReview:
+          "Create a quarterly business review with goals, results, adoption, next steps, and a collaborative tone.",
+        discovery:
+          "Create a discovery findings deck with customer priorities, pain points, fit, and an attentive tone.",
+        objections:
+          "Create an objection handling guide with common concerns, evidence, responses, and a helpful tone.",
+        demo: "Create a product demo story with customer context, key workflows, outcomes, and a concise persuasive tone.",
+        renewal:
+          "Create a renewal presentation with value delivered, usage, opportunities, and a partnership-focused tone.",
+        enablement:
+          "Create a sales enablement deck with ideal buyers, qualification, talk tracks, and a practical tone.",
+      },
+      ops: {
+        weeklyReview:
+          "Create a weekly operations review with goals, metrics, blockers, owners, and a calm direct tone.",
+        process:
+          "Create a process improvement deck with current steps, friction points, future workflow, and a practical tone.",
+        capacity:
+          "Create a capacity plan with demand, team availability, priorities, scenarios, and a transparent tone.",
+        service:
+          "Create a service performance review with volume, response times, escalations, fixes, and an accountable tone.",
+        vendor:
+          "Create a vendor evaluation with requirements, options, costs, risks, and a balanced decision-ready tone.",
+        metrics:
+          "Create an operations dashboard story with key measures, trends, exceptions, and a concise analytical tone.",
+        onboarding:
+          "Create an onboarding workflow with stages, handoffs, resources, success measures, and a supportive tone.",
+        risk: "Create a risk register review with likelihood, impact, mitigations, owners, and a measured tone.",
+      },
+      individual: {
+        project:
+          "Create a personal project plan with the goal, milestones, resources, risks, and a motivating tone.",
+        portfolio:
+          "Create a personal portfolio deck with selected work, process, outcomes, and a confident editorial tone.",
+        learning:
+          "Create a learning roadmap with skills, resources, practice milestones, and an encouraging tone.",
+        event:
+          "Create a gathering plan with purpose, guests, schedule, details, and a warm welcoming tone.",
+        budget:
+          "Create a personal budget review with income, spending, goals, tradeoffs, and a calm practical tone.",
+        travel:
+          "Create a travel itinerary with destinations, daily highlights, logistics, and an inviting visual tone.",
+        community:
+          "Create a community workshop deck with the topic, activities, takeaways, and an inclusive tone.",
+        personalStory:
+          "Create a personal introduction with your background, interests, work, and a natural conversational tone.",
+      },
+      general: {
+        overview:
+          "Create a clear topic overview with context, key ideas, examples, and a welcoming tone.",
+        fundraiser:
+          "Create a nonprofit fundraiser deck with the mission, need, impact, and a hopeful tone.",
+        lesson:
+          "Create a short lesson with learning goals, key concepts, examples, and an engaging tone.",
+        research:
+          "Create a research report with the question, method, findings, implications, and a balanced tone.",
+        eventProposal:
+          "Create an event proposal with purpose, audience, format, budget, and an inviting tone.",
+        teamStrategy:
+          "Create a team strategy deck with priorities, measures, initiatives, and a focused tone.",
+        howTo:
+          "Create a visual how-to guide with clear steps, helpful examples, and an encouraging tone.",
+        portfolioIntro:
+          "Create a portfolio introduction with selected projects, strengths, and a polished tone.",
+      },
     },
     suggestedPrompts: "Suggested prompts",
     importMenu: {

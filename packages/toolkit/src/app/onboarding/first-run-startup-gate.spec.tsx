@@ -169,7 +169,7 @@ describe("FirstRunOnboardingStartupGate", () => {
     ).not.toBeNull();
   });
 
-  it("holds the app behind a neutral screen while eligibility is unresolved", () => {
+  it("keeps the app visible while eligibility is unresolved", () => {
     const status = deferred<boolean>();
     mocks.fetchStatus.mockReturnValue(status.promise);
 
@@ -183,14 +183,14 @@ describe("FirstRunOnboardingStartupGate", () => {
     });
 
     expect(mocks.fetchStatus).toHaveBeenCalledOnce();
-    const loading = container.querySelector("[data-first-run-startup-loading]");
-    expect(loading?.getAttribute("role")).toBe("status");
-    expect(loading?.getAttribute("aria-label")).toBe("Loading application");
-    expect(loading?.hasAttribute("inert")).toBe(false);
-    expect(loading?.querySelector("[inert]")).not.toBeNull();
     expect(
-      container.querySelector("[data-first-run-app-hidden]"),
+      container.querySelector("[data-first-run-startup-loading]"),
+    ).toBeNull();
+    // oracle-change: the app paints behind onboarding while first-run eligibility resolves.
+    expect(
+      container.querySelector("[data-testid='app-content']"),
     ).not.toBeNull();
+    expect(container.querySelector("[data-first-run-app-hidden]")).toBeNull();
     expect(
       container.querySelector("[data-testid='gate-ownership']")?.textContent,
     ).toBe("true");
@@ -217,13 +217,11 @@ describe("FirstRunOnboardingStartupGate", () => {
     expect(mocks.fetchStatus).toHaveBeenCalledTimes(2);
     expect(
       container.querySelector("[data-first-run-startup-loading]"),
-    ).not.toBeNull();
+    ).toBeNull();
     expect(
       container.querySelector("[data-testid='app-content']"),
     ).not.toBeNull();
-    expect(
-      container.querySelector("[data-first-run-app-hidden]"),
-    ).not.toBeNull();
+    expect(container.querySelector("[data-first-run-app-hidden]")).toBeNull();
 
     await act(async () => {
       status.resolve(true);
@@ -256,9 +254,7 @@ describe("FirstRunOnboardingStartupGate", () => {
     await act(async () => {});
 
     expect(mocks.fetchStatus).toHaveBeenCalledTimes(2);
-    expect(
-      container.querySelector("[data-first-run-app-hidden]"),
-    ).not.toBeNull();
+    expect(container.querySelector("[data-first-run-app-hidden]")).toBeNull();
     expect(
       container.querySelector("[data-first-run-status-error]"),
     ).not.toBeNull();
@@ -478,7 +474,7 @@ describe("FirstRunOnboardingStartupGate", () => {
     ).not.toBeNull();
   });
 
-  it("keeps the app hidden and owns the onboarding surface for a new user", async () => {
+  it("keeps the app visible behind onboarding for a new user", async () => {
     const status = deferred<boolean>();
     mocks.fetchStatus.mockReturnValue(status.promise);
 
@@ -501,8 +497,9 @@ describe("FirstRunOnboardingStartupGate", () => {
         container.querySelector("[data-testid='first-run-onboarding']"),
       ).not.toBeNull();
     });
+    expect(container.querySelector("[data-first-run-app-hidden]")).toBeNull();
     expect(
-      container.querySelector("[data-first-run-app-hidden]"),
+      container.querySelector("[data-testid='app-content']"),
     ).not.toBeNull();
     expect(
       container.querySelector("[data-testid='gate-ownership']")?.textContent,
@@ -584,7 +581,7 @@ describe("FirstRunOnboardingStartupGate", () => {
     ).toBeNull();
   });
 
-  it("keeps the app behind a retry surface if both eligibility checks are unavailable", async () => {
+  it("keeps the app visible if both eligibility checks are unavailable", async () => {
     vi.useFakeTimers();
     const retryError = new Error("retry failed");
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -608,9 +605,7 @@ describe("FirstRunOnboardingStartupGate", () => {
     expect(
       container.querySelector("[data-testid='app-content']"),
     ).not.toBeNull();
-    expect(
-      container.querySelector("[data-first-run-app-hidden]"),
-    ).not.toBeNull();
+    expect(container.querySelector("[data-first-run-app-hidden]")).toBeNull();
     expect(
       container.querySelector("[data-first-run-status-error]"),
     ).not.toBeNull();

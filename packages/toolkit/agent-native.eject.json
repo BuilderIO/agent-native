@@ -34,6 +34,7 @@
       "sourceEntries": ["src/index.ts"],
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
+        "@agent-native/core",
         "@assistant-ui/react",
         "@radix-ui/react-accordion",
         "@radix-ui/react-alert-dialog",
@@ -97,6 +98,7 @@
         "react-day-picker",
         "react-dom",
         "react-hook-form",
+        "react-router",
         "react-resizable-panels",
         "recharts",
         "sonner",
@@ -688,14 +690,19 @@
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
         "@agent-native/core",
+        "@radix-ui/react-slot",
         "@radix-ui/react-popover",
         "@radix-ui/react-tooltip",
         "@tabler/icons-react",
         "@tanstack/react-query",
+        "class-variance-authority",
+        "clsx",
+        "culori",
         "next-themes",
         "react",
         "react-router",
-        "sonner"
+        "sonner",
+        "tailwind-merge"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
@@ -735,9 +742,18 @@
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
         "@agent-native/core",
+        "@radix-ui/react-popover",
+        "@radix-ui/react-slot",
+        "@radix-ui/react-tooltip",
         "@tabler/icons-react",
+        "class-variance-authority",
+        "clsx",
+        "culori",
         "react",
         "react-dom",
+        "react-router",
+        "sonner",
+        "tailwind-merge",
         "vgpu",
         "@webgpu/types"
       ],
@@ -1487,13 +1503,22 @@
       "dependencies": [
         "@radix-ui/react-collapsible",
         "@radix-ui/react-scroll-area",
+        "@radix-ui/react-slot",
         "@radix-ui/react-tooltip",
         "@tabler/icons-react",
+        "@agent-native/core",
+        "class-variance-authority",
         "clsx",
+        "culori",
         "react",
+        "react-router",
+        "sonner",
         "tailwind-merge"
       ],
-      "protectedImports": ["@agent-native/toolkit/design-system"],
+      "protectedImports": [
+        "@agent-native/core/client/analytics",
+        "@agent-native/toolkit/design-system"
+      ],
       "verification": ["pnpm typecheck"]
     },
     {
@@ -1609,6 +1634,7 @@
       "sourceEntries": ["src/composer"],
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
+        "@agent-native/core",
         "@assistant-ui/react",
         "@radix-ui/react-checkbox",
         "@radix-ui/react-dialog",
@@ -1638,6 +1664,7 @@
         "tailwind-merge"
       ],
       "protectedImports": [
+        "@agent-native/core/client/analytics",
         "@agent-native/toolkit/ui/button",
         "@agent-native/toolkit/ui/select",
         "@agent-native/toolkit/ui/skeleton"

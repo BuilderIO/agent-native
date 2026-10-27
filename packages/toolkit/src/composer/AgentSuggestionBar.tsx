@@ -8,6 +8,10 @@ import {
   type ReactNode,
 } from "react";
 
+import {
+  normalizeHomeSuggestionRole,
+  type HomeSuggestionClick,
+} from "../app-shell/home-suggestions.js";
 import { Button } from "../ui/button.js";
 import { Skeleton } from "../ui/skeleton.js";
 import { cn } from "../utils.js";
@@ -31,6 +35,8 @@ export interface AgentSuggestionBarProps {
   /** Visible label above the chips; it also names the group. */
   title?: string;
   onSelect: (suggestion: AgentSuggestionItem) => void;
+  homeTracking?: { appId: string; role?: string | null; seed?: number };
+  onHomeSuggestionClick?: (click: HomeSuggestionClick) => void;
   renderSuggestion?: (suggestion: AgentSuggestionItem) => ReactNode;
   className?: string;
   loading?: boolean;
@@ -147,6 +153,8 @@ export function AgentSuggestionBar({
   ariaLabel,
   title,
   onSelect,
+  homeTracking,
+  onHomeSuggestionClick,
   renderSuggestion,
   className,
   loading = false,
@@ -167,6 +175,7 @@ export function AgentSuggestionBar({
       aria-busy={loading || undefined}
       aria-live={announceUpdates ? "polite" : undefined}
       data-agent-suggestion-bar="true"
+      data-home-suggestion-seed={homeTracking?.seed}
       className={cn("w-full min-w-0 overflow-hidden px-3 py-2", className)}
     >
       {title ? (
@@ -190,9 +199,11 @@ export function AgentSuggestionBar({
           data-agent-suggestion-track="true"
           className={cn(
             "flex min-w-full gap-[var(--agent-suggestion-gap,0.25rem)]",
-            layout === "single-line" || loading
-              ? "h-6 w-max flex-nowrap items-center"
-              : "w-(--agent-suggestion-track-width) flex-wrap",
+            homeTracking
+              ? "w-full flex-col gap-1"
+              : layout === "single-line" || loading
+                ? "h-6 w-max flex-nowrap items-center"
+                : "w-(--agent-suggestion-track-width) flex-wrap",
           )}
           onFocus={revealKeyboardFocusedChip}
         >
@@ -205,19 +216,44 @@ export function AgentSuggestionBar({
                   className={cn("h-6 shrink-0 rounded-full", width)}
                 />
               ))
-            : items.map((suggestion) => (
+            : items.map((suggestion, index) => (
                 <Button
-                  key={suggestion.id}
+                  key={homeTracking ? index : suggestion.id}
                   type="button"
                   variant="ghost"
                   size="sm"
                   disabled={suggestion.disabled}
-                  onClick={() => onSelect(suggestion)}
+                  onClick={() => {
+                    if (homeTracking) {
+                      onHomeSuggestionClick?.({
+                        appId: homeTracking.appId,
+                        role: normalizeHomeSuggestionRole(homeTracking.role),
+                        suggestionId: suggestion.id,
+                        position: index + 1,
+                      });
+                    }
+                    onSelect(suggestion);
+                  }}
                   data-agent-suggestion-chip="true"
+                  data-home-suggestion-id={
+                    homeTracking ? suggestion.id : undefined
+                  }
+                  data-agent-suggestion-position={index + 1}
                   // The scroller clips overflow, so the focus ring sits inside.
-                  className="agent-kit-caption-copy h-6 shrink-0 snap-start whitespace-nowrap rounded-full border border-border bg-transparent px-2.5 font-normal text-foreground shadow-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-inset focus-visible:ring-offset-0"
+                  className={cn(
+                    "agent-kit-caption-copy snap-start rounded-full border border-border bg-transparent px-2.5 font-normal text-foreground shadow-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-inset focus-visible:ring-offset-0",
+                    homeTracking
+                      ? "h-10 w-full max-w-full overflow-hidden whitespace-normal py-1 text-left leading-4"
+                      : "h-6 shrink-0 whitespace-nowrap",
+                  )}
                 >
-                  <span>
+                  <span
+                    className={
+                      homeTracking
+                        ? "block h-8 w-full overflow-hidden line-clamp-2"
+                        : undefined
+                    }
+                  >
                     {renderSuggestion
                       ? renderSuggestion(suggestion)
                       : suggestion.label}

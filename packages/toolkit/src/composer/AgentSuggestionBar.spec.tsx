@@ -91,6 +91,56 @@ describe("AgentSuggestionBar", () => {
     expect(onSelect).toHaveBeenCalledWith(suggestion);
   });
 
+  it("tracks a home suggestion click with its role, id, and position", () => {
+    const onSelect = vi.fn();
+    const onHomeSuggestionClick = vi.fn();
+    act(() => {
+      root.render(
+        <AgentSuggestionBar
+          ariaLabel="Suggested prompts"
+          suggestions={[
+            { id: "first", label: "First prompt" },
+            { id: "second", label: "Second prompt" },
+          ]}
+          homeTracking={{ appId: "design", role: "marketing" }}
+          onHomeSuggestionClick={onHomeSuggestionClick}
+          onSelect={onSelect}
+        />,
+      );
+    });
+
+    const buttons = container.querySelectorAll("button");
+    expect(buttons[1]?.getAttribute("data-agent-suggestion-position")).toBe(
+      "2",
+    );
+    expect(buttons[1]?.getAttribute("data-home-suggestion-id")).toBe("second");
+    const track = container.querySelector<HTMLElement>(
+      '[data-agent-suggestion-track="true"]',
+    );
+    expect(track?.className).toContain("w-full");
+    expect(track?.className).toContain("flex-col");
+    expect(track?.className).toContain("gap-1");
+    expect(track?.className).not.toContain("flex-wrap");
+    expect(buttons[1]?.className).toContain("whitespace-normal");
+    expect(buttons[1]?.className).toContain("h-10");
+    expect(buttons[1]?.className).toContain("w-full");
+    expect(buttons[1]?.querySelector("span")?.className).toContain(
+      "line-clamp-2",
+    );
+    act(() => buttons[1]?.click());
+
+    expect(onHomeSuggestionClick).toHaveBeenCalledExactlyOnceWith({
+      appId: "design",
+      role: "marketing",
+      suggestionId: "second",
+      position: 2,
+    });
+    expect(onSelect).toHaveBeenCalledWith({
+      id: "second",
+      label: "Second prompt",
+    });
+  });
+
   it("reserves a single row with skeleton chips while suggestions load", () => {
     act(() => {
       root.render(

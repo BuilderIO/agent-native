@@ -31,6 +31,12 @@
   opacity: 1;
 }
 
+.agent-prompt-home-connection[data-reserved] {
+  min-height: 58px;
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
 .agent-prompt-home-connection > * {
   min-height: 0;
   overflow: hidden;

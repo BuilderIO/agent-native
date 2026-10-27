@@ -15,8 +15,6 @@ import React, {
   useState,
 } from "react";
 
-import { AppShellSkeleton } from "../shared/AppShellSkeleton.js";
-
 const FirstRunOnboarding = lazy(() =>
   import("./FirstRunOnboarding.js").then((module) => ({
     default: module.FirstRunOnboarding,
@@ -67,11 +65,9 @@ export function useFirstRunOnboardingGateOwnsSurface(): boolean {
 
 export function FirstRunOnboardingStartupGate({
   children,
-  fallback = <AppShellSkeleton />,
   suppressSurface = false,
 }: {
   children: React.ReactNode;
-  fallback?: React.ReactNode;
   suppressSurface?: boolean;
 }) {
   const t = useT();
@@ -150,33 +146,15 @@ export function FirstRunOnboardingStartupGate({
 
   const ownsSurface = !suppressSurface && decision === "eligible";
   const gateOwnsSurface = !suppressSurface && decision !== "ineligible";
-  const hideApp = gateOwnsSurface;
-  const app = shouldResolve ? (
-    <div
-      aria-hidden={hideApp ? "true" : undefined}
-      data-first-run-app-hidden={hideApp ? "true" : undefined}
-      style={{
-        display: "contents",
-        ...(hideApp ? { visibility: "hidden" } : {}),
-      }}
-    >
-      {children}
-    </div>
-  ) : (
-    children
-  );
 
   return (
     <FirstRunOnboardingGateContext.Provider value={gateOwnsSurface}>
-      {app}
-      {!suppressSurface && decision === "pending" && (
-        <FirstRunOnboardingStartupLoading fallback={fallback} />
-      )}
+      {children}
       {!suppressSurface && decision === "unavailable" && (
         <div
           role="alert"
           data-first-run-status-error="true"
-          className="fixed inset-0 z-[110] flex flex-col items-center justify-center gap-2 bg-background px-6 text-center"
+          className="fixed inset-x-4 bottom-4 z-[110] mx-auto flex max-w-md items-center justify-between gap-3 rounded-lg border border-border bg-background px-4 py-3 text-start shadow-lg"
         >
           <span className="text-sm text-muted-foreground">
             {t("agentChat.common.chunkLoadFailed")}
@@ -192,29 +170,10 @@ export function FirstRunOnboardingStartupGate({
         </div>
       )}
       {ownsSurface && (
-        <Suspense
-          fallback={<FirstRunOnboardingStartupLoading fallback={fallback} />}
-        >
+        <Suspense fallback={null}>
           <FirstRunOnboarding initialFirstRun />
         </Suspense>
       )}
     </FirstRunOnboardingGateContext.Provider>
-  );
-}
-
-function FirstRunOnboardingStartupLoading({
-  fallback,
-}: {
-  fallback: React.ReactNode;
-}) {
-  return (
-    <div
-      role="status"
-      aria-label="Loading application"
-      data-first-run-startup-loading="true"
-      className="fixed inset-0 z-[110] bg-background"
-    >
-      <div inert>{fallback}</div>
-    </div>
   );
 }

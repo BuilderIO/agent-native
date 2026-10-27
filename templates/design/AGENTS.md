@@ -34,7 +34,6 @@ Use `pnpm action docs-search --query "<topic>"` or `pnpm action docs-search --sl
 | Action | Purpose |
 | --- | --- |
 | `list-design-templates` / `list-designs` | Search paged templates/designs |
-| `generate-home-suggestions` | Suggest prompts |
 | `read-composer-source` | Read bounded Design/Slides/Figma sources |
 | `delete-file` | Delete a screen when requested |
 | `create-design-from-template` | Copy template; source screens stay locked |

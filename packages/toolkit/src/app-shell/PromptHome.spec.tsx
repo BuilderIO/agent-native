@@ -114,6 +114,56 @@ describe("prompt home and library", () => {
     expect(textarea.value).toBe("Unsaved user draft");
   });
 
+  it("keeps the connection slot reserved while agent readiness resolves", () => {
+    const home = (connectionReady: boolean) => (
+      <PromptHome
+        title="Create"
+        composer={<textarea />}
+        reserveConnectionSpace
+        connectionAttached
+        connectionPending={!connectionReady}
+        connection={connectionReady ? <button>Connect AI</button> : undefined}
+      />
+    );
+
+    render(home(false));
+    const slot = container.querySelector(".agent-prompt-home-connection")!;
+    expect(slot.hasAttribute("data-reserved")).toBe(true);
+    expect(
+      slot.querySelector("[data-prompt-home-connection-skeleton]"),
+    ).not.toBeNull();
+
+    render(home(true));
+    expect(container.querySelector(".agent-prompt-home-connection")).toBe(slot);
+    expect(slot.hasAttribute("data-reserved")).toBe(true);
+    expect(slot.textContent).toContain("Connect AI");
+    expect(
+      slot.querySelector("[data-prompt-home-connection-skeleton]"),
+    ).toBeNull();
+  });
+
+  it("focuses the composer after first-run completion or agent setup", async () => {
+    const focusComposer = vi.fn();
+    render(
+      <PromptHome
+        title="Create"
+        composer={<textarea />}
+        focusComposer={focusComposer}
+      />,
+    );
+
+    act(() => {
+      window.dispatchEvent(new Event("agent-engine:configured-changed"));
+    });
+    await vi.waitFor(() => expect(focusComposer).toHaveBeenCalledOnce());
+
+    focusComposer.mockClear();
+    act(() => {
+      window.dispatchEvent(new Event("agent-native:first-run-completed"));
+    });
+    await vi.waitFor(() => expect(focusComposer).toHaveBeenCalledOnce());
+  });
+
   it("keeps Templates and Recent tabs available with no history", () => {
     const onValueChange = vi.fn();
     render(
