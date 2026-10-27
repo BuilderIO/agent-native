@@ -6,7 +6,7 @@ Scope MCP Apps embed sessions to their resource and declared actions, and requir
 
 Apps with a custom `AuthOptions.getSession` resolver must also configure the cookie-only `getBrowserSession` hook to use UI capabilities and browser approvals. Without it, these operations return `401` and the server logs a migration warning.
 
-MCP Apps embeds behind a proxy require the public origin configured through `APP_URL` or the workspace gateway URL unless the proxy connects over loopback.
+MCP Apps embeds use the validated public request URL. Forwarded host and protocol headers are honored only for a loopback proxy; configuring an allowed origin does not establish proxy trust.
 
 Use the embed origin consistently for widget CSP and keep ordinary sign-in session lookup independent of embed origin validation.
 

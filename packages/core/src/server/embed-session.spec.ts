@@ -1102,10 +1102,13 @@ describe("requestMatchesEmbedTarget", () => {
   function fakeEvent(
     path: string,
     headers: Record<string, string> = {},
-    options: { clientAddress?: string } = {},
+    options: { clientAddress?: string; origin?: string } = {},
   ) {
     const requestHeaders = new Headers(headers);
-    const requestUrl = new URL(path, `http://${headers.host ?? "mail.test"}`);
+    const requestUrl = new URL(
+      path,
+      options.origin ?? `http://${headers.host ?? "mail.test"}`,
+    );
     const responseHeaders = new Headers();
     return {
       path,
@@ -1255,6 +1258,7 @@ describe("requestMatchesEmbedTarget", () => {
         targetPath: "/inbox",
       });
       const event = credentialEvent("/inbox", token, "cookie", headers);
+      event.req.context.clientAddress = "127.0.0.1";
       await expect(resolveEmbedSessionFromRequest(event)).resolves.toBeNull();
       await expect(
         isExpiredMcpDirectoryWidgetSessionRequest(event),
@@ -1286,6 +1290,7 @@ describe("requestMatchesEmbedTarget", () => {
           host: "mail.test",
           ...headers,
         },
+        { clientAddress: "127.0.0.1" },
       );
       const context = {
         userEmail: "owner@example.com",
@@ -1939,7 +1944,7 @@ describe("requestMatchesEmbedTarget", () => {
     },
   );
 
-  it("redeems and resolves an embed through an allowlisted non-loopback gateway", async () => {
+  it("redeems and resolves an embed using a non-loopback platform's public request URL", async () => {
     process.env.WORKSPACE_GATEWAY_URL = "https://workspace.example.test";
     process.env.APP_BASE_PATH = "/mail";
     installTicketStore();
@@ -1953,14 +1958,17 @@ describe("requestMatchesEmbedTarget", () => {
     );
     const { createEmbedStartRouteHandler } = await import("./embed-route.js");
     const headers = {
-      host: "internal.gateway:8100",
-      "x-forwarded-host": "workspace.example.test",
-      "x-forwarded-proto": "https",
+      host: "workspace.example.test",
+      "x-forwarded-host": "internal.gateway:8100",
+      "x-forwarded-proto": "http",
     };
     const start = fakeEvent(
       `/mail/_agent-native/embed/start?ticket=${ticket.ticket}`,
       headers,
-      { clientAddress: "203.0.113.20" },
+      {
+        clientAddress: "203.0.113.20",
+        origin: "https://workspace.example.test",
+      },
     );
     start.req.method = "GET";
     const response = (await createEmbedStartRouteHandler()(start)) as Response;
@@ -1972,15 +1980,22 @@ describe("requestMatchesEmbedTarget", () => {
     const document = fakeEvent(
       `${location.pathname}${location.search}`,
       headers,
-      { clientAddress: "203.0.113.20" },
+      {
+        clientAddress: "203.0.113.20",
+        origin: "https://workspace.example.test",
+      },
     );
     await expect(
       resolveEmbedSessionFromRequest(document),
     ).resolves.toMatchObject({ email: "owner@example.com" });
     const otherHost = fakeEvent(
       `${location.pathname}${location.search}`,
-      { ...headers, "x-forwarded-host": "attacker.example" },
-      { clientAddress: "203.0.113.20" },
+      {
+        ...headers,
+        host: "other.example",
+        "x-forwarded-host": "workspace.example.test",
+      },
+      { clientAddress: "203.0.113.20", origin: "https://other.example" },
     );
     await expect(resolveEmbedSessionFromRequest(otherHost)).resolves.toBeNull();
   });

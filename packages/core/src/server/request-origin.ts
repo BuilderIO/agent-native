@@ -3,6 +3,7 @@ import type { IncomingHttpHeaders } from "node:http";
 import {
   createError,
   getRequestHeader,
+  getRequestHeaders,
   getRequestIP,
   getRequestURL,
   type H3Event,
@@ -20,7 +21,9 @@ export function getForwardedRequestOrigin(event: H3Event): string {
   const requestUrl = getRequestURL(event);
   // Nitro does not pass Srvx's peer-checked proxy trust through to H3 events.
   if (isLoopbackAddress(getRequestIP(event))) {
-    const rawHost = getRequestHeader(event, "x-forwarded-host");
+    const headers: Partial<ReturnType<typeof getRequestHeaders>> =
+      getRequestHeaders(event);
+    const rawHost = headers["x-forwarded-host"];
     const headerHost = rawHost?.split(",")[0]?.trim();
     if (rawHost !== undefined && !headerHost) {
       throw createError({
@@ -28,7 +31,7 @@ export function getForwardedRequestOrigin(event: H3Event): string {
         statusMessage: "Invalid forwarded request origin",
       });
     }
-    const rawProto = getRequestHeader(event, "x-forwarded-proto");
+    const rawProto = headers["x-forwarded-proto"];
     const defaultProto =
       process.env.NODE_ENV === "production"
         ? "https"

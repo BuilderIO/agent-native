@@ -5,6 +5,8 @@ vi.mock("h3", () => ({
     Object.assign(new Error(details.statusMessage), details),
   getRequestHeader: (event: any, name: string) =>
     event.headers?.[name] ?? event.headers?.[name.toLowerCase()],
+  getRequestHeaders: (event: { headers?: Record<string, string> }) =>
+    event.headers ?? {},
   getRequestIP: (event: any) => event.ip,
   getRequestURL: (event: any) => new URL(event.url ?? "http://localhost/"),
 }));

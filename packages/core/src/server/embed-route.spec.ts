@@ -120,7 +120,7 @@ describe("createEmbedStartRouteHandler", () => {
   });
 
   it.each(["127.0.0.1", "203.0.113.20"])(
-    "consumes valid tickets behind a proxy and redirects to the embedded target (%s)",
+    "consumes valid tickets from a trusted proxy or public platform URL (%s)",
     async (ip) => {
       if (ip !== "127.0.0.1")
         vi.stubEnv(
@@ -147,6 +147,10 @@ describe("createEmbedStartRouteHandler", () => {
         },
       );
       event.ip = ip;
+      if (ip !== "127.0.0.1") {
+        event.url =
+          "https://beta.calendar.agent-native.com/_agent-native/embed/start";
+      }
       const res: Response = await handler(event);
 
       expect(consumeEmbedSessionTicket).toHaveBeenCalledWith(
