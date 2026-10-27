@@ -16,6 +16,7 @@ import {
   toHttpServerConfigAsync,
   type RemoteMcpScope,
 } from "../mcp-client/remote-store.js";
+import { AppSecretDecryptionError } from "../secrets/errors.js";
 import {
   getBuilderOAuthSession,
   hasBuilderOAuthSession,
@@ -31,6 +32,16 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "./request-context.js";
+
+export function isBuilderReauthorizationRequired(error: unknown): boolean {
+  return (
+    (error instanceof ActionContractError &&
+      error.errorCode === "builder_oauth_reauthorization_required") ||
+    error instanceof AppSecretDecryptionError ||
+    (error instanceof CredentialStoreUnavailableError &&
+      error.cause instanceof AppSecretDecryptionError)
+  );
+}
 
 function getBuilderCredentialScope(): {
   orgId: string | null;

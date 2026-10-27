@@ -350,6 +350,8 @@ const database = {
   failedToCreateRow: "Zeile konnte nicht erstellt werden",
   pageCreatedCollectionRefreshFailed:
     "Die Seite wurde erstellt, aber diese Sammlung konnte nicht aktualisiert werden. Neu laden, um sie zu sehen.",
+  builderPushResultNotLoaded:
+    "Die Aktualisierung hat Builder erreicht, aber diese Prüfung konnte das Ergebnis nicht laden. Neu laden, um es zu sehen.",
   failedToDeleteRow: "Zeile konnte nicht gelöscht werden",
   failedToDeleteSelectedRows:
     "Ausgewählte Zeilen konnten nicht gelöscht werden",

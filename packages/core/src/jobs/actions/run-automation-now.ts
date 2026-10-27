@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
-import { isMcpAutomationOrigin } from "../../automations/mcp-origin.js";
+import { isOutsideAutomationOrigin } from "../../automations/outside-origin.js";
 import { automationOutcomeMessagesForUser } from "../../localization/automation-outcome-messages.js";
 import { queueAutomationRunNow } from "../run-now.js";
 
@@ -9,7 +9,7 @@ export default defineAction({
   description:
     "Run an accessible automation by stable resourceId. A name or jobs/ path remains available for compatibility. This explicit action may perform the automation's real side effects.",
   agentTool: false,
-  needsApproval: (_input, ctx) => isMcpAutomationOrigin(ctx?.caller),
+  needsApproval: (_input, ctx) => isOutsideAutomationOrigin(ctx),
   schema: z
     .object({
       resourceId: z.string().trim().min(1).optional(),

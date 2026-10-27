@@ -37,6 +37,8 @@ const state = vi.hoisted(() => ({
   deleteCalls: [] as Array<{ url: string; options?: unknown }>,
   uploadCalls: [] as Array<Record<string, unknown>>,
   deleteFails: new Set<string>(),
+  frameDeletes: [] as string[],
+  frameDeleteFails: false,
   deletedAppState: [] as string[],
   ffmpegRuns: 0,
   uploadUrl: "https://cdn.example.com/media/clips/rec_1.mp4" as string | null,
@@ -152,6 +154,12 @@ vi.mock("../server/lib/recording-media-cleanup.js", () => ({
     return true;
   },
 }));
+vi.mock("../server/lib/agent-frame-store.js", () => ({
+  deleteStoredAgentFrames: async (target: { id: string }) => {
+    state.frameDeletes.push(target.id);
+    return state.frameDeleteFails ? 1 : 0;
+  },
+}));
 vi.mock("../server/lib/ensure-recording-thumbnail.js", () => ({
   ensureRecordingThumbnail: async (params: Record<string, unknown>) => {
     state.thumbnailCalls.push(params);
@@ -214,6 +222,8 @@ describe("burning redactions into a recording", () => {
     state.deleteCalls = [];
     state.uploadCalls = [];
     state.deleteFails = new Set();
+    state.frameDeletes = [];
+    state.frameDeleteFails = false;
     state.deletedAppState = [];
     state.ffmpegRuns = 0;
     state.uploadUrl = "https://cdn.example.com/media/clips/rec_1.mp4";
@@ -418,6 +428,18 @@ describe("burning redactions into a recording", () => {
     });
   });
 
+  it("deletes the stored agent frames cut before the burn", async () => {
+    await run();
+
+    expect(state.frameDeletes).toEqual(["rec_1"]);
+  });
+
+  it("keeps the clip held when a stored agent frame cannot be deleted", async () => {
+    state.frameDeleteFails = true;
+
+    await expect(run()).rejects.toThrow("could not be deleted from storage");
+  });
+
   it("keeps the clip held when the original cannot be deleted", async () => {
     state.deleteFails = new Set([recording.videoUrl]);
 
@@ -482,6 +504,8 @@ describe("starting a burn", () => {
     state.updateReturns = [{ id: "rec_1" }];
     state.deleted = [];
     state.deleteFails = new Set();
+    state.frameDeletes = [];
+    state.frameDeleteFails = false;
     state.progressWrites = [];
     state.progressCleared = 0;
     state.failures = [];
