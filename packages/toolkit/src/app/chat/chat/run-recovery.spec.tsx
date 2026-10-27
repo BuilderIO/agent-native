@@ -1276,6 +1276,20 @@ describe("run recovery surfaces", () => {
     expect(container.textContent).toContain(
       "Builder.io sign-in was cancelled.",
     );
+
+    builderFlowMock.state.statusUnavailable = true;
+    builderFlowMock.state.errorKind = "status-read";
+    builderFlowMock.state.error = "Connection status is unavailable.";
+    builderFlowMock.state.terminalError = "Builder.io sign-in was cancelled.";
+    await act(async () => {
+      root.render(renderCard());
+    });
+    expect(container.textContent).toContain(
+      "Builder.io sign-in was cancelled.",
+    );
+    expect(container.textContent).not.toContain(
+      "Connection status is unavailable.",
+    );
   });
 
   it("records bounded Builder failure outcomes after a setup attempt", async () => {
