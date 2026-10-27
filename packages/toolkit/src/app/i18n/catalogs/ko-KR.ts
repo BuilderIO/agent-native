@@ -522,6 +522,11 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.scheduleTaskPrefix": "반복 작업 만들기: ",
   "composer.selectedReferences": "선택한 참조",
   "composer.sendMessage": "메시지 보내기",
+  "composer.select": "선택",
+  "composer.selectContextFull":
+    "컨텍스트가 가득 찼습니다. 다른 항목을 선택하기 전에 항목을 하나 제거하세요.",
+  "composer.selectContextTooLarge":
+    "이 개체는 너무 커서 컨텍스트로 추가할 수 없습니다.",
   "composer.skill.added": '"{{name}}" 스킬 추가됨',
   "composer.skill.back": "뒤로",
   "composer.skill.content": "내용",

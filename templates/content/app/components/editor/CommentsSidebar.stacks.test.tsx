@@ -75,6 +75,12 @@ const AUTHORS: Record<string, string> = {
   d: "lee@example.test",
 };
 
+/** A queried element the test can't go on without. */
+function found<T>(value: T | null | undefined): T {
+  if (value == null) throw new Error("Expected the element to be on the page");
+  return value;
+}
+
 function thread(
   id: string,
   times: string[],
@@ -307,20 +313,78 @@ describe("comment stacks in the margin", () => {
   it("folds every block with two or more open threads into one card", () => {
     render();
     expect(margin()).toEqual(["stack:d", "solo", "stack:l2", "l3"]);
-    const [paragraph] = foldedStacks();
+    const front = found(
+      found(foldedStacks()[0]).querySelector("[data-comment-stack-front-card]"),
+    );
     // The newest thread is in front: its quote, its first comment, and
     // how many replies it has.
-    expect(paragraph.textContent).toContain("quote d");
-    expect(paragraph.textContent).toContain("Comment d");
-    expect(paragraph.textContent).not.toContain("Comment a");
+    expect(front.textContent).toContain("quote d");
+    expect(front.textContent).toContain("Comment d");
+    expect(front.textContent).not.toContain("Comment a");
     // Resolved threads are dropped, so the count is of open threads.
-    expect(paragraph.textContent).toContain("comments.stackMore:3");
+    expect(front.textContent).toContain("comments.stackMore:3");
     expect(
-      paragraph.querySelectorAll("[data-comment-stack-footer] [title]"),
+      front.querySelectorAll("[data-comment-stack-footer] [title]"),
     ).toHaveLength(3);
     const open = openButton("d");
     expect(open.getAttribute("aria-expanded")).toBe("false");
     expect(open.getAttribute("aria-label")).toBe("comments.stackShowAll:4");
+  });
+
+  it("keeps the other threads' cards unseen behind the front, so it keeps its size when the front changes", () => {
+    render();
+    const behind = [
+      ...found(foldedStacks()[0]).querySelectorAll<HTMLElement>(
+        "[data-comment-stack-behind]",
+      ),
+    ];
+    expect(behind.map((card) => card.dataset.commentStackBehind)).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
+    for (const card of behind) {
+      expect(card.classList.contains("invisible")).toBe(true);
+      expect(card.getAttribute("aria-hidden")).toBe("true");
+      expect(card.hasAttribute("inert")).toBe(true);
+    }
+  });
+
+  it("stacks a quote across blocks under its first block, spaced as the page reads it, in front or behind", async () => {
+    scroll.innerHTML = `
+      <div data-document-scroll-content>
+        <div class="ProseMirror">
+          <p><span data-comment-thread="near">near</span> and the
+            <span data-comment-thread="across">end of one</span></p>
+          <p><span data-comment-thread="across">start of two</span></p>
+        </div>
+      </div>`;
+    const across = {
+      ...thread("across", ["2026-10-20T09:00:00Z"]),
+      quotedText: "end of onestart of two",
+    };
+    render([across, thread("near", ["2026-10-20T10:00:00Z"])]);
+    expect(margin()).toEqual(["stack:near"]);
+    const stack = found(foldedStacks()[0]);
+    expect(
+      found(stack.querySelector('[data-comment-stack-behind="across"]'))
+        .textContent,
+    ).toContain("end of one start of two");
+
+    act(() => harness.hover("across"));
+    await wait(220);
+    expect(margin()).toEqual(["stack:across"]);
+    const front = found(
+      found(foldedStacks()[0]).querySelector("[data-comment-stack-front-card]"),
+    );
+    expect(front.textContent).toContain("end of one start of two");
+    expect(
+      found(
+        found(foldedStacks()[0]).querySelector(
+          "[data-comment-stack-description]",
+        ),
+      ).textContent,
+    ).toContain("end of one start of two");
   });
 
   it("describes a folded stack to screen readers, though its preview is inert", () => {
@@ -758,6 +822,44 @@ describe("comment stacks in the margin", () => {
     expect(margin()[0]).toBe("stack:new");
   });
 
+  it("keeps a posted comment in front while the pointer rests on another highlight", async () => {
+    render();
+    markPending("intro");
+    act(() => harness.comment({ quotedText: "and more", offsetTop: 0 }));
+    // The Comment button goes from under the pointer, which comes to rest on
+    // another of the block's highlights.
+    act(() => harness.hover("b"));
+    await wait(220);
+    actions.create.mockImplementation(async () => {
+      const slot = found(scroll.querySelector('[data-slot="intro"]'));
+      slot.className = "";
+      slot.setAttribute("data-comment-thread", "new");
+      render([...THREADS, thread("new", [new Date().toISOString()])]);
+      return { id: "new-0", threadId: "new" };
+    });
+    await setRichEditorValue(
+      found(
+        richEditor(found(container.querySelector("[data-comment-pending]"))),
+      ),
+      "Posted under a resting pointer",
+    );
+    await act(async () =>
+      found(
+        container.querySelector<HTMLButtonElement>(
+          '[aria-label="comments.submit"]',
+        ),
+      ).click(),
+    );
+    await wait(400);
+    expect(margin()[0]).toBe("stack:new");
+
+    // Resting on a highlight again brings it back.
+    act(() => harness.hover(null));
+    act(() => harness.hover("b"));
+    await wait(220);
+    expect(margin()[0]).toBe("stack:b");
+  });
+
   it("puts a clicked highlight's thread in front, even one already selected", async () => {
     render();
     markPending("intro");
@@ -811,5 +913,336 @@ describe("comment stacks in the margin", () => {
     act(() => harness.comment({ quotedText: "beside it", offsetTop: 0 }));
     expect(margin()).toEqual(["stack:a", "solo", "stack:l2", "l3"]);
     expect(collapseButton()).toBeNull();
+  });
+
+  describe("lining the card you're on up with its text", () => {
+    const CARD = 100;
+    let layout: { mockRestore: () => void } | null = null;
+    afterEach(() => {
+      layout?.mockRestore();
+      layout = null;
+    });
+
+    /** Puts each highlight at a top in the margin, and makes every card 100px tall. */
+    function layOut(tops: Partial<Record<string, number>>) {
+      layout = vi
+        .spyOn(Element.prototype, "getBoundingClientRect")
+        .mockImplementation(function (this: Element) {
+          const threadId = this.getAttribute("data-comment-thread");
+          const top =
+            threadId !== null
+              ? (tops[threadId] ?? 0)
+              : this.classList.contains("comment-highlight--pending")
+                ? (tops.pending ?? 0)
+                : 0;
+          const height =
+            this.hasAttribute("data-thread-card") ||
+            this.hasAttribute("data-comment-pending") ||
+            this.getAttribute("data-comment-stack-state") === "folded"
+              ? CARD
+              : 0;
+          return {
+            top,
+            bottom: top + height,
+            left: 0,
+            right: 100,
+            width: 100,
+            height,
+            x: 0,
+            y: top,
+            toJSON: () => ({}),
+          };
+        });
+    }
+
+    /** Each card's top in the margin: its place in the flow, plus its shift. */
+    function cardTops() {
+      let flow = 0;
+      const tops = new Map<string, number>();
+      for (const item of container.querySelectorAll<HTMLElement>(
+        "[data-comment-layout-thread]",
+      )) {
+        const top = flow + parseFloat(item.style.marginTop || "0");
+        const shift = Number(
+          /translateY\((-?[\d.]+)px\)/.exec(item.style.transform)?.[1] ?? 0,
+        );
+        tops.set(found(item.dataset.commentLayoutThread), top + shift);
+        flow = top + CARD;
+      }
+      return tops;
+    }
+
+    function collapseTop() {
+      return parseFloat(
+        found(
+          container.querySelector<HTMLElement>(
+            '[data-comment-stack-state="open"]',
+          ),
+        ).style.top,
+      );
+    }
+
+    it("keeps the cards before the clicked one above it when they fit", async () => {
+      layOut({
+        a: 500,
+        b: 500,
+        c: 500,
+        d: 500,
+        solo: 900,
+        l1: 1100,
+        l2: 1100,
+        l3: 1200,
+      });
+      render();
+      await wait(20);
+      act(() => harness.select("c"));
+      const tops = cardTops();
+      expect(tops.get("c")).toBe(500);
+      // Collapse, a and b above it, in document order; d below.
+      expect(tops.get("a")).toBe(500 - 2 * (CARD + 12));
+      expect(tops.get("b")).toBe(500 - (CARD + 12));
+      expect(tops.get("d")).toBe(500 + CARD + 12);
+      expect(collapseTop()).toBe(500 - 2 * (CARD + 12) - 28 - 12);
+    });
+
+    it("puts the clicked card first near the top, level with its text, below a reachable Collapse row", async () => {
+      // a and b would need 264px above c; the paragraph is 150px down.
+      layOut({
+        a: 150,
+        b: 150,
+        c: 150,
+        d: 150,
+        solo: 600,
+        l1: 800,
+        l2: 800,
+        l3: 900,
+      });
+      render();
+      await wait(20);
+      act(() => harness.select("c"));
+      const tops = cardTops();
+      expect(tops.get("c")).toBe(150);
+      expect(collapseTop()).toBe(150 - 28 - 12);
+      // The rest follow it in document order.
+      expect(tops.get("a")).toBe(150 + CARD + 12);
+      expect(tops.get("b")).toBe(150 + 2 * (CARD + 12));
+      expect(tops.get("d")).toBe(150 + 3 * (CARD + 12));
+      // The page's other cards keep clear of the stack.
+      expect(tops.get("solo")).toBeGreaterThanOrEqual(150 + 4 * (CARD + 12));
+      // The margin still lists them in document order.
+      expect(margin()).toEqual(["a", "b", "c", "d", "solo", "stack:l2", "l3"]);
+    });
+
+    it("keeps highlights on one line in document order, whatever order their threads came in", async () => {
+      layOut({
+        a: 150,
+        b: 150,
+        c: 150,
+        d: 150,
+        solo: 600,
+        l1: 800,
+        l2: 800,
+        l3: 900,
+      });
+      render([...THREADS].reverse());
+      await wait(20);
+      act(() => harness.select("c"));
+      const tops = cardTops();
+      expect(tops.get("c")).toBe(150);
+      expect(tops.get("a")).toBe(150 + CARD + 12);
+      expect(tops.get("b")).toBe(150 + 2 * (CARD + 12));
+      expect(tops.get("d")).toBe(150 + 3 * (CARD + 12));
+    });
+
+    it("lines a new comment up with its selection, folded or in the opened stack", async () => {
+      layOut({
+        a: 150,
+        b: 150,
+        c: 150,
+        d: 150,
+        pending: 180,
+        solo: 600,
+        l1: 800,
+        l2: 800,
+        l3: 900,
+      });
+      render();
+      await wait(20);
+      markPending("intro");
+      act(() => harness.comment({ quotedText: "and more", offsetTop: 180 }));
+      await wait(20);
+      const pending = () =>
+        found(container.querySelector<HTMLElement>("[data-comment-pending]"));
+      expect(pending().dataset.commentStackState).toBe("composing");
+      expect(pending().style.top).toBe("180px");
+
+      act(() =>
+        found(
+          pending().querySelector<HTMLButtonElement>(
+            "[data-comment-stack-show-all]",
+          ),
+        ).click(),
+      );
+      expect(collapseButton()).not.toBeNull();
+      expect(pending().style.top).toBe("180px");
+      expect(collapseTop()).toBe(180 - 28 - 12);
+      expect(cardTops().get("a")).toBe(180 + CARD + 12);
+    });
+  });
+
+  describe("bringing a new thread to the front of a folded stack", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    function leaving() {
+      return [
+        ...container.querySelectorAll<HTMLElement>(
+          "[data-comment-stack-leaving]",
+        ),
+      ];
+    }
+
+    function entering() {
+      return [
+        ...container.querySelectorAll<HTMLElement>(
+          ".comment-stack-front-enter",
+        ),
+      ];
+    }
+
+    it("keeps the old front card under the new one as it leaves", () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      render();
+      expect(leaving()).toHaveLength(0);
+      act(() => harness.hover("b"));
+      act(() => {
+        vi.advanceTimersByTime(200);
+      });
+      expect(margin()[0]).toBe("stack:b");
+      const card = found(leaving()[0]);
+      expect(card.dataset.commentStackLeaving).toBe("d");
+      expect(card.textContent).toContain("Comment d");
+      // Drawn just before the new front, so it stays underneath.
+      expect(card.nextElementSibling?.textContent).toContain("Comment b");
+      expect(entering()).toEqual([card.nextElementSibling]);
+      // It's only a picture of the card that left.
+      expect(card.getAttribute("aria-hidden")).toBe("true");
+      expect(card.hasAttribute("inert")).toBe(true);
+      expect(
+        document.getElementById(
+          found(openButton("b").getAttribute("aria-describedby")),
+        )?.firstElementChild?.textContent,
+      ).toBe("quote b");
+
+      act(() => {
+        vi.advanceTimersByTime(400);
+      });
+      expect(leaving()).toHaveLength(0);
+      expect(margin()[0]).toBe("stack:b");
+    });
+
+    it("settles on the latest front when the pointer crosses several highlights", () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      render();
+      for (const threadId of ["b", "c", "a"]) {
+        act(() => harness.hover(threadId));
+        act(() => {
+          vi.advanceTimersByTime(190);
+        });
+      }
+      // Only the card it just replaced is on its way out; none queue up.
+      expect(margin()[0]).toBe("stack:a");
+      expect(leaving().map((card) => card.dataset.commentStackLeaving)).toEqual(
+        ["c"],
+      );
+      act(() => {
+        vi.advanceTimersByTime(400);
+      });
+      expect(leaving()).toHaveLength(0);
+      expect(margin()[0]).toBe("stack:a");
+    });
+
+    it("plays the change when a stack folds with another thread in front", () => {
+      render();
+      act(() => harness.select("a"));
+      act(() => found(collapseButton()).click());
+      expect(margin()[0]).toBe("stack:a");
+      expect(leaving().map((card) => card.dataset.commentStackLeaving)).toEqual(
+        ["d"],
+      );
+    });
+
+    it("plays the change when another person's new thread comes to the front", async () => {
+      render();
+      act(() =>
+        found(scroll.querySelector('[data-slot="intro"]')).setAttribute(
+          "data-comment-thread",
+          "new",
+        ),
+      );
+      render([...THREADS, thread("new", ["2026-10-20T15:00:00Z"])]);
+      await wait(60);
+      expect(margin()[0]).toBe("stack:new");
+      expect(leaving().map((card) => card.dataset.commentStackLeaving)).toEqual(
+        ["d"],
+      );
+    });
+
+    // Text that leads the block also changes which thread the folded card is
+    // laid out under.
+    it.each(["after", "before"] as const)(
+      "swaps in a posted comment's saved copy without playing the change again, its text %s the others",
+      async (place) => {
+        render();
+        const slot =
+          place === "after"
+            ? found(scroll.querySelector('[data-slot="intro"]'))
+            : document.createElement("span");
+        act(() => {
+          if (place === "before")
+            found(scroll.querySelector('[data-comment-thread="a"]')).before(
+              slot,
+            );
+          slot.setAttribute("data-comment-thread", "optimistic-op");
+        });
+        render([...THREADS, thread("optimistic-op", ["2026-10-20T15:00:00Z"])]);
+        await wait(60);
+        expect(margin()).toContain("stack:optimistic-op");
+        expect(entering()).toHaveLength(1);
+
+        // The saved thread takes the stand-in's place before its change ends.
+        act(() => slot.setAttribute("data-comment-thread", "new"));
+        render([...THREADS, thread("new", ["2026-10-20T15:00:00Z"])]);
+        await wait(60);
+        expect(margin()).toContain("stack:new");
+        expect(leaving()).toHaveLength(0);
+        expect(entering()).toHaveLength(0);
+      },
+    );
+
+    it("plays the change on folding a stack whose block moved while it was open", async () => {
+      render();
+      act(() => harness.select("a"));
+      act(() =>
+        found(scroll.querySelector(".ProseMirror")).prepend(
+          document.createElement("p"),
+        ),
+      );
+      await wait(60);
+      act(() => found(collapseButton()).click());
+      expect(margin()[0]).toBe("stack:a");
+      expect(leaving().map((card) => card.dataset.commentStackLeaving)).toEqual(
+        ["d"],
+      );
+    });
+
+    it("folds without a change to play when the same thread stays in front", () => {
+      render();
+      act(() => harness.select("d"));
+      act(() => found(collapseButton()).click());
+      expect(margin()[0]).toBe("stack:d");
+      expect(leaving()).toHaveLength(0);
+    });
   });
 });

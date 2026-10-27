@@ -3274,6 +3274,32 @@ describe("AgentKitAssistantChat host behavior", () => {
     },
   );
 
+  it("puts a docked chat's starters on one line in the row above the composer", async () => {
+    chatMocks.renderEmptyState = true;
+    await useRealComposer();
+    await mount(
+      baseProps({
+        suggestionPlacement: "context-chips",
+        suggestions: ["Static starter"],
+        showModelSelector: false,
+      }),
+    );
+    const chip = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Static starter",
+    );
+    const slot = chip?.closest("[data-agentkit-host-suggestions-slot]");
+    expect(slot).not.toBeNull();
+    expect(chip?.closest(".agentkit-transcript")).toBeNull();
+    expect(
+      slot?.nextElementSibling?.querySelector(
+        '[data-agent-composer-slot="root"]',
+      ),
+    ).not.toBeNull();
+    expect(
+      slot?.querySelector('[data-agent-suggestion-track="true"]')?.className,
+    ).toContain("flex-nowrap");
+  });
+
   it.each([false, { getSuggestions: () => ["Heuristic fallback"] }])(
     "uses runtime follow-ups independently of initial dynamicSuggestions=%j",
     async (dynamicSuggestions) => {

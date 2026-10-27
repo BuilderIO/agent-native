@@ -1226,6 +1226,11 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.scheduleTaskPrefix": "Crear un trabajo recurrente: ",
   "composer.selectedReferences": "Referencias seleccionadas",
   "composer.sendMessage": "Enviar mensaje",
+  "composer.select": "Seleccionar",
+  "composer.selectContextFull":
+    "El contexto está lleno. Quita un elemento antes de seleccionar otro.",
+  "composer.selectContextTooLarge":
+    "Ese objeto es demasiado grande para añadirlo como contexto.",
   "composer.skill.added": 'Habilidad "{{name}}" agregada',
   "composer.skill.back": "Atrás",
   "composer.skill.content": "Contenido",

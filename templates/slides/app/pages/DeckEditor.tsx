@@ -97,6 +97,7 @@ import SlideEditor, {
 } from "@/components/editor/SlideEditor";
 import { TweaksPanel } from "@/components/editor/TweaksPanel";
 import { UploadStorageGate } from "@/components/editor/UploadStorageGate";
+import { useSlidesAgentSelect } from "@/components/editor/use-slides-agent-select";
 import {
   SlideTransitionPreview,
   transitionPreviewPair,
@@ -791,6 +792,7 @@ export default function DeckEditor() {
     loadError,
   } = useDecks();
   const deck = getDeck(id || "");
+  useSlidesAgentSelect(deck?.id, deck?.slides);
   const canUndo = undoAvailability[id ?? ""]?.canUndo ?? false;
   const canRedo = undoAvailability[id ?? ""]?.canRedo ?? false;
   const deckAccessStatusQuery = useDeckAccessStatus(id);

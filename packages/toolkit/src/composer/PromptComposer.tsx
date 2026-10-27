@@ -199,6 +199,8 @@ export interface PromptComposerProps {
   showAutoModelOption?: boolean;
   /** Show the voice dictation button. Defaults to DEFAULT_VOICE_DICTATION_ENABLED. */
   voiceEnabled?: boolean;
+  /** Let an empty draft turn Send into the voice-chat button (default: true). Dictation is unaffected. */
+  voiceChatEnabled?: boolean;
   /** Show file upload controls and pass submitted files to onSubmit (default: true). */
   attachmentsEnabled?: boolean;
   /** Opens host-owned storage setup when the user chooses an upload action. */
@@ -786,6 +788,7 @@ function PromptComposerInner({
   modelSelectorOpen,
   showAutoModelOption = true,
   voiceEnabled = DEFAULT_VOICE_DICTATION_ENABLED,
+  voiceChatEnabled = true,
   attachmentsEnabled = true,
   onAttachmentRequest,
   contextButtonTooltipDisabled = false,
@@ -1199,6 +1202,7 @@ function PromptComposerInner({
           includeDefaultSlashSkills={includeDefaultSlashSkills}
           onSlashCommand={onSlashCommand}
           voiceEnabled={voiceEnabled}
+          voiceChatEnabled={voiceChatEnabled}
           onTextChange={onTextChange}
           mentionItems={mentionItems}
           mentionItemsError={mentionItemsError}

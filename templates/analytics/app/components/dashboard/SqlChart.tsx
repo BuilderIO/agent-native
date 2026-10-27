@@ -2370,12 +2370,16 @@ export function formatCell(
     return `${sign}${numeric.toFixed(1)}%`;
   }
   if (format === "date") {
-    const d = new Date(stringifyValue(value));
+    const text = stringifyValue(value);
+    const d = new Date(text);
     if (!isNaN(d.getTime())) {
+      // A bare YYYY-MM-DD parses as UTC midnight; local time would show the
+      // previous day anywhere west of UTC.
       return d.toLocaleDateString("en-US", {
         year: "numeric",
         month: "short",
         day: "numeric",
+        timeZone: /^\d{4}-\d{2}-\d{2}$/.test(text) ? "UTC" : undefined,
       });
     }
   }

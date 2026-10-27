@@ -17,6 +17,7 @@ import {
   describeOwnedFileReadFailure,
   hydrateOwnedFileUrl,
 } from "../file-upload/owned-attachment.js";
+import { frameworkMcpTools } from "../mcp/framework-tools.js";
 import { resourceGet, resourcePut, resourceList } from "../resources/store.js";
 import { getRequestUserEmail } from "./request-context.js";
 
@@ -327,7 +328,7 @@ export function createCoreAttachmentActionEntries(): Record<
   string,
   ActionEntry
 > {
-  return {
+  return frameworkMcpTools({
     "read-attachment": {
       tool: {
         description: [
@@ -539,5 +540,5 @@ export function createCoreAttachmentActionEntries(): Record<
         }
       },
     },
-  };
+  });
 }

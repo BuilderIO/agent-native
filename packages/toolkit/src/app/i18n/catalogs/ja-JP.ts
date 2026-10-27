@@ -539,6 +539,11 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.scheduleTaskPrefix": "定期ジョブを作成： ",
   "composer.selectedReferences": "選択した参照",
   "composer.sendMessage": "メッセージを送信",
+  "composer.select": "選択",
+  "composer.selectContextFull":
+    "コンテキストがいっぱいです。別の項目を選択する前に、項目を削除してください。",
+  "composer.selectContextTooLarge":
+    "このオブジェクトは大きすぎるため、コンテキストとして追加できません。",
   "composer.skill.added": "スキル「{{name}}」を追加しました",
   "composer.skill.back": "戻る",
   "composer.skill.content": "内容",

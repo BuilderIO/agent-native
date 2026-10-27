@@ -225,6 +225,8 @@ export function recordInputSchemaVerdict(
 
 /** `to`, a tool built from `from`, with any verdict recorded against `from`. */
 export function derivedTool<T extends object>(from: object, to: T): T {
+  // `defineAction` records the verdict when `parameters` is first read.
+  void (from as { parameters?: unknown }).parameters;
   const recorded = unusableInputSchemas().get(from);
   if (recorded) unusableInputSchemas().set(to, recorded);
   return to;
@@ -243,6 +245,8 @@ export function usableInputSchema<T>(
   convert: (parameters: any) => T,
 ): T | UnusableSchemaError {
   try {
+    // Read first: `defineAction` records the verdict when this is first read.
+    const parameters = entry.tool.parameters;
     const recorded = unusableInputSchemas().get(entry.tool);
     // Rebuilt, so `instanceof` holds across copies of this module.
     if (recorded && "reason" in recorded) {
@@ -250,8 +254,8 @@ export function usableInputSchema<T>(
     }
     return convert(
       recorded
-        ? { ...(entry.tool.parameters as object), $schema: recorded.dialect }
-        : entry.tool.parameters,
+        ? { ...(parameters as object), $schema: recorded.dialect }
+        : parameters,
     );
   } catch (error) {
     return unusableVerdict(error);
