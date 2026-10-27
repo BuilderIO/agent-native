@@ -162,9 +162,13 @@ vi.mock("./_builder-cms-read-client.js", async () => {
   };
 });
 
+type LockTx = Parameters<
+  (typeof import("./_content-database-mutation-lock.js"))["lockContentDatabaseMutation"]
+>[0];
+
 const membershipLock = vi.hoisted(() => ({
   beforeNextLock: null as null | (() => Promise<void>),
-  onLockExisting: null as null | ((tx: any) => Promise<void>),
+  onLockExisting: null as null | ((tx: LockTx) => Promise<void>),
 }));
 
 vi.mock("./_database-membership-lock.js", async (importOriginal) => {
@@ -172,21 +176,25 @@ vi.mock("./_database-membership-lock.js", async (importOriginal) => {
     await importOriginal<typeof import("./_database-membership-lock.js")>();
   return {
     ...actual,
-    async lockDatabaseMemberships(tx: any, itemIds: string[]) {
+    async lockDatabaseMemberships(
+      ...args: Parameters<typeof actual.lockDatabaseMemberships>
+    ) {
       const beforeLock = membershipLock.beforeNextLock;
       membershipLock.beforeNextLock = null;
       await beforeLock?.();
-      return actual.lockDatabaseMemberships(tx, itemIds);
+      return actual.lockDatabaseMemberships(...args);
     },
-    async lockExistingDatabaseMemberships(tx: any, itemIds: string[]) {
-      await membershipLock.onLockExisting?.(tx);
-      return actual.lockExistingDatabaseMemberships(tx, itemIds);
+    async lockExistingDatabaseMemberships(
+      ...args: Parameters<typeof actual.lockExistingDatabaseMemberships>
+    ) {
+      await membershipLock.onLockExisting?.(args[0]);
+      return actual.lockExistingDatabaseMemberships(...args);
     },
   };
 });
 
 const databaseLock = vi.hoisted(() => ({
-  beforeNextLock: null as null | ((tx: any) => Promise<void>),
+  beforeNextLock: null as null | ((tx: LockTx) => Promise<void>),
 }));
 
 vi.mock("./_content-database-mutation-lock.js", async (importOriginal) => {
@@ -196,11 +204,13 @@ vi.mock("./_content-database-mutation-lock.js", async (importOriginal) => {
     >();
   return {
     ...actual,
-    async lockContentDatabaseMutation(tx: any, databaseId: string) {
+    async lockContentDatabaseMutation(
+      ...args: Parameters<typeof actual.lockContentDatabaseMutation>
+    ) {
       const beforeLock = databaseLock.beforeNextLock;
       databaseLock.beforeNextLock = null;
-      await beforeLock?.(tx);
-      return actual.lockContentDatabaseMutation(tx, databaseId);
+      await beforeLock?.(args[0]);
+      return actual.lockContentDatabaseMutation(...args);
     },
   };
 });
@@ -210,7 +220,7 @@ const TEST_DB_PATH = join(
   `builder-refresh-local-edits-${process.pid}-${Date.now()}.pglite`,
 );
 
-let getDb: () => any;
+let getDb: (typeof import("../server/db/index.js"))["getDb"];
 let schema: typeof import("../server/db/schema.js");
 let utils: typeof import("./_database-source-utils.js");
 let records: typeof import("./_builder-cms-unpublished-changes.js");
@@ -282,12 +292,18 @@ async function editAuthor(entryId: string, author: string) {
     );
 }
 
+function builderEntry(entryId: string) {
+  const entry = builder.entries.get(entryId);
+  if (!entry) throw new Error(`Builder has no entry ${entryId}`);
+  return entry;
+}
+
 function editInBuilder(
   entryId: string,
   changes: { title?: string; author?: string },
 ) {
   builder.entries.set(entryId, {
-    ...builder.entries.get(entryId)!,
+    ...builderEntry(entryId),
     ...changes,
     updatedAt: tick(),
   });
@@ -318,7 +334,7 @@ async function hydrateBody(entryId: string, body: string | null) {
         eq(schema.contentDatabaseSourceRows.sourceRowId, entryId),
       ),
     );
-  const entry = builder.entries.get(entryId)!;
+  const entry = builderEntry(entryId);
   const updatedAt = tick();
   await utils.enqueueBuilderBodyHydration({
     sourceId: SOURCE_ID,
@@ -416,7 +432,7 @@ beforeAll(async () => {
   getDb = dbModule.getDb;
   schema = dbModule.schema;
   const plugin = (await import("../server/plugins/db.js")).default;
-  await plugin(undefined as any);
+  await plugin(undefined as never);
   await getDbExec().execute(`CREATE TABLE IF NOT EXISTS organizations (
     id TEXT PRIMARY KEY, name TEXT NOT NULL, created_by TEXT NOT NULL, created_at BIGINT NOT NULL,
     identity_authority TEXT, identity_id TEXT
@@ -835,13 +851,14 @@ it("doesn't put back a field's values when it is unbound before the refresh writ
     // its fields and before it writes the rows. Body reads the refresh runs
     // first take the same lock.
     let unbound = false;
-    const unbindOnceSynced = async (tx: any) => {
-      const [field] = await tx
+    const unbindOnceSynced = async (tx: LockTx) => {
+      const [field = null] = await tx
         .select({
           lastSyncedAt: schema.contentDatabaseSourceFields.lastSyncedAt,
         })
         .from(schema.contentDatabaseSourceFields)
         .where(eq(schema.contentDatabaseSourceFields.id, topicFieldId));
+      if (!field) throw new Error("the topic field is gone");
       if (field.lastSyncedAt === beforeRefresh.lastSyncedAt) {
         databaseLock.beforeNextLock = unbindOnceSynced;
         return;
@@ -866,7 +883,7 @@ it("doesn't put back a field's values when it is unbound before the refresh writ
     expect(await topicValues()).toEqual([]);
     expect(await localAuthor(id)).toBe("Una B");
   } finally {
-    builder.entries.set(id, { ...builder.entries.get(id)!, topic: undefined });
+    builder.entries.set(id, { ...builderEntry(id), topic: undefined });
     await db
       .delete(schema.documentPropertyValues)
       .where(eq(schema.documentPropertyValues.propertyId, topicPropertyId));

@@ -384,7 +384,7 @@ async function lockRowsForStage(args: {
     openChangeSets.map((changeSet) => changeSet.id),
   );
   // Binding and unbinding a field take the same lock.
-  const [lockedField] = await db
+  const [lockedField = null] = await db
     .select({
       propertyId: schema.contentDatabaseSourceFields.propertyId,
       localFieldKey: schema.contentDatabaseSourceFields.localFieldKey,

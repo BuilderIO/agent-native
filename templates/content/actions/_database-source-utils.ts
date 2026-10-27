@@ -3360,6 +3360,8 @@ async function persistPristineBuilderBodyHydrationsInBulk(
           const sourceBatch = batch.filter(
             (row) => row.job.sourceId === sourceId,
           );
+          const [first = null] = sourceBatch;
+          if (!first) continue;
           await writeBuilderStatusValues(tx, {
             sourceId,
             rows: sourceBatch.map((row) => ({
@@ -3370,7 +3372,7 @@ async function persistPristineBuilderBodyHydrationsInBulk(
           });
           await materializeBodyReadFieldValues(tx, {
             sourceId,
-            ownerEmail: sourceBatch[0].job.ownerEmail,
+            ownerEmail: first.job.ownerEmail,
             rows: sourceBatch.map((row) => ({
               documentId: row.job.documentId,
               previousSourceValues: row.previousSourceValues,
@@ -7011,10 +7013,9 @@ async function materializeLockedSourceFieldPropertyValues(
     fields: ContentDatabaseSourceFieldRowDb[];
     documentIds: string[];
     now: string;
-    previousSourceValuesByDocumentId?: Map<
-      string,
-      Record<string, DocumentPropertyValue>
-    >;
+    previousSourceValuesByDocumentId?:
+      | Map<string, Record<string, DocumentPropertyValue>>
+      | undefined;
   },
 ) {
   const boundFields = args.fields.filter((field) => field.propertyId);
@@ -7060,10 +7061,9 @@ async function sourceFieldValueWrites(
     database: Pick<ContentDatabaseRow, "ownerEmail">;
     sourceId: string;
     now: string;
-    previousSourceValuesByDocumentId?: Map<
-      string,
-      Record<string, DocumentPropertyValue>
-    >;
+    previousSourceValuesByDocumentId?:
+      | Map<string, Record<string, DocumentPropertyValue>>
+      | undefined;
   },
   boundFields: ContentDatabaseSourceFieldRowDb[],
   documentIds: string[] | null,

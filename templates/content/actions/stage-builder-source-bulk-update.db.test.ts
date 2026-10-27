@@ -48,11 +48,13 @@ vi.mock("./_database-membership-lock.js", async (importOriginal) => {
     await importOriginal<typeof import("./_database-membership-lock.js")>();
   return {
     ...actual,
-    async lockDatabaseMemberships(tx: any, itemIds: string[]) {
+    async lockDatabaseMemberships(
+      ...args: Parameters<typeof actual.lockDatabaseMemberships>
+    ) {
       const beforeLock = membershipLock.beforeNextLock;
       membershipLock.beforeNextLock = null;
       await beforeLock?.();
-      return actual.lockDatabaseMemberships(tx, itemIds);
+      return actual.lockDatabaseMemberships(...args);
     },
   };
 });
@@ -68,11 +70,13 @@ vi.mock("./_content-database-mutation-lock.js", async (importOriginal) => {
     >();
   return {
     ...actual,
-    async lockContentDatabaseMutation(tx: any, databaseId: string) {
+    async lockContentDatabaseMutation(
+      ...args: Parameters<typeof actual.lockContentDatabaseMutation>
+    ) {
       const beforeLock = databaseLock.beforeNextLock;
       databaseLock.beforeNextLock = null;
       await beforeLock?.();
-      return actual.lockContentDatabaseMutation(tx, databaseId);
+      return actual.lockContentDatabaseMutation(...args);
     },
   };
 });

@@ -98,7 +98,7 @@ export default defineAction({
       // Staging and pushes change review items under this lock. The decision
       // applies only to the item as the reviewer read it.
       await lockContentDatabaseMutation(db, database.id);
-      const [decided] = await db
+      const [decided = null] = await db
         .update(schema.contentDatabaseSourceChangeSets)
         .set({
           state: stateTo,
