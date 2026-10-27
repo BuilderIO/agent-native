@@ -73,7 +73,7 @@ export function tableQuantity(value: unknown): number | null {
 
   if (COMPOUND.test(text)) {
     let seconds = 0;
-    for (const [, amount, unit] of text.matchAll(COMPOUND_PART)) {
+    for (const [, amount = "", unit = ""] of text.matchAll(COMPOUND_PART)) {
       const size = durationSeconds(unit, false);
       if (size === undefined) return null;
       seconds += Number(amount) * size;
@@ -83,7 +83,7 @@ export function tableQuantity(value: unknown): number | null {
 
   const match = QUANTITY.exec(text);
   if (!match) return null;
-  const [, sign, currency, digits, rawUnit = ""] = match;
+  const [, sign, currency, digits = "", rawUnit = ""] = match;
   const amount = Number(digits.replace(/,/g, "")) * (sign === "-" ? -1 : 1);
   const unit = rawUnit.replace(/\.$/, "");
   const money = currency !== "";
