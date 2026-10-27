@@ -235,6 +235,31 @@ describe("Dispatch MCP gateway app discovery", () => {
     expect(apps.map((app) => app.id)).toEqual(["dispatch", "analytics"]);
   });
 
+  it("refuses a Workspace app on its Dispatch page URL while the mounted lookup is unavailable", async () => {
+    mocks.listWorkspaceApps.mockRejectedValue({ status: 503 });
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        id: "customer-ticket-triage",
+        name: "Customer Ticket Triage",
+        description: "Triage customer tickets",
+        url: "https://beta.agent-workspace.builder.io/dispatch/apps/customer-ticket-triage",
+        color: "#6366F1",
+      },
+    ]);
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "https://beta.dispatch.agent-native.com",
+        },
+        () => resolveGrantedDispatchMcpApp("customer-ticket-triage"),
+      ),
+    ).rejects.toThrow(
+      'Dispatch MCP app "customer-ticket-triage" is unavailable until the Workspace app registry responds.',
+    );
+  });
+
   it("defaults to exposing every discovered app", async () => {
     mocks.getUserSetting.mockResolvedValue(null);
     const apps = await runWithRequestContext(

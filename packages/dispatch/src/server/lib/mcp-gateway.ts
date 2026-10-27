@@ -88,6 +88,7 @@ export interface DispatchMcpAccessibleApp {
   mcpUrl?: string;
   color: string;
   granted: boolean;
+  mountedPathUnavailable?: boolean;
 }
 
 function normalizeAppId(value: string): string {
@@ -589,6 +590,14 @@ function safeAppOrigin(
   }
 }
 
+function isDispatchAppPageUrl(url: string): boolean {
+  try {
+    return new URL(url).pathname.startsWith("/dispatch/apps/");
+  } catch {
+    return false;
+  }
+}
+
 function mountedWorkspaceAppHomeUrl(app: {
   path: string;
   url: string | null;
@@ -787,19 +796,22 @@ export async function listDispatchMcpApps(): Promise<{
   settings: DispatchMcpAppAccessSettings;
   apps: DispatchMcpAccessibleApp[];
 }> {
-  const [settings, agents, mountedApps] = await Promise.all([
+  const [settings, agents, mountedAppsLookup] = await Promise.all([
     getDispatchMcpAppAccessSettings(),
     discoverAgents("dispatch"),
-    listWorkspaceApps({ includeAgentCards: false }).catch((error: unknown) => {
-      console.warn(
-        "[dispatch] Workspace app lookup failed during MCP app discovery",
-        { status: httpStatusFromError(error) },
-      );
-      return [];
-    }),
+    listWorkspaceApps({ includeAgentCards: false }).then(
+      (apps) => ({ apps, unavailable: false }),
+      (error: unknown) => {
+        console.warn(
+          "[dispatch] Workspace app lookup failed during MCP app discovery",
+          { status: httpStatusFromError(error) },
+        );
+        return { apps: [], unavailable: true };
+      },
+    ),
   ]);
   const mountedAppsById = new Map(
-    mountedApps.map((app) => [normalizeAppId(app.id), app]),
+    mountedAppsLookup.apps.map((app) => [normalizeAppId(app.id), app]),
   );
   return {
     settings,
@@ -816,7 +828,10 @@ export async function listDispatchMcpApps(): Promise<{
             !mountedUrl ||
             safeAppOrigin({ url: mountedUrl }) !== safeAppOrigin(accessible)
           ) {
-            return accessible;
+            return mountedAppsLookup.unavailable &&
+              isDispatchAppPageUrl(accessible.url)
+              ? { ...accessible, mountedPathUnavailable: true }
+              : accessible;
           }
           const homeUrl = mountedWorkspaceAppHomeUrl(mountedApp);
           if (!homeUrl) return accessible;
@@ -859,6 +874,11 @@ export async function resolveGrantedDispatchMcpApp(
   if (!match.granted) {
     throw new Error(
       `Dispatch MCP access to "${match.id}" is not granted. Open Dispatch > Agents to change MCP app access.`,
+    );
+  }
+  if (match.mountedPathUnavailable) {
+    throw new Error(
+      `Dispatch MCP app "${match.id}" is unavailable until the Workspace app registry responds. Try again shortly.`,
     );
   }
   if (!safeAppOrigin(match)) {
