@@ -1715,6 +1715,7 @@ describe("document editor layout", () => {
       errorUpdateCount: 0,
       errorUpdatedAt: 0,
       isError: false,
+      error: null,
       authoritativeSuccess: {
         queryIdentity: "new-document",
         generation: 0,
@@ -1730,6 +1731,7 @@ describe("document editor layout", () => {
       errorUpdateCount: 1,
       errorUpdatedAt: 2,
       isError: true,
+      error: new Error("read failed"),
       authoritativeSuccess: {
         queryIdentity: "new-document",
         generation: 0,
@@ -1765,6 +1767,7 @@ describe("document editor layout", () => {
       errorUpdateCount: 0,
       errorUpdatedAt: 0,
       isError: false,
+      error: null,
       authoritativeSuccess: {
         queryIdentity: "new-document",
         generation: 0,
@@ -1793,6 +1796,7 @@ describe("document editor layout", () => {
       errorUpdateCount: 0,
       errorUpdatedAt: 0,
       isError: false,
+      error: null,
       authoritativeSuccess: {
         queryIdentity: "new-document",
         generation: 1,
@@ -1808,6 +1812,7 @@ describe("document editor layout", () => {
       errorUpdateCount: 1,
       errorUpdatedAt: 3,
       isError: true,
+      error: new Error("read failed"),
       authoritativeSuccess: {
         queryIdentity: "new-document",
         generation: 1,
@@ -1857,6 +1862,7 @@ describe("document editor layout", () => {
       errorUpdateCount: initial.errorUpdateCount,
       errorUpdatedAt: initial.errorUpdatedAt,
       isError: initial.isError,
+      error: initial.error,
       authoritativeSuccess: {
         queryIdentity: "document-a",
         generation: 0,
@@ -1887,6 +1893,7 @@ describe("document editor layout", () => {
       errorUpdateCount: replacement.errorUpdateCount,
       errorUpdatedAt: replacement.errorUpdatedAt,
       isError: replacement.isError,
+      error: replacement.error,
       authoritativeSuccess: {
         queryIdentity: "document-a",
         generation: 0,
@@ -1903,6 +1910,7 @@ describe("document editor layout", () => {
         errorUpdateCount: replacement.errorUpdateCount,
         errorUpdatedAt: replacement.errorUpdatedAt,
         isError: replacement.isError,
+        error: replacement.error,
         authoritativeSuccess: {
           queryIdentity: "document-a",
           generation: 0,
@@ -1918,6 +1926,87 @@ describe("document editor layout", () => {
     });
   });
 
+  it.each([
+    [404, "unavailable"],
+    [500, "error"],
+  ] as const)(
+    "keeps a first read's %i screen while the page is read again",
+    async (status, view) => {
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      let attempt = 0;
+      const observer = new QueryObserver(queryClient, {
+        queryKey: ["document", "document-a"],
+        queryFn: async () => {
+          attempt += 1;
+          if (attempt === 1) {
+            throw Object.assign(new Error("read failed"), { status });
+          }
+          return await new Promise<never>(() => {});
+        },
+      });
+      const settle = (
+        previous: ReturnType<typeof updateDocumentLoadFailureState> | null,
+      ) => {
+        const result = observer.getCurrentResult();
+        const failure = updateDocumentLoadFailureState({
+          previous,
+          documentId: "document-a",
+          admitted: false,
+          dataUpdatedAt: result.dataUpdatedAt,
+          errorUpdateCount: result.errorUpdateCount,
+          errorUpdatedAt: result.errorUpdatedAt,
+          isError: result.isError,
+          error: result.error,
+          authoritativeSuccess: {
+            queryIdentity: "document-a",
+            generation: 0,
+            errorUpdateCount: 0,
+          },
+        });
+        const loadState = documentEditorLoadState({
+          documentId: "document-a",
+          admittedDocumentId: null,
+          hasDocument: false,
+          isDocumentCreationPending: false,
+          isFetchedAfterMount: result.isFetchedAfterMount,
+          isFetching: result.isFetching,
+          isError: result.isError,
+          hasLoadFailure: failure.failed,
+          isManualRetrying: false,
+          error: result.isError ? result.error : failure.error,
+        });
+        return { failure, view: loadState.view };
+      };
+      let state = settle(null);
+      const unsubscribe = observer.subscribe(() => {});
+
+      await vi.waitFor(() =>
+        expect(observer.getCurrentResult().isError).toBe(true),
+      );
+      state = settle(state.failure);
+      expect(state.view).toBe(view);
+
+      void queryClient.invalidateQueries({
+        queryKey: ["document", "document-a"],
+        exact: true,
+      });
+      await vi.waitFor(() => {
+        const result = observer.getCurrentResult();
+        expect(result.isFetching).toBe(true);
+        expect(result.isError).toBe(false);
+      });
+      expect(settle(state.failure).view).toBe(view);
+
+      unsubscribe();
+      await queryClient.cancelQueries({
+        queryKey: ["document", "document-a"],
+        exact: true,
+      });
+    },
+  );
+
   it("clears a latched load failure only after an authoritative fetch succeeds", () => {
     const failed = {
       documentId: "document-a",
@@ -1925,6 +2014,7 @@ describe("document editor layout", () => {
       baselineErrorUpdateCount: 1,
       baselineAuthoritativeSuccessGeneration: 0,
       failed: true,
+      error: { status: 500 },
     };
     expect(
       updateDocumentLoadFailureState({
@@ -1935,6 +2025,7 @@ describe("document editor layout", () => {
         errorUpdateCount: 1,
         errorUpdatedAt: 100,
         isError: false,
+        error: null,
         authoritativeSuccess: {
           queryIdentity: "document-a",
           generation: 0,
@@ -1952,6 +2043,7 @@ describe("document editor layout", () => {
         errorUpdateCount: 1,
         errorUpdatedAt: 100,
         isError: false,
+        error: null,
         authoritativeSuccess: {
           queryIdentity: "document-a",
           generation: 1,
@@ -1962,6 +2054,7 @@ describe("document editor layout", () => {
       ...failed,
       baselineAuthoritativeSuccessGeneration: 1,
       failed: false,
+      error: null,
     });
   });
 
@@ -1974,6 +2067,7 @@ describe("document editor layout", () => {
           baselineErrorUpdateCount: 2,
           baselineAuthoritativeSuccessGeneration: 3,
           failed: true,
+          error: { status: 500 },
         },
         documentId: "document-a",
         admitted: false,
@@ -1981,6 +2075,7 @@ describe("document editor layout", () => {
         errorUpdateCount: 0,
         errorUpdatedAt: 0,
         isError: false,
+        error: null,
         authoritativeSuccess: {
           queryIdentity: "context-b",
           generation: 0,
@@ -1993,6 +2088,7 @@ describe("document editor layout", () => {
       baselineErrorUpdateCount: 0,
       baselineAuthoritativeSuccessGeneration: 0,
       failed: false,
+      error: null,
     });
   });
 

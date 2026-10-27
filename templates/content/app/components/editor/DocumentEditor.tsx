@@ -1651,6 +1651,7 @@ export function PageEditorSurface({
     errorUpdateCount,
     errorUpdatedAt,
     isError,
+    error,
     authoritativeSuccess,
   });
   loadFailureRef.current = loadFailure;
@@ -1667,7 +1668,7 @@ export function PageEditorSurface({
     isManualRetrying,
     isAccessRetrying:
       isManualRetrying && manualRetry?.fromAccessScreen === true,
-    error,
+    error: isError ? error : loadFailure.error,
   });
   admittedDocumentIdRef.current = loadState.admittedDocumentId;
 
@@ -1702,6 +1703,7 @@ export function PageEditorSurface({
         baselineErrorUpdateCount: errorUpdateCount,
         baselineAuthoritativeSuccessGeneration: authoritativeSuccess.generation,
         failed: false,
+        error: null,
       };
       await documentQuery.refetch();
     } finally {
@@ -1854,6 +1856,10 @@ export function documentEditorLoadState({
    * read settles so it can't remount and retry again.
    */
   isAccessRetrying?: boolean;
+  /**
+   * The error that failed the read, kept while it is read again: a refetch of
+   * a page with no data clears the query's own error.
+   */
   error: unknown;
 }) {
   const activeAdmittedDocumentId =
@@ -1895,8 +1901,7 @@ export function documentEditorLoadState({
   if (isManualRetrying || isError || hasLoadFailure) {
     return {
       view:
-        (isError && isDocumentLoadUnavailableError(error)) ||
-        (isAccessRetrying && !isError)
+        isDocumentLoadUnavailableError(error) || (isAccessRetrying && !isError)
           ? ("unavailable" as const)
           : ("error" as const),
       admittedDocumentId: activeAdmittedDocumentId,
@@ -1920,6 +1925,7 @@ type DocumentLoadFailureState = {
   baselineErrorUpdateCount: number;
   baselineAuthoritativeSuccessGeneration: number;
   failed: boolean;
+  error: unknown;
 };
 
 export type AuthoritativeQuerySuccess = {
@@ -1988,6 +1994,7 @@ export function updateDocumentLoadFailureState({
   errorUpdateCount,
   errorUpdatedAt,
   isError,
+  error,
   authoritativeSuccess,
 }: {
   previous: DocumentLoadFailureState | null;
@@ -1998,10 +2005,12 @@ export function updateDocumentLoadFailureState({
   errorUpdateCount: number;
   errorUpdatedAt: number;
   isError: boolean;
+  error: unknown;
   authoritativeSuccess: AuthoritativeQuerySuccess;
 }): DocumentLoadFailureState {
   const hasAuthoritativelyAdmittedDocument =
     admitted && !isDocumentCreationConfirmed;
+  const currentError = isError ? error : null;
   if (
     previous?.documentId !== documentId ||
     previous.queryIdentity !== authoritativeSuccess.queryIdentity
@@ -2013,6 +2022,7 @@ export function updateDocumentLoadFailureState({
       baselineAuthoritativeSuccessGeneration: authoritativeSuccess.generation,
       failed:
         isError || (errorUpdateCount > 0 && errorUpdatedAt > dataUpdatedAt),
+      error: currentError,
     };
   }
   if (
@@ -2026,14 +2036,19 @@ export function updateDocumentLoadFailureState({
       baselineErrorUpdateCount: errorUpdateCount,
       baselineAuthoritativeSuccessGeneration: authoritativeSuccess.generation,
       failed: false,
+      error: null,
     };
   }
-  if (hasAuthoritativelyAdmittedDocument || previous.failed) return previous;
+  if (hasAuthoritativelyAdmittedDocument) return previous;
+  if (previous.failed) {
+    return isError ? { ...previous, error } : previous;
+  }
   return errorUpdateCount > previous.baselineErrorUpdateCount
     ? {
         ...previous,
         baselineAuthoritativeSuccessGeneration: authoritativeSuccess.generation,
         failed: true,
+        error: currentError,
       }
     : previous;
 }
