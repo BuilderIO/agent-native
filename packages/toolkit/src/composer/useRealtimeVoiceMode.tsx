@@ -523,6 +523,18 @@ export interface RealtimeVoiceTranscriptSequencer {
   reset: (options?: { preserveQueuedTranscripts?: boolean }) => void;
 }
 
+/**
+ * A GPT-Live turn as the transcript grouper sees it. Declared here so the
+ * toolkit's public types never pull in the OpenAI SDK's Node globals.
+ */
+export interface RealtimeVoiceLiveTurn {
+  id: string;
+  speaker: CompletedRealtimeVoiceTranscript["role"];
+  text: string;
+  startMs: number;
+  endMs: number;
+}
+
 interface SequencedRealtimeVoiceTranscript {
   status: "pending" | "completed" | "skipped";
   role?: CompletedRealtimeVoiceTranscript["role"];
@@ -540,7 +552,7 @@ export function createRealtimeVoiceTranscriptSequencer(
   publish: (transcript: CompletedRealtimeVoiceTranscript) => void,
   stream?: (transcript: CompletedRealtimeVoiceTranscript) => void,
   /** Each GPT-Live turn as it grows, with its place on the session clock. */
-  onLiveTurn?: (turn: TranscriptSegment) => void,
+  onLiveTurn?: (turn: RealtimeVoiceLiveTurn) => void,
 ): RealtimeVoiceTranscriptSequencer {
   const order: string[] = [];
   const items = new Map<string, SequencedRealtimeVoiceTranscript>();
