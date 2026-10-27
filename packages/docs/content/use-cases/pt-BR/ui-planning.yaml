@@ -39,11 +39,11 @@ features:
   heading: Tudo o que você precisa para acertar a tela de primeira
   items:
     - title: Desenhada dentro do seu app real
-      body: Seu agente de código lê suas telas e componentes atuais antes de desenhar, então a nova tela mantém a barra lateral, a barra de ferramentas e os menus onde estão.
+      body: Seu agente de código lê suas telas e componentes antes de desenhar, então a nova tela mantém barra lateral, barra de ferramentas e menus no lugar.
     - title: Todos os estados da tela
       body: Seu agente desenha um frame para cada estado que importa, como carregando, vazio, erro ou menu aberto, para você ver o que um prompt deixa de fora.
     - title: Comentários no elemento exato
-      body: Seu agente de código recebe o botão, a linha ou o card exato de cada comentário, então basta uma nota curta como "transforme isto em um controle segmentado".
+      body: Seu agente recebe o botão, a linha ou o card exato de cada comentário, então basta uma nota curta como "troque por um controle segmentado".
     - title: Comentários abertos ficam abertos
       body: Seu agente de código confirma cada mudança antes de resolver um comentário, então o que ele deixou passar continua esperando por você.
     - title: Um protótipo para fluxos de várias etapas
@@ -71,7 +71,7 @@ integrations:
         - name: GitHub Copilot
           src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8be66b264343497caddac07fd7c26935
           mono: true
-      body: Um comando de instalação configura o Plan no Cursor, no OpenCode ou no GitHub Copilot, e qualquer outro agente com suporte a MCP se conecta pela URL do Plan.
+      body: Um comando instala o Plan no Cursor, no OpenCode ou no GitHub Copilot, e qualquer outro agente com MCP se conecta pela URL do Plan.
     - title: Conecte qualquer coisa via MCP
       logos:
         - name: Linear
@@ -82,7 +82,7 @@ integrations:
 other_uses:
   heading: Outras coisas que você pode fazer com o Agent-Native Plan
   cards:
-    - title: Revise o plano do agente de código antes de ele programar
+    - title: Revise o plano do agente antes de ele programar
       url: https://www.agent-native.com/use-cases/visual-plan-mode/
       body: Revise o plano inteiro do seu agente de código, com diagramas e código anotado, antes que ele escreva qualquer coisa.
     - title: Veja um resumo visual do que seu agente de código mudou

@@ -39,17 +39,17 @@ features:
   heading: Todo lo que necesitas para acertar con la pantalla a la primera
   items:
     - title: Dibujada dentro de tu app real
-      body: Tu agente de código lee tus pantallas y componentes antes de dibujar, así que la pantalla nueva mantiene la barra lateral, la barra de herramientas y los menús en su sitio.
+      body: Tu agente lee tus pantallas y componentes antes de dibujar, así que la pantalla nueva deja la barra lateral, la de herramientas y los menús en su sitio.
     - title: Cada estado de la pantalla
       body: Tu agente dibuja un boceto por cada estado importante, como carga, vacío, error o un menú abierto, para que veas lo que un prompt deja fuera.
     - title: Comentarios en el elemento exacto
-      body: Tu agente de código recibe el botón, la fila o la tarjeta exacta donde está fijado cada comentario, así que basta con una nota como «haz esto un control segmentado».
+      body: Tu agente recibe el botón, la fila o la tarjeta donde está fijado cada comentario, así que basta una nota como «haz esto un control segmentado».
     - title: Los comentarios abiertos siguen abiertos
       body: Tu agente de código confirma que cada cambio se ha aplicado antes de resolver un comentario, así que lo que se le escape te sigue esperando.
     - title: Un prototipo para flujos de varios pasos
       body: Para un flujo como el onboarding o el pago, tu agente añade un prototipo clicable en la pestaña **Prototipo**, junto a las pantallas.
     - title: Revísalo con tu equipo
-      body: Comparte el plan por enlace para que tus compañeros abran las pantallas en su navegador. Cualquiera con una cuenta de Agent-Native puede comentar.
+      body: Comparte el plan por enlace y tu equipo verá las pantallas en su navegador. Cualquiera con cuenta de Agent-Native puede comentar.
 integrations:
   heading: Conecta Plan con las herramientas que ya usas
   cards:
@@ -82,10 +82,10 @@ integrations:
 other_uses:
   heading: Otras cosas que puedes hacer con Agent-Native Plan
   cards:
-    - title: Revisa el plan de tu agente de código antes de que programe
+    - title: Revisa el plan de tu agente antes de que programe
       url: https://www.agent-native.com/use-cases/visual-plan-mode/
       body: Revisa todo el plan de tu agente de código, con diagramas y código comentado, antes de que escriba nada.
-    - title: Obtén un resumen visual de los cambios de tu agente de código
+    - title: Mira un resumen visual de los cambios de tu agente
       url: https://www.agent-native.com/use-cases/visually-recap-agent-changes/
       body: Ve las pantallas, los datos y los archivos que ha cambiado tu agente de código en un solo resumen que puedes comentar.
 faqs:

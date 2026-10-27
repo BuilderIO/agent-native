@@ -6,7 +6,7 @@ seo_title: UI-Planung für Claude Code, Codex und Cursor
 meta_description: Mit Agent-Native Plan entwirft Ihr Coding-Agent einen Screen als Wireframes in Ihrem App-Layout, Zustand für Zustand. Sie kommentieren, er überarbeitet und baut.
 updated: 2026-10-27
 hero:
-  body: Mit Agent-Native Plan plant Ihr Coding-Agent neue Screens als Wireframes jedes Zustands, im echten Layout Ihrer App. Sie kommentieren, was sich ändern soll, und er zeichnet den Plan vor dem Bauen neu.
+  body: Mit Agent-Native Plan plant Ihr Coding-Agent neue Screens als Wireframes jedes Zustands, im echten Layout Ihrer App. Sie kommentieren Änderungen, er zeichnet den Plan vor dem Bauen neu.
   button:
     label: Screen planen
     url: https://plan.agent-native.com
@@ -71,7 +71,7 @@ integrations:
         - name: GitHub Copilot
           src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8be66b264343497caddac07fd7c26935
           mono: true
-      body: Ein Installationsbefehl richtet Plan in Cursor, OpenCode oder GitHub Copilot ein, jeder andere MCP-fähige Agent verbindet sich über die URL von Plan.
+      body: Ein Installationsbefehl richtet Plan in Cursor, OpenCode oder GitHub Copilot ein. Andere MCP-fähige Agenten nutzen die URL von Plan.
     - title: Alles per MCP verbinden
       logos:
         - name: Linear
@@ -82,10 +82,10 @@ integrations:
 other_uses:
   heading: Was Sie sonst noch mit Agent-Native Plan tun können
   cards:
-    - title: Den Plan Ihres Coding-Agenten vor dem Coden prüfen
+    - title: Den Plan Ihres Agenten vor dem Coden prüfen
       url: https://www.agent-native.com/use-cases/visual-plan-mode/
       body: Prüfen Sie den ganzen Plan Ihres Coding-Agenten mit Diagrammen und kommentiertem Code, bevor er etwas schreibt.
-    - title: Änderungen Ihres Coding-Agenten visuell nachvollziehen
+    - title: Agenten-Änderungen visuell nachvollziehen
       url: https://www.agent-native.com/use-cases/visually-recap-agent-changes/
       body: Sehen Sie die Screens, Daten und Dateien, die Ihr Coding-Agent geändert hat, in einem kommentierbaren Rückblick.
 faqs:
