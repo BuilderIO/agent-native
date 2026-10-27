@@ -7,7 +7,7 @@ import * as Y from "yjs";
 
 import { documentQueryKey } from "@/lib/document-query";
 import {
-  lastDocumentReadFailure,
+  documentReadFailure,
   trackDocumentReadFailures,
 } from "@/lib/document-read-failures";
 import { cn } from "@/lib/utils";
@@ -1976,9 +1976,7 @@ describe("document editor layout", () => {
             isError: result.isError,
             hasLoadFailure: failure.failed,
             isManualRetrying: false,
-            error: result.isError
-              ? result.error
-              : lastDocumentReadFailure(queryClient, queryKey),
+            error: documentReadFailure(queryClient, queryKey, result),
           }).view;
         };
       };

@@ -157,7 +157,7 @@ import { rememberContentLandingDocument } from "@/lib/content-landing";
 import { withContentSaveOrigin } from "@/lib/content-save-telemetry";
 import type { DesktopContentFileRevision } from "@/lib/desktop-content-files";
 import { registerDocumentHistoryRestoreController } from "@/lib/document-history-restore-controller";
-import { lastDocumentReadFailure } from "@/lib/document-read-failures";
+import { documentReadFailure } from "@/lib/document-read-failures";
 import { rememberLandingTitleHint } from "@/lib/document-title-hint";
 import { filesRootHintScope } from "@/lib/files-root-hint";
 import { rememberLastLocationHint } from "@/lib/last-location-hint";
@@ -1668,9 +1668,10 @@ export function PageEditorSurface({
     isManualRetrying,
     isAccessRetrying:
       isManualRetrying && manualRetry?.fromAccessScreen === true,
-    error: isError
-      ? error
-      : lastDocumentReadFailure(queryClient, documentQueryKeyValue),
+    error: documentReadFailure(queryClient, documentQueryKeyValue, {
+      isError,
+      error,
+    }),
   });
   admittedDocumentIdRef.current = loadState.admittedDocumentId;
 

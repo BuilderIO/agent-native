@@ -41,3 +41,15 @@ export function lastDocumentReadFailure(
 ): unknown {
   return trackDocumentReadFailures(queryClient).get(hashKey(queryKey));
 }
+
+// The failure a document read's screen is chosen from: the read's own error
+// while it has one, otherwise the last one it had.
+export function documentReadFailure(
+  queryClient: QueryClient,
+  queryKey: QueryKey,
+  read: { isError: boolean; error: unknown },
+): unknown {
+  return read.isError
+    ? read.error
+    : lastDocumentReadFailure(queryClient, queryKey);
+}
