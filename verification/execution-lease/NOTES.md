@@ -3,8 +3,9 @@
 **Property (P8).** While its durable receipt is retained, a `never` execution
 step runs its external effect at most once for its turn, across every run and
 every lease generation, including deposed workers that are still running.
-The configured retention cutoff ends this guarantee; post-retention reuse is
-tracked as finding F7.
+The configured retention cutoff ends this guarantee. The active-turn model
+checks assume request turn IDs are not reused after retention; F7 disables that
+assumption and records the resulting post-retention replay.
 
 **Harm if broken.** A tool call that must not repeat (an email send, a
 non-idempotent write, an automation delivery) runs twice after a crash, a
@@ -28,6 +29,10 @@ Helper invariants, checked in the same runs:
 - P8 is checked per step row: every attempt of the call reaches the same step
   id. Whether a re-planned call gets the same step id is the tool-call
   journal's job and is not modelled (see "Outside the model").
+- `AssumeNoTurnIdReuseAfterRetention = TRUE` scopes the active-turn checks to
+  request turn IDs that are not reused after their rows are pruned. P8 is
+  conditional on this explicit assumption. The F7 finding sets it to `FALSE`,
+  matching source admission after pruning and checking the broader P8Strict.
 - Time is modelled only as "a live lease may stop being live at any moment"
   (expiry, or a revoke with no owner check).
 - Workers are adversarial. They keep acting until a database guard rejects
@@ -56,7 +61,8 @@ Helper invariants, checked in the same runs:
   is outside the lease model, and earlier-projection blockers restrict when
   reaping may terminalize a run. Run admission also has pending-inbox and
   pending-approval gates that the model omits, so `InsertRun` is an
-  over-approximation. These changes do not add an unfenced step-journal write.
+  over-approximation within the active-turn assumption. These changes do not
+  add an unfenced step-journal write.
 - A run stopped by request saves its completion under a fence with
   `outlivesStop` (`run-manager.ts` `withWorkerFence`), which
   `lockAndAssertCurrentExecutionFences` accepts while the lease row still names
@@ -111,21 +117,21 @@ do not weaken step fencing or move an effect ahead of durable dispatch.
 | Config                                                                    | Result                          | Distinct states | Time   |
 | ------------------------------------------------------------------------- | ------------------------------- | --------------- | ------ |
 | `ExecutionLease.cfg` (policy `never`, prune on)                           | pass                            | 79,347          | 2.0 s  |
-| `ExecutionLeasePolicyFlip.cfg` (each run's policy chosen)                 | pass                            | 4,313,845       | 75.9 s |
+| `ExecutionLeasePolicyFlip.cfg` (each run's policy chosen)                 | pass                            | 4,313,845       | 66.0 s |
 | `sufficiency/fence-alone.cfg` dispatch keeps only the fence               | P8 and P1 hold                  | 79,347          | 1.9 s  |
-| `sufficiency/clause-alone.cfg` dispatch keeps only the clause             | P8 holds                        | 126,387         | 2.6 s  |
-| `mutations/a` dispatch without the fence                                  | P1 violated                     | 159             | 0.7 s  |
-| `mutations/b` begin replays a dispatched never step                       | P8 violated                     | 26,764          | 1.1 s  |
-| `mutations/c` action starts before dispatch commits                       | P8 violated                     | 2,450           | 0.8 s  |
+| `sufficiency/clause-alone.cfg` dispatch keeps only the clause             | P8 holds                        | 126,387         | 2.5 s  |
+| `mutations/a` dispatch without the fence                                  | P1 violated                     | 157             | 0.7 s  |
+| `mutations/b` begin replays a dispatched never step                       | P8 violated                     | 26,074          | 1.1 s  |
+| `mutations/c` action starts before dispatch commits                       | P8 violated                     | 2,997           | 0.8 s  |
 | `mutations/d` claim takes a live lease from a running owner               | ClaimRespectsLiveOwner violated | 16              | 0.7 s  |
-| `mutations/e` fence check commits before the write                        | P1 violated                     | 159             | 0.8 s  |
-| `mutations/g` reset fallback lacks successor fence                        | P1 violated                     | 351             | 0.7 s  |
-| `mutations/h` prune a live dispatched step before late effect             | P8 violated                     | 66,965          | 1.7 s  |
-| `mutations/i-ignore-recovery-cutoff.cfg` prune a recent receipt           | P8 violated                     | 65,384          | 1.7 s  |
-| `checks/F2-prune-under-live-lease.cfg` live-turn prune race               | pass                            | 72,909          | 2.2 s  |
-| `checks/F2-late-effect-after-cutoff.cfg` prune expired receipt, no replay | pass                            | 79,347          | 2.1 s  |
-| `checks/F3-policy-flip-forgets-dispatch.cfg` retry-safe policy flip       | pass                            | 4,313,845       | 67.8 s |
-| `findings/F7-post-retention-same-turn-replay.cfg`                         | P8Strict violated (finding)     | 668,807         | 9.1 s  |
+| `mutations/e` fence check commits before the write                        | P1 violated                     | 156             | 0.7 s  |
+| `mutations/g` reset fallback lacks successor fence                        | P1 violated                     | 363             | 0.7 s  |
+| `mutations/h` prune a live dispatched step before late effect             | P8 violated                     | 67,217          | 1.7 s  |
+| `mutations/i-ignore-recovery-cutoff.cfg` prune a recent receipt           | P8 violated                     | 65,688          | 1.6 s  |
+| `checks/F2-prune-under-live-lease.cfg` live-turn prune race               | pass                            | 72,909          | 1.8 s  |
+| `checks/F2-late-effect-after-cutoff.cfg` prune expired receipt, no replay | pass                            | 79,347          | 1.9 s  |
+| `checks/F3-policy-flip-forgets-dispatch.cfg` retry-safe policy flip       | pass                            | 4,313,845       | 64.9 s |
+| `findings/F7-post-retention-same-turn-replay.cfg`                         | P8Strict violated (finding)     | 690,616         | 8.8 s  |
 
 Each mutation config checks only the invariant it is meant to break, and the
 runner requires that exact invariant to be the one violated. F2 and F3 now pass

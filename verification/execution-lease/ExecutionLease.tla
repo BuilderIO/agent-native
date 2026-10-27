@@ -20,16 +20,18 @@ CONSTANTS
   Runs,           \* agent_runs ids that belong to this turn
   NoRun,          \* stands for an empty owner / run_id column
   PolicyChoices,  \* intent.replayPolicy values a run's deploy may use
-  Mutation,       \* "none", broken variants "a".."i", or finding mode "k"
+  Mutation,       \* "none" or broken variants "a".."i"
   WithPrune,      \* include the retention prune (RS:5126-5258)
-  PruneWhileTurnActive \* let pruning race in-window turn recovery; FALSE
+  PruneWhileTurnActive, \* let pruning race in-window turn recovery; FALSE
                        \* means the recovery cutoff passed
+  AssumeNoTurnIdReuseAfterRetention
 
 ASSUME NoRun \notin Runs
 ASSUME PolicyChoices \subseteq {"never", "retry-safe", "read-only"}
-ASSUME Mutation \in {"none", "a", "b", "c", "d", "e", "f", "g", "h", "i", "k"}
+ASSUME Mutation \in {"none", "a", "b", "c", "d", "e", "f", "g", "h", "i"}
 ASSUME WithPrune \in BOOLEAN
 ASSUME PruneWhileTurnActive \in BOOLEAN
+ASSUME AssumeNoTurnIdReuseAfterRetention \in BOOLEAN
 
 Terminal  == {"completed", "truncated", "errored", "aborted"}  \* RS:492-496
 Present   == {"running"} \cup Terminal                         \* a row exists
@@ -474,8 +476,9 @@ TerminaliseUnclaimed(r) ==
 \* continuation, or a team attempt. The turn id comes from the request
 \* (PA:14815-14822, BAR:1476), so a continuation can also arrive after the
 \* turn's rows were pruned. The recovery cutoff is not evidence that a detached
-\* external effect has settled. Mutation i ignores the recovery cutoff; finding
-\* mode k admits replay after normal post-cutoff pruning.
+\* external effect has settled. Mutation i ignores the recovery cutoff. The
+\* active-turn checks assume request turn IDs are not reused after retention;
+\* the F7 finding disables that explicit assumption.
 EffectCanLand == \E q \in Runs : effectPending[q]
 InsertRun(r) ==
   /\ rstatus[r] = "absent"
@@ -485,7 +488,7 @@ InsertRun(r) ==
       ELSE ((\E q \in Runs : rstatus[q] \in Present)
         \/ ((\E q \in Runs : rstatus[q] = "pruned")
           /\ ((step.exists /\ step.status # "completed")
-            \/ (Mutation \in {"i", "k"} /\ ~step.exists /\ EffectCanLand)))))
+            \/ (~AssumeNoTurnIdReuseAfterRetention /\ ~step.exists)))))
   /\ rstatus' = [rstatus EXCEPT ![r] = "running"]
   /\ UNCHANGED <<policy, wg, lease, step, wpc, effectPending, checked,
                  effects, staleWrite, liveSteal>>
@@ -606,9 +609,10 @@ TypeOK ==
 
 IsNever(e) == e.policy = "never"
 
-\* P8: while the receipt is retained, a never-replay step's external effect
-\* runs at most once across every run and lease generation of the turn.
-P8 == Len(SelectSeq(effects, IsNever)) <= 1
+\* P8 is scoped to the active-turn checks' explicit no-reuse-after-retention
+\* assumption. F7 disables that assumption and checks the broader property.
+P8 == AssumeNoTurnIdReuseAfterRetention =>
+       Len(SelectSeq(effects, IsNever)) <= 1
 
 \* P8 read strictly when a deploy changes the policy between runs: once any
 \* run executes the step under "never", that is the only effect it ever had.
