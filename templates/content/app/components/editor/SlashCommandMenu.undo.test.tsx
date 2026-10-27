@@ -217,7 +217,7 @@ describe("slash command undo", () => {
           editor.state.tr
             .insert(
               editor.state.doc.content.size,
-              editor.schema.nodes.paragraph.create(),
+              editor.schema.node("paragraph"),
             )
             .setMeta("addToHistory", false),
         );
