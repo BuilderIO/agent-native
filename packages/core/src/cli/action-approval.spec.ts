@@ -1,6 +1,36 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { cliApprovalRefusal, cliRerunCommand } from "./action-approval.js";
+import {
+  cliApprovalRefusal,
+  cliRerunCommand,
+  takeCliApprovalFlag,
+} from "./action-approval.js";
+
+describe("takeCliApprovalFlag", () => {
+  it("strips a bare --approved, before another flag or a JSON object", () => {
+    expect(takeCliApprovalFlag(["--id", "x", "--approved"])).toEqual({
+      args: ["--id", "x"],
+      approved: true,
+    });
+    expect(
+      takeCliApprovalFlag(["--approved", "--id", "x", "--approved=no"]),
+    ).toEqual({ args: ["--id", "x", "--approved=no"], approved: true });
+    expect(takeCliApprovalFlag(["--approved", ' {"id":"x"}'])).toEqual({
+      args: [' {"id":"x"}'],
+      approved: true,
+    });
+    expect(takeCliApprovalFlag(["--approved=false"])).toEqual({
+      args: ["--approved=false"],
+      approved: false,
+    });
+  });
+
+  it("refuses a value after --approved instead of dropping it", () => {
+    expect(() => takeCliApprovalFlag(["--approved", "false"])).toThrow(
+      `--approved takes no value, but "false" follows it. Put --approved last to approve the call, or write --approved=<value> to set an input named approved.`,
+    );
+  });
+});
 
 describe("cliRerunCommand", () => {
   const platform = Object.getOwnPropertyDescriptor(process, "platform")!;

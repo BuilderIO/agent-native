@@ -308,9 +308,10 @@ export async function tryForwardToDevServer(
   );
   if (discovery.databaseKey !== ourDatabaseKey) return;
 
-  const cli = takeCliApprovalFlag(args);
+  let cli: ReturnType<typeof takeCliApprovalFlag>;
   let input: Record<string, unknown>;
   try {
+    cli = takeCliApprovalFlag(args);
     input = parseActionArgs(cli.args, { coerceBooleans: true });
   } catch (error) {
     console.error(

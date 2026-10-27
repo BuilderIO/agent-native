@@ -13,6 +13,23 @@ export function takeCliApprovalFlag(args: string[]): {
   args: string[];
   approved: boolean;
 } {
+  // Arguments read as `--name value`, so a value after --approved would be
+  // an input named approved. Refuse rather than guess which was meant. A
+  // JSON object after it is still the call's positional input.
+  const flag = args.findIndex((arg, i) => {
+    const next = args[i + 1];
+    return (
+      arg === "--approved" &&
+      next !== undefined &&
+      !next.startsWith("--") &&
+      !next.trim().startsWith("{")
+    );
+  });
+  if (flag !== -1) {
+    throw new Error(
+      `--approved takes no value, but "${args[flag + 1]}" follows it. Put --approved last to approve the call, or write --approved=<value> to set an input named approved.`,
+    );
+  }
   return {
     args: args.filter((arg) => arg !== "--approved"),
     approved: args.includes("--approved"),

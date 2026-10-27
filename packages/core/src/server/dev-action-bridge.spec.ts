@@ -425,6 +425,64 @@ describe("mountDevActionForwardRoute", () => {
     expect(run).toHaveBeenCalledTimes(1);
   });
 
+  it("runs each of two identical refusals once", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const run = vi.fn(async (args) => args);
+    const handler = mountedHandler({
+      "delete-data": defineAction({
+        schema: z.object({ action: z.string().default("delete") }),
+        needsApproval: true,
+        audit: { enabled: false },
+        run,
+      }),
+    });
+    const headers = { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken() };
+    const refuse = () =>
+      handler({
+        _headers: headers,
+        _body: { name: "delete-data", input: {} },
+      });
+    const first = await refuse();
+    const second = await refuse();
+    expect(second.argumentsHash).toBe(first.argumentsHash);
+    const confirm = (challenge: { argumentsHash: string }) =>
+      handler({
+        _headers: headers,
+        _body: {
+          name: "delete-data",
+          input: {},
+          approved: true,
+          approvalSource: "prompt",
+          approvalArgumentsHash: challenge.argumentsHash,
+        },
+      });
+    expect(await confirm(first)).toMatchObject({ ok: true });
+    expect(await confirm(second)).toMatchObject({ ok: true });
+    expect(await confirm(second)).toMatchObject({
+      ok: false,
+      errorCode: "approval_expired",
+    });
+    expect(run).toHaveBeenCalledTimes(2);
+
+    // An expired refusal doesn't use up a newer identical one.
+    const now = vi.spyOn(Date, "now");
+    try {
+      now.mockReturnValue(1_000_000);
+      await refuse();
+      now.mockReturnValue(1_000_000 + 10 * 60_000 - 5);
+      const fresh = await refuse();
+      now.mockReturnValue(1_000_000 + 10 * 60_000);
+      expect(await confirm(fresh)).toMatchObject({ ok: true });
+      expect(await confirm(fresh)).toMatchObject({
+        ok: false,
+        errorCode: "approval_expired",
+      });
+      expect(run).toHaveBeenCalledTimes(3);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
   it("holds a reviewed call for 10 minutes", async () => {
     writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
     const run = vi.fn(async (args) => args);

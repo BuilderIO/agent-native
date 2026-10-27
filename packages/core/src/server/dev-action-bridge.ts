@@ -245,24 +245,33 @@ export function mountDevActionForwardRoute(
   actions: Record<string, ActionEntry>,
   options?: MountDevActionForwardRouteOptions,
 ): void {
-  // The call each refusal showed, so a prompted retry runs what the person
-  // reviewed, defaults included, instead of preparing it again.
+  // The calls each refusal showed, so a prompted retry runs what the person
+  // reviewed, defaults included, instead of preparing it again. The hash is
+  // taken after defaults, so calls under one key are identical: concurrent
+  // refusals of the same call queue there, and each retry takes one.
   const reviewedCalls = new Map<
     string,
-    { entry: ActionEntry; prepared: PreparedActionCall; expires: number }
+    { entry: ActionEntry; prepared: PreparedActionCall; expires: number }[]
   >();
   const reviewedCallKey = (
     name: string,
     ctx: ActionRunContext,
     argumentsHash: string,
   ) => JSON.stringify([name, ctx.userEmail, ctx.orgId ?? null, argumentsHash]);
+  const liveReviewedCalls = (key: string, now: number) => {
+    const live = (reviewedCalls.get(key) ?? []).filter(
+      (reviewed) => reviewed.expires > now,
+    );
+    if (live.length > 0) reviewedCalls.set(key, live);
+    else reviewedCalls.delete(key);
+    return live;
+  };
   // A reloaded action prepares its call again.
   const takeReviewedCall = (key: string, entry: ActionEntry) => {
-    const reviewed = reviewedCalls.get(key);
-    reviewedCalls.delete(key);
-    return reviewed?.entry === entry && reviewed.expires > Date.now()
-      ? reviewed.prepared
-      : undefined;
+    const live = liveReviewedCalls(key, Date.now());
+    const reviewed = live.shift();
+    if (live.length === 0) reviewedCalls.delete(key);
+    return reviewed?.entry === entry ? reviewed.prepared : undefined;
   };
   const rememberReviewedCall = (
     key: string,
@@ -270,14 +279,13 @@ export function mountDevActionForwardRoute(
     prepared: PreparedActionCall,
   ) => {
     const now = Date.now();
-    for (const [stale, reviewed] of reviewedCalls) {
-      if (reviewed.expires <= now) reviewedCalls.delete(stale);
+    for (const stale of [...reviewedCalls.keys()]) {
+      liveReviewedCalls(stale, now);
     }
-    reviewedCalls.set(key, {
-      entry,
-      prepared,
-      expires: now + REVIEWED_CALL_TTL_MS,
-    });
+    reviewedCalls.set(key, [
+      ...(reviewedCalls.get(key) ?? []),
+      { entry, prepared, expires: now + REVIEWED_CALL_TTL_MS },
+    ]);
   };
   getH3App(nitroApp).use(
     DEV_ACTION_ROUTE,
