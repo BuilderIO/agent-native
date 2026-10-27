@@ -310,26 +310,41 @@ describe("public agent context access", () => {
     );
   });
 
-  it.each([
+  describe.each([
     "not-a-date",
     "2030-02-30T12:00:00Z",
     "12:30:00",
     "123",
     "2030-01-01T00:00:00+23:00",
     "2030-01-01T00:00:00.1234567Z",
-  ])(
-    "withholds public agent reads with malformed expiry %s",
-    async (expiresAt) => {
+    "2000-01-01T00:00:00Z",
+  ])("agent reads with unavailable expiry %s", (expiresAt) => {
+    it.each([
+      { email: null, owner: false },
+      { email: "viewer@example.com", owner: false },
+      { email: " OWNER@EXAMPLE.COM ", owner: true },
+    ])("preserves owner access only for $email", async ({ email, owner }) => {
       mockRecordings.rows = [makeRecording({ expiresAt })];
+      mockGetSession.mockResolvedValue(email ? { email } : null);
       const result = await loadPublicAgentAccess(
         {} as Parameters<typeof loadPublicAgentAccess>[0],
         "rec-1",
       );
-      expect(result).toMatchObject({ ok: false, failure: { status: 410 } });
+      if (owner) {
+        expect(result).toMatchObject({
+          ok: true,
+          access: {
+            viewerIsOwner: true,
+            recording: { id: "rec-1", expiresAt },
+          },
+        });
+      } else {
+        expect(result).toMatchObject({ ok: false, failure: { status: 410 } });
+      }
       expect(mockSignScopedAgentAccessToken).not.toHaveBeenCalled();
       expect(mockRecordAgentView).not.toHaveBeenCalled();
-    },
-  );
+    });
+  });
 
   it("keeps private clips hidden from callers without a scoped agent token", async () => {
     mockRecordings.rows = [
