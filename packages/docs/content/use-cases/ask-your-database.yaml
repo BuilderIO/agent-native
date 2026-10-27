@@ -53,10 +53,11 @@ features:
 integrations:
   heading: Connect Analytics to the tools you already use
   cards:
-    - title: Your warehouse and your metrics
+    - title: Your warehouse and your site traffic
       logos:
         - name: BigQuery
-      body: Analytics queries your BigQuery tables and answers with the metric definitions your team keeps in its **Semantic Layer**.
+        - name: Google Analytics
+      body: Analytics queries your BigQuery tables and, with the same Google service-account key, your Google Analytics traffic.
     - title: Add revenue and product data
       logos:
         - name: Stripe
