@@ -537,7 +537,8 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
       const pendingEvaluation = pendingEvaluations[identity];
       const canRetryEvaluation =
         pendingEvaluation?.inputKey === decisionInputKey(event) &&
-        isRetryableInvitation(event);
+        isRetryableInvitation(event) &&
+        isEligibleInvitation(event, account.email);
       if (pendingEvaluation && !canRetryEvaluation) {
         delete pendingEvaluations[identity];
       }

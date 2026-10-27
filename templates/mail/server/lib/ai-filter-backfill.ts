@@ -1870,6 +1870,13 @@ async function ensureEvaluations(
     );
     if (ruleIds.size > 0) previousMatchedRuleIdsByEmail.set(key, ruleIds);
   }
+  const failedRuleIdsByEmail = new Map<string, Set<string>>();
+  for (const failure of evaluation.failures) {
+    const key = aiPriorityEmailKey(failure.accountEmail, failure.emailId);
+    const ruleIds = failedRuleIdsByEmail.get(key) ?? new Set<string>();
+    ruleIds.add(failure.ruleId);
+    failedRuleIdsByEmail.set(key, ruleIds);
+  }
   const failures = evaluation.failures.filter(
     (failure) =>
       !previousMatchedRuleIdsByEmail
@@ -1887,12 +1894,15 @@ async function ensureEvaluations(
         "Mail AI-filter evaluation did not classify every thread.",
       );
     }
-    // A retry reruns every rule, so retain earlier positives while a sibling recovers.
+    // Keep prior positives only for rules that failed again on this retry.
     const mergedMatches = new Map<string, StoredMatch>(
-      (state.evaluations[candidate.key] ?? []).map((match) => [
-        match.ruleId,
-        match,
-      ]),
+      (state.evaluations[candidate.key] ?? [])
+        .filter((match) =>
+          failedRuleIdsByEmail
+            .get(aiPriorityEmailKey(candidate.accountEmail, candidate.email.id))
+            ?.has(match.ruleId),
+        )
+        .map((match) => [match.ruleId, match]),
     );
     for (const match of matches) {
       mergedMatches.set(match.ruleId, {

@@ -672,7 +672,7 @@ describe("calendar event rules sweep", () => {
     const updatedEvent = {
       ...event,
       updated: new Date().toISOString(),
-      attendees: [{ email: "one@example.com", responseStatus: "accepted" }],
+      attendees: [{ email: "one@example.com", responseStatus: "needsAction" }],
     };
     const { owner, settingsByOwner } = configureOwnerSweep({
       rules: {
@@ -753,6 +753,62 @@ describe("calendar event rules sweep", () => {
         [identity]: `${updatedEvent.updated}:${updatedEvent.status}`,
       },
     });
+  });
+
+  it("does not retry a failed decision after the attendee answers the invitation", async () => {
+    const accountKey = "one@example.com:primary";
+    const identity = "google:one@example.com:primary:event-1";
+    const event = {
+      id: "event-1",
+      created: new Date(Date.now() + 60_000).toISOString(),
+      updated: "2026-09-25T12:00:00.000Z",
+      status: "confirmed",
+      summary: "Planning review",
+      description: "",
+      end: { dateTime: new Date(Date.now() + 3_600_000).toISOString() },
+      attendees: [{ email: "one@example.com", responseStatus: "needsAction" }],
+    };
+    const answeredEvent = {
+      ...event,
+      updated: new Date().toISOString(),
+      attendees: [{ email: "one@example.com", responseStatus: "accepted" }],
+    };
+    const { owner, settingsByOwner } = configureOwnerSweep({
+      rules: { hide: "Hide planning meetings" },
+      runtime: { cursors: { [accountKey]: "old-sync-token" } },
+      event,
+    });
+    mocks.decide
+      .mockRejectedValueOnce(new Error("Decision provider unavailable"))
+      .mockResolvedValueOnce(decision(1));
+    mocks.calendarListEvents
+      .mockResolvedValueOnce({ items: [event], nextSyncToken: "first-token" })
+      .mockResolvedValueOnce({
+        items: [answeredEvent],
+        nextSyncToken: "second-token",
+      });
+
+    await expect(runCalendarEventRulesOnce()).rejects.toMatchObject({
+      name: "AggregateError",
+    });
+    expect(
+      settingsByOwner[owner]?.["calendar-settings"]?.hiddenEventKeys ?? [],
+    ).not.toContain(identity);
+    expect(
+      settingsByOwner[owner]?.["calendar-event-rules-runtime"]
+        ?.pendingEvaluations,
+    ).toHaveProperty(identity);
+
+    await runCalendarEventRulesOnce();
+
+    expect(mocks.decide).toHaveBeenCalledTimes(1);
+    expect(
+      settingsByOwner[owner]?.["calendar-settings"]?.hiddenEventKeys ?? [],
+    ).not.toContain(identity);
+    expect(
+      settingsByOwner[owner]?.["calendar-event-rules-runtime"]
+        ?.pendingEvaluations,
+    ).not.toHaveProperty(identity);
   });
 
   it("reconciles a durable pending RSVP when activity persistence fails", async () => {

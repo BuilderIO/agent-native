@@ -1510,16 +1510,27 @@ describe("startMailAiFilterBackfill", () => {
         ),
       )
       .mockResolvedValueOnce(
-        ruleEvaluation(new Map([[key, []]]), [
-          {
-            emailId: "thread-a",
-            ruleId: retryingRule.id,
-            reason: "provider_error",
-            retryable: true,
-          },
-        ]),
+        ruleEvaluation(
+          new Map([
+            [key, [{ ruleId: matchedRule.id, match: true, confidence: 0.95 }]],
+          ]),
+          [
+            {
+              emailId: "thread-a",
+              ruleId: retryingRule.id,
+              reason: "provider_error",
+              retryable: true,
+            },
+          ],
+        ),
       )
-      .mockResolvedValueOnce(ruleEvaluation(new Map([[key, []]])));
+      .mockResolvedValueOnce(
+        ruleEvaluation(
+          new Map([
+            [key, [{ ruleId: matchedRule.id, match: true, confidence: 0.95 }]],
+          ]),
+        ),
+      );
 
     await processMailAiFilterBackfills(ownerEmail);
 
@@ -1549,6 +1560,61 @@ describe("startMailAiFilterBackfill", () => {
     expect(saved.decisionFailures).toEqual([]);
     expect(mocks.writeLocalEmails).toHaveBeenCalled();
     expect(mocks.evaluateAiFilterBackfillRules).toHaveBeenCalledTimes(3);
+  });
+
+  it("drops stale positive matches that retry negative while retaining a failed sibling", async () => {
+    const previouslyMatchedRule = rule("rule-a");
+    const stillFailedRule = rule("rule-b");
+    mocks.rules = [previouslyMatchedRule, stillFailedRule];
+    mocks.emails = [localEmail()];
+    const key = aiPriorityEmailKey(undefined, "thread-a");
+    const state: any = {
+      ...backfillState([previouslyMatchedRule, stillFailedRule]),
+      evaluations: {
+        "local:thread-a": [
+          { ruleId: previouslyMatchedRule.id, confidence: 0.95 },
+          { ruleId: stillFailedRule.id, confidence: 0.9 },
+        ],
+      },
+      evaluatedCount: 1,
+      failedCount: 1,
+      decisionFailures: [
+        {
+          emailId: "thread-a",
+          ruleId: stillFailedRule.id,
+          reason: "provider_error",
+          retryable: true,
+        },
+      ],
+      incompleteCoverage: true,
+      retryCount: 1,
+    };
+    const row = runningRow([previouslyMatchedRule, stillFailedRule]);
+    row.stateJson = JSON.stringify(state);
+    database.rows.push(row);
+    const retry = ruleEvaluation(new Map([[key, []]]), [
+      {
+        emailId: "thread-a",
+        ruleId: stillFailedRule.id,
+        reason: "provider_error",
+        retryable: true,
+      },
+    ]);
+    retry.evaluatedCount = 1;
+    retry.failedCount = 1;
+    mocks.evaluateAiFilterBackfillRules.mockResolvedValue(retry);
+
+    await processMailAiFilterBackfills(ownerEmail);
+
+    const saved = JSON.parse(row.stateJson);
+    expect(row.status).toBe("completed");
+    expect(saved.evaluations["local:thread-a"]).toEqual([
+      { ruleId: stillFailedRule.id, confidence: 0.9 },
+    ]);
+    expect(saved.decisionFailures).toEqual([]);
+    expect(saved.evaluatedCount).toBe(2);
+    expect(saved.failedCount).toBe(0);
+    expect(saved.retryCount).toBe(0);
   });
 
   it("resets the retry budget after a successful decision batch despite incomplete coverage", async () => {
