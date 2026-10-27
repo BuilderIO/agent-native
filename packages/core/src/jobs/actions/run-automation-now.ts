@@ -1,12 +1,15 @@
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
+import { isMcpAutomationOrigin } from "../../automations/mcp-origin.js";
+import { automationOutcomeMessagesForUser } from "../../localization/automation-outcome-messages.js";
 import { queueAutomationRunNow } from "../run-now.js";
 
 export default defineAction({
   description:
     "Run an accessible automation by stable resourceId. A name or jobs/ path remains available for compatibility. This explicit action may perform the automation's real side effects.",
   agentTool: false,
+  needsApproval: (_input, ctx) => isMcpAutomationOrigin(ctx?.caller),
   schema: z
     .object({
       resourceId: z.string().trim().min(1).optional(),
@@ -24,6 +27,10 @@ export default defineAction({
     ),
   run: async ({ resourceId, name, path, scope }, ctx) => {
     if (!ctx?.userEmail) throw new Error("Not authenticated.");
+    if (ctx.caller === "automation" || ctx.automation) {
+      const messages = await automationOutcomeMessagesForUser(ctx.userEmail);
+      throw new Error(messages.chainingUnsupported);
+    }
     return queueAutomationRunNow({
       userEmail: ctx.userEmail,
       orgId: ctx.orgId,
