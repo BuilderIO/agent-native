@@ -81,6 +81,7 @@ function event(params: Record<string, string> = {}) {
       ...(params.docId ? { docId: scopedDocId(params.docId) } : {}),
     },
     _status: 200,
+    context: { _collabAwarenessCanEdit: true },
   } as any;
 }
 
@@ -264,7 +265,7 @@ describe("postAwareness handler", () => {
     mockWriteAwarenessRow.mockResolvedValueOnce(true);
     mockLoadAwarenessRows.mockResolvedValueOnce([]);
     const ev = event({ docId: "post-doc-payload-limit" });
-    ev.context = { _collabMaxPayloadBytes: 128 };
+    ev.context = { ...ev.context, _collabMaxPayloadBytes: 128 };
 
     await postAwareness(ev);
 
@@ -1055,6 +1056,64 @@ describe("postAwareness handler", () => {
 
     expect(ev._status).toBe(400);
     expect(docAwareness("post-doc-invalid-state").has(64)).toBe(false);
+  });
+
+  it("refuses with 500, writing nothing, when the request doesn't say whether the session can edit", async () => {
+    mockReadBody.mockResolvedValueOnce({
+      clientId: 65,
+      clientSequence: 1,
+      state: JSON.stringify({ canFlushDocument: true }),
+    });
+    mockWriteAwarenessRow.mockClear();
+    const ev = event({ docId: "post-doc-no-edit-access" });
+    delete ev.context;
+
+    await expect(postAwareness(ev)).resolves.toEqual({
+      error: "awareness edit access unavailable",
+    });
+
+    expect(ev._status).toBe(500);
+    expect(mockWriteAwarenessRow).not.toHaveBeenCalled();
+    expect(docAwareness("post-doc-no-edit-access").has(65)).toBe(false);
+  });
+
+  it.each([
+    ["advertises saving", { canFlushDocument: true, canFlushTitle: true }],
+    ["doesn't mention saving", {}],
+  ])(
+    "stores a read-only session's state that %s as unable to save",
+    async (_case, capabilities) => {
+      const docId = `post-doc-read-only-${Object.keys(capabilities).length}`;
+      mockReadBody.mockResolvedValueOnce({
+        clientId: 66,
+        clientSequence: 1,
+        state: JSON.stringify({ visible: true, ...capabilities }),
+      });
+      const ev = event({ docId });
+      ev.context = { _collabAwarenessCanEdit: false };
+
+      await postAwareness(ev);
+
+      expect(JSON.parse(docAwareness(docId).get(66)!.state)).toMatchObject({
+        visible: true,
+        canFlushDocument: false,
+        canFlushTitle: false,
+      });
+    },
+  );
+
+  it("keeps an editing session's save capabilities", async () => {
+    mockReadBody.mockResolvedValueOnce({
+      clientId: 67,
+      clientSequence: 1,
+      state: JSON.stringify({ canFlushDocument: true, canFlushTitle: true }),
+    });
+
+    await postAwareness(event({ docId: "post-doc-editor" }));
+
+    expect(
+      JSON.parse(docAwareness("post-doc-editor").get(67)!.state),
+    ).toMatchObject({ canFlushDocument: true, canFlushTitle: true });
   });
 });
 
