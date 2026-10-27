@@ -111,17 +111,10 @@ export async function liveBodyWriterGatesForRows(
   options: { transaction?: DbExec } = {},
 ): Promise<LiveBodyWriterGate[]> {
   const exec = options.transaction ?? getDbExec();
-  const switched = rows.filter((row) => row.liveBodySwitchedAt);
-  const versions = new Map<string, unknown>();
-  if (switched.length > 0) {
-    const { rows: docs } = await exec.execute({
-      sql: `SELECT doc_id, version FROM _collab_docs WHERE doc_id IN (${switched.map(() => "?").join(", ")})`,
-      args: switched.map((row) => row.id),
-    });
-    for (const doc of docs as Array<{ doc_id: unknown; version: unknown }>) {
-      versions.set(String(doc.doc_id), doc.version);
-    }
-  }
+  const versions = await collabVersionsOf(
+    exec,
+    rows.filter((row) => row.liveBodySwitchedAt),
+  );
   const flagsOn = flagsOnByScope({ transaction: exec });
   const gates: LiveBodyWriterGate[] = [];
   for (const row of rows) {
@@ -130,6 +123,52 @@ export async function liveBodyWriterGatesForRows(
     );
   }
   return gates;
+}
+
+/**
+ * The switched pages among `rows` whose stored body and live copy are in
+ * step, as the gate requires: neither took a write while the flags were off.
+ * Their live copies' versions are read in one statement, and no flags.
+ */
+export async function liveBodyInStepPageIds(
+  rows: readonly LiveBodyWriterPageRow[],
+): Promise<Set<string>> {
+  const candidates = rows.filter(
+    (row) =>
+      row.liveBodySwitchedAt && row.collabBodyRevision === row.bodyRevision,
+  );
+  const versions = await collabVersionsOf(getDbExec(), candidates);
+  return new Set(
+    candidates
+      .filter((row) => {
+        // An unreadable version isn't in step, so the page is tried, and
+        // the switch's own gate throws on it.
+        const version = versions.get(row.id);
+        return (
+          version !== undefined &&
+          version !== null &&
+          Number(version) === row.liveCopyVersion
+        );
+      })
+      .map((row) => row.id),
+  );
+}
+
+// `_collab_docs` exists once a page has switched, so pass only switched pages.
+async function collabVersionsOf(
+  exec: DbExec,
+  switched: readonly Pick<LiveBodyWriterPageRow, "id">[],
+): Promise<Map<string, unknown>> {
+  const versions = new Map<string, unknown>();
+  if (switched.length === 0) return versions;
+  const { rows: docs } = await exec.execute({
+    sql: `SELECT doc_id, version FROM _collab_docs WHERE doc_id IN (${switched.map(() => "?").join(", ")})`,
+    args: switched.map((row) => row.id),
+  });
+  for (const doc of docs as Array<{ doc_id: unknown; version: unknown }>) {
+    versions.set(String(doc.doc_id), doc.version);
+  }
+  return versions;
 }
 
 // The flags once per owner and organization, however many of their pages.

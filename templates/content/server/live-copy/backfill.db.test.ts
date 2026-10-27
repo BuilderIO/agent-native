@@ -300,6 +300,32 @@ async function openInTab(id: string, content: string, typed?: string) {
   await as(ownerEmail, () => collab.applyUpdate(id, update));
 }
 
+/**
+ * A tab committed to switched page `id`'s live copy while the owner's writer
+ * was off, typing a letter and deleting it, so its text reads as before.
+ */
+async function commitInTabWithWriterOff(id: string) {
+  const writer = "feature-flag:content.live-body-writer";
+  await putSetting(writer, rulesFor([writerOnlyEmail]));
+  try {
+    const doc = new Y.Doc();
+    Y.applyUpdate(doc, await collab.getState(id));
+    const seen = Y.encodeStateVector(doc);
+    const paragraph = doc.getXmlFragment("default").get(0);
+    const text = paragraph instanceof Y.XmlElement ? paragraph.get(0) : null;
+    if (!(text instanceof Y.XmlText)) {
+      throw new Error(`Page ${id}'s live copy has no text to type in.`);
+    }
+    text.insert(0, "x");
+    text.delete(0, 1);
+    const update = Y.encodeStateAsUpdate(doc, seen);
+    doc.destroy();
+    await as(ownerEmail, () => collab.applyUpdate(id, update));
+  } finally {
+    await putSetting(writer, rulesFor([ownerEmail, writerOnlyEmail]));
+  }
+}
+
 /** The editor's read of a page as it opens, as DocumentEditor asks for it. */
 function readInEditor(id: string, email = ownerEmail) {
   return as(email, () =>
@@ -1559,6 +1585,34 @@ describe("the backfill sweep", () => {
       failed: [],
     });
     expect(await page(id)).toEqual(before);
+  });
+
+  it("switches again a page whose tab committed to its live copy while the writer was off, and passes over one in step", async () => {
+    const committed = await insertPage(stored);
+    const inStep = await insertPage(stored);
+    for (const id of [committed, inStep]) {
+      await as(ownerEmail, () => switching.switchPageToLiveCopy(id, { ctx }));
+    }
+    await commitInTabWithWriterOff(committed);
+    const behind = await page(committed);
+    expect(behind.collabBodyRevision).toBe(behind.bodyRevision);
+    expect(behind.liveCopyVersion).not.toBe(await collabVersion(committed));
+    const steady = await page(inStep);
+
+    const report = await sweep(Date.now() + 11 * 60_000);
+
+    expect(report).toMatchObject({
+      status: "ran",
+      scanned: 2,
+      passedOver: 1,
+      outcomes: { converted: 1 },
+      failed: [],
+    });
+    const after = await page(committed);
+    expect(after.content).toBe(behind.content);
+    expect(after.collabBodyRevision).toBe(after.bodyRevision);
+    expect(after.liveCopyVersion).toBe(await collabVersion(committed));
+    expect(await page(inStep)).toEqual(steady);
   });
 
   it("reads 200 pages a sweep and resumes after the last one it reached", async () => {

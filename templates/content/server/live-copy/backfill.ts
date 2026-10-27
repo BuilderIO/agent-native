@@ -17,6 +17,7 @@ import { documentChangeResource } from "../lib/document-change-resource.js";
 import {
   isLinkedToLocalFile,
   liveBodyBackfillFlagsOn,
+  liveBodyInStepPageIds,
   liveBodyWriterGateForRow,
   liveBodyWriterPageColumns,
   type LiveBodyLegacyReason,
@@ -569,6 +570,9 @@ export async function runLiveBodyBackfillSweep(context: {
     )
     .orderBy(asc(schema.documents.id))
     .limit(SCAN_BATCH);
+  // A switched page that took a write on either side while its flags were
+  // off is out of step, and the switch brings it back.
+  const inStep = await liveBodyInStepPageIds(pages);
 
   const flagsByScope = new Map<string, Promise<boolean>>();
   const flagsOn: FlagsOn = (page) => {
@@ -666,7 +670,7 @@ export async function runLiveBodyBackfillSweep(context: {
       page.liveBodyOptedOutAt ||
       eligible === 0 ||
       isLinkedToLocalFile(page) ||
-      (page.liveBodySwitchedAt && page.collabBodyRevision === page.bodyRevision)
+      inStep.has(page.id)
     ) {
       // Nothing is left to try on it, so nothing is left to hold.
       delete held[page.id];
