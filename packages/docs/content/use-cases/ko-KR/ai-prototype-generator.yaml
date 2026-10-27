@@ -1,6 +1,10 @@
 template: v2
 slug: ai-prototype-generator
 app: design
+roles:
+  - product
+  - design
+  - founders
 title: 브리프를 클릭할 수 있는 프로토타입으로 만들어 보세요
 seo_title: 제품 브리프를 위한 AI 프로토타입 생성기
 meta_description: "제품이나 디자인 브리프를 붙여 넣으면 Agent-Native Design이 클릭해 볼 수 있는 화면을 만들어요. AI 에이전트에게 여러 방향을 받고, 고른 방향을 다듬으세요."

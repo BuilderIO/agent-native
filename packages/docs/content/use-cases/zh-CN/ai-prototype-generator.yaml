@@ -1,6 +1,10 @@
 template: v2
 slug: ai-prototype-generator
 app: design
+roles:
+  - product
+  - design
+  - founders
 title: 把需求简报变成可点击的原型
 seo_title: 从产品简报生成原型的 AI 工具
 meta_description: 粘贴产品或设计简报，Agent-Native Design 就会生成可点击、可运行的界面。让 AI agent 给出几个方向，再细化你选中的那个。

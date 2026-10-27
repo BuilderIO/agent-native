@@ -1,6 +1,10 @@
 template: v2
 slug: ai-prototype-generator
 app: design
+roles:
+  - product
+  - design
+  - founders
 title: "حوّل موجزك إلى نموذج أولي قابل للنقر"
 seo_title: "مولّد نماذج أولية بالذكاء الاصطناعي لموجزات المنتج"
 meta_description: "الصق موجز المنتج أو التصميم، فيبني Agent-Native Design شاشات تعمل ويمكنك النقر عليها. اطلب من وكيل الذكاء الاصطناعي اتجاهات، ثم حسّن ما تختاره."

@@ -1,6 +1,10 @@
 template: v2
 slug: ai-prototype-generator
 app: design
+roles:
+  - product
+  - design
+  - founders
 title: Ein Briefing zum klickbaren Prototyp machen
 seo_title: KI-Prototyp-Generator für Produkt-Briefings
 meta_description: Fügen Sie ein Produkt- oder Design-Briefing ein, und Agent-Native Design baut klickbare Screens. Lassen Sie sich Richtungen zeigen und verfeinern Sie Ihre Wahl.

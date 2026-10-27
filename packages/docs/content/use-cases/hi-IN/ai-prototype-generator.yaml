@@ -1,6 +1,10 @@
 template: v2
 slug: ai-prototype-generator
 app: design
+roles:
+  - product
+  - design
+  - founders
 title: "ब्रीफ़ को क्लिक करने लायक प्रोटोटाइप में बदलें"
 seo_title: "प्रोडक्ट ब्रीफ़ के लिए AI प्रोटोटाइप जनरेटर"
 meta_description: "प्रोडक्ट या डिज़ाइन ब्रीफ़ पेस्ट करें और Agent-Native Design क्लिक करने लायक, काम करती स्क्रीन्स बनाता है। AI एजेंट से कुछ दिशाएँ माँगें, फिर चुनी हुई को बेहतर बनाएँ।"

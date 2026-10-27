@@ -1,6 +1,10 @@
 template: v2
 slug: ai-prototype-generator
 app: design
+roles:
+  - product
+  - design
+  - founders
 title: 把需求說明變成可點擊的原型
 seo_title: 從產品需求說明產生原型的 AI 工具
 meta_description: 貼上產品或設計需求說明，Agent-Native Design 就會做出可以點擊操作的畫面。請 AI agent 提出幾個方向，再細修你選中的那一個。

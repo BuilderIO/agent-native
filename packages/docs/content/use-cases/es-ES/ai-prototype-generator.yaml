@@ -1,6 +1,10 @@
 template: v2
 slug: ai-prototype-generator
 app: design
+roles:
+  - product
+  - design
+  - founders
 title: Convierte un briefing en un prototipo interactivo
 seo_title: Generador de prototipos con IA desde un briefing
 meta_description: Pega un briefing de producto o de diseño y Agent-Native Design crea pantallas que funcionan. Pide al agente de IA varias direcciones y pule la que elijas.

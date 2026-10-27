@@ -1,6 +1,10 @@
 template: v2
 slug: ai-prototype-generator
 app: design
+roles:
+  - product
+  - design
+  - founders
 title: ブリーフからクリックできるプロトタイプを作成
 seo_title: プロダクトブリーフ向けAIプロトタイプジェネレーター
 meta_description: プロダクトやデザインのブリーフを貼り付けると、Agent-Native Designがクリックして試せる画面を作ります。AIエージェントに複数の方向性を出してもらい、選んだ案を磨き込めます。
