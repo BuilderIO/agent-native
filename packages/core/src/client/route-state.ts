@@ -13,7 +13,10 @@ import {
   readClientAppState,
   setClientAppState,
 } from "./application-state.js";
-import { getBrowserTabId } from "./browser-tab-id.js";
+import {
+  getBrowserTabId,
+  isBrowserTabIdForCurrentDocument,
+} from "./browser-tab-id.js";
 import {
   navigateWithAgentChatViewTransition,
   type AgentChatViewTransitionOptions,
@@ -388,14 +391,21 @@ export function useAgentRouteState<
 
   const location = useLocation();
   const navigate = useNavigate();
-  const browserTabId = useMemo(
-    () =>
-      normalizeBrowserTabId(options.browserTabId) ??
-      (options.browserTabId === undefined ? defaultBrowserTabId() : undefined),
-    // A workspace router can keep this hook mounted while moving between
-    // app mounts, each of which has its own browser-tab state key.
-    [location.pathname, options.browserTabId],
-  );
+  const defaultTabId = defaultBrowserTabId();
+  const explicitTabId = normalizeBrowserTabId(options.browserTabId);
+  // Templates expose TAB_ID as a module-level constant. If it matches the
+  // current document's generated IDs, keep following the active mount.
+  const browserTabId =
+    explicitTabId === undefined ||
+    isBrowserTabIdForCurrentDocument(explicitTabId)
+      ? defaultTabId
+      : explicitTabId;
+  const requestSourceFollowsDefault =
+    options.requestSource === undefined ||
+    isBrowserTabIdForCurrentDocument(options.requestSource);
+  const requestSource = requestSourceFollowsDefault
+    ? browserTabId
+    : options.requestSource;
   const writeGlobalNavigation = options.writeGlobalNavigation ?? false;
   const readGlobalCommandFallback = options.readGlobalCommandFallback ?? false;
 
@@ -457,7 +467,7 @@ export function useAgentRouteState<
     commandKeys,
     commandQueryKey,
     browserTabId,
-    requestSource: options.requestSource ?? browserTabId,
+    requestSource,
     commandRefetchInterval: options.refetchInterval,
     enabled: options.enabled,
     keepalive: options.keepalive,

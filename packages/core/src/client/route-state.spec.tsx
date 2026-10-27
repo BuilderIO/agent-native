@@ -13,6 +13,7 @@ import {
 } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { getBrowserTabId } from "./browser-tab-id.js";
 import {
   useAgentRouteState,
   useSemanticNavigationState,
@@ -195,11 +196,14 @@ describe("route-state client helpers", () => {
       ]),
     );
     window.history.replaceState(null, "", "/risk/register");
+    const moduleTabId = getBrowserTabId();
     let navigate: ReturnType<typeof useNavigate> | undefined;
 
     function Harness() {
       navigate = useNavigate();
       useAgentRouteState({
+        browserTabId: moduleTabId,
+        requestSource: moduleTabId,
         refetchInterval: false,
         getNavigationState: ({ pathname }) => ({ pathname }),
         getCommandPath: () => null,
@@ -232,6 +236,9 @@ describe("route-state client helpers", () => {
     );
     expect(scopedNavigationKeys).toHaveLength(2);
     expect(scopedNavigationKeys[0]).not.toBe(scopedNavigationKeys[1]);
+    expect(writes.at(-1)?.init.headers).toMatchObject({
+      "X-Request-Source": scopedNavigationKeys[1]?.slice("navigation:".length),
+    });
   });
 
   it("writes semantic navigation state with request-source metadata", async () => {

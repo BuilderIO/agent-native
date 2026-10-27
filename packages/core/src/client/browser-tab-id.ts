@@ -74,6 +74,14 @@ export function getBrowserTabId(): string {
   }
 }
 
+export function isBrowserTabIdForCurrentDocument(tabId?: string): boolean {
+  if (typeof tabId !== "string") return false;
+  for (const knownTabId of browserTabIdState.ids.values()) {
+    if (knownTabId === tabId) return true;
+  }
+  return false;
+}
+
 function getOrCreateMemoryId(key: string): string {
   const cached = browserTabIdState.ids.get(key);
   if (cached) return cached;
