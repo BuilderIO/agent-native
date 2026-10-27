@@ -62,6 +62,19 @@ describe("weekly paid-acquisition context", () => {
 });
 
 describe("weekly report arguments", () => {
+  it.each([["--week"], ["--week", "--skip-journey-snapshot"]])(
+    "rejects a missing --week value",
+    (...args) => {
+      expect(() => parseReportArgs(args)).toThrow("--week requires a value.");
+    },
+  );
+
+  it("rejects a missing --max-total-gb value", () => {
+    expect(() => parseReportArgs(["--max-total-gb"])).toThrow(
+      "--max-total-gb requires a value.",
+    );
+  });
+
   it("can skip screenshot snapshot generation while keeping the week", () => {
     expect(
       parseReportArgs(["--week", "2026-10-19", "--skip-journey-snapshot"]),

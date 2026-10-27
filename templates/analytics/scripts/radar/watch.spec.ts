@@ -3,8 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { safeRadarEventLabel } from "./event-labels.ts";
 import {
   loadUploadRejectionRows,
+  parseWatchArgs,
   campaignUnavailableCheck,
   safeCampaignLabel,
+  runWatch,
   uploadRejectionCheck,
 } from "./watch.ts";
 
@@ -33,6 +35,22 @@ describe("campaign label output", () => {
     );
     expect(safeCampaignLabel("alice@example.com | private note")).toBe("other");
     expect(safeCampaignLabel("newsletter_alice@example.com")).toBe("other");
+  });
+});
+
+describe("watch arguments", () => {
+  it.each([["--date"], ["--date", "--window", "daily"]])(
+    "rejects a missing --date value",
+    (...args) => {
+      expect(() => parseWatchArgs(args)).toThrow("--date requires a value.");
+    },
+  );
+
+  it("rejects impossible calendar dates before querying", async () => {
+    await expect(runWatch({ date: "2026-02-30" })).rejects.toMatchObject({
+      exitCode: 2,
+      message: "--date must be YYYY-MM-DD.",
+    });
   });
 });
 

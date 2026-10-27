@@ -5,6 +5,7 @@ import {
   RadarQueryError,
   closeRadarQueries,
   radarRunCliExitCode,
+  requiredRadarCliValue,
   resolveRadarBigQueryEventsTable,
   resolveRadarFirstPartyBackend,
   resolveRadarOrganizationId,
@@ -352,13 +353,24 @@ function number(row: Record<string, unknown>, key: string): number {
   return Number(row[key] ?? 0);
 }
 
+function isCalendarDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return (
+    Number.isFinite(parsed.getTime()) &&
+    parsed.toISOString().slice(0, 10) === value
+  );
+}
+
+export interface AbReadoutOptions {
+  experiment?: string;
+  startDate?: string;
+  endDate?: string;
+  asOf?: string;
+}
+
 export async function runAbReadout(
-  options: {
-    experiment?: string;
-    startDate?: string;
-    endDate?: string;
-    asOf?: string;
-  } = {},
+  options: AbReadoutOptions = {},
 ): Promise<AbReadout> {
   const experiment = options.experiment ?? EXPERIMENT_ID;
   if (experiment !== EXPERIMENT_ID) {
@@ -370,8 +382,8 @@ export async function runAbReadout(
   const startDate = options.startDate ?? DEFAULT_START;
   const endDate = options.endDate ?? new Date().toISOString().slice(0, 10);
   if (
-    !/^\d{4}-\d{2}-\d{2}$/.test(startDate) ||
-    !/^\d{4}-\d{2}-\d{2}$/.test(endDate) ||
+    !isCalendarDate(startDate) ||
+    !isCalendarDate(endDate) ||
     startDate > endDate
   ) {
     throw new RadarQueryError(
@@ -597,26 +609,39 @@ export function formatAbMarkdown(result: AbReadout): string {
   return lines.join("\n");
 }
 
+export function parseAbReadoutArgs(args: readonly string[]): AbReadoutOptions {
+  let experiment: string | undefined;
+  let startDate: string | undefined;
+  let endDate: string | undefined;
+  let asOf: string | undefined;
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index] === "--experiment") {
+      experiment = requiredRadarCliValue(args, index, "--experiment");
+      index += 1;
+    } else if (args[index] === "--start") {
+      startDate = requiredRadarCliValue(args, index, "--start");
+      index += 1;
+    } else if (args[index] === "--end") {
+      endDate = requiredRadarCliValue(args, index, "--end");
+      index += 1;
+    } else if (args[index] === "--as-of") {
+      asOf = requiredRadarCliValue(args, index, "--as-of");
+      index += 1;
+    } else throw new RadarQueryError(`Unknown argument: ${args[index]}`, 2);
+  }
+  return {
+    ...(experiment !== undefined ? { experiment } : {}),
+    ...(startDate !== undefined ? { startDate } : {}),
+    ...(endDate !== undefined ? { endDate } : {}),
+    ...(asOf !== undefined ? { asOf } : {}),
+  };
+}
+
 async function main(): Promise<void> {
   try {
-    const args = process.argv.slice(2);
-    let experiment = EXPERIMENT_ID;
-    let startDate: string | undefined;
-    let endDate: string | undefined;
-    let asOf: string | undefined;
-    for (let index = 0; index < args.length; index += 1) {
-      if (args[index] === "--experiment") experiment = args[++index] ?? "";
-      else if (args[index] === "--start") startDate = args[++index];
-      else if (args[index] === "--end") endDate = args[++index];
-      else if (args[index] === "--as-of") asOf = args[++index];
-      else throw new RadarQueryError(`Unknown argument: ${args[index]}`, 2);
-    }
-    const result = await runAbReadout({
-      experiment,
-      ...(startDate !== undefined ? { startDate } : {}),
-      ...(endDate !== undefined ? { endDate } : {}),
-      ...(asOf !== undefined ? { asOf } : {}),
-    });
+    const result = await runAbReadout(
+      parseAbReadoutArgs(process.argv.slice(2)),
+    );
     console.log(formatAbMarkdown(result));
     console.log(JSON.stringify(result));
   } catch (error) {

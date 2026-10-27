@@ -13,7 +13,16 @@ vi.mock("./query.ts", async (importOriginal) => {
   return { ...actual, ...mocks };
 });
 
-import { runTriage } from "./triage.ts";
+import { parseTriageArgs, runTriage } from "./triage.ts";
+
+describe("triage arguments", () => {
+  it.each([["--date"], ["--date", "--unknown"]])(
+    "rejects a missing --date value",
+    (...args) => {
+      expect(() => parseTriageArgs(args)).toThrow("--date requires a value.");
+    },
+  );
+});
 
 describe("BigQuery triage metadata parameters", () => {
   beforeEach(() => {

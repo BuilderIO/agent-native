@@ -17,6 +17,7 @@ import {
   ensureRadarPrivateDirectory,
   getRadarBigQueryScanBudget,
   radarRunCliExitCode,
+  requiredRadarCliValue,
   setRadarBigQueryScanBudget,
 } from "./query.ts";
 import { runTriage, type TriageRun } from "./triage.ts";
@@ -283,15 +284,20 @@ export function parseReportArgs(args: readonly string[]): {
   let skipJourneySnapshot = false;
   let maxTotalGb = DEFAULT_WEEKLY_MAX_TOTAL_GB;
   for (let index = 0; index < args.length; index += 1) {
-    if (args[index] === "--week") week = args[++index];
-    else if (args[index] === "--skip-journey-snapshot")
+    if (args[index] === "--week") {
+      week = requiredRadarCliValue(args, index, "--week");
+      index += 1;
+    } else if (args[index] === "--skip-journey-snapshot")
       skipJourneySnapshot = true;
     else if (args[index] === "--max-total-gb") {
-      const value = Number(args[++index]);
+      const value = Number(
+        requiredRadarCliValue(args, index, "--max-total-gb"),
+      );
       if (!Number.isFinite(value) || value <= 0) {
         throw new RadarQueryError("--max-total-gb must be positive.", 2);
       }
       maxTotalGb = value;
+      index += 1;
     } else throw new RadarQueryError(`Unknown argument: ${args[index]}`, 2);
   }
   return { week, skipJourneySnapshot, maxTotalGb };

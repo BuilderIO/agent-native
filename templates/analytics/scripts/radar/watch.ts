@@ -25,6 +25,7 @@ import {
   ensureRadarPrivateDirectory,
   radarJsonbParam,
   radarRunCliExitCode,
+  requiredRadarCliValue,
   resolveRadarBigQueryEventsTable,
   resolveRadarFirstPartyBackend,
   resolveRadarOrganizationId,
@@ -138,9 +139,11 @@ function addDays(date: string, amount: number): string {
 }
 
 function validDate(date: string): boolean {
+  const parsed = new Date(`${date}T00:00:00Z`);
   return (
     /^\d{4}-\d{2}-\d{2}$/.test(date) &&
-    Number.isFinite(new Date(`${date}T00:00:00Z`).getTime())
+    Number.isFinite(parsed.getTime()) &&
+    parsed.toISOString().slice(0, 10) === date
   );
 }
 
@@ -1442,27 +1445,35 @@ export async function writeWatchRun(
   return { jsonPath, markdownPath };
 }
 
+export function parseWatchArgs(args: readonly string[]): RadarWatchOptions {
+  let window: "hourly" | "daily" = "daily";
+  let date: string | undefined;
+  let hour: number | undefined;
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index] === "--window") {
+      const value = requiredRadarCliValue(args, index, "--window");
+      if (value !== "hourly" && value !== "daily")
+        throw new RadarQueryError("--window must be hourly or daily.", 2);
+      window = value;
+      index += 1;
+    } else if (args[index] === "--date") {
+      date = requiredRadarCliValue(args, index, "--date");
+      index += 1;
+    } else if (args[index] === "--hour") {
+      hour = Number(requiredRadarCliValue(args, index, "--hour"));
+      index += 1;
+    } else throw new RadarQueryError(`Unknown argument: ${args[index]}`, 2);
+  }
+  return {
+    window,
+    ...(date !== undefined ? { date } : {}),
+    ...(hour !== undefined ? { hour } : {}),
+  };
+}
+
 async function main(): Promise<void> {
   try {
-    const args = process.argv.slice(2);
-    let window: "hourly" | "daily" = "daily";
-    let date: string | undefined;
-    let hour: number | undefined;
-    for (let index = 0; index < args.length; index += 1) {
-      if (args[index] === "--window") {
-        const value = args[++index];
-        if (value !== "hourly" && value !== "daily")
-          throw new RadarQueryError("--window must be hourly or daily.", 2);
-        window = value;
-      } else if (args[index] === "--date") date = args[++index];
-      else if (args[index] === "--hour") hour = Number(args[++index]);
-      else throw new RadarQueryError(`Unknown argument: ${args[index]}`, 2);
-    }
-    const run = await runWatch({
-      window,
-      ...(date !== undefined ? { date } : {}),
-      ...(hour !== undefined ? { hour } : {}),
-    });
+    const run = await runWatch(parseWatchArgs(process.argv.slice(2)));
     const paths = await writeWatchRun(run);
     console.log(formatWatchMarkdown(run));
     console.log(JSON.stringify({ ...paths, exitCode: run.exitCode }));

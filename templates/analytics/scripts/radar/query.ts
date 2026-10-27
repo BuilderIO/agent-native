@@ -78,6 +78,18 @@ export class RadarQueryError extends Error {
   }
 }
 
+export function requiredRadarCliValue(
+  args: readonly string[],
+  index: number,
+  option: string,
+): string {
+  const value = args[index + 1];
+  if (!value || value.startsWith("--")) {
+    throw new RadarQueryError(`${option} requires a value.`, 2);
+  }
+  return value;
+}
+
 interface EnvConfig {
   values: Record<string, string | undefined>;
   encryptionMaterials: Set<string>;

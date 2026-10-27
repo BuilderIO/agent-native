@@ -10,6 +10,7 @@ import {
   ensureRadarPrivateDirectory,
   radarJsonbParam,
   radarRunCliExitCode,
+  requiredRadarCliValue,
   resolveRadarBigQueryEventsTable,
   resolveRadarFirstPartyBackend,
   resolveRadarOrganizationId,
@@ -257,15 +258,20 @@ function formatTriageMarkdown(run: TriageRun): string {
   return `${lines.join("\n")}\n`;
 }
 
+export function parseTriageArgs(args: readonly string[]): { date?: string } {
+  let date: string | undefined;
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index] === "--date") {
+      date = requiredRadarCliValue(args, index, "--date");
+      index += 1;
+    } else throw new RadarQueryError(`Unknown argument: ${args[index]}`, 2);
+  }
+  return date === undefined ? {} : { date };
+}
+
 async function main(): Promise<void> {
   try {
-    const args = process.argv.slice(2);
-    let date: string | undefined;
-    for (let index = 0; index < args.length; index += 1) {
-      if (args[index] === "--date") date = args[++index];
-      else throw new RadarQueryError(`Unknown argument: ${args[index]}`, 2);
-    }
-    const run = await runTriage(date === undefined ? {} : { date });
+    const run = await runTriage(parseTriageArgs(process.argv.slice(2)));
     const directory = path.join(
       RADAR_TMP_DIR,
       "runs",

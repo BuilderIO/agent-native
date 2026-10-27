@@ -4,6 +4,8 @@ import {
   buildBigQueryAbSql,
   buildPostgresAbSql,
   isConfiguredAbVariant,
+  parseAbReadoutArgs,
+  runAbReadout,
 } from "./ab.ts";
 
 describe("experiment cohort SQL", () => {
@@ -60,6 +62,30 @@ describe("configured experiment variants", () => {
     "rejects unconfigured values without exposing them",
     (variant) => {
       expect(isConfiguredAbVariant(variant)).toBe(false);
+    },
+  );
+});
+
+describe("A/B readout arguments", () => {
+  it.each([
+    [["--start"]],
+    [["--end", "--as-of", "2026-10-26T00:00:00Z"]],
+    [["--as-of"]],
+    [["--experiment"]],
+  ])("rejects a missing flag value", (args) => {
+    expect(() => parseAbReadoutArgs(args)).toThrow(/requires a value/);
+  });
+
+  it.each([
+    ["2026-02-30", "2026-03-01"],
+    ["2026-02-28", "2026-02-30"],
+  ])(
+    "rejects impossible calendar dates %s to %s",
+    async (startDate, endDate) => {
+      await expect(runAbReadout({ startDate, endDate })).rejects.toMatchObject({
+        exitCode: 2,
+        message: "A valid ordered --start and --end date is required.",
+      });
     },
   );
 });
