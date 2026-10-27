@@ -74,7 +74,7 @@ function deferredResponse(): {
 
 function makeFetchMock() {
   const stateFetches: string[] = [];
-  const mock = vi.fn(async (input: RequestInfo | URL) => {
+  const mock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
     const url = String(input);
     if (/\/collab\/[^/]+\/state/.test(url)) {
       stateFetches.push(url);
@@ -526,6 +526,217 @@ describe("useCollaborativeDoc connection registry", () => {
     expect(stateFetches).toHaveLength(1);
     expect(_collabDocRegistrySizeForTests()).toBe(1);
   });
+
+  function awarenessPosts(mock: ReturnType<typeof makeFetchMock>["mock"]) {
+    return mock.mock.calls
+      .filter(([input]) => String(input).endsWith("/awareness"))
+      .map(([, init]) => ({
+        ...JSON.parse(String(init?.body)),
+        keepalive: init?.keepalive,
+      }));
+  }
+
+  async function mountPresence() {
+    let result: UseCollaborativeDocResult | undefined;
+    const root = mount(
+      <Probe
+        docId="page-lifecycle"
+        user={{ name: "Ada", email: "ada@example.test", color: "blue" }}
+        onResult={(next) => (result = next)}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+    expect(result?.isSynced).toBe(true);
+    return { root, result: result! };
+  }
+
+  it.each([false, true])(
+    "clears pagehide presence (persisted=%s) and cancels queued posts",
+    async (persisted) => {
+      const { mock } = makeFetchMock();
+      vi.stubGlobal("fetch", mock);
+      const { result } = await mountPresence();
+      const before = awarenessPosts(mock);
+      result.awareness!.setLocalStateField("cursor", { x: 1 });
+      window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted }));
+      const clear = awarenessPosts(mock).at(-1)!;
+      expect(clear).toMatchObject({
+        clientId: result.ydoc!.clientID,
+        state: null,
+        keepalive: true,
+        clearToken: before.at(-1)!.clearToken,
+      });
+      expect(clear.clientSequence).toBeGreaterThan(
+        before.at(-1)!.clientSequence,
+      );
+      expect(result.ydoc!.isDestroyed).toBe(false);
+      expect(result.awareness!.getLocalState()?.user.email).toBe(
+        "ada@example.test",
+      );
+
+      result.awareness!.setLocalStateField("cursor", { x: 2 });
+      window.dispatchEvent(new Event("focus"));
+      document.dispatchEvent(new Event("visibilitychange"));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2500);
+      });
+      expect(awarenessPosts(mock)).toHaveLength(before.length + 1);
+    },
+  );
+
+  it("keeps ordinary hidden-tab presence without a clear", async () => {
+    const { mock } = makeFetchMock();
+    vi.stubGlobal("fetch", mock);
+    await mountPresence();
+    const before = awarenessPosts(mock).length;
+    const visibility = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockReturnValue("hidden");
+    try {
+      document.dispatchEvent(new Event("visibilitychange"));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(200);
+      });
+      const posts = awarenessPosts(mock).slice(before);
+      expect(posts.length).toBeGreaterThan(0);
+      expect(
+        posts.every(
+          ({ state }) => state !== null && JSON.parse(state).visible === false,
+        ),
+      ).toBe(true);
+    } finally {
+      visibility.mockRestore();
+    }
+  });
+
+  it("resumes the same BFCache document with later presence sequences across repeated restores", async () => {
+    const { mock, stateFetches } = makeFetchMock();
+    vi.stubGlobal("fetch", mock);
+    const { result } = await mountPresence();
+    const ydoc = result.ydoc!;
+    for (let cycle = 0; cycle < 2; cycle++) {
+      window.dispatchEvent(
+        new PageTransitionEvent("pagehide", { persisted: true }),
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      const clear = awarenessPosts(mock).at(-1)!;
+      expect(clear.state).toBeNull();
+      window.dispatchEvent(
+        new PageTransitionEvent("pageshow", { persisted: true }),
+      );
+      const resumed = awarenessPosts(mock).at(-1)!;
+      expect(JSON.parse(resumed.state).visible).toBe(true);
+      expect(resumed.clientSequence).toBeGreaterThan(clear.clientSequence);
+      expect(resumed.clearToken).toBe(clear.clearToken);
+      expect(resumed.clientId).toBe(ydoc.clientID);
+      expect(ydoc.isDestroyed).toBe(false);
+    }
+    expect(stateFetches).toHaveLength(1);
+  });
+
+  it("does not publish presence when an in-flight poll completes after pagehide", async () => {
+    const { mock } = makeFetchMock();
+    const heldPoll = deferredResponse();
+    mock.mockImplementationOnce(async () => emptyStateResponse());
+    const fallback = mock.getMockImplementation()!;
+    mock.mockImplementation(async (input, init) =>
+      String(input).includes("/_agent-native/poll")
+        ? heldPoll.promise
+        : fallback(input, init),
+    );
+    vi.stubGlobal("fetch", mock);
+    await mountPresence();
+    window.dispatchEvent(new PageTransitionEvent("pagehide"));
+    const count = awarenessPosts(mock).length;
+    expect(awarenessPosts(mock).at(-1)).toMatchObject({ state: null });
+    await act(async () => {
+      heldPoll.resolve(
+        new Response(JSON.stringify({ version: 1, events: [] })),
+      );
+      await vi.advanceTimersByTimeAsync(2500);
+    });
+    expect(awarenessPosts(mock)).toHaveLength(count);
+  });
+
+  it("orders a clear and BFCache resume after an older in-flight presence post", async () => {
+    const { mock } = makeFetchMock();
+    vi.stubGlobal("fetch", mock);
+    const { result } = await mountPresence();
+    const heldPost = deferredResponse();
+    const fallback = mock.getMockImplementation()!;
+    mock.mockImplementation((input, init) =>
+      String(input).endsWith("/awareness")
+        ? heldPost.promise
+        : fallback(input, init),
+    );
+    result.awareness!.setLocalStateField("cursor", { x: 1 });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(150);
+    });
+    const older = awarenessPosts(mock).at(-1)!;
+    window.dispatchEvent(
+      new PageTransitionEvent("pagehide", { persisted: true }),
+    );
+    const clear = awarenessPosts(mock).at(-1)!;
+    expect(clear.state).toBeNull();
+    expect(clear.clientSequence).toBeGreaterThan(older.clientSequence);
+    window.dispatchEvent(
+      new PageTransitionEvent("pageshow", { persisted: true }),
+    );
+    const resumed = awarenessPosts(mock).at(-1)!;
+    expect(resumed.clientSequence).toBeGreaterThan(clear.clientSequence);
+    expect(resumed.clearToken).toBe(older.clearToken);
+    await act(async () => {
+      heldPost.resolve(new Response(null, { status: 204 }));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(awarenessPosts(mock).at(-1)!.clientSequence).toBeGreaterThan(
+      resumed.clientSequence,
+    );
+  });
+
+  it.each(["dispose", "sign-out"])(
+    "does not double-clear or resume after pagehide then %s",
+    async (ending) => {
+      const { mock } = makeFetchMock();
+      vi.stubGlobal("fetch", mock);
+      const { root, result } = await mountPresence();
+      window.dispatchEvent(
+        new PageTransitionEvent("pagehide", { persisted: true }),
+      );
+      if (ending === "dispose") {
+        act(() => root.unmount());
+        roots = roots.filter((candidate) => candidate !== root);
+      } else {
+        await act(async () => {
+          await runBeforeSignOutCleanups();
+        });
+      }
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+      const posts = awarenessPosts(mock);
+      expect(posts.filter(({ state }) => state === null)).toHaveLength(1);
+      window.dispatchEvent(
+        new PageTransitionEvent("pageshow", { persisted: true }),
+      );
+      document.dispatchEvent(new Event("visibilitychange"));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(200);
+      });
+      expect(awarenessPosts(mock)).toHaveLength(posts.length);
+      expect(
+        ending === "dispose"
+          ? result.ydoc!.isDestroyed
+          : result.awareness!.getLocalState() === null,
+      ).toBe(true);
+    },
+  );
 
   it("clears local presence and stops polling before sign-out", async () => {
     const { mock } = makeFetchMock();

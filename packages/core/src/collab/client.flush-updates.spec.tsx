@@ -102,6 +102,32 @@ describe("collab flushUpdates", () => {
     expect(updatesSent).toBe(1);
   });
 
+  it("flushes pending edits with keepalive on pagehide and remains editable after pageshow", async () => {
+    const result = await mountReady();
+    const ydoc = result.ydoc!;
+    ydoc.getText("t").insert(0, "before");
+    window.dispatchEvent(
+      new PageTransitionEvent("pagehide", { persisted: true }),
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    const updateCalls = vi
+      .mocked(fetch)
+      .mock.calls.filter(([input]) => String(input).endsWith("/update"));
+    expect(updateCalls).toHaveLength(1);
+    expect(updateCalls[0]![1]?.keepalive).toBe(true);
+    expect(ydoc.isDestroyed).toBe(false);
+
+    window.dispatchEvent(
+      new PageTransitionEvent("pageshow", { persisted: true }),
+    );
+    ydoc.getText("t").insert(6, " after");
+    await expect(result.flushUpdates()).resolves.toBe(true);
+    expect(updatesSent).toBe(2);
+    expect(ydoc.getText("t").toString()).toBe("before after");
+  });
+
   it("resolves false while delivery fails, then true once it succeeds", async () => {
     const result = await mountReady();
     updateOutcomes = ["offline"];

@@ -270,6 +270,8 @@ class CollabDocConnection {
   private docMissing = false;
   private requestSource: string | undefined;
   private lastSetUser: CollabUser | null = null;
+  private pageHidden = false;
+  private presenceClear: Promise<Response> | null = null;
 
   private pendingUpdates: Uint8Array[] = [];
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -435,15 +437,9 @@ class CollabDocConnection {
       this.agentTimer = null;
     }
     this.awareness.off("change", this.handleAwarenessChange);
-    cancelAwarenessPush(this.baseUrl, this.docId, this.ydoc.clientID);
-    if (this.awareness.getLocalState()) {
-      void postAwarenessState(
-        this.baseUrl,
-        this.docId,
-        this.ydoc.clientID,
-        null,
-        true,
-      )
+    const clear = this.clearPresence();
+    if (clear) {
+      void clear
         .catch(() => {})
         .finally(() => {
           forgetAwarenessClientSequence(
@@ -469,17 +465,11 @@ class CollabDocConnection {
   async clearPresenceBeforeSignOut(): Promise<void> {
     if (this.disposed) return;
     this.stopSync();
-    cancelAwarenessPush(this.baseUrl, this.docId, this.ydoc.clientID);
-    if (!this.awareness.getLocalState()) return;
+    const clear = this.clearPresence();
     this.awareness.setLocalState(null);
+    if (!clear) return;
     try {
-      const response = await postAwarenessState(
-        this.baseUrl,
-        this.docId,
-        this.ydoc.clientID,
-        null,
-        true,
-      );
+      const response = await clear;
       if (!response.ok) {
         throw new Error(`Awareness clear returned HTTP ${response.status}`);
       }
@@ -490,6 +480,24 @@ class CollabDocConnection {
         this.ydoc.clientID,
       );
     }
+  }
+
+  private clearPresence(): Promise<Response> | null {
+    cancelAwarenessPush(this.baseUrl, this.docId, this.ydoc.clientID);
+    if (!this.presenceClear && this.awareness.getLocalState()) {
+      this.presenceClear = postAwarenessState(
+        this.baseUrl,
+        this.docId,
+        this.ydoc.clientID,
+        null,
+        true,
+      );
+    }
+    return this.presenceClear;
+  }
+
+  private get canPublishPresence(): boolean {
+    return !this.disposed && !this.pageHidden && this.presenceClear === null;
   }
 
   private get effectivePollInterval(): number {
@@ -624,7 +632,7 @@ class CollabDocConnection {
       this.snapshot.isSynced &&
       origin === "local" &&
       this.syncActive &&
-      !this.disposed
+      this.canPublishPresence
     ) {
       scheduleAwarenessPush(
         this.baseUrl,
@@ -816,7 +824,18 @@ class CollabDocConnection {
   };
 
   private handlePageHide = (): void => {
-    this.flushPendingUpdates(true);
+    void this.flushPendingUpdates(true);
+    this.pageHidden = true;
+    void this.clearPresence()?.catch(() => {});
+  };
+
+  private handlePageShow = (): void => {
+    if (!this.pageHidden || this.disposed) return;
+    this.pageHidden = false;
+    // BFCache must retain the doc's sequence/token until it is retired.
+    this.presenceClear = null;
+    this.publishVisibility(!isDocumentHidden());
+    this.pollNow();
   };
 
   private attachUpdateHandler(): void {
@@ -825,6 +844,7 @@ class CollabDocConnection {
     this.ydoc.on("update", this.handleDocUpdate);
     if (typeof window !== "undefined") {
       window.addEventListener("pagehide", this.handlePageHide);
+      window.addEventListener("pageshow", this.handlePageShow);
     }
   }
 
@@ -834,6 +854,7 @@ class CollabDocConnection {
     this.ydoc.off("update", this.handleDocUpdate);
     if (typeof window !== "undefined") {
       window.removeEventListener("pagehide", this.handlePageHide);
+      window.removeEventListener("pageshow", this.handlePageShow);
     }
   }
 
@@ -1252,7 +1273,11 @@ class CollabDocConnection {
 
       if (!this.isPollCurrent(generation)) return;
       const localState = this.awareness.getLocalState();
-      if (localState && this.isPollCurrent(generation)) {
+      if (
+        localState &&
+        this.canPublishPresence &&
+        this.isPollCurrent(generation)
+      ) {
         try {
           const awarenessRes = await postAwarenessState(
             this.baseUrl,
@@ -1318,6 +1343,7 @@ class CollabDocConnection {
   }
 
   private publishVisibility(visible: boolean): void {
+    if (!this.canPublishPresence || !this.awareness.getLocalState()) return;
     this.awareness.setLocalStateField("visible", visible);
     const localState = this.awareness.getLocalState();
     if (!localState) return;
