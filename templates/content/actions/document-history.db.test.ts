@@ -670,6 +670,83 @@ describe("grouped document history", () => {
     );
   });
 
+  it("refuses a save that copies a video with its id, and keeps saving a page that already has such a copy", async () => {
+    const video = (caption: string) =>
+      `<video src="https://example.com/a.mp4" id="video-original">${caption}</video>`;
+    const page = eq(schema.documents.id, DOCUMENT_ID);
+    await getDb()
+      .update(schema.documents)
+      .set({ content: `Intro\n${video("Demo")}` })
+      .where(page);
+    const copied = `Intro\n${video("Demo")}\n${video("Copy")}`;
+    const refusal = {
+      errorCode: "DOCUMENT_VIDEO_ID_SHARED",
+      statusCode: 422,
+      details: { blockId: "video-original" },
+    };
+    await expect(
+      asOwner(async () =>
+        updateDocument.run(
+          authoredBrowserSave(await currentDocument(), copied, "copy"),
+          { caller: "frontend", userEmail: OWNER },
+        ),
+      ),
+    ).rejects.toMatchObject(refusal);
+    await expect(
+      asOwner(() => updateDocument.run({ id: DOCUMENT_ID, content: copied })),
+    ).rejects.toMatchObject(refusal);
+    expect((await currentDocument()).content).toBe(`Intro\n${video("Demo")}`);
+
+    await getDb().update(schema.documents).set({ content: copied }).where(page);
+    await asOwner(async () =>
+      updateDocument.run(
+        authoredBrowserSave(
+          await currentDocument(),
+          copied.replace("Intro", "Opening"),
+          "edit",
+        ),
+        { caller: "frontend", userEmail: OWNER },
+      ),
+    );
+    expect((await currentDocument()).content).toBe(
+      copied.replace("Intro", "Opening"),
+    );
+  });
+
+  it("restores a version whose videos share an id", async () => {
+    const video = (caption: string) =>
+      `<video src="https://example.com/a.mp4" id="video-original">${caption}</video>`;
+    const paired = `Synced\n${video("Demo")}\n${video("Copy")}`;
+    const now = new Date().toISOString();
+    await getDb().insert(schema.documentVersions).values({
+      id: "version-with-a-pair",
+      ownerEmail: OWNER,
+      documentId: DOCUMENT_ID,
+      title: "Draft",
+      content: paired,
+      groupId: "version-with-a-pair",
+      groupKind: "operation",
+      actorKind: "system",
+      origin: "sync",
+      operation: "sync",
+      checkpointKind: "after",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const restored = await asOwner(async () =>
+      restoreDocumentVersion.run(
+        {
+          documentId: DOCUMENT_ID,
+          versionId: "version-with-a-pair",
+          expectedUpdatedAt: (await currentDocument()).updatedAt,
+        },
+        { caller: "frontend", userEmail: OWNER },
+      ),
+    );
+    expect(restored.content).toBe(paired);
+    expect((await currentDocument()).content).toBe(paired);
+  });
+
   it("propagates a restored database title through the shared title boundary", async () => {
     const current = await currentDocument();
     const databaseId = "history-title-database";
