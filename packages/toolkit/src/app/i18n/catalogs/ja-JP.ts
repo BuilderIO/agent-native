@@ -1923,6 +1923,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.approvalA2AReview":
     "エージェントアクションの確認ページで承認",
   "settings.audit.approvalMcpClient": "MCP クライアントが承諾（未検証）",
+  "settings.audit.approvalCliPrompt": "CLI の確認で承認（未検証）",
+  "settings.audit.approvalCliFlag": "--approved 付きで再実行（未検証）",
   "settings.audit.changedBy": "変更者",
   "settings.audit.close": "閉じる",
   "settings.audit.empty": "この期間に変更はありません。",

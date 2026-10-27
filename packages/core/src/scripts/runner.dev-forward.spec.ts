@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockReadDevActionDiscoveryFile = vi.hoisted(() => vi.fn());
+const question = vi.hoisted(() => vi.fn(async (_prompt: string) => "n"));
+const closePrompt = vi.hoisted(() => vi.fn());
+vi.mock("node:readline/promises", () => ({
+  createInterface: () => ({ question, close: closePrompt }),
+}));
 const mockIsProcessAlive = vi.hoisted(() => vi.fn());
 const mockGetDatabaseUrl = vi.hoisted(() =>
   vi.fn(() => "pglite:./data/pglite"),
@@ -81,6 +86,7 @@ describe("tryForwardToDevServer", () => {
 
   beforeEach(() => {
     fetchMock = vi.fn();
+    question.mockReset().mockResolvedValue("n");
     global.fetch = fetchMock as unknown as typeof fetch;
     mockReadDevActionDiscoveryFile.mockReset();
     mockIsProcessAlive.mockReset();
@@ -107,6 +113,110 @@ describe("tryForwardToDevServer", () => {
     await tryForwardToDevServer("do-thing", []);
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it("passes --approved as bridge metadata, never as action input", async () => {
+    mockReadDevActionDiscoveryFile.mockReturnValue(liveDiscovery());
+    mockIsProcessAlive.mockReturnValue(true);
+    fetchMock.mockResolvedValue(Response.json({ ok: true, result: "done" }));
+    mockExit();
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    await expect(
+      tryForwardToDevServer("delete-data", [
+        "--approved",
+        '{"action":"delete"}',
+      ]),
+    ).rejects.toThrow("process.exit(0)");
+    expect(JSON.parse(fetchMock.mock.calls[0]![1].body)).toEqual({
+      name: "delete-data",
+      input: { action: "delete" },
+      approved: true,
+      approvalSource: "flag",
+    });
+    expect(question).not.toHaveBeenCalled();
+  });
+
+  it("refuses a bridge approval challenge without local fallback and prints the exact rerun", async () => {
+    mockReadDevActionDiscoveryFile.mockReturnValue(liveDiscovery());
+    mockIsProcessAlive.mockReturnValue(true);
+    fetchMock.mockResolvedValue(
+      Response.json(
+        {
+          ok: false,
+          errorCode: "approval_required",
+          arguments: { action: "delete" },
+        },
+        { status: 409 },
+      ),
+    );
+    mockExit();
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(
+      tryForwardToDevServer("delete-data", ["--action", "delete"]),
+    ).rejects.toThrow("process.exit(1)");
+    expect(error).toHaveBeenCalledWith(
+      'Action "delete-data" failed:',
+      'Action "delete-data" requires human approval. Ask the person to approve this call, then rerun:\npnpm action delete-data --action delete --approved',
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["y", "n", ""])(
+    "handles a forwarded TTY approval answer %j",
+    async (answer) => {
+      const stdinTty = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+      const stdoutTty = Object.getOwnPropertyDescriptor(
+        process.stdout,
+        "isTTY",
+      );
+      Object.defineProperty(process.stdin, "isTTY", {
+        configurable: true,
+        value: true,
+      });
+      Object.defineProperty(process.stdout, "isTTY", {
+        configurable: true,
+        value: true,
+      });
+      try {
+        question.mockReset().mockResolvedValue(answer);
+        mockReadDevActionDiscoveryFile.mockReturnValue(liveDiscovery());
+        mockIsProcessAlive.mockReturnValue(true);
+        fetchMock
+          .mockResolvedValueOnce(
+            Response.json(
+              {
+                ok: false,
+                errorCode: "approval_required",
+                arguments: { action: "delete" },
+                argumentsHash: "reviewed-hash",
+              },
+              { status: 409 },
+            ),
+          )
+          .mockResolvedValueOnce(Response.json({ ok: true }));
+        mockExit();
+        vi.spyOn(console, "log").mockImplementation(() => {});
+        vi.spyOn(console, "error").mockImplementation(() => {});
+        await expect(tryForwardToDevServer("delete-data", [])).rejects.toThrow(
+          answer === "y" ? "process.exit(0)" : "process.exit(1)",
+        );
+        expect(fetchMock).toHaveBeenCalledTimes(answer === "y" ? 2 : 1);
+        if (answer === "y")
+          expect(JSON.parse(fetchMock.mock.calls[1]![1].body)).toEqual({
+            name: "delete-data",
+            input: {},
+            approved: true,
+            approvalSource: "prompt",
+            approvalArgumentsHash: "reviewed-hash",
+          });
+      } finally {
+        if (stdinTty) Object.defineProperty(process.stdin, "isTTY", stdinTty);
+        else delete (process.stdin as any).isTTY;
+        if (stdoutTty)
+          Object.defineProperty(process.stdout, "isTTY", stdoutTty);
+        else delete (process.stdout as any).isTTY;
+      }
+    },
+  );
 
   it("runs in-process when the discovery file's pid is dead", async () => {
     mockReadDevActionDiscoveryFile.mockReturnValue(liveDiscovery());

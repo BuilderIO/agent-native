@@ -72,7 +72,49 @@ JSON इनपुट एजेंट्स और जटिल ऑब्जे�
 pnpm action reply-to-email --emailId thread-123 --body "Thanks!"
 ```
 
-यह agent-dev लूप्स, स्क्रिप्ट्स, और cron jobs के लिए उपयोगी है।
+`defineAction()` calls के लिए CLI तैयार और parsed arguments पर schema defaults लागू करके caller `cli` के साथ `needsApproval` evaluate करता है। अगर stdin और stdout दोनों TTY हैं, तो यह action का नाम और arguments दिखाकर `y/N` पूछता है। केवल `y` या `yes` से action चलता है।
+
+दोनों TTY न होने पर CLI agent को व्यक्ति से approval माँगने को कहता है। उस विशेष call के लिए व्यक्ति की approval मिलने के बाद, बिल्कुल वही मूल `pnpm action` arguments दोबारा चलाएँ और अंत में `--approved` जोड़ें:
+
+```bash
+pnpm action reply-to-email --emailId thread-123 --body "Thanks!" --approved
+```
+
+`--approved` reserved CLI metadata है, जिसे input parsing से पहले हटा दिया जाता है। यह कोई value नहीं लेता: इसके बाद किसी दूसरे flag या JSON object के अलावा कुछ और हो, तो call अस्वीकार हो जाती है, और `approved` नाम का input `--approved=<value>` लिखकर दिया जाता है। जिन actions को approval नहीं चाहिए, उनमें यह हानिरहित है। CLI यह नहीं जाँच सकता कि इसे किसने जोड़ा: जो agent बिना पूछे इसे जोड़ता है, वह पुष्टि को छोड़ देता है। यह flag approval को उस command में दिखाता है जिसे व्यक्ति approve करता है, और audit log में भी, जहाँ इसे असत्यापित दिखाया जाता है। POSIX `SHELL` के बिना Windows पर, refusal PowerShell के लिए command दिखाता है, और quoting अलग होने पर cmd.exe के लिए भी। Windows पर pnpm किसी भी shell से action के arguments cmd.exe के ज़रिए भेजता है, और cmd.exe quotes के अंदर भी `%NAME%` को expand कर देता है। अगर किसी argument में ऐसा variable हो, तो refusal `--approved` वाला rerun नहीं देता: व्यक्ति terminal में command चलाता है और prompt पर values जाँचता है। अगर arguments में quote के साथ `&`, `|`, `<`, `>` या `^` में से कोई हो, तो pnpm उन्हें cmd.exe से बिना बदले नहीं भेज सकता, इसलिए refusal कोई command नहीं दिखाता और व्यक्ति app में ही call को approve करता है। Windows PowerShell 5.1 argument के अंदर का हर `"` हटा देता है, इसलिए POSIX `SHELL` के बिना Windows पर double quote वाला argument भी `--approved` वाले rerun के बजाय prompt पर जाता है।
+
+Local dev bridge JSON body में approval metadata को `input` के बाहर भेजता है:
+
+```ts
+{ name, input, approved: true, approvalSource: "flag" }
+```
+
+Approval के बिना gated call पर bridge HTTP `409` लौटाता है:
+
+```ts
+{
+  ok: false,
+  errorCode: "approval_required",
+  error: 'Action "<name>" requires human approval. Ask the person, then rerun with --approved.',
+  arguments: preparedArgs,
+  argumentsHash: prepared.argumentsHash,
+}
+```
+
+TTY में पुष्टि के बाद, CLI अनुमोदन माँगने वाली प्रतिक्रिया के `argumentsHash` के साथ फिर से प्रयास करता है:
+
+```ts
+{
+  name,
+  input,
+  approved: true,
+  approvalSource: "prompt",
+  approvalArgumentsHash: challenge.argumentsHash,
+}
+```
+
+Bridge वही call एक बार चलाता है जिसे व्यक्ति ने review किया था, इसलिए हर call में बदलने वाला default, जैसे timestamp, वही value रखता है जो व्यक्ति ने देखी थी। जिस confirmation के लिए चलाने को कोई held call नहीं है (वह पहले ही चल चुका है, 10 मिनट बीत गए हैं, या dev server restart हुआ है), उसे HTTP `409` के साथ `errorCode: "approval_expired"` मिलता है। Review करने के लिए command फिर से चलाएँ।
+
+`arguments` में तैयार arguments होते हैं। Local dev bridge का यह contract [public HTTP action API के approval rules](/docs/actions-access-control#needs-approval) को नहीं बदलता। Approved gated CLI call, action की अपनी audit row पर caller `cli` के साथ `approval: "cli-prompt"` या `approval: "cli-flag"` दर्ज करती है। Prompt केवल CLI देखता है, इसलिए audit log दोनों को असत्यापित दिखाता है।
 
 ## इसे किसी अन्य एजेंट से कॉल करना (A2A) {#a2a}
 
