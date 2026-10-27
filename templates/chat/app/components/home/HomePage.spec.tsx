@@ -147,6 +147,7 @@ describe("HomePage", () => {
         contextItems: typeof contextItems;
         composerModeContext: string;
         requestMode: "plan";
+        submissionId: string;
         onLocalSubmit: () => void;
       },
     ) => Promise<void>;
@@ -161,6 +162,7 @@ describe("HomePage", () => {
         contextItems,
         composerModeContext: "Use the selected action.",
         requestMode: "plan",
+        submissionId: "client-request-home",
         onLocalSubmit,
       }),
     );
