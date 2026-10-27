@@ -284,6 +284,47 @@ describe("edit-design conflict retry", () => {
     expect(mocks.writeInlineSourceFile).not.toHaveBeenCalled();
   });
 
+  it("classifies a locked-layer rejection as no-write and accepts a corrected call", async () => {
+    const lockedContent =
+      '<main><div data-agent-native-node-id="legal" data-agent-native-locked="true">Legal</div><p>Draft</p></main>';
+    mocks.readLiveSourceFile.mockResolvedValue({
+      content: lockedContent,
+      versionHash: "h0",
+      language: "html",
+    });
+    mocks.writeInlineSourceFile.mockResolvedValue({
+      versionHash: "h1",
+      changed: true,
+      updatedAt: "2026-10-26T00:00:00.000Z",
+    });
+
+    await expect(
+      action.run({
+        designId: "design_1",
+        filename: "index.html",
+        edits: [{ search: "Legal", replace: "Changed" }],
+      } as never),
+    ).rejects.toMatchObject({
+      name: "NoWriteError",
+      noWrite: true,
+      errorCode: "locked_layer_edit_rejected",
+      statusCode: 409,
+    });
+
+    expect(mocks.snapshotDesignBeforeAgentEdit).not.toHaveBeenCalled();
+    expect(mocks.writeInlineSourceFile).not.toHaveBeenCalled();
+
+    const corrected = await action.run({
+      designId: "design_1",
+      filename: "index.html",
+      edits: [{ search: "Draft", replace: "Ready" }],
+    } as never);
+
+    expect(corrected).toMatchObject({ changed: true, editsApplied: 1 });
+    expect(mocks.snapshotDesignBeforeAgentEdit).toHaveBeenCalledOnce();
+    expect(mocks.writeInlineSourceFile).toHaveBeenCalledOnce();
+  });
+
   it("reports a missing file as a no-write rejection", async () => {
     mocks.fileSelectChain.where.mockImplementationOnce(() =>
       mocks.makeWhereResult([]),

@@ -30,7 +30,10 @@ import {
   type DesignEdit,
 } from "../shared/apply-edits.js";
 import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
-import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
+import {
+  assertLockedLayersPreserved,
+  LockedLayerEditError,
+} from "../shared/locked-layers.js";
 
 const editBlocksSchema = z.preprocess(
   (v) => {
@@ -468,7 +471,17 @@ export default defineAction({
                 ),
         };
       }
-      assertLockedLayersPreserved(base, nextContent);
+      try {
+        assertLockedLayersPreserved(base, nextContent);
+      } catch (error) {
+        if (error instanceof LockedLayerEditError) {
+          throw new NoWriteError(error.message, {
+            errorCode: error.errorCode,
+            statusCode: error.statusCode,
+          });
+        }
+        throw error;
+      }
 
       if (!checkpointed) {
         await snapshotDesignBeforeAgentEdit(designId, context);
