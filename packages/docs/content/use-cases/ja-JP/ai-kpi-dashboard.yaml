@@ -41,7 +41,7 @@ features:
     - title: 売上、パイプライン、利用状況をまとめて
       body: StripeのMRR、HubSpotの取引、PostHogやMixpanelの登録数が、1つのダッシュボードに並びます。
     - title: 手でも、頼んでも編集
-      body: フィルターを自分で変えることも、新しいパネルをエージェントに頼むこともできます。どちらも同じダッシュボードに反映され、履歴から以前の版に戻せます。
+      body: フィルターは自分で変え、新しいパネルはエージェントに頼めます。どちらも同じダッシュボードに反映され、履歴から戻せます。
     - title: 各数値の裏にあるクエリ
       body: グラフ上の任意の点をクリックすると、その元になったレコード、それを取得したSQL、CSVダウンロードが表示されます。
     - title: 自社のMRRの定義
@@ -82,7 +82,7 @@ other_uses:
     - title: 新規ユーザーの離脱ポイントを見つける
       url: https://www.agent-native.com/use-cases/ai-funnel-analysis/
       body: 登録やオンボーディングのステップのどこで新規ユーザーが離脱しているかを確認できます。
-    - title: スプレッドシートなしで週次マーケティングレポートを作成
+    - title: 表計算なしで週次マーケティングレポートを作成
       url: https://www.agent-native.com/use-cases/weekly-marketing-report/
       body: 週次マーケティングレポートを一度作れば、毎週手作業で作り直す必要はありません。
 faqs:
