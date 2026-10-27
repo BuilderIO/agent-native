@@ -7,6 +7,7 @@ import {
   getDocument,
   gotoEditor,
   postAction,
+  postUiAction,
 } from "../helpers";
 
 // A switched page saves no body: its body is the live copy. The slash menu's
@@ -25,20 +26,10 @@ async function switchToLiveCopy(page: Page, id: string): Promise<void> {
       operation: "enable-for-current-user",
       key,
     });
-  const capability = await page.request.get("/_agent-native/ui-capability", {
-    headers: ACTION_HEADERS,
+  const response = await postUiAction(page, "set-live-body-switch", {
+    id,
+    switched: true,
   });
-  expect(
-    capability.ok(),
-    `ui-capability (${capability.status()}): ${await capability.text()}`,
-  ).toBe(true);
-  const response = await page.request.post(
-    "/_agent-native/actions/set-live-body-switch",
-    {
-      data: { id, switched: true },
-      headers: { ...ACTION_HEADERS, Origin: new URL(capability.url()).origin },
-    },
-  );
   const text = await response.text();
   expect(
     response.ok(),
