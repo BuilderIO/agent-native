@@ -96,6 +96,13 @@ describe("MCP app widget embed boot storage", () => {
       }),
     ).toBe("");
     expect(
+      resolveExternalEmbedTargetBasePath("/reports/overview", {
+        workspaceRuntime: true,
+        workspaceAppPath: "/",
+        workspaceAppMountPaths: ["/mail"],
+      }),
+    ).toBe("");
+    expect(
       resolveExternalEmbedTargetBasePath("/mail/inbox/threads", {
         workspaceRuntime: true,
         workspaceAppPath: "/mail/inbox",

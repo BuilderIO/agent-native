@@ -70,18 +70,25 @@ export function resolveMcpAppEmbedBasePath(
       return fallbackPath;
     }
 
-    const matchingMount = (
+    const declaredMounts = (
       Array.isArray(options.workspaceAppMountPaths)
         ? options.workspaceAppMountPaths
         : []
     )
       .filter((value): value is string => typeof value === "string")
       .map(normalize)
+      .filter(Boolean);
+    const matchingMount = declaredMounts
       .filter((basePath) => matches(basePath))
       .sort((left, right) => right.length - left.length)[0];
     if (matchingMount) return matchingMount;
-    if (fallbackPath && options.fallbackOverridesExplicitRoot)
+    if (
+      fallbackPath &&
+      options.fallbackOverridesExplicitRoot &&
+      declaredMounts.length === 0
+    ) {
       return fallbackPath;
+    }
     if (explicitRootPath) return "";
     return fallbackPath || undefined;
   };

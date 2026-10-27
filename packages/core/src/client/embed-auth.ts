@@ -26,6 +26,7 @@ import {
   isWorkspaceRuntime,
   resolveAppBasePath,
   resolveExternalEmbedTargetAppBasePath,
+  WorkspaceAppMountResolutionError,
 } from "./api-path.js";
 
 let installed = false;
@@ -64,12 +65,27 @@ function browserWindow(): Window | null {
   return typeof window === "undefined" ? null : window;
 }
 
-function currentEmbedTokenStorageKey(): string {
-  return embedTokenStorageKey(resolveAppBasePath(), isWorkspaceRuntime());
+function currentEmbedBasePath(): string | null {
+  try {
+    return resolveAppBasePath();
+  } catch (error) {
+    if (error instanceof WorkspaceAppMountResolutionError) return null;
+    throw error;
+  }
 }
 
-function currentMcpChatBridgeStorageKey(): string {
-  return mcpChatBridgeStorageKey(resolveAppBasePath(), isWorkspaceRuntime());
+function currentEmbedTokenStorageKey(): string | null {
+  const basePath = currentEmbedBasePath();
+  return basePath === null
+    ? null
+    : embedTokenStorageKey(basePath, isWorkspaceRuntime());
+}
+
+function currentMcpChatBridgeStorageKey(): string | null {
+  const basePath = currentEmbedBasePath();
+  return basePath === null
+    ? null
+    : mcpChatBridgeStorageKey(basePath, isWorkspaceRuntime());
 }
 
 function memoryTokenFor(storageKey: string): string | null {
@@ -130,15 +146,19 @@ export function readEmbedMcpChatBridgeFlagFromUrl(): boolean {
 }
 
 function currentMcpChatBridgeScope(win: Window): string | null {
-  return getEmbedAuthToken() ?? storedToken(win);
+  const storageKey = currentEmbedTokenStorageKey();
+  if (storageKey === null) return null;
+  return getEmbedAuthToken() ?? storedToken(win, storageKey);
 }
 
 function clearMcpChatBridge(win: Window): void {
   mcpChatBridgeActive = false;
   mcpChatBridgeScope = null;
   mcpChatBridgeStorageKeyAtState = null;
+  const storageKey = currentMcpChatBridgeStorageKey();
+  if (storageKey === null) return;
   try {
-    win.sessionStorage.removeItem(currentMcpChatBridgeStorageKey());
+    win.sessionStorage.removeItem(storageKey);
   } catch {
     // ignore unavailable session storage
   }
@@ -146,8 +166,9 @@ function clearMcpChatBridge(win: Window): void {
 
 export function markEmbedMcpChatBridgeActive(): void {
   const win = browserWindow();
-  const scope = win ? currentMcpChatBridgeScope(win) : null;
   const storageKey = currentMcpChatBridgeStorageKey();
+  if (storageKey === null) return;
+  const scope = win ? currentMcpChatBridgeScope(win) : null;
   mcpChatBridgeActive = true;
   mcpChatBridgeScope = scope;
   mcpChatBridgeStorageKeyAtState = storageKey;
@@ -167,6 +188,10 @@ export function isEmbedMcpChatBridgeActive(): boolean {
   const win = browserWindow();
   if (!win) return false;
   const storageKey = currentMcpChatBridgeStorageKey();
+  if (storageKey === null) {
+    clearMcpChatBridge(win);
+    return false;
+  }
   if (mcpChatBridgeActive && mcpChatBridgeStorageKeyAtState !== storageKey) {
     mcpChatBridgeActive = false;
     mcpChatBridgeScope = null;
@@ -213,10 +238,7 @@ export function isEmbedMcpChatBridgeActive(): boolean {
   }
 }
 
-function storedToken(
-  win: Window,
-  storageKey = currentEmbedTokenStorageKey(),
-): string | null {
+function storedToken(win: Window, storageKey: string): string | null {
   try {
     return win.sessionStorage.getItem(storageKey) ?? null;
   } catch {
@@ -224,11 +246,7 @@ function storedToken(
   }
 }
 
-function storeToken(
-  token: string,
-  win: Window,
-  storageKey = currentEmbedTokenStorageKey(),
-): void {
+function storeToken(token: string, win: Window, storageKey: string): void {
   memoryToken = { storageKey, token };
   try {
     win.sessionStorage.setItem(storageKey, token);
@@ -242,6 +260,7 @@ export function getEmbedAuthToken(): string | null {
   const win = browserWindow();
   if (!win) return null;
   const storageKey = currentEmbedTokenStorageKey();
+  if (storageKey === null) return null;
   const renewedFromStorageKey = `${storageKey}:renewed-from`;
   const fromUrl = readTokenFromUrl(win);
   if (fromUrl) {

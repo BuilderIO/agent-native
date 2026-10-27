@@ -144,6 +144,25 @@ describe("embed auth client", () => {
     ).toBe("transplanted-token");
   });
 
+  it("forwards requests when the current workspace route has no mount", async () => {
+    (
+      window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }
+    ).__AGENT_NATIVE_CONFIG__ = {
+      workspaceRuntime: true,
+      workspaceAppMountPaths: ["/mail"],
+    };
+    window.history.replaceState(null, "", "/reports/overview");
+    const fetch = vi.mocked(window.fetch);
+
+    const auth = await loadEmbedAuth();
+    auth.ensureEmbedAuthFetchInterceptor();
+
+    const response = await window.fetch("/api/health");
+
+    expect(response.status).toBe(200);
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
   it("keeps the URL token in opaque-origin frames so document reloads stay authenticated", async () => {
     // MCP App embeds always load in a sandboxed iframe without
     // allow-same-origin, so window.location.origin is "null". The embed session
