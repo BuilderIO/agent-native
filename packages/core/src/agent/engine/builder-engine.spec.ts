@@ -1068,6 +1068,61 @@ describe("createBuilderEngine", () => {
     expect(oauthState.markReconnect).toHaveBeenCalledWith("person@example.com");
   });
 
+  it("force-refreshes Builder OAuth once after a 401 and retries with the new token", async () => {
+    oauthState.ownerEmail = "person@example.com";
+    oauthState.accessToken = "oauth-access-token";
+    oauthState.stored = true;
+    oauthState.resolveAccessState
+      .mockResolvedValueOnce({
+        kind: "available",
+        access: {
+          accessToken: "oauth-access-token",
+          ownerEmail: "person@example.com",
+          scopes: ["builder:ai:invoke"],
+          scope: "user",
+        },
+      })
+      .mockResolvedValueOnce({
+        kind: "available",
+        access: {
+          accessToken: "refreshed-access-token",
+          ownerEmail: "person@example.com",
+          scopes: ["builder:ai:invoke"],
+          scope: "user",
+        },
+      });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonErrorResponse(401, { code: "unauthorized", message: "Expired" }),
+      )
+      .mockResolvedValueOnce(
+        jsonlResponse([{ type: "stop", reason: "end_turn" }]),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
+      Authorization: "Bearer oauth-access-token",
+    });
+    expect(fetchMock.mock.calls[1]?.[1]?.headers).toMatchObject({
+      Authorization: "Bearer refreshed-access-token",
+    });
+    expect(oauthState.resolveAccessState).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        ownerEmail: "person@example.com",
+        forceRefresh: true,
+      }),
+    );
+    expect(events.find((event) => event.type === "stop")?.reason).toBe(
+      "end_turn",
+    );
+    expect(oauthState.markReconnect).not.toHaveBeenCalled();
+  });
+
   it("marks OAuth custody for reconnect on a bare gateway 403", async () => {
     oauthState.ownerEmail = "person@example.com";
     oauthState.accessToken = "oauth-access-token";

@@ -695,6 +695,7 @@ export async function resolveBuilderOAuthRequestAccessState(input: {
   ownerEmail: string;
   requiredScope: BuilderOAuthPermissionScope;
   orgId?: string | null;
+  forceRefresh?: boolean;
 }): Promise<BuilderOAuthRequestAccessState> {
   const ownerEmail = normalizeOwnerEmail(input.ownerEmail);
   const options = await resolveBuilderOAuthOptions(ownerEmail, input.orgId, {
@@ -705,7 +706,7 @@ export async function resolveBuilderOAuthRequestAccessState(input: {
   for (const candidate of options) {
     const resolved = await resolveMcpOAuthCredentialAccess({
       ...candidate,
-      forceRefresh: false,
+      forceRefresh: input.forceRefresh ?? false,
     });
     if (resolved.state.kind === "missing") continue;
     storedGrant = true;

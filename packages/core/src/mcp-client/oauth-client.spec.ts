@@ -764,6 +764,37 @@ describe("MCP OAuth client", () => {
     ).toBeUndefined();
   });
 
+  it("force-refreshes an unbounded token after a provider rejects it", async () => {
+    getOAuthTokensMock.mockResolvedValue({
+      ...credentials,
+      tokens: {
+        ...credentials.tokens,
+        expires_in: undefined,
+      },
+      tokenExpiresAt: undefined,
+    });
+    refreshAuthorizationMock.mockResolvedValueOnce({
+      access_token: "<REFRESHED_ACCESS_TOKEN>",
+      token_type: "bearer",
+    });
+
+    await expect(
+      getMcpOAuthAccessToken({
+        key: "mcp_oauth:test",
+        scope: "org",
+        scopeId: "org-test",
+        serverUrl: "https://mcp.example.com/mcp",
+        forceRefresh: true,
+      }),
+    ).resolves.toBe("<REFRESHED_ACCESS_TOKEN>");
+
+    expect(refreshAuthorizationMock).toHaveBeenCalledTimes(1);
+    expect(saveOAuthTokensMock.mock.calls[0]?.[2]).toMatchObject({
+      tokens: { access_token: "<REFRESHED_ACCESS_TOKEN>" },
+      tokenExpiresAt: undefined,
+    });
+  });
+
   it("refreshes with the advertised resource identifier, not the WHATWG href", async () => {
     getOAuthTokensMock.mockResolvedValue({
       ...credentials,

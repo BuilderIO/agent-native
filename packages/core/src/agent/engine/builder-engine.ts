@@ -383,23 +383,23 @@ class BuilderEngine implements AgentEngine {
       opts.abortSignal,
       gatewayTimeoutMs,
     );
+    const requestGateway = (authorization: string) =>
+      fetch(gatewayUrl.toString(), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: authorization,
+          ...(spaceId && !oauthAccess ? { "x-builder-api-key": spaceId } : {}),
+          ...getBuilderGatewayRequestHeaders(),
+          ...(builderUserId ? { "x-builder-user-id": builderUserId } : {}),
+        },
+        body: payload,
+        signal: gatewayAbort.signal,
+      });
     try {
       const dispatch = await startModelDispatch(opts, () => {
         try {
-          return fetch(gatewayUrl.toString(), {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: authHeader,
-              ...(spaceId && !oauthAccess
-                ? { "x-builder-api-key": spaceId }
-                : {}),
-              ...getBuilderGatewayRequestHeaders(),
-              ...(builderUserId ? { "x-builder-user-id": builderUserId } : {}),
-            },
-            body: payload,
-            signal: gatewayAbort.signal,
-          }).then(
+          return requestGateway(authHeader).then(
             (response) => ({ status: "fulfilled" as const, response }),
             (error: unknown) => ({ status: "rejected" as const, error }),
           );
@@ -414,6 +414,43 @@ class BuilderEngine implements AgentEngine {
         const result = await dispatch.value;
         if (result.status === "rejected") throw result.error;
         response = result.response;
+        if (response.status === 401 && oauthAccess && ownerEmail) {
+          let refreshedState: Awaited<
+            ReturnType<typeof resolveBuilderOAuthRequestAccessState>
+          >;
+          try {
+            refreshedState = await resolveBuilderOAuthRequestAccessState({
+              ownerEmail,
+              requiredScope: BUILDER_OAUTH_SCOPE,
+              orgId,
+              forceRefresh: true,
+            });
+          } catch (error) {
+            if (isTransientDatabaseError(error)) {
+              const unavailable = new CredentialStoreUnavailableError(error);
+              yield gatewayErrorStop(
+                {
+                  error: unavailable.message,
+                  errorCode: unavailable.errorCode,
+                },
+                creditsLane,
+                requestShape,
+              );
+              return;
+            }
+            throw error;
+          }
+          if (
+            refreshedState.kind === "available" &&
+            refreshedState.access.accessToken !== oauthAccess.accessToken
+          ) {
+            oauthAccess = refreshedState.access;
+            await response.body?.cancel();
+            response = await requestGateway(
+              `Bearer ${oauthAccess.accessToken}`,
+            );
+          }
+        }
       } catch (err) {
         const timedOut = gatewayAbort.didTimeout();
         if (gatewayAbort.didTimeout()) {

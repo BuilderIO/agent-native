@@ -590,6 +590,26 @@ describe("Builder hosted user OAuth", () => {
     expect(resolveAccessStateMock).toHaveBeenCalledTimes(1);
   });
 
+  it("passes a forced refresh through to the MCP OAuth credential boundary", async () => {
+    resolveAccessStateMock.mockResolvedValue({
+      state: { kind: "connected", credential: credentials() },
+      accessToken: "<ACCESS_TOKEN_EXAMPLE>",
+    });
+
+    await expect(
+      resolveBuilderOAuthRequestAccessState({
+        ownerEmail,
+        requiredScope: BUILDER_OAUTH_SCOPE,
+        orgId: null,
+        forceRefresh: true,
+      }),
+    ).resolves.toMatchObject({ kind: "available" });
+
+    expect(resolveAccessStateMock).toHaveBeenCalledWith(
+      expect.objectContaining({ forceRefresh: true }),
+    );
+  });
+
   it("does not return a stored access token after reconnect is required", async () => {
     getAccessTokenMock.mockResolvedValue(null);
 
