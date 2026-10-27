@@ -923,6 +923,8 @@ const editor = {
     moveColumnLeft: "Mover columna a la izquierda",
     moveColumnRight: "Mover columna a la derecha",
     editProperty: "Editar {{name}}",
+    builderStatusPublishInBuilder:
+      "Los cambios guardados en el editor de Builder solo se pueden publicar desde Builder.",
     editStartDate: "Editar fecha de inicio de {{name}}",
     editValue: "Editar valor {{name}}",
     empty: "vacio",

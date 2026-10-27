@@ -744,6 +744,8 @@ const overrides = {
       moveColumnLeft: "將欄向左移動",
       moveColumnRight: "將欄向右移動",
       editProperty: "編輯 {{name}}",
+      builderStatusPublishInBuilder:
+        "在 Builder 編輯器中儲存的變更只能從 Builder 發布。",
       editStartDate: "編輯 {{name}} 開始日期",
       editValue: "編輯 {{name}} 值",
       empty: "空",

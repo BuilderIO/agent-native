@@ -19,6 +19,8 @@ import type {
   DocumentPropertyValue,
   DuplicateDocumentPropertyRequest,
   ReorderDocumentPropertyRequest,
+  SetBuilderEntryStatusRequest,
+  SetBuilderEntryStatusResponse,
   SetDocumentPropertyRequest,
   UpdateDatabaseItemsRequest,
   UpdateDatabaseItemsResponse,
@@ -801,4 +803,61 @@ export function useDeleteDocumentProperty(
     },
   });
   return withDatabaseScope(mutation, databaseId);
+}
+
+/** Stages a publish or unpublish for the page's Builder entry by its status. */
+export function useSetBuilderEntryStatus(
+  documentId: string,
+  databaseId: string,
+  databaseDocumentId: string,
+) {
+  const queryClient = useQueryClient();
+  const queryKey = documentPropertiesQueryKey(documentId, databaseId);
+  return useActionMutation<
+    SetBuilderEntryStatusResponse,
+    SetBuilderEntryStatusRequest
+  >("set-builder-entry-status", {
+    skipActionQueryInvalidation: true,
+    onMutate: async (variables) => {
+      await queryClient.cancelQueries({ queryKey });
+      const previous =
+        queryClient.getQueryData<DocumentPropertiesResponse>(queryKey);
+      queryClient.setQueryData<DocumentPropertiesResponse>(
+        queryKey,
+        (current) =>
+          current && {
+            ...current,
+            properties: current.properties.map((property) =>
+              property.definition.systemRole === "builder_status"
+                ? { ...property, value: variables.status }
+                : property,
+            ),
+          },
+      );
+      return { previous };
+    },
+    onError: (error, _variables, context) => {
+      toast.error(dbText("somethingWentWrong"), {
+        description: error.message,
+      });
+      const rollback = context as
+        | { previous?: DocumentPropertiesResponse }
+        | undefined;
+      if (rollback?.previous) {
+        queryClient.setQueryData(queryKey, rollback.previous);
+      }
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey });
+      void queryClient.invalidateQueries(
+        contentDatabaseQueryFilter(databaseDocumentId),
+      );
+      void queryClient.invalidateQueries(
+        contentDatabaseConstrainedQueryFilter(databaseDocumentId),
+      );
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database-source"],
+      });
+    },
+  });
 }
