@@ -106,6 +106,14 @@ const MAX_VALUE_CHARS = 16_000;
 const MAX_COMMENT_CHARS = 2_000;
 const AGENT_CALLERS = new Set(["tool", "mcp", "webmcp", "a2a"]);
 
+/**
+ * The first row a query returned, typed as possibly missing: Drizzle types an
+ * empty result's first row as present, which hides the not-found check.
+ */
+export function firstRow<T>(rows: readonly T[]): T | undefined {
+  return rows[0];
+}
+
 export function contentWebhookSecretRef(webhook: {
   secretKey: string;
   secretScope: string;
@@ -633,7 +641,7 @@ async function claimDelivery(db: Db, id: string) {
   const deliveries = schema.contentWebhookDeliveries;
   const now = new Date().toISOString();
   const leaseToken = randomUUID();
-  const delivery = (
+  const delivery = firstRow(
     await db
       .update(deliveries)
       .set({
@@ -653,8 +661,8 @@ async function claimDelivery(db: Db, id: string) {
           ),
         ),
       )
-      .returning()
-  ).at(0);
+      .returning(),
+  );
   return delivery ? { delivery, leaseToken } : null;
 }
 
@@ -726,13 +734,13 @@ async function inTrash(
 ): Promise<boolean> {
   // guard:allow-unscoped — the sender runs with no signed-in user; it reads only whether the watched collection or page, or the event's row page, is in Trash.
   if (webhook.scopeType === "database") {
-    const database = (
+    const database = firstRow(
       await db
         .select({ deletedAt: schema.contentDatabases.deletedAt })
         .from(schema.contentDatabases)
         .where(eq(schema.contentDatabases.id, webhook.scopeId))
-        .limit(1)
-    ).at(0);
+        .limit(1),
+    );
     if (database?.deletedAt) return true;
   }
   const pages = await db
@@ -787,13 +795,13 @@ async function deliverOne(
   delivery: DeliveryRow,
   transport: ContentWebhookTransport,
 ): Promise<ContentWebhookTransportResult> {
-  const webhook = (
+  const webhook = firstRow(
     await db
       .select()
       .from(schema.contentWebhooks)
       .where(eq(schema.contentWebhooks.id, delivery.webhookId))
-      .limit(1)
-  ).at(0);
+      .limit(1),
+  );
   if (!webhook) {
     // An event queued while its webhook was being removed can commit just
     // after the removal deleted the webhook's events. Delete it the same way
