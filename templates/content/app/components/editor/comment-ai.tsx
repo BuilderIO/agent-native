@@ -1152,7 +1152,9 @@ export function CommentAiRequestStatus({
         title={continuation?.error ?? request.error ?? undefined}
       >
         {active ? <Spinner aria-hidden className="size-3.5 shrink-0" /> : null}
-        <span className="min-w-0 flex-1 truncate">{label}</span>
+        {/* Wraps rather than truncates: in a narrow card, "Claude Haiku 5.5
+            is working…" would otherwise lose the words that say what it's doing. */}
+        <span className="min-w-0 flex-1 break-words">{label}</span>
       </div>
       {active ? (
         <Button

@@ -235,8 +235,7 @@ describe("comment AI controls", () => {
           }),
         );
       });
-      return document.querySelector('[role="status"] > span.truncate')
-        ?.textContent;
+      return document.querySelector('[role="status"] > span')?.textContent;
     };
     expect(await label({ status: "running", model: "claude-haiku-5-5" })).toBe(
       "comments.aiWorkingNamed",
