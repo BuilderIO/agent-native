@@ -4338,6 +4338,11 @@ test("runs only lint and guards for markdown-only instruction changes", () => {
     "packages/core/src/cli/skills.ts",
   ]);
   assert.equal(withCode.checks.fast_tests, true);
+  assert.equal(
+    classifyChangedPaths(["verification/execution-lease/NOTES.md"]).checks
+      .verify_execution_lease,
+    true,
+  );
   assert.equal(withCode.checks.typecheck, true);
 
   assert.equal(isInstructionPath("README.md"), false);

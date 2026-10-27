@@ -177,7 +177,8 @@ the invocation gives), plus 14 days for open items.
   sentence (`... this was sent from a bot.`). Or when the root is listed under "Claimed, not
   yet answered" in the automation's `memory.md`. Any other Steve 👀 means Steve
   has it: leave it alone. A root listed in the `Reports` section of a sweep
-  PR that is still open belongs to the run working on that PR: don't react
+  PR that is still open and that this run didn't open belongs to the run
+  working on that PR: don't react
   or reply there, and leave it out of your self-check; just list it under
   "Still open from earlier runs". Of the remaining workflow roots, any
   without ✅ or 🎫, or with a human reply newer than our last reply, comes

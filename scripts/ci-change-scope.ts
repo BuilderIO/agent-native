@@ -986,7 +986,10 @@ function isReadmePath(path: string): boolean {
 }
 
 function isMarkdownPath(path: string): boolean {
-  return /\.mdx?$/iu.test(normalizeChangedPath(path));
+  const normalized = normalizeChangedPath(path);
+  // The execution-lease verifier reads its model's notes.
+  if (normalized.startsWith(EXECUTION_LEASE_MODEL_PREFIX)) return false;
+  return /\.mdx?$/iu.test(normalized);
 }
 
 export function isInstructionPath(path: string): boolean {
