@@ -1330,6 +1330,26 @@ describe("Builder source settings helpers", () => {
       status: "failed",
       message: "Builder rejected the second entry.",
     });
+    const unconfirmedSecond = databaseBuilderReviewAfterPartialExecution(
+      preparedReview,
+      [
+        pushedFirst,
+        { changeSetId: "change-second", source: pushedFirst.source },
+      ],
+      "Builder rejected the third entry.",
+    );
+    expect(
+      unconfirmedSecond?.rows.map((row) => [
+        row.changeSetId,
+        row.execution?.state,
+      ]),
+    ).toEqual(
+      failedAfterFirst?.rows.map((row) => [
+        row.changeSetId,
+        row.execution?.state,
+      ]),
+    );
+    expect(unconfirmedSecond?.result.status).toBe("failed");
     expect(
       databaseBuilderReviewAfterPartialExecution(
         preparedReview,

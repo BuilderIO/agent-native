@@ -4618,17 +4618,22 @@ export type DatabaseBuilderRowExecution = {
 
 /**
  * The review after a push that stopped on an error. Rows pushed before the
- * error show their result, and the review's result is the error, never a
- * success. Null when nothing was pushed and the error leaves no state to show.
+ * error show the result their own response carried; a row whose response
+ * came back without its change set keeps its prepared state. The review's
+ * result is the error, never a success. Null when no pushed row confirmed
+ * and the error leaves no state to show.
  */
 export function databaseBuilderReviewAfterPartialExecution(
   review: ContentDatabaseSourceReviewPayload,
   executions: DatabaseBuilderRowExecution[],
   message: string,
 ) {
+  const confirmed = executions.filter(({ changeSetId, source }) =>
+    source?.changeSets.some((changeSet) => changeSet.id === changeSetId),
+  );
   const pushed =
-    executions.length > 0
-      ? databaseBuilderReviewAfterExecution(review, executions)
+    confirmed.length > 0
+      ? databaseBuilderReviewAfterExecution(review, confirmed)
       : null;
   return (
     databaseBuilderReviewAfterExecutionError(pushed ?? review, message) ??
