@@ -498,15 +498,19 @@ export function builderCmsReconciledSourceValuesJson(args: {
     ...parseSourceValues(args.existingSourceValuesJson),
   };
   const effect = args.plan.payload.effect;
-  // A push settles only the staged change it sent. One staged while it was
-  // in flight, or left out of its review, still waits for a push.
+  // A push settles the staged change it sent, and the one it started with
+  // when it sent the other transition instead. One staged while it was in
+  // flight, or left out of its review, still waits for a push.
   const staged = readBuilderCmsPublicationIntent(existing);
   const settledIntent =
-    staged.state === "staged" && staged.transition === effect
+    staged.state === "staged" &&
+    (staged.transition === effect ||
+      ((effect === "publish" || effect === "unpublish") &&
+        staged.transition === args.changeSet.stagedPublicationTransition))
       ? withBuilderCmsPublicationIntent(existing, null)
       : { ...existing };
-  // So does an edit conflict: the review showed it, and the push overwrote
-  // Builder's change.
+  // It settles the edit conflicts it pushed over too: the review showed
+  // them, and the push overwrote Builder's change.
   const pushedKeys = args.changeSet.fieldChanges.map(builderCmsEditConflictKey);
   if (args.changeSet.bodyChange) pushedKeys.push(BUILDER_CMS_BODY_CONTENT_KEY);
   const next =

@@ -623,6 +623,7 @@ describe("Builder unpublished changes", () => {
     expect(laterStillEmpty[BUILDER_CMS_BODY_CONTENT_KEY]).toBe("Saved body");
     expect(builderCmsLiveBodyBaseline(laterStillEmpty)).toEqual({
       blocksHash: null,
+      bodyEmpty: true,
     });
 
     const published = builderSourceValuesKeepingUnpublishedChanges({
@@ -968,6 +969,7 @@ describe("Builder staged publication changes", () => {
     });
     expect(builderCmsLiveBodyBaseline(values)).toEqual({
       blocksHash: "live-hash",
+      bodyEmpty: false,
     });
     expect(
       builderCmsLiveBodyBaseline(
@@ -976,7 +978,7 @@ describe("Builder staged publication changes", () => {
           { liveValues: {}, liveBodyEmpty: true },
         ),
       ),
-    ).toEqual({ blocksHash: null });
+    ).toEqual({ blocksHash: null, bodyEmpty: true });
     expect(builderCmsLiveBodyBaseline({ published: "draft" })).toBeNull();
     expect(builderCmsLiveBaselineValues({ published: "draft" })).toEqual({
       published: "draft",

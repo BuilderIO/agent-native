@@ -349,10 +349,13 @@ export function builderCmsLiveBaselineValues(
  */
 export function builderCmsLiveBodyBaseline(
   sourceValues: Record<string, DocumentPropertyValue>,
-): { blocksHash: string | null } | null {
+): { blocksHash: string | null; bodyEmpty: boolean } | null {
   const read = readBuilderCmsUnpublishedChanges(sourceValues);
   if (read.state !== "pending" || !hasBodyRecord(read.changes)) return null;
-  return { blocksHash: read.changes.liveBlocksHash ?? null };
+  return {
+    blocksHash: read.changes.liveBlocksHash ?? null,
+    bodyEmpty: read.changes.liveBodyEmpty === true,
+  };
 }
 
 /**

@@ -724,6 +724,52 @@ it("keeps a pick when publication changes come back on before the clear runs", a
   expect(await stagedIntent("doc_entry_draft")).toBeUndefined();
 });
 
+it("refuses a pick when page access is revoked while it waits for the row", async () => {
+  const collaborator = "collaborator@example.com";
+  const db = getDb();
+  await db.insert(schema.documentShares).values(
+    [COLLECTION_DOCUMENT_ID, "doc_entry_draft"].map((resourceId) => ({
+      id: `share_${resourceId}_${collaborator}`,
+      resourceId,
+      principalType: "user" as const,
+      principalId: collaborator,
+      role: "editor" as const,
+      createdBy: OWNER,
+      createdAt: NOW,
+    })),
+  );
+  membershipLock.beforeNextLock = async (tx) => {
+    await tx
+      .update(schema.documentShares)
+      .set({ role: "viewer" })
+      .where(
+        and(
+          eq(schema.documentShares.resourceId, "doc_entry_draft"),
+          eq(schema.documentShares.principalId, collaborator),
+        ),
+      );
+  };
+  try {
+    await expect(
+      runWithRequestContext({ userEmail: collaborator }, () =>
+        setStatus.run({
+          databaseId: DATABASE_ID,
+          documentId: "doc_entry_draft",
+          status: "published",
+        }),
+      ),
+    ).rejects.toThrow(
+      "Requires editor role on document doc_entry_draft (have viewer)",
+    );
+    expect(await stagedIntent("doc_entry_draft")).toBeUndefined();
+  } finally {
+    membershipLock.beforeNextLock = null;
+    await db
+      .delete(schema.documentShares)
+      .where(eq(schema.documentShares.principalId, collaborator));
+  }
+});
+
 it("refuses a pick when publication changes go off while it waits for the row", async () => {
   const [{ metadataJson }] = await getDb()
     .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
