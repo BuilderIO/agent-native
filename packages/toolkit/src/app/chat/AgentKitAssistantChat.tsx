@@ -1481,6 +1481,7 @@ interface AgentKitSurfaceContextValue {
   authSessionAvailable: boolean;
   setupBouncePulse: number;
   bounceSetupCard: () => void;
+  onComposerSetupRequiredChange: (required: boolean) => void;
   isSubmissionInFlight: boolean;
   composerSubmissionPending: boolean;
   onComposerSubmissionPendingChange: (pending: boolean) => void;
@@ -2346,8 +2347,13 @@ const AgentKitAssistantChatBody = forwardRef<
     props.showModelSelector !== false && props.modelListError === true;
   const effectiveReadiness = readiness.state;
   const canChat = !providerChecksEnabled || effectiveReadiness === "configured";
+  const [composerSetupRequired, setComposerSetupRequired] = useState(false);
+  // The composer's model list knows nothing is connected well before the
+  // readiness check answers; an answer of "configured" still wins.
   const setupMissing =
-    providerChecksEnabled && effectiveReadiness === "missing";
+    providerChecksEnabled &&
+    (effectiveReadiness === "missing" ||
+      (effectiveReadiness !== "configured" && composerSetupRequired));
   const providerStatus: AgentEngineConfiguredState = setupMissing
     ? "missing"
     : modelListUnavailable
@@ -4976,6 +4982,7 @@ const AgentKitAssistantChatBody = forwardRef<
     authSessionAvailable,
     setupBouncePulse,
     bounceSetupCard,
+    onComposerSetupRequiredChange: setComposerSetupRequired,
     isSubmissionInFlight,
     composerSubmissionPending,
     onComposerSubmissionPendingChange: setComposerSubmissionPending,
@@ -5690,6 +5697,7 @@ function AgentKitComposerSurface({
   showSuggestions,
   setupBouncePulse,
   bounceSetupCard,
+  onComposerSetupRequiredChange,
   contextItems,
   providerContextItems,
   selectionLength,
@@ -5728,6 +5736,7 @@ function AgentKitComposerSurface({
   hasRenderedMessages: boolean;
   setupBouncePulse: number;
   bounceSetupCard: () => void;
+  onComposerSetupRequiredChange: (required: boolean) => void;
   contextItems: AgentChatContextItem[];
   providerContextItems: { current: readonly AgentChatContextItem[] };
   selectionLength: number | null;
@@ -6097,6 +6106,7 @@ function AgentKitComposerSurface({
           initialTextKey={`${props.tabId ?? threadId}:${prefillRevision}`}
           showMissingApiKeySetup={false}
           setupCardVisible={composerShowsSetupCard({ setupMissing, props })}
+          onModelConnectionRequiredChange={onComposerSetupRequiredChange}
           onTextChange={onTextChange}
           announcePendingSubmission={!isThinkingVisibleInTranscript}
           onSubmissionPendingChange={onComposerSubmissionPendingChange}

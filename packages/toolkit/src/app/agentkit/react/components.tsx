@@ -6198,6 +6198,7 @@ export interface AgentKitComposerProps extends Omit<
     | "modelStatusChecksEnabled"
     | "showMissingApiKeySetup"
     | "setupCardVisible"
+    | "onModelConnectionRequiredChange"
     | "contextUsageSlot"
     | "attachmentsEnabled"
     | "onAttachmentRequest"
@@ -6299,6 +6300,7 @@ export function AgentKitComposer({
   requireAgentEngine = false,
   showMissingApiKeySetup,
   setupCardVisible,
+  onModelConnectionRequiredChange,
   contextUsageSlot,
   attachmentsEnabled,
   onAttachmentRequest,
@@ -7017,6 +7019,7 @@ export function AgentKitComposer({
             requireAgentEngine,
             showMissingApiKeySetup,
             setupCardVisible,
+            onModelConnectionRequiredChange,
             contextUsageSlot,
             layoutVariant,
             toolbarSlot,

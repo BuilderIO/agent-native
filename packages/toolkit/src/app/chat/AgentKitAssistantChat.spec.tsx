@@ -3042,22 +3042,19 @@ describe("AgentKitAssistantChat host behavior", () => {
     }
   });
 
-  it("keeps the real editor editable while AI setup is missing", async () => {
+  it("closes the real editor to typing while AI setup is missing", async () => {
     chatMocks.useRealChat = true;
     chatMocks.readiness = { canChat: false, missing: true, state: "missing" };
     await useRealComposer();
     await mount(baseProps({ showModelSelector: false }));
 
-    const editor = container.querySelector<HTMLElement>(
-      '[contenteditable="true"]',
-    );
-    expect(editor).not.toBeNull();
-    expect(chatMocks.composerProps.disabled).toBe(false);
-
-    await act(async () =>
-      chatMocks.composerProps.composerRef.current.setText("Draft before setup"),
-    );
-    expect(editor?.textContent).toBe("Draft before setup");
+    expect(container.querySelector('[contenteditable="false"]')).not.toBeNull();
+    expect(container.querySelector('[contenteditable="true"]')).toBeNull();
+    expect(
+      container
+        .querySelector('[role="textbox"]')
+        ?.getAttribute("aria-disabled"),
+    ).toBe("true");
   });
 
   it("keeps the real editor editable while a submission is in flight", async () => {
