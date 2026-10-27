@@ -1713,14 +1713,20 @@ esac
     assert.notEqual(config.bumpVersionsWithWorkspaceProtocolOnly, true);
   });
 
-  it("requires Core 0.220.1 or its prereleases for Dispatch app-only visibility", () => {
+  it("accepts the next Core prerelease tuple for Dispatch app-only visibility", () => {
     const dispatch = JSON.parse(
       readFileSync("packages/dispatch/package.json", "utf8"),
     ) as { peerDependencies?: Record<string, string> };
-    assert.equal(
-      dispatch.peerDependencies?.["@agent-native/core"],
-      ">=0.220.1-0",
-    );
+    const corePeerRange = dispatch.peerDependencies?.["@agent-native/core"];
+    assert.equal(corePeerRange, ">=0.220.1-0 || >=0.221.0-0");
+    for (const version of [
+      "0.220.1-beta.0",
+      "0.220.1",
+      "0.221.0-beta.0",
+      "0.221.0",
+    ]) {
+      assert(semver.satisfies(version, corePeerRange), version);
+    }
   });
 
   it("restores the shared Changesets config when a stable version run fails", async () => {
