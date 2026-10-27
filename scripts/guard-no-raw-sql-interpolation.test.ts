@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { findRawSqlInterpolationViolations } from "./guard-no-raw-sql-interpolation.js";
+import {
+  findRawSqlInterpolationViolations,
+  findRawSqlInterpolationViolationsInSources,
+} from "./guard-no-raw-sql-interpolation.js";
 
 const FILE = "packages/core/src/example.ts";
 
@@ -389,6 +392,35 @@ describe("raw SQL interpolation guard", () => {
         },
       ],
     );
+  });
+
+  it("traces an exported SQL helper return into an unchanged module sink", () => {
+    const helperFile = "packages/core/src/sql-helpers.ts";
+    const storeFile = "packages/core/src/store.ts";
+    const helper = [
+      "export function ownerFilter(ownerId: string) {",
+      "  return `WHERE owner_id = '${ownerId}'`;",
+      "}",
+    ].join("\n");
+    const store = source([
+      'import { ownerFilter } from "./sql-helpers.js";',
+      "database.execute(`SELECT * FROM records ${ownerFilter(ownerId)}`);",
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolationsInSources(
+        new Map([
+          [helperFile, { source: helper, addedLines: new Set([2]) }],
+          [storeFile, { source: store, addedLines: new Set<number>() }],
+        ]),
+      ),
+    ).toEqual([
+      {
+        file: helperFile,
+        line: 2,
+        snippet: "return `WHERE owner_id = '${ownerId}'`;",
+      },
+    ]);
   });
 
   it("finds an interpolated template aliased into a sql property", () => {
