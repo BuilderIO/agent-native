@@ -18,6 +18,9 @@
  *                       object, test.describe.configure({ retries }), and
  *                       .retries(N) with N other than 0
  *   script-loosened     package.json scripts: --passWithNoTests, vitest -u / --update
+ *   snapshot-changed    test files: changed body of an existing
+ *                       toMatchInlineSnapshot() expectation; *.snap files:
+ *                       changed body of an existing exported snapshot
  *   assertions-removed  test files: fewer expect( / expect.soft|poll|element( / assert( /
  *                       assert.x( calls than before, counted in the AST of the
  *                       file at the merge-base and of the file now, with each
@@ -74,6 +77,7 @@ const MIN_REASON_LENGTH = 10;
 const PRAGMA_MARKER = "oracle-change:";
 const TEST_FILE =
   /(?:\.(?:spec|test)\.(?:tsx?|jsx?|mjs|cjs|mts|cts)|\.e2e\.(?:tsx?|jsx?|mjs|cjs|mts|cts))$|(?:^|\/)e2e\//;
+const SNAPSHOT_FILE = /\.snap$/;
 const CONFIG_FILE =
   /(?:^|\/)(?:vitest\.config\.[^/]+|vitest\.[^/]+\.config\.[^/]+|playwright\.config\.[^/]+)$/;
 const PACKAGE_JSON = /(?:^|\/)package\.json$/;
@@ -145,6 +149,8 @@ export interface OracleChanges {
   removed: ReadonlyMap<string, RemovedFile>;
   /** Keyed like `removed`. Every changed test file in `removed` needs one. */
   assertionSources: ReadonlyMap<string, AssertionSource>;
+  /** Keyed like `removed`. Both sides of every changed .snap file. */
+  snapshotSources: ReadonlyMap<string, AssertionSource>;
 }
 
 export interface OracleViolation {
@@ -655,9 +661,154 @@ function sortedAdded(file: ChangedFile): number[] {
   return [...file.added].sort((a, b) => a - b);
 }
 
-function checkTestFile(
+interface InlineSnapshot {
+  key: string;
+  line: number;
+  firstBodyLine: number;
+  lastBodyLine: number;
+}
+
+function testContext(node: ts.Node, scope: ImportScope): string {
+  const titles: string[] = [];
+  let parent: ts.Node | undefined = node.parent;
+  while (parent !== undefined) {
+    if (ts.isCallExpression(parent) && isTestApi(parent.expression, scope)) {
+      const title = parent.arguments[0];
+      if (
+        title !== undefined &&
+        (ts.isStringLiteral(title) || ts.isNoSubstitutionTemplateLiteral(title))
+      ) {
+        titles.push(title.text);
+      }
+    }
+    parent = parent.parent;
+  }
+  return titles.reverse().join(" > ");
+}
+
+function expectationReceiver(
+  expression: ts.Expression,
+  scope: ImportScope,
+): ts.CallExpression | null {
+  let candidate = expression;
+  for (;;) {
+    if (
+      ts.isCallExpression(candidate) &&
+      isExpectReceiver(candidate.expression, scope)
+    ) {
+      return candidate;
+    }
+    const member = memberOf(candidate);
+    if (
+      member === null ||
+      (member.name !== "not" &&
+        member.name !== "resolves" &&
+        member.name !== "rejects")
+    ) {
+      return null;
+    }
+    candidate = member.object;
+  }
+}
+
+function inlineSnapshots(file: string, source: string): InlineSnapshot[] {
+  const sourceFile = ts.createSourceFile(
+    file,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    scriptKind(file),
+  );
+  const scope = importScope(sourceFile);
+  const snapshots: InlineSnapshot[] = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node)) {
+      const matcher = memberOf(node.expression);
+      const receiver =
+        matcher?.name === "toMatchInlineSnapshot"
+          ? expectationReceiver(matcher.object, scope)
+          : null;
+      if (matcher?.name === "toMatchInlineSnapshot" && receiver !== null) {
+        const argument = node.arguments.at(-1);
+        const literal =
+          argument !== undefined &&
+          (ts.isStringLiteral(argument) ||
+            ts.isNoSubstitutionTemplateLiteral(argument));
+        const firstBodyLine =
+          literal && argument !== undefined ? lineOf(sourceFile, argument) : 0;
+        const lastBodyLine =
+          literal && argument !== undefined
+            ? sourceFile.getLineAndCharacterOfPosition(
+                Math.max(argument.getStart(sourceFile), argument.end - 1),
+              ).line + 1
+            : 0;
+        snapshots.push({
+          key: `${testContext(node, scope)}\u0000${receiver
+            .getText(sourceFile)
+            .replace(/\s+/g, " ")}`,
+          line: lineOf(sourceFile, node),
+          firstBodyLine,
+          lastBodyLine,
+        });
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return snapshots;
+}
+
+interface ExternalSnapshot {
+  name: string;
+  value: string;
+  line: number;
+  firstValueLine: number;
+  lastValueLine: number;
+}
+
+function externalSnapshots(file: string, source: string): ExternalSnapshot[] {
+  const sourceFile = ts.createSourceFile(
+    file,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    scriptKind(file),
+  );
+  const snapshots: ExternalSnapshot[] = [];
+  const visit = (node: ts.Node) => {
+    if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      ts.isElementAccessExpression(node.left) &&
+      ts.isIdentifier(node.left.expression) &&
+      node.left.expression.text === "exports" &&
+      node.left.argumentExpression !== undefined &&
+      (ts.isStringLiteral(node.left.argumentExpression) ||
+        ts.isNoSubstitutionTemplateLiteral(node.left.argumentExpression)) &&
+      (ts.isStringLiteral(node.right) ||
+        ts.isNoSubstitutionTemplateLiteral(node.right))
+    ) {
+      snapshots.push({
+        name: node.left.argumentExpression.text,
+        value: node.right.getText(sourceFile),
+        line: lineOf(sourceFile, node),
+        firstValueLine: lineOf(sourceFile, node.right),
+        lastValueLine:
+          sourceFile.getLineAndCharacterOfPosition(
+            Math.max(node.right.getStart(sourceFile), node.right.end - 1),
+          ).line + 1,
+      });
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return snapshots;
+}
+
+function checkInlineSnapshots(
   rel: string,
   file: ChangedFile,
+  sources: AssertionSource | undefined,
   report: (
     line: number,
     rule: string,
@@ -665,6 +816,92 @@ function checkTestFile(
     reason: string | null,
   ) => void,
 ) {
+  if (
+    sources?.base === undefined ||
+    sources.next === null ||
+    sources.base === null
+  )
+    return;
+  const before = new Map<string, number>();
+  for (const snapshot of inlineSnapshots(rel, sources.base)) {
+    before.set(snapshot.key, (before.get(snapshot.key) ?? 0) + 1);
+  }
+  const seen = new Map<string, number>();
+  for (const snapshot of inlineSnapshots(rel, sources.next)) {
+    const occurrence = (seen.get(snapshot.key) ?? 0) + 1;
+    seen.set(snapshot.key, occurrence);
+    if (occurrence > (before.get(snapshot.key) ?? 0)) continue;
+    const changedBody = sortedAdded(file).some(
+      (line) =>
+        snapshot.firstBodyLine > 0 &&
+        line >= snapshot.firstBodyLine &&
+        line <= snapshot.lastBodyLine,
+    );
+    if (!changedBody) continue;
+    report(
+      snapshot.line,
+      "snapshot-changed",
+      "changed the body of an existing toMatchInlineSnapshot() expectation",
+      optOutFor(file, snapshot.line),
+    );
+  }
+}
+
+function checkExternalSnapshots(
+  file: ChangedFile,
+  sources: AssertionSource | undefined,
+  report: (
+    line: number,
+    rule: string,
+    message: string,
+    reason: string | null,
+  ) => void,
+) {
+  if (
+    sources?.base === undefined ||
+    sources.next === null ||
+    sources.base === null
+  )
+    return;
+  const before = new Map<string, string[]>();
+  for (const snapshot of externalSnapshots("snapshot.snap", sources.base)) {
+    before.set(snapshot.name, [
+      ...(before.get(snapshot.name) ?? []),
+      snapshot.value,
+    ]);
+  }
+  const seen = new Map<string, number>();
+  for (const snapshot of externalSnapshots("snapshot.snap", sources.next)) {
+    const occurrence = seen.get(snapshot.name) ?? 0;
+    seen.set(snapshot.name, occurrence + 1);
+    if (before.get(snapshot.name)?.[occurrence] === undefined) continue;
+    if (before.get(snapshot.name)?.[occurrence] === snapshot.value) continue;
+    const changedBody = sortedAdded(file).some(
+      (line) =>
+        line >= snapshot.firstValueLine && line <= snapshot.lastValueLine,
+    );
+    if (!changedBody) continue;
+    report(
+      snapshot.line,
+      "snapshot-changed",
+      `changed the body of existing snapshot "${snapshot.name}"`,
+      optOutFor(file, snapshot.line),
+    );
+  }
+}
+
+function checkTestFile(
+  rel: string,
+  file: ChangedFile,
+  sources: AssertionSource | undefined,
+  report: (
+    line: number,
+    rule: string,
+    message: string,
+    reason: string | null,
+  ) => void,
+) {
+  checkInlineSnapshots(rel, file, sources, report);
   for (const site of findDisabledTests(rel, file.source.join("\n"))) {
     if (!file.added.has(site.line)) continue;
     report(site.line, site.rule, site.message, optOutFor(file, site.line));
@@ -742,8 +979,9 @@ function deletedFileReason(
 }
 
 /**
- * Pure: takes the changed files, removed lines and both sides of each changed
- * test file, returns violations. The glue in main() only reads and calls this.
+ * Pure: takes changed files, removed lines, and both sides of changed tests
+ * and snapshots, then returns violations. The glue in main() only reads and
+ * calls this.
  */
 export function findOracleLoosening(changes: OracleChanges): OracleViolation[] {
   const violations: OracleViolation[] = [];
@@ -762,7 +1000,10 @@ export function findOracleLoosening(changes: OracleChanges): OracleViolation[] {
       if (text !== null)
         violations.push({ file: rel, line, rule, message: text });
     };
-    if (isTestFile(rel)) checkTestFile(rel, file, report);
+    if (isTestFile(rel))
+      checkTestFile(rel, file, changes.assertionSources.get(abs), report);
+    if (SNAPSHOT_FILE.test(rel))
+      checkExternalSnapshots(file, changes.snapshotSources.get(abs), report);
     if (CONFIG_FILE.test(rel)) checkRunnerConfig(file, report);
     if (PACKAGE_JSON.test(rel)) checkPackageScripts(file, report);
   }
@@ -867,12 +1108,24 @@ function main() {
   }
 
   const assertionSources = new Map<string, AssertionSource>();
+  const snapshotSources = new Map<string, AssertionSource>();
   for (const [absPath, entry] of removed) {
-    if (!isTestFile(entry.path) && !isTestFile(entry.oldPath)) continue;
-    assertionSources.set(absPath, {
-      base: entry.created ? null : readCommitFile(rootDir, base, entry.oldPath),
-      next: entry.deleted ? null : readText(absPath),
-    });
+    if (isTestFile(entry.path) || isTestFile(entry.oldPath)) {
+      assertionSources.set(absPath, {
+        base: entry.created
+          ? null
+          : readCommitFile(rootDir, base, entry.oldPath),
+        next: entry.deleted ? null : readText(absPath),
+      });
+    }
+    if (SNAPSHOT_FILE.test(entry.path) || SNAPSHOT_FILE.test(entry.oldPath)) {
+      snapshotSources.set(absPath, {
+        base: entry.created
+          ? null
+          : readCommitFile(rootDir, base, entry.oldPath),
+        next: entry.deleted ? null : readText(absPath),
+      });
+    }
   }
 
   const violations = findOracleLoosening({
@@ -880,6 +1133,7 @@ function main() {
     added: changed,
     removed,
     assertionSources,
+    snapshotSources,
   });
   if (violations.length === 0) {
     console.log(`${GUARD_NAME}: OK (${added.size} changed file(s) inspected)`);

@@ -55,18 +55,36 @@ function findViolations(
   );
   const removed = parseRemovedLines(diff, ROOT) ?? new Map();
   const assertionSources = new Map<string, AssertionSource>();
+  const snapshotSources = new Map<string, AssertionSource>();
   for (const [abs, entry] of removed) {
-    if (!isTestFile(entry.path) && !isTestFile(entry.oldPath)) continue;
-    assertionSources.set(abs, {
-      base: entry.created
-        ? null
-        : required(bases[entry.oldPath], `base text of ${entry.oldPath}`),
-      next: entry.deleted
-        ? null
-        : required(files[entry.path], `file ${entry.path}`).source,
-    });
+    if (isTestFile(entry.path) || isTestFile(entry.oldPath)) {
+      assertionSources.set(abs, {
+        base: entry.created
+          ? null
+          : required(bases[entry.oldPath], `base text of ${entry.oldPath}`),
+        next: entry.deleted
+          ? null
+          : required(files[entry.path], `file ${entry.path}`).source,
+      });
+    }
+    if (/\.snap$/.test(entry.path) || /\.snap$/.test(entry.oldPath)) {
+      snapshotSources.set(abs, {
+        base: entry.created
+          ? null
+          : required(bases[entry.oldPath], `base text of ${entry.oldPath}`),
+        next: entry.deleted
+          ? null
+          : required(files[entry.path], `file ${entry.path}`).source,
+      });
+    }
   }
-  return findOracleLoosening({ root: ROOT, added, removed, assertionSources });
+  return findOracleLoosening({
+    root: ROOT,
+    added,
+    removed,
+    assertionSources,
+    snapshotSources,
+  });
 }
 
 /** Runs the pure check and reports each violation as `path:line: rule`. */
@@ -573,6 +591,7 @@ describe("opt-out pragma", () => {
       added: new Map([[at(SPEC), changedFile(SPEC, source, [1])]]),
       removed: new Map(),
       assertionSources: new Map(),
+      snapshotSources: new Map(),
     });
     assert.equal(violations.length, 1);
     assert.equal(violations[0].rule, "disabled-test");
@@ -607,6 +626,124 @@ describe("opt-out pragma", () => {
     assert.deepEqual(flagged({ [SPEC]: { source, added: [1, 2, 3] } }), [
       `${SPEC}:3: disabled-test`,
     ]);
+  });
+});
+
+describe("snapshot-changed", () => {
+  it("flags a changed body of an existing inline snapshot", () => {
+    const base = [
+      `import { expect } from "${VITEST}";`,
+      'it("pins the output", () => {',
+      "  expect(trace).toMatchInlineSnapshot(`",
+      '    "before"',
+      "  `);",
+      "});",
+    ].join("\n");
+    const source = base.replace('"before"', '"after"');
+    const diff = [
+      `diff --git a/${SPEC} b/${SPEC}`,
+      `--- a/${SPEC}`,
+      `+++ b/${SPEC}`,
+      "@@ -4 +4 @@",
+      '-    "before"',
+      '+    "after"',
+    ].join("\n");
+
+    assert.deepEqual(
+      flagged({ [SPEC]: { source, added: [4] } }, diff, { [SPEC]: base }),
+      [`${SPEC}:3: snapshot-changed`],
+    );
+  });
+
+  it("does not flag a new inline snapshot expectation", () => {
+    const base = [
+      `import { expect } from "${VITEST}";`,
+      'it("adds a snapshot", () => {',
+      '  expect(value).toBe("stable");',
+      "});",
+    ].join("\n");
+    const source = [
+      ...base.split("\n").slice(0, 3),
+      "  expect(trace).toMatchInlineSnapshot(`",
+      '    "new trace"',
+      "  `);",
+      "});",
+    ].join("\n");
+    const diff = [
+      `diff --git a/${SPEC} b/${SPEC}`,
+      `--- a/${SPEC}`,
+      `+++ b/${SPEC}`,
+      "@@ -3,0 +4,3 @@",
+      "+  expect(trace).toMatchInlineSnapshot(`",
+      '+    "new trace"',
+      "+  `);",
+    ].join("\n");
+
+    assert.deepEqual(
+      flagged({ [SPEC]: { source, added: [4, 5, 6] } }, diff, { [SPEC]: base }),
+      [],
+    );
+  });
+
+  it("suppresses a changed inline snapshot with an oracle-change reason", () => {
+    const base = [
+      `import { expect } from "${VITEST}";`,
+      'it("pins the output", () => {',
+      "  expect(trace).toMatchInlineSnapshot(`",
+      '    "before"',
+      "  `);",
+      "});",
+    ].join("\n");
+    const source = [
+      ...base.split("\n").slice(0, 2),
+      "  // oracle-change: the trace now records the cancellation guard",
+      "  expect(trace).toMatchInlineSnapshot(`",
+      '    "after"',
+      "  `);",
+      "});",
+    ].join("\n");
+    const diff = [
+      `diff --git a/${SPEC} b/${SPEC}`,
+      `--- a/${SPEC}`,
+      `+++ b/${SPEC}`,
+      "@@ -3 +4,2 @@",
+      "-  expect(trace).toMatchInlineSnapshot(`",
+      "+  // oracle-change: the trace now records the cancellation guard",
+      "+  expect(trace).toMatchInlineSnapshot(`",
+      "@@ -4 +5 @@",
+      '-    "before"',
+      '+    "after"',
+    ].join("\n");
+
+    assert.deepEqual(
+      flagged({ [SPEC]: { source, added: [3, 4, 6] } }, diff, { [SPEC]: base }),
+      [],
+    );
+  });
+
+  it("flags a changed body in an existing .snap file", () => {
+    const snap = "packages/core/src/a2a/trace.spec.ts.snap";
+    const base = [
+      "// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html",
+      "",
+      "exports[`trace > completes 1`] = `",
+      "before",
+      "`;",
+    ].join("\n");
+    const source = base.replace("before", "after");
+    const diff = [
+      `diff --git a/${snap} b/${snap}`,
+      `--- a/${snap}`,
+      `+++ b/${snap}`,
+      "@@ -4 +4 @@",
+      "-before",
+      "+after",
+    ].join("\n");
+
+    assert.deepEqual(
+      flagged({ [snap]: { source, added: [4] } }, diff, { [snap]: base }),
+      [`${snap}:3: snapshot-changed`],
+    );
   });
 });
 
