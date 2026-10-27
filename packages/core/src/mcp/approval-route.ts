@@ -8,6 +8,7 @@ import {
 } from "h3";
 
 import type { ActionEntry } from "../agent/production-agent.js";
+import { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
 import { isProductionServerlessFunctionRuntime } from "../db/client.js";
 import { registerRecurringSweepHandler } from "../jobs/sweep-hooks.js";
 import {
@@ -23,7 +24,10 @@ import {
   type LocaleCode,
   type ResolvedLocalizationPreference,
 } from "../localization/shared.js";
-import { stripAppBasePath } from "../server/app-base-path.js";
+import {
+  getConfiguredAppBasePath,
+  stripAppBasePath,
+} from "../server/app-base-path.js";
 import {
   getAuthGuardPath,
   getBrowserCookieSession,
@@ -42,6 +46,10 @@ import { startIntervalJob } from "../server/interval-job.js";
 import { declaredLinkOrigin } from "../server/origin-allowlist.js";
 import { getUserSetting } from "../settings/user-settings.js";
 import {
+  isMcpApprovalId,
+  mcpApprovalAppPagePath,
+} from "../shared/mcp-approval-review.js";
+import {
   decideMcpApproval,
   getMcpApprovalForOwner,
   isMcpApprovalInOtherOrganization,
@@ -51,6 +59,7 @@ import {
   type McpApprovalRecord,
 } from "./approval-store.js";
 import {
+  describeFieldValue,
   describeWallTime,
   mcpApprovalPromptText,
   summarizeMcpApproval,
@@ -86,11 +95,11 @@ export function mcpApprovalRoute(routePrefix = "/_agent-native"): string {
 export interface McpApprovalApp {
   appId: string;
   actions: Record<string, ActionEntry>;
+  /** The app's own pages show reviews; see `MCPConfig.appApprovalPage`. */
+  appPage?: boolean;
 }
 
 const TTL_MS = MCP_ACTION_APPROVAL_TTL_SECONDS * 1000;
-const GRANT_ID =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 /**
  * The review page for one grant, on the route the request's MCP mount
@@ -134,9 +143,13 @@ export interface McpApprovalView {
   requester: McpApprovalRequester | undefined;
   createdAt: number | null;
   expiresAt: number;
+  /** The server's clock when it built this view; deadlines are on that clock. */
+  servedAt: number;
   priorRun: McpApprovalPriorRun | undefined;
   /** The reader's chosen time zone; null means the device's own. */
   readerTimeZone: string | null;
+  /** The summary's language, for the rest of the page's copy. */
+  locale: LocaleCode;
   /** Present while a decision can be made; sent back with it. */
   csrfToken?: string;
 }
@@ -231,9 +244,20 @@ async function buildView(
   record: McpApprovalRecord,
   reader: McpApprovalReader,
   entry: ActionEntry | undefined,
+  locale: LocaleCode,
   messages: McpApprovalMessages,
   preference: ResolvedLocalizationPreference | null,
 ): Promise<McpApprovalView> {
+  const requester = await requesterFor(record, reader.email);
+  const decidable = mcpApprovalViewState(record, Date.now()) === "pending";
+  const priorRun = decidable
+    ? await findPriorApprovedRun(record, record.retrySafe)
+    : undefined;
+  const csrfToken = decidable
+    ? await decisionToken(record.nonce, reader)
+    : undefined;
+  // The page reads the gap between servedAt and its own clock as clock skew,
+  // so the time and the state it decides from are taken after every read.
   const now = Date.now();
   const state = mcpApprovalViewState(record, now);
   return {
@@ -246,17 +270,14 @@ async function buildView(
       argumentsJson: record.argumentsJson,
       labels: messages,
     }),
-    requester: await requesterFor(record, reader.email),
+    requester,
     createdAt: record.createdAt,
     expiresAt: record.expiresAt,
-    priorRun:
-      state === "pending"
-        ? await findPriorApprovedRun(record, record.retrySafe)
-        : undefined,
+    servedAt: now,
+    priorRun: state === "pending" ? priorRun : undefined,
     readerTimeZone: readerTimeZone(preference) ?? null,
-    ...(state === "pending"
-      ? { csrfToken: await decisionToken(record.nonce, reader) }
-      : {}),
+    locale,
+    ...(state === "pending" && csrfToken !== undefined ? { csrfToken } : {}),
   };
 }
 
@@ -419,7 +440,7 @@ function renderPage(input: {
               )
             : field.wallTime
               ? escapeHtml(describeWallTime(field.wallTime, locale, messages))
-              : escapeHtml(field.value)
+              : escapeHtml(describeFieldValue(field, locale))
         }</dd>`,
     )
     .join("");
@@ -468,7 +489,9 @@ var STYLES={time:{hour:"numeric",minute:"2-digit"},"date-time":{weekday:"short",
 function offset(at,zone){var m=FIXED.exec(zone);if(m){var v=Number(m[2])*60+Number(m[3]);return m[1]==="-"?-v:v;}if(zone==="UTC")return 0;var p=new Intl.DateTimeFormat("en-US",{timeZone:zone,hourCycle:"h23",year:"numeric",month:"numeric",day:"numeric",hour:"numeric",minute:"numeric",second:"numeric"}).formatToParts(new Date(at));function g(t){for(var i=0;i<p.length;i++)if(p[i].type===t)return Number(p[i].value);return 0;}return Math.round((Date.UTC(g("year"),g("month")-1,g("day"),g("hour")%24,g("minute"),g("second"))-Math.floor(at/1000)*1000)/60000);}
 function utcLabel(min){if(min===0)return "UTC";var a=Math.abs(min);return "UTC"+(min<0?"-":"+")+String(Math.floor(a/60)).padStart(2,"0")+":"+String(a%60).padStart(2,"0");}
 function fmt(at,zone,style){var o=Object.assign({},STYLES[style]||STYLES.time);if(FIXED.test(zone)){o.timeZone="UTC";var m=offset(at,zone);var t=new Intl.DateTimeFormat(data.locale,o).format(new Date(at+m*60000));return style==="date"?t:t+" "+utcLabel(m);}o.timeZone=zone;if(style!=="date")o.timeZoneName="short";return new Intl.DateTimeFormat(data.locale,o).format(new Date(at));}
-function localize(root){root.querySelectorAll("time[data-ts]").forEach(function(el){var at=Number(el.getAttribute("data-ts"));var style=el.getAttribute("data-style")||"time";var zone=el.getAttribute("data-zone");var text=fmt(at,readerZone,style);if(zone&&offset(at,zone)!==offset(at,readerZone))text+=" ("+data.messages.requestedAs.replace("{time}",fmt(at,zone,style))+")";el.textContent=text;});}
+function zoneName(at,zone){if(FIXED.test(zone))return utcLabel(offset(at,zone));function named(kind){var p=new Intl.DateTimeFormat(data.locale,{timeZone:zone,timeZoneName:kind}).formatToParts(new Date(at));for(var i=0;i<p.length;i++)if(p[i].type==="timeZoneName")return p[i].value;}var g=named("longGeneric");if(g&&!/^(?:GMT|UTC)(?:[+-]|$)/.test(g))return g;return named("long")||g||zone;}
+function requested(at,zone,style){if(offset(at,zone)!==offset(at,readerZone))return fmt(at,zone,style);if(FIXED.test(zone)||zoneName(at,zone)===zoneName(at,readerZone))return null;var text=fmt(at,zone,style);var o=Object.assign({},STYLES[style]||STYLES.time,{timeZone:zone,timeZoneName:"short"});var p=new Intl.DateTimeFormat(data.locale,o).formatToParts(new Date(at));var short=null;for(var i=0;i<p.length;i++)if(p[i].type==="timeZoneName")short=p[i].value;var k=short?text.lastIndexOf(short):-1;return k<0?text:text.slice(0,k)+zoneName(at,zone)+text.slice(k+short.length);}
+function localize(root){root.querySelectorAll("time[data-ts]").forEach(function(el){var at=Number(el.getAttribute("data-ts"));var style=el.getAttribute("data-style")||"time";var zone=el.getAttribute("data-zone");var text=fmt(at,readerZone,style);var asked=zone?requested(at,zone,style):null;if(asked)text+=" ("+data.messages.requestedAs.replace("{time}",asked)+")";el.textContent=text;});}
 localize(document);
 var result=document.getElementById("result");
 var actions=document.getElementById("actions");
@@ -534,7 +557,7 @@ function grantIdFrom(event: H3Event): string | undefined {
   if (path === null) return undefined;
   // A grant id is a UUID, so it never needs percent-decoding.
   const segment = path.slice(1);
-  return GRANT_ID.test(segment) ? segment : undefined;
+  return isMcpApprovalId(segment) ? segment : undefined;
 }
 
 export async function handleMcpApprovalRequest(
@@ -585,7 +608,25 @@ export async function handleMcpApprovalRequest(
       );
     }
     setResponseStatus(event, 401);
-    return { error: configurationError ?? messages.signInToReview };
+    return configurationError
+      ? { error: configurationError, reason: "sign-in-unavailable" }
+      : { error: messages.signInToReview };
+  }
+  // Only now, signed in: a signed-out reader signs in at this URL above, so
+  // the link the agent gave still works after sign-in.
+  if (method === "GET" && !wantsJson(event) && id && app.appPage) {
+    return new Response(null, {
+      status: 302,
+      headers: {
+        location: mcpApprovalAppPagePath(
+          id,
+          resolveAppHomePath(getAppConfig().app, getAppConfig().workspace),
+          getConfiguredAppBasePath(),
+        ),
+        "cache-control": "no-store",
+        "referrer-policy": "no-referrer",
+      },
+    });
   }
   const owner: McpApprovalReader = {
     appId: app.appId,
@@ -603,7 +644,7 @@ export async function handleMcpApprovalRequest(
 
   if (method === "GET") {
     const view = record
-      ? await buildView(record, owner, entry, messages, preference)
+      ? await buildView(record, owner, entry, locale, messages, preference)
       : undefined;
     const otherOrganization =
       !view && id ? await isMcpApprovalInOtherOrganization(id, owner) : false;

@@ -1534,6 +1534,61 @@ export const runContentMigrations = runMigrations(
       name: "content-live-body-opt-out",
       sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS live_body_opted_out_at TEXT`,
     },
+    {
+      version: 131,
+      name: "content-webhooks",
+      sql: `CREATE TABLE IF NOT EXISTS content_webhooks (
+          id TEXT PRIMARY KEY,
+          owner_email TEXT NOT NULL,
+          org_id TEXT,
+          scope_type TEXT NOT NULL,
+          scope_id TEXT NOT NULL,
+          url TEXT NOT NULL,
+          events_json TEXT NOT NULL,
+          property_ids_json TEXT,
+          description TEXT,
+          secret_scope TEXT NOT NULL,
+          secret_scope_id TEXT NOT NULL,
+          secret_key TEXT NOT NULL,
+          created_by TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS content_webhooks_scope_idx
+          ON content_webhooks (scope_type, scope_id);
+        CREATE INDEX IF NOT EXISTS content_webhooks_creator_idx
+          ON content_webhooks (created_by, created_at);
+        CREATE TABLE IF NOT EXISTS content_webhook_deliveries (
+          id TEXT PRIMARY KEY,
+          sequence BIGSERIAL NOT NULL,
+          webhook_id TEXT NOT NULL,
+          event_type TEXT NOT NULL,
+          document_id TEXT NOT NULL,
+          database_id TEXT,
+          payload_json TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending',
+          attempts INTEGER NOT NULL DEFAULT 0,
+          next_attempt_at TEXT NOT NULL,
+          lease_token TEXT,
+          lease_expires_at TEXT,
+          last_status_code INTEGER,
+          last_error TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          delivered_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS content_webhook_deliveries_due_idx
+          ON content_webhook_deliveries (status, next_attempt_at);
+        CREATE INDEX IF NOT EXISTS content_webhook_deliveries_webhook_idx
+          ON content_webhook_deliveries (webhook_id, sequence);
+        CREATE INDEX IF NOT EXISTS content_webhook_deliveries_lease_idx
+          ON content_webhook_deliveries (webhook_id, lease_expires_at)
+          WHERE status = 'pending';
+        CREATE INDEX IF NOT EXISTS content_webhook_deliveries_settled_idx
+          ON content_webhook_deliveries (status, updated_at);
+        CREATE INDEX IF NOT EXISTS content_webhook_deliveries_document_idx
+          ON content_webhook_deliveries (document_id)`,
+    },
   ],
   { table: "content_migrations" },
 );

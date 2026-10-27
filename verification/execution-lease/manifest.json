@@ -13,6 +13,15 @@
       "config": "ExecutionLeasePolicyFlip.cfg"
     },
     {
+      "config": "checks/F2-prune-under-live-lease.cfg"
+    },
+    {
+      "config": "checks/F3-policy-flip-forgets-dispatch.cfg"
+    },
+    {
+      "config": "checks/F2-late-effect-after-cutoff.cfg"
+    },
+    {
       "config": "sufficiency/fence-alone.cfg"
     },
     {
@@ -49,22 +58,27 @@
       "config": "mutations/g-reset-without-successor-fence.cfg",
       "invariant": "P1",
       "breaks": "reset fallback writing to a successor without checking its current lease"
+    },
+    {
+      "config": "mutations/h-prune-incomplete-step.cfg",
+      "invariant": "P8",
+      "breaks": "retention pruning a dispatched step while its old handler can still complete"
+    },
+    {
+      "config": "mutations/i-ignore-recovery-cutoff.cfg",
+      "invariant": "P8",
+      "breaks": "retention pruning a recent unresolved receipt before the recovery cutoff after its lease expires"
     }
   ],
   "findings": [
     {
-      "config": "findings/F2-prune-under-live-lease.cfg",
-      "invariant": "P8",
-      "finding": "F2: the retention prune deletes step rows without checking the lease"
-    },
-    {
-      "config": "findings/F3-policy-flip-forgets-dispatch.cfg",
+      "config": "findings/F7-post-retention-same-turn-replay.cfg",
       "invariant": "P8Strict",
-      "finding": "F3: re-adopting a dispatched retry-safe step forgets it was dispatched"
+      "finding": "replaying a turn id after retention prunes its journal can start a fresh effect while a prior handler may still land"
     }
   ],
   "coverage": {
-    "syncCommit": "e7c44fcf6baf3bf1bf1254530bdf274d3bb99eaf",
+    "syncCommit": "09e84312ed4c1262da10996f5acbdb1c4f102d87",
     "code": [
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -89,7 +103,7 @@
       {
         "file": "packages/core/src/agent/run-store.ts",
         "name": "beginAgentExecutionStep",
-        "sha256": "2b7fcb58d698d5f19f94409327e75a63c21bd5de3f25f639f787f5e489809cf4"
+        "sha256": "1ef9a154909460e1b290822062f487967d45a3d7cac8eecf7e02a0a3a3aefc97"
       },
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -99,7 +113,7 @@
       {
         "file": "packages/core/src/agent/run-store.ts",
         "name": "resetAgentExecutionStepBeforeInvocation",
-        "sha256": "77980f0770a6141e7a354e693f09ba7b643b6d7c8c2b7d061dd1ba3d0cd8d56a"
+        "sha256": "d60cca7e2db7367d22f85816a804b8d4514c0c92b4a6be98dddfe29bad95db8d"
       },
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -174,7 +188,7 @@
       {
         "file": "packages/core/src/agent/run-store.ts",
         "name": "tryClaimRunSlot",
-        "sha256": "c617c9cbe5fdaf593867baf554c19295e2f6fbbf0e6840d921173c045e377137"
+        "sha256": "318bcabe060e9e1c5918c8f5164494d00ed2bb2bfb8e539c08b7b4a2e944e66e"
       },
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -184,12 +198,12 @@
       {
         "file": "packages/core/src/agent/run-store.ts",
         "name": "insertRun",
-        "sha256": "22001a58bde6df7e8c22a599cd56f1611b72a603595ed8428321a85d336f13df"
+        "sha256": "f09c39c56de9d09aae24779ffaff387c5029518f556bb7b243092769585b4ac8"
       },
       {
         "file": "packages/core/src/agent/run-store.ts",
         "name": "pruneAndRollUpPrunedRunOutcomes",
-        "sha256": "034be8dfe4ef43f866b0c601437f9c15fe01727024acf305c5a7fcd77f14c364"
+        "sha256": "e7c46c645f0e23b3ad2e1e09111be258f17d8d245a60cc15d4b669f407bba3c2"
       },
       {
         "file": "packages/core/src/agent/execution-fence.ts",
@@ -287,6 +301,12 @@
         "file": "packages/core/src/action-arguments-identity.ts",
         "name": "snapshotActionArguments",
         "sha256": "6c010fb9669b7a96b1b7419ef8ea7f5cb552fb956da8c84a6c55d185eb1bc90a"
+      },
+      {
+        "file": "packages/core/src/agent/production-agent.ts",
+        "from": "await resetAgentExecutionStepBeforeInvocation(executionStepIntent, {",
+        "to": "executionStepAdmission.wasDispatched,",
+        "sha256": "e1431d90525841eaf258b1c9fe60a53d46906b8495a33a85d73379d19feb31b6"
       }
     ]
   }
