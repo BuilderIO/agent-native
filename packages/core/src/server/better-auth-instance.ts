@@ -321,12 +321,15 @@ export async function emitSignupEventForCreatedUser(
         magicLinkAttribution.mcpSignupAttribution,
         cookieHeader,
       );
+      const filteredMagicLinkAttribution = { ...magicLinkAttribution };
+      delete filteredMagicLinkAttribution.mcpSignupAttribution;
+      if (!performanceAllowed) {
+        delete filteredMagicLinkAttribution.anonymousId;
+        delete filteredMagicLinkAttribution.sessionId;
+      }
       magicLinkAttribution = {
-        ...magicLinkAttribution,
-        ...(performanceAllowed
-          ? {}
-          : { anonymousId: undefined, sessionId: undefined }),
-        mcpSignupAttribution: mcpSignupAttribution ?? undefined,
+        ...filteredMagicLinkAttribution,
+        ...(mcpSignupAttribution ? { mcpSignupAttribution } : {}),
       };
     }
     const browser =
