@@ -24,6 +24,7 @@ import {
   snapshotCanvasCacheKey,
   snapshotTreeCacheKey,
   snapshotPresetHash,
+  validateSnapshotCostEstimate,
   treeTopForks,
   weekWindow,
   type SnapshotBand,
@@ -616,6 +617,30 @@ async function getTreeResult(input: {
     }
   }
   if (!result) {
+    const estimate = await callAction(
+      input.analyticsUrl,
+      input.analyticsToken,
+      "estimate-onboarding-journey-cost",
+      {
+        dateFrom: input.dateFrom,
+        dateTo: input.dateTo,
+        app: input.app,
+        emailFilter: SNAPSHOT_PRESET.emailFilter,
+        excludeNonProductionHosts: SNAPSHOT_PRESET.excludeNonProductionHosts,
+        followUpMode: SNAPSHOT_PRESET.followUpMode,
+        maxEventRows: SNAPSHOT_PRESET.maxEventRows,
+        maxTotalBytesBilled: SNAPSHOT_PRESET.maxTotalBytesBilled,
+      },
+    );
+    try {
+      validateSnapshotCostEstimate(estimate, {
+        maxTotalBytesBilled: SNAPSHOT_PRESET.maxTotalBytesBilled,
+      });
+    } catch (error) {
+      throw checkFailure(
+        `${input.app} cost estimate failed; no journey query was run: ${error instanceof Error ? error.message : "invalid estimate"}.`,
+      );
+    }
     const treeValue = await callAction(
       input.analyticsUrl,
       input.analyticsToken,

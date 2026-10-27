@@ -12,6 +12,7 @@ import {
   snapshotTreeCacheKey,
   snapshotPresetHash,
   treeTopForks,
+  validateSnapshotCostEstimate,
   weekWindow,
   type SnapshotExample,
   type SnapshotNode,
@@ -172,6 +173,66 @@ describe("weekly snapshot preset", () => {
       ),
     ).toBe(false);
   });
+});
+
+describe("snapshot cost preflight", () => {
+  const expected = {
+    maxTotalBytesBilled: 275_000_000_000,
+  };
+
+  it("accepts a complete estimate within the pinned page and byte budgets", () => {
+    expect(
+      validateSnapshotCostEstimate(
+        {
+          status: "within_cap",
+          maxTotalBytesBilled: 275_000_000_000,
+          requestedPageCount: 11,
+          allowedPageCount: 11,
+          pageBudgetLimited: false,
+          unestimatedPageCount: 0,
+          possiblePagesEstimatedBytes: 4_200_000_000,
+        },
+        expected,
+      ),
+    ).toBe(4_200_000_000);
+  });
+
+  it.each([
+    {
+      status: "over_cap",
+      maxTotalBytesBilled: 275_000_000_000,
+      requestedPageCount: 11,
+      allowedPageCount: 11,
+      pageBudgetLimited: false,
+      unestimatedPageCount: 0,
+      possiblePagesEstimatedBytes: 4_200_000_000,
+    },
+    {
+      status: "incomplete",
+      maxTotalBytesBilled: 275_000_000_000,
+      requestedPageCount: 11,
+      allowedPageCount: 11,
+      pageBudgetLimited: false,
+      unestimatedPageCount: 1,
+      possiblePagesEstimatedBytes: null,
+    },
+    {
+      status: "within_cap",
+      maxTotalBytesBilled: 275_000_000_000,
+      requestedPageCount: 11,
+      allowedPageCount: 10,
+      pageBudgetLimited: true,
+      unestimatedPageCount: 0,
+      possiblePagesEstimatedBytes: 4_200_000_000,
+    },
+  ])(
+    "rejects estimates that cannot cover the full pinned query",
+    (estimate) => {
+      expect(() => validateSnapshotCostEstimate(estimate, expected)).toThrow(
+        /incomplete or exceeds/,
+      );
+    },
+  );
 });
 
 describe("snapshot tree planning", () => {

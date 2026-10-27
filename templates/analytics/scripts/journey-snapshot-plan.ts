@@ -65,6 +65,32 @@ export interface SnapshotBand {
   tree: SnapshotTree;
 }
 
+export function validateSnapshotCostEstimate(
+  value: unknown,
+  expected: { maxTotalBytesBilled: number },
+): number {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("cost estimate response is invalid");
+  }
+  const estimate = value as Record<string, unknown>;
+  const estimatedBytes = estimate.possiblePagesEstimatedBytes;
+  if (
+    estimate.status !== "within_cap" ||
+    estimate.maxTotalBytesBilled !== expected.maxTotalBytesBilled ||
+    !Number.isSafeInteger(estimate.requestedPageCount) ||
+    (estimate.requestedPageCount as number) < 1 ||
+    estimate.allowedPageCount !== estimate.requestedPageCount ||
+    estimate.pageBudgetLimited !== false ||
+    estimate.unestimatedPageCount !== 0 ||
+    !Number.isSafeInteger(estimatedBytes) ||
+    (estimatedBytes as number) < 0 ||
+    (estimatedBytes as number) > expected.maxTotalBytesBilled
+  ) {
+    throw new Error("cost estimate is incomplete or exceeds the pinned budget");
+  }
+  return estimatedBytes as number;
+}
+
 export function defaultSnapshotWeek(now = new Date()): string {
   if (!Number.isFinite(now.valueOf())) {
     throw new Error("The current date must be valid.");
