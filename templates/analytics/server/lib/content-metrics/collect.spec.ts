@@ -88,7 +88,7 @@ function onlySteps(
     enabled: true,
     config: {
       builderBlog: { enabled: steps.builderBlog ?? false },
-      ga4: { enabled: steps.ga4 ?? false },
+      ga4: { enabled: steps.ga4 ?? false, propertyId: "123456789" },
       searchConsole: { enabled: steps.searchConsole ?? false, sites },
       signups: {
         ...signupsConfigSchema.parse({ enabled: false }),
@@ -493,6 +493,7 @@ describe("content collection", () => {
     ]);
     expect(mocks.runFullReport).toHaveBeenCalledWith(
       expect.objectContaining({
+        propertyId: "123456789",
         dateRange: { startDate: "2026-07-17", endDate: "2026-10-14" },
       }),
     );
@@ -531,37 +532,295 @@ describe("content collection", () => {
     );
   });
 
-  it("fails a GA4 run whose property reports no blog pages instead of writing zeros", async () => {
-    await onlySteps({ builderBlog: true, ga4: true });
-    feed(article("a1"));
-    mocks.runFullReport.mockResolvedValueOnce([]);
+  it("backfills GA4 history when the collection changes properties", async () => {
+    const collection = await onlySteps({ builderBlog: true, ga4: true });
+    feed(article("a1", { publishDate: "2026-07-01T00:00:00.000Z" }));
+    mocks.runFullReport.mockResolvedValueOnce([
+      ga4Row("20260717", "/blog/post-a1", 90),
+      ga4Row("20261014", "/blog/post-a1", 4),
+    ]);
+    await collectContentForAllTenants({
+      now: new Date("2026-10-15T07:00:00Z"),
+    });
+    await writeContentCollection(ORG_A, {
+      enabled: true,
+      config: {
+        ...collection.config,
+        ga4: { enabled: true, propertyId: "987654321" },
+      },
+    });
+    mocks.runFullReport.mockResolvedValueOnce([
+      ga4Row("20261013", "/blog/post-a1", 7),
+    ]);
+    await collectContentForAllTenants({
+      now: new Date("2026-10-16T07:00:00Z"),
+    });
 
-    const [, ga4] = await collectContentForAllTenants();
-
-    expect(ga4).toEqual(
-      expect.objectContaining({ step: "ga4", status: "failed" }),
-    );
-    expect(await snapshots("ga4_pageviews")).toEqual([]);
-  });
-
-  it("records GA4 without a property as not configured", async () => {
-    await onlySteps({ builderBlog: true, ga4: true });
-    feed(article("a1"));
-    mocks.runFullReport.mockRejectedValueOnce(
-      Object.assign(new Error("GA4_PROPERTY_ID not configured"), {
-        errorCode: "ga4_not_configured",
-        statusCode: 424,
+    expect(mocks.runFullReport).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        propertyId: "987654321",
+        dateRange: { startDate: "2026-07-18", endDate: "2026-10-15" },
       }),
     );
+    const replaced = await snapshots("ga4_pageviews");
+    expect(replaced).toContainEqual({
+      external_id: "a1",
+      metric_date: "2026-10-13",
+      value: 7,
+      source: "ga4",
+    });
+    expect(replaced.some((row) => row.metric_date === "2026-07-17")).toBe(
+      false,
+    );
+    expect(replaced.some((row) => row.metric_date === "2026-10-14")).toBe(
+      false,
+    );
+    const runs = await rows(
+      "SELECT config_fingerprint FROM analytics_content_collection_runs WHERE step = 'ga4' ORDER BY window_end",
+    );
+    expect(runs).toHaveLength(2);
+    expect(runs[0]!.config_fingerprint).toEqual(expect.any(String));
+    expect(runs[1]!.config_fingerprint).toEqual(expect.any(String));
+    expect(runs[0]!.config_fingerprint).not.toEqual(
+      runs[1]!.config_fingerprint,
+    );
+  });
+
+  it("saves nothing from a GA4 run whose property changed mid-request, and collects the new one that day", async () => {
+    const collection = await onlySteps({ builderBlog: true, ga4: true });
+    feed(article("a1"));
+    mocks.runFullReport.mockImplementationOnce(async () => {
+      await writeContentCollection(ORG_A, {
+        enabled: true,
+        config: {
+          ...collection.config,
+          ga4: { enabled: true, propertyId: "987654321" },
+        },
+      });
+      return [ga4Row("20261014", "/blog/post-a1", 4)];
+    });
+
+    const first = await collectContentForAllTenants({
+      now: new Date("2026-10-15T07:00:00Z"),
+    });
+
+    expect(ran(first)[1]).toMatchObject({
+      step: "ga4",
+      status: "failed",
+      reason: "content_config_changed",
+    });
+    expect(await snapshots("ga4_pageviews")).toEqual([]);
+
+    mocks.runFullReport.mockResolvedValueOnce([
+      ga4Row("20261014", "/blog/post-a1", 7),
+    ]);
+    const second = await collectContentForAllTenants({
+      now: new Date("2026-10-15T08:00:00Z"),
+    });
+
+    expect(ran(second)[1]).toMatchObject({ step: "ga4", status: "succeeded" });
+    expect(mocks.runFullReport).toHaveBeenLastCalledWith(
+      expect.objectContaining({ propertyId: "987654321" }),
+    );
+    expect(await snapshots("ga4_pageviews")).toContainEqual({
+      external_id: "a1",
+      metric_date: "2026-10-14",
+      value: 7,
+      source: "ga4",
+    });
+  });
+
+  it.each(["empty", "unmatched", "provider_error", "save_error"])(
+    "keeps the old GA4 series when a property replacement ends in %s",
+    async (failure) => {
+      const collection = await onlySteps({ builderBlog: true, ga4: true });
+      feed(article("a1"));
+      mocks.runFullReport.mockResolvedValueOnce([
+        ga4Row("20261014", "/blog/post-a1", 4),
+      ]);
+      await collectContentForAllTenants({
+        now: new Date("2026-10-15T07:00:00Z"),
+      });
+      const previous = await snapshots("ga4_pageviews");
+      const previousRuns = await rows(
+        "SELECT config_fingerprint, window_end FROM analytics_content_collection_runs WHERE step = 'ga4' AND status = 'succeeded'",
+      );
+      await writeContentCollection(ORG_A, {
+        enabled: true,
+        config: {
+          ...collection.config,
+          ga4: { enabled: true, propertyId: "987654321" },
+        },
+      });
+      if (failure === "provider_error") {
+        mocks.runFullReport.mockRejectedValueOnce(
+          new Error("provider unavailable"),
+        );
+      } else if (failure === "empty") {
+        mocks.runFullReport.mockResolvedValueOnce([]);
+      } else if (failure === "unmatched") {
+        mocks.runFullReport.mockResolvedValueOnce([
+          ga4Row("20261015", "/blog/untracked-post", 5),
+        ]);
+      } else {
+        await client.exec(
+          "ALTER TABLE analytics_content_metric_snapshots ADD CONSTRAINT reject_new_ga4 CHECK (value <> 5)",
+        );
+        mocks.runFullReport.mockResolvedValueOnce([
+          ga4Row("20261015", "/blog/post-a1", 5),
+        ]);
+      }
+      const summaries = await collectContentForAllTenants({
+        now: new Date("2026-10-16T07:00:00Z"),
+      });
+      expect(ran(summaries)[1]).toMatchObject({
+        step: "ga4",
+        status: "failed",
+      });
+      expect(await snapshots("ga4_pageviews")).toEqual(previous);
+      expect(
+        await rows(
+          "SELECT config_fingerprint, window_end FROM analytics_content_collection_runs WHERE step = 'ga4' AND status = 'succeeded'",
+        ),
+      ).toEqual(previousRuns);
+    },
+  );
+
+  it.each(["empty", "unmatched"])(
+    "fails a GA4 run whose property reports %s article data instead of writing zeros",
+    async (report) => {
+      await onlySteps({ builderBlog: true, ga4: true });
+      feed(article("a1"));
+      mocks.runFullReport.mockResolvedValueOnce(
+        report === "empty"
+          ? []
+          : [ga4Row("20261014", "/blog/untracked-post", 5)],
+      );
+
+      const [, ga4] = await collectContentForAllTenants();
+
+      expect(ga4).toEqual(
+        expect.objectContaining({ step: "ga4", status: "failed" }),
+      );
+      expect(await snapshots("ga4_pageviews")).toEqual([]);
+    },
+  );
+
+  it.each(["succeeds", "fails"])(
+    "keeps newer GA4 snapshots and terminal run states when an abandoned request later %s",
+    async (completion) => {
+      const collection = await onlySteps({ builderBlog: true, ga4: true });
+      feed(article("a1"));
+      await collectContentForCollection(collection, {
+        trigger: "manual",
+        steps: ["builder_blog"],
+        now: new Date("2026-10-15T07:00:00Z"),
+      });
+      let releaseOld!: (rows: ReturnType<typeof ga4Row>[]) => void;
+      let rejectOld!: (error: Error) => void;
+      let markStarted!: () => void;
+      const started = new Promise<void>((resolve) => {
+        markStarted = resolve;
+      });
+      const oldReport = new Promise<ReturnType<typeof ga4Row>[]>(
+        (resolve, reject) => {
+          releaseOld = resolve;
+          rejectOld = reject;
+        },
+      );
+      mocks.runFullReport.mockImplementationOnce(() => {
+        markStarted();
+        return oldReport;
+      });
+      const older = collectContentForCollection(collection, {
+        trigger: "manual",
+        steps: ["ga4"],
+        now: new Date("2026-10-15T07:00:00Z"),
+      });
+      await started;
+      try {
+        const updated = await writeContentCollection(ORG_A, {
+          enabled: true,
+          config: {
+            ...collection.config,
+            ga4: { enabled: true, propertyId: "987654321" },
+          },
+        });
+        mocks.runFullReport.mockResolvedValueOnce([
+          ga4Row("20261014", "/blog/post-a1", 7),
+        ]);
+        expect(
+          await collectContentForCollection(updated, {
+            trigger: "manual",
+            steps: ["ga4"],
+            now: new Date("2026-10-15T07:31:00Z"),
+          }),
+        ).toEqual([expect.objectContaining({ status: "succeeded" })]);
+        const savedSnapshots = await snapshots("ga4_pageviews");
+        expect(savedSnapshots).toContainEqual({
+          external_id: "a1",
+          metric_date: "2026-10-14",
+          value: 7,
+          source: "ga4",
+        });
+        const savedRuns = await rows(
+          "SELECT status, error_code, finished_at, config_fingerprint FROM analytics_content_collection_runs WHERE step = 'ga4' ORDER BY started_at",
+        );
+        expect(savedRuns.map((run) => [run.status, run.error_code])).toEqual([
+          ["failed", "abandoned"],
+          ["succeeded", null],
+        ]);
+        if (completion === "fails")
+          rejectOld(new Error("late provider failure"));
+        else releaseOld([ga4Row("20261013", "/blog/post-a1", 99)]);
+        expect(await older).toEqual([
+          expect.objectContaining({ status: "failed" }),
+        ]);
+        expect(await snapshots("ga4_pageviews")).toEqual(savedSnapshots);
+        expect(
+          await rows(
+            "SELECT status, error_code, finished_at, config_fingerprint FROM analytics_content_collection_runs WHERE step = 'ga4' ORDER BY started_at",
+          ),
+        ).toEqual(savedRuns);
+      } finally {
+        releaseOld([]);
+        await older;
+      }
+    },
+  );
+
+  it("does not query the shared property when the collection has no GA4 property", async () => {
+    const collection = await onlySteps({ builderBlog: true, ga4: true });
+    await writeContentCollection(ORG_A, {
+      enabled: true,
+      config: {
+        ...collection.config,
+        ga4: { enabled: true, propertyId: null },
+      },
+    });
+    feed(article("a1"));
 
     const [, ga4] = await collectContentForAllTenants();
 
     expect(ga4).toEqual(
       expect.objectContaining({
         status: "not_configured",
-        reason: "ga4_not_configured",
+        reason: "ga4_property_not_configured",
       }),
     );
+    expect(mocks.runFullReport).not.toHaveBeenCalled();
+    expect(await snapshots("ga4_pageviews")).toEqual([]);
+    expect(
+      await rows(
+        "SELECT status, row_count, error_code FROM analytics_content_collection_runs WHERE step = 'ga4'",
+      ),
+    ).toEqual([
+      {
+        status: "not_configured",
+        row_count: null,
+        error_code: "ga4_property_not_configured",
+      },
+    ]);
   });
 
   it("attaches Search Console pages to articles and stores other pages as their own items", async () => {
@@ -986,11 +1245,13 @@ describe("content collection", () => {
       );
       expect(
         await rows(
-          "SELECT error_code, error_message FROM analytics_content_collection_runs WHERE step = 'signups'",
+          "SELECT error_code, error_message, bytes_processed, bytes_cap FROM analytics_content_collection_runs WHERE step = 'signups'",
         ),
       ).toEqual([
         {
           error_code: "signups_bytes_cap",
+          bytes_processed: 0,
+          bytes_cap: 1_000,
           error_message:
             "The signups join would scan 5000 bytes, over the 1000-byte cap. Nothing ran.",
         },
@@ -1020,6 +1281,165 @@ describe("content collection", () => {
       expect(ran(summaries)[1]).toEqual(
         expect.objectContaining({ step: "signups", status: "cost_limited" }),
       );
+      expect(
+        await rows(
+          "SELECT bytes_processed, bytes_cap FROM analytics_content_collection_runs WHERE step = 'signups'",
+        ),
+      ).toEqual([{ bytes_processed: null, bytes_cap: 1_000 }]);
+    });
+
+    it.each([
+      { name: "dry-run error", dryRun: { error: "unavailable" }, bytes: 0 },
+      { name: "missing estimate", dryRun: { error: null }, bytes: 0 },
+      {
+        name: "query error",
+        queryError: new Error("query unavailable"),
+        bytes: null,
+      },
+      { name: "truncated result", result: { truncated: true }, bytes: 400 },
+      {
+        name: "row limit",
+        result: { rows: Array(200_000).fill({}) },
+        bytes: 400,
+      },
+      {
+        name: "invalid signup count",
+        result: {
+          rows: [
+            {
+              data_through: "2026-10-13",
+              handle: "post-a1",
+              day: "2026-10-13",
+              signups: Symbol("invalid-count"),
+            },
+          ],
+        },
+        bytes: 400,
+      },
+    ])(
+      "keeps the cap and known usage after $name",
+      async ({ dryRun, queryError, result, bytes }) => {
+        await onlySteps({ builderBlog: true, signups: true }, [], {
+          ...WAREHOUSE,
+          maxBytesBilled: 1_000,
+        });
+        feed(article("a1"));
+        mocks.dryRunQuerySchema.mockResolvedValueOnce(
+          dryRun ?? { error: null, totalBytesProcessed: 900 },
+        );
+        if (queryError) mocks.runQuery.mockRejectedValueOnce(queryError);
+        else
+          mocks.runQuery.mockResolvedValueOnce({
+            rows: [],
+            totalRows: 0,
+            schema: [],
+            bytesProcessed: 400,
+            ...result,
+          });
+
+        const summaries = await collectContentForAllTenants({
+          now: new Date("2026-10-15T07:00:00Z"),
+        });
+
+        expect(ran(summaries)[1]).toMatchObject({
+          step: "signups",
+          status: "failed",
+        });
+        expect(
+          await rows(
+            "SELECT bytes_processed, bytes_cap FROM analytics_content_collection_runs WHERE step = 'signups'",
+          ),
+        ).toEqual([{ bytes_processed: bytes, bytes_cap: 1_000 }]);
+        expect(mocks.runQuery).toHaveBeenCalledTimes(dryRun ? 0 : 1);
+        expect(await snapshots("signups_first_touch")).toEqual([]);
+      },
+    );
+
+    it.each([
+      { bytesProcessed: 0, cached: false, expected: 0 },
+      { bytesProcessed: undefined, cached: false, expected: null },
+      { bytesProcessed: 400, cached: true, expected: 0 },
+      { bytesProcessed: undefined, cached: true, expected: 0 },
+    ])(
+      "records $expected bytes for cached=$cached and returned usage=$bytesProcessed",
+      async ({ bytesProcessed, cached, expected }) => {
+        await onlySteps({ builderBlog: true, signups: true }, [], {
+          ...WAREHOUSE,
+          maxBytesBilled: 1_000,
+        });
+        feed(article("a1"));
+        mocks.dryRunQuerySchema.mockResolvedValueOnce({
+          error: null,
+          totalBytesProcessed: 900,
+        });
+        mocks.runQuery.mockResolvedValueOnce({
+          rows: [],
+          totalRows: 0,
+          schema: [],
+          bytesProcessed,
+          cached,
+        });
+
+        await collectContentForAllTenants({
+          now: new Date("2026-10-15T07:00:00Z"),
+        });
+
+        expect(
+          await rows(
+            "SELECT status, bytes_processed, bytes_cap FROM analytics_content_collection_runs WHERE step = 'signups'",
+          ),
+        ).toEqual([
+          {
+            status: "succeeded",
+            bytes_processed: expected,
+            bytes_cap: 1_000,
+          },
+        ]);
+      },
+    );
+
+    it("keeps actual query usage when saving snapshots fails", async () => {
+      await onlySteps({ builderBlog: true, signups: true }, [], {
+        ...WAREHOUSE,
+        maxBytesBilled: 1_000,
+      });
+      feed(article("a1", { publishDate: "2026-10-13T00:00:00.000Z" }));
+      await client.exec(
+        "ALTER TABLE analytics_content_metric_snapshots ADD CONSTRAINT reject_signups CHECK (source <> 'signups')",
+      );
+      mocks.dryRunQuerySchema.mockResolvedValueOnce({
+        error: null,
+        totalBytesProcessed: 900,
+      });
+      mocks.runQuery.mockResolvedValueOnce({
+        rows: [
+          {
+            data_through: "2026-10-13",
+            handle: "post-a1",
+            day: "2026-10-13",
+            signups: 2,
+            source_signups: 1,
+          },
+        ],
+        totalRows: 1,
+        schema: [],
+        bytesProcessed: 400,
+      });
+
+      const summaries = await collectContentForAllTenants({
+        now: new Date("2026-10-15T07:00:00Z"),
+      });
+
+      expect(ran(summaries)[1]).toMatchObject({
+        step: "signups",
+        status: "failed",
+      });
+      expect(
+        await rows(
+          "SELECT status, bytes_processed, bytes_cap FROM analytics_content_collection_runs WHERE step = 'signups'",
+        ),
+      ).toEqual([{ status: "failed", bytes_processed: 400, bytes_cap: 1_000 }]);
+      expect(await snapshots("signups_first_touch")).toEqual([]);
     });
 
     it("writes first-touch signups per article by visit day, zero only through the warehouse's last day", async () => {
@@ -1060,7 +1480,7 @@ describe("content collection", () => {
         ],
         totalRows: 3,
         schema: [],
-        bytesProcessed: 900,
+        bytesProcessed: 400,
       });
 
       await collectContentForAllTenants({
@@ -1072,6 +1492,13 @@ describe("content collection", () => {
         { maxBytesBilled: number },
       ];
       expect(options.maxBytesBilled).toBe(1_000);
+      expect(
+        await rows(
+          "SELECT status, bytes_processed, bytes_cap FROM analytics_content_collection_runs WHERE step = 'signups'",
+        ),
+      ).toEqual([
+        { status: "succeeded", bytes_processed: 400, bytes_cap: 1_000 },
+      ]);
       expect(sql).toContain("`example-project.analytics.events`");
       expect(sql).toContain("TIMESTAMP('2026-07-17')");
       expect(sql).toContain("DATE '2026-10-14'");

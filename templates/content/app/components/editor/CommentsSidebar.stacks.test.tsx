@@ -21,7 +21,7 @@ import {
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
-const actions = vi.hoisted(() => ({ create: vi.fn() }));
+const actions = vi.hoisted(() => ({ create: vi.fn(), resolve: vi.fn() }));
 vi.mock("@/hooks/use-comments", () => ({
   useCreateComment: () => ({
     mutateAsync: actions.create,
@@ -31,7 +31,7 @@ vi.mock("@/hooks/use-comments", () => ({
   useEditComment: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useReactToComment: () => ({ mutate: vi.fn(), isPending: false }),
   useDeleteComment: () => ({ mutateAsync: vi.fn() }),
-  useResolveComment: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useResolveComment: () => ({ mutateAsync: actions.resolve, isPending: false }),
 }));
 vi.mock("@/hooks/use-mention-members", () => ({
   useMentionMembers: () => ({ data: [] }),
@@ -159,11 +159,13 @@ function Owner({
   scroll,
   presentation,
   canComment,
+  surface,
 }: {
   threads: CommentThread[];
   scroll: HTMLDivElement;
   presentation: "inline" | "history";
   canComment: boolean;
+  surface?: "rail" | "popover";
 }) {
   const replies = useCommentReplyDrafts("fixture", "reviewer@example.test");
   const pending = usePendingCommentDraft("fixture");
@@ -207,6 +209,7 @@ function Owner({
       alignToAnchors
       forceVisible
       presentation={presentation}
+      surface={surface}
     />
   );
 }
@@ -220,6 +223,7 @@ describe("comment stacks in the margin", () => {
   beforeEach(() => {
     queryClient = new QueryClient();
     actions.create.mockReset();
+    actions.resolve.mockReset();
     harness.activated = [];
     scroll = document.createElement("div");
     scroll.innerHTML = DOC;
@@ -240,6 +244,7 @@ describe("comment stacks in the margin", () => {
     threads: CommentThread[] = THREADS,
     presentation: "inline" | "history" = "inline",
     canComment = true,
+    surface?: "rail" | "popover",
   ) {
     act(() => {
       root.render(
@@ -254,6 +259,7 @@ describe("comment stacks in the margin", () => {
                 scroll={scroll}
                 presentation={presentation}
                 canComment={canComment}
+                surface={surface}
               />
             </CommentDraftProvider>
           </TooltipProvider>
@@ -453,6 +459,125 @@ describe("comment stacks in the margin", () => {
     expect(container.querySelector('[data-thread-card="page"]')).not.toBeNull();
   });
 
+  it("puts a thread on a video beside the video, named by the video", () => {
+    const clip = thread("clip", ["2026-10-20T06:00:00Z"]);
+    clip.quotedText = null;
+    found(clip.comments[0]).quoted_text = null;
+    clip.block = { blockId: "video-1", blockType: "video" };
+    found(scroll.querySelector(".ProseMirror")).insertAdjacentHTML(
+      "beforeend",
+      '<div data-comment-block-threads="clip"><video></video></div>',
+    );
+
+    render([found(THREADS[5]), clip]);
+    expect(margin()).toEqual(["solo", "clip"]);
+    expect(container.textContent).not.toContain("comments.unanchored");
+
+    render([found(THREADS[5]), clip], "history");
+    expect(
+      container.querySelector('[data-thread-card="clip"] [data-comment-quote]')
+        ?.textContent,
+    ).toBe("editor.media.video");
+  });
+
+  it("lists a thread on a video with no mark as unanchored, and puts it beside the video once it has one", async () => {
+    const clip = thread("clip", ["2026-10-20T06:00:00Z"]);
+    clip.quotedText = null;
+    found(clip.comments[0]).quoted_text = null;
+    clip.block = { blockId: "video-1", blockType: "video" };
+
+    const unanchored = () =>
+      container.querySelector(
+        '[data-comment-layout-thread="clip"] [data-unanchored-comments]',
+      );
+
+    render([found(THREADS[5]), clip]);
+    await wait(50);
+    expect(unanchored()).not.toBeNull();
+
+    found(scroll.querySelector(".ProseMirror")).insertAdjacentHTML(
+      "beforeend",
+      '<div data-comment-block-threads="clip"><video></video></div>',
+    );
+    await wait(50);
+    expect(unanchored()).toBeNull();
+    expect(margin()).toEqual(["solo", "clip"]);
+    expect(container.textContent).not.toContain("comments.unanchored");
+  });
+
+  it("stacks a thread on a video with the highlights in its block", () => {
+    const clip = thread("clip", ["2026-10-21T06:00:00Z"]);
+    clip.quotedText = null;
+    found(clip.comments[0]).quoted_text = null;
+    clip.block = { blockId: "video-1", blockType: "video" };
+    found(scroll.querySelector("li")).insertAdjacentHTML(
+      "beforeend",
+      '<div data-comment-block-threads="clip"><video></video></div>',
+    );
+
+    render([...THREADS, clip]);
+    expect(margin()).toEqual(["stack:d", "solo", "stack:clip", "l3"]);
+    expect(found(foldedStacks()[1]).textContent).toContain(
+      "editor.media.video",
+    );
+  });
+
+  it("opens a video's stack from the video, though its new thread is selected", async () => {
+    const onVideo = (threadId: string, at: string) => {
+      const item = thread(threadId, [at]);
+      item.quotedText = null;
+      found(item.comments[0]).quoted_text = null;
+      item.block = { blockId: "video-1", blockType: "video" };
+      return item;
+    };
+    const clip = onVideo("clip", "2026-10-21T06:00:00Z");
+    found(scroll.querySelector(".ProseMirror")).insertAdjacentHTML(
+      "beforeend",
+      '<div data-comment-block-threads="clip"><video></video></div>',
+    );
+    render([found(THREADS[5]), clip]);
+    const ring = found(scroll.querySelector("[data-comment-block-threads]"));
+    ring.classList.add("comment-highlight", "comment-highlight--pending");
+    act(() =>
+      harness.comment({
+        quotedText: "",
+        offsetTop: 0,
+        range: { from: 0, to: 1, blockId: "video-1" },
+        block: { blockId: "video-1", blockType: "video" },
+      }),
+    );
+    await wait(60);
+    actions.create.mockImplementation(async () => {
+      ring.className = "";
+      ring.setAttribute("data-comment-block-threads", "clip new");
+      render([
+        found(THREADS[5]),
+        clip,
+        onVideo("new", new Date().toISOString()),
+      ]);
+      return { id: "new-0", threadId: "new" };
+    });
+    await setRichEditorValue(
+      found(
+        richEditor(found(container.querySelector("[data-comment-pending]"))),
+      ),
+      "Louder",
+    );
+    await act(async () =>
+      found(
+        container.querySelector<HTMLButtonElement>(
+          '[aria-label="comments.submit"]',
+        ),
+      ).click(),
+    );
+    expect(harness.selected).toBe("new");
+    expect(margin()).toEqual(["solo", "stack:new"]);
+
+    act(() => found(scroll.querySelector("video")).click());
+    expect(margin()).toEqual(expect.arrayContaining(["clip", "new"]));
+    expect(collapseButton()).not.toBeNull();
+  });
+
   it("brings a highlight's thread to the front once the pointer rests on it", async () => {
     render();
     act(() => harness.hover("b"));
@@ -632,6 +757,123 @@ describe("comment stacks in the margin", () => {
     await wait(60);
     expect(collapseButton()).not.toBeNull();
     expect(margin()).toEqual(expect.arrayContaining(["a", "c", "d"]));
+  });
+
+  function clickResolve(threadId: string) {
+    const button = container.querySelector<HTMLButtonElement>(
+      `[data-thread-card="${threadId}"] [data-comment-resolve]`,
+    );
+    if (!button) throw new Error(`No Resolve button on ${threadId}'s card`);
+    act(() => button.click());
+  }
+
+  /** Clicks Resolve on a card, then plays back the saved resolution. */
+  async function resolveFromCard(threadId: string, threads = THREADS) {
+    clickResolve(threadId);
+    const resolved = threads.map((item) =>
+      item.threadId === threadId ? { ...item, resolved: true } : item,
+    );
+    render(resolved);
+    const highlight = scroll.querySelector(
+      `[data-comment-thread="${threadId}"]`,
+    );
+    if (!highlight) throw new Error(`No highlight for ${threadId}`);
+    act(() => highlight.removeAttribute("data-comment-thread"));
+    await wait(60);
+  }
+
+  it("closes a card resolved from it", async () => {
+    render();
+    act(() => harness.select("solo"));
+    expect(margin()).toContain("solo");
+    await resolveFromCard("solo");
+    expect(harness.selected).toBeNull();
+    expect(margin()).not.toContain("solo");
+  });
+
+  it("opens the next thread of an open stack resolved from its card", async () => {
+    render();
+    act(() => harness.select("b"));
+    await resolveFromCard("b");
+    expect(harness.selected).toBe("c");
+    expect(collapseButton()).not.toBeNull();
+    expect(margin()).toEqual(expect.arrayContaining(["a", "c", "d"]));
+    expect(margin()).not.toContain("b");
+  });
+
+  it("closes a stack resolved from its card down to one thread", async () => {
+    render();
+    act(() => harness.select("l1"));
+    await resolveFromCard("l1");
+    expect(harness.selected).toBeNull();
+    expect(collapseButton()).toBeNull();
+    expect(margin()).not.toContain("l1");
+  });
+
+  it("closes the popover when its thread is resolved from it", async () => {
+    render(THREADS, "inline", true, "popover");
+    act(() => harness.select("solo"));
+    expect(container.querySelector('[data-thread-card="solo"]')).not.toBeNull();
+    clickResolve("solo");
+    await wait(0);
+    expect(harness.selected).toBeNull();
+  });
+
+  it("opens a card again when its resolve fails", async () => {
+    actions.resolve.mockRejectedValueOnce(new Error("offline"));
+    render();
+    act(() => harness.select("solo"));
+    clickResolve("solo");
+    await wait(0);
+    expect(harness.selected).toBe("solo");
+    expect(margin()).toContain("solo");
+  });
+
+  /** Holds the next resolve request open; the returned function fails it. */
+  function holdResolve() {
+    let reject: (error: Error) => void = () => {};
+    actions.resolve.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, fail) => {
+          reject = fail;
+        }),
+    );
+    return async () => {
+      await act(async () => reject(new Error("offline")));
+    };
+  }
+
+  it("keeps a newer selection when a resolve fails", async () => {
+    const failResolve = holdResolve();
+    render();
+    act(() => harness.select("solo"));
+    clickResolve("solo");
+    expect(harness.selected).toBeNull();
+    act(() => harness.select("a"));
+    await failResolve();
+    expect(harness.selected).toBe("a");
+  });
+
+  it("keeps a new comment started while a resolve fails", async () => {
+    const failResolve = holdResolve();
+    render();
+    act(() => harness.select("solo"));
+    clickResolve("solo");
+    act(() => harness.comment({ quotedText: "beside it", offsetTop: 0 }));
+    await failResolve();
+    expect(harness.selected).toBeNull();
+  });
+
+  it("keeps the next thread chosen again after another when a resolve fails", async () => {
+    const failResolve = holdResolve();
+    render();
+    act(() => harness.select("b"));
+    clickResolve("b");
+    expect(harness.selected).toBe("c");
+    act(() => harness.select("a"));
+    act(() => harness.select("c"));
+    await failResolve();
+    expect(harness.selected).toBe("c");
   });
 
   it("forgets a stack resolved down to one thread", async () => {

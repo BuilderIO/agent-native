@@ -40,8 +40,10 @@ import { readDefaultAgentEngineSetting } from "../default-agent-engine.js";
 import { normalizeModelForEngine } from "../model-version.js";
 import { createProviderEndpointFetch } from "./ai-sdk-engine.js";
 import {
+  type EngineLlmConnectionSource,
   type EngineCredentialOwner,
   tagEngineCredentialOwner,
+  tagEngineLlmConnectionSource,
 } from "./credential-owner.js";
 import {
   AI_SDK_ANTHROPIC_DEFAULT_BASE_URL,
@@ -860,6 +862,7 @@ async function resolveUsableProviderSecretDetailed(
     value,
     provenance: {
       scope: source === "env" ? "deployment" : (source ?? "deployment"),
+      source: source === "env" ? "env" : "app_secrets",
       ...(resolved.scopeId ? { scopeId: resolved.scopeId } : {}),
     },
   };
@@ -950,10 +953,33 @@ export function credentialOwnerForEntry(
 async function createEngineForEntry(
   ...args: Parameters<typeof engineCreateConfigForEntry>
 ): Promise<AgentEngine> {
-  const { config, credentialOwner } = await engineCreateConfigForEntry(...args);
+  const { config, credentialOwner, connectionSource } =
+    await engineCreateConfigForEntry(...args);
   const engine = args[0].create(config);
   tagEngineCredentialOwner(engine, credentialOwner);
+  tagEngineLlmConnectionSource(engine, connectionSource);
   return engine;
+}
+
+function connectionSourceForProvenance(
+  provenance: CredentialProvenance | undefined,
+): EngineLlmConnectionSource | undefined {
+  if (
+    provenance?.source === "app_secrets" ||
+    provenance?.source === "settings" ||
+    provenance?.source === "env"
+  ) {
+    return provenance.source;
+  }
+  if (provenance?.scope === "deployment") return "env";
+  if (
+    provenance?.scope === "user" ||
+    provenance?.scope === "org" ||
+    provenance?.scope === "workspace"
+  ) {
+    return "app_secrets";
+  }
+  return undefined;
 }
 
 async function engineCreateConfigForEntry(
@@ -967,8 +993,10 @@ async function engineCreateConfigForEntry(
 ): Promise<{
   config: Record<string, unknown>;
   credentialOwner: EngineCredentialOwner | undefined;
+  connectionSource: EngineLlmConnectionSource | undefined;
 }> {
   const safeExtra = { ...(extra ?? {}) };
+  let connectionSource = connectionSourceForProvenance(apiKeyProvenance);
   if (entry.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME) {
     const email = identityUserEmail(credentialIdentity);
     if (
@@ -1049,6 +1077,7 @@ async function engineCreateConfigForEntry(
       matchingApiKeyProvenance ??= resolvedMatchingCredential?.provenance;
     }
   }
+  connectionSource ??= connectionSourceForProvenance(matchingApiKeyProvenance);
   const aiSdkProvider = entry.name.startsWith("ai-sdk:")
     ? entry.name.slice("ai-sdk:".length)
     : undefined;
@@ -1157,6 +1186,8 @@ async function engineCreateConfigForEntry(
         lane: creds.lane,
       };
     }
+    connectionSource =
+      creds.source === "env" ? "env" : creds.source ? "app_secrets" : undefined;
   }
   const config = engineCreateConfig(entry, matchingApiKey, safeExtra);
   return {
@@ -1167,6 +1198,14 @@ async function engineCreateConfigForEntry(
       matchingApiKeyProvenance,
       config,
     ),
+    connectionSource:
+      connectionSource ??
+      (matchingApiKey === undefined &&
+      entry.requiredEnvVars.some((key) =>
+        canUseDeployCredentialFallbackForRequest(key),
+      )
+        ? "env"
+        : undefined),
   };
 }
 

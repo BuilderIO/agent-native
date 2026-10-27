@@ -8,7 +8,10 @@ import { decodeHTML } from "entities/decode";
  * through the same string check.
  */
 
-/** Replaces an embed start URL that cannot simply be dropped (an array item). */
+/**
+ * Replaces a string that mentions the embed start route, so a reader sees
+ * that a value was hidden rather than finding its key missing.
+ */
 export const HIDDEN_EMBED_URL = "[hidden embed URL]";
 
 /** Replaces a value already being serialized higher up the same result. */

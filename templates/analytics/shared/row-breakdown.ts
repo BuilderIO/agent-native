@@ -100,7 +100,13 @@ export function sameCell(a: unknown, b: unknown): boolean {
   return cellKey(a) === cellKey(b);
 }
 
-const NUMERIC_FORMATS = new Set(["number", "currency", "percent", "delta"]);
+const NUMERIC_FORMATS = new Set([
+  "number",
+  "currency",
+  "percent",
+  "delta",
+  "duration",
+]);
 
 function isMeasure(
   format: string | undefined,

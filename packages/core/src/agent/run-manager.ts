@@ -4,6 +4,7 @@ import {
   BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
   RUN_NO_PROGRESS_HARD_TIMEOUT_MS,
 } from "../app-config/run-lifecycle-invariants.js";
+import type { DbExec } from "../db/client.js";
 import {
   getCurrentRequestDbPoolScope,
   retainRequestDbPoolScope,
@@ -411,6 +412,7 @@ function shouldCaptureRunError(err: unknown): boolean {
 export interface StartRunOptions {
   waitUntil?: (promise: Promise<unknown>) => void;
   softTimeoutMs?: number;
+  softTimeoutDeadlineAt?: number;
   useHostedSoftTimeoutDefault?: boolean;
   turnId?: string;
   agentKitApprovalContinuation?: boolean;
@@ -421,6 +423,8 @@ export interface StartRunOptions {
   dispatchMode?: "foreground" | "foreground-self-chain" | "background";
   turnInitiator?: AgentTurnInitiator;
   runRowAlreadyInserted?: boolean;
+  /** Serialized with the run insert before the run driver starts. */
+  afterRunInsert?: (tx: DbExec) => Promise<void>;
   executionLease?: boolean;
   model?: string;
   engineName?: string;
@@ -839,6 +843,15 @@ export function startRun(
   onComplete?: (run: ActiveRun) => void | Promise<void>,
   options?: StartRunOptions,
 ): StartedRun {
+  if (options?.runRowAlreadyInserted && options.afterRunInsert) {
+    throw new Error("Run admission checks require a new run row.");
+  }
+  if (
+    options?.softTimeoutDeadlineAt !== undefined &&
+    !Number.isFinite(options.softTimeoutDeadlineAt)
+  ) {
+    throw new Error("Run soft-timeout deadline must be a finite timestamp.");
+  }
   const existingRunId = threadToRun.get(threadId);
   if (existingRunId) {
     if (existingRunId === runId) {
@@ -984,13 +997,16 @@ export function startRun(
   // final status cannot race ahead of a slow initial INSERT and then get
   // overwritten by a late row stuck at status='running'.
   const insertOptions =
-    options?.dispatchMode || options?.turnInitiator
+    options?.dispatchMode || options?.turnInitiator || options?.afterRunInsert
       ? {
           ...(options?.dispatchMode
             ? { dispatchMode: options.dispatchMode }
             : {}),
           ...(options?.turnInitiator
             ? { turnInitiator: options.turnInitiator }
+            : {}),
+          ...(options.afterRunInsert
+            ? { afterInsert: options.afterRunInsert }
             : {}),
         }
       : undefined;
@@ -1799,6 +1815,16 @@ export function startRun(
     useHostedDefault: options?.useHostedSoftTimeoutDefault === true,
     backgroundFunction: options?.backgroundFunction === true,
   });
+  const hasSoftTimeout =
+    softTimeoutMs > 0 || options?.softTimeoutDeadlineAt !== undefined;
+  const runDeadlineAt = hasSoftTimeout
+    ? Math.min(
+        softTimeoutMs > 0
+          ? Date.now() + softTimeoutMs
+          : Number.POSITIVE_INFINITY,
+        options?.softTimeoutDeadlineAt ?? Number.POSITIVE_INFINITY,
+      )
+    : null;
   const noProgressTimeoutMs = resolveRunNoProgressTimeoutMs({
     softTimeoutMs,
     backgroundFunction: options?.backgroundFunction === true,
@@ -1806,15 +1832,18 @@ export function startRun(
     backgroundOverrideMs: options?.backgroundNoProgressTimeoutMs,
   });
   const softTimeoutTimer =
-    softTimeoutMs > 0 && !recoverChunkBoundaries
-      ? setTimeout(() => {
-          reachRunBoundary("run_timeout", {
-            lastEventType: run.events.at(-1)?.event.type,
-          });
-        }, softTimeoutMs)
+    hasSoftTimeout && !recoverChunkBoundaries
+      ? setTimeout(
+          () => {
+            const lastEventType = run.events.at(-1)?.event.type;
+            reachRunBoundary("run_timeout", {
+              ...(lastEventType === undefined ? {} : { lastEventType }),
+            });
+          },
+          Math.max(0, (runDeadlineAt ?? Date.now()) - Date.now()),
+        )
       : null;
-  if (recoverChunkBoundaries && softTimeoutMs > 0) {
-    const runDeadlineAt = Date.now() + softTimeoutMs;
+  if (recoverChunkBoundaries && hasSoftTimeout) {
     recoverableRunDeadlineAt = runDeadlineAt;
     armChunkSoftTimeout = () => {
       if (chunkSoftTimeoutTimer) clearTimeout(chunkSoftTimeoutTimer);
@@ -1826,7 +1855,7 @@ export function startRun(
             lastEventType: run.events.at(-1)?.event.type,
           });
         },
-        Math.max(0, runDeadlineAt - Date.now()),
+        Math.max(0, (runDeadlineAt ?? Date.now()) - Date.now()),
       );
     };
     armChunkSoftTimeout();

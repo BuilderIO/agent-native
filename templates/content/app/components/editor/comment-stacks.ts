@@ -49,7 +49,8 @@ export function commentStackKey(fieldId: string | null, blockKey: string) {
 }
 
 /**
- * Each thread's first highlight on the page, in document order. Property
+ * Each thread's first highlight on the page, in document order. A thread on a
+ * whole block, such as a video, is placed by the block's own mark. Property
  * threads, threads not listed, and highlights in a closed tab are left out.
  */
 export function measureCommentBlocks(
@@ -64,23 +65,30 @@ export function measureCommentBlocks(
   const placements = new Map<string, CommentBlockPlacement>();
   // Highlights share blocks, and a block's path walks its siblings.
   const paths = new Map<Element, string | null>();
-  for (const highlight of container.querySelectorAll("[data-comment-thread]")) {
-    const threadId = highlight.getAttribute("data-comment-thread");
-    const thread = threadId ? byId.get(threadId) : undefined;
-    if (!thread || placements.has(thread.threadId)) continue;
-    if (inHiddenBlockFieldPanel(highlight)) continue;
-    const found = commentBlock(highlight);
-    if (!found) continue;
-    let block = paths.get(found.block);
-    if (block === undefined) {
-      block = blockPath(found);
-      paths.set(found.block, block);
+  for (const highlight of container.querySelectorAll(
+    "[data-comment-thread], [data-comment-block-threads]",
+  )) {
+    const threadIds =
+      highlight.getAttribute("data-comment-thread") ??
+      highlight.getAttribute("data-comment-block-threads") ??
+      "";
+    for (const threadId of threadIds.split(" ")) {
+      const thread = byId.get(threadId);
+      if (!thread || placements.has(thread.threadId)) continue;
+      if (inHiddenBlockFieldPanel(highlight)) continue;
+      const found = commentBlock(highlight);
+      if (!found) continue;
+      let block = paths.get(found.block);
+      if (block === undefined) {
+        block = blockPath(found);
+        paths.set(found.block, block);
+      }
+      if (block === null) continue;
+      placements.set(thread.threadId, {
+        key: commentStackKey(commentThreadFieldId(thread), block),
+        order: placements.size,
+      });
     }
-    if (block === null) continue;
-    placements.set(thread.threadId, {
-      key: commentStackKey(commentThreadFieldId(thread), block),
-      order: placements.size,
-    });
   }
   return placements;
 }

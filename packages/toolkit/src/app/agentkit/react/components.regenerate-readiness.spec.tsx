@@ -23,7 +23,9 @@ function AgentKitChat() {
         },
       }}
     >
-      <AgentKitChatImplementation />
+      {/* The composer's deferred autofocus would race the More toggle for
+          focus on a slow runner. */}
+      <AgentKitChatImplementation composerProps={{ autoFocus: false }} />
     </ComposerRuntimeAdaptersProvider>
   );
 }

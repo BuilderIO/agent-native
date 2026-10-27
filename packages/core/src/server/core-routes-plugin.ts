@@ -115,6 +115,7 @@ import {
   resolveOrgScopeForEmail,
 } from "../org/context.js";
 import { isMissingOrganizationTableError } from "../org/membership.js";
+import { ensureS3PrivateBlobProviders } from "../private-blob/s3-private.js";
 import { createProgressHandler } from "../progress/routes.js";
 import { REALTIME_POLL_LIVE_QUERY_PARAM } from "../realtime-protocol.js";
 import {
@@ -211,6 +212,7 @@ import {
   getBuilderConnectTrackingParams,
   getBuilderBrowserOriginForEvent,
   getBuilderBrowserStatusForEvent,
+  BuilderAccountProvisioningError,
   isBuilderAccountAlreadyExistsError,
   isBuilderAccountProvisioningEnabled,
   isBuilderConnectCallbackUrlAllowed,
@@ -2530,11 +2532,13 @@ export async function activateBuilderAccount(
     message: string,
     reason: string,
     code?: string,
+    diagnostics: Record<string, unknown> = {},
   ): Promise<BuilderAccountActivationResult> => {
     await trackBuilderLifecycle(event, "builder connect failed", ownerEmail, {
       ...builderConnectTrackingProperties(input.tracking),
       reason,
       stage: "provision",
+      ...diagnostics,
     });
     return { ok: false, status, message, reason, ...(code ? { code } : {}) };
   };
@@ -2633,10 +2637,12 @@ export async function activateBuilderAccount(
     });
     return { ok: true, scope: written.scope };
   } catch (error) {
-    console.error(
-      "[builder] Agent-Native account provisioning failed:",
-      error instanceof Error ? error.message : error,
-    );
+    const provisioningError =
+      error instanceof BuilderAccountProvisioningError ? error : null;
+    console.error("[builder] Agent-Native account provisioning failed:", {
+      errorType: error instanceof Error ? error.name : typeof error,
+      upstreamStatus: provisioningError?.upstreamStatus ?? null,
+    });
     if (isBuilderAccountAlreadyExistsError(error)) {
       return fail(
         409,
@@ -2649,6 +2655,15 @@ export async function activateBuilderAccount(
       BUILDER_UPSTREAM_FAILURE_STATUS,
       "Couldn't create your Builder.io account. Try again or sign in with an existing account.",
       "provision_failed",
+      undefined,
+      {
+        upstream_response_received: provisioningError?.upstreamStatus != null,
+        upstream_status: provisioningError?.upstreamStatus ?? null,
+        upstream_body: provisioningError?.upstreamErrorBody ?? null,
+        upstream_body_read_error_type:
+          provisioningError?.upstreamBodyReadErrorType ?? null,
+        upstream_error_type: error instanceof Error ? error.name : typeof error,
+      },
     );
   }
 }
@@ -3299,8 +3314,10 @@ export function createCoreRoutesPlugin(
       // app does not mount the optional onboarding plugin. The settings CTA and
       // the upload route share this registry. An app may register its own
       // provider under the conventional `s3` id, so preserve that explicit
-      // registration instead of replacing it during core bootstrap.
+      // registration instead of replacing it during core bootstrap. The
+      // private-blob side gets the workspace and hosted private buckets.
       ensureS3FileUploadProvider();
+      ensureS3PrivateBlobProviders();
 
       getH3App(nitroApp).use(
         `${P}/oauth/popup`,

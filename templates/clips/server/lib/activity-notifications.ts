@@ -33,6 +33,7 @@ async function getRecording(recordingId: string) {
       orgId: schema.recordings.orgId,
       password: schema.recordings.password,
       expiresAt: schema.recordings.expiresAt,
+      trashedAt: schema.recordings.trashedAt,
     })
     .from(schema.recordings)
     .where(eq(schema.recordings.id, recordingId))
@@ -101,6 +102,7 @@ async function deliverRecordingCommentEmails(
       recipientEmail: email,
       hasPassword: Boolean(recording.password),
       expiresAt: recording.expiresAt,
+      trashedAt: recording.trashedAt,
     }),
   );
   const allowed = await filterRecipientsByResourceAccess({
@@ -169,6 +171,7 @@ async function deliverRecordingReactionEmails(
         recipientEmail: email,
         hasPassword: Boolean(recording.password),
         expiresAt: recording.expiresAt,
+        trashedAt: recording.trashedAt,
       }),
     );
   const allowed = await filterRecipientsByResourceAccess({

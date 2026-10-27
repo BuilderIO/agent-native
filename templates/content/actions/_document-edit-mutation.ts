@@ -26,6 +26,7 @@ import {
   parseDocumentRevisionToken,
 } from "../server/lib/document-revision.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
+import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
 export {
   documentContentHash,
   documentRevisionToken,
@@ -137,6 +138,7 @@ function validateDocumentEditSnapshot(
       { validation: resolved.error },
     );
   }
+  assertNoNewlySharedVideoIds(beforeContent, resolved.content);
   return { document, beforeContent, beforeHash, resolved };
 }
 

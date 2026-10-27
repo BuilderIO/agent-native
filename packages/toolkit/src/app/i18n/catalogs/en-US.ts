@@ -752,6 +752,12 @@ const messages = {
   "history.copyLink": "Copy link",
   "history.linkCopied": "Link copied",
   "history.copyLinkFailed": "Couldn't copy the link",
+  "history.onlyYou": "Only you",
+  "history.hide": "Hide from my list",
+  "history.hidden": "Hidden from your list",
+  "history.undo": "Undo",
+  "history.hideFailed": "Couldn't hide the chat",
+  "history.unhideFailed": "Couldn't bring the chat back",
   "integrations.availableSection": "Available integrations",
   "integrations.connectedSection": "Connected",
   "integrations.goToApiKeys": "Go to API keys",
@@ -1919,6 +1925,9 @@ const messages = {
   "settings.audit.approvalA2AReview":
     "Approved on the agent action review page",
   "settings.audit.approvalMcpClient": "Accepted by the MCP client (unverified)",
+  "settings.audit.approvalMcpReview": "Approved on the MCP action review page",
+  "settings.audit.approvalCliPrompt": "Approved at the CLI prompt (unverified)",
+  "settings.audit.approvalCliFlag": "Rerun with --approved (unverified)",
   "settings.audit.changedBy": "Changed by",
   "settings.audit.close": "Close",
   "settings.audit.empty": "No changes in this period.",
@@ -2192,6 +2201,9 @@ const messages = {
   "settingsShell.appGroup.labsSaveError": "Couldn't change {{lab}}. Try again.",
   "settingsShell.appGroup.mcpAbout":
     "Connect {{app}} to Claude, ChatGPT, Cursor, or any AI app that supports MCP. That app can then work in {{app}} for you. It sees only what you can see.",
+  "settingsShell.appGroup.mcpAppCards": "App cards in chat apps",
+  "settingsShell.appGroup.mcpAppCardsDescription":
+    "Tools show interactive cards, such as an email draft you can edit and send, in chat apps that support MCP Apps, like Claude and ChatGPT. After you change this, reconnect this app in your chat app.",
   "settingsShell.appGroup.mcpFootnote":
     "For tools the agent itself uses, see {{integrations}}.",
   "settingsShell.appGroup.newAutomation": "New automation",
