@@ -4,6 +4,7 @@ import { fail, isActionContractError } from "@agent-native/core/action";
 import {
   and,
   asc,
+  desc,
   eq,
   inArray,
   isNull,
@@ -911,6 +912,69 @@ function stagedPublicationTransitionForRow(args: {
   return intent.state === "staged" ? intent.transition : null;
 }
 
+/**
+ * The keys Builder changed too that a change set would push over, from its
+ * row's edit-conflicts record, or "invalid" when the row's values or that
+ * record can't be read.
+ */
+export function builderChangeSetEditConflicts(args: {
+  changeSet: Pick<
+    ContentDatabaseSourceChangeSet,
+    "fieldChanges" | "bodyChange"
+  >;
+  sourceValuesJson: string | null | undefined;
+}): string[] | "invalid" {
+  const sourceValues = parseObject<Record<string, DocumentPropertyValue>>(
+    args.sourceValuesJson,
+  );
+  if (args.sourceValuesJson && !sourceValues) return "invalid";
+  const read = readBuilderCmsEditConflicts(sourceValues);
+  if (read.state === "invalid") return "invalid";
+  if (read.state !== "recorded") return [];
+  return read.sourceFieldKeys.filter((key) =>
+    key === BUILDER_CMS_BODY_CONTENT_KEY
+      ? !!args.changeSet.bodyChange
+      : args.changeSet.fieldChanges.some(
+          (change) => builderCmsEditConflictKey(change) === key,
+        ),
+  );
+}
+
+/**
+ * What a review shows of the source's side of a change set: the entry's last
+ * update and the conflicts its row records. A decision compares it across the
+ * collection lock, since a refresh can change it while the decision waits.
+ */
+export async function sourceChangeSetReviewBasis(
+  db: ReturnType<typeof getDb>,
+  changeSet: ContentDatabaseSourceChangeSetRowDb,
+): Promise<string> {
+  if (!changeSet.documentId) return "";
+  // The review reads the page's latest row.
+  const [row = null] = await db
+    .select({
+      lastSourceUpdatedAt: schema.contentDatabaseSourceRows.lastSourceUpdatedAt,
+      sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
+    })
+    .from(schema.contentDatabaseSourceRows)
+    .where(
+      and(
+        eq(schema.contentDatabaseSourceRows.sourceId, changeSet.sourceId),
+        eq(schema.contentDatabaseSourceRows.documentId, changeSet.documentId),
+      ),
+    )
+    .orderBy(desc(schema.contentDatabaseSourceRows.createdAt))
+    .limit(1);
+  if (!row) return "";
+  return JSON.stringify([
+    row.lastSourceUpdatedAt,
+    builderChangeSetEditConflicts({
+      changeSet: serializeSourceChangeSet(changeSet),
+      sourceValuesJson: row.sourceValuesJson,
+    }),
+  ]);
+}
+
 function reviewedChangeSet(args: {
   changeSet: ContentDatabaseSourceChangeSet;
   source: ContentDatabaseSourceRowDb;
@@ -959,24 +1023,16 @@ function reviewedChangeSet(args: {
     args.changeSet.direction === "outbound" &&
     args.changeSet.state !== "applied" &&
     args.changeSet.state !== "rejected"
-      ? readBuilderCmsEditConflicts(
-          parseObject<Record<string, DocumentPropertyValue>>(
-            sourceRow.sourceValuesJson,
-          ),
-        )
+      ? builderChangeSetEditConflicts({
+          changeSet: args.changeSet,
+          sourceValuesJson: sourceRow.sourceValuesJson,
+        })
       : null;
   const sourceChanged =
     (sourceRow?.lastSourceUpdatedAt &&
       sourceRow.lastSourceUpdatedAt > args.changeSet.updatedAt) ||
-    editConflicts?.state === "invalid" ||
-    (editConflicts?.state === "recorded" &&
-      editConflicts.sourceFieldKeys.some((key) =>
-        key === BUILDER_CMS_BODY_CONTENT_KEY
-          ? !!args.changeSet.bodyChange
-          : args.changeSet.fieldChanges.some(
-              (change) => builderCmsEditConflictKey(change) === key,
-            ),
-      ));
+    editConflicts === "invalid" ||
+    (Array.isArray(editConflicts) && editConflicts.length > 0);
   const conflictState: ContentDatabaseSourceConflictState = sourceChanged
     ? "source_changed"
     : "none";
@@ -2993,10 +3049,11 @@ async function materializeBodyReadFieldValues(
       const localTitle = localTitleById.get(row.documentId);
       const previousValues = previousByDocumentId.get(row.documentId);
       if (localTitle === undefined || !previousValues) continue;
-      const sourceValues =
-        parseObject<Record<string, DocumentPropertyValue>>(
-          row.sourceValuesJson,
-        ) ?? {};
+      const sourceValues = parseObject<Record<string, DocumentPropertyValue>>(
+        row.sourceValuesJson,
+      );
+      // Left for the review to flag rather than rewritten from nothing.
+      if (!sourceValues) continue;
       const read = builderPageTitleRead({
         localTitle,
         previousValues,
@@ -7182,10 +7239,11 @@ async function sourceFieldValueWrites(
   );
   const editConflicts: Array<{ id: string; value: string }> = [];
   for (const row of scopedRows) {
-    const sourceValues =
-      parseObject<Record<string, DocumentPropertyValue>>(
-        row.sourceValuesJson,
-      ) ?? {};
+    const sourceValues = parseObject<Record<string, DocumentPropertyValue>>(
+      row.sourceValuesJson,
+    );
+    // Left for the review to flag rather than rewritten from nothing.
+    if (!sourceValues) continue;
     const previousSourceValues = args.previousSourceValuesByDocumentId?.get(
       row.documentId,
     );

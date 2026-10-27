@@ -1053,6 +1053,61 @@ describe("stage-builder-source-bulk-update", () => {
     expect(changeSet.state).toBe("pending_push");
   });
 
+  it("refuses to approve an item whose field Builder changed too after the reviewer read it", async () => {
+    const seeded = await seedBuilderDatabase({ existingOpenChangeIndex: 0 });
+    const changeSetId = `change_${seeded.sourceId.slice("src_".length)}`;
+    const changeSetFilter = eq(
+      schema.contentDatabaseSourceChangeSets.id,
+      changeSetId,
+    );
+    const sourceRowFilter = and(
+      eq(schema.contentDatabaseSourceRows.sourceId, seeded.sourceId),
+      eq(
+        schema.contentDatabaseSourceRows.documentId,
+        seeded.rows[0].documentId,
+      ),
+    );
+    // A refresh records the conflict on the row; the item itself is untouched.
+    databaseLock.beforeNextLock = async () => {
+      const [sourceRow] = await getDb()
+        .select()
+        .from(schema.contentDatabaseSourceRows)
+        .where(sourceRowFilter);
+      await getDb()
+        .update(schema.contentDatabaseSourceRows)
+        .set({
+          sourceValuesJson: JSON.stringify({
+            ...JSON.parse(sourceRow.sourceValuesJson),
+            [BUILDER_CMS_EDIT_CONFLICTS_KEY]: [seeded.sourceFieldKey],
+          }),
+        })
+        .where(sourceRowFilter);
+    };
+    try {
+      await expect(
+        asOwner(() =>
+          reviewChangeSet.run({
+            documentId: seeded.databaseDocumentId,
+            sourceId: seeded.sourceId,
+            changeSetId,
+            decision: "approve",
+          }),
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        errorCode: "source_changed_during_review",
+      });
+    } finally {
+      databaseLock.beforeNextLock = null;
+    }
+
+    const [changeSet] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(changeSetFilter);
+    expect(changeSet.state).toBe("pending_push");
+  });
+
   it("refuses to reject an approved item whose push gate was prepared after the reviewer read it", async () => {
     const seeded = await seedBuilderDatabase({ existingOpenChangeIndex: 0 });
     const changeSetId = `change_${seeded.sourceId.slice("src_".length)}`;

@@ -14,6 +14,7 @@ import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.j
 import {
   getExistingSourceForWrite,
   resolveDatabaseForSourceMutation,
+  sourceChangeSetReviewBasis,
 } from "./_database-source-utils.js";
 import {
   contentDatabaseResponseForCaller,
@@ -68,6 +69,10 @@ export default defineAction({
       throw new Error(`Change-set state is not reviewable: ${changeSet.state}`);
     }
 
+    const reviewBasis =
+      args.decision === "approve"
+        ? await sourceChangeSetReviewBasis(getDb(), changeSet)
+        : null;
     const now = new Date().toISOString();
     const stateTo = args.decision === "approve" ? "approved" : "rejected";
     const reviewerEmail =
@@ -83,6 +88,17 @@ export default defineAction({
         ...currentAccess(),
         transaction: getDbExec(),
       });
+      // A refresh can record a conflict on the item's row while the decision
+      // waits; the item's own columns don't show it.
+      if (
+        reviewBasis !== null &&
+        (await sourceChangeSetReviewBasis(db, changeSet)) !== reviewBasis
+      ) {
+        fail(
+          "This entry changed at its source while it was being reviewed. Review it again.",
+          { errorCode: "source_changed_during_review", statusCode: 409 },
+        );
+      }
       // A push claims an approved item under this lock, so a gate prepared
       // after this check can't be claimed once the item is rejected.
       if (changeSet.state === "approved" && args.decision === "reject") {
