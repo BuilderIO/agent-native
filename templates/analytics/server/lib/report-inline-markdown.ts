@@ -7,7 +7,7 @@
 
 export interface ReportInlineMarkdownOptions {
   /** Absolute URL that relative links such as "/dashboards/x" resolve against. */
-  baseUrl?: string;
+  baseUrl?: string | undefined;
   linkStyle: string;
   codeStyle: string;
 }
@@ -125,10 +125,10 @@ function linkDestination(
       depth -= 1;
       if (depth === 0) {
         // A link title ("…" after a space) is dropped.
-        const [href] = text
+        const href = text
           .slice(open + 1, i)
           .trim()
-          .split(/\s+/, 1);
+          .replace(/\s[\s\S]*$/, "");
         return { href, end: i + 1 };
       }
     }
@@ -193,11 +193,9 @@ function render(
     }
 
     if (allowLinks && (char === "h" || char === "H")) {
-      const previous = text[i - 1];
+      const previous = text.charAt(i - 1);
       const match =
-        previous === undefined || /[\s(]/.test(previous)
-          ? AUTOLINK.exec(rest)
-          : null;
+        previous === "" || /[\s(]/.test(previous) ? AUTOLINK.exec(rest) : null;
       if (match) {
         let url = match[0].replace(AUTOLINK_TRAILING, "");
         // A closing parenthesis the URL never opened belongs to the sentence.

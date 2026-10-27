@@ -59,7 +59,7 @@ function panel(
     source: "first-party",
     chartType,
     width: 1,
-    config,
+    ...(config && { config }),
   };
 }
 
@@ -105,13 +105,13 @@ describe("SqlChart metric tiles and callouts", () => {
     expect(line?.querySelector(".sr-only")?.textContent).toBe(description);
 
     const [chip, period] = line!.querySelectorAll('[aria-hidden="true"]');
-    expect(chip.textContent).toBe("71%");
+    expect(chip?.textContent).toBe("71%");
     expect(
-      chip.querySelector("svg.tabler-icon-arrow-down-right"),
+      chip?.querySelector("svg.tabler-icon-arrow-down-right"),
     ).not.toBeNull();
-    expect(chip.className).toContain("text-red-700");
-    expect(chip.className).toContain("dark:text-red-300");
-    expect(period.textContent).toBe(
+    expect(chip?.className).toContain("text-red-700");
+    expect(chip?.className).toContain("dark:text-red-300");
+    expect(period?.textContent).toBe(
       'sqlDashboard.metricComparisonVs {"period":"the 7 days before"}',
     );
   });
@@ -146,10 +146,10 @@ describe("SqlChart metric tiles and callouts", () => {
     );
     expect(line?.dataset.metricComparison).toBe("neutral");
     const [chip, period] = line!.querySelectorAll('[aria-hidden="true"]');
-    expect(chip.textContent).toBe("sqlDashboard.metricComparisonNoChange");
-    expect(chip.className).toContain("ring-1");
-    expect(chip.querySelector("svg")).toBeNull();
-    expect(period.textContent).toBe(
+    expect(chip?.textContent).toBe("sqlDashboard.metricComparisonNoChange");
+    expect(chip?.className).toContain("ring-1");
+    expect(chip?.querySelector("svg")).toBeNull();
+    expect(period?.textContent).toBe(
       'sqlDashboard.metricComparisonVs {"period":"sqlDashboard.metricComparisonPreviousPeriod"}',
     );
   });
@@ -183,7 +183,7 @@ describe("SqlChart metric tiles and callouts", () => {
       "sqlDashboard.calloutSeverityWarning",
       "sqlDashboard.calloutSeverityInfo",
     ]);
-    expect(items[0].closest("ul")?.className).toContain("divide-y");
+    expect(items[0]?.closest("ul")?.className).toContain("divide-y");
     expect(container.innerHTML).not.toMatch(/bg-(red|amber|sky|blue)-/);
   });
 

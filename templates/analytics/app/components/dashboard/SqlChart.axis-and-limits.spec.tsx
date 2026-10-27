@@ -141,9 +141,9 @@ describe("SqlChart axis labels, series order and point limits", () => {
       ...container.querySelectorAll(".recharts-xAxis-tick-labels text"),
     ];
     expect(texts).toHaveLength(DOMAINS.length);
-    expect(texts[0].getAttribute("transform")).toMatch(/^rotate\(-\d+\)$/);
-    expect(texts[0].getAttribute("text-anchor")).toBe("end");
-    expect(texts[0].textContent).toMatch(/…$/);
+    expect(texts[0]?.getAttribute("transform")).toMatch(/^rotate\(-\d+\)$/);
+    expect(texts[0]?.getAttribute("text-anchor")).toBe("end");
+    expect(texts[0]?.textContent).toMatch(/…$/);
   });
 
   it("keeps automatic tick thinning on a date axis", async () => {
@@ -342,15 +342,15 @@ describe("SqlChart axis labels, series order and point limits", () => {
     );
 
     const cells = [...container.querySelectorAll("tbody td")] as HTMLElement[];
-    const channel = cells[0].querySelector("span.truncate");
+    const channel = cells[0]?.querySelector("span.truncate");
     expect(channel?.getAttribute("title")).toBe(longChannel);
     expect(channel?.textContent).toBe(longChannel);
     // The fill column: max-width 0 keeps its text out of the table's minimum
     // width, so it takes only the width the other columns leave.
-    expect(cells[0].style.maxWidth).toMatch(/^0(px)?$/);
-    expect(cells[0].style.minWidth).toBe("96px");
+    expect(cells[0]?.style.maxWidth).toMatch(/^0(px)?$/);
+    expect(cells[0]?.style.minWidth).toBe("96px");
 
-    const link = cells[1].querySelector("a");
+    const link = cells[1]?.querySelector("a");
     expect(link?.className).toContain("truncate");
     expect(link?.className).toContain("max-w-80");
     expect(link?.getAttribute("href")).toBe(
@@ -359,14 +359,14 @@ describe("SqlChart axis labels, series order and point limits", () => {
     expect(link?.getAttribute("title")).toBe(
       "https://example.com/a/very/long/landing/page",
     );
-    expect(cells[1].style.width).toBe("1px");
+    expect(cells[1]?.style.width).toBe("1px");
 
-    expect(cells[2].querySelector(".truncate")).toBeNull();
-    expect(cells[2].className).toContain("text-right");
-    expect(cells[2].className).toContain("tabular-nums");
-    expect(cells[2].style.width).toBe("1px");
-    expect(cells[2].style.maxWidth).toBe("");
-    expect(cells[2].textContent).toBe("1,234");
+    expect(cells[2]?.querySelector(".truncate")).toBeNull();
+    expect(cells[2]?.className).toContain("text-right");
+    expect(cells[2]?.className).toContain("tabular-nums");
+    expect(cells[2]?.style.width).toBe("1px");
+    expect(cells[2]?.style.maxWidth).toBe("");
+    expect(cells[2]?.textContent).toBe("1,234");
 
     const headers = [
       ...container.querySelectorAll("thead th"),
@@ -402,13 +402,13 @@ describe("SqlChart axis labels, series order and point limits", () => {
       "180px",
       "1px",
     ]);
-    expect(headers[0].style.minWidth).toBe("140px");
+    expect(headers[0]?.style.minWidth).toBe("140px");
     const cells = [...container.querySelectorAll("tbody td")] as HTMLElement[];
-    expect(cells[0].style.maxWidth).toMatch(/^0(px)?$/);
-    expect(cells[0].style.minWidth).toBe("140px");
-    expect(cells[1].style.width).toBe("180px");
-    expect(cells[1].style.maxWidth).toBe("180px");
-    const note = cells[1].querySelector("span.truncate");
+    expect(cells[0]?.style.maxWidth).toMatch(/^0(px)?$/);
+    expect(cells[0]?.style.minWidth).toBe("140px");
+    expect(cells[1]?.style.width).toBe("180px");
+    expect(cells[1]?.style.maxWidth).toBe("180px");
+    const note = cells[1]?.querySelector("span.truncate");
     expect(note?.getAttribute("title")).toBe(
       "Retargeting audience from the September launch",
     );
@@ -435,9 +435,9 @@ describe("SqlChart axis labels, series order and point limits", () => {
     const [repo, wait] = [
       ...container.querySelectorAll("tbody tr:first-child td"),
     ] as HTMLElement[];
-    expect(repo.className).not.toContain("text-right");
-    expect(wait.className).toContain("text-right");
-    expect(wait.textContent).toBe("4.8 days");
+    expect(repo?.className).not.toContain("text-right");
+    expect(wait?.className).toContain("text-right");
+    expect(wait?.textContent).toBe("4.8 days");
   });
 });
 

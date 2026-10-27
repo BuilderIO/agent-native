@@ -79,7 +79,9 @@ describe("metricComparison", () => {
 
   it("colors the change by the panel's better direction", () => {
     const tone = (better: "higher" | "lower" | "neither" | undefined) =>
-      compare([{ previous_value: 10 }], 15, { comparison: { better } })?.tone;
+      compare([{ previous_value: 10 }], 15, {
+        comparison: better ? { better } : {},
+      })?.tone;
     expect(tone(undefined)).toBe("good");
     expect(tone("higher")).toBe("good");
     expect(tone("lower")).toBe("bad");

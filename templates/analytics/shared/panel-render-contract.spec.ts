@@ -659,7 +659,7 @@ describe("unknownPanelConfigKeys on shipped panels and value shapes", () => {
       expect(issues.map((issue) => [issue.kind, issue.key])).toEqual([
         ["invalid-value", "comparison"],
       ]);
-      return issues[0].message;
+      return issues[0]?.message;
     });
 
     expect(messages[0]).toContain(

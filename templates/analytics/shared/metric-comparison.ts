@@ -86,7 +86,8 @@ export function metricComparison({
     previous += value;
   }
 
-  const periodRaw = rows[0][comparison.periodKey ?? DEFAULT_PERIOD_KEY];
+  const [firstRow = {}] = rows;
+  const periodRaw = firstRow[comparison.periodKey ?? DEFAULT_PERIOD_KEY];
   const period =
     (typeof periodRaw === "string" && periodRaw.trim()) ||
     comparison.label?.trim() ||
