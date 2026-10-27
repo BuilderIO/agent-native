@@ -382,6 +382,7 @@ function fileDeletionRestoreClaims(
 export interface UndoArgs {
   activeEditorDragRef: RefObject<boolean>;
   activeFile: DesignFile | undefined;
+  cancelPendingPastedMediaForHistoryReplay?: (screenId: string) => void;
   applyFileContentUpdate: (
     fileId: string,
     nextContent: string,
@@ -579,9 +580,10 @@ export interface UndoArgs {
 export function runUndo({
   activeEditorDragRef,
   activeFile,
-  applyFileContentUpdate,
+  cancelPendingPastedMediaForHistoryReplay,
+  applyFileContentUpdate: publishFileContentUpdate,
   applyGeometryHistoryContentChanges,
-  applyLocalContentUpdate,
+  applyLocalContentUpdate: publishLocalContentUpdate,
   applyDesignDataHistoryChanges,
   canEditDesign,
   allowPendingLiveEdits,
@@ -650,11 +652,42 @@ export function runUndo({
   syncUndoRedoState,
   t,
   undoManagerRef,
-  updateLiveScreenSnapshotContent,
+  updateLiveScreenSnapshotContent: publishLiveScreenSnapshotContent,
   viewModeRef,
   writeFrameGeometrySnapshot,
   ydoc,
 }: UndoArgs) {
+  const applyLocalContentUpdate: UndoArgs["applyLocalContentUpdate"] = (
+    nextContent,
+    options,
+  ) => {
+    const result = publishLocalContentUpdate(nextContent, options);
+    if (isRecord(result) && result.status === "accepted" && activeFile?.id) {
+      cancelPendingPastedMediaForHistoryReplay?.(activeFile.id);
+    }
+    return result;
+  };
+  const applyFileContentUpdate: UndoArgs["applyFileContentUpdate"] = (
+    fileId,
+    nextContent,
+    options,
+  ) => {
+    const result = publishFileContentUpdate(fileId, nextContent, options);
+    if (isRecord(result) && result.status === "accepted")
+      cancelPendingPastedMediaForHistoryReplay?.(fileId);
+    return result;
+  };
+  const updateLiveScreenSnapshotContent: UndoArgs["updateLiveScreenSnapshotContent"] =
+    (screenId, html, options) => {
+      const accepted = publishLiveScreenSnapshotContent(
+        screenId,
+        html,
+        options,
+      );
+      if (accepted === true)
+        cancelPendingPastedMediaForHistoryReplay?.(screenId);
+      return accepted;
+    };
   flushCommitsAfterPaint();
   const restoreHistorySelection = (
     selection: GeometryHistorySelection | undefined,
@@ -976,6 +1009,7 @@ export function runUndo({
         expectedVersionHash: sourceContentHash(beforeUndoContent),
         syncCollab: !isSynced,
       });
+      if (poppedItem) cancelPendingPastedMediaForHistoryReplay?.(activeFile.id);
       if (
         previewContentReplaceNeedsRenderFallback(
           replacePreviewContent(next, null, {

@@ -243,7 +243,8 @@ export function useEditorEditCommands({
     pendingStructureRedoPreparedEditsRef,
     recordPendingLiveStructureEdit,
   } = editorScreenChangeHandlers;
-  const { handleDeleteSelection } = editorClipboard;
+  const { cancelPendingPastedMediaForHistoryReplay, handleDeleteSelection } =
+    editorClipboard;
   const {
     runtimeStructureDeleteRequest,
     setRuntimeStructureDeleteRequest,
@@ -1022,9 +1023,11 @@ export function useEditorEditCommands({
     for (const change of changes) {
       const content = direction === "undo" ? change.before : change.after;
       if (change.before === change.after) continue;
-      applyFileContentUpdate(change.fileId, content, {
+      const result = applyFileContentUpdate(change.fileId, content, {
         recordHistory: false,
       });
+      if (result.status === "accepted")
+        cancelPendingPastedMediaForHistoryReplay(change.fileId);
     }
     if (direction !== "commit") {
       applyDesignDataHistoryChanges(changes, direction);
@@ -1041,6 +1044,7 @@ export function useEditorEditCommands({
         applyGeometryHistoryContentChanges: (changes, direction) =>
           applyGeometryHistoryContentChangesRef.current(changes, direction),
         applyLocalContentUpdate,
+        cancelPendingPastedMediaForHistoryReplay,
         canEditDesign,
         allowPendingLiveEdits: canEditLiveScreens && !canEditDesign,
         captureCurrentSelection,
@@ -1121,6 +1125,7 @@ export function useEditorEditCommands({
       applyDesignDataHistoryChanges,
       applyGeometryHistoryContentChangesRef,
       applyLocalContentUpdate,
+      cancelPendingPastedMediaForHistoryReplay,
       canEditDesign,
       canEditLiveScreens,
       clearPendingHistoryDirections,

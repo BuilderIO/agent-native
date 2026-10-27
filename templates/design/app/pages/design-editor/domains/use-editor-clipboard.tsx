@@ -123,9 +123,6 @@ import type { EditorScreenChangeHandlers } from "./use-editor-screen-change-hand
 import type { EditorSelectionAndStyles } from "./use-editor-selection-and-styles";
 import type { EditorToolsAndVectors } from "./use-editor-tools-and-vectors";
 
-const pendingPastedMediaKey = (screenId: string, nodeId: string) =>
-  JSON.stringify([screenId, nodeId]);
-
 export function useEditorClipboard({
   editorCore,
   editorHistory,
@@ -252,37 +249,43 @@ export function useEditorClipboard({
   } = editorContentAndComponents;
   const applyFileContentUpdateRef = useRef(applyFileContentUpdate);
   applyFileContentUpdateRef.current = applyFileContentUpdate;
-  const pendingPastedMediaRef = useRef(new Map<string, boolean>());
+  const pendingPastedMediaRef = useRef(new Map<string, Map<string, boolean>>());
   const registerPendingPastedMedia = useCallback(
     (screenId: string, nodeId: string) => {
-      pendingPastedMediaRef.current.set(
-        pendingPastedMediaKey(screenId, nodeId),
-        false,
-      );
+      let pending = pendingPastedMediaRef.current.get(screenId);
+      if (!pending) {
+        pending = new Map();
+        pendingPastedMediaRef.current.set(screenId, pending);
+      }
+      pending.set(nodeId, false);
     },
     [],
   );
   const isPendingPastedMediaCancelled = useCallback(
     (screenId: string, nodeId: string) =>
-      pendingPastedMediaRef.current.get(
-        pendingPastedMediaKey(screenId, nodeId),
-      ) === true,
+      pendingPastedMediaRef.current.get(screenId)?.get(nodeId) === true,
     [],
   );
   const clearPendingPastedMedia = useCallback(
     (screenId: string, nodeId: string) => {
-      pendingPastedMediaRef.current.delete(
-        pendingPastedMediaKey(screenId, nodeId),
-      );
+      const pending = pendingPastedMediaRef.current.get(screenId);
+      pending?.delete(nodeId);
+      if (pending?.size === 0) pendingPastedMediaRef.current.delete(screenId);
     },
     [],
   );
   const cancelPendingPastedMedia = useCallback(
     (screenId: string, nodeId: string) => {
-      const key = pendingPastedMediaKey(screenId, nodeId);
-      if (pendingPastedMediaRef.current.has(key)) {
-        pendingPastedMediaRef.current.set(key, true);
-      }
+      const pending = pendingPastedMediaRef.current.get(screenId);
+      if (pending?.has(nodeId)) pending.set(nodeId, true);
+    },
+    [],
+  );
+  const cancelPendingPastedMediaForHistoryReplay = useCallback(
+    (screenId: string) => {
+      const pending = pendingPastedMediaRef.current.get(screenId);
+      if (!pending) return;
+      for (const nodeId of pending.keys()) pending.set(nodeId, true);
     },
     [],
   );
@@ -1866,6 +1869,7 @@ export function useEditorClipboard({
 
   return {
     hasCanvasClipboard,
+    cancelPendingPastedMediaForHistoryReplay,
     menuClipboardFilesRef,
     lastWrittenClipboardMarkerRef,
     figmaHydrationOpen,

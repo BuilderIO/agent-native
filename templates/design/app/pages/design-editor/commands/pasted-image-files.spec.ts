@@ -310,7 +310,7 @@ describe("runPastedImageFiles", () => {
     );
   });
 
-  it("does not resurrect a preview deleted while its upload is pending", async () => {
+  it("does not persist a pending paste after undo cancels its preview", async () => {
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:deleted");
     const applyLocalContentUpdate = vi.fn();
     let resolveUpload!: (url: string) => void;

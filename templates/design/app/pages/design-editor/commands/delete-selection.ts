@@ -498,8 +498,6 @@ export function runDeleteSelection({
       : undefined,
     selectedElement?.selector,
   ].filter((selector): selector is string => Boolean(selector));
-  const hasLiveDeleteTarget =
-    runtimeAliasGroups.length > 0 || liveSelectionSelectors.length > 0;
   const deleteFromLiveDom = (fallbackSelectors: readonly string[]) => {
     liveDeleteSelectorGroups({
       runtimeAliasGroups,
@@ -612,6 +610,7 @@ export function runDeleteSelection({
       const removedSelectors: string[] = [];
       const removedPendingMediaNodeIds = new Set<string>();
       const formerParentAttrIds = new Set<string>();
+      let fileOrphanedTrackNodeIds: Set<string> | null = null;
       // Item 7b — while a breakpoint is the active edit target, Delete
       // must not structurally remove the element (that would remove it at
       // EVERY width, defeating the point of scoping). Instead it writes a
@@ -673,8 +672,8 @@ export function runDeleteSelection({
             nodesById,
           );
           if (subtreeIds.size > 0) {
-            orphanedTrackNodeIds ??= new Set();
-            subtreeIds.forEach((id) => orphanedTrackNodeIds!.add(id));
+            const trackNodeIds = (fileOrphanedTrackNodeIds ??= new Set());
+            subtreeIds.forEach((id) => trackNodeIds.add(id));
           }
         }
       }
@@ -685,11 +684,6 @@ export function runDeleteSelection({
           removeEmptyGeneratedGroupWrappers(content, formerParentAttrIds),
         );
       }
-      if (file.id === activeFile?.id && !useBreakpointScopedDelete) {
-        activeRuntimeSelectors.push(...removedSelectors);
-        shouldDeleteActiveLiveDom = true;
-      }
-      didDelete = true;
       let publicationAccepted = false;
       if (liveSnapshot) {
         const updated = updateLiveScreenSnapshotContent(file.id, content);
@@ -704,20 +698,28 @@ export function runDeleteSelection({
         });
         publicationAccepted = publication.status === "accepted";
       }
-      if (publicationAccepted) {
-        if (file.id === activeFile.id && !liveSnapshot) {
-          stampYjsUndoSelection(
-            undoManagerRef.current,
-            undoStackTopBeforeDelete,
-            selectionBeforeDelete,
-          );
-        }
-        for (const nodeId of removedPendingMediaNodeIds) {
-          onPendingPastedMediaDelete?.(file.id, nodeId);
-        }
+      if (!publicationAccepted) continue;
+      didDelete = true;
+      if (file.id === activeFile.id && !useBreakpointScopedDelete) {
+        activeRuntimeSelectors.push(...removedSelectors);
+        shouldDeleteActiveLiveDom = true;
+      }
+      if (fileOrphanedTrackNodeIds) {
+        const trackNodeIds = (orphanedTrackNodeIds ??= new Set());
+        fileOrphanedTrackNodeIds.forEach((id) => trackNodeIds.add(id));
+      }
+      if (file.id === activeFile.id && !liveSnapshot) {
+        stampYjsUndoSelection(
+          undoManagerRef.current,
+          undoStackTopBeforeDelete,
+          selectionBeforeDelete,
+        );
+      }
+      for (const nodeId of removedPendingMediaNodeIds) {
+        onPendingPastedMediaDelete?.(file.id, nodeId);
       }
     }
-    if (!didDelete && !hasLiveDeleteTarget) return;
+    if (!didDelete) return;
     if (orphanedTrackNodeIds) {
       const idsToRemove = orphanedTrackNodeIds;
       pruneMotionTracksByNodeId(idsToRemove);
@@ -777,15 +779,28 @@ export function runDeleteSelection({
         })
       : null;
     if (patch && patch.result.status === "applied") {
+      let publicationAccepted = false;
       if (activeLiveSnapshot) {
-        if (updateLiveScreenSnapshotContent(activeFile!.id, patch.content)) {
-          syncLiveScreenSnapshotPreview(activeFile!.id, patch.content);
-        }
+        publicationAccepted = updateLiveScreenSnapshotContent(
+          activeFile.id,
+          patch.content,
+        );
+        if (publicationAccepted)
+          syncLiveScreenSnapshotPreview(activeFile.id, patch.content);
       } else {
-        applyLocalContentUpdate(patch.content, {
-          refreshPreview: false,
-          forcePreviewFullDocument: true,
-        });
+        publicationAccepted =
+          applyLocalContentUpdate(patch.content, {
+            refreshPreview: false,
+            forcePreviewFullDocument: true,
+          }).status === "accepted";
+      }
+      if (!publicationAccepted) return;
+      if (!activeLiveSnapshot) {
+        stampYjsUndoSelection(
+          undoManagerRef.current,
+          undoStackTopBeforeDelete,
+          selectionBeforeDelete,
+        );
       }
       setSelectedElement(null);
       setSelectedLayerIdsState([]);
@@ -819,9 +834,10 @@ export function runDeleteSelection({
       : []),
   ]);
   const nextContent = pruneDeletedNativeEffects(baseContent, removedContent);
+  let removedMotionTrackNodeIds: Set<string> | null = null;
   if (
     selectedElement.sourceId &&
-    previousMotionFileIdRef.current === activeFile?.id
+    previousMotionFileIdRef.current === activeFile.id
   ) {
     const projection = buildCodeLayerProjection(baseContent, {
       ...(source ? { source } : {}),
@@ -837,26 +853,26 @@ export function runDeleteSelection({
     const subtreeIds = targetNode
       ? collectCodeLayerSubtreeDataNodeIds(tree, targetNode.id, nodesById)
       : new Set<string>();
-    if (subtreeIds.size > 0) {
-      pruneMotionTracksByNodeId(subtreeIds);
-    }
+    if (subtreeIds.size > 0) removedMotionTrackNodeIds = subtreeIds;
   }
-  deleteFromLiveDom([selectedElement.selector]);
   const publicationAccepted = activeLiveSnapshot
     ? updateLiveScreenSnapshotContent(activeFile.id, nextContent)
     : applyLocalContentUpdate(nextContent, { refreshPreview: false }).status ===
       "accepted";
-  if (publicationAccepted) {
-    for (const nodeId of removedSourceIds) {
-      if (nodeId) onPendingPastedMediaDelete?.(activeFile.id, nodeId);
-    }
-    if (!activeLiveSnapshot) {
-      stampYjsUndoSelection(
-        undoManagerRef.current,
-        undoStackTopBeforeDelete,
-        selectionBeforeDelete,
-      );
-    }
+  if (!publicationAccepted) return;
+  if (removedMotionTrackNodeIds) {
+    pruneMotionTracksByNodeId(removedMotionTrackNodeIds);
+  }
+  deleteFromLiveDom([selectedElement.selector]);
+  for (const nodeId of removedSourceIds) {
+    if (nodeId) onPendingPastedMediaDelete?.(activeFile.id, nodeId);
+  }
+  if (!activeLiveSnapshot) {
+    stampYjsUndoSelection(
+      undoManagerRef.current,
+      undoStackTopBeforeDelete,
+      selectionBeforeDelete,
+    );
   }
   setSelectedElement(null);
   setSelectedLayerIdsState([]);

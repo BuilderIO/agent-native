@@ -122,6 +122,45 @@ function fakeStackItem(meta?: Record<string, unknown>) {
 }
 
 describe("runUndo — single-screen Yjs undo restores the stamped selection", () => {
+  it("cancels pending pasted media when undo replaces the active preview", () => {
+    const ydoc = new Y.Doc();
+    const ytext = ydoc.getText("content");
+    ytext.insert(0, "<!doctype html><html><body></body></html>");
+    const um = new Y.UndoManager(ytext, {
+      trackedOrigins: new Set([LOCAL_EDIT_ORIGIN]),
+    });
+    writeCollabText(
+      ydoc,
+      ytext,
+      "<!doctype html><html><body><main>Changed</main></body></html>",
+      LOCAL_EDIT_ORIGIN,
+    );
+    um.stopCapturing();
+    const cancelPendingPastedMediaForHistoryReplay = vi.fn();
+
+    runUndo(
+      baseArgs({
+        activeFile: {
+          id: "file-1",
+          fileType: "html",
+          updatedAt: "2024-01-01T00:00:00Z",
+        },
+        um,
+        undoManagerRef: { current: um },
+        ydoc,
+        cancelPendingPastedMediaForHistoryReplay,
+        queueFileContentSave: vi.fn(),
+      }),
+    );
+
+    expect(cancelPendingPastedMediaForHistoryReplay).toHaveBeenCalledOnce();
+    expect(cancelPendingPastedMediaForHistoryReplay).toHaveBeenCalledWith(
+      "file-1",
+    );
+    um.destroy();
+    ydoc.destroy();
+  });
+
   it("keeps the real Yjs redo item after canonicalizing an undo result", () => {
     const ydoc = new Y.Doc();
     const ytext = ydoc.getText("content");
