@@ -1628,6 +1628,82 @@ esac
     }
   });
 
+  it("keeps the real private QR template out of stable release plans", async () => {
+    const { getPackages } = changesetsRequire("@manypkg/get-packages") as {
+      getPackages: (cwd: string) => Promise<unknown>;
+    };
+    const { parse: parseChangesetConfig } = changesetsRequire(
+      "@changesets/config",
+    ) as { parse: (json: unknown, packages: unknown) => unknown };
+    const assembleReleasePlan = (
+      changesetsRequire("@changesets/assemble-release-plan") as {
+        default: (
+          changesets: unknown[],
+          packages: unknown,
+          config: unknown,
+          preState: undefined,
+        ) => { releases: Array<{ name: string; type: string }> };
+      }
+    ).default;
+
+    const packages = (await getPackages(process.cwd())) as {
+      packages: Array<{
+        packageJson: {
+          name: string;
+          version?: string;
+          private?: boolean;
+          dependencies?: Record<string, string>;
+        };
+      }>;
+    };
+    const corePackage = packages.packages.find(
+      (pkg) => pkg.packageJson.name === "@agent-native/core",
+    );
+    const qrPackage = packages.packages.find(
+      (pkg) => pkg.packageJson.name === "qr",
+    );
+    assert(corePackage?.packageJson.version && qrPackage);
+    const qrManifest = JSON.parse(
+      readFileSync("templates/community/qr/package.json", "utf8"),
+    ) as {
+      version?: string;
+      dependencies?: Record<string, string>;
+    };
+    assert.equal(qrPackage.packageJson.version, qrManifest.version);
+    assert.equal(qrPackage.packageJson.private, true);
+    assert.equal(
+      qrPackage.packageJson.dependencies?.["@agent-native/core"],
+      qrManifest.dependencies?.["@agent-native/core"],
+    );
+
+    const sharedConfig = readFileSync(".changeset/config.json", "utf8");
+    const corePatch = [
+      {
+        id: "core-patch",
+        summary: "Core patch",
+        releases: [{ name: "@agent-native/core", type: "patch" }],
+      },
+    ];
+    const releasesWith = (configSource: string) =>
+      assembleReleasePlan(
+        corePatch,
+        packages,
+        parseChangesetConfig(JSON.parse(configSource), packages),
+        undefined,
+      ).releases;
+
+    const stable = releasesWith(stableChangesetConfig(sharedConfig)).map(
+      (release) => release.name,
+    );
+    const fixedGroup = (JSON.parse(sharedConfig) as { fixed: string[][] })
+      .fixed[0];
+    for (const name of fixedGroup) assert(stable.includes(name), name);
+    assert(!stable.includes("qr"));
+    assert(
+      !releasesWith(sharedConfig).some((release) => release.name === "qr"),
+    );
+  });
+
   it("leaves the shared Changesets config moving snapshot peer ranges", () => {
     // Snapshot workflows keep the shared config so ranges that reject
     // prereleases can still be rewritten to their published snapshot.
@@ -2611,6 +2687,7 @@ fi
       assert.match(String(preflight.run), /for package in core dispatch/);
       assert.match(String(preflight.run), /git show "HEAD:\$manifest"/);
       assert.match(String(preflight.run), /Beta snapshot must include a new/);
+      assert.ok(versionIndex >= 0, "snapshot versioning step exists");
       assert(versionIndex < steps.indexOf(preflight));
       assert(steps.indexOf(preflight) < publishIndex);
     });
@@ -2695,6 +2772,8 @@ fi
       );
       const tokenIndex = steps.indexOf(token);
       const dispatchIndex = steps.indexOf(betaDispatch);
+      assert.ok(buildIndex >= 0, "package build step exists");
+      assert.ok(publishIndex >= 0, "snapshot publication step exists");
       assert(buildIndex < publishIndex);
       assert(publishIndex < tokenIndex);
       assert(tokenIndex < dispatchIndex);
