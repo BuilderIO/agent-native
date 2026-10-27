@@ -385,7 +385,9 @@ export const DesignImportPanel = forwardRef<
               result as ImportResult,
               t("designEditor.import.htmlSuccess"),
             )
-              .then(() => setHtmlText(""))
+              .then(() =>
+                setHtmlText((current) => (current === content ? "" : current)),
+              )
               .catch((error: unknown) => {
                 toast.error(t("designEditor.import.errors.importFailed"), {
                   description:

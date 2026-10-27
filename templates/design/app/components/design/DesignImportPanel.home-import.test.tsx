@@ -351,6 +351,20 @@ describe("home-picked .fig handoff", () => {
       pastedOptions.onSuccess({ designId: "home-design", files: [] }),
     );
     await vi.waitFor(() => expect(textarea.value).toBe(""));
+
+    await setTextarea("<html><body>submitted source</body></html>");
+    await click("designEditor.import.importHtml");
+    const inFlightOptions = mocks.importSourceMutate.mock.calls[
+      mocks.importSourceMutate.mock.calls.length - 1
+    ]?.[1] as {
+      onSuccess: (result: unknown) => void;
+    };
+    await setTextarea("<html><body>newer draft</body></html>");
+    await act(async () =>
+      inFlightOptions.onSuccess({ designId: "home-design", files: [] }),
+    );
+    await vi.waitFor(() => expect(textarea.value).toContain("newer draft"));
+    expect(button("designEditor.import.importHtml")?.disabled).toBe(false);
   });
   it("picks pages and blocks a selection over the frame limit before converting", async () => {
     mocks.shouldWarn.mockReturnValue(true);
