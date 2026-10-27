@@ -9,6 +9,7 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as Y from "yjs";
 
 import { _resetSyncTransportRegistryForTests } from "../client/use-db-sync.js";
 import {
@@ -127,6 +128,54 @@ describe("collab flushUpdates", () => {
     expect(updatesSent).toBe(2);
     expect(ydoc.getText("t").toString()).toBe("before after");
   });
+
+  it.each([200, 500])(
+    "flushes restored edits on a second pagehide after the first request settles with %s",
+    async (firstStatus) => {
+      const result = await mountReady();
+      const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+      let finishFirst!: (response: Response) => void;
+      const updateRequests: RequestInit[] = [];
+      vi.mocked(fetch).mockImplementation((input, init) => {
+        if (!String(input).endsWith("/update"))
+          return originalFetch(input, init);
+        updateRequests.push(init!);
+        if (updateRequests.length === 1)
+          return new Promise<Response>((resolve) => {
+            finishFirst = resolve;
+          });
+        return Promise.resolve(new Response("{}"));
+      });
+      result.ydoc!.getText("t").insert(0, "before");
+      window.dispatchEvent(new Event("pagehide"));
+      window.dispatchEvent(new Event("pageshow"));
+      result.ydoc!.getText("t").insert(6, " after");
+      window.dispatchEvent(new Event("pagehide"));
+      expect(
+        updateRequests.filter((request) => request.keepalive),
+      ).toHaveLength(1);
+      await act(async () => {
+        finishFirst(new Response("{}", { status: firstStatus }));
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(
+        updateRequests.filter((request) => request.keepalive),
+      ).toHaveLength(2);
+      const received = new Y.Doc();
+      try {
+        for (const request of updateRequests) {
+          const { update } = JSON.parse(String(request.body));
+          Y.applyUpdate(
+            received,
+            new Uint8Array(Buffer.from(update, "base64")),
+          );
+        }
+        expect(received.getText("t").toString()).toBe("before after");
+      } finally {
+        received.destroy();
+      }
+    },
+  );
 
   it("resolves false while delivery fails, then true once it succeeds", async () => {
     const result = await mountReady();

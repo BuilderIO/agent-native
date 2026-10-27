@@ -277,6 +277,7 @@ class CollabDocConnection {
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private updateInFlight = false;
   private keepaliveInFlight = false;
+  private keepaliveRequested = false;
   private updateErrors = 0;
   private updateAbortController: AbortController | null = null;
   private updateHandlerAttached = false;
@@ -859,12 +860,15 @@ class CollabDocConnection {
   }
 
   private async flushPendingUpdates(keepalive = false): Promise<void> {
+    if (keepalive && this.keepaliveInFlight) {
+      this.keepaliveRequested = true;
+      return;
+    }
     if (
-      keepalive
-        ? this.keepaliveInFlight
-        : this.disposed ||
-          this.updateInFlight ||
-          (this.updateErrors > 0 && this.flushTimer !== null)
+      !keepalive &&
+      (this.disposed ||
+        this.updateInFlight ||
+        (this.updateErrors > 0 && this.flushTimer !== null))
     )
       return;
     if (this.flushTimer) {
@@ -923,7 +927,14 @@ class CollabDocConnection {
         this.updateInFlight = false;
         this.updateAbortController = null;
       }
-      if (!this.disposed && this.pendingUpdates.length && !this.flushTimer) {
+      if (keepalive && this.keepaliveRequested) {
+        this.keepaliveRequested = false;
+        void this.flushPendingUpdates(true);
+      } else if (
+        !this.disposed &&
+        this.pendingUpdates.length &&
+        !this.flushTimer
+      ) {
         this.flushTimer = setTimeout(
           () => {
             this.flushTimer = null;

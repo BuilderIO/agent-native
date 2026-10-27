@@ -560,7 +560,10 @@ describe("useCollaborativeDoc connection registry", () => {
       const { result } = await mountPresence();
       const before = awarenessPosts(mock);
       result.awareness!.setLocalStateField("cursor", { x: 1 });
-      window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted }));
+      const pagehide = new Event("pagehide");
+      Object.defineProperty(pagehide, "persisted", { value: persisted });
+      expect((pagehide as PageTransitionEvent).persisted).toBe(persisted);
+      window.dispatchEvent(pagehide);
       const clear = awarenessPosts(mock).at(-1)!;
       expect(clear).toMatchObject({
         clientId: result.ydoc!.clientID,
