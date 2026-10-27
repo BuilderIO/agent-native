@@ -1654,6 +1654,12 @@ describe("FirstRunOnboarding", () => {
   });
 
   it("labels Clips setup as Builder, custom keys, or an optional skip", async () => {
+    mocks.recordCreditsV2Exposure.mockResolvedValueOnce({
+      assignment: {
+        experiment_id: "first_run_builder_credits_v2",
+        experiment_variant: "credits",
+      },
+    });
     mocks.useOnboarding.mockReturnValue({
       firstRun: true,
       loading: false,
@@ -1704,6 +1710,22 @@ describe("FirstRunOnboarding", () => {
       { uiOnly: true, skipActionQueryInvalidation: true },
     );
     expect(mocks.recordCreditsV2Exposure).toHaveBeenCalledOnce();
+    expect(mocks.setOnboardingExperiment).toHaveBeenCalledWith({
+      id: "first_run_builder_credits_v2",
+      variant: "credits",
+    });
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_experiment_exposed",
+      {
+        flow: "first_run",
+        step_id: "choice",
+        experiment_id: "first_run_builder_credits_v2",
+        experiment_variant: "credits",
+      },
+    );
+    expect(
+      document.body.querySelector("[data-testid='first-run-credits-offer']"),
+    ).toBeNull();
   });
 
   it("opens the app directly after a configured Builder connection", () => {

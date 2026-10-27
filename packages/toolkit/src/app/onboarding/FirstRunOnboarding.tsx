@@ -28,7 +28,10 @@ import type {
   OnboardingAppProfile,
   OnboardingCapability,
 } from "@agent-native/core/onboarding/types";
-import { FIRST_RUN_BUILDER_CREDITS_V2_FLAG_KEY } from "@agent-native/core/shared";
+import {
+  FIRST_RUN_BUILDER_CREDITS_V2_EXPERIMENT_ID,
+  FIRST_RUN_BUILDER_CREDITS_V2_FLAG_KEY,
+} from "@agent-native/core/shared";
 import { Badge } from "@agent-native/toolkit/ui/badge";
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
@@ -641,12 +644,34 @@ export function FirstRunOnboarding({
       return;
     }
     creditsV2ExposureStartedRef.current = true;
-    void creditsV2Exposure.mutateAsync({}).catch((error) => {
-      const errorType = error instanceof Error ? error.name : "unknown_error";
-      console.warn(
-        `[onboarding] Could not record Clips credits v2 exposure (${errorType}).`,
-      );
-    });
+    void creditsV2Exposure
+      .mutateAsync({})
+      .then(({ assignment }) => {
+        if (
+          assignment?.experiment_id !==
+            FIRST_RUN_BUILDER_CREDITS_V2_EXPERIMENT_ID ||
+          (assignment.experiment_variant !== "control" &&
+            assignment.experiment_variant !== "credits")
+        ) {
+          return;
+        }
+        setOnboardingExperiment({
+          id: FIRST_RUN_BUILDER_CREDITS_V2_EXPERIMENT_ID,
+          variant: assignment.experiment_variant,
+        });
+        trackOnboardingEvent("onboarding_experiment_exposed", {
+          flow: "first_run",
+          step_id: "choice",
+          experiment_id: FIRST_RUN_BUILDER_CREDITS_V2_EXPERIMENT_ID,
+          experiment_variant: assignment.experiment_variant,
+        });
+      })
+      .catch((error) => {
+        const errorType = error instanceof Error ? error.name : "unknown_error";
+        console.warn(
+          `[onboarding] Could not record Clips credits v2 exposure (${errorType}).`,
+        );
+      });
   }, [
     creditsV2Exposure.mutateAsync,
     creditsV2Flag.enabled,
