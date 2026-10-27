@@ -47,6 +47,22 @@ describe("db-admin-federated-read", () => {
           durationMs: 1,
         };
       }
+      if (sql.includes("FROM agent_experiment_assignments")) {
+        return {
+          columns: ["user_id", "variant_id"],
+          rows: [{ user_id: "auth-user-1", variant_id: "credits" }],
+          rowsAffected: 0,
+          durationMs: 1,
+        };
+      }
+      if (sql.includes("FROM analytics_events")) {
+        return {
+          columns: ["auth_user_id", "event_variant"],
+          rows: [{ auth_user_id: "auth-user-1", event_variant: "credits" }],
+          rowsAffected: 0,
+          durationMs: 1,
+        };
+      }
       throw new Error(`unexpected sql: ${sql}`);
     });
   });
@@ -124,6 +140,51 @@ describe("db-admin-federated-read", () => {
           { user_name: "Ada", total: 15 },
         ],
         totalRows: 2,
+      },
+    });
+  });
+
+  it("joins experiment assignments to Analytics events by authenticated user id", async () => {
+    const result = await runDbAdminFederatedRead(
+      { userEmail: "alice@example.com", orgId: "org_1", role: "admin" },
+      {
+        sources: [
+          {
+            connectionId: "clips-db",
+            sourceId: "assignments",
+            sql: "SELECT user_id, variant_id FROM agent_experiment_assignments WHERE experiment_id = $1",
+            params: ["first_run_builder_credits_v2"],
+          },
+          {
+            connectionId: "analytics-db",
+            sourceId: "events",
+            sql: "SELECT properties::jsonb ->> 'auth_user_id' AS auth_user_id, properties::jsonb ->> 'experiment_variant' AS event_variant FROM analytics_events WHERE properties::jsonb ->> 'experiment_id' = $1",
+            params: ["first_run_builder_credits_v2"],
+          },
+        ],
+        join: {
+          kind: "inner",
+          leftSourceId: "assignments",
+          leftColumn: "user_id",
+          rightSourceId: "events",
+          rightColumn: "auth_user_id",
+        },
+        projections: [
+          { sourceId: "assignments", column: "variant_id" },
+          { sourceId: "events", column: "event_variant" },
+        ],
+      },
+    );
+
+    expect(mocks.withDbAdminConnectionRuntime).toHaveBeenCalledTimes(2);
+    expect(mocks.runSql).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({
+      table: {
+        columns: [
+          { key: "variant_id", label: "variant_id" },
+          { key: "event_variant", label: "event_variant" },
+        ],
+        rows: [{ variant_id: "credits", event_variant: "credits" }],
       },
     });
   });

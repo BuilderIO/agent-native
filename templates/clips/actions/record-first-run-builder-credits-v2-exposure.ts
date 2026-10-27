@@ -12,6 +12,14 @@ export default defineAction({
   description:
     "Persist the signed-in user's Clips first-run credits v2 arm after the credits screen is eligible to appear.",
   schema: z.object({}),
+  outputSchema: z.object({
+    assignment: z
+      .object({
+        experiment_id: z.string(),
+        experiment_variant: z.string(),
+      })
+      .nullable(),
+  }),
   uiOnly: true,
   run: async () => {
     const context = getRequestContext();
@@ -20,9 +28,9 @@ export default defineAction({
     const flagEnabled = await isFeatureFlagEnabled(
       CLIPS_FIRST_RUN_CREDITS_V2_FLAG,
       {
-        userEmail: context.userEmail,
+        ...(context.userEmail ? { userEmail: context.userEmail } : {}),
         userKey: context.authUserId,
-        orgId: context.orgId,
+        ...(context.orgId ? { orgId: context.orgId } : {}),
       },
     );
     if (!flagEnabled) return { assignment: null };

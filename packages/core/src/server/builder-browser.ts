@@ -2669,7 +2669,9 @@ function builderApiErrorMessage(
 }
 
 function redactBuilderDiagnosticText(value: string): string {
-  return value
+  // Some upstream errors embed JSON inside an already escaped JSON string.
+  const normalizedValue = value.replace(/\\(?=["'])/g, "");
+  return normalizedValue
     .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[redacted-email]")
     .replace(
       /\bauthorization\b\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\r\n,};]+)/gi,

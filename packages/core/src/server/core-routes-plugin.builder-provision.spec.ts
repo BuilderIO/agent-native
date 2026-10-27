@@ -345,6 +345,21 @@ describe("POST /builder/provision", () => {
     ]);
   });
 
+  it("redacts credentials inside escaped upstream JSON error strings", async () => {
+    upstreamAnswers(502, {
+      error: String.raw`Upstream returned {\"apiKey\":\"escaped-private-value\"}`,
+    });
+
+    const response = await post({
+      provisioningToken: signBuilderProvisioningToken(OWNER, SESSION_TOKEN),
+    });
+
+    expect(response.status).toBe(503);
+    const event = trackedEvents("builder connect failed")[0];
+    expect(event?.upstream_body).toContain("[redacted]");
+    expect(event?.upstream_body).not.toContain("escaped-private-value");
+  });
+
   it("records status and a sanitized field summary for an invalid success response", async () => {
     upstreamAnswers(200, {
       credentials: {

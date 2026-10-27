@@ -127,6 +127,7 @@ vi.mock("../server/source-workspace.js", async () => {
 });
 
 import { SourceWorkspaceEditConflictError } from "../server/source-workspace.js";
+import { LockedLayerEditError } from "../shared/locked-layers.js";
 import action from "./edit-design.js";
 
 describe("edit-design conflict retry", () => {
@@ -265,6 +266,35 @@ describe("edit-design conflict retry", () => {
       name: "Error",
       message: expect.stringContaining("text was not found"),
     });
+
+    expect(mocks.snapshotDesignBeforeAgentEdit).toHaveBeenCalledOnce();
+    expect(mocks.writeInlineSourceFile).toHaveBeenCalledOnce();
+  });
+
+  it("preserves a locked-layer rejection after a checkpointed conflict", async () => {
+    mocks.readLiveSourceFile
+      .mockResolvedValueOnce({
+        content: "<main>Legal</main>",
+        versionHash: "h0",
+        language: "html",
+      })
+      .mockResolvedValueOnce({
+        content:
+          '<main><div data-agent-native-node-id="legal" data-agent-native-locked="true">Legal</div></main>',
+        versionHash: "h1",
+        language: "html",
+      });
+    mocks.writeInlineSourceFile.mockRejectedValueOnce(
+      new SourceWorkspaceEditConflictError(),
+    );
+
+    await expect(
+      action.run({
+        designId: "design_1",
+        filename: "index.html",
+        edits: [{ search: "Legal", replace: "Changed" }],
+      } as never),
+    ).rejects.toBeInstanceOf(LockedLayerEditError);
 
     expect(mocks.snapshotDesignBeforeAgentEdit).toHaveBeenCalledOnce();
     expect(mocks.writeInlineSourceFile).toHaveBeenCalledOnce();

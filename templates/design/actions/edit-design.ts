@@ -476,6 +476,7 @@ export default defineAction({
         assertLockedLayersPreserved(base, nextContent);
       } catch (error) {
         if (error instanceof LockedLayerEditError) {
+          if (checkpointed) throw error;
           throw new NoWriteError(error.message, {
             errorCode: error.errorCode,
             statusCode: error.statusCode,
