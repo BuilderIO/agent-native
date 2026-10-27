@@ -14,6 +14,7 @@ describe("Brain interval registration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubEnv("NETLIFY", undefined);
+    vi.stubEnv("NETLIFY_LOCAL", undefined);
     vi.stubEnv("SITE_ID", undefined);
     vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", undefined);
     vi.stubEnv("NODE_ENV", "production");
@@ -40,6 +41,21 @@ describe("Brain interval registration", () => {
       expect(jobs.distill).not.toHaveBeenCalled();
     },
   );
+
+  it.each([
+    ["NETLIFY_LOCAL", "true"],
+    ["NETLIFY", "false"],
+  ])("honors the explicit local override %s=%s", (key, value) => {
+    vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv("SITE_ID", "brain-site-id");
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "local-brain-function");
+    vi.stubEnv(key, value);
+
+    registerBrainJobs();
+
+    expect(jobs.sync).toHaveBeenCalledOnce();
+    expect(jobs.distill).toHaveBeenCalledOnce();
+  });
 
   it("registers both jobs in a long-lived Node process", () => {
     registerBrainJobs();
