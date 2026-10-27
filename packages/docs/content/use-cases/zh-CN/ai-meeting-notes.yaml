@@ -86,7 +86,7 @@ other_uses:
 faqs:
   heading: 有疑问？这里有答案
   items:
-    - q: Clips 免费吗？
+    - q: Agent-Native Clips 免费吗？
       a: 是的，Agent-Native Clips 免费且开源。摘要、标题和转录整理默认使用 [Builder.io AI 额度](https://www.agent-native.com/docs/template-clips-features/)运行。额度用完后，这些功能会暂停，直到你充值或接入自己的 Gemini 密钥。Clips 目前处于 alpha 阶段，后续还会有变化。
     - q: 会有机器人加入我的会议吗？
       a: "不会。Clips 在你自己的电脑上记笔记：Clips Desktop 录下你的麦克风和通话的音频，所以不会有任何东西加入你的 Zoom、Google Meet 或 Microsoft Teams 通话。因为没有机器人加入，请告诉大家你在记笔记。"

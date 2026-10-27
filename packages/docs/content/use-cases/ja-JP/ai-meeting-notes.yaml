@@ -86,7 +86,7 @@ other_uses:
 faqs:
   heading: よくある質問
   items:
-    - q: Clipsは無料ですか？
+    - q: Agent-Native Clipsは無料ですか？
       a: はい、Agent-Native Clipsは無料のオープンソースです。要約、タイトル、文字起こしの整形は、デフォルトで[Builder.io AIクレジット](https://www.agent-native.com/docs/template-clips-features/)を使って実行されます。クレジットがなくなると、クレジットを追加するかご自身のGeminiキーを接続するまで、これらの機能は停止します。Clipsはアルファ版のため、今後変更が加わる可能性があります。
     - q: ボットが会議に参加しますか？
       a: いいえ。Clipsはご自身のパソコンからノートを作成します。Clips Desktopがマイクと通話の音声を録音するので、ZoomやGoogle Meet、Microsoft Teamsの通話に何かが参加することはありません。ボットは参加しないため、ノートを取っていることは参加者に伝えておきましょう。

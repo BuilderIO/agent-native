@@ -86,7 +86,7 @@ other_uses:
 faqs:
   heading: 궁금한 점이 있으신가요? 답해 드릴게요
   items:
-    - q: Clips는 무료인가요?
+    - q: Agent-Native Clips는 무료인가요?
       a: "네, Agent-Native Clips는 무료 오픈 소스예요. 요약, 제목, 전사 정리는 기본적으로 [Builder.io AI 크레딧](https://www.agent-native.com/docs/template-clips-features/)으로 실행돼요. 크레딧이 떨어지면 크레딧을 추가하거나 내 Gemini 키를 연결할 때까지 이 기능들이 멈춰요. Clips는 알파 버전이라 바뀌는 부분이 있을 수 있어요."
     - q: 회의에 봇이 들어오나요?
       a: "아니요. Clips는 내 컴퓨터에서 노트를 만들어요. Clips Desktop이 마이크와 통화 소리를 녹음하니 Zoom, Google Meet, Microsoft Teams 통화에 아무것도 들어오지 않아요. 봇이 들어오지 않으니 노트를 만들고 있다는 사실은 참석자에게 알려 주세요."

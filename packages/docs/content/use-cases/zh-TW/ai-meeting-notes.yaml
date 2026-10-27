@@ -86,7 +86,7 @@ other_uses:
 faqs:
   heading: 有問題？我們來解答
   items:
-    - q: Clips 是免費的嗎？
+    - q: Agent-Native Clips 是免費的嗎？
       a: 是的，Agent-Native Clips 免費且開源。摘要、標題和逐字稿清理預設使用 [Builder.io AI 點數](https://www.agent-native.com/docs/template-clips-features/)。點數用完後，這些功能就會停止，直到你加購點數或連接自己的 Gemini 金鑰。Clips 目前是 alpha 版，功能會持續調整。
     - q: 會有機器人加入我的會議嗎？
       a: 不會。Clips 從你自己的電腦做筆記：Clips Desktop 會錄下你的麥克風和通話的音訊，所以不會有任何東西加入你的 Zoom、Google Meet 或 Microsoft Teams 通話。因為沒有機器人加入，記得告訴大家你在做筆記。

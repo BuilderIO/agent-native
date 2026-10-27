@@ -86,7 +86,7 @@ other_uses:
 faqs:
   heading: Fragen? Wir haben Antworten
   items:
-    - q: Ist Clips kostenlos?
+    - q: Ist Agent-Native Clips kostenlos?
       a: Ja, Agent-Native Clips ist kostenlos und Open Source. Zusammenfassungen, Titel und die Bereinigung des Transkripts laufen standardmäßig über [Builder.io-KI-Guthaben](https://www.agent-native.com/docs/template-clips-features/). Ist das Guthaben aufgebraucht, pausieren diese Funktionen, bis Sie Guthaben ergänzen oder Ihren eigenen Gemini-Schlüssel verbinden. Clips ist in der Alpha-Phase, rechnen Sie also mit Änderungen.
     - q: Tritt ein Bot meinen Meetings bei?
       a: "Nein. Clips erstellt Notizen von Ihrem eigenen Computer: Clips Desktop nimmt Ihr Mikrofon und den Ton des Anrufs auf, es tritt also nichts Ihrem Zoom-, Google-Meet- oder Microsoft-Teams-Anruf bei. Da kein Bot beitritt, sagen Sie den Teilnehmern, dass Sie Notizen erstellen."
