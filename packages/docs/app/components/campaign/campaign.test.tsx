@@ -2338,58 +2338,21 @@ describe("public campaign frontend", () => {
     expect(trackEvent).not.toHaveBeenCalled();
   });
 
-  it.each(["engineering", "product", "marketing"] as const)(
-    "filters the real dictation use case by its engineering/product roles in the %s UI",
-    async (role) => {
-      const actual = await vi.importActual<
-        typeof import("../../../lib/campaign-content.server")
-      >("../../../lib/campaign-content.server");
-      const { useCases } = actual.loadCampaignContent();
-      const dictation = useCases.find(
-        (item) => item.slug === "dictate-instead-of-typing",
-      )!;
-      expect(dictation).toBeDefined();
-      expect(dictation.roles).toEqual(["engineering", "product"]);
-      expect(dictation.frequency).toBe("daily");
-      const view = renderCampaign(
-        <UseCasesIndex items={useCases} />,
-        `/use-cases?role=${role}&often=daily`,
-      );
-      expect(view.getByLabelText("Role").textContent).toBe(
-        {
-          engineering: "Engineering",
-          product: "Product",
-          marketing: "Marketing",
-        }[role],
-      );
-      expect(view.getByLabelText("How often").textContent).toBe("Daily");
-      const card = view.container.querySelector(
-        `a[href="${sitePathForLocale(`${USE_CASES_BASE}/${dictation.slug}`)}"]`,
-      )!;
-      expect(card.querySelector("h3")?.textContent).toBe(dictation.title);
-      expect(card.closest("[hidden]") !== null).toBe(role === "marketing");
-      expect(visibleCardTitles(view).includes(dictation.title)).toBe(
-        role !== "marketing",
-      );
-      expect(trackEvent).not.toHaveBeenCalled();
-    },
-  );
-
   it.each([
     {
-      useCaseSlug: "design-brief-to-prototype",
+      useCaseSlug: "ai-prototype-generator",
       slug: "how-to-turn-a-design-brief-into-a-prototype-with-ai",
       oldSlug: "what-goes-in-a-design-brief",
       title: "How do you turn a design brief into a prototype with AI?",
     },
     {
-      useCaseSlug: "startup-pitch-deck",
+      useCaseSlug: "ai-pitch-deck-maker",
       slug: "how-to-make-a-pitch-deck-with-ai",
       oldSlug: "what-should-a-startup-pitch-deck-include",
       title: "How do you make a pitch deck with AI?",
     },
   ])(
-    "links $useCaseSlug Go deeper to $slug and rejects the deleted article route",
+    "links article $slug to $useCaseSlug and rejects the deleted article route",
     async ({ useCaseSlug, slug, oldSlug, title }) => {
       const actual = await vi.importActual<
         typeof import("../../../lib/campaign-content.server")
@@ -2406,23 +2369,6 @@ describe("public campaign frontend", () => {
         const articleData = articleLoader(args({ ...params, slug }));
         expect(articleData.article.title).toBe(title);
         expect(articleData.useCase?.slug).toBe(useCaseSlug);
-        const data = originalUseCase(
-          useCaseLoader(args({ ...params, slug: useCaseSlug })),
-        );
-        expect(data.articles.map((item) => item.slug)).toEqual([slug]);
-        const document = dom(markup(<UseCasePage {...data} />));
-        const section = [...document.querySelectorAll("section")].find(
-          (node) => node.querySelector("h2")?.textContent === "Go deeper",
-        )!;
-        expect(
-          [...section.querySelectorAll("a")].map((link) => [
-            link.getAttribute("href"),
-            link.querySelector("h3")?.textContent,
-          ]),
-        ).toEqual([
-          [sitePathForLocale(`${ARTICLES_BASE}/${slug}`, locale), title],
-        ]);
-        expect(document.querySelector(`a[href*="${oldSlug}"]`)).toBeNull();
       }
     },
   );
@@ -2440,128 +2386,6 @@ describe("public campaign frontend", () => {
       args({ slug: "how-to-use-ai-to-take-meeting-notes" }),
     );
     expect(data.useCase).toEqual({ slug: page.slug, title: page.title });
-  });
-
-  it("loads real next jobs and SSR renders their cards in declared order", async () => {
-    const actual = await vi.importActual<
-      typeof import("../../../lib/campaign-content.server")
-    >("../../../lib/campaign-content.server");
-    const content = actual.loadCampaignContent();
-    vi.mocked(loadCampaignContent).mockReturnValue(content);
-    const data = originalUseCase(
-      useCaseLoader(args({ slug: "design-brief-to-prototype" })),
-    );
-    const expected = [
-      "landing-page-prototypes",
-      "wireframe-before-agent-builds",
-    ];
-    expect(data.item.next_jobs).toEqual(expected);
-    // landing-page-prototypes is now a new-style page, so only the jobs still on the old template show.
-    const shown = expected.filter((slug) =>
-      content.useCases.some((item) => item.slug === slug),
-    );
-    expect(shown).toEqual(["wireframe-before-agent-builds"]);
-    expect(data.useCases.map((item) => item.slug).sort()).toEqual(
-      [...shown].sort(),
-    );
-    const document = dom(markup(<UseCasePage {...data} />));
-    expectRecipeAccordion(document, data.item.recipes!);
-    const section = [...document.querySelectorAll("section")].find(
-      (node) => node.querySelector("h2")?.textContent === "What to do next",
-    )!;
-    const cards = [...section.querySelectorAll("a")];
-    expect(cards.map((card) => card.getAttribute("href"))).toEqual(
-      shown.map((slug) => sitePathForLocale(`${USE_CASES_BASE}/${slug}`)),
-    );
-    expect(cards.map((card) => card.querySelector("h3")?.textContent)).toEqual(
-      shown.map(
-        (slug) => content.useCases.find((item) => item.slug === slug)!.title,
-      ),
-    );
-  });
-
-  it("SSR renders every real replacement list and every recipe answer, including closed panels, without tables or column headings", async () => {
-    const actual = await vi.importActual<
-      typeof import("../../../lib/campaign-content.server")
-    >("../../../lib/campaign-content.server");
-    const { useCases } = actual.loadCampaignContent();
-    expect(useCases).toHaveLength(12);
-    for (const item of useCases) {
-      const document = dom(markup(<UseCasePage item={item} articles={[]} />));
-      expect(document.querySelector("table, th, td"), item.slug).toBeNull();
-      const stack = item.todays_stack!;
-      expect(stack, item.slug).toBeDefined();
-      const section = [...document.querySelectorAll("section")].find(
-        (node) => node.querySelector("h2")?.textContent === stack.heading,
-      )!;
-      expect(section.classList.contains("campaign-stack-section")).toBe(true);
-      const list = section.querySelector(":scope > ul")!;
-      expect(list.classList.contains("campaign-stack-list")).toBe(true);
-      expect(list.classList.contains("list-disc")).toBe(true);
-      expect(list.nextElementSibling?.tagName).toBe("P");
-      expect(section.querySelector(":scope > p")?.textContent).toBe(
-        stack.in_app,
-      );
-      expect(
-        [...section.querySelectorAll(":scope > ul > li")].map(
-          (node) => node.textContent,
-        ),
-      ).toEqual(stack.items.map(({ text }) => text.replaceAll("**", "")));
-      for (const entry of stack.items)
-        expect(Object.keys(entry)).toEqual(["text"]);
-      for (const label of ["What you use", "For", "Where it breaks"])
-        expect(section.textContent).not.toContain(label);
-      expect(item.recipes, item.slug).toHaveLength(3);
-      expectRecipeAccordion(document, item.recipes!);
-    }
-  });
-
-  it("SSR includes every real use-case card despite filters and renders Content screenshots", async () => {
-    const actual = await vi.importActual<
-      typeof import("../../../lib/campaign-content.server")
-    >("../../../lib/campaign-content.server");
-    const { useCases } = actual.loadCampaignContent();
-    expect(useCases).toHaveLength(12);
-    const document = dom(
-      markup(
-        <UseCasesIndex items={useCases} />,
-        "/use-cases?role=engineering&often=daily",
-      ),
-    );
-    const wrappers = [...document.querySelectorAll(".grid.gap-px > div")];
-    expect(wrappers).toHaveLength(12);
-    expect(document.querySelectorAll("[hidden]")).toHaveLength(0);
-    const cards = wrappers.map(
-      (wrapper) => wrapper.querySelector(":scope > a")!,
-    );
-    expect(cards.map((card) => card.getAttribute("href")).sort()).toEqual(
-      useCases
-        .map((item) => sitePathForLocale(`${USE_CASES_BASE}/${item.slug}`))
-        .sort(),
-    );
-    expect(
-      cards.map((card) => card.querySelector("h3")?.textContent).sort(),
-    ).toEqual(useCases.map((item) => item.title).sort());
-    const content = useCases.find((item) => item.app === "content")!;
-    expect(content).toBeDefined();
-    const page = dom(markup(<UseCasePage item={content} articles={[]} />));
-    expect(page.querySelector(".theme-img-dark")?.getAttribute("src")).toBe(
-      TEMPLATE_SCREENSHOTS.content.dark,
-    );
-    expect(page.querySelector(".theme-img-dark")?.getAttribute("alt")).toBe(
-      content.screenshot_alt,
-    );
-    expect(page.querySelector(".theme-img-light")?.getAttribute("src")).toBe(
-      TEMPLATE_SCREENSHOTS.content.light,
-    );
-    expectRecipeAccordion(page, content.recipes!);
-    expect(categories).toEqual([
-      "clips",
-      "design",
-      "slides",
-      "plans",
-      "analytics",
-    ]);
   });
 
   it.each(DOCS_LOCALES)(

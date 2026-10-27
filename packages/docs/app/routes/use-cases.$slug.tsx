@@ -1,4 +1,6 @@
+import { withSsrHtmlContentType } from "@agent-native/core/shared";
 import {
+  redirect,
   useLoaderData,
   type LoaderFunctionArgs,
   type MetaDescriptor,
@@ -16,6 +18,7 @@ import {
   publicUseCase,
 } from "../components/campaign/public-content";
 import { UseCasePageV2 as UseCasePageV2View } from "../components/campaign/use-case-page-v2";
+import { useCaseRedirectTarget } from "../components/campaign/use-case-redirects";
 import { UseCasePage } from "../components/campaign/use-cases";
 import {
   DEFAULT_DOCS_LOCALE,
@@ -35,6 +38,10 @@ export function useCasePageData(entry: UseCasePageEntry, page: UseCasePageV2) {
 }
 
 export function loader({ params }: LoaderFunctionArgs) {
+  const moved = useCaseRedirectTarget(params.slug);
+  if (moved) {
+    throw withSsrHtmlContentType(redirect(`${USE_CASES_BASE}/${moved}/`, 301));
+  }
   const content = loadCampaignContent();
   const entry = content.useCasePages.find((item) => item.slug === params.slug);
   if (entry) {

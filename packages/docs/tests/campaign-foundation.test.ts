@@ -1,7 +1,7 @@
-import { fileURLToPath } from "node:url";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -49,94 +49,6 @@ const todaysStack = {
   heading: "Tools today",
   items: [{ text: "**A doc** keeps notes, but they get lost." }],
   in_app: "Keep the notes together.",
-};
-const replacementItems: Record<string, string[]> = {
-  "ask-your-database-in-plain-english": [
-    "**Routing every question to whoever writes SQL,** then waiting for the answer.",
-    "**A BI tool, like Looker,** covers the questions someone planned for, and new ones wait for a data request.",
-    "**A chat assistant with a CSV export** can answer a question, but every answer starts with exporting the data again.",
-  ],
-  "bug-reports-with-console-logs": [
-    "**A screen recorder, like Loom,** shows what happened on screen, but not the console messages behind it.",
-    "**Copying errors out of DevTools by hand** is slow, and it's easy to grab the wrong one.",
-    "**Pasting logs into your coding agent's chat** gives it only what you copied, never the moment things broke.",
-  ],
-  "crm-and-call-questions": [
-    "**Rebuilding a CRM report** when the view you need isn't one of the standard ones.",
-    "**A weekly spreadsheet export** for custom analysis, which goes stale in between.",
-    "**Pasting charts into the review deck** by hand every week.",
-  ],
-  "design-brief-to-prototype": [
-    "**Reacting to a brief on paper** means people agree with a document and only react once they see something.",
-    "**Drawing every screen and state by hand** before anyone can click anything takes the longest.",
-    "**Feedback on screenshots in chat** lands away from the design itself.",
-  ],
-  "dictate-instead-of-typing": [
-    "**Typing long prompts** means shortening them, and the detail is what gets cut.",
-    "**Your operating system's built-in dictation** handles quick notes, but it may stumble on product and library names, and there's usually no history to search later.",
-    "**A separate dictation app, like Wispr Flow,** lets you speak instead of type, but your dictations live apart from your recordings and meeting notes.",
-  ],
-  "find-where-users-drop-off": [
-    "**A product analytics tool, like Amplitude or Mixpanel,** has the events, but only a few people on the team know how to query it.",
-    "**A separate session replay tool** shows what people did, in a different place from your numbers.",
-    "**Sharing findings as screenshots** means they're stale by the next standup.",
-  ],
-  "see-what-your-coding-agent-plans": [
-    "**Skimming a long text plan** makes it easy to approve something you didn't read closely.",
-    "**A separate design doc** captures the approach, but it isn't the plan your agent follows.",
-    "**A whiteboard sketch** works for you, but your agent can't see it.",
-  ],
-  "spec-your-coding-agent-builds-from": [
-    "**A doc tool your coding agent can't open** holds the spec.",
-    "**Pasting chunks of the spec into prompts** goes stale the moment the doc changes.",
-    "**Decisions made in chat threads** never make it back into the spec.",
-  ],
-  "startup-kpi-dashboard": [
-    "**Exporting from your billing system by hand** every month, then pasting the numbers into a spreadsheet.",
-    "**Rebuilding the spreadsheet** for MRR, churn, and growth, which goes stale between updates.",
-    "**A product analytics tool, like Amplitude or Mixpanel,** covers usage and retention, but only a few people know how to query it.",
-    "**ChatGPT with a CSV** can answer questions about the numbers, but every answer starts with uploading the data again.",
-  ],
-  "startup-pitch-deck": [
-    "**Restyling a template or last round's deck by hand,** and hunting for stale numbers.",
-    "**Drafting the story in a general AI chat,** then building every slide in your brand yourself.",
-  ],
-  "understand-what-your-coding-agent-changed": [
-    "**Starting cold on a large diff** makes the most important change easy to miss.",
-    "**A pull request description** says what changed, but rarely how the change behaves.",
-    "**A call with whoever made the change** answers questions, but nothing is written down afterward.",
-  ],
-  "wireframe-before-agent-builds": [
-    "**Describing layout in a prompt** leaves your agent guessing at what you meant.",
-    "**A sketch on paper or a whiteboard** shows the layout, but your agent can't see it.",
-    "**A detailed mockup in a design tool** is more than you need before your agent builds a first version.",
-  ],
-};
-const replacementConclusions: Record<string, string> = {
-  "ask-your-database-in-plain-english":
-    "Your database stays where it is. Analytics connects to PostgreSQL, answers plain-English questions about your tables, and keeps the answers in dashboards your team can open.",
-  "bug-reports-with-console-logs":
-    "Clips works with the coding agent you already use. The recording, the transcript, and, with the Chrome extension, the console messages and request details sit behind one link you can hand to Claude, Claude Code, or Codex.",
-  "crm-and-call-questions":
-    "HubSpot stays your CRM, and Gong stays your call recorder. Analytics connects to both, answers plain-English questions about their data, and keeps the answers in dashboards your team can share.",
-  "design-brief-to-prototype":
-    "You still write the brief. In Design, it becomes an interactive prototype, directions sit side by side, and comments pin to the elements they're about.",
-  "dictate-instead-of-typing":
-    "Your words still go into the apps you already use, like your coding agent's prompt box. In Clips, dictations, screen recordings, and meetings share one searchable library.",
-  "find-where-users-drop-off":
-    "Analytics connects to the product data you already collect, like PostHog, Amplitude, Mixpanel, or GA4. Plain-English questions, dashboards, and session replays are in one app.",
-  "see-what-your-coding-agent-plans":
-    "Plans works inside your coding agent, like Claude Code or Codex, and your agent still writes the code. Plans adds diagrams, wireframes, and annotated code to its plan, and your agent can read your comments and revise it.",
-  "spec-your-coding-agent-builds-from":
-    "Your coding agent still does the building. In Content, the spec lives in pages your agent can reach through MCP.",
-  "startup-kpi-dashboard":
-    "Stripe stays your billing system. Analytics connects to it and your other sources, answers plain-English questions, and keeps the answers in dashboards.",
-  "startup-pitch-deck":
-    "You still bring the story and the numbers. In Slides, the deck is drafted from your brief in your brand, and you edit it slide by slide or with the agent. Check every number before you send it.",
-  "understand-what-your-coding-agent-changed":
-    "A recap guides your review. It doesn't replace it: you still read the actual code and check the tests.",
-  "wireframe-before-agent-builds":
-    "Your coding agent still builds the screen. In Plans, the wireframes are part of its plan, so your comments go straight back to the agent that will build it.",
 };
 const recipe = {
   id: "sample-recipe",
@@ -690,7 +602,25 @@ describe("campaign content", () => {
     const disk = loadCampaignContentFromDisk(
       fileURLToPath(new URL("..", import.meta.url)),
     );
-    expect(bundled.useCases).toHaveLength(12);
+    // Every old-template page was replaced by a new-style page, which its old address redirects to.
+    expect(bundled.useCases).toEqual([]);
+    expect(bundled.useCasePages.map((page) => page.slug).sort()).toEqual([
+      "ai-bug-reporting-tool",
+      "ai-dictation",
+      "ai-funnel-analysis",
+      "ai-kpi-dashboard",
+      "ai-meeting-notes",
+      "ai-pitch-deck-maker",
+      "ai-prototype-generator",
+      "ai-sales-analytics",
+      "ask-your-database",
+      "landing-page-prototypes",
+      "specs-for-coding-agents",
+      "ui-planning",
+      "visual-plan-mode",
+      "visually-recap-agent-changes",
+      "weekly-marketing-report",
+    ]);
     expect(bundled.articles).toHaveLength(11);
     expect(
       bundled.articles.map(({ slug, topic, apps }) => ({ slug, topic, apps })),
@@ -763,84 +693,17 @@ describe("campaign content", () => {
         (item) =>
           item.slug === "how-do-you-add-skills-to-claude-code-and-codex",
       )?.use_case,
-    ).toBe("see-what-your-coding-agent-plans");
+    ).toBe("visual-plan-mode");
     expect(
       getArticleTopics(bundled.articles).map(({ count }) => count),
     ).toEqual([2, 3, 2, 2, 1, 1]);
-    expect(
-      bundled.useCases.map((item) => [
-        item.slug,
-        item.todays_stack?.heading,
-        item.todays_stack?.items.length,
-      ]),
-    ).toEqual([
-      [
-        "ask-your-database-in-plain-english",
-        "What changes for data questions",
-        3,
-      ],
-      ["bug-reports-with-console-logs", "What one recording replaces", 3],
-      ["crm-and-call-questions", "What changes for pipeline review", 3],
-      ["design-brief-to-prototype", "What a prototype replaces", 3],
-      ["dictate-instead-of-typing", "What dictation replaces", 3],
-      ["find-where-users-drop-off", "What changes for a drop-off question", 3],
-      ["see-what-your-coding-agent-plans", "What a visual plan replaces", 3],
-      ["spec-your-coding-agent-builds-from", "What changes for your specs", 3],
-      ["startup-kpi-dashboard", "What changes for your numbers", 4],
-      ["startup-pitch-deck", "What changes when you build the deck", 2],
-      [
-        "understand-what-your-coding-agent-changed",
-        "What a recap adds to your review",
-        3,
-      ],
-      ["wireframe-before-agent-builds", "What a wireframe replaces", 3],
-    ]);
-    const slugs = bundled.useCases.map((item) => item.slug);
-    expect(slugs).toEqual(Object.keys(replacementItems));
-    expect(
-      bundled.useCases.find((item) => item.slug === "design-brief-to-prototype")
-        ?.next_jobs,
-    ).toEqual(["landing-page-prototypes", "wireframe-before-agent-builds"]);
-    for (const item of bundled.useCases) {
-      expect(item.todays_stack?.items, item.slug).toEqual(
-        replacementItems[item.slug].map((text) => ({ text })),
-      );
-      expect(item.todays_stack?.in_app, item.slug).toBe(
-        replacementConclusions[item.slug],
-      );
-      expect(item.recipes, item.slug).toHaveLength(3);
-      for (const recipe of item.recipes!) {
-        expect(Array.isArray(recipe.steps), item.slug).toBe(true);
-        expect(recipe.steps.length, item.slug).toBeGreaterThanOrEqual(1);
-        expect(recipe.steps.length, item.slug).toBeLessThanOrEqual(4);
-        for (const step of recipe.steps) {
-          expect(typeof step, item.slug).toBe("string");
-          expect(step.trim().length, item.slug).toBeGreaterThan(0);
-        }
-        expect(typeof recipe.result, item.slug).toBe("string");
-        expect(recipe.result.trim().length, item.slug).toBeGreaterThan(0);
-        for (const removed of ["do", "you_get", "save"])
-          expect(recipe, item.slug).not.toHaveProperty(removed);
-      }
+    for (const item of bundled.articles) {
+      if (!item.use_case) continue;
       expect(
-        new Set(item.recipes!.map((recipe) => recipe.id)).size,
+        bundled.useCasePages.map((page) => page.slug),
         item.slug,
-      ).toBe(3);
-      expect(item.next_jobs?.length, item.slug).toBeGreaterThan(0);
-      for (const next of item.next_jobs!) {
-        // A next job may already be a new-style page.
-        expect(
-          [...slugs, ...bundled.useCasePages.map((page) => page.slug)],
-          `${item.slug} → ${next}`,
-        ).toContain(next);
-        expect(next).not.toBe(item.slug);
-      }
+      ).toContain(item.use_case);
     }
-    expect(
-      bundled.useCases.find(
-        (item) => item.slug === "spec-your-coding-agent-builds-from",
-      )?.app,
-    ).toBe("content");
     expect(bundled).toEqual(disk);
     expect(warn).not.toHaveBeenCalled();
     for (const item of [...bundled.useCases, ...bundled.articles]) {
