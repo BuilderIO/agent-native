@@ -20,73 +20,81 @@ export interface WorkspaceAppMountPathOptions {
   workspaceAppPath?: unknown;
 }
 
-export function resolveWorkspaceAppMountPath(
-  pathname: string,
-  options: WorkspaceAppMountPathOptions = {},
+/**
+ * Self-contained so its source can safely be embedded in browser scripts.
+ * Keep both paths here: a serialized function cannot close over module locals.
+ */
+export function resolveMcpAppEmbedBasePath(
+  mode: "workspace-path" | "external-target",
+  value: unknown,
+  options: WorkspaceAppMountPathOptions & { workspaceRuntime?: boolean } = {},
 ): string | undefined {
-  const normalize = (value: unknown): string => {
-    if (typeof value !== "string") return "";
-    const trimmed = value.trim();
-    if (!trimmed || trimmed === "/") return "";
-    return `/${trimmed.replace(/^\/+/, "").replace(/\/+$/, "")}`;
-  };
-  const matches = (basePath: string): boolean =>
-    Boolean(basePath) &&
-    (pathname === basePath || pathname.startsWith(`${basePath}/`));
-  const configuredPath = normalize(options.workspaceAppPath);
-  const explicitRootPath =
-    options.explicitRootPath === true ||
-    (typeof options.workspaceAppPath === "string" &&
-      options.workspaceAppPath.trim().length > 0 &&
-      configuredPath === "");
-  const fallbackPath = normalize(options.fallbackPath);
-  const routerBasePath = normalize(options.routerBasePath);
+  const resolveWorkspacePath = (
+    pathname: string,
+    options: WorkspaceAppMountPathOptions,
+  ): string | undefined => {
+    const normalize = (value: unknown): string => {
+      if (typeof value !== "string") return "";
+      const trimmed = value.trim();
+      if (!trimmed || trimmed === "/") return "";
+      return `/${trimmed.replace(/^\/+/, "").replace(/\/+$/, "")}`;
+    };
+    const matches = (basePath: string): boolean =>
+      Boolean(basePath) &&
+      (pathname === basePath || pathname.startsWith(`${basePath}/`));
+    const configuredPath = normalize(options.workspaceAppPath);
+    const explicitRootPath =
+      options.explicitRootPath === true ||
+      (typeof options.workspaceAppPath === "string" &&
+        options.workspaceAppPath.trim().length > 0 &&
+        configuredPath === "");
+    const fallbackPath = normalize(options.fallbackPath);
+    const routerBasePath = normalize(options.routerBasePath);
 
-  if (routerBasePath && matches(routerBasePath)) return routerBasePath;
-  if (configuredPath && matches(configuredPath)) return configuredPath;
-  if (explicitRootPath && !options.preferDeclaredMounts) return "";
+    if (routerBasePath && matches(routerBasePath)) return routerBasePath;
+    if (configuredPath && matches(configuredPath)) return configuredPath;
+    if (explicitRootPath && !options.preferDeclaredMounts) return "";
 
-  const segment = pathname.split("/").find(Boolean);
-  if (!segment) {
+    const segment = pathname.split("/").find(Boolean);
+    if (!segment) {
+      if (explicitRootPath) return "";
+      return fallbackPath || undefined;
+    }
+    const frameworkRoutePrefix =
+      normalize(options.frameworkRoutePrefix) || "/_agent-native";
+    if (
+      `/${segment}` === "/_agent-native" ||
+      `/${segment}` === frameworkRoutePrefix ||
+      segment === "api"
+    ) {
+      return fallbackPath;
+    }
+
+    const matchingMount = (
+      Array.isArray(options.workspaceAppMountPaths)
+        ? options.workspaceAppMountPaths
+        : []
+    )
+      .filter((value): value is string => typeof value === "string")
+      .map(normalize)
+      .filter((basePath) => matches(basePath))
+      .sort((left, right) => right.length - left.length)[0];
+    if (matchingMount) return matchingMount;
+    if (fallbackPath && options.fallbackOverridesExplicitRoot)
+      return fallbackPath;
     if (explicitRootPath) return "";
     return fallbackPath || undefined;
-  }
-  const frameworkRoutePrefix =
-    normalize(options.frameworkRoutePrefix) || "/_agent-native";
-  if (
-    `/${segment}` === "/_agent-native" ||
-    `/${segment}` === frameworkRoutePrefix ||
-    segment === "api"
-  ) {
-    return fallbackPath;
+  };
+
+  if (mode === "workspace-path") {
+    return typeof value === "string"
+      ? resolveWorkspacePath(value, options)
+      : undefined;
   }
 
-  const matchingMount = (
-    Array.isArray(options.workspaceAppMountPaths)
-      ? options.workspaceAppMountPaths
-      : []
-  )
-    .filter((value): value is string => typeof value === "string")
-    .map(normalize)
-    .filter((basePath) => matches(basePath))
-    .sort((left, right) => right.length - left.length)[0];
-  if (matchingMount) return matchingMount;
-  if (fallbackPath && options.fallbackOverridesExplicitRoot)
-    return fallbackPath;
-  if (explicitRootPath) return "";
-  return fallbackPath || undefined;
-}
+  if (typeof value !== "string" || !value.startsWith("/")) return undefined;
 
-export function resolveExternalEmbedTargetBasePath(
-  target: unknown,
-  options: WorkspaceAppMountPathOptions & {
-    frameworkRoutePrefix?: string;
-    workspaceRuntime?: boolean;
-  } = {},
-): string | undefined {
-  if (typeof target !== "string" || !target.startsWith("/")) return undefined;
-
-  const url = new URL(target, "http://agent-native.invalid");
+  const url = new URL(value, "http://agent-native.invalid");
   const markers = [
     options.frameworkRoutePrefix || "/_agent-native",
     "/_agent-native",
@@ -117,12 +125,26 @@ export function resolveExternalEmbedTargetBasePath(
     segment !== "api"
       ? `/${segment}`
       : "";
-  return resolveWorkspaceAppMountPath(url.pathname, {
+  return resolveWorkspacePath(url.pathname, {
     ...options,
     fallbackPath,
     fallbackOverridesExplicitRoot: true,
     preferDeclaredMounts: true,
   });
+}
+
+export function resolveWorkspaceAppMountPath(
+  pathname: string,
+  options: WorkspaceAppMountPathOptions = {},
+): string | undefined {
+  return resolveMcpAppEmbedBasePath("workspace-path", pathname, options);
+}
+
+export function resolveExternalEmbedTargetBasePath(
+  target: unknown,
+  options: WorkspaceAppMountPathOptions & { workspaceRuntime?: boolean } = {},
+): string | undefined {
+  return resolveMcpAppEmbedBasePath("external-target", target, options);
 }
 
 function normalizedStorageBasePath(basePath: string | undefined): string {
@@ -203,8 +225,7 @@ export function getMcpAppWidgetEmbedBootScriptBody(
     var runtimeConfig = appConfig.runtime && typeof appConfig.runtime === "object"
       ? appConfig.runtime
       : {};
-    var resolveWorkspaceAppMountPath = ${resolveWorkspaceAppMountPath.toString()};
-    var resolveExternalEmbedTargetBasePath = ${resolveExternalEmbedTargetBasePath.toString()};
+    var resolveMcpAppEmbedBasePath = ${resolveMcpAppEmbedBasePath.toString()};
     var workspaceOptions = {
       workspaceAppPath: appConfig.workspaceAppPath,
       workspaceAppMountPaths: appConfig.workspaceAppMountPaths,
@@ -212,8 +233,8 @@ export function getMcpAppWidgetEmbedBootScriptBody(
       frameworkRoutePrefix: runtimeConfig.frameworkRoutePrefix || appConfig.frameworkRoutePrefix
     };
     var basePath = external && typeof external.target === "string"
-      ? resolveExternalEmbedTargetBasePath(external.target, Object.assign({ workspaceRuntime: true }, workspaceOptions))
-      : resolveWorkspaceAppMountPath(w.location.pathname, workspaceOptions);
+      ? resolveMcpAppEmbedBasePath("external-target", external.target, Object.assign({ workspaceRuntime: true }, workspaceOptions))
+      : resolveMcpAppEmbedBasePath("workspace-path", w.location.pathname, workspaceOptions);
     if (typeof basePath !== "string") return;
     var normalizedBasePath = basePath.trim();
     normalizedBasePath = !normalizedBasePath || normalizedBasePath === "/"

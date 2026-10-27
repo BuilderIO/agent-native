@@ -2146,6 +2146,9 @@ function getAppOriginClientConfigScript() {
   const workspaceAppPath =
     workspaceAppMountConfig?.currentPath ??
     (workspaceRuntime ? configuredWorkspaceAppPath : "");
+  const frameworkRoutePrefix = (
+    process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX || ""
+  ).trim();
   const config = {
     ...(appConfig.app.id ? { appId: appConfig.app.id } : {}),
     ...(appConfig.app.workspaceId
@@ -2163,6 +2166,7 @@ function getAppOriginClientConfigScript() {
     ...(workspaceAppMountConfig?.paths
       ? { workspaceAppMountPaths: workspaceAppMountConfig.paths }
       : {}),
+    ...(frameworkRoutePrefix ? { frameworkRoutePrefix } : {}),
   };
   const toUnicodeEscape = (character) =>
     String.fromCharCode(92) +

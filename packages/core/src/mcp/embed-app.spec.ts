@@ -3,11 +3,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ActionMcpAppResourceConfig } from "../action.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
+import { MCP_APP_CHAT_BRIDGE_QUERY_PARAM } from "../shared/embed-auth.js";
 import {
   MCP_APP_HOST_FILL_ATTRIBUTE,
   MCP_APP_PANE_FILL_MAX_HEIGHT,
   mcpAppHostFillsContainer,
 } from "../shared/mcp-app-display.js";
+import {
+  embedTokenStorageKey,
+  mcpChatBridgeStorageKey,
+} from "../shared/mcp-app-widget-embed.js";
 import { embedApp, MCP_APP_REQUEST_ORIGIN_CSP_SOURCE } from "./embed-app.js";
 import { HIDDEN_EMBED_URL } from "./embed-redaction.js";
 
@@ -118,7 +123,7 @@ describe("embedApp", () => {
     expect(html).not.toContain("/_agent-native/embed/runtime.js");
     expect(html).toContain("__AGENT_NATIVE_EXTERNAL_EMBED");
     expect(html).toContain("window.history.replaceState");
-    expect(html).toContain("resolveExternalEmbedTargetBasePath");
+    expect(html).toContain("resolveMcpAppEmbedBasePath");
     expect(html).toContain(
       "workspaceAppMountPaths: appConfig.workspaceAppMountPaths",
     );
@@ -239,6 +244,148 @@ describe("embedApp", () => {
     expect(csp?.resourceDomains).toContain("https://esm.sh");
     expect(csp?.connectDomains).toContain(MCP_APP_REQUEST_ORIGIN_CSP_SOURCE);
     expect(csp?.baseUriDomains).toEqual([MCP_APP_REQUEST_ORIGIN_CSP_SOURCE]);
+  });
+
+  it("writes child workspace credentials before running child config scripts", async () => {
+    const resource = embedApp();
+    const html =
+      typeof resource.html === "function"
+        ? resource.html({ actionName: "open_app", appId: "demo" })
+        : resource.html;
+    const functionSource = (name: string) => {
+      const source = html.match(
+        new RegExp(
+          `    (?:async )?function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n    \\}\\n`,
+        ),
+      )?.[0];
+      expect(source, name).toBeTruthy();
+      return source as string;
+    };
+    const appConfigValue = {
+      workspaceRuntime: true,
+      workspaceAppPath: "/",
+      workspaceAppMountPaths: ["/deck"],
+      frameworkRoutePrefix: "/_platform",
+    };
+    const configScript = {
+      textContent:
+        "window.__AGENT_NATIVE_CONFIG__=Object.assign({},window.__AGENT_NATIVE_CONFIG__," +
+        JSON.stringify(appConfigValue) +
+        ");",
+      getAttribute: () => null,
+    };
+    const parsed = {
+      querySelector: () => configScript,
+      querySelectorAll: () => [configScript],
+      documentElement: {},
+      head: {},
+      body: {},
+    };
+    const windowObject: Record<string, unknown> = {
+      history: { state: null, replaceState: vi.fn() },
+    };
+    const locationObject = {
+      pathname: "/deck/_platform/auth/session",
+      href: "https://app.example/deck/_platform/auth/session",
+    };
+    const stored = new Map<string, string>();
+    const sessionStorageObject = {
+      setItem: (key: string, value: string) => stored.set(key, value),
+    };
+    const order: string[] = [];
+    const appOriginConfigForDocument = new Function(
+      `${functionSource("appOriginConfigForDocument")}; return appOriginConfigForDocument;`,
+    )() as (document: unknown) => Record<string, unknown>;
+    const localPathFromUrl = (url: URL, includeToken: boolean) => {
+      const next = new URL(url.href);
+      if (!includeToken) next.searchParams.delete("__an_embed_token");
+      return next.pathname + next.search + next.hash;
+    };
+    const embedConfigForAppUrl = new Function(
+      "localPathFromUrl",
+      "chatBridgeParam",
+      `${functionSource("embedConfigForAppUrl")}; return embedConfigForAppUrl;`,
+    )(localPathFromUrl, MCP_APP_CHAT_BRIDGE_QUERY_PARAM) as (
+      appUrl: URL,
+      appConfig: Record<string, unknown>,
+    ) => Record<string, unknown>;
+    const installRuntimeSource = functionSource("installExternalEmbedRuntime");
+    const installRuntime = new Function(
+      "window",
+      "location",
+      "sessionStorage",
+      "installReactRefreshPreambleFallback",
+      "fetch",
+      "XMLHttpRequest",
+      "EventSource",
+      `${installRuntimeSource}; return installExternalEmbedRuntime;`,
+    )(
+      windowObject,
+      locationObject,
+      sessionStorageObject,
+      () => {},
+      undefined,
+      undefined,
+      undefined,
+    ) as (config: Record<string, unknown>) => void;
+    const installBeforeChildScript = (config: Record<string, unknown>) => {
+      expect(windowObject.__AGENT_NATIVE_CONFIG__).toBeUndefined();
+      order.push("install");
+      installRuntime(config);
+    };
+    const mountTransplantedHtml = new Function(
+      "DOMParser",
+      "document",
+      "rewriteRootRelativeHtmlUrls",
+      "removeHtmlCspMeta",
+      "appOriginConfigForDocument",
+      "embedConfigForAppUrl",
+      "installExternalEmbedRuntime",
+      "copyDocumentElementAttributes",
+      "importHeadChildrenWithBase",
+      "importChildren",
+      "installExternalOpenControl",
+      "isRunnableClassicScript",
+      "runClassicScript",
+      "isModuleScript",
+      "runModuleScriptAsClassic",
+      `${functionSource("mountTransplantedHtml")}; return mountTransplantedHtml;`,
+    )(
+      class {
+        parseFromString() {
+          return parsed;
+        }
+      },
+      { body: {} },
+      (source: string) => source,
+      (source: string) => source,
+      appOriginConfigForDocument,
+      embedConfigForAppUrl,
+      installBeforeChildScript,
+      () => {},
+      () => {},
+      () => {},
+      () => {},
+      () => true,
+      (script: { textContent: string }) => {
+        order.push("child-script");
+        new Function("window", script.textContent)(windowObject);
+      },
+      () => false,
+      () => {},
+    ) as (source: string, appUrl: URL) => Promise<void>;
+
+    const appUrl = new URL("https://app.example/deck/_platform/auth/session");
+    appUrl.searchParams.set("__an_embed_token", "child-token");
+    appUrl.searchParams.set(MCP_APP_CHAT_BRIDGE_QUERY_PARAM, "1");
+    await mountTransplantedHtml("<html></html>", appUrl);
+
+    expect(order).toEqual(["install", "child-script"]);
+    expect(windowObject.__AGENT_NATIVE_CONFIG__).toEqual(appConfigValue);
+    expect(stored.get(embedTokenStorageKey("/deck", true))).toBe("child-token");
+    expect(stored.get(mcpChatBridgeStorageKey("/deck", true))).toBe(
+      "child-token",
+    );
   });
 
   it("prefers canonical metadata when legacy open-link fields conflict", () => {

@@ -1,6 +1,10 @@
 import { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
 import { safeJsonForHtml } from "../shared/agent-readable-resource.js";
 import { normalizeAppBasePath } from "./app-base-path.js";
+import {
+  FRAMEWORK_INTERNAL_ROUTE_PREFIX,
+  getFrameworkRoutePrefix,
+} from "./framework-route-prefix.js";
 
 function workspaceAppMountConfigFromJson(
   value: string | undefined,
@@ -64,8 +68,10 @@ export function resolvePublicAppOriginConfig(): {
   workspaceOAuthOrigin?: string;
   workspaceRuntime?: boolean;
   workspaceAppMountPaths?: string[];
+  frameworkRoutePrefix?: string;
 } | null {
   const config = getAppConfig();
+  const frameworkRoutePrefix = getFrameworkRoutePrefix();
   const workspaceRuntime =
     config.workspace.isWorkspace === true ||
     typeof config.workspace.appsJson === "string";
@@ -96,6 +102,9 @@ export function resolvePublicAppOriginConfig(): {
     ...(workspaceRuntime ? { workspaceRuntime: true } : {}),
     ...(workspaceAppMountConfig?.paths
       ? { workspaceAppMountPaths: workspaceAppMountConfig.paths }
+      : {}),
+    ...(frameworkRoutePrefix !== FRAMEWORK_INTERNAL_ROUTE_PREFIX
+      ? { frameworkRoutePrefix }
       : {}),
   };
   return Object.keys(resolved).length > 0 ? resolved : null;

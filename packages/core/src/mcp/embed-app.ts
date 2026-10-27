@@ -7,8 +7,7 @@ import {
 import {
   EMBED_TOKEN_STORAGE_KEY,
   MCP_CHAT_BRIDGE_STORAGE_KEY,
-  resolveExternalEmbedTargetBasePath,
-  resolveWorkspaceAppMountPath,
+  resolveMcpAppEmbedBasePath,
 } from "../shared/mcp-app-widget-embed.js";
 import { EXTERNAL_EMBED_WINDOW_KEY } from "../shared/route-chunk-recovery-bootstrap.js";
 import { HIDDEN_EMBED_URL } from "./embed-redaction.js";
@@ -688,7 +687,28 @@ export function embedApp(
       );
     }
 
-    function embedConfigForAppUrl(appUrl) {
+    function appOriginConfigForDocument(parsed) {
+      const script = parsed.querySelector("script[data-agent-native-app-origin-config]");
+      if (!script) return {};
+      const source = script.textContent || "";
+      const prefix = "window.__AGENT_NATIVE_CONFIG__=Object.assign({},window.__AGENT_NATIVE_CONFIG__,";
+      const suffix = ");";
+      if (!source.startsWith(prefix) || !source.endsWith(suffix)) {
+        throw new Error("Embedded app origin config is malformed.");
+      }
+      let appConfig;
+      try {
+        appConfig = JSON.parse(source.slice(prefix.length, -suffix.length));
+      } catch (_err) {
+        throw new Error("Embedded app origin config is not valid JSON.");
+      }
+      if (!appConfig || typeof appConfig !== "object" || Array.isArray(appConfig)) {
+        throw new Error("Embedded app origin config must be an object.");
+      }
+      return appConfig;
+    }
+
+    function embedConfigForAppUrl(appUrl, appConfig) {
       const sanitizedTarget = localPathFromUrl(appUrl, false);
       return {
         origin: appUrl.origin,
@@ -699,7 +719,8 @@ export function embedApp(
         chatBridgeActive: appUrl.searchParams.get(chatBridgeParam) === "1",
         chatBridgeParam,
         embedTokenParam: "__an_embed_token",
-        embedTargetHeader: "x-agent-native-embed-target"
+        embedTargetHeader: "x-agent-native-embed-target",
+        appConfig
       };
     }
 
@@ -769,23 +790,19 @@ export function embedApp(
         }
       } catch (_err) {}
       // Keep transplanted auth storage on the same mount resolver as its reader.
-      var resolveWorkspaceAppMountPath = ${resolveWorkspaceAppMountPath.toString()};
-      var resolveExternalEmbedTargetBasePath = ${resolveExternalEmbedTargetBasePath.toString()};
+      var resolveMcpAppEmbedBasePath = ${resolveMcpAppEmbedBasePath.toString()};
       function embedStorageKey(key) {
-        var appConfig = window.__AGENT_NATIVE_CONFIG__ || {};
+        var appConfig = config.appConfig || {};
         if (appConfig.workspaceRuntime !== true) return key;
-        var runtimeConfig = appConfig.runtime && typeof appConfig.runtime === "object"
-          ? appConfig.runtime
-          : {};
-        var frameworkRoutePrefix = runtimeConfig.frameworkRoutePrefix || appConfig.frameworkRoutePrefix;
-        var basePath = resolveExternalEmbedTargetBasePath(
+        var basePath = resolveMcpAppEmbedBasePath(
+          "external-target",
           config.target || location.pathname,
           {
             workspaceRuntime: true,
             routerBasePath: window.__reactRouterContext && window.__reactRouterContext.basename,
             workspaceAppPath: appConfig.workspaceAppPath,
             workspaceAppMountPaths: appConfig.workspaceAppMountPaths,
-            frameworkRoutePrefix: frameworkRoutePrefix
+            frameworkRoutePrefix: appConfig.frameworkRoutePrefix
           }
         );
         return key + ":" + (basePath || "/");
@@ -1110,12 +1127,15 @@ export function embedApp(
     }
 
     async function mountTransplantedHtml(html, appUrl) {
-      const config = embedConfigForAppUrl(appUrl);
-      installExternalEmbedRuntime(config);
       const parsed = new DOMParser().parseFromString(
         rewriteRootRelativeHtmlUrls(removeHtmlCspMeta(html), appUrl.origin),
         "text/html"
       );
+      const config = embedConfigForAppUrl(
+        appUrl,
+        appOriginConfigForDocument(parsed)
+      );
+      installExternalEmbedRuntime(config);
       const scripts = Array.from(parsed.querySelectorAll("script"));
       copyDocumentElementAttributes(parsed.documentElement);
       importHeadChildrenWithBase(parsed.head, config.baseHref);

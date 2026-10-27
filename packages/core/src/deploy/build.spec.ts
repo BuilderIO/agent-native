@@ -2682,6 +2682,10 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
     const configPath = path.join(dir, "identity-config.mjs");
     vi.stubEnv("AGENT_NATIVE_WORKSPACE", "true");
     vi.stubEnv(
+      "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX",
+      "/_platform",
+    );
+    vi.stubEnv(
       "AGENT_NATIVE_WORKSPACE_APPS_JSON",
       JSON.stringify([
         { id: "workspace-calendar", path: "/recordings" },
@@ -2709,6 +2713,7 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
     expect(html).toContain('"workspaceAppPath":"/recordings"');
     expect(html).toContain('"workspaceAppMountPaths":["/recordings","/clips"]');
     expect(html).toContain('"workspaceRuntime":true');
+    expect(html).toContain('"frameworkRoutePrefix":"/_platform"');
   });
 
   it("keeps an idless non-root mount as a sibling in the worker shell config", async () => {
