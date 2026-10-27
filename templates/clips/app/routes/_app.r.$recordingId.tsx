@@ -52,6 +52,7 @@ import { isTranscriptExistsError } from "@shared/transcript-import";
 import {
   isRecentWorkflowGeneration,
   matchesWorkflowRequest,
+  shouldRetryWorkflowStop,
   type WorkflowKind,
   workflowGenerationProgressAt,
   workflowGenerationStaleAt,
@@ -1404,6 +1405,8 @@ export default function RecordingPage() {
     requestedAt: string;
     requestId?: string;
     reason: "cancelled" | "timed_out";
+    failedAttempts: number;
+    exhausted: boolean;
   } | null>(null);
   const reconcileWorkflowGeneration = useActionMutation<
     WorkflowGenerationStopResult,
@@ -1458,6 +1461,8 @@ export default function RecordingPage() {
         requestedAt: workflow.requestedAt,
         ...(workflow.requestId ? { requestId: workflow.requestId } : {}),
         reason: "cancelled",
+        failedAttempts: 0,
+        exhausted: false,
       });
       startWorkflowToast(t("recordingPage.workflowStillGenerating"));
     },
@@ -1490,6 +1495,8 @@ export default function RecordingPage() {
             ? { requestId: generatedWorkflow.requestId }
             : {}),
           reason: "timed_out",
+          failedAttempts: 0,
+          exhausted: false,
         });
         startWorkflowToast(t("recordingPage.workflowStillGenerating"));
       },
@@ -1519,6 +1526,7 @@ export default function RecordingPage() {
       setWorkflowStopAttempt(null);
       return;
     }
+    if (workflowStopAttempt.exhausted) return;
 
     let active = true;
     let retryTimer: number | undefined;
@@ -1528,11 +1536,30 @@ export default function RecordingPage() {
         if (active) setWorkflowStopAttempt(null);
       } catch (error) {
         if (!active) return;
+        const failedAttempts = workflowStopAttempt.failedAttempts + 1;
         startWorkflowToast(t("recordingPage.workflowStillGenerating"), {
           description:
             actionErrorMessage(error) ?? t("recordingPage.tryAgainMoment"),
         });
-        retryTimer = window.setTimeout(() => void attemptStop(), 30_000);
+        if (shouldRetryWorkflowStop(error, failedAttempts)) {
+          retryTimer = window.setTimeout(() => {
+            setWorkflowStopAttempt((current) =>
+              current &&
+              current.recordingId === workflowStopAttempt.recordingId &&
+              matchesWorkflowRequest(current, workflowStopAttempt)
+                ? { ...current, failedAttempts }
+                : current,
+            );
+          }, 30_000);
+        } else {
+          setWorkflowStopAttempt((current) =>
+            current &&
+            current.recordingId === workflowStopAttempt.recordingId &&
+            matchesWorkflowRequest(current, workflowStopAttempt)
+              ? { ...current, failedAttempts, exhausted: true }
+              : current,
+          );
+        }
       }
     };
     void attemptStop();

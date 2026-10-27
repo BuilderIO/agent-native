@@ -2559,6 +2559,7 @@ export {
   communityTemplateTarballUrl as _communityTemplateTarballUrl,
   assertCommunityTemplateRoot as _assertCommunityTemplateRoot,
   assertSafeCommunityArchiveListing as _assertSafeCommunityArchiveListing,
+  assertCommunityArchiveLogicalSize as _assertCommunityArchiveLogicalSize,
   validateCommunityArchive as _validateCommunityArchive,
   resolveCommunityTemplateSource as _resolveCommunityTemplateSource,
   discoverCommunityWorkspaceApps as _discoverCommunityWorkspaceApps,
@@ -2765,16 +2766,19 @@ export async function _downloadToFile(
   maxBytes = MAX_TEMPLATE_ARCHIVE_BYTES,
 ): Promise<void> {
   const fallbackProxy = process.env.all_proxy ?? process.env.ALL_PROXY;
-  const httpProxy =
-    process.env.http_proxy ?? process.env.HTTP_PROXY ?? fallbackProxy;
-  const httpsProxy =
-    process.env.https_proxy ?? process.env.HTTPS_PROXY ?? fallbackProxy;
+  const httpProxy = normalizeProxyUrl(
+    process.env.http_proxy ?? process.env.HTTP_PROXY ?? fallbackProxy,
+  );
+  const httpsProxy = normalizeProxyUrl(
+    process.env.https_proxy ?? process.env.HTTPS_PROXY ?? fallbackProxy,
+  );
   const noProxy = process.env.no_proxy ?? process.env.NO_PROXY;
+  const proxyTunnel = new URL(url).protocol === "https:";
   const dispatcher = new EnvHttpProxyAgent({
     ...(httpProxy ? { httpProxy } : {}),
     ...(httpsProxy ? { httpsProxy } : {}),
     ...(noProxy !== undefined ? { noProxy } : {}),
-    proxyTunnel: false,
+    proxyTunnel,
   });
   const controller = new AbortController();
   const connectTimeout = setTimeout(() => controller.abort(), 10_000);
@@ -2832,6 +2836,12 @@ export async function _downloadToFile(
   }
 }
 
+function normalizeProxyUrl(proxy: string | undefined): string | undefined {
+  const value = proxy?.trim();
+  if (!value) return undefined;
+  return /^[a-z][a-z\d+.-]*:\/\//i.test(value) ? value : `http://${value}`;
+}
+
 export async function _downloadAndExtract(
   url: string,
   destDir: string,
@@ -2860,10 +2870,9 @@ async function validateCommunityArchive(
     maxEntries?: number;
   } = {},
 ): Promise<void> {
-  await assertCommunityArchiveExpandedSize(
-    tarPath,
-    limits.maxExpandedBytes ?? MAX_COMMUNITY_ARCHIVE_EXPANDED_BYTES,
-  );
+  const maxExpandedBytes =
+    limits.maxExpandedBytes ?? MAX_COMMUNITY_ARCHIVE_EXPANDED_BYTES;
+  await assertCommunityArchiveExpandedSize(tarPath, maxExpandedBytes);
   const listing = execFileSync(resolveTarExecutable(), ["tvzf", tarPath], {
     encoding: "utf-8",
     stdio: ["ignore", "pipe", "pipe"],
@@ -2876,7 +2885,38 @@ async function validateCommunityArchive(
       `Community template archive exceeds the ${maxEntries}-entry limit.`,
     );
   }
+  assertCommunityArchiveLogicalSize(listing, maxExpandedBytes);
   assertSafeCommunityArchiveListing(listing);
+}
+
+function assertCommunityArchiveLogicalSize(
+  listing: string,
+  maxBytes: number,
+): void {
+  let logicalBytes = 0;
+  for (const line of listing.split(/\r?\n/)) {
+    if (!line.startsWith("-") && !line.startsWith("S")) continue;
+    const fields = line.trim().split(/\s+/);
+    const isBsdTar = /^\d+$/.test(fields[1] ?? "");
+    const sizeText = fields[isBsdTar ? 4 : 2];
+    if (!sizeText || !/^\d+$/.test(sizeText)) {
+      throw new ValidationError(
+        "Could not determine a regular file's logical size in the community template archive.",
+      );
+    }
+    const size = Number(sizeText);
+    if (!Number.isSafeInteger(size)) {
+      throw new ValidationError(
+        "Community template archive contains an invalid regular file size.",
+      );
+    }
+    if (size > maxBytes - logicalBytes) {
+      throw new ValidationError(
+        "Community template archive exceeds its logical-size limit.",
+      );
+    }
+    logicalBytes += size;
+  }
 }
 
 async function assertCommunityArchiveExpandedSize(

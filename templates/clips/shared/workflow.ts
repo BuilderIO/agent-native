@@ -66,7 +66,26 @@ export function matchesWorkflowRequest(
   current: { requestId?: unknown; requestedAt?: unknown },
   expected: { requestId?: string | undefined; requestedAt: string },
 ) {
-  return expected.requestId
-    ? current.requestId === expected.requestId
-    : !current.requestId && current.requestedAt === expected.requestedAt;
+  return (
+    current.requestedAt === expected.requestedAt &&
+    (expected.requestId
+      ? current.requestId === expected.requestId
+      : !current.requestId)
+  );
+}
+
+export const WORKFLOW_STOP_MAX_ATTEMPTS = 5;
+
+export function shouldRetryWorkflowStop(
+  error: unknown,
+  failedAttempts: number,
+): boolean {
+  if (failedAttempts >= WORKFLOW_STOP_MAX_ATTEMPTS) return false;
+  if (!(error instanceof Error)) return true;
+  const status = (error as Error & { status?: unknown }).status;
+  return (
+    typeof status !== "number" ||
+    status >= 500 ||
+    [408, 409, 425, 429].includes(status)
+  );
 }

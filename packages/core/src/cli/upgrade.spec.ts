@@ -1004,7 +1004,7 @@ describe("runUpgrade", () => {
     });
     const spawnCalls: string[][] = [];
     const skills = vi.fn(async () => {});
-    const { io } = captureIo({
+    const { io, err, out } = captureIo({
       spawn: (command, args) => {
         spawnCalls.push([command, ...args]);
         if (args.includes("install")) writeInstalledPackage(root, "0.131.4");
@@ -1482,7 +1482,10 @@ describe("runUpgrade", () => {
         },
         other: {
           name: "other",
-          dependencies: { "@agent-native/dispatch": "workspace:*" },
+          dependencies: {
+            "@agent-native/dispatch": "workspace:*",
+            react: "^19.0.0",
+          },
         },
       },
     });
@@ -1492,11 +1495,18 @@ describe("runUpgrade", () => {
       args: string[];
       cwd: string;
     }> = [];
-    const { io } = captureIo({
+    const { io, err, out } = captureIo({
       spawn: (command, args, options) => {
         spawnCalls.push({ command, args, cwd: options.cwd });
-        if (args[0] === "up") {
+        if (args[0] === "add") {
           writeInstalledPackage(root, "0.40.40", "@agent-native/dispatch");
+          const manifestPath = path.join(options.cwd, "package.json");
+          const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
+          manifest.dependencies["@agent-native/dispatch"] = "^0.40.40";
+          fs.writeFileSync(
+            manifestPath,
+            `${JSON.stringify(manifest, null, 2)}\n`,
+          );
         }
         return {
           status: 0,
@@ -1510,13 +1520,14 @@ describe("runUpgrade", () => {
     });
 
     const args = ["--cwd", root, "--skip-skills", "--skip-verify"];
-    expect(await runUpgrade(args, io)).toBe(0);
+    const exitCode = await runUpgrade(args, io);
+    expect(exitCode, [...err, ...out].join("\n")).toBe(0);
 
     expect(spawnCalls.slice(0, 2)).toEqual([
       {
         command: "yarn",
-        args: ["up", "-R", "@agent-native/dispatch@latest"],
-        cwd: root,
+        args: ["add", "@agent-native/dispatch@latest"],
+        cwd: path.join(root, "apps", "chat"),
       },
       { command: "yarn", args: ["install"], cwd: root },
     ]);
@@ -1529,6 +1540,7 @@ describe("runUpgrade", () => {
     expect(otherPackage.dependencies["@agent-native/dispatch"]).toBe(
       "workspace:*",
     );
+    expect(otherPackage.dependencies.react).toBe("^19.0.0");
   });
 
   it("fails loudly instead of leaving a spec floating on latest", async () => {

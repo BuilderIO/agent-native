@@ -12,6 +12,7 @@ import {
   createApp,
   _applyScaffoldIdentity,
   _assertCommunityTemplateRoot,
+  _assertCommunityArchiveLogicalSize,
   _assertSafeCommunityArchiveListing,
   _communityTemplateTarballUrl,
   _communityTemplateTrustMessage,
@@ -920,13 +921,21 @@ describe("template archive downloads", () => {
     const proxyUrl = `http://127.0.0.1:${address.port}`;
     const archivePath = path.join(tmpDir, "proxied-archive.tar.gz");
     const previous = {
+      allProxy: process.env.all_proxy,
+      allProxyUpper: process.env.ALL_PROXY,
       httpProxy: process.env.http_proxy,
       httpProxyUpper: process.env.HTTP_PROXY,
+      httpsProxy: process.env.https_proxy,
+      httpsProxyUpper: process.env.HTTPS_PROXY,
       noProxy: process.env.no_proxy,
       noProxyUpper: process.env.NO_PROXY,
     };
-    process.env.http_proxy = proxyUrl;
-    process.env.HTTP_PROXY = proxyUrl;
+    process.env.http_proxy = proxyUrl.replace(/^https?:\/\//, "");
+    delete process.env.HTTP_PROXY;
+    delete process.env.https_proxy;
+    delete process.env.HTTPS_PROXY;
+    delete process.env.all_proxy;
+    delete process.env.ALL_PROXY;
     process.env.no_proxy = "";
     process.env.NO_PROXY = "";
 
@@ -941,8 +950,76 @@ describe("template archive downloads", () => {
       expect(fs.readFileSync(archivePath, "utf8")).toBe("archive contents");
     } finally {
       for (const [key, value] of Object.entries({
+        all_proxy: previous.allProxy,
+        ALL_PROXY: previous.allProxyUpper,
         http_proxy: previous.httpProxy,
         HTTP_PROXY: previous.httpProxyUpper,
+        https_proxy: previous.httpsProxy,
+        HTTPS_PROXY: previous.httpsProxyUpper,
+        no_proxy: previous.noProxy,
+        NO_PROXY: previous.noProxyUpper,
+      })) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+      await new Promise<void>((resolve, reject) => {
+        proxy.close((error) => (error ? reject(error) : resolve()));
+      });
+      fs.rmSync(archivePath, { force: true });
+    }
+  });
+
+  it("tunnels HTTPS archive requests through the configured proxy", async () => {
+    const tunnelTargets: string[] = [];
+    const proxy = createServer();
+    proxy.on("connect", (request, socket) => {
+      tunnelTargets.push(request.url ?? "");
+      socket.end("HTTP/1.1 502 Bad Gateway\r\n\r\n");
+    });
+    proxy.listen(0, "127.0.0.1");
+    await once(proxy, "listening");
+
+    const address = proxy.address();
+    if (!address || typeof address === "string") {
+      throw new Error("Archive proxy test server did not get a TCP address.");
+    }
+    const proxyUrl = `http://127.0.0.1:${address.port}`;
+    const archivePath = path.join(tmpDir, "https-proxied-archive.tar.gz");
+    const previous = {
+      allProxy: process.env.all_proxy,
+      allProxyUpper: process.env.ALL_PROXY,
+      httpProxy: process.env.http_proxy,
+      httpProxyUpper: process.env.HTTP_PROXY,
+      httpsProxy: process.env.https_proxy,
+      httpsProxyUpper: process.env.HTTPS_PROXY,
+      noProxy: process.env.no_proxy,
+      noProxyUpper: process.env.NO_PROXY,
+    };
+    process.env.https_proxy = proxyUrl;
+    delete process.env.HTTPS_PROXY;
+    delete process.env.http_proxy;
+    delete process.env.HTTP_PROXY;
+    delete process.env.all_proxy;
+    delete process.env.ALL_PROXY;
+    process.env.no_proxy = "";
+    process.env.NO_PROXY = "";
+
+    try {
+      await expect(
+        _downloadToFile(
+          "https://archive.example.test/template.tar.gz",
+          archivePath,
+        ),
+      ).rejects.toThrow();
+      expect(tunnelTargets).toEqual(["archive.example.test:443"]);
+    } finally {
+      for (const [key, value] of Object.entries({
+        all_proxy: previous.allProxy,
+        ALL_PROXY: previous.allProxyUpper,
+        http_proxy: previous.httpProxy,
+        HTTP_PROXY: previous.httpProxyUpper,
+        https_proxy: previous.httpsProxy,
+        HTTPS_PROXY: previous.httpsProxyUpper,
         no_proxy: previous.noProxy,
         NO_PROXY: previous.noProxyUpper,
       })) {
@@ -958,6 +1035,24 @@ describe("template archive downloads", () => {
 });
 
 describe("community template selections", () => {
+  it("limits total logical file sizes in GNU and BSD tar listings", () => {
+    expect(() =>
+      _assertCommunityArchiveLogicalSize(
+        [
+          "-rw-r--r-- root/root 7 Jan 1 00:00 repo/first.bin",
+          "-rw-r--r--  1 501 20 6 Jan 1 00:00 repo/second.bin",
+        ].join("\n"),
+        12,
+      ),
+    ).toThrow("logical-size limit");
+    expect(() =>
+      _assertCommunityArchiveLogicalSize(
+        "-rw-r--r-- root/root 12 Jan 1 00:00 repo/file.bin",
+        12,
+      ),
+    ).not.toThrow();
+  });
+
   it("normalizes canonical, legacy, and clean GitHub URL inputs", () => {
     expect(
       _parseCommunityTemplateSelection("community:acme/customer-portal"),

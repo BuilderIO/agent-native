@@ -2,10 +2,59 @@ import { describe, expect, it } from "vitest";
 
 import {
   isRecentWorkflowGeneration,
+  matchesWorkflowRequest,
+  shouldRetryWorkflowStop,
+  WORKFLOW_STOP_MAX_ATTEMPTS,
   workflowGenerationProgressAt,
   workflowGenerationStaleAt,
   workflowSessionTabId,
 } from "./workflow.js";
+
+describe("matchesWorkflowRequest", () => {
+  it("requires both the request ID and timestamp to match", () => {
+    expect(
+      matchesWorkflowRequest(
+        {
+          requestId: "workflow-request-123",
+          requestedAt: "2026-10-18T19:51:00.000Z",
+        },
+        {
+          requestId: "workflow-request-123",
+          requestedAt: "2026-10-18T19:52:00.000Z",
+        },
+      ),
+    ).toBe(false);
+  });
+
+  it("matches requests without an ID only when the timestamp matches", () => {
+    expect(
+      matchesWorkflowRequest(
+        { requestedAt: "2026-10-18T19:51:00.000Z" },
+        { requestedAt: "2026-10-18T19:51:00.000Z" },
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("shouldRetryWorkflowStop", () => {
+  it("stops retrying permanent client errors", () => {
+    const error = Object.assign(new Error("Forbidden"), { status: 403 });
+    expect(shouldRetryWorkflowStop(error, 1)).toBe(false);
+  });
+
+  it("retries transient failures up to the attempt limit", () => {
+    const error = Object.assign(new Error("Unavailable"), { status: 503 });
+    expect(shouldRetryWorkflowStop(error, WORKFLOW_STOP_MAX_ATTEMPTS - 1)).toBe(
+      true,
+    );
+    expect(shouldRetryWorkflowStop(error, WORKFLOW_STOP_MAX_ATTEMPTS)).toBe(
+      false,
+    );
+    expect(shouldRetryWorkflowStop(new Error("Network unavailable"), 1)).toBe(
+      true,
+    );
+  });
+});
 
 describe("workflowSessionTabId", () => {
   it("uses the same stable session id for matching requests", () => {

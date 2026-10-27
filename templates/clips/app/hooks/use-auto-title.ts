@@ -839,7 +839,8 @@ async function settleWorkflowSession(
       result.reconciled === true ||
       (typeof result.reason === "string" &&
         result.reason !== "stale" &&
-        result.reason !== "in-progress")
+        result.reason !== "in-progress" &&
+        result.reason !== "run-not-found")
     );
   } catch (error) {
     console.warn("[clips] failed to reconcile finished workflow session", {

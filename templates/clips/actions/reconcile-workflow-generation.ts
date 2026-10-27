@@ -69,6 +69,13 @@ export default defineAction({
     tabId,
     stopReason,
   }) => {
+    if (stopReason !== undefined && operation !== "stop") {
+      fail("A workflow stop reason is only valid when stopping a session", {
+        errorCode: "invalid_workflow_generation_stop_reason",
+        statusCode: 400,
+      });
+    }
+
     await assertAccess(
       "recording",
       recordingId,
@@ -322,10 +329,21 @@ export default defineAction({
     }
     if (operation === "settle") {
       const activeRun = await getActiveRunForThreadAsync(tabId);
+      if (!activeRun) {
+        return { reconciled: false, reason: "run-not-found" as const };
+      }
       if (
-        activeRun?.inFlight ||
-        activeRun?.awaitingRedispatch ||
-        activeRun?.hasInFlightWork
+        activeRun.status === "running" ||
+        activeRun.inFlight ||
+        activeRun.awaitingRedispatch ||
+        activeRun.hasInFlightWork
+      ) {
+        return { reconciled: false, reason: "in-progress" as const };
+      }
+      if (
+        !["completed", "truncated", "errored", "aborted"].includes(
+          activeRun.status,
+        )
       ) {
         return { reconciled: false, reason: "in-progress" as const };
       }

@@ -130,6 +130,34 @@ describe("reconcile-workflow-generation", () => {
     expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
   });
 
+  it("rejects a matching request ID with a forged timestamp", async () => {
+    const requestId = "workflow-request-current";
+    const requestTabId = workflowSessionTabId(
+      "rec_123",
+      requestedAt,
+      requestId,
+    );
+    mocks.readAppState.mockResolvedValue({
+      kind: "email",
+      status: "generating",
+      recordingId: "rec_123",
+      requestedAt: "2026-07-14T12:01:00.000Z",
+      requestId,
+      tabId: requestTabId,
+    });
+
+    await expect(
+      action.run({
+        operation: "track",
+        recordingId: "rec_123",
+        requestedAt,
+        requestId,
+        tabId: requestTabId,
+      }),
+    ).resolves.toEqual({ reconciled: false, reason: "newer-request" });
+    expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
+  });
+
   it("does not replace another tab's active claim", async () => {
     mocks.readAppState.mockResolvedValue({
       kind: "email",
@@ -393,7 +421,7 @@ describe("reconcile-workflow-generation", () => {
     );
   });
 
-  it("settles a matching session when launch was rejected before a run existed", async () => {
+  it("leaves a session generating when no registered run proves it ended", async () => {
     mocks.readAppState.mockResolvedValue({
       kind: "email",
       status: "generating",
@@ -410,15 +438,27 @@ describe("reconcile-workflow-generation", () => {
         requestedAt,
         tabId,
       }),
-    ).resolves.toEqual({ reconciled: true });
+    ).resolves.toEqual({ reconciled: false, reason: "run-not-found" });
 
     expect(mocks.getActiveRunForThreadAsync).toHaveBeenCalledWith(tabId);
     expect(mocks.abortTurnByRefDurably).not.toHaveBeenCalled();
-    expect(mocks.compareAndSetAppState).toHaveBeenCalledWith(
-      "clips-workflow-rec_123",
-      expect.objectContaining({ status: "generating", tabId }),
-      expect.objectContaining({ status: "failed" }),
-    );
+    expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
+  });
+
+  it("does not accept stop reasons on viewer settle operations", async () => {
+    await expect(
+      action.run({
+        operation: "settle",
+        recordingId: "rec_123",
+        requestedAt,
+        tabId,
+        stopReason: "cancelled",
+      }),
+    ).rejects.toThrow("only valid when stopping");
+
+    expect(mocks.assertAccess).not.toHaveBeenCalled();
+    expect(mocks.readAppState).not.toHaveBeenCalled();
+    expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
   });
 
   it.each([

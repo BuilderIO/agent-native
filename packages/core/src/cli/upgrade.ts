@@ -1149,13 +1149,25 @@ function refreshLatestAgentNativeDependencies(
   }
 
   const usesModernYarn = pm === "yarn" && yarnMajor !== null && yarnMajor >= 2;
-  const updateGroups = usesModernYarn
-    ? [
-        {
-          file: path.join(project.root, "package.json"),
-          names: [...new Set(groups.flatMap(({ names }) => names))].sort(),
-        },
-      ]
+  const updateGroups: Array<
+    LatestAgentNativeDependencyGroup & { section?: PinnableSection }
+  > = usesModernYarn
+    ? groups.flatMap(({ file, declarations }) => {
+        const namesBySection = new Map<PinnableSection, Set<string>>();
+        for (const declaration of declarations) {
+          if (!declaration.restoreToLatest) continue;
+          const names =
+            namesBySection.get(declaration.section) ?? new Set<string>();
+          names.add(declaration.name);
+          namesBySection.set(declaration.section, names);
+        }
+        return [...namesBySection].map(([section, names]) => ({
+          file,
+          section,
+          names: [...names].sort(),
+          declarations,
+        }));
+      })
     : groups;
 
   let updateFailure: string | null = null;
@@ -1166,10 +1178,17 @@ function refreshLatestAgentNativeDependencies(
         : pm === "npm"
           ? ["update", "--save", ...group.names]
           : usesModernYarn
-            ? ["up", "-R", ...group.names.map((name) => `${name}@latest`)]
+            ? [
+                "add",
+                ...(group.section === "devDependencies" ? ["--dev"] : []),
+                ...(group.section === "optionalDependencies"
+                  ? ["--optional"]
+                  : []),
+                ...group.names.map((name) => `${name}@latest`),
+              ]
             : ["upgrade", ...group.names.map((name) => `${name}@latest`)];
     const result = io.spawn(pm, args, {
-      cwd: usesModernYarn ? project.root : path.dirname(group.file),
+      cwd: path.dirname(group.file),
       stdio,
     });
     if (result.status !== 0) {
