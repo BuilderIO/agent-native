@@ -116,7 +116,7 @@ instead.
 - Confirm `origin/main` contains the merge commit.
 - Close GitHub issues the PR fixes with a short thank-you that links the PR.
 - If this shipment came from `/review-latest-feedback`, do its step 5 now: add
-  ✅ and post the one-line "fixed, will be on beta shortly" reply on each
+  ✅ and post the one-line "fixed (PR linked), will be on beta shortly" reply on each
   report this PR fixed.
 - In a task-owned worktree, rotate to a fresh branch from the new
   `origin/main` (`/new-branch`), provided nothing is unpushed or dirty. Leave a

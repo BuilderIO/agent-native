@@ -98,7 +98,7 @@ merge. Only Steve's own PRs get pushed, merged, or commented on.
 After the merge, for every thread you put 👀 on, post the single reply from
 `review-latest-feedback` and add the matching reaction:
 
-- Merged fix: ✅ and "fixed and will be on beta shortly".
+- Merged fix: ✅ and "fixed (PR linked) and will be on beta shortly".
 - Needs a person: 🎫 and what's needed from whom, as a plain name.
 - Couldn't reproduce: 🎫 and one specific question.
 

@@ -40,7 +40,7 @@ promoted. If a critical fix needs another production site, explicitly run the
 manual promotion and monitor that result separately.
 
 After the merge, close the loop on any `/review-latest-feedback` reports the
-PR fixed (✅ plus a one-line "fixed, will be on beta shortly" reply).
+PR fixed (✅ plus a one-line "fixed (PR linked), will be on beta shortly" reply).
 
 Use `.github/workflows/deploy-production-sites-prebuilt.yml` or the targeted
 `promote-netlify-deploy.yml` workflow to promote a critical fix and let it

@@ -48,18 +48,20 @@ Every claimed report gets **one** reply in its thread per outcome:
   non-engineer.
 - Say what happened and, for 🎫, what's needed and from whom (a plain name,
   never an @-mention).
-- No PR numbers, commits, branches, file or function names, CI, "verified
-  locally", "scope", or any mention of this workflow.
+- For a fix, link the PR as a Slack link on the word "fix" (`<url|fix>`), so
+  anyone curious can click through. Beyond that link: no PR numbers, commits,
+  branches, file or function names, CI, "verified locally", "scope", or any
+  mention of this workflow.
 - End with exactly: `this was sent from a bot.`
 
 Good:
 
-- `thanks for flagging - this is fixed and will be on beta shortly. this was sent from a bot.`
-- `thanks for flagging - the export now keeps your column order, and it'll be on beta shortly. this was sent from a bot.`
+- `thanks for flagging - <https://github.com/BuilderIO/agent-native/pull/1234|fix> is merged and will be on beta shortly. this was sent from a bot.`
+- `thanks for flagging - the export now keeps your column order (<https://github.com/BuilderIO/agent-native/pull/1234|fix>), and it'll be on beta shortly. this was sent from a bot.`
 - `thanks - moving that button is a product call, so I've left it for Sid to decide. this was sent from a bot.`
 - `thanks - I couldn't reproduce this; could you share the link to the deck where it happened? this was sent from a bot.`
 
-Bad: anything that mentions a PR or SHA, lists "verified scopes", explains
+Bad: anything that spells out a PR number or SHA, lists "verified scopes", explains
 reactions, says "Great catch!!", repeats the bug back, or posts a second reply
 that adds nothing new.
 
@@ -176,10 +178,11 @@ a one-line lesson in the recap and Steve will decide whether it goes in.
 After the merge (or at the end of the run if it can't merge), for every root
 you put 👀 on:
 
-- **Merged fix:** add ✅ and reply that it's fixed and will be on beta shortly.
+- **Merged fix:** add ✅ and reply that it's fixed, with the PR linked, and
+  will be on beta shortly.
 - **Fix ready but not merged yet** (for example CI is still running when the
-  run must end): reply that a fix is ready and will be on beta soon. The next
-  run adds ✅ once it's merged, with no second reply.
+  run must end): reply that a fix (PR linked) is ready and will be on beta
+  soon. The next run adds ✅ once it's merged, with no second reply.
 - **Needs a person:** add 🎫 and reply with what's needed and from whom.
 - **Couldn't reproduce:** add 🎫 and ask one specific question that would
   unblock it. Don't ask for anything already in the thread.
