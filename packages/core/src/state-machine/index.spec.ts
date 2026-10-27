@@ -192,6 +192,17 @@ describe("fromStates, sqlStateList and isTerminal", () => {
     expect(run.sqlStateList("finish")).toBe("'running'");
   });
 
+  it("binds source states in a SQL IN fragment", () => {
+    expect(run.sqlIn("start")).toMatchObject({
+      sql: "(?, ?)",
+      args: ["queued", "paused"],
+    });
+    expect(run.sqlIn("finish")).toMatchObject({
+      sql: "(?)",
+      args: ["running"],
+    });
+  });
+
   it("reports terminal states", () => {
     expect(run.isTerminal("done")).toBe(true);
     expect(run.isTerminal("running")).toBe(false);
