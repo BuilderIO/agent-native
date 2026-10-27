@@ -138,13 +138,16 @@ export default defineAction({
           statusCode: 409,
         });
       }
+      // Locked, so a disconnect or re-import can't delete the row between
+      // this read and the write below.
       const [row = null] = await tx
         .select({
           sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
         })
         .from(schema.contentDatabaseSourceRows)
         .where(eq(schema.contentDatabaseSourceRows.id, target.row.id))
-        .limit(1);
+        .limit(1)
+        .for("update");
       if (!row) {
         fail("This page's Builder entry left the source. Refresh it first.", {
           errorCode: "builder_entry_not_found",

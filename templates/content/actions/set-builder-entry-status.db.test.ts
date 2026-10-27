@@ -783,6 +783,33 @@ it("refuses a pick when page access is revoked while it waits for the row", asyn
   }
 });
 
+it("refuses a pick when the entry leaves the source while it waits for the row", async () => {
+  const [sourceRow = null] = await getDb()
+    .select()
+    .from(schema.contentDatabaseSourceRows)
+    .where(
+      and(
+        eq(schema.contentDatabaseSourceRows.sourceId, SOURCE_ID),
+        eq(schema.contentDatabaseSourceRows.documentId, "doc_entry_draft"),
+      ),
+    );
+  if (!sourceRow) throw new Error("The draft entry has no source row.");
+  membershipLock.beforeNextLock = async (tx) => {
+    await tx
+      .delete(schema.contentDatabaseSourceRows)
+      .where(eq(schema.contentDatabaseSourceRows.id, sourceRow.id));
+  };
+  try {
+    await expect(pick("doc_entry_draft", "published")).rejects.toMatchObject({
+      errorCode: "builder_entry_not_found",
+      statusCode: 409,
+    });
+    expect(await stagedIntent("doc_entry_draft")).toBeUndefined();
+  } finally {
+    membershipLock.beforeNextLock = null;
+  }
+});
+
 it("refuses a pick when publication changes go off while it waits for the row", async () => {
   const [{ metadataJson }] = await getDb()
     .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
