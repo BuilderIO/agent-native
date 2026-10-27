@@ -142,28 +142,37 @@ function booleanLiteral(
   return typeof node.value === "boolean" ? node.value : "unknown";
 }
 
-function propertyName(prop: BabelNode): string | null {
-  const key = prop.key;
-  if (!key) return null;
-  if (!prop.computed && key.type === "Identifier") return key.name ?? null;
-  if (key.type === "StringLiteral" && typeof key.value === "string") {
-    return key.value;
+/** A string literal's text, or a template's when it has no substitutions. */
+function staticString(node: BabelNode | undefined): string | null {
+  if (node?.type === "StringLiteral" && typeof node.value === "string") {
+    return node.value;
   }
-  if (key.type === "NumericLiteral") return String(key.value);
-  if (key.type === "TemplateLiteral" && key.expressions?.length === 0) {
-    const text = key.quasis?.[0]?.value?.cooked;
+  if (node?.type === "TemplateLiteral" && node.expressions?.length === 0) {
+    const text = node.quasis?.[0]?.value?.cooked;
     return typeof text === "string" ? text : null;
   }
   return null;
 }
 
+function propertyName(prop: BabelNode): string | null {
+  const key = prop.key;
+  if (!key) return null;
+  if (!prop.computed && key.type === "Identifier") return key.name ?? null;
+  if (key.type === "NumericLiteral") return String(key.value);
+  return staticString(key);
+}
+
+/** `module.exports`, including the computed `module["exports"]`. */
 function isModuleExports(node: BabelNode | undefined): boolean {
-  return (
-    node?.type === "MemberExpression" &&
-    !node.computed &&
-    identifierName(node.object) === "module" &&
-    identifierName(node.property) === "exports"
-  );
+  if (
+    node?.type !== "MemberExpression" ||
+    identifierName(node.object) !== "module"
+  ) {
+    return false;
+  }
+  return node.computed
+    ? staticString(node.property) === "exports"
+    : identifierName(node.property) === "exports";
 }
 
 function mentions(node: unknown, name: string): boolean {
@@ -322,11 +331,14 @@ function namedExports(program: BabelProgram): {
       }
     }
   }
-  // Each `module.exports = value` names `exports` once; any other mention
-  // could be a CommonJS export.
+  // Each `module.exports = value` names `exports` once, as a name or a
+  // string; any other mention could be a CommonJS export.
   let exportsMentions = 0;
   forEachNode(program, (node) => {
-    if (node.type === "Identifier" && node.name === "exports") {
+    if (
+      identifierName(node) === "exports" ||
+      staticString(node) === "exports"
+    ) {
       exportsMentions++;
     }
   });
@@ -439,9 +451,11 @@ function readOptionFlags(options: BabelNode | "unknown"): ReadFlags {
  * named `tool` and `run` exports, and don't agree on which comes first, so a
  * module offering both, or re-exporting a whole file, gets every limit.
  */
-function actionFlags(program: BabelProgram): ReadFlags | null {
+function actionFlags(
+  program: BabelProgram,
+  { names, star }: ReturnType<typeof namedExports>,
+): ReadFlags | null {
   const fromDefault = defaultActionOptions(program);
-  const { names, star } = namedExports(program);
   const named = names.has("tool") && names.has("run");
   if (!named && !star) {
     return fromDefault === null ? null : readOptionFlags(fromDefault);
@@ -459,6 +473,26 @@ function actionFlags(program: BabelProgram): ReadFlags | null {
   return flags;
 }
 
+const HTTP_METHODS = new Set(["GET", "POST", "PUT", "DELETE"]);
+
+/** The literal method and path an `http` object sets, if it sets either. */
+function httpRoute(node: BabelNode): ActionHttpConfig | undefined {
+  if (node.type !== "ObjectExpression") return undefined;
+  const route: ActionHttpConfig = {};
+  for (const prop of node.properties ?? []) {
+    if (prop.type !== "ObjectProperty" || typeof prop.value !== "object") {
+      continue;
+    }
+    const name = propertyName(prop);
+    const text = staticString(unwrap(prop.value));
+    if (name === "method" && text !== null && HTTP_METHODS.has(text)) {
+      route.method = text as NonNullable<ActionHttpConfig["method"]>;
+    }
+    if (name === "path" && text !== null) route.path = text;
+  }
+  return route.method || route.path ? route : undefined;
+}
+
 /**
  * The flags the dev scan reads from an action's source when it can't import
  * the module and falls back to running it through `pnpm action`. It parses
@@ -471,13 +505,16 @@ function actionFlags(program: BabelProgram): ReadFlags | null {
  * value sets the safe one, and so do options it can't see (spread in, passed
  * by name, built by another helper or a `defineAction` that isn't the
  * framework's, re-exported, or exported through a binding the module changes)
- * and a source it can't parse. A module that
- * defines no action gets none of them.
+ * and a source it can't parse. A module that defines no action gets none of
+ * them. `agentTool: false`, `http: false` and an `http` route are read as
+ * written, in the options or as named exports beside `tool` and `run`.
  */
 export function cliWrapperFlagsFromSource(src: string): CliWrapperFlags {
   const out: CliWrapperFlags = {};
   const program = parseProgram(src);
-  const flags = program ? actionFlags(program) : { ...UNKNOWN_FLAGS };
+  const exported = program ? namedExports(program) : undefined;
+  const flags =
+    program && exported ? actionFlags(program, exported) : { ...UNKNOWN_FLAGS };
   if (flags !== null) {
     for (const name of READ_FLAGS) {
       const value = flags[name];
@@ -488,9 +525,23 @@ export function cliWrapperFlagsFromSource(src: string): CliWrapperFlags {
       }
     }
   }
-  if (/\bagentTool\s*:\s*false\b/.test(src)) out.agentTool = false;
-  if (/\bhttp\s*:\s*false\b/.test(src)) {
+  // The loaders read `agentTool` and `http` from named exports too.
+  const named =
+    exported?.names.has("tool") && exported.names.has("run")
+      ? exported.names
+      : undefined;
+  const namedHttp = named?.get("http");
+  if (
+    /\bagentTool\s*:\s*false\b/.test(src) ||
+    booleanLiteral(named?.get("agentTool")) === false
+  ) {
+    out.agentTool = false;
+  }
+  if (/\bhttp\s*:\s*false\b/.test(src) || booleanLiteral(namedHttp) === false) {
     out.http = false;
+  } else if (namedHttp !== undefined && namedHttp !== "unknown") {
+    const route = httpRoute(namedHttp);
+    if (route) out.http = route;
   } else {
     const httpStart = src.search(/\bhttp\s*:\s*\{/);
     if (httpStart >= 0) {

@@ -139,6 +139,10 @@ describe("cliWrapperFlagsFromSource", () => {
         "CommonJS exports",
         'exports.tool = { description: "Send" };\nexports.run = async () => ({});\nexports.needsApproval = false;',
       ],
+      [
+        "CommonJS exports through a computed key",
+        'module["exports"].tool = { description: "Send" };\nmodule["exports"].run = async () => ({});\nmodule["exports"].needsApproval = false;',
+      ],
       ["a source it can't parse", source("  needsApproval: false,,")],
     ] as const) {
       expect(cliWrapperFlagsFromSource(src), label).toEqual(hidden);
@@ -168,6 +172,21 @@ describe("cliWrapperFlagsFromSource", () => {
     expect(read("  needsApproval: true,")).toEqual({ needsApproval: true });
   });
 
+  it("reads an action object assigned to module.exports, however it's written", () => {
+    for (const target of ["module.exports", 'module["exports"]']) {
+      const src = [
+        `${target} = {`,
+        '  tool: { description: "Send" },',
+        "  needsApproval: true,",
+        "  run: async () => ({}),",
+        "};",
+      ].join("\n");
+      expect(cliWrapperFlagsFromSource(src), target).toEqual({
+        needsApproval: true,
+      });
+    }
+  });
+
   it("reads flags exported by name beside tool and run", () => {
     const read = (flags: string) =>
       cliWrapperFlagsFromSource(
@@ -193,6 +212,13 @@ describe("cliWrapperFlagsFromSource", () => {
       expect(read(flags), flags).toEqual({ needsApproval: true });
     }
     expect(read('export * from "./flags.js";')).toEqual(hidden);
+    expect(read("export const agentTool = false;")).toEqual({
+      agentTool: false,
+    });
+    expect(read("export const http = false;")).toEqual({ http: false });
+    expect(
+      read('export const http = { method: "GET", path: "/report" };'),
+    ).toEqual({ http: { method: "GET", path: "/report" } });
   });
 
   it("keeps UI-only and tool-call limits unless a literal lifts them", () => {
