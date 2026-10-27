@@ -282,6 +282,13 @@ export const documentComments = table(
      */
     fieldId: text("field_id"),
     fieldName: text("field_name"),
+    /**
+     * The block a thread is about as a whole, such as a video, on its root
+     * comment; such a thread quotes no text. The type names the block after
+     * it is deleted.
+     */
+    blockId: text("block_id"),
+    blockType: text("block_type"),
     mentionsJson: text("mentions_json"),
     authorEmail: text("author_email").notNull(),
     authorName: text("author_name"),
@@ -1193,7 +1200,7 @@ export const contentWebhookDeliveries = table(
       delivery.sequence,
     ),
     // content_webhook_deliveries_lease_idx, a partial index on pending rows'
-    // (webhook_id, lease_expires_at), is in migration 129 only.
+    // (webhook_id, lease_expires_at), is in migration 130 only.
     index("content_webhook_deliveries_settled_idx").on(
       delivery.status,
       delivery.updatedAt,
