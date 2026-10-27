@@ -1,11 +1,15 @@
 // @vitest-environment happy-dom
 
 import { AgentKitClient } from "@agent-native/agentkit/client";
-import type {
-  AgentEvent,
-  AgentMessage,
-  AgentToolCall,
-  AgentTransport,
+import {
+  createAgentKitProtocolVersionOffer,
+  createCapabilityUnavailableError,
+  negotiateAgentKitProtocolVersion,
+  parseAgentCapabilitiesDiscovery,
+  type AgentEvent,
+  type AgentMessage,
+  type AgentToolCall,
+  type AgentTransport,
 } from "@agent-native/agentkit/protocol";
 import { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
@@ -339,6 +343,54 @@ describe("assistant reply toolbar", () => {
       "Copy request ID",
       "Copy message",
     ]);
+  });
+
+  it("shows a degraded action's reason in its tooltip, not a second native title", async () => {
+    const reason = "Feedback is queued and may take a minute to record.";
+    const { toolbar } = await renderChat({
+      transport: {
+        async discoverCapabilities() {
+          return parseAgentCapabilitiesDiscovery({
+            protocol: negotiateAgentKitProtocolVersion(
+              createAgentKitProtocolVersionOffer(),
+            ),
+            discoveredAt: "2026-10-23T00:00:00.000Z",
+            capabilities: [
+              { id: "threadForking", state: "available" },
+              {
+                id: "feedback",
+                state: "degraded",
+                error: createCapabilityUnavailableError("feedback", {
+                  message: reason,
+                  retryable: true,
+                }),
+              },
+            ],
+          });
+        },
+      },
+    });
+    const good = thumb(toolbar("assistant-latest"), "positive");
+
+    expect(good.disabled).toBe(false);
+    expect(good.hasAttribute("title")).toBe(false);
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        good.dispatchEvent(
+          new PointerEvent("pointermove", {
+            bubbles: true,
+            pointerType: "mouse",
+          }),
+        );
+        vi.advanceTimersByTime(1000);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe(
+      `Good response${reason}`,
+    );
   });
 
   it("shows More as pressed while its actions are open, past its hover fill", async () => {

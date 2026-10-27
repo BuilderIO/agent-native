@@ -5225,14 +5225,34 @@ function AgentMessageTimestamp({
  * Names an icon-only message action on hover and keyboard focus. Below the
  * button, so it never covers the message it acts on.
  */
-function MessageActionButton(
-  props: ComponentPropsWithoutRef<typeof IconButton>,
-) {
+function MessageActionButton({
+  title,
+  ...props
+}: ComponentPropsWithoutRef<typeof IconButton>) {
+  // A disabled button gets no pointer events, so only a native title can
+  // explain it; an enabled one shows the reason in its tooltip instead, so a
+  // degraded action never opens both.
+  const inactive = Boolean(props.disabled || props.pending);
+  const reason = inactive ? undefined : title;
   return (
     <Tooltip
-      content={props.label}
+      content={
+        reason ? (
+          <>
+            {props.label}
+            <span className="block text-muted-foreground">{reason}</span>
+          </>
+        ) : (
+          props.label
+        )
+      }
       placement="bottom"
-      trigger={<IconButton {...props} />}
+      trigger={
+        <IconButton
+          {...props}
+          {...(inactive && title !== undefined ? { title } : {})}
+        />
+      }
     />
   );
 }
