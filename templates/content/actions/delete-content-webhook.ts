@@ -26,11 +26,13 @@ export default defineAction({
   outputSchema: z.object({ ok: z.literal(true), id: z.string() }),
   run: async (args) => {
     const db = getDb();
-    const [webhook] = await db
-      .select()
-      .from(schema.contentWebhooks)
-      .where(eq(schema.contentWebhooks.id, args.id))
-      .limit(1);
+    const webhook = (
+      await db
+        .select()
+        .from(schema.contentWebhooks)
+        .where(eq(schema.contentWebhooks.id, args.id))
+        .limit(1)
+    ).at(0);
     if (!webhook || !(await contentWebhookScopeForRow(webhook))) {
       throw new ActionContractError(`Webhook not found: ${args.id}`, {
         errorCode: "WEBHOOK_NOT_FOUND",

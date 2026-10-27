@@ -69,7 +69,12 @@ const COLLABORATOR = "collaborator@example.com";
 const RECEIVER_URL = "https://hooks.example.com/content";
 
 type Schema = typeof import("../server/db/schema.js");
-let getDb: () => any;
+
+function found<T>(value: T | undefined, what: string): T {
+  if (value === undefined) throw new Error(`${what} not found.`);
+  return value;
+}
+let getDb: (typeof import("../server/db/index.js"))["getDb"];
 let schema: Schema;
 let hooks: typeof import("./_content-webhooks.js");
 let createDatabase: typeof import("./create-content-database.js").default;
@@ -118,7 +123,7 @@ beforeAll(async () => {
   deleteDocumentRecursive = (await import("./delete-document.js"))
     .deleteDocumentRecursive;
   const plugin = (await import("../server/plugins/db.js")).default;
-  await plugin(undefined as any);
+  await plugin(undefined as never);
 }, 60_000);
 
 afterAll(() => {
@@ -141,7 +146,7 @@ async function fixture(rowCount = 1) {
   const addProperty = async (
     name: string,
     type: "text" | "number" | "select",
-    options?: unknown,
+    options?: Parameters<typeof configureProperty.run>[0]["options"],
   ) => {
     const response = await asOwner(() =>
       configureProperty.run({
@@ -149,12 +154,15 @@ async function fixture(rowCount = 1) {
         databaseId: ids.databaseId,
         name,
         type,
-        options: options as any,
+        options,
       }),
     );
-    return response.properties.find(
-      (candidate) => candidate.definition.name === name,
-    )!.definition.id;
+    return found(
+      response.properties.find(
+        (candidate) => candidate.definition.name === name,
+      ),
+      `Property ${name}`,
+    ).definition.id;
   };
   const turn = await addProperty("Whose turn", "select", {
     options: [
@@ -209,8 +217,10 @@ async function rowRevision(databaseId: string, itemId: string) {
     getDatabase.run({ databaseId, limit: 500 }),
   );
   if (!("items" in response)) throw new Error("Collection has no rows.");
-  return response.items.find((item) => item.id === itemId)!
-    .rowRevision as string;
+  return found(
+    response.items.find((item) => item.id === itemId),
+    `Row ${itemId}`,
+  ).rowRevision as string;
 }
 
 async function deliveries(webhookId: string) {
@@ -283,7 +293,7 @@ describe("content webhooks", () => {
           propertyId: ids.properties.turn,
           value: "agent",
         },
-        { caller: "mcp", userEmail: OWNER } as any,
+        { caller: "mcp", userEmail: OWNER },
       ),
     );
     await asOwner(() =>
@@ -1076,7 +1086,10 @@ describe("content webhooks", () => {
     );
     expect(byScope.webhooks).toHaveLength(2);
     const listed = (id: string) =>
-      byScope.webhooks.find((hook) => hook.id === id)!;
+      found(
+        byScope.webhooks.find((hook) => hook.id === id),
+        `Webhook ${id}`,
+      );
     expect(listed(created.webhook.id).recentDeliveries).toMatchObject([
       { type: "property.changed", status: "delivered", attempts: 1 },
     ]);

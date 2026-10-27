@@ -633,26 +633,28 @@ async function claimDelivery(db: Db, id: string) {
   const deliveries = schema.contentWebhookDeliveries;
   const now = new Date().toISOString();
   const leaseToken = randomUUID();
-  const [delivery] = await db
-    .update(deliveries)
-    .set({
-      leaseToken,
-      leaseExpiresAt: new Date(Date.now() + LEASE_MS).toISOString(),
-      attempts: sql`${deliveries.attempts} + 1`,
-      updatedAt: now,
-    })
-    .where(
-      and(
-        eq(deliveries.id, id),
-        eq(deliveries.status, "pending"),
-        lte(deliveries.nextAttemptAt, now),
-        or(
-          isNull(deliveries.leaseExpiresAt),
-          lt(deliveries.leaseExpiresAt, now),
+  const delivery = (
+    await db
+      .update(deliveries)
+      .set({
+        leaseToken,
+        leaseExpiresAt: new Date(Date.now() + LEASE_MS).toISOString(),
+        attempts: sql`${deliveries.attempts} + 1`,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(deliveries.id, id),
+          eq(deliveries.status, "pending"),
+          lte(deliveries.nextAttemptAt, now),
+          or(
+            isNull(deliveries.leaseExpiresAt),
+            lt(deliveries.leaseExpiresAt, now),
+          ),
         ),
-      ),
-    )
-    .returning();
+      )
+      .returning()
+  ).at(0);
   return delivery ? { delivery, leaseToken } : null;
 }
 
@@ -724,11 +726,13 @@ async function inTrash(
 ): Promise<boolean> {
   // guard:allow-unscoped — the sender runs with no signed-in user; it reads only whether the watched collection or page, or the event's row page, is in Trash.
   if (webhook.scopeType === "database") {
-    const [database] = await db
-      .select({ deletedAt: schema.contentDatabases.deletedAt })
-      .from(schema.contentDatabases)
-      .where(eq(schema.contentDatabases.id, webhook.scopeId))
-      .limit(1);
+    const database = (
+      await db
+        .select({ deletedAt: schema.contentDatabases.deletedAt })
+        .from(schema.contentDatabases)
+        .where(eq(schema.contentDatabases.id, webhook.scopeId))
+        .limit(1)
+    ).at(0);
     if (database?.deletedAt) return true;
   }
   const pages = await db
@@ -783,11 +787,13 @@ async function deliverOne(
   delivery: DeliveryRow,
   transport: ContentWebhookTransport,
 ): Promise<ContentWebhookTransportResult> {
-  const [webhook] = await db
-    .select()
-    .from(schema.contentWebhooks)
-    .where(eq(schema.contentWebhooks.id, delivery.webhookId))
-    .limit(1);
+  const webhook = (
+    await db
+      .select()
+      .from(schema.contentWebhooks)
+      .where(eq(schema.contentWebhooks.id, delivery.webhookId))
+      .limit(1)
+  ).at(0);
   if (!webhook) {
     // An event queued while its webhook was being removed can commit just
     // after the removal deleted the webhook's events. Delete it the same way

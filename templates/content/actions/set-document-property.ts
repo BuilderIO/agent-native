@@ -473,18 +473,20 @@ export default defineAction({
           "This value is already claimed as another row's stable key.",
         );
       }
-      const [existing] = await tx
-        .select({
-          id: schema.documentPropertyValues.id,
-          valueJson: schema.documentPropertyValues.valueJson,
-        })
-        .from(schema.documentPropertyValues)
-        .where(
-          and(
-            eq(schema.documentPropertyValues.documentId, documentId),
-            eq(schema.documentPropertyValues.propertyId, propertyId),
-          ),
-        );
+      const existing = (
+        await tx
+          .select({
+            id: schema.documentPropertyValues.id,
+            valueJson: schema.documentPropertyValues.valueJson,
+          })
+          .from(schema.documentPropertyValues)
+          .where(
+            and(
+              eq(schema.documentPropertyValues.documentId, documentId),
+              eq(schema.documentPropertyValues.propertyId, propertyId),
+            ),
+          )
+      ).at(0);
       if (existing) {
         await tx
           .update(schema.documentPropertyValues)

@@ -22,6 +22,18 @@ let unregisterRecurringSweepHandler: (() => void) | undefined;
 let inProcessSweep: IntervalJobHandle | undefined;
 let sweepStartTimer: ReturnType<typeof setTimeout> | undefined;
 
+/** Lets the process exit while the timer waits. Outside Node a timer is a number, with no unref. */
+function unrefTimer(timer: unknown): void {
+  if (
+    typeof timer === "object" &&
+    timer !== null &&
+    "unref" in timer &&
+    typeof timer.unref === "function"
+  ) {
+    timer.unref();
+  }
+}
+
 async function runContentWebhookSweep(context: RecurringSweepContext) {
   await drainContentWebhookDeliveries(context);
   await purgeSettledContentWebhookDeliveries();
@@ -67,7 +79,7 @@ export default function registerContentWebhookDelivery(
         },
       );
     }, SWEEP_START_DELAY_MS);
-    sweepStartTimer.unref?.();
+    unrefTimer(sweepStartTimer);
   }
 
   nitroApp?.hooks?.hook?.("close", () => {
