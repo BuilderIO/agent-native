@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { cancelPendingPastedMediaAbsentFromReplay } from "./pending-pasted-media";
+import { cancelPendingPastedMediaRemovedByReplay } from "./pending-pasted-media";
 
-describe("cancelPendingPastedMediaAbsentFromReplay", () => {
-  it("cancels pending nodes absent from the replayed content", () => {
+describe("cancelPendingPastedMediaRemovedByReplay", () => {
+  it("cancels only pending nodes removed by the replay", () => {
     const pendingByScreen = new Map([
       [
         "screen-1",
@@ -16,9 +16,10 @@ describe("cancelPendingPastedMediaAbsentFromReplay", () => {
       ["screen-2", new Map([["other-screen-image", false]])],
     ]);
 
-    cancelPendingPastedMediaAbsentFromReplay(
+    cancelPendingPastedMediaRemovedByReplay(
       pendingByScreen,
       "screen-1",
+      '<!doctype html><html><body><img data-agent-native-node-id="kept-image"><img data-agent-native-node-id="removed-image"></body></html>',
       '<!doctype html><html><body><img data-agent-native-node-id="kept-image"></body></html>',
     );
 
@@ -26,7 +27,7 @@ describe("cancelPendingPastedMediaAbsentFromReplay", () => {
       new Map([
         ["kept-image", false],
         ["removed-image", true],
-        ["not-in-source", true],
+        ["not-in-source", false],
       ]),
     );
     expect(pendingByScreen.get("screen-2")).toEqual(
@@ -46,9 +47,10 @@ describe("cancelPendingPastedMediaAbsentFromReplay", () => {
       ["screen-2", new Map([["other-screen-image", false]])],
     ]);
 
-    cancelPendingPastedMediaAbsentFromReplay(
+    cancelPendingPastedMediaRemovedByReplay(
       pendingByScreen,
       "screen-1",
+      '<main><img data-agent-native-node-id="preview-kept"><img data-agent-native-node-id="preview-removed"></main>',
       '<main><img data-agent-native-node-id="preview-kept"></main>',
     );
 

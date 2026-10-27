@@ -143,6 +143,11 @@ function currentFrameGeometry(
 export interface RedoArgs {
   activeEditorDragRef: RefObject<boolean>;
   activeFile: DesignFile | undefined;
+  cancelPendingPastedMediaForHistoryReplay?: (
+    screenId: string,
+    previousContent: string,
+    replayedContent: string,
+  ) => void;
   applyFileContentUpdate: (
     fileId: string,
     nextContent: string,
@@ -418,6 +423,7 @@ export interface RedoArgs {
 export function runRedo({
   activeEditorDragRef,
   activeFile,
+  cancelPendingPastedMediaForHistoryReplay,
   applyFileContentUpdate,
   applyDesignDataHistoryChanges,
   applyGeometryHistoryContentChanges,
@@ -1004,6 +1010,12 @@ export function runRedo({
         expectedVersionHash: sourceContentHash(beforeRedoContent),
         syncCollab: !isSynced,
       });
+      if (redoneItem)
+        cancelPendingPastedMediaForHistoryReplay?.(
+          activeFile.id,
+          beforeRedoContent,
+          next,
+        );
       if (
         previewContentReplaceNeedsRenderFallback(
           replacePreviewContent(next, null, {

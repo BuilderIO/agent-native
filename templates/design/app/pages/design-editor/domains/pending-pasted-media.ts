@@ -12,19 +12,20 @@ function getPendingNodeIds(content: string, screenId: string) {
   );
 }
 
-export function cancelPendingPastedMediaAbsentFromReplay(
+export function cancelPendingPastedMediaRemovedByReplay(
   pendingByScreen: PendingPastedMediaByScreen,
   screenId: string,
+  previousContent: string,
   replayedContent: string,
 ) {
   const pending = pendingByScreen.get(screenId);
   if (!pending) return;
 
-  // Replays replace the preview wholesale, including nodes that are not in source yet.
+  const previousNodeIds = getPendingNodeIds(previousContent, screenId);
   const replayedNodeIds = getPendingNodeIds(replayedContent, screenId);
 
   for (const nodeId of pending.keys()) {
-    if (!replayedNodeIds.has(nodeId)) {
+    if (previousNodeIds.has(nodeId) && !replayedNodeIds.has(nodeId)) {
       pending.set(nodeId, true);
     }
   }

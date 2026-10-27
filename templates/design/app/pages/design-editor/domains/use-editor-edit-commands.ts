@@ -1027,7 +1027,11 @@ export function useEditorEditCommands({
         recordHistory: false,
       });
       if (result.status === "accepted")
-        cancelPendingPastedMediaForHistoryReplay(change.fileId, content);
+        cancelPendingPastedMediaForHistoryReplay(
+          change.fileId,
+          direction === "undo" ? change.after : change.before,
+          content,
+        );
     }
     if (direction !== "commit") {
       applyDesignDataHistoryChanges(changes, direction);
@@ -1162,6 +1166,7 @@ export function useEditorEditCommands({
       runRedo({
         activeEditorDragRef,
         activeFile,
+        cancelPendingPastedMediaForHistoryReplay,
         applyFileContentUpdate,
         applyDesignDataHistoryChanges,
         applyGeometryHistoryContentChanges: (changes, direction) =>

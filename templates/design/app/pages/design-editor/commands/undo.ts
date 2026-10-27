@@ -384,6 +384,7 @@ export interface UndoArgs {
   activeFile: DesignFile | undefined;
   cancelPendingPastedMediaForHistoryReplay?: (
     screenId: string,
+    previousContent: string,
     replayedContent: string,
   ) => void;
   applyFileContentUpdate: (
@@ -664,9 +665,15 @@ export function runUndo({
     nextContent,
     options,
   ) => {
+    const previousContent =
+      options?.historyBeforeContent ?? getFreshActiveContent();
     const result = publishLocalContentUpdate(nextContent, options);
     if (isRecord(result) && result.status === "accepted" && activeFile?.id) {
-      cancelPendingPastedMediaForHistoryReplay?.(activeFile.id, nextContent);
+      cancelPendingPastedMediaForHistoryReplay?.(
+        activeFile.id,
+        previousContent,
+        nextContent,
+      );
     }
     return result;
   };
@@ -675,20 +682,31 @@ export function runUndo({
     nextContent,
     options,
   ) => {
+    const previousContent =
+      options?.historyBeforeContent ?? getScreenContent(fileId);
     const result = publishFileContentUpdate(fileId, nextContent, options);
     if (isRecord(result) && result.status === "accepted")
-      cancelPendingPastedMediaForHistoryReplay?.(fileId, nextContent);
+      cancelPendingPastedMediaForHistoryReplay?.(
+        fileId,
+        previousContent,
+        nextContent,
+      );
     return result;
   };
   const updateLiveScreenSnapshotContent: UndoArgs["updateLiveScreenSnapshotContent"] =
     (screenId, html, options) => {
+      const previousContent = getScreenContent(screenId);
       const accepted = publishLiveScreenSnapshotContent(
         screenId,
         html,
         options,
       );
       if (accepted === true)
-        cancelPendingPastedMediaForHistoryReplay?.(screenId, html);
+        cancelPendingPastedMediaForHistoryReplay?.(
+          screenId,
+          previousContent,
+          html,
+        );
       return accepted;
     };
   flushCommitsAfterPaint();
@@ -1013,7 +1031,11 @@ export function runUndo({
         syncCollab: !isSynced,
       });
       if (poppedItem)
-        cancelPendingPastedMediaForHistoryReplay?.(activeFile.id, next);
+        cancelPendingPastedMediaForHistoryReplay?.(
+          activeFile.id,
+          beforeUndoContent,
+          next,
+        );
       if (
         previewContentReplaceNeedsRenderFallback(
           replacePreviewContent(next, null, {
