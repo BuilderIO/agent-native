@@ -239,6 +239,11 @@ export default function Index() {
         : "templates",
   );
   const homeLibraryTabWasSelectedRef = useRef(false);
+  const selectedTemplateId = searchParams.get("templateId");
+  const previousChecklistLocationRef = useRef({
+    isSaveTemplateGettingStarted,
+    selectedTemplateId,
+  });
   const designFilterWasSelectedRef = useRef(false);
   const composerRef = useRef<TiptapComposerHandle>(null);
   const [quickStartPending, setQuickStartPending] = useState(false);
@@ -259,7 +264,17 @@ export default function Index() {
   const [contextDesigns, setContextDesigns] = useState<Design[]>([]);
 
   useEffect(() => {
-    if (navigationType === "REPLACE") return;
+    const previousLocation = previousChecklistLocationRef.current;
+    const templateSelectionReplace =
+      navigationType === "REPLACE" &&
+      previousLocation.isSaveTemplateGettingStarted &&
+      isSaveTemplateGettingStarted &&
+      previousLocation.selectedTemplateId !== selectedTemplateId;
+    previousChecklistLocationRef.current = {
+      isSaveTemplateGettingStarted,
+      selectedTemplateId,
+    };
+    if (templateSelectionReplace) return;
 
     if (isSaveTemplateGettingStarted) {
       homeLibraryTabWasSelectedRef.current = true;
@@ -277,6 +292,7 @@ export default function Index() {
     location.hash,
     location.key,
     navigationType,
+    selectedTemplateId,
   ]);
 
   const skipToEditorPendingRef = useRef(false);

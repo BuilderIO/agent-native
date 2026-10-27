@@ -1693,7 +1693,7 @@ describe("home library", () => {
     expect(templates.getAttribute("aria-selected")).toBe("true");
 
     mocks.locationKey = "checklist-open-2";
-    mocks.navigationType = "PUSH";
+    mocks.navigationType = "REPLACE";
     await act(async () => root.render(<Index />));
 
     expect(

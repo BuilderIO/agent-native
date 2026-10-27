@@ -136,6 +136,17 @@ async function chooseHtmlFile(file: File) {
     input.dispatchEvent(new Event("change", { bubbles: true })),
   );
 }
+async function setHtmlDraft(value: string) {
+  const textarea = container.querySelector<HTMLTextAreaElement>("textarea");
+  if (!textarea) throw new Error("Missing HTML import field");
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      "value",
+    )?.set?.call(textarea, value);
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
 async function selectPage(name: string) {
   const checkbox = container.querySelector<HTMLButtonElement>(
     `[role="checkbox"][aria-label="${name}"]`,
@@ -478,6 +489,38 @@ describe("home-picked .fig handoff", () => {
       ).toBe(secondContent),
     );
     expect(mocks.importSourceMutate).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps an HTML draft typed while a selected file is still reading", async () => {
+    await render();
+    const htmlToggle = container.querySelector<HTMLButtonElement>(
+      'button[aria-controls="html-import"]',
+    );
+    if (!htmlToggle) throw new Error("Missing HTML import toggle");
+    await act(async () => htmlToggle.click());
+
+    let resolveRead!: (content: string) => void;
+    const read = new Promise<string>((resolve) => {
+      resolveRead = resolve;
+    });
+    const file = new File([], "pending.html", { type: "text/html" });
+    Object.defineProperty(file, "text", {
+      configurable: true,
+      value: () => read,
+    });
+    await chooseHtmlFile(file);
+
+    const draft = "<html><body>newer pasted draft</body></html>";
+    await setHtmlDraft(draft);
+    await act(async () => {
+      resolveRead("<!doctype html><html><body>selected file</body></html>");
+      await read;
+    });
+
+    expect(
+      container.querySelector<HTMLTextAreaElement>("textarea")?.value,
+    ).toBe(draft);
+    expect(mocks.importSourceMutate).not.toHaveBeenCalled();
   });
 
   it("picks pages and blocks a selection over the frame limit before converting", async () => {

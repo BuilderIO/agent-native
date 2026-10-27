@@ -1271,7 +1271,10 @@ export const DesignImportPanel = forwardRef<
             <div className="space-y-2 p-2">
               <Textarea
                 value={htmlText}
-                onChange={(event) => setHtmlText(event.target.value)}
+                onChange={(event) => {
+                  htmlFileReadRef.current += 1;
+                  setHtmlText(event.target.value);
+                }}
                 placeholder={t("designEditor.import.htmlPlaceholder")}
                 className="min-h-24 resize-none text-xs"
               />
