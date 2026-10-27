@@ -1288,31 +1288,25 @@ esac
       );
     };
 
-    for (const coreVersion of [corePackage.version, "0.205.0"]) {
+    for (const coreVersion of [corePackage.version, "0.220.0"]) {
       assert.ok(
         acceptsNextCorePatch(coreVersion),
         `Toolkit must accept the next fixed-group Core patch after ${coreVersion}`,
       );
     }
 
-    for (const coreVersion of ["0.204.0", "0.205.0"]) {
+    for (const coreVersion of ["0.205.1", "0.220.0"]) {
       assert.equal(
         semver.satisfies(coreVersion, corePeerRange),
         false,
-        `Toolkit must not accept published Core ${coreVersion} without the sanitizer export`,
+        `Toolkit must not accept published Core ${coreVersion} without the MCP approval client export`,
       );
     }
 
-    assert.equal(
-      semver.satisfies("0.204.1", corePeerRange),
-      false,
-      "Toolkit must require Core 0.205.1, which first includes the session slot export",
-    );
-
-    for (const coreVersion of ["0.205.1"]) {
+    for (const coreVersion of ["0.220.1"]) {
       assert.ok(
         semver.satisfies(coreVersion, corePeerRange),
-        `Toolkit must accept Core ${coreVersion} with the session slot export`,
+        `Toolkit must accept Core ${coreVersion} with the MCP approval client export`,
       );
     }
 
