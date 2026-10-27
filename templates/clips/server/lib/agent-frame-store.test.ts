@@ -59,11 +59,21 @@ vi.mock("drizzle-orm", () => ({
 vi.mock("../db/index.js", () => {
   const select = () => ({
     from: (table: unknown) => ({
-      where: () => {
+      where: (condition?: unknown) => {
+        // The real query filters by the clause; mirror the timestamp one.
+        const atMs = Array.isArray(condition)
+          ? (condition as Array<{ column?: string; value?: unknown }>).find(
+              (part) => part.column === "atMs",
+            )?.value
+          : undefined;
         const rows =
           table === mockTables.recordings
             ? mockCurrentRecording.value
-            : mockRows.value;
+            : atMs === undefined
+              ? mockRows.value
+              : (mockRows.value as Array<{ atMs?: number }>).filter(
+                  (row) => row.atMs === atMs,
+                );
         const result = Promise.resolve(rows) as Promise<unknown[]> & {
           limit: () => Promise<unknown[]>;
         };
@@ -130,7 +140,6 @@ import {
   deleteStoredAgentFrames,
   loadStoredAgentFrame,
   recommendedAgentFrameTimes,
-  storeRequestedAgentFrame,
 } from "./agent-frame-store.js";
 
 type TestClip = Parameters<typeof loadStoredAgentFrame>[0];
@@ -614,45 +623,7 @@ describe("agent frame store", () => {
       });
     });
 
-    it("stores the requested frame even when it is not a recommended timestamp", async () => {
-      mockUploadRecordingMedia.mockResolvedValue({
-        url: "https://cdn.example.com/adhoc.jpg",
-        provider: "s3",
-      });
-
-      await fillRecommendedAgentFrames(clip, async () => new Uint8Array([4]), {
-        atMs: 12_345,
-        frame: new Uint8Array([9]),
-      });
-
-      expect(mockInserted).toContainEqual(
-        expect.objectContaining({ atMs: 12_345 }),
-      );
-      expect(mockUploadRecordingMedia).toHaveBeenCalledWith(
-        expect.objectContaining({ filename: "agent-frame-12345.jpg" }),
-      );
-    });
-
-    it("keeps frames from the current media at timestamps that are not recommended", async () => {
-      mockUploadRecordingMedia.mockResolvedValue(null);
-      mockRows.value = [
-        {
-          id: "adhoc",
-          atMs: 12_345,
-          mediaKey: agentFrameMediaKey(recording),
-          storageUrl: "https://cdn.example.com/adhoc.jpg",
-          storageProvider: "s3",
-          storageId: null,
-        },
-      ];
-
-      await fillRecommendedAgentFrames(clip, async () => new Uint8Array([4]));
-
-      expect(mockDeleteStoredMediaUrl).not.toHaveBeenCalled();
-      expect(mockDeleted).toHaveLength(0);
-    });
-
-    it("prunes frames cut from media that has since changed", async () => {
+    it("prunes frames at timestamps that are no longer recommended", async () => {
       mockUploadRecordingMedia.mockResolvedValue(null);
       mockRows.value = [
         {
@@ -674,7 +645,7 @@ describe("agent frame store", () => {
       expect(mockDeleted).toHaveLength(1);
     });
 
-    it("keeps a stale frame's row when its object is not confirmed gone", async () => {
+    it("keeps a pruned frame's row when its object is not confirmed gone", async () => {
       mockUploadRecordingMedia.mockResolvedValue(null);
       mockRows.value = [
         {
@@ -763,6 +734,20 @@ describe("agent frame store", () => {
       expect(await second).toEqual({ frame: new Uint8Array([7]) });
     });
 
+    it("stops waiting on a fill here that never finishes", async () => {
+      vi.useFakeTimers();
+      mockRows.value = [];
+      const first = await loadStoredAgentFrame(clip, 25_000);
+      if (!("claim" in first) || !first.claim) throw new Error("claim");
+
+      const waiter = loadStoredAgentFrame(clip, 25_000);
+      await vi.advanceTimersByTimeAsync(11_000);
+
+      expect(await waiter).toEqual({ claim: null });
+      vi.useRealTimers();
+      await first.claim.release();
+    });
+
     it("lets a timestamp no fill stores go on demand instead of queueing behind the fill", async () => {
       mockRows.value = [];
       const first = await loadStoredAgentFrame(clip, OPENING_MS);
@@ -813,61 +798,6 @@ describe("agent frame store", () => {
       releaseIfClaim(next);
     });
 
-    describe("a frame stored by a request without a claim", () => {
-      it("stores it as the clip owner", async () => {
-        mockUploadRecordingMedia.mockResolvedValue({
-          url: "https://cdn.example.com/adhoc.jpg",
-          provider: "s3",
-        });
-
-        await storeRequestedAgentFrame(
-          {
-            ...recording,
-            durationMs: 100_000,
-            chaptersJson: "[]",
-            orgId: "org-1",
-          } as never,
-          12_345,
-          new Uint8Array([9]),
-        );
-
-        expect(mockRunWithRequestContext).toHaveBeenCalledWith(
-          { userEmail: "owner@example.com", orgId: "org-1" },
-          expect.any(Function),
-        );
-        expect(mockInserted).toContainEqual(
-          expect.objectContaining({ atMs: 12_345 }),
-        );
-      });
-
-      it("never rejects when it cannot be stored", async () => {
-        mockUploadRecordingMedia.mockRejectedValue(new Error("no storage"));
-
-        await expect(
-          storeRequestedAgentFrame(clip, 12_345, new Uint8Array([9])),
-        ).resolves.toBeUndefined();
-        expect(mockInserted).toHaveLength(0);
-      });
-
-      it("does not replace a frame another request stored first", async () => {
-        mockUploadRecordingMedia.mockResolvedValue({
-          url: "https://cdn.example.com/mine.jpg",
-          provider: "s3",
-        });
-        mockTxFrameRows.value = [
-          { storageUrl: "https://cdn.example.com/theirs.jpg" },
-        ];
-
-        await storeRequestedAgentFrame(clip, 12_345, new Uint8Array([9]));
-
-        expect(mockInserted).toHaveLength(0);
-        expect(mockDeleteStoredMediaUrl).toHaveBeenCalledWith(
-          "https://cdn.example.com/mine.jpg",
-          { storageMode: "own", recordingId: "rec-1" },
-        );
-      });
-    });
-
     describe("across server instances", () => {
       const otherInstance = () => {
         mockClaimLease.mockResolvedValue(null);
@@ -903,6 +833,21 @@ describe("agent frame store", () => {
         await lookup.claim.release();
 
         expect(mockReleaseLease).toHaveBeenCalledTimes(1);
+      });
+
+      it("stops filling once the lease is no longer this fill's", async () => {
+        mockUploadRecordingMedia.mockResolvedValue({
+          url: "https://cdn.example.com/f.jpg",
+          provider: "s3",
+        });
+        mockRenewLease.mockResolvedValue(false);
+        const lookup = await loadStoredAgentFrame(clip, 25_000);
+        if (!("claim" in lookup) || !lookup.claim) throw new Error("claim");
+
+        await lookup.claim.fill(async () => new Uint8Array([4]));
+
+        expect(mockUploadRecordingMedia).not.toHaveBeenCalled();
+        expect(mockRenewLease).toHaveBeenCalledTimes(1);
       });
 
       it("renews the lease as the fill makes progress, so a dead holder frees the clip quickly", async () => {

@@ -15,7 +15,6 @@ const mockRunWithRequestContext = vi.hoisted(() => vi.fn());
 const mockLoadStoredAgentFrame = vi.hoisted(() => vi.fn());
 const mockClaimFill = vi.hoisted(() => vi.fn());
 const mockClaimRelease = vi.hoisted(() => vi.fn());
-const mockStoreRequested = vi.hoisted(() => vi.fn());
 const MockVideoFrameExtractionError = vi.hoisted(
   () =>
     class VideoFrameExtractionError extends Error {
@@ -66,7 +65,6 @@ vi.mock("../../lib/public-agent-context.js", () => ({
 }));
 
 vi.mock("../../lib/agent-frame-store.js", () => ({
-  storeRequestedAgentFrame: (...args: unknown[]) => mockStoreRequested(...args),
   loadStoredAgentFrame: (...args: unknown[]) =>
     mockLoadStoredAgentFrame(...args),
   clampAgentFrameAtMs: (atMs: number, durationMs: number) =>
@@ -150,7 +148,6 @@ describe("agent-frame.jpg route", () => {
     mockProbeMediaDurationMsFromFile.mockResolvedValue(null);
     mockClaimFill.mockResolvedValue(undefined);
     mockClaimRelease.mockResolvedValue(undefined);
-    mockStoreRequested.mockResolvedValue(undefined);
     mockLoadStoredAgentFrame.mockResolvedValue({
       claim: { fill: mockClaimFill, release: mockClaimRelease },
     });
@@ -421,18 +418,6 @@ describe("agent-frame.jpg route", () => {
     expect(mockLoadRecordingMediaFile).toHaveBeenCalledTimes(1);
     expect(mockClaimFill).not.toHaveBeenCalled();
     expect(mockClaimRelease).not.toHaveBeenCalled();
-    expect(mockStoreRequested).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "rec-1" }),
-      4000,
-      new Uint8Array([1, 2, 3]),
-    );
-  });
-
-  it("stores no separate frame when a claim fills the clip", async () => {
-    await handler(makeEvent({ id: "rec-1", atMs: "4500" }) as never);
-
-    expect(mockClaimFill).toHaveBeenCalledTimes(1);
-    expect(mockStoreRequested).not.toHaveBeenCalled();
   });
 
   it("takes no claim when a stored frame answers", async () => {
