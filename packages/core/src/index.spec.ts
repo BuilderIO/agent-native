@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
+import * as actionCaller from "./action-caller.js";
+import * as browser from "./index.browser.js";
 import * as sdk from "./index.js";
 import { directHttpActionApprovalRefusal } from "./server/action-approval.js";
 
@@ -37,4 +39,14 @@ describe("public server SDK approval policy", () => {
       ).resolves.toBeNull();
     },
   );
+});
+
+describe("core export surface", () => {
+  it("re-exports the outside-agent check that app approval gates use", () => {
+    expect(sdk.isOutsideAgentCall).toBe(actionCaller.isOutsideAgentCall);
+  });
+
+  it("re-exports the outside-agent check from the browser entry too", () => {
+    expect(browser.isOutsideAgentCall).toBe(actionCaller.isOutsideAgentCall);
+  });
 });

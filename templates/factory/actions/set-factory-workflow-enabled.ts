@@ -105,8 +105,13 @@ export default defineAction({
           }
 
           // The graph passed the catalog when it was saved; the catalog is code
-          // and can move, so it must pass again before it starts running.
-          const { plan } = prepareWorkflowGraph(workflow.graph);
+          // and can move, so it must pass again before it starts running. The
+          // fields a node reads from a step are not re-checked: a graph saved
+          // before outputs were declared still runs, and only a save is held
+          // to them.
+          const { plan } = await prepareWorkflowGraph(workflow.graph, scoped, {
+            checkOutputFields: false,
+          });
           // A connection that is missing now fails the first live run, so it is
           // refused here; one that could not be checked is reported, not blocking.
           const connections = await readGraphConnections(

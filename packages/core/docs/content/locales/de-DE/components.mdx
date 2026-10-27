@@ -287,7 +287,7 @@ selbst. Es ist das Feld, nicht die gesamte Chat-Laufzeit.
 
 ### Vorbereiteter Composer-Kontext {#composer-context}
 
-`PromptComposer` und `TiptapComposer` unterstützen `submissionDisabled`, um das Senden zu sperren, während Entwurf, Dateien und Kontext vorbereitet werden können. Eine fehlende Anbietereinrichtung sperrt nur das Senden. `disabled` deaktiviert weiterhin den gesamten Composer.
+`PromptComposer` und `TiptapComposer` unterstützen `submissionDisabled`, um das Senden zu sperren, während Entwurf, Dateien und Kontext vorbereitet werden können. Mit `requireAgentEngine` sperrt eine fehlende Anbietereinrichtung `PromptComposer` für Eingaben, solange eine Einrichtungskarte sichtbar ist, und ein Klick darauf weist auf die Karte hin. Ohne sichtbare Karte sperrt sie nur das Senden. `disabled` deaktiviert weiterhin den gesamten Composer.
 
 `PromptComposer`, `TiptapComposer` und `AgentKitComposer` akzeptieren `contextItems` und `contextMenuItems`. Apps übernehmen Quellenzugriffe und lokalisierte Menütexte.
 

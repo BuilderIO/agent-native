@@ -176,8 +176,15 @@ the invocation gives), plus 14 days for open items.
   phrase may be on its own line or, in older replies, at the end of the
   sentence (`... this was sent from a bot.`). Or when the root is listed under "Claimed, not
   yet answered" in the automation's `memory.md`. Any other Steve 👀 means Steve
-  has it: leave it alone. Of the workflow's roots, any without ✅ or 🎫, or
-  with a human reply newer than our last reply, comes first in this run. A
+  has it: leave it alone. A root listed in the `Reports` section of a sweep
+  PR that is still open and that this run didn't open belongs to the run
+  working on that PR: don't react
+  or reply there, and leave it out of your self-check; just list it under
+  "Still open from earlier runs". If that PR has had no push in 24 hours,
+  its run has stopped: its reports are yours again. Of the remaining
+  workflow roots, any
+  without ✅ or 🎫, or with a human reply newer than our last reply, comes
+  first in this run. A
   reply like "still broken" after a ✅ means the earlier fix failed. Find what
   that fix changed and why it didn't hold before trying again.
 - **New reports:** roots from the last 5 days. React and reply on the root
@@ -258,8 +265,11 @@ Run it once per thread: if a reply in the thread already links this PR, just mak
 there and move on.
 
 Write only as the connected Slack profile (Steve), only in the feedback
-channels, and in the reply format from the contract above. Re-read each thread
-before writing. If Steve has since added `:mag:` or a person has taken it over,
+channels, and in the reply format from the contract above. First re-read
+the contract and this step from fresh `origin/main` (`git fetch origin main
+&& git show origin/main:.agents/skills/review-latest-feedback/SKILL.md`): a
+run that started hours ago may be holding older rules. Re-read each thread before
+writing. If Steve has since added `:mag:` or a person has taken it over,
 leave it. If a newer human reply says it's still broken, leave the 👀 for the
 next sweep. Otherwise:
 

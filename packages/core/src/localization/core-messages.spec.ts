@@ -83,10 +83,16 @@ describe("Core localization", () => {
   it("localizes the managed MCP OAuth return link in every built-in locale", () => {
     const english = MCP_SETTINGS_MESSAGES["en-US"].mcpOAuthBackToApp;
     expect(english).toBe("Back to app");
+    const connected = MCP_SETTINGS_MESSAGES["en-US"].mcpOAuthConnectionDone;
+    expect(connected).toBe("Connection done");
     for (const locale of SUPPORTED_LOCALES) {
       const label = MCP_SETTINGS_MESSAGES[locale].mcpOAuthBackToApp;
       expect(label, locale).toEqual(expect.any(String));
       if (locale !== "en-US") expect(label, locale).not.toBe(english);
+
+      const completion = MCP_SETTINGS_MESSAGES[locale].mcpOAuthConnectionDone;
+      expect(completion, locale).toEqual(expect.any(String));
+      if (locale !== "en-US") expect(completion, locale).not.toBe(connected);
     }
   });
 

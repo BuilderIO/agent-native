@@ -197,6 +197,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.creditsSkipGoBack": "Volver",
   "onboarding.creditsSkipAnyway": "Omitir de todas formas",
   "onboarding.creditsUseCustomKeys": "Usar claves personalizadas",
+  "onboarding.creditsUseOwnApiKeys": "Usar mis propias claves API",
   "onboarding.creditsAboutLabel": "Acerca de los créditos gratuitos",
   "onboarding.creditsActivating": "Activando créditos gratuitos",
   "onboarding.creditsActivatingTooltip":
@@ -1256,6 +1257,10 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "Subir archivo de habilidad",
   "composer.upload": "Subir",
   "composer.uploadFailed": "No se pudo cargar el archivo seleccionado.",
+  "composer.imageTooLargeToAttach":
+    '"{{name}}" pesa {{size}} MB; las imágenes de más de {{limit}} MB no se pueden adjuntar. Usa una imagen más pequeña.',
+  "composer.imageTooManyPixelsToAttach":
+    '"{{name}}" tiene {{megapixels}} megapíxeles; las imágenes de más de {{limit}} megapíxeles no se pueden adjuntar. Usa una imagen más pequeña.',
   "composer.fileTooLarge":
     "Este archivo supera el límite de subida de {{size}} MB.",
   "composer.sessionExpired":

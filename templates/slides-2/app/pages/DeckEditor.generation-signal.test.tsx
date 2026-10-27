@@ -2401,6 +2401,45 @@ describe("DeckEditor generation signal wiring", () => {
     expect(mocks.flushDeckSave).toHaveBeenCalledTimes(2);
   });
 
+  it("does not refresh a hidden editor from a previous mount's null retry", async () => {
+    vi.useFakeTimers();
+    const setVisibilityState = overrideVisibilityState("visible");
+    mocks.broadGenerating = false;
+    mocks.deck.generationContext = {
+      ...mocks.deck.generationContext,
+      generationFailureCode: "outcome_unresolved",
+      generationFailureAttemptId: "attempt-1",
+      generationFailureSlidesFingerprint: null,
+    } as typeof mocks.deck.generationContext;
+    mocks.refreshOpenDeck.mockResolvedValue(null);
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(mocks.refreshOpenDeck).toHaveBeenCalledTimes(1);
+
+    cleanup();
+    router.dispose();
+    router = undefined;
+    mocks.refreshOpenDeck.mockClear();
+    setVisibilityState("hidden");
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(mocks.refreshOpenDeck).not.toHaveBeenCalled();
+  });
+
   it("keeps checking an unknown snapshot while visible and pauses when hidden", async () => {
     vi.useFakeTimers();
     const setVisibilityState = overrideVisibilityState("hidden");

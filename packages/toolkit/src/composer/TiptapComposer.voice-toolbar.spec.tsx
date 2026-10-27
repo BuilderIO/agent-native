@@ -35,6 +35,9 @@ const realtime = vi.hoisted(() => ({
   dismissError: (() => {}) as unknown as ReturnType<typeof vi.fn>,
   setInputMuted: (() => {}) as unknown as ReturnType<typeof vi.fn>,
   setOutputMuted: (() => {}) as unknown as ReturnType<typeof vi.fn>,
+  currentToolName: null,
+  approvals: [],
+  resolveApproval: (() => {}) as unknown as ReturnType<typeof vi.fn>,
 }));
 
 vi.mock("./useVoiceDictation.js", async (importOriginal) => {

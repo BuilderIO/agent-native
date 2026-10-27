@@ -1,0 +1,95 @@
+slug: specs-for-coding-agents
+app: content
+roles:
+  - engineering
+  - product
+title: 코딩 에이전트가 읽을 수 있는 스펙을 작성하세요
+seo_title: Claude Code, Codex, Cursor를 위한 스펙 작성
+meta_description: "Agent-Native Content는 스펙을 Claude Code, Codex, Cursor가 MCP로 읽는 페이지 하나에 담아, 에이전트가 팀이 편집 중인 버전으로 만들게 해 줘요."
+updated: 2026-10-27
+hero:
+  body: "Agent-Native Content는 메모를 나와 팀, 코딩 에이전트가 한 페이지에서 함께 쓰는 스펙으로 만들어 줘요. Claude Code, Codex, Cursor가 실시간 페이지를 읽고, 내가 수락할 변경을 제안해요."
+  button:
+    label: 스펙 작성하기
+    url: https://content.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd7f1bf8fa6054abcafa30bd60751ae40
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F93c61e2bc6ba476a938b13934f237b0c
+    alt: "Content에서 연 “Team invites” 스펙. Goals, Non-goals, Decisions, Open questions 섹션이 있고 왼쪽에 페이지 트리가 있어요. 오른쪽 에이전트 채팅이 초대 링크의 유효 기간에 대한 결정을 추가했어요."
+how_to:
+  heading: 코딩 에이전트를 위한 스펙을 작성하는 방법
+  steps:
+    - title: 에이전트와 함께 스펙 쓰기
+      body: "사이드바에서 **+**를 클릭하고 **페이지**를 고른 뒤 메모를 붙여 넣거나, [Content의 내장 에이전트](https://www.agent-native.com/docs/template-content/)에게 메모로 “새 기능의 PRD 초안을 써 줘”라고 요청하세요. 직접 고치거나, 섹션을 선택해 다시 써 달라고 하세요."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2f4dd334ddfa4ec5bd74e67315414e8b
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F15247dff32574395a608e454b510e22b
+        alt: "에이전트 채팅에서 회의 메모로 팀 초대 스펙을 요청해요. 새 페이지 옆에 에이전트가 쓴 섹션을 나열한 답장이 보여요."
+    - title: 코딩 에이전트에서 열기
+      body: "**공유**에서 **에이전트**를 열고 **Claude Code에서 열기**나 **Codex에서 열기**를 고르세요. 에이전트가 페이지를 읽거나, 먼저 Content를 연결해 달라고 해요. Cursor나 VS Code라면 Content를 추가하고 **에이전트 프롬프트 복사**를 클릭해 붙여 넣으세요."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa052d84a44fb4e6ead8b69535f25c726
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc574e414836749119ad937c14623d14e
+        alt: "Share 메뉴의 Agents 탭 확대 화면. Copy agent prompt, Open in Claude, Open in Claude Code, Open in Codex가 있어요. 그 아래 Connect Content에서 Add to Cursor, Add to VS Code, Other agents를 고를 수 있어요."
+    - title: 스펙을 최신으로 유지하기
+      body: "빌드 중에 남은 질문이 정해지면, 코딩 에이전트에게 페이지에 변경을 제안해 달라고 하세요. 제안마다 에이전트가 든 이유가 보여요. 체크 표시를 클릭하면 수락, X를 클릭하면 거절이에요."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F156092664ebc424bb86899f876b88a97
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F0c0108d3427d4641b5c3a2b266e8c4aa
+        alt: "스펙의 Open questions 섹션 확대 화면. 코딩 에이전트가 제안한 수정이 Agent로 표시돼 있고, 이유와 함께 Accept(체크)와 Reject(X) 버튼이 있어요."
+features:
+  heading: 코딩 에이전트를 위한 스펙 작성에 필요한 모든 것
+  items:
+    - title: 피드백은 댓글로
+      body: "에이전트에게 스펙 검토를 요청하면, 내 글을 다시 쓰지 않고 약한 부분에 댓글을 남겨요."
+    - title: 기능마다 페이지 하나
+      body: "스펙마다 리서치, API 메모, 지난 결정을 하위 페이지로 두고, 제목과 본문을 검색해 무엇이든 찾으세요."
+    - title: 스펙 보드
+      body: "담당자와 상태 필드가 있는 컬렉션에 스펙을 표나 보드로 모아 두세요. 행마다 전체 페이지가 연결돼 있어요."
+    - title: 에이전트를 위한 메모
+      body: "페이지 설명에 어떤 섹션이 확정됐는지 적어 두면, 스펙을 읽는 모든 에이전트가 그 내용도 함께 읽어요."
+    - title: 저장 전 편집까지 읽어요
+      body: "코딩 에이전트는 편집기에 아직 열려 있는 수정 내용까지 보니, 언제나 지금 이 순간의 페이지로 작업해요."
+    - title: 팀과 함께 검토하기
+      body: "어느 구절에든 댓글을 달고, 팀원을 @멘션하고, 스레드로 답하세요. 버전 기록으로 이전 스펙을 복원할 수 있어요."
+integrations:
+  heading: 이미 쓰는 도구와 Content 연결하기
+  cards:
+    - title: 코딩 에이전트와 함께 동작해요
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+        - name: GitHub Copilot
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8be66b264343497caddac07fd7c26935
+          mono: true
+      body: "공유 메뉴에서 Claude Code나 Codex로 페이지를 열거나, 클릭 한 번으로 Cursor나 VS Code의 GitHub Copilot에 Content를 추가하세요."
+    - title: 이미 있는 스펙 가져오기
+      logos:
+        - name: Notion
+        - name: GitHub
+      body: "페이지를 Notion과 양방향으로 동기화하거나, 마크다운 스펙이 담긴 GitHub 폴더를 컬렉션으로 만드세요."
+    - title: MCP로 무엇이든 연결하기
+      logos:
+        - name: Linear
+        - name: Granola
+        - name: Sentry
+      more: true
+      body: "팀이 쓰는 도구를 MCP로 연결하거나, URL로 어떤 MCP 서버든 추가하세요."
+faqs:
+  heading: 궁금한 점이 있으신가요? 답해 드릴게요
+  items:
+    - q: Agent-Native Content는 무료인가요?
+      a: "네, Agent-Native Content는 무료 오픈 소스예요. 코딩 에이전트는 자기 모델로 스펙을 읽고 편집하니, 그만큼 에이전트 사용량에 포함돼요. Content의 내장 에이전트는 Builder.io 크레딧이나 내 모델 키로 실행돼요. Content는 알파 버전이라 바뀌는 부분이 있을 수 있어요."
+    - q: 어떤 코딩 에이전트가 내 스펙을 읽을 수 있나요?
+      a: "Claude Code와 Codex는 **공유**에서 페이지를 열고, 처음 한 번 연결을 요청해요. Cursor와 VS Code의 GitHub Copilot은 거기서 클릭 한 번으로 Content를 추가해요. Claude Cowork, Goose, OpenCode는 터미널에서 연결하고, 로그인을 지원하는 MCP 클라이언트라면 [URL로 Content에 연결](https://www.agent-native.com/docs/external-agents/#private-content-links)할 수 있어요. 각 에이전트는 내 계정이 볼 수 있는 것만 봐요."
+    - q: 저장소에 있는 스펙 파일과 무엇이 다른가요?
+      a: "저장소의 스펙 파일은 보통 코드를 다루는 사람만 고치는 사본이에요. Content에서는 코딩 에이전트가 읽는 바로 그 페이지에 팀이 글을 쓰고 댓글을 달고, 에이전트의 변경은 제안으로 들어와요. 저장소에도 마크다운을 두고 싶다면 Content가 [로컬 폴더와 동기화](https://www.agent-native.com/docs/template-content-sync/)해요."
+    - q: 코딩 에이전트가 스펙을 바꿀 수 있나요?
+      a: "네, 내 계정이 가진 권한 안에서요. 수정 제안을 요청하면, 하나씩 수락하기 전까지 페이지는 그대로예요. 페이지를 직접 편집할 수도 있지만, 에이전트가 읽은 뒤에 페이지가 바뀌었다면 Content가 그 편집을 거부해요. [버전 기록](https://www.agent-native.com/docs/template-content-editing/)에 이전 버전이 남아 있어요."
+    - q: 스펙을 저장소에 둘 수 있나요?
+      a: "네. Content에서 [로컬 마크다운이나 MDX 폴더](https://www.agent-native.com/docs/template-content-local-files/)를 연결해 변경을 가져오고, 확인하고, 푸시하거나, 명령어 하나로 저장소에서 Content를 시작하세요. 충돌은 검토할 수 있게 보여 줘요. 브라우저는 혼자서 로컬 파일을 읽을 수 없으니, 로컬 Content 앱이나 Agent-Native Desktop이 필요해요."
