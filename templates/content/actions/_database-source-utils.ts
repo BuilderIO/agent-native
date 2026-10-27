@@ -6322,7 +6322,7 @@ export async function replaceMockSourceRows(args: {
 }
 
 async function lockedExistingBuilderRows(
-  tx: any,
+  tx: Pick<ReturnType<typeof getDb>, "select">,
   scope: SQL | undefined,
   readBeforeLock: Map<string, ExistingBuilderSourceRowIdentity>,
 ) {

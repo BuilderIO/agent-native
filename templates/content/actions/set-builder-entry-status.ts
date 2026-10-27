@@ -113,7 +113,7 @@ export default defineAction({
       // Turning publication changes off saves the setting before it clears
       // staged picks, so a pick checked earlier could land after the clear.
       // The share lock waits for that save.
-      const [source] = await tx
+      const [source = null] = await tx
         .select({
           capabilitiesJson: schema.contentDatabaseSources.capabilitiesJson,
           metadataJson: schema.contentDatabaseSources.metadataJson,
@@ -130,7 +130,7 @@ export default defineAction({
           statusCode: 409,
         });
       }
-      const [row] = await tx
+      const [row = null] = await tx
         .select({
           sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
         })

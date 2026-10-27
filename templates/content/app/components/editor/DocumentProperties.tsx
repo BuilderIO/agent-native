@@ -1282,7 +1282,7 @@ function BuilderStatusPicker({
   databaseId: string;
   documentId: string;
   databaseDocumentId: string;
-  container?: HTMLElement | null;
+  container?: HTMLElement | null | undefined;
   children: ReactNode;
 }) {
   const t = useT();
@@ -2475,7 +2475,7 @@ export function PropertyValuePopover({
   databaseDocumentId?: string;
   children: React.ReactNode;
   portalled?: boolean;
-  container?: HTMLElement | null;
+  container?: HTMLElement | null | undefined;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);

@@ -297,7 +297,7 @@ export function builderCmsLiveBodyBaseline(
 function publicationIntentAfterRead(args: {
   existing: Record<string, DocumentPropertyValue> | null | undefined;
   refreshed: Record<string, DocumentPropertyValue>;
-  builderValues?: Record<string, DocumentPropertyValue>;
+  builderValues?: Record<string, DocumentPropertyValue> | undefined;
 }): BuilderCmsPublicationTransitionIntent | null {
   const intent = readBuilderCmsPublicationIntent(args.existing);
   if (intent.state === "invalid") {

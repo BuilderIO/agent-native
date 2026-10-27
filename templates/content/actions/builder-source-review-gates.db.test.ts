@@ -941,12 +941,12 @@ describe("Builder source review execution gates", () => {
       ).review.rows[0]?.changeSetId;
 
     const first = await prepare();
-    expect(first).toBeTruthy();
+    if (!first) throw new Error("The first prepare returned no change set.");
     expect(first).not.toBe(seeded.changeSetId);
     await db
       .update(schema.contentDatabaseSourceChangeSets)
       .set({ state: "applied" })
-      .where(eq(schema.contentDatabaseSourceChangeSets.id, first!));
+      .where(eq(schema.contentDatabaseSourceChangeSets.id, first));
 
     await expect(prepare()).resolves.toBe(`${first}-2`);
   });

@@ -719,20 +719,20 @@ describe("cancel-prepared-builder-source-update", () => {
       {
         id: seeded.databaseId,
         documentId: seeded.documentId,
-      } as any,
+      } as never,
       seeded.sourceId,
     );
     const changed = snapshot?.changeSets.find(
       (changeSet) => changeSet.state === "pending_push",
     );
-    expect(changed).toBeTruthy();
+    if (!changed) throw new Error("No pending change set to prepare.");
 
     const prepare = () =>
       asUser(OWNER, () =>
         prepareReview.run({
           documentId: seeded.documentId,
           sourceId: seeded.sourceId,
-          changeSetIds: [changed!.id],
+          changeSetIds: [changed.id],
           pushModeConfirmation: "autosave",
         }),
       );
@@ -763,10 +763,8 @@ describe("cancel-prepared-builder-source-update", () => {
         .where(
           eq(schema.contentDatabaseSourceChangeSets.sourceId, seeded.sourceId),
         )
-    ).filter((changeSet: any) => changeSet.state === "approved");
-    expect(approved.map((changeSet: any) => changeSet.id)).toEqual([
-      revisionId,
-    ]);
+    ).filter((changeSet) => changeSet.state === "approved");
+    expect(approved.map((changeSet) => changeSet.id)).toEqual([revisionId]);
   });
 
   it("prepares a corrected diff separately from a failed non-refreshable gate", async () => {

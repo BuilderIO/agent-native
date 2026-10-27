@@ -217,7 +217,8 @@ describe("table column presentation", () => {
     const cleaned = withoutDeletedDatabaseProperty(
       { ...view, itemLayout: layout },
       "deleted",
-    ).itemLayout!;
+    ).itemLayout;
+    if (!cleaned) throw new Error("The cleaned view lost its row layout.");
 
     expect(
       resolveContentDatabaseItemLayout(cleaned, [

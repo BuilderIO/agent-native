@@ -891,19 +891,23 @@ describe("Builder CMS write adapter plan", () => {
         { name: "image", type: "image", required: true },
       ],
     });
-    builderSource.rows[0] = {
-      ...builderSource.rows[0]!,
-      sourceValues: {
-        "data.title": "Old title",
-        "data.author": {
-          "@type": "@builder.io/core:Reference",
-          id: "author-alice",
-          model: "author",
-        },
-        "data.image": "https://example.com/feature.jpg",
-        [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "body-hash",
-      },
-    };
+    builderSource.rows = builderSource.rows.map((row, index) =>
+      index > 0
+        ? row
+        : {
+            ...row,
+            sourceValues: {
+              "data.title": "Old title",
+              "data.author": {
+                "@type": "@builder.io/core:Reference",
+                id: "author-alice",
+                model: "author",
+              },
+              "data.image": "https://example.com/feature.jpg",
+              [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "body-hash",
+            },
+          },
+    );
 
     const plan = buildBuilderCmsExecutionPlan({
       source: builderSource,
@@ -1011,10 +1015,14 @@ describe("Builder CMS write adapter plan", () => {
       allowedWriteModes: ["autosave", "publish"],
       allowPublicationTransitions: true,
     });
-    builderSource.rows[0] = {
-      ...builderSource.rows[0]!,
-      sourceValues: { "data.title": "Old title" },
-    };
+    builderSource.rows = builderSource.rows.map((row, index) =>
+      index > 0
+        ? row
+        : {
+            ...row,
+            sourceValues: { "data.title": "Old title" },
+          },
+    );
 
     for (const publicationTransition of ["publish", "unpublish"] as const) {
       const plan = buildBuilderCmsExecutionPlan({
@@ -1055,10 +1063,14 @@ describe("Builder CMS write adapter plan", () => {
       allowedWriteModes: ["autosave", "publish"],
       allowPublicationTransitions: true,
     });
-    builderSource.rows[0] = {
-      ...builderSource.rows[0]!,
-      sourceValues: { "data.title": "Old title" },
-    };
+    builderSource.rows = builderSource.rows.map((row, index) =>
+      index > 0
+        ? row
+        : {
+            ...row,
+            sourceValues: { "data.title": "Old title" },
+          },
+    );
 
     for (const staged of [undefined, "unpublish"] as const) {
       const plan = buildBuilderCmsExecutionPlan({
@@ -1095,17 +1107,21 @@ describe("Builder CMS write adapter plan", () => {
       ],
     });
     const withAuthor = (referenceId: string | null) => {
-      builderSource.rows[0] = {
-        ...builderSource.rows[0]!,
-        // Builder's read gives the reference's name; Content keeps its id.
-        sourceValues: {
-          "data.title": "Old title",
-          "data.author": "Alice Moore",
-          ...(referenceId
-            ? { [builderCmsReferenceIdKey("data.author")]: referenceId }
-            : {}),
-        },
-      };
+      builderSource.rows = builderSource.rows.map((row, index) =>
+        index > 0
+          ? row
+          : {
+              ...row,
+              // Builder's read gives the reference's name; Content keeps its id.
+              sourceValues: {
+                "data.title": "Old title",
+                "data.author": "Alice Moore",
+                ...(referenceId
+                  ? { [builderCmsReferenceIdKey("data.author")]: referenceId }
+                  : {}),
+              },
+            },
+      );
       return buildBuilderCmsExecutionPlan({
         source: builderSource,
         changeSet: { ...approvedChangeSet(), pushMode: "publish" },

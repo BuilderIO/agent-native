@@ -80,6 +80,12 @@ const review = {
   result: { status: "validated", message: "Ready" },
 } satisfies ContentDatabaseSourceReviewPayload;
 
+function reviewRow(index: number) {
+  const row = review.rows.find((_, rowIndex) => rowIndex === index);
+  if (!row) throw new Error(`No review row ${index}`);
+  return row;
+}
+
 describe("BuilderSourceReviewDialog row selection", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -292,12 +298,12 @@ describe("BuilderSourceReviewDialog row selection", () => {
       ...review,
       rows: [
         {
-          ...review.rows[0],
+          ...reviewRow(0),
           effect: "update_in_place",
           stagedPublicationTransition: "publish",
         },
         {
-          ...review.rows[1],
+          ...reviewRow(1),
           effect: "update_in_place",
           stagedPublicationTransition: "unpublish",
         },
@@ -334,10 +340,11 @@ describe("BuilderSourceReviewDialog row selection", () => {
     );
     expect(confirm?.getAttribute("data-state")).toBe("unchecked");
 
-    const [publish] = Array.from(
+    const publish = Array.from(
       document.body.querySelectorAll<HTMLButtonElement>("button"),
-    ).filter((button) => button.textContent === "Publish");
-    act(() => publish!.click());
+    ).find((button) => button.textContent === "Publish");
+    if (!publish) throw new Error("No Publish button.");
+    act(() => publish.click());
     expect(pressed("Publish")).toEqual(["false", "false"]);
 
     // A narrower or wider review reruns the preselect; the cleared row stays clear.
@@ -345,7 +352,7 @@ describe("BuilderSourceReviewDialog row selection", () => {
       ...stagedReview,
       rows: [
         ...stagedReview.rows,
-        { ...review.rows[2], effect: "update_in_place" },
+        { ...reviewRow(2), effect: "update_in_place" },
       ],
       totalRowCount: 3,
     });
@@ -399,17 +406,19 @@ describe("BuilderSourceReviewDialog row selection", () => {
 
     render(staged(["publish", "publish", "publish"]));
     expect(pressed("Publish")).toEqual(["true", "true", "true"]);
-    act(() => buttons("Unpublish")[1]!.click());
+    const secondUnpublish = buttons("Unpublish").find(
+      (_, index) => index === 1,
+    );
+    if (!secondUnpublish) throw new Error("No second Unpublish button.");
+    act(() => secondUnpublish.click());
 
     // The first row's pick turns into an unpublish; the other two are
     // cleared, and only the second row's selection was changed by hand.
     render(staged(["unpublish", null, null]));
     expect(pressed("Publish")).toEqual(["false", "false", "false"]);
     expect(pressed("Unpublish")).toEqual(["true", "true", "false"]);
-    const [confirm] = Array.from(
-      document.body.querySelectorAll<HTMLButtonElement>(
-        '[aria-label="database.confirmUnpublish"]',
-      ),
+    const confirm = document.body.querySelector<HTMLButtonElement>(
+      '[aria-label="database.confirmUnpublish"]',
     );
     expect(confirm?.getAttribute("data-state")).toBe("unchecked");
   });

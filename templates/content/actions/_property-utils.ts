@@ -834,8 +834,8 @@ export async function listPropertiesForDatabase(
         : property,
     );
   }
-  const [withRollups] = await withRollupValues([evaluatedProperties]);
-  const [withTargets] = await withRelationTargets(db, [withRollups]);
+  const [withRollups = []] = await withRollupValues([evaluatedProperties]);
+  const [withTargets = []] = await withRelationTargets(db, [withRollups]);
   return withTargets;
 }
 

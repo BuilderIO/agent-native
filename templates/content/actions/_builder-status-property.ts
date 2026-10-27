@@ -342,7 +342,7 @@ export async function removeBuilderStatusPropertyWithoutSource(
   db: Db,
   args: { databaseId: string; now: string },
 ) {
-  const [remaining] = await db
+  const [remaining = null] = await db
     .select({ id: schema.contentDatabaseSources.id })
     .from(schema.contentDatabaseSources)
     .where(
@@ -371,7 +371,7 @@ export async function removeBuilderStatusPropertyWithoutSource(
     .delete(schema.documentPropertyDefinitions)
     .where(eq(schema.documentPropertyDefinitions.id, propertyId));
 
-  const [database] = await db
+  const [database = null] = await db
     .select({
       naturalKeyPropertyId: schema.contentDatabases.naturalKeyPropertyId,
       viewConfigJson: schema.contentDatabases.viewConfigJson,
