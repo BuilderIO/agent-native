@@ -75,10 +75,10 @@ test("Home creates a blank design without a system and reloads it", async ({
     }
     designId = createdId;
 
+    // The editor writes its view state (editorView, screen, zoom) into the query.
     const editorPathname = `/design/${createdId}`;
-    await expect
-      .poll(() => new URL(page.url()).pathname, { timeout: 30_000 })
-      .toBe(editorPathname);
+    const editorUrl = new RegExp(`${editorPathname}(?:\\?.*)?$`);
+    await expect(page).toHaveURL(editorUrl, { timeout: 30_000 });
     const moveTool = page.getByRole("button", {
       name: "Move",
       exact: true,
@@ -86,7 +86,7 @@ test("Home creates a blank design without a system and reloads it", async ({
     await expect(moveTool).toBeVisible({ timeout: 30_000 });
 
     await page.reload({ waitUntil: "domcontentloaded" });
-    await expect(new URL(page.url()).pathname).toBe(editorPathname);
+    await expect(page).toHaveURL(editorUrl);
     await expect(moveTool).toBeVisible();
 
     const saved = await request.get(

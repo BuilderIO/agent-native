@@ -612,6 +612,29 @@ describe("pullDocumentFromNotion", () => {
     );
     expect(status.hasConflict).toBe(false);
   });
+
+  it("keeps the ids comments use on videos Notion sends back without them", async () => {
+    const { pullDocumentFromNotion } = await import("./notion-sync.js");
+    const video = '<video src="https://example.com/demo.mp4"';
+    testState.document.content = `Local body\n${video} id="video-local1"></video>`;
+    testState.link.lastSyncedContentHash = hashContentForTest(
+      testState.document.content,
+    );
+    notionMocks.readNotionPageAsDocument.mockResolvedValue({
+      pageId: "notion-page",
+      title: "Local title",
+      icon: null,
+      content: `Remote edit from Notion\n${video}></video>`,
+      lastEditedTime: "2026-06-01T10:00:10.000Z",
+      warnings: [],
+    });
+
+    await pullDocumentFromNotion("alice@example.com", "doc-1", true);
+
+    expect(testState.document.content).toBe(
+      `Remote edit from Notion\n${video} id="video-local1"></video>`,
+    );
+  });
 });
 
 describe("refreshDocumentSyncStatus", () => {
@@ -1141,6 +1164,38 @@ describe("pushDocumentToNotion", () => {
     expect(notionMocks.pushDocumentToNotionPage).toHaveBeenCalled();
     expect(status.hasConflict).toBe(false);
     expect(testState.document.content).toBe("Local edit typed just now");
+  });
+
+  it("keeps the ids comments use on videos when Notion reads the push back", async () => {
+    const { pushDocumentToNotion } = await import("./notion-sync.js");
+    const local =
+      'Local edit\n<video src="https://example.com/demo.mp4" id="video-local1"></video>';
+    testState.document.content = local;
+    notionMocks.fetchNotionPage.mockResolvedValue({
+      id: "notion-page",
+      last_edited_time: "2026-06-01T09:00:00.000Z",
+    });
+    notionMocks.readNotionPageAsDocument.mockResolvedValue({
+      pageId: "notion-page",
+      title: "Local title",
+      icon: null,
+      content: "Local body",
+      lastEditedTime: "2026-06-01T09:00:00.000Z",
+      warnings: [],
+    });
+    notionMocks.pushDocumentToNotionPage.mockResolvedValue({
+      pageId: "notion-page",
+      title: "Local title",
+      icon: null,
+      content: canonicalizeNotionNfm(local),
+      lastEditedTime: "2026-06-01T10:05:00.000Z",
+      warnings: [],
+    });
+
+    await pushDocumentToNotion("alice@example.com", "doc-1", false);
+
+    expect(canonicalizeNotionNfm(local)).not.toContain("video-local1");
+    expect(testState.document.content).toBe(local);
   });
 
   it("does not overwrite a newer local save with post-push normalized content", async () => {

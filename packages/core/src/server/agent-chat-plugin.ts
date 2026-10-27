@@ -138,13 +138,13 @@ import {
   readBackgroundRunClaim,
   retryRunThreadProjection,
 } from "../agent/run-store.js";
-import { buildAssistantMessageFromRunJournal } from "../agent/run-thread-projector.js";
+import { buildAssistantTurnFromRunJournal } from "../agent/run-thread-projector.js";
 import {
   buildCurrentTimeUserContext,
   buildRuntimeContextPrompt,
 } from "../agent/runtime-context.js";
 import {
-  buildAssistantMessage,
+  buildAssistantTurnSegments,
   buildUserMessage,
   applySubmittedUserMessage,
   containsInlineAttachmentPayload,
@@ -254,6 +254,7 @@ import {
   declaredMcpToolNames,
   getMcpDirectoryWidgetResourceUri,
 } from "../mcp/build-server.js";
+import { preferMcpAppActions } from "../mcp/framework-tools.js";
 import { setProgressPreListHook } from "../progress/store.js";
 import { getSkillNameFromPath } from "../resources/metadata.js";
 import {
@@ -349,6 +350,8 @@ export { handleSharedThreadRequest };
 export type { SharedThreadRouteDependencies };
 
 const MAX_QUEUED_SUBMISSION_RETRIES = 5;
+// Matches AgentKit's MAX_REORDER_QUEUED_MESSAGE_IDS; a queue never nears it.
+const MAX_REORDER_QUEUED_MESSAGE_IDS = 500;
 
 type AgentChatRunTrackingSource = Pick<
   TrackingMeta,
@@ -2633,6 +2636,15 @@ export function createAgentChatPlugin(
       const externalFullActions = mcpFullActions
         ? { ...mcpOnlyActions, ...mcpFullActions }
         : undefined;
+      const mcpAppActions = {
+        ...discoveredActions,
+        ...templateScripts,
+        ...mcpOnlyActions,
+      };
+      const mcpActions = preferMcpAppActions(externalActions, mcpAppActions);
+      const mcpProductionActions = externalFullActions
+        ? preferMcpAppActions(externalFullActions, mcpAppActions)
+        : undefined;
       reservedActionRegistries.push(
         templateScriptsAll,
         discoveredActionsAll,
@@ -3492,11 +3504,15 @@ export function createAgentChatPlugin(
           "tool",
           lazyContext ? effectiveInitialToolNames : undefined,
         ) + corpusToolsPrompt;
-      const devActionsPrompt =
-        generateActionsPrompt(
-          { ...discoveredActions, ...templateScripts },
-          "cli",
-        ) + corpusToolsPrompt;
+      // The CLI listing reads every action's parameters, which converts each
+      // schema, so it waits for the first dev prompt that asks for it.
+      let devActionsPromptText: string | undefined;
+      const devActionsPrompt = (): string =>
+        (devActionsPromptText ??=
+          generateActionsPrompt(
+            { ...discoveredActions, ...templateScripts },
+            "cli",
+          ) + corpusToolsPrompt);
 
       const filterPromptActionsForRequest = (
         actions: Record<string, ActionEntry>,
@@ -3510,7 +3526,7 @@ export function createAgentChatPlugin(
       const resolveRequestActionsPrompt = (mode: "tool" | "cli"): string => {
         const allowedNames = getRequestRunContext()?.allowedActionNames;
         if (!allowedNames) {
-          return mode === "tool" ? prodActionsPrompt : devActionsPrompt;
+          return mode === "tool" ? prodActionsPrompt : devActionsPrompt();
         }
         const promptActions = filterPromptActionsForRequest(
           mode === "tool"
@@ -3614,8 +3630,8 @@ export function createAgentChatPlugin(
           websiteUrl: mcpOptions.websiteUrl,
           widgetDomain: mcpOptions.widgetDomain,
           icons: mcpOptions.icons,
-          actions: externalActions,
-          productionActions: externalFullActions,
+          actions: mcpActions,
+          productionActions: mcpProductionActions,
           widgetReadActions: selectMcpDirectoryWidgetReadActions(
             mcpOptions.directoryProfile,
             templateScriptsAll,
@@ -4085,19 +4101,22 @@ export function createAgentChatPlugin(
               ? Math.max(0, Date.now() - run.startedAt)
               : undefined,
         } as const;
-        const assistantMsg =
+        const assistantTurn: ReturnType<typeof buildAssistantTurnSegments> & {
+          parentId?: string;
+        } =
           runThreadId && run.turnId
-            ? await buildAssistantMessageFromRunJournal({
+            ? await buildAssistantTurnFromRunJournal({
                 threadId: runThreadId,
                 turnId: run.turnId,
                 runId: run.runId,
                 runEvents: run.events ?? [],
                 options: assistantOptions,
               })
-            : buildAssistantMessage(run.events ?? [], run.runId, {
+            : buildAssistantTurnSegments(run.events, run.runId, {
                 ...assistantOptions,
                 turnId: run.turnId,
               });
+        const assistantMsg = assistantTurn.assistant;
         const runContext = getRequestRunContext();
         const failureCode =
           run.status === "errored"
@@ -4120,7 +4139,10 @@ export function createAgentChatPlugin(
           options?.appId,
           trackingSource,
         );
-        if (!assistantMsg) {
+        if (
+          !assistantMsg &&
+          assistantTurn.steered.every(({ assistant }) => !assistant)
+        ) {
           trackAgentChatRunLifecycle(
             "run_no_reply",
             runThreadId || undefined,
@@ -4155,7 +4177,14 @@ export function createAgentChatPlugin(
               let repo = JSON.parse(thread.threadData || "{}");
               if (!Array.isArray(repo.messages)) repo.messages = [];
 
-              repo = foldAgentChatRunCompletion(repo, assistantMsg, run);
+              repo = foldAgentChatRunCompletion(
+                repo,
+                assistantMsg,
+                assistantTurn.parentId
+                  ? { ...run, parentId: assistantTurn.parentId }
+                  : run,
+                assistantTurn.steered,
+              );
 
               // Store debug metadata so we can inspect what the LLM actually
               // received (system prompt, model, engine) when diagnosing issues.
@@ -7142,6 +7171,22 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
 
       // ─── Run management endpoints (for hot-reload resilience) ─────────────
 
+      const scheduleStoppedThreadInboxDrain = (threadId: string) => {
+        const waitUntil = getRequestRunContext()?.waitUntil;
+        scheduleQueuedSubmissionInboxDrain({
+          threadId,
+          turnContinues: false,
+          ...(waitUntil ? { waitUntil } : {}),
+          drain: drainQueuedSubmissionInbox,
+          onError: (error) => {
+            console.error(
+              `[agent-chat] stopped-turn inbox drain failed for ${threadId}:`,
+              error,
+            );
+          },
+        });
+      };
+
       // GET /runs/active?threadId=X — check if there's an active run for a thread
       getH3App(nitroApp).use(
         `${routePath}/runs`,
@@ -7231,7 +7276,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               threadId,
               turnId,
               reason,
-            );
+            ).finally(() => scheduleStoppedThreadInboxDrain(threadId));
             if (outcome === "already_terminal") {
               setResponseStatus(event, 409);
               return { error: "Turn is already terminal" };
@@ -7333,30 +7378,37 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             } catch {
               // Empty/invalid body — keep the default user abort reason.
             }
-            if (safeBoundary) {
-              const isUserStop = USER_STOP_ABORT_REASONS.has(reason);
-              const aborted = isUserStop
-                ? await abortRunAndTurnDurably(runId, reason, {
-                    safeBoundary: true,
-                  })
-                : await abortRunAtSafeBoundaryDurably(runId, reason);
-              if (isUserStop && !aborted) {
-                const latest = await getRunById(runId);
-                if (latest?.status === "aborted") {
-                  await abortTurnDurably(runId, reason);
+            const isUserStop = USER_STOP_ABORT_REASONS.has(reason);
+            const stoppedRun = isUserStop ? await getRunById(runId) : null;
+            let aborted = false;
+            try {
+              if (safeBoundary) {
+                aborted = isUserStop
+                  ? await abortRunAndTurnDurably(runId, reason, {
+                      safeBoundary: true,
+                    })
+                  : await abortRunAtSafeBoundaryDurably(runId, reason);
+                if (isUserStop && !aborted) {
+                  const latest = await getRunById(runId);
+                  if (latest && latest.status !== "running") {
+                    await abortTurnDurably(runId, reason);
+                  }
+                }
+              } else {
+                // Recovery starts as soon as this response resolves, so wait for
+                // the cross-isolate abort + terminal event to be durable. Returning
+                // early lets Retry collide with the still-running row.
+                if (isUserStop) {
+                  await abortRunAndTurnDurably(runId, reason);
+                } else {
+                  await abortRunDurably(runId, reason);
                 }
               }
-              return { ok: true, aborted };
+              return safeBoundary ? { ok: true, aborted } : { ok: true };
+            } finally {
+              if (stoppedRun?.threadId)
+                scheduleStoppedThreadInboxDrain(stoppedRun.threadId);
             }
-            // Recovery starts as soon as this response resolves, so wait for
-            // the cross-isolate abort + terminal event to be durable. Returning
-            // early lets Retry collide with the still-running row.
-            if (USER_STOP_ABORT_REASONS.has(reason)) {
-              await abortRunAndTurnDurably(runId, reason);
-            } else {
-              await abortRunDurably(runId, reason);
-            }
-            return { ok: true };
           }
 
           // Route: GET /runs/:id/background-events
@@ -7447,7 +7499,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           // whether a run whose stream closed is still going. `runId` names
           // the turn by one of its runs (a reloaded page knows the run, not
           // its turn) and wins over `turnId`.
-          if (method === "GET" && url.includes("/runs/latest")) {
+          // Match both full URL (/runs/latest) and h3 prefix-stripped (/latest)
+          const latestMatch =
+            url.match(/\/runs\/latest(?:[/?]|$)/) ||
+            url.match(/^\/latest(?:[/?]|$)/);
+          if (latestMatch && method === "GET") {
             const query = getQuery(event);
             const threadId = query.threadId ? String(query.threadId) : null;
             const runIdQuery = query.runId ? String(query.runId) : undefined;
@@ -7554,7 +7610,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           }
 
           // Route: GET /runs/active?threadId=X
-          if (method === "GET") {
+          // Only this path: a GET for a route above that fails to match must not
+          // be answered with this route's legacy status shape.
+          const activeMatch =
+            url.match(/\/runs\/active(?:[/?]|$)/) ||
+            url.match(/^\/active(?:[/?]|$)/);
+          if (activeMatch && method === "GET") {
             const query = getQuery(event);
             const threadId = query.threadId ? String(query.threadId) : null;
             if (!threadId) {
@@ -8465,13 +8526,27 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               } else if (
                 (record?.type === "remove" ||
                   record?.type === "cancel" ||
-                  record?.type === "moveToTop") &&
+                  record?.type === "moveToTop" ||
+                  record?.type === "steer") &&
                 typeof record.messageId === "string" &&
                 record.messageId
               ) {
                 mutation = {
                   type: record.type,
                   messageId: record.messageId,
+                };
+              } else if (
+                record?.type === "reorder" &&
+                Array.isArray(record.messageIds) &&
+                record.messageIds.length <= MAX_REORDER_QUEUED_MESSAGE_IDS &&
+                record.messageIds.every(
+                  (id: unknown) => typeof id === "string" && id.length > 0,
+                ) &&
+                new Set(record.messageIds).size === record.messageIds.length
+              ) {
+                mutation = {
+                  type: "reorder",
+                  messageIds: record.messageIds as string[],
                 };
               } else if (
                 (record?.type === "claim" || record?.type === "release") &&
@@ -8542,7 +8617,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   };
                 }
                 if (
-                  mutation.type === "claim" &&
+                  (mutation.type === "claim" || mutation.type === "steer") &&
                   error instanceof Error &&
                   error.message ===
                     `Unknown queued message: ${mutation.messageId}`
@@ -8574,6 +8649,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   error: "Queue item is being promoted",
                   code: "queue_item_busy",
                   retryable: true,
+                };
+              }
+              if (result.queueOrderStale) {
+                setResponseStatus(event, 409);
+                return {
+                  error: "Queue changed before it could be reordered",
+                  code: "queue_order_stale",
+                  retryable: false,
                 };
               }
               if (

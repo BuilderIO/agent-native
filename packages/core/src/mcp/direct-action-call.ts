@@ -484,7 +484,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
           )
         : {};
       const toolUiMeta = metadataObject((entry.tool as any)._meta?.ui);
-      const toolVisibility = toolUiMeta.visibility;
+      const toolVisibility = entry.mcpApp?.visibility ?? toolUiMeta.visibility;
       const isAppOnlyVisibility =
         Array.isArray(toolVisibility) &&
         toolVisibility.length > 0 &&
@@ -519,11 +519,9 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       // Text and `structuredContent` read `visible`, the result without its
       // images, redacted against the whole call. Images are checked whole
       // with the rest of the response. Only the embed start in `_meta` comes
-      // from the unredacted result. An opted-in action's contract may require
-      // a field that held an embed URL, so it keeps that field, masked.
-      const visible = redactEmbedCredentials(actionResultForClient, guard, {
-        maskUrlFields: outputContract !== undefined,
-      });
+      // from the unredacted result. A field that held an embed URL stays,
+      // masked, which an opted-in action's contract may require.
+      const visible = redactEmbedCredentials(actionResultForClient, guard);
       const textResultForClient =
         returned.text !== undefined ? projectedResultForClient : visible;
       const wantsStructuredResult =

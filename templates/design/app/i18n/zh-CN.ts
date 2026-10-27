@@ -1843,8 +1843,10 @@ export default {
         small: "小距离",
         big: "大距离",
         unit: "px",
-        description:
-          "方向键以小距离移动，Shift 方向键以大距离移动。在自动布局框架内，方向键改为调整图层顺序。",
+        close: "关闭微调距离",
+        done: "完成",
+        smallDescription: "设置使用方向键时对象移动的像素数。",
+        bigDescription: "设置使用 Shift + 方向键时对象移动的像素数。",
       },
       keys: {
         or: "或",

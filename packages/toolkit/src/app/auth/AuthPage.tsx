@@ -1,5 +1,3 @@
-/** @jsxRuntime classic */
-
 import {
   captureAttribution,
   getAnalyticsAnonymousId,

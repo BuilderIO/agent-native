@@ -428,7 +428,7 @@ export function SlideCommentPins({
     if (ranges.length && registry && highlightConstructor) {
       const style = document.createElement("style");
       style.dataset.slideCommentHighlights = "true";
-      style.textContent = `/* guard:allow-raw-color -- match Google Slides text comment anchors */
+      style.textContent = `/* guard:allow-raw-color -- align with comment anchor text */
 ::highlight(${COMMENT_TEXT_HIGHLIGHT}) { background-color: rgba(251, 188, 4, 0.42); }`;
       document.head.append(style);
       registry.set(COMMENT_TEXT_HIGHLIGHT, new highlightConstructor(...ranges));

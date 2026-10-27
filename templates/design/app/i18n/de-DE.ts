@@ -1916,8 +1916,12 @@ export default {
         small: "Kleiner Schritt",
         big: "Großer Schritt",
         unit: "px",
-        description:
-          "Pfeiltasten verschieben um den kleinen Wert, Umschalt Pfeil um den großen. In einem Auto-Layout-Rahmen ordnen die Pfeiltasten die Ebene neu an.",
+        close: "Verschiebeschrittweite schließen",
+        done: "Fertig",
+        smallDescription:
+          "Legt fest, um wie viele Pixel ein Objekt mit den Pfeiltasten verschoben wird.",
+        bigDescription:
+          "Legt fest, um wie viele Pixel ein Objekt mit Umschalt + Pfeiltasten verschoben wird.",
       },
       keys: {
         or: "oder",

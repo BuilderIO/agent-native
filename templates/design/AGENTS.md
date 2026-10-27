@@ -75,6 +75,7 @@ Use `pnpm action docs-search --query "<topic>"` or `pnpm action docs-search --sl
 
 - `navigation`: current view, design/file id, and related UI state.
 - `visual-edit`: last project/connection; same-connection opens resume unless `newDesign` is true.
+- `agent-selection`: screens and layers picked with Select; a `Selected objects` context block names the target set, so edit only those.
 - `navigate`: transient request to move the requesting tab; deleted after consumption.
 - `design-selection`: active screen/element, `activeFrameType` and screen `frameType` (`hubspot-email` or null), overview, inspector, zoom, `layoutGrid`; `motion` holds timeline, playback, auto-keyframe and selection.
 - `design-generation-session:<designId>`, `show-questions`, `guided-questions`: generation planning and variant choice; see `design-generation`.

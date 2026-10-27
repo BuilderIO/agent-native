@@ -150,6 +150,7 @@ import {
   resolveSourceSweepToolCallThreshold,
   structuredHistoryToEngineMessages,
   hydrateStructuredHistoryImageReferences,
+  isResumableStreamFailure,
   trimOldToolResults,
   type ActionEntry,
   type AgentActionSurfaceDetails,
@@ -566,10 +567,10 @@ describe("approvalKeyForHistory", () => {
 });
 
 describe("resolveAgentRequestReasoningEffort", () => {
-  it("defaults missing effort to High", () => {
+  it("sends no effort when neither the request nor the config sets one", () => {
     expect(
       resolveAgentRequestReasoningEffort({ model: "claude-sonnet-5" }),
-    ).toBe("high");
+    ).toBeUndefined();
   });
 
   it("preserves explicit none through the production request path", () => {
@@ -1362,6 +1363,7 @@ describe("readAdmittedQueuedMessagePromotion", () => {
             {
               id: messageId,
               text: "Use the legacy attachments",
+              interruptActiveRun: true,
               attachments,
               requestAttachments,
               promotionClaim: {
@@ -1384,6 +1386,7 @@ describe("readAdmittedQueuedMessagePromotion", () => {
         continuationRequested: false,
       });
 
+      expect(promoted?.interruptActiveRun).toBe(true);
       expect(promoted?.attachments).toHaveLength(
         MAX_AGENT_REQUEST_ATTACHMENTS + 1,
       );
@@ -11176,6 +11179,99 @@ describe("runAgentLoop", () => {
     });
   });
 
+  it("treats a retryable error after streamed text as resumable", () => {
+    const err = new EngineError("Internal error", { statusCode: 500 });
+    expect(isResumableStreamFailure(err, [])).toBe(false);
+    expect(
+      isResumableStreamFailure(err, [{ type: "text", text: "partial" }]),
+    ).toBe(true);
+  });
+
+  it("retries a failure before any text without clearing earlier rounds on screen", async () => {
+    const sent: AgentChatEvent[] = [];
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          throw new EngineError("Connection error.", {
+            errorCode: "provider_network_error",
+          });
+        }
+        yield { type: "text-delta", text: "Second round." };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      hasVisibleTurnText: () => true,
+      send: (event) => sent.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(streamCalls).toBe(2);
+    expect(sent.some((event) => event.type === "clear")).toBe(false);
+  });
+
+  it("does not restart a model call that already streamed text", async () => {
+    const sent: AgentChatEvent[] = [];
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        yield { type: "text-delta", text: "Here is the answer" };
+        throw new EngineError("Connection error.", {
+          errorCode: "provider_network_error",
+        });
+      },
+    };
+
+    await expect(
+      runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {},
+        hasVisibleTurnText: () => true,
+        send: (event) => sent.push(event),
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow("Connection error.");
+
+    expect(streamCalls).toBe(1);
+    expect(sent.some((event) => event.type === "clear")).toBe(false);
+  });
+
   it("stops retrying a failing model call once the next backoff would not fit the run budget", async () => {
     vi.stubEnv("AGENT_RUN_SOFT_TIMEOUT_MS", "1000");
     let streamCalls = 0;
@@ -20138,7 +20234,11 @@ describe("runAgentLoop", () => {
       new Request("http://app.example.com/_agent-native/agent-chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ message: "go", threadId: "thread-effort" }),
+        body: JSON.stringify({
+          message: "go",
+          threadId: "thread-effort",
+          effort: "high",
+        }),
       }),
     );
 
@@ -20247,6 +20347,7 @@ describe("runAgentLoop", () => {
         body: JSON.stringify({
           message: "go",
           threadId: "thread-profile-models",
+          effort: "high",
           references: [
             { type: "custom-agent", name: "Reviewer", refId: "reviewer" },
             { type: "custom-agent", name: "Editor", refId: "editor" },

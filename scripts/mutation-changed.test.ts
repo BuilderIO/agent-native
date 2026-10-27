@@ -63,8 +63,13 @@ test("names dot-form specs after a mutated file", () => {
     "session-store.spec.ts",
     "session.ts",
   ];
+  const files = {
+    "src/session.spec.ts": `import { open } from "./session";`,
+    "src/session.store.test.ts": `import { store } from "./session";`,
+    "src/session-store.spec.ts": `import { store } from "./session-store";`,
+  };
   assert.deepEqual(
-    namedSpecs(["src/session.ts:1-2"], () => listing, readFrom({})),
+    namedSpecs(["src/session.ts:1-2"], () => listing, readFrom(files)),
     {
       include: ["src/session.spec.ts", "src/session.store.test.ts"],
       missing: [],
@@ -74,9 +79,42 @@ test("names dot-form specs after a mutated file", () => {
 
 test("a dot-named spec wins over a same-directory spec that imports the module", () => {
   const listing = ["session.spec.ts", "routes.spec.ts"];
+  const files = {
+    "src/session.spec.ts": `import { open } from "./session";`,
+    "src/routes.spec.ts": `import { open } from "./session";`,
+  };
   assert.deepEqual(
-    namedSpecs(["src/session.ts:1-2"], () => listing, readFrom({})),
+    namedSpecs(["src/session.ts:1-2"], () => listing, readFrom(files)),
     { include: ["src/session.spec.ts"], missing: [] },
+  );
+});
+
+test("skips specs that read source text or import outside Core, which fail in Stryker's sandbox", () => {
+  const listing = [
+    "plugin.spec.ts",
+    "plugin.surface.spec.ts",
+    "plugin.client.spec.ts",
+    "plugin.ts",
+  ];
+  const files = {
+    "src/server/plugin.spec.ts": `import { start } from "./plugin";\nimport { x } from "../shared/x.js";`,
+    "src/server/plugin.surface.spec.ts": `const source = readFileSync(\n  new URL("./plugin.ts", import.meta.url),\n  "utf8",\n);`,
+    "src/server/plugin.client.spec.ts": `import { Client } from "../../../agentkit/src/client/client.js";`,
+  };
+  assert.deepEqual(
+    namedSpecs(["src/server/plugin.ts:1-2"], () => listing, readFrom(files)),
+    { include: ["src/server/plugin.spec.ts"], missing: [] },
+  );
+});
+
+test("reports a file whose only specs cannot run in the sandbox as missing", () => {
+  const listing = ["plugin.surface.spec.ts", "plugin.ts"];
+  const files = {
+    "src/plugin.surface.spec.ts": `readFileSync(new URL("./plugin.ts", import.meta.url));`,
+  };
+  assert.deepEqual(
+    namedSpecs(["src/plugin.ts:1-2"], () => listing, readFrom(files)),
+    { include: [], missing: ["src/plugin.ts"] },
   );
 });
 
