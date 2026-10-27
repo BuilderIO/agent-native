@@ -239,6 +239,7 @@
     "./embedding/protocol": "./dist/embedding/protocol.js",
     "./embedding/react": "./dist/embedding/react.js",
     "./onboarding": "./dist/onboarding/index.js",
+    "./onboarding/first-run-builder-credits-experiment": "./dist/onboarding/first-run-builder-credits-experiment.js",
     "./shared": "./dist/shared/index.js",
     "./shared/thinking-display": "./dist/shared/thinking-display.js",
     "./shared/auth-copy": "./dist/shared/auth-copy.js",
