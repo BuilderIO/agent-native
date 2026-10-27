@@ -52,6 +52,14 @@ const TERMINAL_RUN_STATUSES = [
   "aborted",
 ] as const;
 
+const isWorkflowRequester = (
+  requestedBy: string | undefined,
+  userEmail: string | undefined,
+) =>
+  requestedBy === undefined ||
+  (userEmail !== undefined &&
+    requestedBy.trim().toLowerCase() === userEmail.trim().toLowerCase());
+
 export default defineAction({
   description:
     "Track and reconcile the agent run responsible for a generated workflow.",
@@ -143,6 +151,32 @@ export default defineAction({
               reason: "newer-request" as const,
             };
       }
+      const stateKey = `clips-workflow-${recordingId}`;
+      const rawState = await readAppState(stateKey);
+      let workflowState: z.infer<typeof WorkflowStateSchema> | null = null;
+      if (rawState !== null) {
+        const parsedState = WorkflowStateSchema.safeParse(rawState);
+        if (!parsedState.success) {
+          // guard:allow-bare-error — invariant: Clips workflow actions write this state shape.
+          throw new Error(
+            `Invalid generated workflow state for ${recordingId}`,
+          );
+        }
+        workflowState = parsedState.data;
+        if (!isWorkflowRequester(workflowState.requestedBy, ctx?.userEmail)) {
+          return operation === "consume"
+            ? {
+                reconciled: false,
+                consumed: false,
+                reason: "not-requester" as const,
+              }
+            : {
+                reconciled: false,
+                delivered: false,
+                reason: "not-requester" as const,
+              };
+        }
+      }
       if (operation === "mark-delivered") {
         if (parsedRequest.data.deliveredTabId === tabId) {
           return { reconciled: false, delivered: true };
@@ -155,18 +189,10 @@ export default defineAction({
           };
         }
 
-        const stateKey = `clips-workflow-${recordingId}`;
-        const rawState = await readAppState(stateKey);
-        if (rawState === null) {
+        if (rawState === null || workflowState === null) {
           return { reconciled: false, delivered: false, reason: "missing" };
         }
-        const parsedState = WorkflowStateSchema.safeParse(rawState);
-        if (!parsedState.success) {
-          throw new Error(
-            `Invalid generated workflow state for ${recordingId}`,
-          );
-        }
-        if (parsedState.data.status !== "generating") {
+        if (workflowState.status !== "generating") {
           const consumed = await compareAndSetAppState(
             requestKey,
             rawRequest,
@@ -187,11 +213,8 @@ export default defineAction({
               };
         }
         if (
-          !matchesWorkflowRequest(parsedState.data, {
-            requestedAt,
-            requestId,
-          }) ||
-          parsedState.data.tabId !== tabId
+          !matchesWorkflowRequest(workflowState, { requestedAt, requestId }) ||
+          workflowState.tabId !== tabId
         ) {
           return {
             reconciled: false,
@@ -246,6 +269,9 @@ export default defineAction({
     }
 
     const state = parsedState.data;
+    if (!isWorkflowRequester(state.requestedBy, ctx?.userEmail)) {
+      return { reconciled: false, reason: "not-requester" as const };
+    }
     if (state.status !== "generating") {
       if (operation !== "track") {
         return { reconciled: false, reason: "terminal" as const };

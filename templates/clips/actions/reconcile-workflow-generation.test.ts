@@ -87,6 +87,60 @@ describe("reconcile-workflow-generation", () => {
     );
   });
 
+  it("does not let another viewer claim the requester's workflow", async () => {
+    mocks.readAppState.mockResolvedValue({
+      kind: "email",
+      status: "generating",
+      recordingId: "rec_123",
+      requestedAt,
+      requestedBy: "owner@example.com",
+    });
+
+    await expect(
+      action.run(
+        {
+          operation: "track",
+          recordingId: "rec_123",
+          requestedAt,
+          tabId,
+        },
+        { userEmail: "viewer@example.com" } as never,
+      ),
+    ).resolves.toEqual({ reconciled: false, reason: "not-requester" });
+
+    expect(mocks.readAppState).toHaveBeenCalledTimes(1);
+    expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
+  });
+
+  it("allows the requester to claim a workflow", async () => {
+    mocks.readAppState
+      .mockResolvedValueOnce({
+        kind: "email",
+        status: "generating",
+        recordingId: "rec_123",
+        requestedAt,
+        requestedBy: "Owner@Example.com",
+      })
+      .mockResolvedValueOnce({
+        kind: "generate-workflow",
+        workflowKind: "email",
+        recordingId: "rec_123",
+        requestedAt,
+      });
+
+    await expect(
+      action.run(
+        {
+          operation: "track",
+          recordingId: "rec_123",
+          requestedAt,
+          tabId,
+        },
+        { userEmail: "owner@example.com" } as never,
+      ),
+    ).resolves.toEqual({ reconciled: false, tracked: true });
+  });
+
   it("rejects a forged session ID before reading workflow state", async () => {
     await expect(
       action.run({
@@ -306,6 +360,44 @@ describe("reconcile-workflow-generation", () => {
     ]);
   });
 
+  it("does not let another viewer mark the requester's workflow delivered", async () => {
+    mocks.readAppState
+      .mockResolvedValueOnce({
+        kind: "generate-workflow",
+        workflowKind: "email",
+        recordingId: "rec_123",
+        requestedAt,
+      })
+      .mockResolvedValueOnce({
+        kind: "email",
+        status: "generating",
+        recordingId: "rec_123",
+        requestedAt,
+        requestedBy: "owner@example.com",
+        tabId,
+      });
+
+    await expect(
+      action.run(
+        {
+          operation: "mark-delivered",
+          recordingId: "rec_123",
+          requestedAt,
+          tabId,
+        },
+        { userEmail: "viewer@example.com" } as never,
+      ),
+    ).resolves.toEqual({
+      reconciled: false,
+      delivered: false,
+      reason: "not-requester",
+    });
+
+    expect(mocks.readAppState).toHaveBeenCalledTimes(2);
+    expect(mocks.compareAndSetManyAppState).not.toHaveBeenCalled();
+    expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
+  });
+
   it("consumes the request when generation finishes before delivery marking", async () => {
     const request = {
       kind: "generate-workflow",
@@ -349,7 +441,9 @@ describe("reconcile-workflow-generation", () => {
       requestedAt,
       deliveredTabId: tabId,
     };
-    mocks.readAppState.mockResolvedValue(request);
+    mocks.readAppState
+      .mockResolvedValueOnce(request)
+      .mockResolvedValueOnce(null);
 
     await expect(
       action.run({
@@ -364,6 +458,44 @@ describe("reconcile-workflow-generation", () => {
       request,
       null,
     );
+  });
+
+  it("does not let another viewer consume the requester's workflow", async () => {
+    mocks.readAppState
+      .mockResolvedValueOnce({
+        kind: "generate-workflow",
+        workflowKind: "email",
+        recordingId: "rec_123",
+        requestedAt,
+        deliveredTabId: tabId,
+      })
+      .mockResolvedValueOnce({
+        kind: "email",
+        status: "generating",
+        recordingId: "rec_123",
+        requestedAt,
+        requestedBy: "owner@example.com",
+        tabId,
+      });
+
+    await expect(
+      action.run(
+        {
+          operation: "consume",
+          recordingId: "rec_123",
+          requestedAt,
+          tabId,
+        },
+        { userEmail: "viewer@example.com" } as never,
+      ),
+    ).resolves.toEqual({
+      reconciled: false,
+      consumed: false,
+      reason: "not-requester",
+    });
+
+    expect(mocks.readAppState).toHaveBeenCalledTimes(2);
+    expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
   });
 
   it("requires editor access before stopping when no reason is supplied", async () => {
