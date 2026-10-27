@@ -207,7 +207,7 @@ function subscribe(
           stored.status === "valid" &&
           stored.family !== currentFamily &&
           !storageEventMatchesCurrentValue));
-    if (preserveCurrentFamily && currentFamily) {
+    if (preserveCurrentFamily) {
       familySnapshots.set(key, currentFamily);
       window.document.documentElement.setAttribute(
         THEME_FAMILY_ATTRIBUTE,
@@ -280,7 +280,7 @@ function subscribe(
       }>
     ).detail;
     const key = scopeKey(appId);
-    if (detail?.storageKey !== key) return;
+    if (detail.storageKey !== key) return;
 
     if (
       getThemeFamilyUrlOverride(window.location.search, families) === null &&
@@ -387,8 +387,10 @@ export function useThemeFamily(): ThemeFamilyHook {
       themeFamilyConfigKey,
     ) as [ThemeFamily[] | null, ThemeFamily | null];
     return resolveThemeFamilyConfig({
-      families: configuredFamilies ?? undefined,
-      defaultFamily: configuredDefaultFamily ?? undefined,
+      ...(configuredFamilies === null ? {} : { families: configuredFamilies }),
+      ...(configuredDefaultFamily === null
+        ? {}
+        : { defaultFamily: configuredDefaultFamily }),
     });
   }, [themeFamilyConfigKey]);
   const urlOverride =
