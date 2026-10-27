@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { transcriptRecoveryForError } from "@/lib/background-ai-error";
 
-import { isTranscriptReady } from "../../shared/transcript-status";
+import { canAttemptTranscriptCleanup } from "../../shared/transcript-status";
 
 function readRoute(name: string): string {
   return readFileSync(resolve(process.cwd(), "app/routes", name), "utf8");
@@ -134,9 +134,9 @@ describe("direct recording route shell cue", () => {
     expect(menuStart).toBeGreaterThan(-1);
     expect(menu).toContain('t("recordingPage.removeFillerWords")');
     expect(menu).toContain('t("recordingPage.removeSilences")');
-    expect(menu).toContain("isTranscriptReady(transcriptStatus)");
-    expect(isTranscriptReady("pending")).toBe(false);
-    expect(isTranscriptReady("ready")).toBe(true);
+    expect(menu).toContain("canAttemptTranscriptCleanup(transcriptStatus)");
+    expect(canAttemptTranscriptCleanup("pending")).toBe(false);
+    expect(canAttemptTranscriptCleanup("failed")).toBe(true);
     expect(menu).toContain("<DropdownMenuSub>");
     expect(menu).toContain('t("recordingPage.enhanceRecording")');
     expect(menu).toContain('t("recordingPage.createFromClip")');

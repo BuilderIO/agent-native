@@ -13,6 +13,16 @@ describe("transcriptRecoveryForError", () => {
     ).toBe("regenerate");
   });
 
+  it("offers regeneration for filler-word transcript errors", () => {
+    expect(
+      transcriptRecoveryForError(
+        "remove-filler-words",
+        "transcript_not_ready",
+        "rec_1",
+      ),
+    ).toBe("regenerate");
+  });
+
   it.each([
     ["remove-filler-words", "timestamped_transcript_required", "rec_1"],
     ["remove-silences", "edits_unreadable", "rec_1"],
@@ -30,6 +40,16 @@ describe("transcriptRecoveryForError", () => {
     expect(
       transcriptRecoveryForError(
         "remove-silences",
+        "transcript_pending",
+        "rec_1",
+      ),
+    ).toBe("wait");
+  });
+
+  it("waits when filler-word cleanup finds a transcript already in progress", () => {
+    expect(
+      transcriptRecoveryForError(
+        "remove-filler-words",
         "transcript_pending",
         "rec_1",
       ),

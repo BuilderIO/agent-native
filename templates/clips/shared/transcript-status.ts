@@ -9,6 +9,12 @@ export function isTranscriptReady(status: string | null | undefined): boolean {
   return status === "ready";
 }
 
+export function canAttemptTranscriptCleanup(
+  status: string | null | undefined,
+): boolean {
+  return status !== "pending";
+}
+
 export function resolveTranscriptPresentation(
   transcript:
     | {

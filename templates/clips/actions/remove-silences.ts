@@ -11,7 +11,10 @@ import {
 } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
 import { readEditsRecord } from "../server/lib/pending-redactions.js";
-import { isTranscriptReady } from "../shared/transcript-status.js";
+import {
+  isTranscriptReady,
+  resolveTranscriptPresentation,
+} from "../shared/transcript-status.js";
 import { assertNativeRecordingMedia } from "./lib/native-media.js";
 import { findSilenceTrimRanges } from "./lib/silence-trim-ranges.js";
 
@@ -131,8 +134,9 @@ export default defineAction({
       .limit(1);
     const transcript = transcripts.length > 0 ? transcripts[0] : undefined;
 
-    if (!transcript || !isTranscriptReady(transcript.status)) {
-      const transcriptPending = transcript?.status === "pending";
+    const transcriptPresentation = resolveTranscriptPresentation(transcript);
+    if (!transcript || !isTranscriptReady(transcriptPresentation.status)) {
+      const transcriptPending = transcriptPresentation.status === "pending";
       fail(
         transcriptPending
           ? "Transcript is still being generated. Try removing silences after it finishes."

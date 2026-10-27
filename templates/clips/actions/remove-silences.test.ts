@@ -6,7 +6,11 @@ const state = vi.hoisted(() => ({
     durationMs: number;
     editsJson: string | null;
   } | null,
-  transcript: null as { status: string; segmentsJson: string } | null,
+  transcript: null as {
+    status: string;
+    segmentsJson: string;
+    updatedAt?: string;
+  } | null,
   writes: [] as Array<Record<string, unknown>>,
   refresh: vi.fn(async () => undefined),
 }));
@@ -186,7 +190,13 @@ describe("remove-silences", () => {
   ])(
     "returns a typed prerequisite error for a %s transcript",
     async (status, errorCode) => {
-      state.transcript = { status, segmentsJson: JSON.stringify(segments) };
+      state.transcript = {
+        status,
+        segmentsJson: JSON.stringify(segments),
+        ...(status === "pending"
+          ? { updatedAt: new Date().toISOString() }
+          : {}),
+      };
       const args = removeSilences.schema.parse({
         recordingId: "rec_1",
         thresholdMs: 1_200,
@@ -199,6 +209,24 @@ describe("remove-silences", () => {
       expect(state.writes).toHaveLength(0);
     },
   );
+
+  it("treats a stale pending transcript as unavailable", async () => {
+    state.transcript = {
+      status: "pending",
+      updatedAt: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
+      segmentsJson: JSON.stringify(segments),
+    };
+    const args = removeSilences.schema.parse({
+      recordingId: "rec_1",
+      thresholdMs: 1_200,
+    });
+
+    await expect(removeSilences.run(args)).rejects.toMatchObject({
+      errorCode: "transcript_not_ready",
+      statusCode: 409,
+    });
+    expect(state.writes).toHaveLength(0);
+  });
 
   it("returns a typed prerequisite error when no transcript exists", async () => {
     state.transcript = null;

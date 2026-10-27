@@ -5,15 +5,18 @@ export function transcriptRecoveryForError(
   errorCode: unknown,
   recordingId: string | undefined,
 ): "wait" | "regenerate" | null {
-  if (kind !== "remove-silences" || !recordingId) return null;
+  const cleanupKind =
+    kind === "remove-filler-words" || kind === "remove-silences";
+  if (!cleanupKind || !recordingId) return null;
 
   switch (errorCode) {
     case "transcript_pending":
       return "wait";
     case "transcript_not_ready":
     case "transcript_unreadable":
-    case "timestamped_transcript_required":
       return "regenerate";
+    case "timestamped_transcript_required":
+      return kind === "remove-silences" ? "regenerate" : null;
     default:
       return null;
   }

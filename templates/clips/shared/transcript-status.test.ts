@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  canAttemptTranscriptCleanup,
   isTranscriptReady,
   resolveTranscriptPresentation,
   STALE_PENDING_TRANSCRIPT_MS,
@@ -18,6 +19,19 @@ describe("isTranscriptReady", () => {
   it("allows cleanup only for a ready transcript", () => {
     expect(isTranscriptReady("ready")).toBe(true);
   });
+});
+
+describe("canAttemptTranscriptCleanup", () => {
+  it("holds cleanup while a transcript is pending", () => {
+    expect(canAttemptTranscriptCleanup("pending")).toBe(false);
+  });
+
+  it.each(["ready", "failed", "idle", null, undefined])(
+    "lets cleanup surface recovery for %s transcripts",
+    (status) => {
+      expect(canAttemptTranscriptCleanup(status)).toBe(true);
+    },
+  );
 });
 
 describe("resolveTranscriptPresentation", () => {

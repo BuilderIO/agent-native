@@ -30,6 +30,7 @@ vi.mock("./lib/ai-request-status.js", () => ({
   withAiRequestStatusInstructions: mocks.withAiRequestStatusInstructions,
 }));
 
+import { STALE_PENDING_TRANSCRIPT_MS } from "../shared/transcript-status.js";
 import removeFillerWords from "./remove-filler-words";
 
 function returnRows(...rows: unknown[][]) {
@@ -73,12 +74,35 @@ describe("remove-filler-words", () => {
   });
 
   it.each([
-    ["missing", null],
-    ["pending", { status: "pending", segmentsJson: "[]" }],
-    ["failed", { status: "failed", segmentsJson: "[]" }],
+    ["missing", null, "transcript_not_ready"],
+    [
+      "pending",
+      {
+        status: "pending",
+        updatedAt: new Date().toISOString(),
+        segmentsJson: "[]",
+      },
+      "transcript_pending",
+    ],
+    [
+      "stale pending",
+      {
+        status: "pending",
+        updatedAt: new Date(
+          Date.now() - STALE_PENDING_TRANSCRIPT_MS - 1,
+        ).toISOString(),
+        segmentsJson: "[]",
+      },
+      "transcript_not_ready",
+    ],
+    [
+      "failed",
+      { status: "failed", segmentsJson: "[]" },
+      "transcript_not_ready",
+    ],
   ] as const)(
     "returns a typed prerequisite error for a %s transcript",
-    async (_description, transcript) => {
+    async (_description, transcript, errorCode) => {
       returnRows(
         [{ kind: "video", videoUrl: "https://store.example/clip.webm" }],
         transcript ? [transcript] : [],
@@ -87,7 +111,7 @@ describe("remove-filler-words", () => {
       await expect(
         removeFillerWords.run({ recordingId: "rec_1" }),
       ).rejects.toMatchObject({
-        errorCode: "transcript_not_ready",
+        errorCode,
         statusCode: 409,
       });
       expect(mocks.queueBackgroundAiRequest).not.toHaveBeenCalled();
