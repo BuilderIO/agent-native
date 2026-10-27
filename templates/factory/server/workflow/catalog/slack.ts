@@ -4,6 +4,28 @@ import type { OperationDefinitionInput } from "../operations.js";
 // address, which chat.postMessage rejects until it is resolved to a user id.
 const postReceipt = { externalRef: "ts", url: "permalink" };
 
+const postOutputs = [
+  { name: "ok", type: "boolean" },
+  {
+    name: "channel",
+    type: "string",
+    description: "The channel id it landed in.",
+  },
+  {
+    name: "ts",
+    type: "string",
+    description: "The message time; the same value is externalRef.",
+  },
+  { name: "threadTs", type: "string", nullable: true },
+  { name: "permalink", type: "string", nullable: true },
+  {
+    name: "permalinkError",
+    type: "string",
+    description: "Only when Slack gave no permalink.",
+  },
+  { name: "recipient", type: "object" },
+] as const;
+
 // Unset, the host action posts `<!channel>`, `<!here>` and `<@U...>` as plain
 // text. It is a target because it decides who gets notified.
 const mentionsField = {
@@ -66,6 +88,7 @@ export const slackOperations: OperationDefinitionInput[] = [
       action: "post-slack-message",
       argMap: { to: "to", text: "text", allowMentions: "allowMentions" },
     },
+    outputs: [...postOutputs],
     receipt: postReceipt,
     credential: { provider: "slack" },
   },
@@ -103,6 +126,7 @@ export const slackOperations: OperationDefinitionInput[] = [
         allowMentions: "allowMentions",
       },
     },
+    outputs: [...postOutputs],
     receipt: postReceipt,
     credential: { provider: "slack" },
   },

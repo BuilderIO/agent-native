@@ -48,7 +48,16 @@ const defaultBuilderDeps: BuilderOperationDeps = {
   stuckAfterMs: DEFAULT_BUILDER_STUCK_AFTER_MS,
 };
 
-type BuilderTaskState = "working" | "stuck" | "completed" | "failed";
+type BuilderTaskState =
+  | "working"
+  | "stuck"
+  | "completed"
+  | "failed"
+  | "not_found";
+
+/** Builder's status route finds only an active branch, so absent says little about the task itself. */
+const BRANCH_NOT_FOUND_MESSAGE =
+  "Builder has no active branch under this name. The task may have finished and been archived, the name may not be the one Builder returned for the task, or the task was never created.";
 
 type Failure = Extract<OperationResult, { ok: false }>;
 
@@ -330,8 +339,9 @@ function expectedRepository(setting: string | undefined): string | null {
 }
 
 /**
- * Builder's branch state, in the four words a workflow reads. A merged pull
- * request outranks an archived branch, because Builder archives what it
+ * Builder's branch state, in the four words a workflow reads for a branch
+ * Builder returned (an absent branch is `not_found`, which `check` reports
+ * itself). A merged pull request outranks an archived branch, because Builder archives what it
  * finished. Idle with no pull request is only stuck once it has been idle for
  * the window: a branch Builder has recorded nothing for yet is still starting.
  */
@@ -339,7 +349,11 @@ export function mapBranchState(
   status: BuilderBranchStatus,
   now: Date,
   stuckAfterMs: number,
-): { state: BuilderTaskState; reason: string; idleForMs: number | null } {
+): {
+  state: Exclude<BuilderTaskState, "not_found">;
+  reason: string;
+  idleForMs: number | null;
+} {
   const idleForMs =
     status.lastActivityAt === null
       ? null
@@ -395,8 +409,9 @@ async function check(
     return {
       ok: true,
       output: {
-        state: "failed",
+        state: "not_found",
         reason: "branch_not_found",
+        message: BRANCH_NOT_FOUND_MESSAGE,
         agentState: null,
         branchState: "not_found",
         archived: false,
@@ -439,6 +454,7 @@ async function check(
     output: {
       state: mapped.state,
       reason: mapped.reason,
+      message: null,
       agentState: status.agentState,
       branchState: status.state,
       archived: status.archived,

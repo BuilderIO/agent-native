@@ -18,11 +18,14 @@ import {
 import { validateWorkflowGraph } from "../workflow/graph-validation.js";
 import { readFactoryDefinition } from "./factory-definitions.js";
 import { DEFAULT_FACTORY_ID } from "./factory-ids.js";
+import { readSentryFallbackConfigured } from "./factory-sentry-fallback.js";
 import {
   WorkflowJobError,
+  leavesSentryToFactorySettings,
   planWorkflowJob,
   syncWorkflowJob,
   type WorkflowJobPlan,
+  type WorkflowJobPlanOptions,
 } from "./factory-workflow-job.js";
 import {
   requireWorkspaceMember,
@@ -257,6 +260,15 @@ function schemaIssueDetail(issue: z.core.$ZodIssue): string {
     .join("; ")}`;
 }
 
+interface GraphCheckOptions extends WorkflowJobPlanOptions {
+  /**
+   * Refuse `nodes.<step>.<field>` the step's operation does not declare. Only
+   * a new edit is held to this: a graph that predates declared outputs keeps
+   * running, so enabling or restoring it must not fail on it.
+   */
+  checkOutputFields: boolean;
+}
+
 /**
  * What a graph needs before it can be saved: it parses, it names only
  * operations the catalog has, and the job file can say when it runs. Every
@@ -264,6 +276,7 @@ function schemaIssueDetail(issue: z.core.$ZodIssue): string {
  */
 export function checkWorkflowGraph(
   raw: unknown,
+  { checkOutputFields, ...plan }: GraphCheckOptions,
 ):
   | { ok: true; graph: WorkflowGraph; plan: WorkflowJobPlan }
   | { ok: false; problems: GraphProblem[] } {
@@ -280,8 +293,10 @@ export function checkWorkflowGraph(
     };
   }
   const graph = parsed.data;
-  const validation = validateWorkflowGraph(graph, OPERATION_CATALOG);
-  const job = planWorkflowJob(graph);
+  const validation = validateWorkflowGraph(graph, OPERATION_CATALOG, {
+    checkOutputFields,
+  });
+  const job = planWorkflowJob(graph, plan);
   const problems: GraphProblem[] = [
     ...validation.issues.map((issue) => ({
       source: "graph" as const,
@@ -295,13 +310,26 @@ export function checkWorkflowGraph(
 
 /**
  * A graph that can be saved, or `graph_invalid` listing every problem. A
- * rejection leaves nothing half written.
+ * rejection leaves nothing half written. The factory's Sentry settings are
+ * read only for a graph with a Sentry Source that names no project.
  */
-export function prepareWorkflowGraph(raw: unknown): {
+export async function prepareWorkflowGraph(
+  raw: unknown,
+  scoped: Pick<WorkflowActionScope, "orgId" | "scope">,
+  { checkOutputFields = true }: { checkOutputFields?: boolean } = {},
+): Promise<{
   graph: WorkflowGraph;
   plan: WorkflowJobPlan;
-} {
-  const checked = checkWorkflowGraph(raw);
+}> {
+  const parsed = workflowGraphSchema.safeParse(raw);
+  const sentryFallbackConfigured =
+    parsed.success && parsed.data.nodes.some(leavesSentryToFactorySettings)
+      ? await readSentryFallbackConfigured(scoped.orgId, scoped.scope.factoryId)
+      : false;
+  const checked = checkWorkflowGraph(raw, {
+    checkOutputFields,
+    sentryFallbackConfigured,
+  });
   if (!checked.ok) return graphInvalid(checked.problems);
   return { graph: checked.graph, plan: checked.plan };
 }
