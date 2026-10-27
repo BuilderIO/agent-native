@@ -20,6 +20,7 @@ export const CIRCULAR_RESULT = "[circular result]";
 /** Keys removed from every result object, whatever their value. */
 export const EMBED_RESULT_SENSITIVE_KEYS: ReadonlySet<string> = new Set([
   "agent-native/embedStart",
+  "embedStartUrl",
   "embedTargetPath",
   "embedExpiresAt",
   "embedTicket",

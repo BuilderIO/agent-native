@@ -809,10 +809,7 @@ describe("executeMcpActionCall sanitizing", () => {
   });
 
   it("shows a hidden value as the placeholder under its key, so it reads as hidden, not missing", async () => {
-    // A text property whose prose names the route, as a collection row's
-    // read-back carries it.
-    const path =
-      "objectives/tasks/Fix chat failing because the embed start URL is redacted.md";
+    const path = EMBED_START;
     const outcome = await execute(
       {
         row: entry({
