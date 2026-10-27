@@ -115,15 +115,33 @@ describe("edit-design action schema", () => {
     expect(content).toBe(`<main><button>Start</button></main>`);
   });
 
-  it("returns a typed no-write conflict instead of applying a fuzzy match", () => {
-    let error: unknown;
-    try {
-      applySearchReplaceEdits(`<div>\n  <span>label</span>\n</div>`, [
+  it("matches a unique whitespace-insensitive edit", () => {
+    const { content, applied } = applySearchReplaceEdits(
+      `<div>\n  <span>label</span>\n</div>`,
+      [
         {
           search: `<div> <span>label</span> </div>`,
           replace: `<div><b>label</b></div>`,
         },
-      ]);
+      ],
+    );
+
+    expect(applied).toBe(1);
+    expect(content).toBe(`<div><b>label</b></div>`);
+  });
+
+  it("returns a typed no-write conflict for ambiguous whitespace-insensitive matches", () => {
+    let error: unknown;
+    try {
+      applySearchReplaceEdits(
+        `<div><span>\n  label\n</span></div><section><span> \tlabel\t </span></section>`,
+        [
+          {
+            search: `<span> label </span>`,
+            replace: `<b>label</b>`,
+          },
+        ],
+      );
     } catch (caught) {
       error = caught;
     }
@@ -134,11 +152,6 @@ describe("edit-design action schema", () => {
       errorCode: "design_edit_conflict",
       statusCode: 409,
     });
-    expect(error).toHaveProperty(
-      "message",
-      expect.stringContaining(
-        "Refresh it with get-design-snapshot and re-plan",
-      ),
-    );
+    expect(error).toHaveProperty("message", expect.stringContaining("matched"));
   });
 });

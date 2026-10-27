@@ -1,3 +1,6 @@
+import { EngineError } from "./engine/types.js";
+import type { AgentLoopUsage } from "./production-agent.js";
+
 export const RUN_BUDGET_EXHAUSTED_ERROR_CODE = "run_budget_exhausted";
 export const RUN_BUDGET_EXHAUSTED_MESSAGE =
   "I ran out of time before finishing this step. " +
@@ -26,4 +29,19 @@ export function incompleteAgentRunFailure(input: {
         code: RUN_BUDGET_EXHAUSTED_ERROR_CODE,
         message: RUN_BUDGET_EXHAUSTED_MESSAGE,
       };
+}
+
+export class IncompleteAgentRunError extends EngineError {
+  readonly usage: AgentLoopUsage;
+
+  constructor(
+    failure: { code: string; message: string },
+    usage: AgentLoopUsage,
+  ) {
+    super(failure.message, {
+      errorCode: failure.code,
+      providerRetryable: false,
+    });
+    this.usage = { ...usage };
+  }
 }

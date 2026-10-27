@@ -19,6 +19,7 @@ import {
   PROVIDER_RATE_LIMITED_TERMINAL_MESSAGE,
   type AgentLoopOutcome,
 } from "./production-agent.js";
+import { IncompleteAgentRunError } from "./run-errors.js";
 import {
   AgentLoopAbortedError,
   appendDurableContinuationContext,
@@ -1358,7 +1359,7 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
       opts.send({ type: "auto_continue", reason: "stream_ended" });
       return {
         inputTokens: 1,
-        outputTokens: 0,
+        outputTokens: 2,
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
         model: "test-model",
@@ -1376,7 +1377,14 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
         ),
         0,
       ),
-    ).rejects.toMatchObject({ errorCode: RUN_BUDGET_EXHAUSTED_ERROR_CODE });
+    ).rejects.toMatchObject({
+      errorCode: RUN_BUDGET_EXHAUSTED_ERROR_CODE,
+      usage: {
+        inputTokens: 1,
+        outputTokens: 2,
+        model: "test-model",
+      },
+    });
     expect(outcomes).toEqual([
       {
         state: "failed",
@@ -1385,6 +1393,43 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
         message: RUN_BUDGET_EXHAUSTED_MESSAGE,
       },
     ]);
+  });
+
+  it("preserves accumulated usage on continuation-budget failure", async () => {
+    let attempts = 0;
+    mockRunAgentLoop.mockImplementation(async (opts) => {
+      attempts += 1;
+      opts.onModelDispatchStarted?.();
+      opts.send({ type: "auto_continue", reason: "stream_ended" });
+      return {
+        inputTokens: 2,
+        outputTokens: 1,
+        cacheReadTokens: 3,
+        cacheWriteTokens: 4,
+        model: "test-model",
+      };
+    });
+
+    const error = await runAgentLoopDirectWithSoftTimeout(
+      makeOpts(
+        [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        new AbortController().signal,
+      ),
+      60_000,
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(IncompleteAgentRunError);
+    expect(error).toMatchObject({
+      errorCode: RUN_BUDGET_EXHAUSTED_ERROR_CODE,
+      usage: {
+        inputTokens: 2 * MAX_RUN_LOOP_CONTINUATIONS,
+        outputTokens: 1 * MAX_RUN_LOOP_CONTINUATIONS,
+        cacheReadTokens: 3 * MAX_RUN_LOOP_CONTINUATIONS,
+        cacheWriteTokens: 4 * MAX_RUN_LOOP_CONTINUATIONS,
+        model: "test-model",
+      },
+    });
+    expect(attempts).toBe(MAX_RUN_LOOP_CONTINUATIONS);
   });
 
   it("does NOT emit a give-up terminal when the user aborts mid-loop", async () => {

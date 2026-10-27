@@ -8,7 +8,10 @@ import {
 } from "./abort-reasons.js";
 import { PROVIDER_RATE_LIMITED_ERROR_CODE } from "./engine/error-detail.js";
 import { EngineError, type EngineMessage } from "./engine/types.js";
-import { incompleteAgentRunFailure } from "./run-errors.js";
+import {
+  IncompleteAgentRunError,
+  incompleteAgentRunFailure,
+} from "./run-errors.js";
 export {
   RUN_BUDGET_EXHAUSTED_ERROR_CODE,
   RUN_BUDGET_EXHAUSTED_MESSAGE,
@@ -344,10 +347,8 @@ export async function runAgentLoopDirectWithSoftTimeout(
           retryable: false,
           message: failure.message,
         });
-        throw new EngineError(failure.message, {
-          errorCode: failure.code,
-          providerRetryable: false,
-        });
+        onUsage?.({ ...result });
+        throw new IncompleteAgentRunError(failure, result);
       } else {
         reportFinalOutcome(directOutcome ?? { state: "completed" });
       }
@@ -677,10 +678,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
       retryable: false,
       message: failure.message,
     });
-    throw new EngineError(failure.message, {
-      errorCode: failure.code,
-      providerRetryable: false,
-    });
+    throw new IncompleteAgentRunError(failure, usage);
   } else if (turnSignal.aborted) {
     reportFinalOutcome(turnAbortOutcome());
   }

@@ -29,6 +29,7 @@ import {
   type SourceWorkspaceFile,
 } from "../server/source-workspace.js";
 import {
+  applyOneEdit,
   type ApplyEditsResult,
   type DesignEdit,
 } from "../shared/apply-edits.js";
@@ -133,11 +134,15 @@ function applyOneEditWithStableIdFallback(
   index: number,
 ): string {
   try {
-    return applyExactEdit(content, edit, index);
+    return applyOneEdit(content, edit, index);
   } catch (error) {
     const span = findUniqueStableIdAgnosticSpan(content, edit.search);
-    if (!span) throw error;
-    return `${content.slice(0, span.start)}${edit.replace}${content.slice(span.end)}`;
+    if (span) {
+      return `${content.slice(0, span.start)}${edit.replace}${content.slice(span.end)}`;
+    }
+    throw new DesignEditSearchConflictError(
+      error instanceof Error ? error.message : String(error),
+    );
   }
 }
 
@@ -146,32 +151,6 @@ class DesignEditSearchConflictError extends Error {
     super(message);
     this.name = "DesignEditSearchConflictError";
   }
-}
-
-function applyExactEdit(
-  content: string,
-  edit: DesignEdit,
-  index: number,
-): string {
-  if (!edit.search) {
-    throw new DesignEditSearchConflictError(
-      `Edit ${index + 1}: "search" must be a non-empty string.`,
-    );
-  }
-
-  const start = content.indexOf(edit.search);
-  if (start === -1) {
-    throw new DesignEditSearchConflictError(
-      `Edit ${index + 1}: search text was not found.`,
-    );
-  }
-  if (content.indexOf(edit.search, start + 1) !== -1) {
-    throw new DesignEditSearchConflictError(
-      `Edit ${index + 1}: search text matched more than one place.`,
-    );
-  }
-
-  return `${content.slice(0, start)}${edit.replace}${content.slice(start + edit.search.length)}`;
 }
 
 function designEditConflictMessage(): string {
