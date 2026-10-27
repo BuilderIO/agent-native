@@ -18,6 +18,9 @@
  *                       object, test.describe.configure({ retries }), and
  *                       .retries(N) with N other than 0
  *   script-loosened     package.json scripts: --passWithNoTests, vitest -u / --update
+ *   snapshot-changed    test files: changed body or removal of an existing
+ *                       toMatchInlineSnapshot() expectation; *.snap files:
+ *                       changed body or removal of an existing exported snapshot
  *   assertions-removed  test files: fewer expect( / expect.soft|poll|element( / assert( /
  *                       assert.x( calls than before, counted in the AST of the
  *                       file at the merge-base and of the file now, with each
@@ -32,8 +35,9 @@
  *   // oracle-change: <reason>
  *
  * on the flagged added line or on the added line directly above it.
- * assertions-removed takes it on any added line in the file. A deleted file
- * takes `oracle-change(<path>): <reason>` on any added line in the diff.
+ * assertions-removed takes it on any added line in the file. A removed
+ * snapshot expectation or deleted file takes
+ * `oracle-change(<path>): <reason>` on any added line in the diff.
  * The pragma counts only inside a comment. In TypeScript or JavaScript, text
  * in a string or template literal is not a reason. JSON has no comments, so
  * package.json keeps the older line match.
@@ -74,6 +78,7 @@ const MIN_REASON_LENGTH = 10;
 const PRAGMA_MARKER = "oracle-change:";
 const TEST_FILE =
   /(?:\.(?:spec|test)\.(?:tsx?|jsx?|mjs|cjs|mts|cts)|\.e2e\.(?:tsx?|jsx?|mjs|cjs|mts|cts))$|(?:^|\/)e2e\//;
+const SNAPSHOT_FILE = /\.snap$/;
 const CONFIG_FILE =
   /(?:^|\/)(?:vitest\.config\.[^/]+|vitest\.[^/]+\.config\.[^/]+|playwright\.config\.[^/]+)$/;
 const PACKAGE_JSON = /(?:^|\/)package\.json$/;
@@ -145,6 +150,8 @@ export interface OracleChanges {
   removed: ReadonlyMap<string, RemovedFile>;
   /** Keyed like `removed`. Every changed test file in `removed` needs one. */
   assertionSources: ReadonlyMap<string, AssertionSource>;
+  /** Keyed like `removed`. Both sides of every changed .snap file. */
+  snapshotSources: ReadonlyMap<string, AssertionSource>;
 }
 
 export interface OracleViolation {
@@ -655,9 +662,248 @@ function sortedAdded(file: ChangedFile): number[] {
   return [...file.added].sort((a, b) => a - b);
 }
 
-function checkTestFile(
+interface InlineSnapshot {
+  key: string;
+  body: string | null;
+  line: number;
+}
+
+function snapshotReasonFor(
+  file: ChangedFile,
+  line: number,
+  previousLine: number,
+  previousPragmas: ReadonlyMap<number, readonly string[]>,
+): string | null {
+  const reason = bestReason([
+    ...(file.added.has(line)
+      ? reasonsOn(file.pragmas, line, PRAGMA_MARKER)
+      : []),
+    ...(file.added.has(line - 1)
+      ? reasonsOn(file.pragmas, line - 1, PRAGMA_MARKER)
+      : []),
+  ]);
+  if (reason === null) return null;
+
+  const previousReason = bestReason([
+    ...reasonsOn(previousPragmas, previousLine, PRAGMA_MARKER),
+    ...reasonsOn(previousPragmas, previousLine - 1, PRAGMA_MARKER),
+  ]);
+  // A stale reason must not approve a later edit to the same expectation.
+  return reason === previousReason ? null : reason;
+}
+
+interface SnapshotExpectation {
+  key: string;
+  body: string | null;
+  line: number;
+}
+
+// Only stable identities pair; an unmatched baseline is a removal and an
+// unmatched current expectation is new, so copies cannot consume old oracles.
+function pairSnapshots<T extends SnapshotExpectation>(
+  before: readonly T[],
+  after: readonly T[],
+  added: ReadonlySet<number>,
+  removed: readonly { line: number }[],
+): { pairs: [T, T][]; unmatchedBefore: T[] } {
+  const remainingBefore = new Set(before);
+  const remainingAfter = new Set(after);
+  const pairs: [T, T][] = [];
+
+  const currentLineFor = (oldLine: number): number | null => {
+    let currentLine = oldLine;
+    const seen = new Set<number>();
+    for (
+      let attempt = 0;
+      attempt <= added.size + removed.length;
+      attempt += 1
+    ) {
+      if (seen.has(currentLine)) return null;
+      seen.add(currentLine);
+      const nextLine =
+        oldLine +
+        [...added].filter((line) => line <= currentLine).length -
+        removed.filter((entry) => entry.line <= currentLine).length;
+      if (nextLine === currentLine) return currentLine;
+      currentLine = nextLine;
+    }
+    return null;
+  };
+
+  const pairWhere = (
+    matches: (previous: T, current: T) => boolean,
+    preferUnchangedCallLines: boolean,
+  ) => {
+    const previousSnapshots = [...remainingBefore].sort(
+      (left, right) => left.line - right.line,
+    );
+
+    for (const previous of previousSnapshots) {
+      if (!remainingBefore.has(previous)) continue;
+      const mappedLine = currentLineFor(previous.line) ?? previous.line;
+      const candidates = [...remainingAfter]
+        .filter((current) => matches(previous, current))
+        .sort(
+          (left, right) =>
+            Math.abs(mappedLine - left.line) -
+              Math.abs(mappedLine - right.line) ||
+            (preferUnchangedCallLines
+              ? Number(added.has(left.line)) - Number(added.has(right.line))
+              : 0) ||
+            left.line - right.line,
+        );
+      const current = candidates[0];
+      if (current === undefined) continue;
+      const copiedExpectationBeforeChangedCandidate =
+        added.has(current.line) &&
+        current.body === previous.body &&
+        [...remainingAfter].some(
+          (other) =>
+            other !== current &&
+            other.body !== previous.body &&
+            ![...remainingBefore].some(
+              (baseline) => baseline.key === other.key,
+            ),
+        );
+      if (copiedExpectationBeforeChangedCandidate) continue;
+      pairs.push([previous, current]);
+      remainingBefore.delete(previous);
+      remainingAfter.delete(current);
+    }
+  };
+
+  pairWhere((previous, current) => previous.key === current.key, true);
+
+  return { pairs, unmatchedBefore: [...remainingBefore] };
+}
+
+function testContext(node: ts.Node, scope: ImportScope): string {
+  const titles: string[] = [];
+  let parent: ts.Node | undefined = node.parent;
+  while (parent !== undefined) {
+    if (ts.isCallExpression(parent) && isTestApi(parent.expression, scope)) {
+      const title = parent.arguments[0];
+      if (
+        title !== undefined &&
+        (ts.isStringLiteral(title) || ts.isNoSubstitutionTemplateLiteral(title))
+      ) {
+        titles.push(title.text);
+      }
+    }
+    parent = parent.parent;
+  }
+  return titles.reverse().join(" > ");
+}
+
+function expectationReceiver(
+  expression: ts.Expression,
+  scope: ImportScope,
+): ts.CallExpression | null {
+  let candidate = expression;
+  for (;;) {
+    if (
+      ts.isCallExpression(candidate) &&
+      isExpectReceiver(candidate.expression, scope)
+    ) {
+      return candidate;
+    }
+    const member = memberOf(candidate);
+    if (
+      member === null ||
+      (member.name !== "not" &&
+        member.name !== "resolves" &&
+        member.name !== "rejects")
+    ) {
+      return null;
+    }
+    candidate = member.object;
+  }
+}
+
+function inlineSnapshots(file: string, source: string): InlineSnapshot[] {
+  const sourceFile = ts.createSourceFile(
+    file,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    scriptKind(file),
+  );
+  const scope = importScope(sourceFile);
+  const snapshots: InlineSnapshot[] = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node)) {
+      const matcher = memberOf(node.expression);
+      const receiver =
+        matcher?.name === "toMatchInlineSnapshot"
+          ? expectationReceiver(matcher.object, scope)
+          : null;
+      if (matcher?.name === "toMatchInlineSnapshot" && receiver !== null) {
+        const argument = node.arguments.at(-1);
+        const body =
+          argument === undefined
+            ? null
+            : ts.isStringLiteral(argument) ||
+                ts.isNoSubstitutionTemplateLiteral(argument)
+              ? argument.text
+              : argument.getText(sourceFile);
+        snapshots.push({
+          key: `${testContext(node, scope)}\u0000${receiver
+            .getText(sourceFile)
+            .replace(/\s+/g, " ")}`,
+          body,
+          line: lineOf(sourceFile, node),
+        });
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return snapshots;
+}
+
+type ExternalSnapshot = SnapshotExpectation;
+
+function externalSnapshots(file: string, source: string): ExternalSnapshot[] {
+  const sourceFile = ts.createSourceFile(
+    file,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    scriptKind(file),
+  );
+  const snapshots: ExternalSnapshot[] = [];
+  const visit = (node: ts.Node) => {
+    if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      ts.isElementAccessExpression(node.left) &&
+      ts.isIdentifier(node.left.expression) &&
+      node.left.expression.text === "exports" &&
+      node.left.argumentExpression !== undefined &&
+      (ts.isStringLiteral(node.left.argumentExpression) ||
+        ts.isNoSubstitutionTemplateLiteral(node.left.argumentExpression)) &&
+      (ts.isStringLiteral(node.right) ||
+        ts.isNoSubstitutionTemplateLiteral(node.right))
+    ) {
+      snapshots.push({
+        key: node.left.argumentExpression.text,
+        body: node.right.text,
+        line: lineOf(sourceFile, node),
+      });
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return snapshots;
+}
+
+function checkInlineSnapshots(
   rel: string,
   file: ChangedFile,
+  sources: AssertionSource | undefined,
+  oldPath: string,
+  addedFiles: ReadonlyMap<string, ChangedFile>,
+  removedLines: readonly { line: number }[],
   report: (
     line: number,
     rule: string,
@@ -665,6 +911,110 @@ function checkTestFile(
     reason: string | null,
   ) => void,
 ) {
+  if (
+    sources?.base === undefined ||
+    sources.next === null ||
+    sources.base === null
+  )
+    return;
+  const before = inlineSnapshots(rel, sources.base);
+  const after = inlineSnapshots(rel, sources.next);
+  const previousPragmas = pragmasIn(rel, sources.base);
+  const { pairs, unmatchedBefore } = pairSnapshots(
+    before,
+    after,
+    file.added,
+    removedLines,
+  );
+  for (const [previous, snapshot] of pairs) {
+    if (previous.body === snapshot.body) continue;
+    report(
+      snapshot.line,
+      "snapshot-changed",
+      "changed the body of an existing toMatchInlineSnapshot() expectation",
+      snapshotReasonFor(file, snapshot.line, previous.line, previousPragmas),
+    );
+  }
+  for (const previous of unmatchedBefore) {
+    report(
+      previous.line,
+      "snapshot-changed",
+      "removed an existing toMatchInlineSnapshot() expectation",
+      deletedFileReason(oldPath, addedFiles),
+    );
+  }
+}
+
+function checkExternalSnapshots(
+  file: ChangedFile,
+  sources: AssertionSource | undefined,
+  oldPath: string,
+  addedFiles: ReadonlyMap<string, ChangedFile>,
+  removedLines: readonly { line: number }[],
+  report: (
+    line: number,
+    rule: string,
+    message: string,
+    reason: string | null,
+  ) => void,
+) {
+  if (
+    sources?.base === undefined ||
+    sources.next === null ||
+    sources.base === null
+  )
+    return;
+  const before = externalSnapshots("snapshot.snap", sources.base);
+  const after = externalSnapshots("snapshot.snap", sources.next);
+  const previousPragmas = pragmasIn("snapshot.snap", sources.base);
+  const { pairs, unmatchedBefore } = pairSnapshots(
+    before,
+    after,
+    file.added,
+    removedLines,
+  );
+  for (const [previous, snapshot] of pairs) {
+    if (previous.body === snapshot.body) continue;
+    report(
+      snapshot.line,
+      "snapshot-changed",
+      `changed the body of existing snapshot "${snapshot.key}"`,
+      snapshotReasonFor(file, snapshot.line, previous.line, previousPragmas),
+    );
+  }
+  for (const previous of unmatchedBefore) {
+    report(
+      previous.line,
+      "snapshot-changed",
+      `removed existing snapshot "${previous.key}"`,
+      deletedFileReason(oldPath, addedFiles),
+    );
+  }
+}
+
+function checkTestFile(
+  rel: string,
+  file: ChangedFile,
+  sources: AssertionSource | undefined,
+  oldPath: string,
+  addedFiles: ReadonlyMap<string, ChangedFile>,
+  removedLines: readonly { line: number }[],
+  report: (
+    line: number,
+    rule: string,
+    message: string,
+    reason: string | null,
+  ) => void,
+) {
+  checkInlineSnapshots(
+    rel,
+    file,
+    sources,
+    oldPath,
+    addedFiles,
+    removedLines,
+    report,
+  );
   for (const site of findDisabledTests(rel, file.source.join("\n"))) {
     if (!file.added.has(site.line)) continue;
     report(site.line, site.rule, site.message, optOutFor(file, site.line));
@@ -742,8 +1092,9 @@ function deletedFileReason(
 }
 
 /**
- * Pure: takes the changed files, removed lines and both sides of each changed
- * test file, returns violations. The glue in main() only reads and calls this.
+ * Pure: takes changed files, removed lines, and both sides of changed tests
+ * and snapshots, then returns violations. The glue in main() only reads and
+ * calls this.
  */
 export function findOracleLoosening(changes: OracleChanges): OracleViolation[] {
   const violations: OracleViolation[] = [];
@@ -752,6 +1103,7 @@ export function findOracleLoosening(changes: OracleChanges): OracleViolation[] {
 
   for (const [abs, file] of changes.added) {
     const rel = relOf(abs);
+    const removedLines = changes.removed.get(abs)?.lines ?? [];
     const report = (
       line: number,
       rule: string,
@@ -762,9 +1114,101 @@ export function findOracleLoosening(changes: OracleChanges): OracleViolation[] {
       if (text !== null)
         violations.push({ file: rel, line, rule, message: text });
     };
-    if (isTestFile(rel)) checkTestFile(rel, file, report);
+    const oldPath = changes.removed.get(abs)?.oldPath ?? rel;
+    if (isTestFile(rel))
+      checkTestFile(
+        rel,
+        file,
+        changes.assertionSources.get(abs),
+        oldPath,
+        changes.added,
+        removedLines,
+        report,
+      );
+    if (SNAPSHOT_FILE.test(rel))
+      checkExternalSnapshots(
+        file,
+        changes.snapshotSources.get(abs),
+        oldPath,
+        changes.added,
+        removedLines,
+        report,
+      );
     if (CONFIG_FILE.test(rel)) checkRunnerConfig(file, report);
     if (PACKAGE_JSON.test(rel)) checkPackageScripts(file, report);
+  }
+
+  for (const [abs, changed] of changes.removed) {
+    if (changes.added.has(abs)) continue;
+    const rel = relOf(abs);
+    const isTest = isTestFile(rel);
+    const isSnapshot = SNAPSHOT_FILE.test(rel);
+    if (!isTest && !isSnapshot) continue;
+
+    const sources = isTest
+      ? changes.assertionSources.get(abs)
+      : changes.snapshotSources.get(abs);
+    if (sources === undefined) {
+      throw new Error(
+        `${GUARD_NAME}: no snapshot sources for ${changed.path}; both sides of every changed test and snapshot file must be read`,
+      );
+    }
+    if (sources.next === null) {
+      if (isSnapshot && sources.base !== null) {
+        const snapshots = externalSnapshots(changed.oldPath, sources.base);
+        const first = snapshots[0];
+        if (first !== undefined) {
+          const text = reportable(
+            `removed ${snapshots.length} existing snapshot(s) with deleted .snap file`,
+            deletedFileReason(changed.oldPath, changes.added),
+          );
+          if (text !== null) {
+            violations.push({
+              file: rel,
+              line: first.line,
+              rule: "snapshot-changed",
+              message: text,
+            });
+          }
+        }
+      }
+      continue;
+    }
+
+    const file: ChangedFile = {
+      source: sources.next.split("\n"),
+      added: new Set(),
+      pragmas: pragmasIn(rel, sources.next),
+    };
+    const report = (
+      line: number,
+      rule: string,
+      message: string,
+      reason: string | null,
+    ) => {
+      const text = reportable(message, reason);
+      if (text !== null)
+        violations.push({ file: rel, line, rule, message: text });
+    };
+    if (isTest)
+      checkInlineSnapshots(
+        rel,
+        file,
+        sources,
+        changed.oldPath,
+        changes.added,
+        changed.lines,
+        report,
+      );
+    if (isSnapshot)
+      checkExternalSnapshots(
+        file,
+        sources,
+        changed.oldPath,
+        changes.added,
+        changed.lines,
+        report,
+      );
   }
 
   for (const [abs, removed] of changes.removed) {
@@ -867,12 +1311,24 @@ function main() {
   }
 
   const assertionSources = new Map<string, AssertionSource>();
+  const snapshotSources = new Map<string, AssertionSource>();
   for (const [absPath, entry] of removed) {
-    if (!isTestFile(entry.path) && !isTestFile(entry.oldPath)) continue;
-    assertionSources.set(absPath, {
-      base: entry.created ? null : readCommitFile(rootDir, base, entry.oldPath),
-      next: entry.deleted ? null : readText(absPath),
-    });
+    if (isTestFile(entry.path) || isTestFile(entry.oldPath)) {
+      assertionSources.set(absPath, {
+        base: entry.created
+          ? null
+          : readCommitFile(rootDir, base, entry.oldPath),
+        next: entry.deleted ? null : readText(absPath),
+      });
+    }
+    if (SNAPSHOT_FILE.test(entry.path) || SNAPSHOT_FILE.test(entry.oldPath)) {
+      snapshotSources.set(absPath, {
+        base: entry.created
+          ? null
+          : readCommitFile(rootDir, base, entry.oldPath),
+        next: entry.deleted ? null : readText(absPath),
+      });
+    }
   }
 
   const violations = findOracleLoosening({
@@ -880,6 +1336,7 @@ function main() {
     added: changed,
     removed,
     assertionSources,
+    snapshotSources,
   });
   if (violations.length === 0) {
     console.log(`${GUARD_NAME}: OK (${added.size} changed file(s) inspected)`);
