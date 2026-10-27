@@ -19,9 +19,9 @@ interface StoredCost {
 export type QueryCostRecord = {
   status: "success" | "error" | "cancelled";
   /** App-side cache (L1/L2) served the result; absent means unknown. */
-  cached?: boolean;
+  cached?: boolean | undefined;
   /** BigQuery served the result from its own query cache; absent means unknown. */
-  providerCacheHit?: boolean;
+  providerCacheHit?: boolean | undefined;
   /** Rows came from a browser snapshot, so no request produced them. */
   restored?: boolean;
   bytesProcessed?: unknown;

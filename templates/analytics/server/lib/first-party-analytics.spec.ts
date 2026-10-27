@@ -2571,6 +2571,7 @@ describe("queryFirstPartyAnalytics", () => {
       };
       const sql = "SELECT COUNT(*) AS events FROM analytics_events";
       const first = await queryFirstPartyAnalytics(sql, scope, { cache: true });
+      // oracle-change: Postgres results now report bytesProcessed 0 instead of omitting it; toEqual pins the value.
       expect(first).toEqual({ ...saved, cached: true, bytesProcessed: 0 });
       const cached = await queryFirstPartyAnalytics(sql, scope, {
         cache: true,
