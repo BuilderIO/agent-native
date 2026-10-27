@@ -81,6 +81,7 @@ const DRAG_HANDLE_MENU_STYLE_ID = "an-rich-md-drag-menu-styles";
 const DRAG_HANDLE_MENU_WIDTH = 220;
 const DRAG_HANDLE_MENU_GAP = 6;
 const DRAG_HANDLE_MENU_VIEWPORT_PADDING = 8;
+const MENU_TAP_SLOP_PX = 10;
 
 const tablerIconSvg = (paths: string): string =>
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${paths}</svg>`;
@@ -651,8 +652,12 @@ export const DragHandle = Extension.create<DragHandleOptions>({
     let menuContext: DragHandleMenuContext | null = null;
     let menuView: EditorView | null = null;
     // Fingers on the screen while a menu is open: a scroll they drive is a
-    // person's pan, not a keyboard opening.
+    // person's pan, not a keyboard opening. So is a scroll after a touch that
+    // moved farther than a tap, since a flick keeps the page moving once its
+    // finger lifts.
     let menuTouches = 0;
+    let menuTouchStart: { x: number; y: number } | null = null;
+    let menuPanned = false;
     let menuYBlock: YBlock | null = null;
     let menuEditing = false;
     let currentBlock: HTMLElement | null = null;
@@ -1368,6 +1373,22 @@ export const DragHandle = Extension.create<DragHandleOptions>({
 
     function countMenuTouches(event: TouchEvent) {
       menuTouches = event.touches.length;
+      const touch = event.changedTouches.item(0);
+      if (!touch) return;
+      if (event.type === "touchstart") {
+        // Only the latest touch counts: a pan through the menu's own items,
+        // then a tap on its field, still lets the keyboard open.
+        menuTouchStart = { x: touch.clientX, y: touch.clientY };
+        menuPanned = false;
+      } else if (
+        menuTouchStart &&
+        Math.hypot(
+          touch.clientX - menuTouchStart.x,
+          touch.clientY - menuTouchStart.y,
+        ) > MENU_TAP_SLOP_PX
+      ) {
+        menuPanned = true;
+      }
     }
 
     function watchMenuViewport() {
@@ -1392,6 +1413,8 @@ export const DragHandle = Extension.create<DragHandleOptions>({
         document.removeEventListener(type, countMenuTouches, { capture: true });
       }
       menuTouches = 0;
+      menuTouchStart = null;
+      menuPanned = false;
     }
 
     function handleMenuViewportChange(event: Event) {
@@ -1409,6 +1432,7 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       const active = document.activeElement;
       if (
         menuTouches === 0 &&
+        !menuPanned &&
         active instanceof Element &&
         active.matches("input, textarea") &&
         active.closest('[role="menu"]') &&

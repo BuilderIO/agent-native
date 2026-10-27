@@ -1329,10 +1329,13 @@ describe("DragHandle app menu", () => {
       expect(close).not.toHaveBeenCalled();
 
       // Once the keyboard is up, a pan still moves the block away.
-      const touch = (type: string, touches: number) => {
+      const touch = (type: string, touches: number, x = 100, y = 300) => {
         const event = new Event(type, { bubbles: true });
-        Object.defineProperty(event, "touches", {
-          value: { length: touches },
+        Object.defineProperties(event, {
+          touches: { value: { length: touches } },
+          changedTouches: {
+            value: { item: () => ({ clientX: x, clientY: y }) },
+          },
         });
         document.body.dispatchEvent(event);
       };
@@ -1341,13 +1344,28 @@ describe("DragHandle app menu", () => {
       expect(close).toHaveBeenCalledTimes(1);
       touch("touchend", 0);
 
+      // A tap on the field leaves the keyboard room to open, but a flick
+      // whose page scrolls on after its finger lifts closes the menu.
+      hoverAt(32, 12);
+      clickHandle(handle);
+      field.focus();
+      touch("touchstart", 1);
+      touch("touchend", 0, 103, 302);
+      window.dispatchEvent(new Event("resize"));
+      window.dispatchEvent(new Event("scroll"));
+      expect(close).toHaveBeenCalledTimes(1);
+      touch("touchstart", 1);
+      touch("touchend", 0, 100, 160);
+      window.dispatchEvent(new Event("scroll"));
+      expect(close).toHaveBeenCalledTimes(2);
+
       hoverAt(32, 12);
       clickHandle(handle);
       field.focus();
       // A mouse user's resized window moves the block out from under it.
       coarse = false;
       window.dispatchEvent(new Event("resize"));
-      expect(close).toHaveBeenCalledTimes(2);
+      expect(close).toHaveBeenCalledTimes(3);
     } finally {
       matchMedia.mockRestore();
       menu.remove();
