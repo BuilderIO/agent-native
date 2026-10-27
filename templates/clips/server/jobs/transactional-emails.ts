@@ -36,6 +36,7 @@ import {
   recapMonthRange,
   type MonthlyRecap,
 } from "../lib/recap-metrics.js";
+import { isRecordingExpiredForViewer } from "../lib/recording-page-access.js";
 import { ownerEmailMatches } from "../lib/recordings.js";
 import {
   AI_DISPATCH_STALE_MS,
@@ -84,6 +85,7 @@ type RecordingState = {
   status: string;
   archivedAt: string | null;
   trashedAt: string | null;
+  expiresAt: string | null;
 };
 
 type CountedView = {
@@ -294,12 +296,19 @@ function isImportedRecording(recording: RecordingState): boolean {
 
 function isActiveReadyRecording(
   recording: RecordingState | null,
+  recipient: string,
+  now: number,
 ): recording is RecordingState {
   return Boolean(
     recording &&
     recording.status === "ready" &&
     recording.archivedAt === null &&
-    recording.trashedAt === null,
+    recording.trashedAt === null &&
+    !isRecordingExpiredForViewer({
+      expiresAt: recording.expiresAt,
+      viewerIsOwner: normalizedEmail(recording.ownerEmail) === recipient,
+      now,
+    }),
   );
 }
 
@@ -520,6 +529,7 @@ function defaultRepository(): TransactionalEmailRepository {
           status: schema.recordings.status,
           archivedAt: schema.recordings.archivedAt,
           trashedAt: schema.recordings.trashedAt,
+          expiresAt: schema.recordings.expiresAt,
           meetingId: schema.meetings.id,
           meetingVisibility: schema.meetings.visibility,
         })
@@ -566,6 +576,7 @@ function defaultRepository(): TransactionalEmailRepository {
           status: schema.recordings.status,
           archivedAt: schema.recordings.archivedAt,
           trashedAt: schema.recordings.trashedAt,
+          expiresAt: schema.recordings.expiresAt,
           meetingId: schema.meetings.id,
           meetingVisibility: schema.meetings.visibility,
         })
@@ -964,6 +975,7 @@ async function makeSendInput(
   job: TransactionalEmailJob,
   repository: TransactionalEmailRepository,
   enabledAt: string,
+  now: number,
 ): Promise<ClipsTransactionalEmailInput | null> {
   const recipient = normalizedEmail(job.recipient);
   if (!recipient || isSuppressedTransactionalRecipient(recipient)) return null;
@@ -1007,7 +1019,12 @@ async function makeSendInput(
   const recordings = await Promise.all(
     job.recordingIds.map((recordingId) => repository.getRecording(recordingId)),
   );
-  if (!recordings.every(isActiveReadyRecording)) return null;
+  if (
+    !recordings.every((recording) =>
+      isActiveReadyRecording(recording, recipient, now),
+    )
+  )
+    return null;
 
   if (job.type === "unviewed-reminder") {
     if (
@@ -1287,7 +1304,12 @@ export async function runTransactionalEmailsOnce(
 
       const leaseToken = leased.leaseToken;
       if (!leaseToken) continue;
-      const input = await makeSendInput(leased, repository, config.enabledAt);
+      const input = await makeSendInput(
+        leased,
+        repository,
+        config.enabledAt,
+        now().getTime(),
+      );
       if (!input) {
         if (
           await store.transitionSending(

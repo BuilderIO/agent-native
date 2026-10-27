@@ -7,7 +7,6 @@ import {
 import {
   IconEye,
   IconEyeOff,
-  IconLayoutGrid,
   IconMinus,
   IconPlus,
   IconWaveSine,
@@ -768,15 +767,6 @@ export function FillProperties({
       emptyTitleActionLabel={t("editPanel.labels.addFill")}
       actions={
         <>
-          {/* design color-styles affordance (grid icon) to the left of "+".
-              Not yet implemented — disabled with a "Coming soon" tooltip
-              rather than a dead, silently-no-op click. */}
-          <SectionIconButton
-            label={t("editPanel.labels.stylesComingSoon")}
-            disabled
-          >
-            <IconLayoutGrid className="size-3.5" />
-          </SectionIconButton>
           {!hideAddFill && (onAddFill || !isTextFillElement || fillIsMixed) ? (
             <Popover open={nativeAddOpen} onOpenChange={setNativeAddOpen}>
               <PopoverAnchor asChild>

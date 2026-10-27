@@ -5,7 +5,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import type {
-  ContentDatabaseResponse,
+  ContentDatabaseResponsePayload,
   PrepareBuilderSourceExecutionRequest,
 } from "../shared/api.js";
 import {
@@ -26,7 +26,10 @@ import {
   getContentDatabaseSourceSnapshotForWrite,
   resolveDatabaseForSourceMutation,
 } from "./_database-source-utils.js";
-import { getContentDatabaseResponse } from "./_database-utils.js";
+import {
+  contentDatabaseResponseForCaller,
+  getContentDatabaseResponse,
+} from "./_database-utils.js";
 
 export default defineAction({
   description:
@@ -54,7 +57,8 @@ export default defineAction({
   }),
   run: async (
     args: PrepareBuilderSourceExecutionRequest,
-  ): Promise<ContentDatabaseResponse> => {
+    context,
+  ): Promise<ContentDatabaseResponsePayload> => {
     const timing = createBuilderSourceTiming(
       "prepare_builder_source_execution",
     );
@@ -299,7 +303,7 @@ export default defineAction({
       );
       const result = { ...response, timings: timing.finish() };
       timing.log("succeeded");
-      return result;
+      return contentDatabaseResponseForCaller(result, context);
     } catch (error) {
       timing.ensure("gate_preparation_and_dry_run_validation");
       timing.log("failed");

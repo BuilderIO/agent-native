@@ -173,6 +173,8 @@ const shared = useChatThreadList({ ownership: "shared", pageSize: 50 });
 
 Eine fehlgeschlagene Anfrage setzt `error` und behält die bereits geladenen Zeilen bei. Sie sieht nie wie eine leere Liste aus. `<ShareButton>` und `<ShareDialog>` aktualisieren eingebundene Chat-Listen nach dem Speichern. Wenn Sie die Freigabe eines Chats auf anderem Weg ändern, rufen Sie `notifyChatThreadsUpdated()` auf, damit eingebundene Listen neu laden.
 
+Anheftungen sind persönlich: `pinnedAt` bezeichnet die Anheftung des Aufrufers, auch bei geteilten Chats; Listen und Suche sortieren danach. `useChatThreads().pinThread(id, pinned)` bleibt unverändert. Beide Hooks bieten `hideThread(id, hidden)` für geteilte Chats. Ausgeblendete Chats erscheinen nur mit `includeHidden: true`; Listen und Einzelabrufe enthalten das persönliche `hiddenAt`. Das Öffnen per ID oder Link bleibt möglich. Eigentümer archivieren ihre Chats, statt sie auszublenden; Umbenennen und Archivieren bleiben ihnen vorbehalten. Bei Ablehnung wirft Ausblenden `ChatThreadMutationError` (`status`: 403 für Eigentümer, 404 ohne Zugriff); Erfolg liefert `true`. HTTP: `POST /_agent-native/agent-chat/threads/:id/hide` mit `{ hidden: boolean }`, Listen/Suche mit `includeHidden=1`. Das Tool `chat-history` unterstützt `pin`, `unpin`, `hide`, `unhide` und Suche mit `includeHidden: true`. Entzogener Zugriff verbirgt gespeicherten Betrachterstatus; beim Löschen des Chats wird er gelöscht.
+
 ## Gleiches Modell, gleicher Agent und gleicher UI {#agent-and-ui}
 
 Das Framework mountet diese actions automatisch in jeder Vorlage – der Agent nennt sie als Tools und der UI ruft sie über `useActionQuery` / `useActionMutation` auf:
@@ -361,3 +363,9 @@ Die gemeinsame Nutzung erfolgt auf dem umfassenderen Datenscoping-Modell des Fra
 - [**Authentifizierung**](/docs/authentication) – Sitzungen, Organisationen und wie Identität in den Anfragekontext fließt
 - [**Erweiterungen**](/docs/extensions#sharing) – Teilen in der Sandbox-Mini-App-Oberfläche
 - [**Vorlagen erstellen**](/docs/creating-templates) – `ownableColumns` mit dem Schema einer neuen Vorlage verbinden
+
+## Geteilten Chatverlauf
+
+`@agent-native/toolkit/app/chat/ownership-history` stellt `useOwnershipChatHistory()` und `OwnershipChatHistoryRail` für eine Chat-Seitenleiste mit getrennten Bereichen für eigene und geteilte Chats bereit. Geteilte Zeilen zeigen Eigentümer und Zugriffsgrund. Jeder Bereich wird separat paginiert. Bei fehlgeschlagenen Aktualisierungen bleiben geladene Zeilen und lokale Änderungen erhalten.
+
+Ein aktiver leerer Entwurf bleibt auswählbar und ausführbar, während sein erstes Speichern noch aussteht. Bis die Speicherung bestätigt ist, bleiben die Aktionen zum Anheften, Umbenennen und Archivieren verborgen. Der Adapter weist erzwungene Aufrufe dieser Rückruffunktionen ebenfalls zurück. `ownDraftRows` liefert den Herkunftsnachweis zur Speicherung eigener Entwürfe. Bestätigte eigene Zeilen aus der Serverliste behalten ihre normalen Aktionen. Setze bei eigenen `OwnDraftRow`-Werten das optionale Feld `persisted?: boolean` nur dann auf `true`, wenn die gespeicherte Serverzeile bestätigt dem aktuellen Nutzer gehört. Leite die Speicherung weder aus der Nachrichtenanzahl noch aus der aktiven ID ab. Rolle, Datenschutz und der Leerzustand des aktiven Entwurfs bleiben getrennte Angaben.

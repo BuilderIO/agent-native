@@ -7,6 +7,15 @@ description: "Der /turn-into-app-Skill wandelt einen Thread, einen Skill, eine T
 
 `/turn-into-app` ist ein Skill, der einen bereits bewährten Arbeitsablauf in eine Agent-Native-App umwandelt. Die Quelle kann ein Thread, ein Skill, eine Tabelle oder ein Claude- oder ChatGPT-Projekt sein. Die App öffnet sich in Ihrer Welt, befüllt mit Beispieldaten in der Form der Quelle, wobei der In-App-Agent hinter Steuerelementen an den Objekten arbeitet, auf die er wirkt. Ein Formular unter einer Schrittleiste ist genau das Ergebnis, das der Skill vermeiden soll.
 
+## Bevor Sie beginnen {#before-you-start}
+
+- Ein KI-Agent, der Terminalbefehle ausführen kann, etwa Claude Code, Codex oder Cursor. Claude oder ChatGPT im Web kann die Aufgabe stattdessen an Builder übergeben. Siehe [Wo er läuft](#hosts).
+- [Node.js](https://nodejs.org) 22.22 oder höher. Das Installationsprogramm von nodejs.org enthält `npx`, mit dem die folgenden Installationsbefehle laufen. Prüfen Sie Ihre Version mit `node --version`.
+- [pnpm](https://pnpm.io) in Ihrem `PATH`. Schlägt `pnpm --version` fehl, führen Sie `corepack enable` aus, das mit Node.js ausgeliefert wird.
+- Ein leerer Ordner für die neue App und etwa 45 Minuten.
+
+Sie brauchen keinen KI-Anbieter-Schlüssel, um die App zu bauen. Sie brauchen einen erst dann, wenn der In-App-Agent Ihnen antworten soll.
+
 ## Installation {#install}
 
 ```bash
@@ -43,10 +52,6 @@ Ein Host gilt als lokal, wenn er ein echtes Arbeitsverzeichnis, ein Terminal und
 
 Auf einem Browser-Host benötigt der Skill den Agent-Native-Dispatch-MCP-Connector (`https://dispatch.agent-native.com/mcp`, OAuth) und ruft dessen Aktion `start-workspace-app-creation` auf. Der Host kann die App weder ausführen noch prüfen, daher bleibt der Bericht ausstehend oder unverifiziert, bis der von Dispatch zurückgegebene Branch gebaut wurde. Der Skill meldet, was Dispatch tatsächlich zurückgegeben hat, und erfindet nie eine Branch-URL. Für ein ChatGPT-Projekt oder jeden Host, der nur MCP bereitstellt, legen Sie die Skill-Anweisungen in die Projektanweisungen oder in die Wissensdateien.
 
-## Lokale Voraussetzungen
-
-Auf einem lokalen Host müssen vor dem Start Node.js 22.22.0 oder neuer (mit npm und npx) und pnpm installiert sein. Browser-Hosts verwenden Dispatch und führen diese Befehle nicht aus.
-
 ## Quellen {#sources}
 
 - **Threads.** Die letzte konkrete, wiederholbare Aufgabe ist das Produkt.
@@ -67,7 +72,7 @@ Der Skill speichert sein Quell-Briefing als `docs/brief.md` und hängt den Oberf
 ## Ablauf eines Laufs {#how-it-works}
 
 1. **Briefing.** Er liest die gesamte Quelle und schreibt ein kurzes Briefing: die Aufgabe, höchstens drei Agent-Momente, Invarianten, Datenrisiken, maßgebliche Quelle und Annahmen.
-2. **Entwurf.** Er legt Archetyp, Richtung, Shell, ersten Viewport samt Beispieldaten und Agent-Momente fest und postet das Briefing einmal als Checkpoint. Er macht ohne Warten weiter.
+2. **Entwurf.** Er legt Archetyp, Richtung, Shell, ersten Viewport samt Beispieldaten und Agent-Momente fest und postet das Briefing einmal als Checkpoint, samt der Angabe, wie lange der Rest dauern wird. Er macht ohne Warten weiter.
 3. **Gerüst.** Er erstellt die echte App mit dem Chat-Template und überschreibt nie eine bestehende App.
 
    ```bash
@@ -82,6 +87,8 @@ Der Skill speichert sein Quell-Briefing als `docs/brief.md` und hängt den Oberf
 
 Der Skill peilt etwa 45 Minuten an. Sind beim Start des Reviews bereits 35 Minuten vergangen, führt er einen Durchgang aus und listet die offenen Kriterien auf.
 
+Bricht ein Lauf unterwegs ab, rufen Sie den Skill im selben Ordner erneut auf. Er findet die halbfertige App, sagt, was schon erledigt ist und was noch aussteht, und macht beim ersten unfertigen Schritt weiter, statt eine zweite App zu beginnen.
+
 ## Die Screenshot-Review-Schleife {#review-loop}
 
 Vor der Übergabe startet der Skill den Dev-Server und fotografiert `/` in Desktop- und Smartphone-Größe in Hell und Dunkel, dazu das wichtigste Agent-Steuerelement nach einem Klick. Er bewertet die Aufnahmen anhand einer Rubrik mit 12 Zeilen: Wirkung des ersten Viewports, Domänenpassung, Hierarchie, Chrome-Disziplin, Beispieldaten, Typografie, Farbe, Feinschliff, Agent und UI zusammen, 390-px-Layout, Dunkelmodus und Barrierefreiheit.
@@ -92,7 +99,7 @@ Screenshots werden in `.tmp/ui-review/out/` der App gespeichert, und der Abschlu
 
 ## Ausführen und bereitstellen {#run-deploy}
 
-Für die lokale Review setzt der Skill `AUTH_DISABLED=1` in der ignorierten `.env` der App, weil ein frischer Screenshot-Browser nicht angemeldet ist. Dies gilt nur für die Loopback-Entwicklung. Es wird vor dem abschließenden `pnpm build` entfernt und darf nie committet oder bereitgestellt werden. Ohne diese Einstellung zeigt die App beim Öffnen eine Karte „Continue as local dev“.
+Für die lokale Review setzt der Skill `AUTH_DISABLED=1` in der ignorierten `.env` der App, weil ein frischer Screenshot-Browser nicht angemeldet ist. Dies gilt nur für die Loopback-Entwicklung. Es wird vor dem abschließenden `pnpm build` entfernt und darf nie committet oder bereitgestellt werden. Anschließend wird der erste Browser, der die App öffnet, automatisch als lokales Dev-Konto angemeldet. Später geöffnete frische Browser zeigen eine Karte „Continue as local dev“.
 
 So führen Sie die App selbst aus:
 
@@ -100,7 +107,7 @@ So führen Sie die App selbst aus:
 pnpm dev
 ```
 
-Um lokal Ihren eigenen Modellanbieter zu nutzen, tragen Sie einen Schlüssel wie `ANTHROPIC_API_KEY` in dieselbe `.env` ein. Andernfalls zeigt die Agent-Seitenleiste die gemeinsame Einrichtung „Use Builder.io oder Custom keys“.
+Um lokal Ihren eigenen Modellanbieter zu nutzen, tragen Sie einen Schlüssel wie `ANTHROPIC_API_KEY` in dieselbe `.env` ein. Andernfalls öffnet sich die App trotzdem mit ihren Beispieldaten, und die Agent-Seitenleiste bietet die gemeinsame Einrichtung „Use Builder.io oder Custom keys“ an, wenn Sie den Agenten nutzen.
 
 Der Skill stellt nur bereit, wenn Sie darum bitten oder der Anbieter bereits konfiguriert ist. Ein gesunder lokaler Build gibt dennoch einen Block „production configuration errors“ mit Exit-Code 0 aus. Das ist die Bereitstellungs-Checkliste: ein stabiles `BETTER_AUTH_SECRET` und eine persistente `DATABASE_URL`, plus `A2A_SECRET` für eine App innerhalb eines Workspace. Der Skill meldet diese als ausstehenden Schritt und erzeugt keine Platzhalterwerte. Siehe [Eine App bereitstellen](/docs/deploy-an-app) und [Einen Workspace bereitstellen](/docs/workspace-deployment).
 

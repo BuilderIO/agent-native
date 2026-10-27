@@ -41,6 +41,7 @@ import {
   IconSquareRoot2,
 } from "@tabler/icons-react";
 import { Editor } from "@tiptap/react";
+import { yUndoPluginKey } from "@tiptap/y-tiptap";
 import React, {
   useState,
   useEffect,
@@ -257,6 +258,43 @@ function getActiveSlashCommandRange(editor: Editor) {
   return {
     from: blockStart + slashIndex,
     to: from,
+  };
+}
+
+/**
+ * Removes the typed slash query and returns a function that takes the
+ * removal back out of undo history. Undoing a command returns the block as it
+ * was before the slash, so the query must not come back as a separate step.
+ * When a command changes nothing, the removal has to stay the step undo
+ * reverses: Yjs passes over an undo step with nothing left to revert, so
+ * undoing the spent typing of the query would revert the edit before it.
+ * ProseMirror's own history, used without Yjs, cannot drop a step
+ * afterwards, so there the removal stays out of history.
+ */
+function removeSlashQuery(editor: Editor, range: { from: number; to: number }) {
+  const undoManager = yUndoPluginKey.getState(editor.state)?.undoManager;
+  if (!undoManager) {
+    editor
+      .chain()
+      .focus()
+      .command(({ tr }) => {
+        tr.setMeta("addToHistory", false);
+        return true;
+      })
+      .deleteRange(range)
+      .run();
+    return () => {};
+  }
+  undoManager.stopCapturing();
+  const depth = undoManager.undoStack.length;
+  editor.chain().focus().deleteRange(range).run();
+  const removal = undoManager.undoStack.slice(depth);
+  undoManager.stopCapturing();
+  return () => {
+    for (const step of removal) {
+      const index = undoManager.undoStack.indexOf(step);
+      if (index >= 0) undoManager.undoStack.splice(index, 1);
+    }
   };
 }
 
@@ -1361,15 +1399,18 @@ export function SlashCommandMenu({
         (slashPosRef.current !== null
           ? { from: slashPosRef.current, to: editor.state.selection.from }
           : null);
-      if (slashRange && !cmd.preserveSlashRange) {
-        editor.chain().focus().deleteRange(slashRange).run();
-      }
+      const removeQueryFromHistory =
+        slashRange && !cmd.preserveSlashRange
+          ? removeSlashQuery(editor, slashRange)
+          : null;
+      const docWithoutQuery = editor.state.doc;
       setIsOpen(false);
       setIsTurnInto(false);
       setQuery("");
       slashPosRef.current = null;
       await cmd.action(editor, { slashRange });
       if (!editor.isDestroyed && !editor.state.doc.eq(beforeDoc)) {
+        if (!editor.state.doc.eq(docWithoutQuery)) removeQueryFromHistory?.();
         const persisted = await onDraftCommitted?.();
         if (persisted === false) {
           toast.error(t("empty.genericError"));

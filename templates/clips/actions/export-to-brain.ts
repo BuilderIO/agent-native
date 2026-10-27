@@ -11,6 +11,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { writeBrainExportState } from "../server/lib/brain-export-state.js";
+import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import {
   getActiveOrganizationId,
   getCurrentOwnerEmail,
@@ -604,10 +605,8 @@ export default defineAction({
   }),
   run: async (args) => {
     if (args.recordingId) {
-      const access = await assertAccess(
-        "recording",
-        args.recordingId,
-        "editor",
+      const access = assertRecordingNotExpired(
+        await assertAccess("recording", args.recordingId, "editor"),
       );
       const destinationResult = await resolveBrainDestination();
       if (!destinationResult.destination) {

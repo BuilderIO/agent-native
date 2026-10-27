@@ -1120,6 +1120,15 @@ async function deleteCollectedDocuments(
       .where(
         inArray(schema.documentPropertyValues.propertyId, propertyIdBatch),
       );
+    // After the values: deleting them records a tombstone for each one.
+    await db
+      .delete(schema.documentPropertyValueTombstones)
+      .where(
+        inArray(
+          schema.documentPropertyValueTombstones.propertyId,
+          propertyIdBatch,
+        ),
+      );
     await db
       .delete(schema.documentBlockFieldContents)
       .where(
@@ -1165,6 +1174,15 @@ async function deleteCollectedDocuments(
         and(
           inArray(schema.documentPropertyValues.documentId, documentIdBatch),
           eq(schema.documentPropertyValues.ownerEmail, ownerEmail),
+        ),
+      );
+    // After the values: deleting them records a tombstone for each one.
+    await db
+      .delete(schema.documentPropertyValueTombstones)
+      .where(
+        inArray(
+          schema.documentPropertyValueTombstones.documentId,
+          documentIdBatch,
         ),
       );
     await db
@@ -1223,6 +1241,14 @@ async function deleteCollectedDocuments(
         ),
       );
     await db
+      .delete(schema.documentBodySteps)
+      .where(
+        and(
+          inArray(schema.documentBodySteps.documentId, documentIdBatch),
+          eq(schema.documentBodySteps.ownerEmail, ownerEmail),
+        ),
+      );
+    await db
       .delete(schema.builderDocSidecars)
       .where(
         and(
@@ -1241,6 +1267,13 @@ async function deleteCollectedDocuments(
     await db
       .delete(schema.documentShares)
       .where(inArray(schema.documentShares.resourceId, documentIdBatch));
+    // Webhook events about these pages, sent or waiting, carry their values
+    // and comments, so they go too; the webhooks stay for the rest.
+    await db
+      .delete(schema.contentWebhookDeliveries)
+      .where(
+        inArray(schema.contentWebhookDeliveries.documentId, documentIdBatch),
+      );
   });
 
   await deleteWhereIn(documentIds, async (documentIdBatch) => {

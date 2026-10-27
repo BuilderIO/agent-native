@@ -6,7 +6,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import type {
   BuilderCmsModelFieldSummary,
-  ContentDatabaseResponse,
+  ContentDatabaseResponsePayload,
   ContentDatabaseSourceFederation,
   ContentDatabaseSourceType,
 } from "../shared/api.js";
@@ -32,7 +32,10 @@ import {
   updateBuilderCmsSourceReadMetadata,
   writeSourceFederation,
 } from "./_database-source-utils.js";
-import { getContentDatabaseResponse } from "./_database-utils.js";
+import {
+  contentDatabaseResponseForCaller,
+  getContentDatabaseResponse,
+} from "./_database-utils.js";
 import { assertNotGitHubSource } from "./_document-source.js";
 import { readLocalTableEntries } from "./_local-table-source.js";
 
@@ -383,7 +386,7 @@ export default defineAction({
     limit: z.coerce.number().int().min(1).max(500).default(100),
     offset: z.coerce.number().int().min(0).default(0),
   }),
-  run: async (args): Promise<ContentDatabaseResponse> => {
+  run: async (args, context): Promise<ContentDatabaseResponsePayload> => {
     const database = await resolveDatabaseForSourceMutation(args);
     if (!database) throw new Error("Database not found.");
     await assertAccess("document", database.documentId, "editor");
@@ -577,9 +580,12 @@ export default defineAction({
       await ensureDatabaseSourceProperty({ database, now });
     }
 
-    return getContentDatabaseResponse(database.id, {
-      limit: args.limit ?? 100,
-      offset: args.offset ?? 0,
-    });
+    return contentDatabaseResponseForCaller(
+      await getContentDatabaseResponse(database.id, {
+        limit: args.limit ?? 100,
+        offset: args.offset ?? 0,
+      }),
+      context,
+    );
   },
 });

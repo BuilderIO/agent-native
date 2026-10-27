@@ -2,6 +2,10 @@ import crypto from "node:crypto";
 
 import { normalizeAnalyticsAnonymousId } from "../shared/analytics-anonymous-id.js";
 import { normalizeAnalyticsSessionId } from "../shared/analytics-session-id.js";
+import {
+  sanitizeMcpSignupAttribution,
+  type McpSignupAttribution,
+} from "./mcp-signup-attribution.js";
 
 export const MAGIC_LINK_ATTRIBUTION_PARAM = "signup_attribution";
 
@@ -14,6 +18,7 @@ export interface MagicLinkSignupAttribution {
   attribution?: Record<string, string>;
   anonymousId?: string;
   sessionId?: string;
+  mcpSignupAttribution?: McpSignupAttribution;
 }
 
 interface MagicLinkAttributionPayload extends MagicLinkSignupAttribution {
@@ -63,13 +68,17 @@ export function encodeMagicLinkSignupAttribution(
   const attribution = sanitizeAttribution(value.attribution);
   const anonymousId = normalizeAnalyticsAnonymousId(value.anonymousId);
   const sessionId = normalizeAnalyticsSessionId(value.sessionId);
-  if (!attribution && !anonymousId) return undefined;
+  const mcpSignupAttribution = sanitizeMcpSignupAttribution(
+    value.mcpSignupAttribution,
+  );
+  if (!attribution && !anonymousId && !mcpSignupAttribution) return undefined;
 
   const payload: MagicLinkAttributionPayload = {
     exp: Math.floor(now / 1000) + MAGIC_LINK_ATTRIBUTION_TTL_SECONDS,
     ...(attribution ? { attribution } : {}),
     ...(anonymousId ? { anonymousId } : {}),
     ...(sessionId ? { sessionId } : {}),
+    ...(mcpSignupAttribution ? { mcpSignupAttribution } : {}),
   };
   const data = encodePayload(payload);
   const signature = crypto
@@ -117,11 +126,17 @@ export function decodeMagicLinkSignupAttribution(
     const attribution = sanitizeAttribution(payload.attribution);
     const anonymousId = normalizeAnalyticsAnonymousId(payload.anonymousId);
     const sessionId = normalizeAnalyticsSessionId(payload.sessionId);
-    if (!attribution && !anonymousId) return undefined;
+    const mcpSignupAttribution = sanitizeMcpSignupAttribution(
+      payload.mcpSignupAttribution,
+    );
+    if (!attribution && !anonymousId && !mcpSignupAttribution) {
+      return undefined;
+    }
     return {
       ...(attribution ? { attribution } : {}),
       ...(anonymousId ? { anonymousId } : {}),
       ...(sessionId ? { sessionId } : {}),
+      ...(mcpSignupAttribution ? { mcpSignupAttribution } : {}),
     };
   } catch {
     // coercion-ok: malformed signed input is distinct from absent context.

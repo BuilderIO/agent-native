@@ -8,17 +8,28 @@ import {
   type H3Event,
 } from "h3";
 
+import { actionCallReadOnly } from "../action-call-classification.js";
 import { getBuilderGatewayRequestHeaders } from "../agent/engine/builder-gateway-headers.js";
 import {
   actionsToEngineTools,
+  toolCallCacheKey,
   type ActionEntry,
+  type AgentApprovalBinding,
 } from "../agent/production-agent.js";
+import {
+  consumeAgentToolApproval,
+  createAgentToolApproval,
+  denyAgentToolApproval,
+  isAgentToolAlwaysAllowed,
+  type AgentToolApprovalBinding,
+} from "../agent/tool-approval-store.js";
 import {
   redactSensitiveFields,
   sanitizeToolErrorText,
   sanitizeToolErrorValue,
 } from "../agent/tool-error-redaction.js";
 import {
+  createToolSearchEntry,
   isTargetedToolSearch,
   TOOL_SEARCH_ACTION_NAME,
 } from "../agent/tool-search.js";
@@ -53,6 +64,10 @@ export const REALTIME_VOICE_CAPABILITY_HEADER =
 export const REALTIME_VOICE_PROTOCOL_HEADER =
   "X-Agent-Native-Realtime-Protocol";
 export const REALTIME_VOICE_MODEL_HEADER = "X-Agent-Native-Realtime-Model";
+export const REALTIME_VOICE_INTELLIGENCE_HEADER =
+  "X-Agent-Native-Realtime-Intelligence";
+export const REALTIME_VOICE_PRIORITY_TOOLS_HEADER =
+  "X-Agent-Native-Realtime-Priority-Tools";
 
 const OPENAI_LIVE_SESSIONS_URL = "https://api.openai.com/v1/live/sessions";
 const OPENAI_REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
@@ -60,14 +75,21 @@ const DEFAULT_MODEL = "gpt-live-1";
 const LEGACY_MODEL = "gpt-realtime-2.1";
 const DEFAULT_DELEGATED_MODEL = "gpt-6-luna";
 const DEFAULT_VOICE = "marin";
-const DEFAULT_INSTRUCTIONS =
-  "You are the live voice interface for this Agent-Native app. Speak naturally, briefly, and conversationally. Use the available function tools when the user asks you to navigate or take an action. When the user asks about a previous conversation, saved chat details, or something they told you before, search with the `chat-history` tool before saying you cannot access it. Summarize a matching result and open a thread only when the user asks. If the user repeats a request, acknowledge the prior attempt and finish or correct the missing part instead of restarting from scratch or asking the same clarification again. Never claim an action succeeded until its tool result confirms success. If a tool requires approval, explain that the user must approve it in chat.";
+const DEFAULT_VOICE_INSTRUCTIONS =
+  'You are the live voice interface for this Agent-Native app. Speak naturally, briefly, and conversationally. Before each action, say a few words that name it, such as "On it, changing the heading." When a step takes more than a moment, say so in a few words instead of going silent. Say you are working on something only while an action is actually running, and report what its result says. If the user corrects themselves mid-sentence, act on what they said last. Never claim an action succeeded until its result confirms success.';
+const LIVE_DELEGATION_INSTRUCTIONS =
+  "Your backend agent holds the app's tools, including web search. Delegate every request to look something up, search the web, navigate, or change anything in the app. Never say you cannot do something before the backend has tried it.";
+const REALTIME_TOOL_INSTRUCTIONS =
+  "Use the function tools for every request to look something up, search the web, navigate, or change anything in the app. Never say you cannot do something before you have tried the tools.";
+const DEFAULT_TOOL_INSTRUCTIONS =
+  "You act for a live voice conversation in this Agent-Native app. Use the available function tools when the user asks you to look something up, navigate, or take an action. For a web search, call `web-search`, then `web-request` on the most relevant result. When you lack a tool for the request, call `tool-search` before saying the app cannot do it. When the user asks about a previous conversation, saved chat details, or something they told you before, search with the `chat-history` tool before saying you cannot access it. Summarize a matching result and open a thread only when the user asks. If the user repeats a request, acknowledge the prior attempt and finish or correct the missing part instead of restarting from scratch or asking the same clarification again. Never claim an action succeeded until its tool result confirms success. If a tool requires approval, say it needs the user's approval on screen and wait; you will be told whether they approved it and what it returned. Never call it again yourself.";
 const MAX_INSTRUCTIONS_CHARS = 16_000;
 const MAX_TOOL_DESCRIPTION_CHARS = 2_000;
 const MAX_APPROVAL_KEY_CHARS = 1_024;
 const REALTIME_TOOL_NAME = /^[A-Za-z0-9_-]{1,64}$/;
 const CALL_ID = /^[A-Za-z0-9_-]{1,256}$/;
 const SESSION_ID = /^[A-Za-z0-9_.:-]{1,256}$/;
+const APPROVAL_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const BROWSER_TAB_ID = /^[A-Za-z0-9_-]{1,96}$/;
 const ISO_639_1_LANGUAGE = /^[A-Za-z]{2}$/;
 const REALTIME_VOICE_BUILT_INS = new Set([
@@ -82,7 +104,21 @@ const REALTIME_VOICE_BUILT_INS = new Set([
   "marin",
   "cedar",
 ]);
-const REALTIME_VOICE_REASONING_EFFORT = {
+export const REALTIME_VOICE_INTELLIGENCE_LEVELS = [
+  "instant",
+  "balanced",
+  "deep",
+] as const;
+export type RealtimeVoiceIntelligence =
+  (typeof REALTIME_VOICE_INTELLIGENCE_LEVELS)[number];
+// The delegated Live model rejects "minimal", so its levels start at "low".
+const LIVE_REASONING_EFFORT = {
+  instant: "low",
+  balanced: "medium",
+  deep: "high",
+} as const;
+const LEGACY_REASONING_EFFORT = {
+  instant: "minimal",
   balanced: "low",
   deep: "medium",
 } as const;
@@ -94,6 +130,8 @@ const REALTIME_VOICE_PRIORITY_TOOLS = [
   "view-screen",
   "chat-history",
   TOOL_SEARCH_ACTION_NAME,
+  "web-search",
+  "web-request",
 ] as const;
 
 export interface RealtimeVoiceRequestContext {
@@ -107,6 +145,13 @@ export interface RealtimeVoiceToolExecutionRequest extends RealtimeVoiceRequestC
   name: string;
   args: Record<string, unknown>;
   callId: string;
+  /** The mounted actions plus the caller's own; run the call against these. */
+  actions: Record<string, ActionEntry>;
+  /**
+   * The approval record the user approved, from the call that asked. It runs
+   * only this call's exact arguments, and only once.
+   */
+  approvalId?: string;
   sessionId?: string;
 }
 
@@ -114,11 +159,33 @@ export interface RealtimeVoiceToolExecutionResult {
   status: "completed" | "failed" | "approval_required";
   output: string;
   approvalKey?: string;
+  /** The approval record the call asked for, so a decision names exactly it. */
+  approvalId?: string;
+}
+
+export interface RealtimeVoiceInstructions {
+  /** The spoken model (or the only model on the Realtime protocol). */
+  voice: string;
+  /** The delegated model that calls the tools. */
+  tools: string;
 }
 
 export interface MountRealtimeVoiceRoutesOptions {
   model?: string;
   voice?: string;
+  /**
+   * How the voice agent talks and sizes its actions. Both the spoken model and
+   * the tool-using model read it, ahead of the app context.
+   */
+  voiceInstructions?: string;
+  /**
+   * Tools loaded at session start after the framework's navigation and search
+   * tools, so common requests skip a `tool-search` round trip.
+   */
+  priorityToolNames?: readonly string[];
+  /** The intelligence a session uses until the user picks one. */
+  defaultIntelligence?: RealtimeVoiceIntelligence;
+  /** App context for the tool-using model. */
   instructions?: string;
   getInstructions?: (
     context: RealtimeVoiceRequestContext,
@@ -126,6 +193,14 @@ export interface MountRealtimeVoiceRoutesOptions {
   resolveOrgId?: (
     event: H3Event,
   ) => string | null | undefined | Promise<string | null | undefined>;
+  /**
+   * The caller's own actions, such as their connected MCP servers' tools,
+   * resolved for each voice request on top of the mounted ones. A mounted
+   * action keeps its name.
+   */
+  resolveRequestActions?: (
+    context: RealtimeVoiceRequestContext,
+  ) => Promise<Record<string, ActionEntry>>;
   executeTool: (
     request: RealtimeVoiceToolExecutionRequest,
   ) =>
@@ -191,23 +266,25 @@ export function resolveRealtimeVoiceLanguagePreference(
     : resolveRealtimeVoiceTranscriptionLanguage(acceptLanguage);
 }
 
+export function resolveRealtimeVoiceIntelligence(
+  value: string | null | undefined,
+  fallback: RealtimeVoiceIntelligence = "instant",
+): RealtimeVoiceIntelligence {
+  const normalized = value?.trim().toLowerCase();
+  return (REALTIME_VOICE_INTELLIGENCE_LEVELS as readonly string[]).includes(
+    normalized ?? "",
+  )
+    ? (normalized as RealtimeVoiceIntelligence)
+    : fallback;
+}
+
 export function resolveRealtimeVoiceReasoningEffort(
   value: string | null | undefined,
   protocol: "live" | "realtime" = "live",
-): "minimal" | "low" | "medium" {
-  const normalized = value?.trim().toLowerCase();
-  if (normalized === "instant") {
-    return protocol === "realtime" ? "minimal" : "low";
-  }
-  return normalized &&
-    Object.prototype.hasOwnProperty.call(
-      REALTIME_VOICE_REASONING_EFFORT,
-      normalized,
-    )
-    ? REALTIME_VOICE_REASONING_EFFORT[
-        normalized as keyof typeof REALTIME_VOICE_REASONING_EFFORT
-      ]
-    : "low";
+): "minimal" | "low" | "medium" | "high" {
+  const levels =
+    protocol === "live" ? LIVE_REASONING_EFFORT : LEGACY_REASONING_EFFORT;
+  return levels[resolveRealtimeVoiceIntelligence(value)];
 }
 
 export function resolveRealtimeVoicePreference(
@@ -296,6 +373,7 @@ function normalizeToolSchema(
 
 function buildRealtimeTools(
   actions: Record<string, ActionEntry>,
+  appPriorityToolNames: readonly string[] = [],
 ): RealtimeFunctionTool[] {
   const tools: RealtimeFunctionTool[] = [];
   for (const tool of actionsToEngineTools(actions)) {
@@ -312,9 +390,13 @@ function buildRealtimeTools(
       parameters,
     });
   }
-  const priority = new Map<string, number>(
-    REALTIME_VOICE_PRIORITY_TOOLS.map((name, index) => [name, index]),
-  );
+  const priority = new Map<string, number>();
+  for (const name of [
+    ...REALTIME_VOICE_PRIORITY_TOOLS,
+    ...appPriorityToolNames,
+  ]) {
+    if (!priority.has(name)) priority.set(name, priority.size);
+  }
   return tools
     .map((tool, index) => ({ tool, index }))
     .sort((left, right) => {
@@ -328,6 +410,14 @@ function buildRealtimeTools(
       return left.index - right.index;
     })
     .map(({ tool }) => tool);
+}
+
+/**
+ * Strict schemas make every optional parameter required, so the delegated
+ * model fills each one with a placeholder the action rejects, and retries.
+ */
+function delegatedRealtimeTool(tool: RealtimeFunctionTool) {
+  return { ...tool, strict: false };
 }
 
 function realtimeSessionWithTools(
@@ -348,7 +438,7 @@ function realtimeSessionWithTools(
         type: "responses",
         responses: {
           ...responses,
-          tools,
+          tools: tools.map(delegatedRealtimeTool),
           tool_choice: "auto",
         },
       },
@@ -508,19 +598,51 @@ async function authenticateVoiceRequest(
   };
 }
 
+export function composeRealtimeVoiceInstructions(input: {
+  protocol: "live" | "realtime";
+  voiceInstructions?: string | null | undefined;
+  appInstructions?: string | null | undefined;
+}): RealtimeVoiceInstructions {
+  const voiceGuidance = input.voiceInstructions?.trim();
+  const appContext = input.appInstructions?.trim();
+  const compose = (parts: Array<string | undefined>) =>
+    truncate(
+      sanitizeToolErrorText(parts.filter(Boolean).join("\n\n")),
+      MAX_INSTRUCTIONS_CHARS,
+    );
+  const tools = compose([DEFAULT_TOOL_INSTRUCTIONS, voiceGuidance, appContext]);
+  if (input.protocol === "live") {
+    return {
+      voice: compose([
+        DEFAULT_VOICE_INSTRUCTIONS,
+        LIVE_DELEGATION_INSTRUCTIONS,
+        voiceGuidance,
+      ]),
+      tools,
+    };
+  }
+  // One Realtime model both speaks and calls the tools.
+  const realtime = compose([
+    DEFAULT_VOICE_INSTRUCTIONS,
+    REALTIME_TOOL_INSTRUCTIONS,
+    DEFAULT_TOOL_INSTRUCTIONS,
+    voiceGuidance,
+    appContext,
+  ]);
+  return { voice: realtime, tools: realtime };
+}
+
 async function buildInstructions(
   context: RealtimeVoiceRequestContext,
   options: MountRealtimeVoiceRoutesOptions,
-): Promise<string> {
+  protocol: "live" | "realtime",
+): Promise<RealtimeVoiceInstructions> {
   const dynamic = await options.getInstructions?.(context);
-  const appInstructions = dynamic ?? options.instructions;
-  if (!appInstructions?.trim()) return DEFAULT_INSTRUCTIONS;
-  return truncate(
-    sanitizeToolErrorText(
-      `${DEFAULT_INSTRUCTIONS}\n\n${appInstructions.trim()}`,
-    ),
-    MAX_INSTRUCTIONS_CHARS,
-  );
+  return composeRealtimeVoiceInstructions({
+    protocol,
+    voiceInstructions: options.voiceInstructions,
+    appInstructions: dynamic ?? options.instructions,
+  });
 }
 
 export async function realtimeVoiceSafetyIdentifier(
@@ -540,8 +662,18 @@ function invalidMethod(event: H3Event): { error: string } {
   return { error: "Method not allowed" };
 }
 
+interface RealtimeVoiceRequestTools {
+  actions: Record<string, ActionEntry>;
+  tools: RealtimeFunctionTool[];
+  toolsByName: ReadonlyMap<string, RealtimeFunctionTool>;
+}
+
+type ResolveRealtimeVoiceTools = (
+  context: RealtimeVoiceRequestContext,
+) => Promise<RealtimeVoiceRequestTools>;
+
 function createSessionHandler(
-  tools: RealtimeFunctionTool[],
+  resolveTools: ResolveRealtimeVoiceTools,
   options: MountRealtimeVoiceRoutesOptions,
 ) {
   return defineEventHandler(async (event: H3Event) => {
@@ -606,7 +738,6 @@ function createSessionHandler(
           };
         }
 
-        const instructions = await buildInstructions(auth, options);
         const transcriptionLanguage = resolveRealtimeVoiceLanguagePreference(
           readSafeHeader(event, "x-agent-native-realtime-language"),
           readSafeHeader(event, "accept-language"),
@@ -620,9 +751,20 @@ function createSessionHandler(
           protocol === "realtime" && configuredModel === DEFAULT_MODEL
             ? LEGACY_MODEL
             : configuredModel;
+        const sessionProtocol = model === DEFAULT_MODEL ? "live" : "realtime";
+        const instructions = await buildInstructions(
+          auth,
+          options,
+          sessionProtocol,
+        );
+        // A missing header means the user has not picked a level.
+        const intelligence = resolveRealtimeVoiceIntelligence(
+          readSafeHeader(event, REALTIME_VOICE_INTELLIGENCE_HEADER),
+          resolveRealtimeVoiceIntelligence(options.defaultIntelligence),
+        );
         const reasoningEffort = resolveRealtimeVoiceReasoningEffort(
-          readSafeHeader(event, "x-agent-native-realtime-intelligence"),
-          model === DEFAULT_MODEL ? "live" : "realtime",
+          intelligence,
+          sessionProtocol,
         );
         const voice = resolveRealtimeVoicePreference(
           readSafeHeader(event, "x-agent-native-realtime-voice"),
@@ -632,13 +774,13 @@ function createSessionHandler(
           model === DEFAULT_MODEL
             ? {
                 model,
-                instructions: `${instructions}\n\nSpeak in ${transcriptionLanguage} unless the user asks to switch languages.`,
+                instructions: `${instructions.voice}\n\nSpeak in ${transcriptionLanguage} unless the user asks to switch languages.`,
                 audio: { output: { voice } },
                 delegation: {
                   type: "responses",
                   responses: {
                     model: DEFAULT_DELEGATED_MODEL,
-                    instructions,
+                    instructions: instructions.tools,
                     parallel_tool_calls: false,
                     reasoning: { effort: reasoningEffort },
                   },
@@ -647,7 +789,7 @@ function createSessionHandler(
             : {
                 type: "realtime",
                 model: model === LEGACY_MODEL ? LEGACY_MODEL : model,
-                instructions,
+                instructions: instructions.voice,
                 parallel_tool_calls: false,
                 reasoning: { effort: reasoningEffort },
                 output_modalities: ["audio"],
@@ -669,6 +811,22 @@ function createSessionHandler(
                   },
                 },
               };
+        let tools: RealtimeFunctionTool[];
+        try {
+          ({ tools } = await resolveTools(auth));
+        } catch (error) {
+          // Starting without the caller's tools would hide them; say why.
+          setResponseStatus(event, 503);
+          return {
+            error: truncate(
+              `Could not load your connected tools for voice chat: ${
+                sanitizeToolErrorValue(error) || "unknown error"
+              }`,
+              REALTIME_VOICE_MAX_TOOL_OUTPUT_CHARS,
+            ),
+            code: "realtime_voice_tools_unavailable",
+          };
+        }
         const packedTools = packRealtimeTools(sessionBase, tools);
         const session = realtimeSessionWithTools(sessionBase, packedTools);
 
@@ -816,6 +974,22 @@ function createSessionHandler(
           model === DEFAULT_MODEL ? "live" : "realtime",
         );
         setResponseHeader(event, REALTIME_VOICE_MODEL_HEADER, model);
+        setResponseHeader(
+          event,
+          REALTIME_VOICE_INTELLIGENCE_HEADER,
+          intelligence,
+        );
+        const packedNames = new Set(packedTools.map((tool) => tool.name));
+        const priorityToolNames = (options.priorityToolNames ?? []).filter(
+          (name) => packedNames.has(name),
+        );
+        if (priorityToolNames.length > 0) {
+          setResponseHeader(
+            event,
+            REALTIME_VOICE_PRIORITY_TOOLS_HEADER,
+            priorityToolNames.join(","),
+          );
+        }
         return answerSdp;
       },
     );
@@ -832,9 +1006,19 @@ function parseToolRequest(value: unknown): {
   callId: string;
   sessionId?: string;
   browserTabId?: string;
+  approvalId?: string;
+  declinedApprovalId?: string;
 } | null {
   if (!isRecord(value)) return null;
-  const { name, args, callId, sessionId, browserTabId } = value;
+  const {
+    name,
+    args,
+    callId,
+    sessionId,
+    browserTabId,
+    approvalId,
+    declinedApprovalId,
+  } = value;
   if (typeof name !== "string" || !REALTIME_TOOL_NAME.test(name)) return null;
   if (typeof callId !== "string" || !CALL_ID.test(callId)) return null;
   if (!isRecord(args)) return null;
@@ -850,12 +1034,19 @@ function parseToolRequest(value: unknown): {
   ) {
     return null;
   }
+  for (const id of [approvalId, declinedApprovalId]) {
+    if (id !== undefined && (typeof id !== "string" || !APPROVAL_ID.test(id))) {
+      return null;
+    }
+  }
   return {
     name,
     args,
     callId,
     ...(sessionId ? { sessionId } : {}),
     ...(browserTabId ? { browserTabId } : {}),
+    ...(typeof approvalId === "string" ? { approvalId } : {}),
+    ...(typeof declinedApprovalId === "string" ? { declinedApprovalId } : {}),
   };
 }
 
@@ -883,11 +1074,21 @@ function normalizeExecutionResult(
     result.approvalKey.length <= MAX_APPROVAL_KEY_CHARS
       ? { approvalKey: result.approvalKey }
       : {}),
+    ...(status === "approval_required" &&
+    typeof result.approvalId === "string" &&
+    APPROVAL_ID.test(result.approvalId)
+      ? { approvalId: result.approvalId }
+      : {}),
   };
 }
 
+/** Omitted when the call is unclassified, so it never reads as a write. */
+function readOnlyField(readOnly: boolean | undefined) {
+  return readOnly === undefined ? {} : { readOnly };
+}
+
 function createToolHandler(
-  toolsByName: ReadonlyMap<string, RealtimeFunctionTool>,
+  resolveTools: ResolveRealtimeVoiceTools,
   options: MountRealtimeVoiceRoutesOptions,
 ) {
   return defineEventHandler(async (event: H3Event) => {
@@ -957,9 +1158,7 @@ function createToolHandler(
     }
 
     const browserTabId = capability.browserTabId;
-    const threadId = request.sessionId
-      ? `realtime:${request.sessionId}`
-      : `realtime:${request.callId}`;
+    const threadId = realtimeVoiceThreadId(request);
     return runWithRequestContext(
       {
         userEmail: auth.userEmail,
@@ -971,7 +1170,25 @@ function createToolHandler(
         },
       },
       async () => {
+        if (request.declinedApprovalId) {
+          const declined = await denyAgentToolApproval({
+            approvalId: request.declinedApprovalId,
+            ownerEmail: auth.userEmail,
+            orgId: auth.orgId ?? null,
+            threadId,
+          });
+          if (declined === "not_applied") setResponseStatus(event, 409);
+          return {
+            callId: request.callId,
+            status: declined === "not_applied" ? "failed" : "completed",
+            output:
+              declined === "not_applied"
+                ? "The approval could not be declined."
+                : "Declined; the call did not run.",
+          };
+        }
         try {
+          const { actions, toolsByName } = await resolveTools(auth);
           const result = normalizeExecutionResult(
             await options.executeTool({
               event,
@@ -979,6 +1196,7 @@ function createToolHandler(
               orgId: auth.orgId,
               ...request,
               ...(browserTabId ? { browserTabId } : {}),
+              actions,
             }),
           );
           const expandedTools = grantDiscoveredRealtimeTools({
@@ -988,9 +1206,15 @@ function createToolHandler(
             initialAllowedNames: capability.initialNames,
             capability,
           });
+          const entry = Object.hasOwn(actions, request.name)
+            ? actions[request.name]
+            : undefined;
           return {
             callId: request.callId,
             ...result,
+            ...readOnlyField(
+              entry ? actionCallReadOnly(entry, request.args) : undefined,
+            ),
             ...(expandedTools.length > 0
               ? {
                   expandedTools,
@@ -1014,6 +1238,77 @@ function createToolHandler(
   });
 }
 
+/** The thread a voice tool call runs in: its session's, or its own. */
+export function realtimeVoiceThreadId(request: {
+  sessionId?: string | undefined;
+  callId: string;
+}): string {
+  // guard:allow-realtime-opt-in — a thread id prefix, not a realtime sync opt-in
+  return `realtime:${request.sessionId ?? request.callId}`;
+}
+
+/**
+ * Approval hooks for one voice tool call. A voice session is one approval
+ * scope, so the approval a call asks for is consumed by the user's approved
+ * retry of that exact call, and an "always allow" from chat applies here too.
+ */
+export function realtimeVoiceApprovalHooks(
+  request: Pick<
+    RealtimeVoiceToolExecutionRequest,
+    | "userEmail"
+    | "orgId"
+    | "sessionId"
+    | "callId"
+    | "name"
+    | "args"
+    | "approvalId"
+  >,
+) {
+  let recordedApprovalId: string | undefined;
+  const scope = realtimeVoiceThreadId(request);
+  const orgId = request.orgId ?? null;
+  const storeBinding = (
+    binding: AgentApprovalBinding,
+  ): AgentToolApprovalBinding => ({
+    ownerEmail: request.userEmail,
+    orgId,
+    threadId: scope,
+    turnId: scope,
+    toolName: binding.toolName,
+    toolRevision: binding.toolRevision,
+    callId: binding.callId,
+    approvalKey: binding.approvalKey,
+    argumentsHash: binding.argumentsHash,
+    ...(binding.approvalId ? { approvalId: binding.approvalId } : {}),
+  });
+  return {
+    // The key comes from this call, not the client, so it fits any argument
+    // size; consuming the exact record keeps a duplicate pending request from
+    // making the match ambiguous.
+    ...(request.approvalId
+      ? {
+          approvedToolCalls: [toolCallCacheKey(request.name, request.args)],
+          approvedToolCallAskId: request.approvalId,
+        }
+      : {}),
+    onApprovalRequired: async (binding: AgentApprovalBinding) => {
+      recordedApprovalId = await createAgentToolApproval(storeBinding(binding));
+      return recordedApprovalId;
+    },
+    /** The approval record this call asked for, once it asked. */
+    recordedApprovalId: () => recordedApprovalId,
+    consumeApproval: (binding: AgentApprovalBinding) =>
+      consumeAgentToolApproval(storeBinding(binding)),
+    isToolAlwaysAllowed: (binding: AgentApprovalBinding) =>
+      isAgentToolAlwaysAllowed({
+        ownerEmail: request.userEmail,
+        orgId,
+        toolName: binding.toolName,
+        toolRevision: binding.toolRevision,
+      }),
+  };
+}
+
 export function mountRealtimeVoiceRoutes(
   nitroApp: any,
   actions: Record<string, ActionEntry>,
@@ -1023,11 +1318,50 @@ export function mountRealtimeVoiceRoutes(
     throw new Error("mountRealtimeVoiceRoutes requires executeTool");
   }
 
-  const tools = buildRealtimeTools(actions);
-  const toolsByName = new Map(tools.map((tool) => [tool.name, tool]));
+  // Converting every action's schema is mount-time work a cold instance pays
+  // on its first framework request, voice or not, so the tools wait for the
+  // first voice request. They come from the actions as mounted.
+  const mounted = { ...actions };
+  let tools: RealtimeFunctionTool[] | undefined;
+  let toolsByName: ReadonlyMap<string, RealtimeFunctionTool> | undefined;
+  const getTools = () =>
+    (tools ??= buildRealtimeTools(mounted, options.priorityToolNames));
+  const getToolsByName = () =>
+    (toolsByName ??= new Map(getTools().map((tool) => [tool.name, tool])));
+  const resolveTools: ResolveRealtimeVoiceTools = async (context) => {
+    const mountedTools = () => ({
+      actions: mounted,
+      tools: getTools(),
+      toolsByName: getToolsByName(),
+    });
+    if (!options.resolveRequestActions) return mountedTools();
+    const requestActions = Object.entries(
+      await options.resolveRequestActions(context),
+    ).filter(([name]) => !Object.hasOwn(mounted, name));
+    if (requestActions.length === 0) return mountedTools();
+    const actions: Record<string, ActionEntry> = {
+      ...mounted,
+      ...Object.fromEntries(requestActions),
+    };
+    if (Object.hasOwn(actions, TOOL_SEARCH_ACTION_NAME)) {
+      actions[TOOL_SEARCH_ACTION_NAME] = createToolSearchEntry(() => actions);
+    }
+    const tools = [
+      ...getTools(),
+      ...buildRealtimeTools(Object.fromEntries(requestActions)),
+    ];
+    return {
+      actions,
+      tools,
+      toolsByName: new Map(tools.map((tool) => [tool.name, tool])),
+    };
+  };
   const app = getH3App(nitroApp);
-  app.use(REALTIME_VOICE_SESSION_PATH, createSessionHandler(tools, options));
-  app.use(REALTIME_VOICE_TOOL_PATH, createToolHandler(toolsByName, options));
+  app.use(
+    REALTIME_VOICE_SESSION_PATH,
+    createSessionHandler(resolveTools, options),
+  );
+  app.use(REALTIME_VOICE_TOOL_PATH, createToolHandler(resolveTools, options));
   return {
     sessionPath: REALTIME_VOICE_SESSION_PATH,
     toolPath: REALTIME_VOICE_TOOL_PATH,

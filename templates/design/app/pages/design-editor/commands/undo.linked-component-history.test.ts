@@ -213,8 +213,6 @@ function commandArgs() {
     restoreSelectionSnapshot,
     runtimeStructureInsertRevisionRef: { current: 0 },
     runtimeStructureMoveRevisionRef: { current: 0 },
-    selectionRedoStackRef: { current: [] },
-    selectionUndoStackRef: { current: [] },
     setActiveFileId: vi.fn(),
     setContentRenderRevision: vi.fn(),
     setHoveredElement: vi.fn(),

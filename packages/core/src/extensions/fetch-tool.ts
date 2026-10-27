@@ -1,3 +1,4 @@
+import { fail, isActionContractError } from "../action.js";
 /**
  * Fetch tool — outbound HTTP for automations and agent use.
  *
@@ -9,9 +10,8 @@
  * Values are resolved server-side AFTER the model emits the tool call —
  * the raw secret never enters the model's context.
  */
-
-import { fail, isActionContractError } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import { frameworkMcpTools } from "../mcp/framework-tools.js";
 import type { ResolvedKeyReference } from "../secrets/substitution.js";
 import { SAVE_TO_FILE_MAX_BYTES } from "../workspace-files/constants.js";
 import {
@@ -155,7 +155,7 @@ export interface FetchToolOptions {
 export function createFetchToolEntry(
   opts: FetchToolOptions = {},
 ): Record<string, ActionEntry> {
-  return {
+  return frameworkMcpTools({
     "web-request": {
       // Non-GET requests and saveToFile write, and MCP cannot tell calls apart.
       mcpAnnotations: {
@@ -725,7 +725,7 @@ export function createFetchToolEntry(
       },
       readOnly: true,
     },
-  };
+  });
 }
 
 function parseBooleanArg(value: unknown): boolean {

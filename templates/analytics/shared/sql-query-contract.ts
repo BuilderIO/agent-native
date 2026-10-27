@@ -7,6 +7,8 @@ export interface SqlQueryExecutionMetadata {
   /** The provider reported a query-cache hit; absent means unknown. */
   providerCacheHit?: boolean;
   truncated?: boolean;
+  /** The provider returned incomplete rows with query warnings. */
+  partial?: boolean;
   /** When these rows were first received, preserved across cache hits. */
   fetchedAt?: string;
   /**

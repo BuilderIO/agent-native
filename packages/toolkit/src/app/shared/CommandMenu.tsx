@@ -33,16 +33,7 @@ import {
   DialogTitle,
 } from "@agent-native/toolkit/ui/dialog";
 import { cn } from "@agent-native/toolkit/utils";
-import {
-  IconBook2,
-  IconArrowLeft,
-  IconExternalLink,
-  IconInfoCircle,
-  IconMessage,
-  IconHistory,
-  IconLogout,
-  IconSettings,
-} from "@tabler/icons-react";
+import { IconExternalLink } from "@tabler/icons-react";
 import { useCommandState } from "cmdk";
 import React, {
   createContext,
@@ -218,7 +209,7 @@ function CommandItem({
 
   return (
     <CommandItemPrimitive
-      className={cn("cursor-pointer gap-2", className)}
+      className={cn("min-h-8 cursor-pointer gap-2", className)}
       onSelect={handleSelect}
       value={value}
       disabled={disabled || !selectionEnabled}
@@ -300,8 +291,13 @@ interface AppCommandBase<TAppContext> {
   shortcutHint?: string;
   description?: string;
   metadata?: ReactNode;
+  /** @deprecated Command rows are text-only; this is no longer rendered. */
   icon?: ReactNode;
   preview?:
+    | ReactNode
+    | ((context: AppCommandContext<TAppContext>) => ReactNode);
+  /** Content rendered at the end of this command's selected row. */
+  inlinePreview?:
     | ReactNode
     | ((context: AppCommandContext<TAppContext>) => ReactNode);
   visibleWhen?: (context: AppCommandContext<TAppContext>) => boolean;
@@ -436,9 +432,8 @@ function CommandDocsGroup({ docs, heading = "Docs" }: CommandDocsGroupProps) {
           onSelect={() => openDocsHref(doc.href)}
           keywords={[doc.title, doc.description ?? "", ...(doc.keywords ?? [])]}
           deferSelect={false}
-          className="items-start py-2"
+          className="items-start"
         >
-          <IconBook2 className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
           <span className="min-w-0 flex-1">
             <span className="block truncate font-medium">{doc.title}</span>
             {doc.description ? (
@@ -877,9 +872,10 @@ export function CommandMenu<TAppContext = unknown>({
           firstEnabledAppCommand?.value ??
           NO_COMMAND_SELECTION)
         : undefined;
+  const selectedAppCommandValue = commandMenuValue ?? selectedCommandValue;
   const previewAppCommand =
     appCommandEntries.find(
-      (entry) => entry.value === (commandMenuValue ?? selectedCommandValue),
+      (entry) => entry.value === selectedAppCommandValue,
     ) ?? selectedAppCommand;
   const appPreview = previewAppCommand?.command.preview;
   const renderedAppPreview =
@@ -951,7 +947,7 @@ export function CommandMenu<TAppContext = unknown>({
               type="button"
               aria-label={t("onboarding.back")}
               data-testid="command-menu-page-back"
-              className="flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-2 text-start text-sm outline-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground"
+              className="flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-start text-sm outline-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground"
               onClick={goBackToAppPage}
               onKeyDown={(event) => {
                 if (event.key === "Enter" || event.key === " ") {
@@ -959,7 +955,6 @@ export function CommandMenu<TAppContext = unknown>({
                 }
               }}
             >
-              <IconArrowLeft className="h-4 w-4 text-muted-foreground" />
               <span>{t("onboarding.back")}</span>
               <CommandShortcutPrimitive>Esc</CommandShortcutPrimitive>
             </button>
@@ -973,6 +968,12 @@ export function CommandMenu<TAppContext = unknown>({
             {commands.map((command) => {
               const value = `app-command:${group.id}:${command.id}`;
               const enabled = command.enabledWhen?.(appCommandContext) ?? true;
+              const inlinePreview =
+                value === selectedAppCommandValue
+                  ? typeof command.inlinePreview === "function"
+                    ? command.inlinePreview(appCommandContext)
+                    : command.inlinePreview
+                  : null;
               return (
                 <CommandItemPrimitive
                   key={command.id}
@@ -981,10 +982,9 @@ export function CommandMenu<TAppContext = unknown>({
                     !enabled ||
                     (initialSelection === "none" && !selectionEnabled)
                   }
-                  className="cursor-pointer gap-2 py-2"
+                  className="min-h-8 cursor-pointer gap-2"
                   onSelect={() => selectAppCommand(command)}
                 >
-                  {command.icon}
                   <span className="min-w-0 flex-1">
                     <span className="block truncate">{command.label}</span>
                     {command.description ? (
@@ -1002,6 +1002,14 @@ export function CommandMenu<TAppContext = unknown>({
                     <CommandShortcutPrimitive>
                       {command.shortcutHint}
                     </CommandShortcutPrimitive>
+                  ) : null}
+                  {inlinePreview != null ? (
+                    <div
+                      data-testid="command-menu-app-command-preview"
+                      className="ms-auto min-w-0"
+                    >
+                      {inlinePreview}
+                    </div>
                   ) : null}
                 </CommandItemPrimitive>
               );
@@ -1033,11 +1041,10 @@ export function CommandMenu<TAppContext = unknown>({
                 {hasResults && <CommandSeparator />}
                 <div className="p-1">
                   <CommandItemPrimitive
-                    className="cursor-pointer gap-2 py-2"
+                    className="min-h-8 cursor-pointer gap-2"
                     disabled={initialSelection === "none" && !selectionEnabled}
                     onSelect={handleOpenSettings}
                   >
-                    <IconSettings className="h-4 w-4 text-muted-foreground" />
                     <span>{settingsLabel}</span>
                     <CommandShortcutPrimitive>
                       {getSettingsShortcutHint(isApplePlatform())}
@@ -1052,11 +1059,10 @@ export function CommandMenu<TAppContext = unknown>({
                 {(hasResults || showSettingsRow) && <CommandSeparator />}
                 <div className="p-1">
                   <CommandItemPrimitive
-                    className="cursor-pointer gap-2 py-2"
+                    className="min-h-8 cursor-pointer gap-2"
                     disabled={initialSelection === "none" && !selectionEnabled}
                     onSelect={openChangelog}
                   >
-                    <IconHistory className="h-4 w-4 text-muted-foreground" />
                     <span>{changelogLabel}</span>
                     {changelogUnseen && (
                       <span
@@ -1076,11 +1082,10 @@ export function CommandMenu<TAppContext = unknown>({
                 )}
                 <div className="p-1">
                   <CommandItemPrimitive
-                    className="cursor-pointer gap-2 py-2"
+                    className="min-h-8 cursor-pointer gap-2"
                     disabled={initialSelection === "none" && !selectionEnabled}
                     onSelect={openAbout}
                   >
-                    <IconInfoCircle className="h-4 w-4 text-muted-foreground" />
                     <span>{aboutLabel}</span>
                   </CommandItemPrimitive>
                 </div>
@@ -1095,11 +1100,10 @@ export function CommandMenu<TAppContext = unknown>({
                   showAboutRow) && <CommandSeparator />}
                 <div className="p-1">
                   <CommandItemPrimitive
-                    className="cursor-pointer gap-2 py-2"
+                    className="min-h-8 cursor-pointer gap-2"
                     disabled={initialSelection === "none" && !selectionEnabled}
                     onSelect={handleSignOut}
                   >
-                    <IconLogout className="h-4 w-4 text-muted-foreground rtl:-scale-x-100" />
                     <span>{signOutLabel}</span>
                   </CommandItemPrimitive>
                 </div>
@@ -1135,7 +1139,7 @@ export function CommandMenu<TAppContext = unknown>({
                   ) : null}
                   <CommandItemPrimitive
                     className={cn(
-                      "gap-2 py-2",
+                      "min-h-8 gap-2",
                       chatReady
                         ? "cursor-pointer"
                         : "cursor-not-allowed opacity-50",
@@ -1146,7 +1150,6 @@ export function CommandMenu<TAppContext = unknown>({
                     }
                     onSelect={handleSubmitToAgent}
                   >
-                    <IconMessage className="h-4 w-4 text-muted-foreground" />
                     <span>
                       {search.trim() ? (
                         <>
@@ -1299,12 +1302,10 @@ export function CommandMenu<TAppContext = unknown>({
                 onValueChange={(value) => {
                   updateSearch(value);
                   selectionEnabledRef.current = false;
-                  if (initialSelection === "none") setSelectionEnabled(false);
-                  setSelectedCommandValue(
-                    initialSelection === "none"
-                      ? nextEmptySelectionValue()
-                      : "",
-                  );
+                  if (initialSelection === "none") {
+                    setSelectionEnabled(false);
+                    setSelectedCommandValue(nextEmptySelectionValue());
+                  }
                 }}
                 onKeyDown={(event) => {
                   if (

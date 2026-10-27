@@ -5,10 +5,13 @@ import {
   reconcilePdfBytes,
 } from "./attachment-bytes.js";
 import {
+  isTextLikeMimeType,
+  MAX_TEXT_ATTACHMENT_BYTES,
+} from "./attachment-text.js";
+import {
   formatBase64CharBudget,
   isInlineReadableDocumentType,
   MAX_INLINE_FILE_BASE64_CHARS,
-  MAX_INLINE_IMAGE_BASE64_CHARS,
 } from "./inline-attachment-limits.js";
 import { findFileUploadProviderOwningUrl } from "./registry.js";
 
@@ -70,9 +73,8 @@ export type OwnedFileHydrationResult =
   | { kind: "failed"; code: Exclude<OwnedFileReadFailureCode, "unowned-url"> }
   | { kind: "unowned"; code: "unowned-url" };
 
-export const MAX_OWNED_INLINE_IMAGE_BYTES = Math.floor(
-  (MAX_INLINE_IMAGE_BASE64_CHARS * 3) / 4,
-);
+// Fetch up to the upload cap, not the inline limit: the server downscales images over the inline limit, so storage-hosted ones stay readable.
+export const MAX_OWNED_IMAGE_FETCH_BYTES = 25 * 1024 * 1024;
 export const MAX_OWNED_INLINE_FILE_BYTES = Math.floor(
   (MAX_INLINE_FILE_BASE64_CHARS * 3) / 4,
 );
@@ -80,7 +82,17 @@ export const MAX_OWNED_INLINE_FILE_BYTES = Math.floor(
 export const MAX_OWNED_ATTACHMENT_HYDRATION_CANDIDATES = 6;
 export const MAX_OWNED_IMAGE_HYDRATION_CANDIDATES =
   MAX_OWNED_ATTACHMENT_HYDRATION_CANDIDATES;
-export const MAX_OWNED_ATTACHMENT_HYDRATION_BYTES = 8 * 1024 * 1024;
+// The per-request budget must hold one full-size image or that image can never be fetched.
+export const MAX_OWNED_ATTACHMENT_HYDRATION_BYTES = MAX_OWNED_IMAGE_FETCH_BYTES;
+/**
+ * Text and SVG are decoded and shown as a head plus a stored copy, never sent
+ * whole, so they get their own per-file cap and request pool; sharing the
+ * image/PDF pool would let one large text file starve its sibling images.
+ * The composer's AGENT_PROMPT_MAX_TEXT_FILE_BYTES must match the per-file cap,
+ * or its chip promises a read the server refuses.
+ */
+export const MAX_OWNED_TEXT_FILE_BYTES = MAX_TEXT_ATTACHMENT_BYTES;
+export const MAX_OWNED_TEXT_HYDRATION_BYTES = 8 * 1024 * 1024;
 export const MAX_OWNED_IMAGE_HYDRATION_BYTES =
   MAX_OWNED_ATTACHMENT_HYDRATION_BYTES;
 export const OWNED_ATTACHMENT_HYDRATION_TIMEOUT_MS = 20_000;
@@ -91,6 +103,17 @@ export interface OwnedAttachmentHydrationBudget {
   deadlineAt: number;
   remainingCandidates: number;
   remainingBytes: number;
+  remainingTextBytes: number;
+}
+
+export type OwnedAttachmentBytePool = "remainingBytes" | "remainingTextBytes";
+
+export function ownedAttachmentBytePool(
+  declaredMediaType: string | undefined,
+): OwnedAttachmentBytePool {
+  return isTextLikeMimeType(declaredMediaType)
+    ? "remainingTextBytes"
+    : "remainingBytes";
 }
 
 export type OwnedImageHydrationBudget = OwnedAttachmentHydrationBudget;
@@ -102,6 +125,7 @@ export function createOwnedAttachmentHydrationBudget(
     deadlineAt: now + OWNED_ATTACHMENT_HYDRATION_TIMEOUT_MS,
     remainingCandidates: MAX_OWNED_ATTACHMENT_HYDRATION_CANDIDATES,
     remainingBytes: MAX_OWNED_ATTACHMENT_HYDRATION_BYTES,
+    remainingTextBytes: MAX_OWNED_TEXT_HYDRATION_BYTES,
   };
 }
 
@@ -159,8 +183,9 @@ async function readResponseBytes(
   signal: AbortSignal,
   maxInlineBytes: number,
   oversizedCode: "image-too-large" | "file-too-large",
+  pool: OwnedAttachmentBytePool,
 ): Promise<Uint8Array> {
-  const requestBytesAtStart = budget.remainingBytes;
+  const requestBytesAtStart = budget[pool];
   const maxBytes = Math.min(maxInlineBytes, requestBytesAtStart);
   const limitCode =
     requestBytesAtStart < maxInlineBytes
@@ -195,10 +220,7 @@ async function readResponseBytes(
       if (done) break;
       const nextTotalBytes = totalBytes + value.byteLength;
       if (nextTotalBytes > maxBytes) {
-        budget.remainingBytes = Math.max(
-          0,
-          requestBytesAtStart - nextTotalBytes,
-        );
+        budget[pool] = Math.max(0, requestBytesAtStart - nextTotalBytes);
         await reader.cancel().catch(() => {});
         throw Object.assign(
           new Error("Image response exceeds its hydration byte limit"),
@@ -208,7 +230,7 @@ async function readResponseBytes(
         );
       }
       totalBytes = nextTotalBytes;
-      budget.remainingBytes = Math.max(0, requestBytesAtStart - totalBytes);
+      budget[pool] = Math.max(0, requestBytesAtStart - totalBytes);
       chunks.push(value);
     }
   } finally {
@@ -249,10 +271,14 @@ async function readOwnedUrlBytes<
   maxInlineBytes: number;
   oversizedCode: TooLargeCode;
   accept: string;
+  /** A zero-byte body is a real empty file, not a failed read. */
+  allowEmpty?: boolean;
+  pool?: OwnedAttachmentBytePool;
 }): Promise<OwnedUrlReadResult<TooLargeCode>> {
+  const pool = args.pool ?? "remainingBytes";
   const url = parseOwnedHttpsUrl(args.value);
   if (!url) return { kind: "failed", code: "invalid-url" };
-  if (args.budget.remainingBytes <= 0) {
+  if (args.budget[pool] <= 0) {
     return { kind: "failed", code: "request-byte-limit" };
   }
 
@@ -342,6 +368,7 @@ async function readOwnedUrlBytes<
         bodyController.signal,
         args.maxInlineBytes,
         args.oversizedCode,
+        pool,
       ),
       bodyController.signal,
     );
@@ -365,6 +392,14 @@ async function readOwnedUrlBytes<
       error instanceof Error &&
       error.message === "Attachment response is empty"
     ) {
+      if (args.allowEmpty) {
+        return {
+          kind: "read",
+          bytes: new Uint8Array(0),
+          provider: provider.id,
+          responseContentType: response.headers.get("content-type"),
+        };
+      }
       return { kind: "failed", code: "empty-response" };
     }
     return { kind: "failed", code: "fetch-failed" };
@@ -397,7 +432,7 @@ export async function hydrateOwnedImageUrl(
   const result = await readOwnedUrlBytes({
     value,
     budget: hydrationBudget,
-    maxInlineBytes: MAX_OWNED_INLINE_IMAGE_BYTES,
+    maxInlineBytes: MAX_OWNED_IMAGE_FETCH_BYTES,
     oversizedCode: "image-too-large",
     accept: "image/jpeg, image/png, image/gif, image/webp",
   });
@@ -437,10 +472,14 @@ export async function hydrateOwnedFileUrl(
   const result = await readOwnedUrlBytes({
     value,
     budget: hydrationBudget,
-    maxInlineBytes: MAX_OWNED_INLINE_FILE_BYTES,
+    maxInlineBytes: isTextLikeMimeType(declaredMediaType)
+      ? MAX_OWNED_TEXT_FILE_BYTES
+      : MAX_OWNED_INLINE_FILE_BYTES,
+    allowEmpty: isTextLikeMimeType(declaredMediaType),
+    pool: ownedAttachmentBytePool(declaredMediaType),
     oversizedCode: "file-too-large",
     accept:
-      "application/pdf, text/*, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel",
+      "application/pdf, text/*, application/json, application/xml, application/yaml, application/x-yaml, image/svg+xml, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel",
   });
   if (result.kind !== "read") return result;
 
@@ -448,8 +487,12 @@ export async function hydrateOwnedFileUrl(
     result.responseContentType?.split(";", 1)[0]?.trim().toLowerCase() ||
     undefined;
   const declared = declaredMediaType?.split(";", 1)[0]?.trim().toLowerCase();
+  // The size cap above was picked from the declared text type, so a
+  // provider's own guess (application/x-sh for a .sh file) must not turn that
+  // text into an unreadable document.
   const mediaType =
-    responseMediaType === "application/octet-stream"
+    responseMediaType === "application/octet-stream" ||
+    (isTextLikeMimeType(declared) && !isTextLikeMimeType(responseMediaType))
       ? declared
       : (responseMediaType ?? declared);
   if (!mediaType || !isInlineReadableDocumentType(mediaType, fileName)) {
@@ -489,7 +532,7 @@ export function describeOwnedImageReadFailure(
     case "response-rejected":
       return "the storage provider rejected the image request";
     case "image-too-large":
-      return `the image exceeds the ${formatBase64CharBudget(MAX_INLINE_IMAGE_BASE64_CHARS)} vision input limit`;
+      return `the image exceeds the ${MAX_OWNED_IMAGE_FETCH_BYTES / 1024 / 1024} MB upload limit`;
     case "request-candidate-limit":
       return "the request reached its limit for checking image attachments";
     case "request-byte-limit":
@@ -520,7 +563,9 @@ export function describeOwnedFileReadFailure(
     case "response-rejected":
       return "the storage provider rejected the file request";
     case "file-too-large":
-      return `the file exceeds the ${formatBase64CharBudget(MAX_INLINE_FILE_BASE64_CHARS)} inline reading limit`;
+      // One code covers both caps, so name both rather than the one that
+      // happens to apply to PDFs.
+      return `the file exceeds its reading limit (${(MAX_OWNED_TEXT_FILE_BYTES / (1024 * 1024)).toFixed(1)} MB for text and SVG files, ${formatBase64CharBudget(MAX_INLINE_FILE_BASE64_CHARS)} for PDFs and spreadsheets)`;
     case "request-candidate-limit":
       return "the request reached its limit for checking attachment storage URLs";
     case "request-byte-limit":

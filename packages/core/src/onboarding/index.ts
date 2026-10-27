@@ -1,10 +1,12 @@
 export { registerOnboardingStep, listOnboardingSteps } from "./registry.js";
+export { DEFAULT_ONBOARDING_CHECKLIST } from "./types.js";
 export type {
   OnboardingStep,
   OnboardingMethod,
   OnboardingMethodBadge,
   OnboardingFormField,
   OnboardingStepStatus,
+  OnboardingResolveContext,
   OnboardingCapability,
   OnboardingAppProfile,
   WorkspaceBuilderIncludedServiceId,

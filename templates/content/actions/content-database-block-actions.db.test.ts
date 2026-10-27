@@ -42,6 +42,9 @@ let listBlocks: typeof import("./list-content-database-blocks.js").default;
 let mutateBlock: typeof import("./mutate-content-database-block.js").default;
 let compareAndSwapAdditionalBlocksField: typeof import("./_database-block-actions.js").compareAndSwapAdditionalBlocksField;
 let persistBlocksFieldIdentity: typeof import("./_blocks-field-identity.js").persistBlocksFieldIdentity;
+let putPageOnLiveCopy: typeof import("../server/test-support/live-copy-page.js").putPageOnLiveCopy;
+let liveCopyVersionOf: typeof import("../server/test-support/live-copy-page.js").liveCopyVersionOf;
+let turnLiveCopyFlagsOff: typeof import("../server/test-support/live-copy-page.js").turnLiveCopyFlagsOff;
 
 const asOwner = <T>(run: () => Promise<T>) =>
   runWithRequestContext({ userEmail: ownerEmail }, run);
@@ -76,6 +79,8 @@ beforeAll(async () => {
   ).compareAndSwapAdditionalBlocksField;
   persistBlocksFieldIdentity = (await import("./_blocks-field-identity.js"))
     .persistBlocksFieldIdentity;
+  ({ putPageOnLiveCopy, liveCopyVersionOf, turnLiveCopyFlagsOff } =
+    await import("../server/test-support/live-copy-page.js"));
   if (TEST_DATABASE_URL.startsWith("postgres")) {
     await withMigrationRuntime(() => runFrameworkReleaseMigrations(undefined));
   }
@@ -142,6 +147,25 @@ function envelope(
     expectedRowRevision: fixture.listed.rowRevision,
     expectedFieldRevision: fixture.listed.fieldRevision,
     idempotencyKey,
+  };
+}
+
+async function rowBodyState(documentId: string) {
+  const [page] = await getDb()
+    .select({
+      content: schema.documents.content,
+      bodyRevision: schema.documents.bodyRevision,
+    })
+    .from(schema.documents)
+    .where(eq(schema.documents.id, documentId));
+  const history = await getDb()
+    .select({ id: schema.documentVersions.id })
+    .from(schema.documentVersions)
+    .where(eq(schema.documentVersions.documentId, documentId));
+  return {
+    ...page,
+    liveCopyVersion: await liveCopyVersionOf(documentId),
+    history: history.length,
   };
 }
 
@@ -606,6 +630,30 @@ describe("exact Content database block actions", () => {
     expect(storedAdditional?.content).toBe("Notes A changed\nNotes B");
   });
 
+  it("refuses inserting a copy of a video with its id", async () => {
+    const video =
+      '<video src="https://example.com/a.mp4" id="video-original"></video>';
+    const state = await fixture(`Alpha\n${video}`);
+    await expect(
+      asOwner(() =>
+        mutateBlock.run({
+          ...envelope(state, "video-copy"),
+          operation: "insert",
+          block: { kind: "video", nfm: video },
+          position: { placement: "end" },
+        }),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "DOCUMENT_VIDEO_ID_SHARED",
+      details: { blockId: "video-original" },
+    });
+    const [stored] = await getDb()
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, state.target.rowDocumentId));
+    expect(stored?.content).toBe(`Alpha\n${video}`);
+  });
+
   it("rejects a direct editor-body race without overwriting the newer body", async () => {
     const state = await fixture("Before\nSibling");
     await getDb()
@@ -790,5 +838,118 @@ describe("exact Content database block actions", () => {
         ),
       );
     expect(insertedByUi?.content).toBe("UI created this");
+  });
+
+  it("refuses a block mutation of a row that takes body writes through its live copy", async () => {
+    const state = await fixture("Alpha\nBeta");
+    await putPageOnLiveCopy(state.target.rowDocumentId);
+    const before = await rowBodyState(state.target.rowDocumentId);
+
+    await expect(
+      asOwner(() =>
+        mutateBlock.run({
+          ...envelope(state, "live-copy-update"),
+          operation: "update",
+          blockId: state.listed.blocks[0]!.id,
+          block: { kind: "paragraph", nfm: "Agent write" },
+        }),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+      statusCode: 409,
+      details: {
+        documentId: state.target.rowDocumentId,
+        operation: "mutate-content-database-block",
+      },
+    });
+    expect(await rowBodyState(state.target.rowDocumentId)).toEqual(before);
+    expect(
+      await getDb()
+        .select()
+        .from(schema.contentDatabaseRowMutationReceipts)
+        .where(
+          and(
+            eq(
+              schema.contentDatabaseRowMutationReceipts.databaseId,
+              state.databaseId,
+            ),
+            eq(
+              schema.contentDatabaseRowMutationReceipts.idempotencyKey,
+              "live-copy-update",
+            ),
+          ),
+        ),
+    ).toHaveLength(0);
+  });
+
+  it("lets a switched row take a block mutation while its flags are off (SF-11)", async () => {
+    const state = await fixture("Alpha\nBeta");
+    await putPageOnLiveCopy(state.target.rowDocumentId);
+    await turnLiveCopyFlagsOff();
+    const before = await rowBodyState(state.target.rowDocumentId);
+
+    await asOwner(() =>
+      mutateBlock.run({
+        ...envelope(state, "flags-off-update"),
+        operation: "update",
+        blockId: state.listed.blocks[0]!.id,
+        block: { kind: "paragraph", nfm: "Agent write" },
+      }),
+    );
+
+    expect(await rowBodyState(state.target.rowDocumentId)).toEqual({
+      ...before,
+      content: "Agent write\nBeta",
+      bodyRevision: before.bodyRevision + 1,
+    });
+  });
+
+  // The backfill switches Files rows, so this writer must never reach one.
+  it("refuses a block mutation of a Files row, so no legacy-only writer reaches a page the backfill switches", async () => {
+    const state = await fixture("Alpha\nBeta");
+    const [files] = await getDb()
+      .select({
+        id: schema.contentDatabases.id,
+        documentId: schema.contentDatabases.documentId,
+        itemId: schema.contentDatabaseItems.id,
+      })
+      .from(schema.contentDatabases)
+      .innerJoin(
+        schema.contentDatabaseItems,
+        eq(schema.contentDatabaseItems.databaseId, schema.contentDatabases.id),
+      )
+      .where(
+        and(
+          eq(schema.contentDatabases.spaceId, state.target.spaceId),
+          eq(schema.contentDatabases.systemRole, "files"),
+          eq(
+            schema.contentDatabaseItems.documentId,
+            state.target.rowDocumentId,
+          ),
+        ),
+      );
+    expect(files).toBeDefined();
+    const before = await rowBodyState(state.target.rowDocumentId);
+
+    await expect(
+      asOwner(() =>
+        mutateBlock.run({
+          ...envelope(state, "files-row-update"),
+          target: {
+            ...state.target,
+            databaseId: files.id,
+            databaseDocumentId: files.documentId,
+            itemId: files.itemId,
+          },
+          operation: "update",
+          blockId: state.listed.blocks[0].id,
+          block: { kind: "paragraph", nfm: "Agent write" },
+        }),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "SYSTEM_DATABASE_UNSUPPORTED",
+      statusCode: 400,
+    });
+    expect(await rowBodyState(state.target.rowDocumentId)).toEqual(before);
   });
 });

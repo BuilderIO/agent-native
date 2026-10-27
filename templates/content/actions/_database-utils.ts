@@ -1,7 +1,8 @@
-import { fail } from "@agent-native/core/action";
+import { fail, type ActionRunContext } from "@agent-native/core/action";
 import { alias } from "@agent-native/core/db/schema";
 import {
   getRequestOrgId,
+  getRequestTimezone,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import {
@@ -48,6 +49,10 @@ import {
   contentDatabaseTableQueryUsesProperties,
 } from "../shared/database-query.js";
 import {
+  compactContentDatabaseResponse,
+  type ContentDatabaseRowsRead,
+} from "../shared/database-row-properties.js";
+import {
   buildListRowExcerpt,
   EXCERPT_SOURCE_CHARS,
 } from "../shared/og-description.js";
@@ -90,6 +95,13 @@ import {
   applyFilesSystemPropertyProjection,
   filesSystemPropertyProjection,
 } from "./_files-system-properties.js";
+import {
+  propertyChangeIdsFor,
+  propertyGenerationsFor,
+  readPropertyTombstones,
+  storedPropertyGenerations,
+  type StoredPropertyChangeIds,
+} from "./_property-generations.js";
 import {
   listPropertiesForDatabaseDocuments,
   listPropertiesForDatabase,
@@ -182,6 +194,19 @@ export const contentDatabaseTableQuerySchema = z
   })
   .optional();
 
+/** A read's opt-in to compact rows; see `compactContentDatabaseRowsFor`. */
+export const contentDatabaseCompactRowsSchema = z
+  .preprocess(
+    // GET actions receive it as a query string. Other strings stay strings,
+    // so a typo fails validation instead of reading as false.
+    (value) => (value === "true" ? true : value === "false" ? false : value),
+    z.boolean(),
+  )
+  .optional()
+  .describe(
+    "Name each row's property values by propertyId instead of repeating the definition (name, type, options) in every row; the definitions are in the top-level properties. Much smaller for collections whose select properties have many options.",
+  );
+
 function contentDatabaseTableQueryMode(
   query: ContentDatabaseTableQuery | undefined,
   sourceFields: DatabasePropertySchema["sourceFields"],
@@ -240,6 +265,7 @@ type DocumentListRow = Omit<
   | "content"
   | "collabBodyRevision"
   | "liveBodySwitchedAt"
+  | "liveBodyOptedOutAt"
   | "liveCopyVersion"
   | "createdBy"
   | "updatedBy"
@@ -1006,6 +1032,7 @@ export async function getContentDatabasePageResponse(
       candidateItems,
       databaseProperties,
       serverTableQuery,
+      { timeZone: getRequestTimezone() },
     );
     boundedTableQueryTotal = constrainedCandidates.length;
     const pageItemIds = new Set(
@@ -1084,6 +1111,10 @@ export async function getContentDatabasePageResponse(
       )!,
     );
   }
+  // Before the values: see readPropertyTombstones.
+  const tombstones = await readPropertyTombstones(db, documentIds);
+  const changeIds: StoredPropertyChangeIds = new Map();
+  const storedGenerations = storedPropertyGenerations(changeIds, tombstones);
   const [
     favorites,
     shareRows,
@@ -1115,7 +1146,7 @@ export async function getContentDatabasePageResponse(
     listPropertiesForDatabaseDocuments(
       databaseId,
       documents as Array<typeof schema.documents.$inferSelect>,
-      { includeBlocksFieldIdentity: false, propertySchema },
+      { includeBlocksFieldIdentity: false, propertySchema, changeIds },
     ),
     filesSystemPropertyProjection({
       database,
@@ -1220,6 +1251,16 @@ export async function getContentDatabasePageResponse(
         queued: bodyHydrationQueued,
       }),
       properties: propertiesByDocumentId.get(document.id) ?? [],
+      propertyGenerations: propertyGenerationsFor(
+        document.id,
+        propertiesByDocumentId.get(document.id) ?? [],
+        storedGenerations,
+      ),
+      propertyChangeIds: propertyChangeIdsFor(
+        document.id,
+        propertiesByDocumentId.get(document.id) ?? [],
+        changeIds,
+      ),
       rowRevision: databaseRowRevision({
         itemId: item.id,
         documentId: document.id,
@@ -1244,6 +1285,7 @@ export async function getContentDatabasePageResponse(
           serializedCandidateItems,
           responseProperties,
           serverTableQuery,
+          { timeZone: getRequestTimezone() },
         )
       : serializedCandidateItems;
   const serializedItems =
@@ -1471,6 +1513,37 @@ export async function getContentDatabaseResponse(
   };
 }
 
+/**
+ * Whether a Collection read or write sends compact rows. A compact row names
+ * each Property by `propertyId`, and the response sends each definition once,
+ * in `properties`; otherwise a select's options repeat in every row, which on
+ * a large Collection runs to megabytes per page. Content's own frontend gets
+ * compact rows unless it passes `compactRows: false`: the server answers a tab
+ * on an older client compatibility version with a 409, so every frontend call
+ * comes from a client whose query cache puts the definitions back. Agents, MCP
+ * and HTTP callers keep rows that carry their definitions unless they pass
+ * `compactRows: true`.
+ */
+export function compactContentDatabaseRowsFor(
+  context: Pick<ActionRunContext, "caller"> | undefined,
+  compactRows?: boolean,
+): boolean {
+  return compactRows ?? context?.caller === "frontend";
+}
+
+/** A Collection read or write result, in the row shape its caller reads. */
+export function contentDatabaseResponseForCaller<
+  T extends ContentDatabaseRowsRead,
+>(
+  response: T,
+  context: Pick<ActionRunContext, "caller"> | undefined,
+  options: { compactRows?: boolean } = {},
+) {
+  return compactContentDatabaseRowsFor(context, options.compactRows)
+    ? compactContentDatabaseResponse(response)
+    : response;
+}
+
 export async function isSoftDeletedDatabaseDocument(documentId: string) {
   const db = getDb();
   const [deletedDatabase] = await db
@@ -1686,6 +1759,15 @@ export async function deleteDatabaseDataForDocument(
         .delete(schema.documentPropertyValues)
         .where(
           inArray(schema.documentPropertyValues.propertyId, definitionIds),
+        );
+      // After the values: deleting them records a tombstone for each one.
+      await db
+        .delete(schema.documentPropertyValueTombstones)
+        .where(
+          inArray(
+            schema.documentPropertyValueTombstones.propertyId,
+            definitionIds,
+          ),
         );
       await db
         .delete(schema.documentBlockFieldContents)

@@ -238,6 +238,23 @@ export default {
     expandSidebar: "Expandir barra lateral",
     collapseSidebar: "Recolher barra lateral",
   },
+  gettingStarted: {
+    title: "Primeiros passos",
+    progress: "{{completeCount}} de {{totalCount}} concluídos",
+    collapse: "Recolher",
+    expand: "Expandir",
+    completed: "Concluído",
+    loadError: "Não foi possível carregar sua lista",
+    retry: "Tentar novamente",
+    steps: {
+      createDesign: "Crie seu primeiro design",
+      addBrand: "Adicione sua marca",
+      useRealData: "Use seus dados reais",
+      shareFeedback: "Compartilhe para receber feedback",
+      inviteTeammate: "Convide um colega",
+      saveTemplate: "Salve um design como modelo",
+    },
+  },
   settings: {
     agentTitle: "Gerenciar agente",
     agentDescription:
@@ -452,6 +469,7 @@ export default {
       image: "Imagem",
       style: "Estilo",
       rotation: "Rotação",
+      length: "Comprimento",
       flipHorizontal: "Virar horizontalmente",
       flipVertical: "Virar verticalmente",
       shadow: "Sombra",
@@ -468,7 +486,6 @@ export default {
       showGrid: "Mostrar grade",
       hideGrid: "Ocultar grade",
       reorderLayer: "Reordenar camada",
-      stylesComingSoon: "Estilos — Em breve",
       linkSides: "Vincular lados",
       unlinkSides: "Desvincular lados",
       allSides: "Tudo",
@@ -1202,6 +1219,14 @@ export default {
         animation: "Animação",
         distance: "Distância",
         amount: "Quantidade",
+        axis: "Eixo",
+        axisBoth: "Ambos",
+        axisX: "X",
+        axisY: "Y",
+        startWidth: "Largura inicial",
+        endWidth: "Largura final",
+        startHeight: "Altura inicial",
+        endHeight: "Altura final",
         delay: "Atraso",
         easing: "Aceleração",
         editCurve: "Editar curva de aceleração",
@@ -1389,7 +1414,7 @@ export default {
       sourceWriteUnavailable:
         "No momento, o código de movimento só pode ser gravado em designs HTML inline.",
       unresolvedStylesheets:
-        "Resolva as folhas de estilo externas antes de editar ou adicionar Motion.",
+        "Resolva os estilos externos ou gerados em tempo de execução antes de editar ou adicionar Motion.",
       sourceConflict:
         "O código do Motion mudou enquanto esta linha do tempo tinha alterações não salvas. Recarregue o código para descartá-las e usar a fonte atual.",
       reloadFromSource: "Recarregar código",
@@ -1857,7 +1882,7 @@ export default {
       ellipse: "Elipse",
       polygon: "Polígono",
       star: "Estrela",
-      imageVideo: "Imagem/vídeo...",
+      imageVideo: "Imagem/vídeo…",
       text: "Text",
       pen: "Pen",
       hand: "Hand",
@@ -1878,8 +1903,12 @@ export default {
         small: "Deslocamento pequeno",
         big: "Deslocamento grande",
         unit: "px",
-        description:
-          "As setas movem pela distância pequena e Shift seta pela grande. Dentro de um frame com layout automático, as setas reordenam a camada.",
+        close: "Fechar distância de deslocamento",
+        done: "Concluído",
+        smallDescription:
+          "Define quantos pixels um objeto se move ao usar as setas.",
+        bigDescription:
+          "Define quantos pixels um objeto se move ao usar Shift + setas.",
       },
       keys: {
         or: "ou",
@@ -1917,6 +1946,7 @@ export default {
         arrange: "Organizar",
         components: "Componentes",
         layout: "Disposição",
+        code: "Código",
       },
       commands: {
         showShortcuts: "Atalhos de teclado",
@@ -1933,7 +1963,7 @@ export default {
         drawTool: "Desenhar",
         showLayers: "Camadas",
         showAssets: "Recursos",
-        toggleUi: "View",
+        toggleUi: "Mostrar ou ocultar a interface",
         toggleMinimalUi: "Interface mínima",
         toggleComments: "Fixar comentário",
         zoomIn: "Aumentar zoom",
@@ -1941,6 +1971,8 @@ export default {
         zoomReset: "Zoom 100%",
         zoomFit: "Ajustar à tela",
         zoomSelection: "Zoom: Seleção",
+        bold: "Negrito",
+        italic: "Itálico",
         underline: "Sublinhado",
         strikethrough: "Tachado",
         rectangle: "Rectangle",
@@ -1955,7 +1987,8 @@ export default {
         previousSibling: "← Seleção",
         nextScreen: "Telas →",
         previousScreen: "← Telas",
-        toggleLayoutGrids: "Grade de layout: View",
+        toggleLayoutGrids: "Mostrar ou ocultar as grades de layout",
+        toggleRulers: "Mostrar ou ocultar as réguas",
         nudge: "Move",
         nudgeLarge: "Deslocamento grande",
         copy: "Copiar",
@@ -1988,7 +2021,15 @@ export default {
         ungroup: "Desagrupar",
         frameSelection: "Enquadrar seleção",
         autoLayout: "Layout automático",
-        imageVideo: "Imagem/vídeo...",
+        removeAutoLayout: "Remover auto layout",
+        toggleHidden: "Mostrar ou ocultar a seleção",
+        toggleLocked: "Bloquear ou desbloquear a seleção",
+        alignHorizontalCenters: "Alinhar centros horizontais",
+        alignVerticalCenters: "Alinhar centros verticais",
+        distributeHorizontal: "Distribuir espaçamento horizontal",
+        distributeVertical: "Distribuir espaçamento vertical",
+        setOpacity: "Definir opacidade",
+        imageVideo: "Imagem/vídeo…",
       },
     },
     undo: "Desfazer",
@@ -2017,6 +2058,16 @@ export default {
     pinComment: "Fixar comentário",
     export: "Exportar",
     downloadHtml: "Baixar HTML",
+    exportHubspotHtml: "Exportar HTML do HubSpot",
+    hubspotConversion: {
+      title: "Converter para HubSpot?",
+      description:
+        "{{name}} precisa de ajustes para e-mail. O quadro original será preservado.",
+      convert: "Converter com o agente",
+      cancel: "Cancelar",
+      prompt:
+        "Crie uma versão de e-mail do HubSpot deste quadro, mantendo o conteúdo e a identidade visual e preservando o original. Valide a exportação HTML e abra o novo quadro.",
+    },
     downloadPng: "Baixar PNG",
     downloadSvg: "Baixar SVG",
     downloadFigmaSvg: "Baixar para o Figma (SVG)",
@@ -2159,6 +2210,19 @@ export default {
       added: "Tela adicionada",
       addFailed: "Não foi possível adicionar a tela",
     },
+    localhostConsent: {
+      approvedTitle: "Aprovado — execute a edição novamente",
+      approvedDescription:
+        "A gravação de arquivos está permitida por 8 horas. A edição que pediu acesso não foi salva.",
+      retryInChat: "Executar novamente no chat",
+      retryPrompt:
+        "A gravação de arquivos foi aprovada para {{rootPath}}. Execute novamente a edição que precisava dela.",
+      unavailableTitle: "Esta solicitação de gravação não está mais pendente",
+      unavailableDescription: "Execute a edição novamente para pedir acesso.",
+      close: "Fechar",
+      prepareSignInError:
+        "Não foi possível salvar esta solicitação antes de entrar. Tente novamente.",
+    },
     nodeRewrite: {
       composerTitle: "Pergunte ou altere a seleção",
       send: "Enviar",
@@ -2211,6 +2275,9 @@ export default {
       htmlCreateError: "Não foi possível criar o download HTML",
       htmlDownloaded: "HTML baixado",
       htmlExportError: "Não foi possível exportar HTML",
+      hubspotHtmlExporting: "Preparando HTML do HubSpot…",
+      hubspotHtmlDownloaded: "HTML do HubSpot baixado",
+      hubspotHtmlExportError: "Não foi possível exportar o HTML do HubSpot",
       zipCreateError: "Não foi possível criar o download ZIP",
       zipDownloaded: "ZIP baixado",
       zipExportError: "Não foi possível exportar ZIP",
@@ -2291,6 +2358,7 @@ export default {
         "Esta tela mudou em outro lugar. Sua última edição não foi salva.",
       versionHistoryUnavailable:
         "O histórico de versões não está disponível para este design. Sua edição foi salva mesmo assim.",
+      removeAutoLayoutFailed: "Não foi possível remover o auto layout",
       autoLayoutScreensUnsupported:
         "Adicionar layout automático não se aplica a telas",
       booleanSubtractUnsupported:
@@ -2308,8 +2376,25 @@ export default {
         "A edição vetorial não está disponível para esta forma ou transformação.",
       imageUploading: "Enviando imagem…",
       pasteReplaceFailed: "Não foi possível substituir essa camada",
+      pasteTargetUnmeasured:
+        "Não foi possível medir a camada selecionada para colar nela",
+      pasteClipboardUnreadable:
+        "Permita o acesso à área de transferência para colar aqui",
+      pasteClipboardUntrusted:
+        "Não é possível colar camadas copiadas do Design em outro site",
       swapFillStrokeLayeredFill:
         "Vários preenchimentos ou preenchimentos de imagem ainda não podem virar contorno",
+      alignNeedsTwoLayers: "Selecione duas ou mais camadas para alinhá-las",
+      alignNeedsTwoScreens: "Selecione duas ou mais telas para alinhá-las",
+      layoutUnmeasurable:
+        "Não foi possível medir uma camada selecionada. Verifique se ela está visível no canvas e tente novamente.",
+      layoutAutoLayoutChildren:
+        "O auto layout posiciona estas camadas. Remova o auto layout do frame delas para movê-las livremente.",
+      layoutUnsupportedPosition:
+        "Camadas fixas (sticky) e formas dentro de um SVG não podem ser movidas assim",
+      layoutMovesNestedLayers:
+        "Mover esta camada deslocaria as camadas posicionadas dentro dela",
+      layoutMoveFailed: "Não foi possível mover as camadas selecionadas",
     },
     commenterRoleLabel: "Comentarista",
     commenterRoleDescription: "Pode ver e adicionar comentários de revisão",
@@ -2333,6 +2418,7 @@ export default {
     order: "Ordem",
     createComponent: "Criar componente",
     addAutoLayout: "Adicionar auto layout",
+    removeAutoLayout: "Remover auto layout",
     copyAs: "Copiar/Colar como",
     copyProps: "Copiar propriedades",
     pasteProps: "Colar propriedades",
@@ -2353,13 +2439,15 @@ export default {
     allScreens: "Todas as telas",
     thumbnail: "Miniatura",
     addScreen: "Adicionar tela",
-    searchPlaceholder: "Buscar camadas...",
+    searchPlaceholder: "Buscar camadas",
     empty: "Nenhuma camada",
     noMatches: "Nenhuma camada corresponde",
     designLayers: "Camadas de design",
     codeLayers: "Camadas de código",
     elementLayers: "Camadas de elementos",
     collapse: "Recolher camada",
+    collapseAll: "Recolher todas as camadas",
+    clearSearch: "Limpar pesquisa",
     expand: "Expandir camada",
     lock: "Bloquear camada",
     unlock: "Desbloquear camada",
