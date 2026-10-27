@@ -1,0 +1,104 @@
+slug: ai-kpi-dashboard
+app: analytics
+roles:
+  - founders
+  - finance
+title: 为你的创业公司搭建 KPI 仪表板
+seo_title: 面向创业公司创始人的 AI KPI 仪表板
+meta_description: 描述你跟踪的指标，Agent-Native Analytics 就会用 Stripe、HubSpot 和产品数据搭建创业公司的 KPI 仪表板，并告诉你哪些数字变了。
+updated: 2026-10-27
+hero:
+  body: Agent-Native Analytics 用 Stripe、HubSpot 和产品数据，把 MRR、流失率和注册数放进同一个仪表板。描述你跟踪的指标，agent 就会搭好它，并解释任何数字为什么变化。
+  button:
+    label: 搭建你的仪表板
+    url: https://analytics.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb23d4e197c9841e7b0eeaefc15090443
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F260764ee953f4b4f80f6a6cf631b2143
+    alt: Analytics 中一家创业公司的 KPI 仪表板，上方是 MRR、流失率、新注册和激活卡片，下方是按月的 MRR 和注册图表。agent 侧边栏回答了本季度哪个套餐带动了 MRR 增长，并附上按套餐划分的表格。
+how_to:
+  heading: 如何用 AI 搭建 KPI 仪表板
+  steps:
+    - title: 连接收入和产品数据
+      body: 在 **数据源** 页面粘贴你的 Stripe 密钥，然后添加 HubSpot 和你在用的产品分析工具。在数据源的菜单中选择 **测试连接**，确认 Analytics 能读取它。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6ea7e1568d3b4afd9fc6a2a01bc969b0
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F78b97b8d077644f28c627377157f1331
+        alt: 数据源页面上 Stripe 的特写，标为 Connected，密钥已配置，测试连接后显示“Connection successful”。
+    - title: 描述你想要的仪表板
+      body: 点击 **新仪表板**，描述你跟踪的 [SaaS 指标](https://www.agent-native.com/articles/what-should-a-saas-metrics-dashboard-include/)，例如“来自 Stripe 的 MRR 和流失率，来自 PostHog 的新注册和激活，按月显示”。agent 可能会先提几个问题，然后搭建每个面板并打开仪表板。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fca8b7f3746ca419383e042cc0c142271
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb167e98f0ac049fa8ad4b169e8f77ec9
+        alt: 从侧边栏 Dashboards 列表打开的 New dashboard 输入框特写，里面输入了一段创业公司 KPI 仪表板的描述。
+    - title: 问问数字为什么变了
+      body: 在图表菜单中选择 **与面板聊天** 并提问，比如“9 月的流失率为什么上升了？”agent 会根据你连接的数据回答，你要求时它还会往仪表板里添加面板。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9b18fbf5a7cd4b4ba65d9efede75538b
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9edee9cd613741e2ba670e414be767c7
+        alt: 按月流失率面板，旁边是 agent 聊天。被问到 9 月流失率为什么上升时，agent 按套餐拆解了增幅：Starter 套餐的流失率几乎翻倍。
+features:
+  heading: 跟踪创业公司 KPI 所需的一切
+  items:
+    - title: 收入、管道和使用情况放在一起
+      body: 来自 Stripe 的 MRR、来自 HubSpot 的商机，以及来自 PostHog 或 Mixpanel 的注册数，并排放在同一个仪表板里。
+    - title: 手动编辑或直接提问
+      body: 自己改筛选条件，或让 agent 加一个新面板。两种改动都落在同一个仪表板上，历史记录可以恢复任何旧版本。
+    - title: 每个数字背后的查询
+      body: 点击图表上的任意一点，就能看到背后的记录、找出这些记录的 SQL，还能下载 CSV。
+    - title: 你对 MRR 的定义
+      body: 在 **语义层** 页面写明你们公司如何计算 MRR 或活跃用户。agent 写查询前会先查看这些定义。
+    - title: 分享前仅你可见
+      body: 新建的仪表板只属于你。准备好后，再分享给联合创始人或全公司，可以设为查看或编辑。
+    - title: KPI 发到邮箱
+      body: 数字主动找上你：每天早上在你选定的时间，把仪表板通过邮件发给最多五个人。
+integrations:
+  heading: 把 Analytics 连接到你已经在用的工具
+  cards:
+    - title: 你的收入和管道
+      logos:
+        - name: Stripe
+        - name: HubSpot
+      body: Analytics 从 Stripe 读取订阅和付款，从 HubSpot 读取商机，所以收入数字直接来自源头。
+    - title: 你的产品使用情况
+      logos:
+        - name: PostHog
+        - name: Mixpanel
+        - name: Amplitude
+        - name: Google Analytics
+        - name: BigQuery
+      body: 注册数、活跃用户和激活数据，来自你已经在用的产品分析工具或数据仓库。
+    - title: 通过 MCP 连接任何工具
+      logos:
+        - name: Notion
+        - name: Intercom
+        - name: Linear
+      more: true
+      body: 通过 MCP 连接团队在用的工具，或通过 URL 添加任意 MCP 服务器。
+other_uses:
+  heading: 用 Agent-Native Analytics 还能做的其他事
+  cards:
+    - title: 用日常语言向你的数据提问
+      url: https://www.agent-native.com/use-cases/ask-your-database/
+      body: 就你的 BigQuery 数据提问，不用写 SQL 就能得到答案。
+    - title: 找出新用户在哪一步流失
+      url: https://www.agent-native.com/use-cases/ai-funnel-analysis/
+      body: 看清新用户在注册和引导流程中的哪一步停下。
+    - title: 不用电子表格也能做营销周报
+      url: https://www.agent-native.com/use-cases/weekly-marketing-report/
+      body: 营销周报只需搭建一次，从此不用再手动重做。
+faqs:
+  heading: 有疑问？这里有答案
+  items:
+    - q: Agent-Native Analytics 免费吗？
+      a: 是的，Agent-Native Analytics 免费且开源。agent 使用 Builder.io AI 额度或你自己的模型密钥运行，每个数据源都需要各自的凭证，比如 Stripe 密钥。Analytics 目前处于 alpha 阶段，界面和功能可能还会变化。
+    - q: Analytics 能从哪些工具获取我的 KPI？
+      a: Analytics 可以连接 Stripe、HubSpot、PostHog、Mixpanel、Amplitude、Google Analytics (GA4)、BigQuery，以及十几个其他数据源。每个数据源都在[数据源页面](https://www.agent-native.com/docs/template-analytics-connectors/)用各自的密钥添加，一个仪表板可以混合多个数据源。
+    - q: 搭建 KPI 仪表板需要懂 SQL 吗？
+      a: 不需要。你用日常语言描述仪表板或提问，agent 会编写 SQL。每张图表背后的查询都可以查看，熟悉数据的人可以检查或修改。
+    - q: 我怎么知道这些数字是对的？
+      a: 仪表板上的每个数字都来自 agent 在你连接的数据上运行的查询，任何图表背后的查询和记录你都能打开查看。如果 agent 没能运行查询，就会把这个数字标为“Unverified”。在依赖仪表板之前，先拿几个数字和 Stripe 对照一下。
+    - q: 谁能看到我的 KPI 仪表板？
+      a: 在你分享之前，只有你自己能看。你可以把[仪表板分享](https://www.agent-native.com/docs/sharing/)给某位同事或整个组织，身份可以是查看者、编辑者或管理员。你修改的筛选条件只对你自己生效；想分享它们，就保存一个视图或发送链接。
+    - q: Analytics 和我的分析工具里自带的 AI 有什么不同？
+      a: 单个分析工具里的 AI 助手只处理那个工具的数据。Analytics 能跨 Stripe、CRM 和产品数据工作，它的 agent 会搭建和编辑你正在看的仪表板，所以它的回答会变成你能保留的面板。正因如此，Analytics 是一个[智能体应用](https://www.agent-native.com/articles/what-is-an-agent-native-app/)：既有 agent 的智能，又有应用的直观易用。

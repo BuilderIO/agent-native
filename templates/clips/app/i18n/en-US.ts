@@ -161,6 +161,7 @@ const messages = {
     spaces: "Spaces",
     meetings: "Meetings",
     dictate: "Dictate",
+    fromContent: "From Content",
     archive: "Archive",
     trash: "Trash",
     agent: "Agent",
@@ -215,6 +216,10 @@ const messages = {
     archive: {
       title: "No archived recordings",
       body: "Archived Clips stay here until you’re ready to bring them back.",
+    },
+    fromContent: {
+      title: "No uploads from Content yet",
+      body: "Videos you upload to a Content page are saved here as Clips.",
     },
     trash: {
       title: "Trash is empty",
@@ -2282,6 +2287,8 @@ const messages = {
     goHome: "Go home",
     testMic: "Test mic",
     archivePageTitle: "Archive · Clips",
+    fromContentPageTitle: "From Content · Clips",
+    openContentPage: "Open page",
     insightsPageTitle: "Insights · Clips",
     folderPageTitle: "Folder · Clips",
     spacePageTitle: "Space · Clips",

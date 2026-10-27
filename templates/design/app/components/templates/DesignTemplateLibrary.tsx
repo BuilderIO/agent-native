@@ -97,6 +97,7 @@ export function DesignTemplateLibrary({
   const [deleting, setDeleting] = useState<DesignLibraryTemplate | null>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
   const selectPreview = (id: string | null) => {
+    if (id === params.get(previewParam)) return;
     setParams(
       (current) => {
         const next = new URLSearchParams(current);

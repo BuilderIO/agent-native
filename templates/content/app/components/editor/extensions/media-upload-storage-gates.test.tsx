@@ -22,6 +22,19 @@ vi.mock("@agent-native/core/client/uploads", () => ({
   useFileUploadStatus: () => uploadStatus.current,
 }));
 
+// Clips in pages is off: uploads go to Content's own file storage.
+vi.mock("@agent-native/core/client/feature-flags", () => ({
+  useFeatureFlag: () => false,
+}));
+
+vi.mock("@agent-native/core/client/hooks", () => ({
+  useActionQuery: () => ({ data: undefined, isSuccess: false }),
+  useActionMutation: () => ({ mutateAsync: vi.fn() }),
+  callAction: vi.fn(),
+  getBrowserTabId: () => "tab_1",
+  setClientAppState: vi.fn(),
+}));
+
 vi.mock("@agent-native/toolkit/app/chat/FileStorageSetupPopover", async () => {
   const { createElement } = await import("react");
   return {

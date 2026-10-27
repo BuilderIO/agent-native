@@ -107,13 +107,13 @@ export function TextInput({
   className,
   ...aria
 }: {
-  id?: string;
+  id?: string | undefined;
   value: string;
   onChange: (value: string) => void;
   onBlur?: () => void;
   onKeyDown?: (event: KeyboardEvent<HTMLInputElement>) => void;
-  placeholder?: string;
-  invalid?: boolean;
+  placeholder?: string | undefined;
+  invalid?: boolean | undefined;
   type?: string;
   className?: string;
   "aria-label"?: string;

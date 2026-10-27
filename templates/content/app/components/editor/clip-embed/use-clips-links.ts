@@ -29,3 +29,17 @@ export function useClipsLinks(): ClipsLinks {
 export function clipShareUrl(appUrl: string, recordingId: string): string {
   return `${appUrl}/share/${encodeURIComponent(recordingId)}`;
 }
+
+/** The Clip's own page in Clips, where its owner manages it. */
+export function clipRecordingUrl(appUrl: string, recordingId: string): string {
+  return `${appUrl}/r/${encodeURIComponent(recordingId)}`;
+}
+
+/** Where an editor sets up what Clips saves their uploads to. */
+export function clipsStorageSetupUrls(appUrl: string) {
+  return {
+    builder: `${appUrl}/record?connectStorage=1`,
+    customKeys: `${appUrl}/settings/infra#uploads`,
+    account: `${appUrl}/`,
+  };
+}

@@ -109,6 +109,7 @@ export const mcpSettingsMessages: McpSettingsMessages = {
   mcpIdentityError: "تعذّر تحميل تفاصيل الاتصال لهذا التطبيق.",
   mcpRetry: "إعادة المحاولة",
   mcpOAuthBackToApp: "العودة إلى التطبيق",
+  mcpOAuthConnectionDone: "اكتمل الاتصال",
   mcpConnect: mcpConnectMessages,
 };
 

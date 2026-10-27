@@ -877,10 +877,14 @@ export default defineAction({
     const contentSpaceState = await readAppState("content-space");
     const selectionState = await readAppStateForCurrentTab("content-selection");
     const importState = await readAppStateForCurrentTab("content-import");
+    const clipUploadsState = await readAppStateForCurrentTab(
+      "content-clip-uploads",
+    );
 
     const screen: Record<string, unknown> = {};
     if (navigation) screen.navigation = navigation;
     if (importState) screen.contentImport = importState;
+    if (clipUploadsState) screen.clipUploads = clipUploadsState;
     if (suggestionMode) screen.suggestionMode = suggestionMode;
     if (contentSpaceState) screen.contentSpace = contentSpaceState;
 

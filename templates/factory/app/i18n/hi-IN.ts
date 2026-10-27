@@ -272,8 +272,8 @@ const messages = {
       openWorkflow: "{{name}} खोलें",
       turnOn: "{{name}} चालू करें",
       turnOff: "{{name}} बंद करें",
-      dryRunRequired: "इसे चालू करने से पहले एक टेस्ट चलाएँ।",
-      runTest: "टेस्ट चलाएँ",
+      dryRunRequired: "इसे चालू करने से पहले एक ड्राई रन चलाएँ।",
+      runTest: "ड्राई रन",
       neverRun: "अभी कोई रन नहीं",
       olderRun: "हाल का कोई रन नहीं",
       runsFailed: "रन लोड नहीं हुए",
@@ -366,9 +366,9 @@ const messages = {
       connectionsNeeded: "{{count}} कनेक्ट करना बाकी",
       connectionsListName: "ज़रूरी कनेक्शन",
       jumpToProblem: "कैनवास पर दिखाएँ",
-      testRun: "टेस्ट रन",
+      testRun: "ड्राई रन",
       testing: "शुरू हो रहा है",
-      saveAndTest: "सहेजें और टेस्ट करें",
+      saveAndTest: "सहेजें और ड्राई रन करें",
       moreActions: "अन्य कार्रवाइयाँ",
       runNow: "अभी रन करें",
       runNowSaveFirst: "असल में चलाने से पहले अपने बदलाव सहेजें।",
@@ -408,7 +408,7 @@ const messages = {
       confirmTitle: "संस्करण {{version}} बहाल करें?",
       confirmBody: "इसे नए संस्करण के रूप में सहेजा जाता है, इसलिए कोई संस्करण नहीं खोता।",
       confirmDiscards: "आपके सहेजे नहीं गए बदलाव खारिज हो जाएँगे।",
-      confirmSwitchesOff: "दोबारा टेस्ट होने तक वर्कफ़्लो बंद रहेगा।",
+      confirmSwitchesOff: "दोबारा सफल ड्राई रन होने तक वर्कफ़्लो बंद रहेगा।",
       restored: "संस्करण {{version}} के रूप में बहाल किया गया।",
       restoreFailed: "वह संस्करण बहाल नहीं किया जा सका।",
       restoreInvalid_one: "वह संस्करण अब जाँचों में पास नहीं होता: {{count}} समस्या।",
@@ -419,7 +419,7 @@ const messages = {
       invalid_one: "सहेजा नहीं गया: ठीक करने के लिए {{count}} समस्या।",
       invalid_other: "सहेजा नहीं गया: ठीक करने के लिए {{count}} समस्याएँ।",
       switchedOff:
-        "सहेजा गया। वर्कफ़्लो बंद कर दिया गया: इसे टेस्ट करें और फिर से चालू करें।",
+        "सहेजा गया। वर्कफ़्लो बंद कर दिया गया: इसका ड्राई रन करें और फिर से चालू करें।",
       jobSyncFailed:
         "सहेजा गया, लेकिन इसका शेड्यूल अपडेट नहीं हो सका। दोबारा प्रयास करने के लिए फिर सहेजें।",
       notFound: "यह वर्कफ़्लो अब मौजूद नहीं है।",
@@ -447,9 +447,9 @@ const messages = {
       cancel: "रद्द करें",
     },
     run: {
-      started: "टेस्ट रन शुरू हो गया।",
-      unavailable: "टेस्ट रन अभी उपलब्ध नहीं हैं।",
-      failed: "टेस्ट रन शुरू नहीं हो सका। {{reason}}",
+      started: "ड्राई रन शुरू हो गया।",
+      unavailable: "ड्राई रन अभी उपलब्ध नहीं हैं।",
+      failed: "ड्राई रन शुरू नहीं हो सका। {{reason}}",
       liveStarted: "रन शुरू हो गया।",
       liveFailed: "रन शुरू नहीं हो सका। {{reason}}",
       enableFailed: "वर्कफ़्लो बदला नहीं जा सका। {{reason}}",
@@ -488,8 +488,8 @@ const messages = {
       ofTotal: "{{total}} आइटम में से {{shown}}",
       noInputConnected: "कोई इनपुट जुड़ा नहीं है",
       noInputData: "कोई इनपुट डेटा नहीं",
-      testWorkflowHint: "यहाँ आइटम देखने के लिए वर्कफ़्लो टेस्ट करें",
-      testWorkflow: "वर्कफ़्लो टेस्ट करें",
+      testWorkflowHint: "यहाँ आइटम देखने के लिए वर्कफ़्लो का ड्राई रन करें",
+      testWorkflow: "ड्राई रन",
       noOutputData: "कोई आउटपुट डेटा नहीं",
       previewHint: "असली मान देखने के लिए वर्कफ़्लो चलाएँ",
       noMatchingItems: "कोई मेल खाने वाला आइटम नहीं",
@@ -503,7 +503,7 @@ const messages = {
       copyPath: "पाथ कॉपी करें",
       pathCopied: "पाथ कॉपी हो गया",
       pathCopyFailed: "पाथ कॉपी नहीं किया जा सका",
-      dragHint: "इसे मैप करने के लिए किसी फ़ील्ड पर खींचें",
+      dragHint: "इसे मैप करने के लिए इस हैंडल को किसी फ़ील्ड पर खींचें",
       mappedFirstField: "आपने अभी एक फ़ील्ड मैप किया।",
     },
     diagnostics: {
@@ -898,8 +898,8 @@ const messages = {
     },
     canvasActions: {
       addFirstStep: "पहला चरण जोड़ें",
-      testWorkflow: "वर्कफ़्लो टेस्ट करें",
-      saveAndTestWorkflow: "सहेजें और वर्कफ़्लो टेस्ट करें",
+      testWorkflow: "ड्राई रन",
+      saveAndTestWorkflow: "सहेजें और ड्राई रन करें",
       describeFirstPrefill: "एक ऐसा वर्कफ़्लो बनाएँ जो ",
       describeTile: "एजेंट को इसका वर्णन करें",
       or: "या",
@@ -1323,6 +1323,37 @@ const messages = {
       deleteMany: "{{count}} चरण हटाएँ",
       selectAll: "सभी चुनें",
       clearSelection: "चयन साफ़ करें",
+    },
+  },
+  providerPicker: {
+    choose: {
+      channels: "कोई चैनल चुनें",
+      repositories: "कोई रिपॉज़िटरी चुनें",
+      organizations: "कोई संगठन चुनें",
+      projects: "कोई प्रोजेक्ट चुनें",
+    },
+    search: "खोजें या कोई मान लिखें",
+    useTyped: "“{{value}}” का उपयोग करें",
+    noMatches: "कोई मिलान नहीं मिला",
+    loadMore: "और लोड करें",
+    retry: "पुनः प्रयास",
+    changeOrganization: "संगठन बदलें",
+    tag: {
+      private: "निजी",
+      botNotMember: "बॉट चैनल में नहीं है",
+      archived: "आर्काइव्ड",
+    },
+    error: {
+      notConnected:
+        "{{provider}} कनेक्ट नहीं है, इसलिए सूची लोड नहीं हो सकती। फिर भी आप कोई मान लिख सकते हैं।",
+      refused:
+        "{{provider}} ने कनेक्ट किए गए क्रेडेंशियल को अस्वीकार कर दिया। फिर भी आप कोई मान लिख सकते हैं।",
+      missingScope:
+        "{{provider}} कनेक्शन में {{scope}} की अनुमति नहीं है। फिर भी आप कोई मान लिख सकते हैं।",
+      rateLimited:
+        "{{provider}} अनुरोधों को सीमित कर रहा है। थोड़ी देर बाद फिर कोशिश करें, या कोई मान लिखें।",
+      unreadable:
+        "{{provider}} से सूची नहीं पढ़ी जा सकी। फिर कोशिश करें, या कोई मान लिखें।",
     },
   },
 };

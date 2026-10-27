@@ -1,0 +1,101 @@
+slug: weekly-marketing-report
+app: analytics
+roles:
+  - marketing
+title: Créez votre rapport marketing hebdomadaire sans tableur
+seo_title: Rapport marketing hebdo depuis GA4 et HubSpot
+meta_description: Créez votre rapport marketing hebdo depuis Google Analytics et HubSpot avec Agent-Native Analytics. Demandez le bilan de la semaine, partagez-le en tableau de bord.
+updated: 2026-10-27
+hero:
+  body: "Agent-Native Analytics fait de vos données Google Analytics et HubSpot votre rapport marketing du lundi. Demandez le bilan de la semaine : chaque réponse rejoint un tableau de bord à ne plus refaire."
+  button:
+    label: Créez votre tableau de bord
+    url: https://analytics.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8b9582619b1b42e4a44e6246e01ff7f8
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F70d3b80ce73f472c95b94f7f5c0d65d6
+    alt: Un tableau de bord marketing hebdomadaire ouvert dans Analytics. Des cartes de métriques en haut affichent les sessions de la semaine, les inscriptions organiques, les nouveaux contacts HubSpot et les deals créés, chacune avec l'évolution par rapport à la semaine dernière. En dessous, un graphique en barres compare les sessions par canal cette semaine et la précédente, et une courbe montre les deals HubSpot créés par jour. Le chat de l'agent à droite contient la question « How did the week go? » et une courte réponse qui désigne la recherche organique comme le plus gros gain.
+how_to:
+  heading: Comment créer un rapport marketing hebdomadaire avec l'IA
+  steps:
+    - title: Connectez vos données marketing
+      body: Ouvrez **Sources de données**, suivez les [étapes de configuration](https://www.agent-native.com/docs/template-analytics-connectors/) des cartes Google Analytics et HubSpot, et cliquez sur **Tester la connexion**. Google Analytics demande un compte de service Google Cloud avec un accès Lecteur à votre propriété, à configurer une fois.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F0218d6c271db4bbe8534c00e6f5e85a6
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa38de1d80c2e4f7fb8e1407d95f97984
+        alt: Gros plan sur la page Sources de données avec Google Analytics et HubSpot listés comme connectés. Le panneau de configuration de HubSpot est ouvert à côté, avec son token configuré et Tester la connexion affichant Connexion réussie.
+    - title: Demandez comment s'est passée la semaine
+      body: "Demandez ce que vous demanderiez à un analyste. Par exemple : « Comment ont évolué les inscriptions issues de la recherche organique cette semaine par rapport à la semaine dernière ? » L'agent lance une requête en direct sur vos données et répond avec un graphique."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fcd7a4f648f5b4dee8a6282c3f512f698
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F74bf8b013f944b96a414979ff7234deb
+        alt: Le chat de l'agent avec cette question et sa réponse. Deux phrases indiquent que les inscriptions organiques ont progressé d'une semaine sur l'autre, au-dessus d'un graphique en barres des inscriptions par canal pour cette semaine et la précédente.
+    - title: Enregistrez et partagez votre tableau de bord
+      body: Demandez à l'agent d'« en faire mon tableau de bord marketing hebdomadaire ». Cliquez sur **Partager** pour donner à un collègue ou à toute votre organisation un [accès en lecture ou en édition](https://www.agent-native.com/docs/sharing/), ou ouvrez **Rapports par e-mail** pour l'envoyer chaque jour à l'heure choisie.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F04feeeb2a1384ce0adecb7bee676b806
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F61fd64ac2bff4f53a3ca6cfbd97225fe
+        alt: "Le tableau de bord marketing hebdomadaire avec la fenêtre Rapports par e-mail ouverte : envoi par e-mail et Slack, deux adresses d'équipe, un envoi à 9 h 00 et un bouton Envoyer maintenant."
+features:
+  heading: Tout ce qu'il faut pour le bilan de votre semaine marketing
+  items:
+    - title: Les deux outils dans une question
+      body: Interrogez les sessions Google Analytics et les contacts HubSpot dans la même question, et l'agent répond avec les deux côte à côte.
+    - title: Positionnements et trafic côte à côte
+      body: Connectez DataForSEO et demandez comment vos positions ont bougé, face aux sessions organiques de la semaine.
+    - title: Des chiffres toujours à jour
+      body: "Les graphiques Google Analytics sont en direct et ceux de HubSpot se rafraîchissent seuls : le rapport montre toujours la dernière semaine."
+    - title: Relancez l'analyse de la semaine dernière
+      body: Enregistrez une analyse avec sa question et ses étapes, puis faites-la relancer sur les données de la semaine.
+    - title: Les définitions de votre équipe
+      body: Vos admins définissent un lead ou une inscription dans la page Couche sémantique, et l'agent applique ces définitions partout.
+    - title: Interrogez n'importe quel graphique
+      body: Cliquez sur un graphique et demandez ce qui a changé. L'agent reçoit le graphique et votre question, et répond d'après ses données.
+integrations:
+  heading: Connectez Analytics aux outils que vous utilisez déjà
+  cards:
+    - title: Apportez vos données marketing
+      logos:
+        - name: Google Analytics
+        - name: HubSpot
+        - name: X
+      body: Connectez Google Analytics pour le trafic, HubSpot pour les contacts et les deals, et X pour l'engagement des posts, depuis la page Sources de données.
+    - title: Envoyez le rapport là où votre équipe le lit
+      logos:
+        - name: Slack
+        - name: Google Sheets
+      body: Envoyez un résumé quotidien et le lien du tableau de bord sur Slack via un webhook, et exportez tout tableau vers un compte Google Sheets connecté.
+    - title: Connectez n'importe quoi via MCP
+      logos:
+        - name: Notion
+        - name: Webflow
+        - name: Exa
+      more: true
+      body: Connectez les outils de votre équipe via MCP, ou ajoutez n'importe quel serveur MCP par son URL.
+other_uses:
+  heading: Autres usages d'Agent-Native Analytics
+  cards:
+    - title: Créez le tableau de bord KPI de votre startup
+      url: https://www.agent-native.com/use-cases/ai-kpi-dashboard/
+      body: Suivez les revenus, les inscriptions et le churn de votre startup, et demandez à l'agent pourquoi un chiffre a bougé.
+    - title: Trouvez où décrochent vos nouveaux inscrits
+      url: https://www.agent-native.com/use-cases/ai-funnel-analysis/
+      body: Trouvez l'étape où les nouveaux utilisateurs décrochent, et regardez les sessions où cela se produit.
+    - title: Analysez votre pipeline avec HubSpot et Gong
+      url: https://www.agent-native.com/use-cases/ai-sales-analytics/
+      body: Interrogez vos deals HubSpot et vos appels Gong en langage courant.
+faqs:
+  heading: Des questions ? Nous avons les réponses
+  items:
+    - q: Agent-Native Analytics est-il gratuit ?
+      a: Oui, Agent-Native Analytics est gratuit et open source. Vous connectez vos propres comptes Google Analytics et HubSpot. Pour commencer, vous choisissez les crédits IA Builder.io gratuits ou votre propre clé de modèle IA pour l'agent, l'usage de l'IA a donc des limites. Analytics est en alpha, attendez-vous à des changements.
+    - q: Quelles sources de données marketing puis-je connecter ?
+      a: Agent-Native Analytics se connecte à Google Analytics (GA4), HubSpot, DataForSEO pour les positions sur les mots-clés et les volumes de recherche, et X pour l'engagement des posts. Il se connecte aussi à BigQuery, Amplitude, Mixpanel, PostHog et Stripe. Chaque source a besoin de ses propres identifiants, et Google Analytics demande un compte de service Google Cloud.
+    - q: Agent-Native Analytics peut-il envoyer le rapport chaque lundi ?
+      a: Pas encore selon un rythme hebdomadaire. Les [rapports par e-mail des tableaux de bord](https://www.agent-native.com/docs/template-analytics-dashboards/) partent chaque jour, à l'heure et dans le fuseau horaire de votre choix, vers cinq adresses e-mail au plus, un canal Slack ou les deux. Avant votre réunion du lundi, cliquez sur **Envoyer maintenant** dans **Rapports par e-mail** pour envoyer le dernier tableau de bord.
+    - q: Dois-je connaître le SQL ?
+      a: Non. Vous posez votre question avec vos mots, et l'agent choisit la source et écrit la requête. Vous pouvez lui demander de montrer la requête derrière n'importe quelle réponse si vous voulez la vérifier.
+    - q: Puis-je me fier aux chiffres ?
+      a: L'agent lance une requête en direct sur vos données avant de vous donner un chiffre, et marque un chiffre « Unverified » quand aucune requête n'a tourné. Comparez tout de même le rapport de la première semaine avec Google Analytics et HubSpot avant de l'envoyer à l'équipe.
+    - q: En quoi Agent-Native Analytics diffère-t-il des rapports GA4 et HubSpot ?
+      a: "Google Analytics et HubSpot font chacun des rapports sur leurs propres données. Agent-Native Analytics répond à une même question à partir des deux, avec vos mots, et garde les réponses dans un seul tableau de bord que vous affinez en demandant. C'est une [application agentique](https://www.agent-native.com/articles/what-is-an-agent-native-app/) : l'intelligence d'un agent, l'intuitivité d'une application."

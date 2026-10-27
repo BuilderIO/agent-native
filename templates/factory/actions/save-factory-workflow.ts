@@ -132,11 +132,16 @@ export default defineAction({
   // refused as a version conflict, never applied twice. A request or graph
   // refused up front writes nothing. A create that passes both stays an
   // unknown outcome after a failure: repeating it could save the workflow
-  // twice.
+  // twice. The factory's Sentry settings need the database, so this check
+  // assumes they exist: a graph refused only for that counts as accepted,
+  // which makes a create less retry-safe, never more.
   retrySafe: (input) =>
     input.workflowId !== undefined ||
     requestProblem(input) !== undefined ||
-    !checkWorkflowGraph(input.graph).ok,
+    !checkWorkflowGraph(input.graph, {
+      checkOutputFields: true,
+      sentryFallbackConfigured: true,
+    }).ok,
   http: { method: "POST" },
   mcpAnnotations: {
     readOnlyHint: false,
@@ -192,7 +197,10 @@ export default defineAction({
             fail(problem, { errorCode: "invalid_request", statusCode: 400 });
           }
 
-          const { graph, plan } = prepareWorkflowGraph(input.graph);
+          const { graph, plan } = await prepareWorkflowGraph(
+            input.graph,
+            scoped,
+          );
           const source = workflowVersionSource(context);
 
           if (creating) {

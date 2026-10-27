@@ -237,6 +237,11 @@ import {
   isWaitingOnConnectionRequest,
   reconcileSettledRun,
 } from "./reconcile-settled-run.js";
+import {
+  pickReplyConnectionSuggestion,
+  latestReplyContext,
+  type LatestReplyContext,
+} from "./reply-connection-suggestion.js";
 import { RunStuckBanner } from "./RunStuckBanner.js";
 import { SESSION_REPLAY_MASK_PROPS } from "./session-replay-privacy.js";
 import { ThinkingDisplayProvider } from "./thinking-display.js";
@@ -5939,12 +5944,6 @@ function AgentKitComposerSurface({
     },
     onError: (error) => setComposerError(error.message),
   });
-  const integration = findMcpConnectionSuggestionIntegration({
-    text,
-    variant: "composer",
-    requestedByUser: true,
-    excludedIntegrationIds: props.mcpSuggestionExcludedIntegrationIds,
-  });
   const showHomeIntro =
     props.homeIntroSlot &&
     !hasRenderedMessages &&
@@ -6037,15 +6036,6 @@ function AgentKitComposerSurface({
           providerStatus={providerStatus}
           modelListUnavailable={modelListUnavailable}
           onRetry={modelListUnavailable ? retryModelList : retryProviderStatus}
-        />
-      ) : null}
-      {integration ? (
-        <McpConnectionSuggestion
-          text={text}
-          variant="composer"
-          requestedByUser
-          excludedIntegrationIds={props.mcpSuggestionExcludedIntegrationIds}
-          integrationId={integration.id}
         />
       ) : null}
       {selectionLength !== null && selectionLength > 0 ? (
@@ -6308,68 +6298,66 @@ function AgentKitUserMessage(props: AgentKitRenderProps<AgentMessage>) {
   return <AgentMessageView {...props} value={visible} />;
 }
 
-interface AgentKitSuggestionContext {
-  latestUser?: AgentMessage | undefined;
+interface AgentKitSuggestionContext extends LatestReplyContext {
   runsActive: boolean;
 }
 
-const NO_SUGGESTION_CONTEXT: AgentKitSuggestionContext = { runsActive: true };
-
-function latestUserMessageBefore(
-  messages: readonly AgentMessage[],
-  messageId: string,
-): AgentMessage | undefined {
-  const index = messages.findIndex((message) => message.id === messageId);
-  return messages
-    .slice(0, Math.max(0, index))
-    .findLast((message) => message.role === "user");
-}
+const NO_SUGGESTION_CONTEXT: AgentKitSuggestionContext = {
+  isLatest: false,
+  userText: "",
+  agentRequestedProviders: "",
+  runsActive: true,
+};
 
 function AgentKitMessageSupplement(props: AgentKitRenderProps<AgentMessage>) {
   const value = props.value;
   const t = useT();
   const surface = useAgentKitSurface();
-  const offersSuggestion =
-    value.role === "assistant" && value.status === "complete";
+  const isAssistant = value.role === "assistant";
   // Every row renders this, so it reads only what it shows; a whole-thread
   // subscription would re-render every row on every streamed delta.
-  const { latestUser, runsActive } = useAgentThreadSelector(
-    (thread): AgentKitSuggestionContext =>
-      offersSuggestion
-        ? {
-            latestUser: latestUserMessageBefore(thread.messages, value.id),
-            runsActive: hasActiveAgentRuns(thread),
-          }
-        : NO_SUGGESTION_CONTEXT,
+  const suggestion = useAgentThreadSelector(
+    (thread): AgentKitSuggestionContext => {
+      const context = isAssistant
+        ? latestReplyContext(thread, value.id)
+        : undefined;
+      return context?.isLatest
+        ? { ...context, runsActive: hasActiveAgentRuns(thread) }
+        : NO_SUGGESTION_CONTEXT;
+    },
     (previous, next) =>
-      previous.latestUser === next.latestUser &&
+      previous.isLatest === next.isLatest &&
+      previous.userText === next.userText &&
+      previous.agentRequestedProviders === next.agentRequestedProviders &&
       previous.runsActive === next.runsActive,
     props.threadId,
   );
-  const contextText =
-    latestUser?.parts
-      .filter((part) => part.type === "text")
-      .map((part) =>
-        part.type === "text"
-          ? splitAgentChatContextFromMessage(part.text).message
-          : "",
-      )
-      .join("\n") ?? "";
   const text = value.parts
     .filter((part) => part.type === "text")
     .map((part) => (part.type === "text" ? part.text : ""))
     .join("\n");
-  const integration =
-    offersSuggestion && !runsActive
-      ? findMcpConnectionSuggestionIntegration({
-          text,
-          contextText,
-          variant: "response",
-          requestedByAgent: true,
-          excludedIntegrationIds:
-            surface.props.mcpSuggestionExcludedIntegrationIds,
-        })
-      : null;
+  const excludedIntegrationIds =
+    surface.props.mcpSuggestionExcludedIntegrationIds;
+  const replyFinished = value.status === "complete" && !suggestion.runsActive;
+  // The streaming row re-renders on every delta; its ask is read once done.
+  const replyText = replyFinished ? text : "";
+  const integration = useMemo(
+    () =>
+      isAssistant
+        ? pickReplyConnectionSuggestion({
+            context: suggestion,
+            replyText,
+            replyFinished,
+            find: (message) =>
+              findMcpConnectionSuggestionIntegration({
+                text: message,
+                variant: "response",
+                ...(excludedIntegrationIds ? { excludedIntegrationIds } : {}),
+              }),
+          })
+        : null,
+    [excludedIntegrationIds, isAssistant, replyFinished, replyText, suggestion],
+  );
   const runWarning = asRecord(asRecord(value.metadata?.custom)?.runWarning);
   const missingFinalResponse =
     runWarning?.errorCode === "final_response_missing_after_tool";
@@ -6401,7 +6389,7 @@ function AgentKitMessageSupplement(props: AgentKitRenderProps<AgentMessage>) {
       {integration ? (
         <McpConnectionSuggestion
           text={text}
-          contextText={contextText}
+          contextText={suggestion.userText}
           variant="response"
           requestedByAgent
           excludedIntegrationIds={

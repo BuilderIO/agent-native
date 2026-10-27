@@ -281,8 +281,11 @@ Run it once per thread: if a reply in the thread already links this PR, just mak
 there and move on.
 
 Write only as the connected Slack profile (Steve), only in the feedback
-channels, and in the reply format from the contract above. Re-read each thread
-before writing. If Steve has since added `:mag:` or a person has taken it over,
+channels, and in the reply format from the contract above. First re-read
+the contract and this step from fresh `origin/main` (`git fetch origin main
+&& git show origin/main:.agents/skills/review-latest-feedback/SKILL.md`): a
+run that started hours ago may be holding older rules. Re-read each thread before
+writing. If Steve has since added `:mag:` or a person has taken it over,
 leave it. If a newer human reply says it's still broken, leave the 👀 for the
 next sweep. Otherwise:
 
@@ -302,8 +305,10 @@ GitHub issues fixed by the merged PR get a one-line thank-you comment linking
 the PR, and then get closed.
 <!-- framework-repo-only:start -->
 CI, deploy, and chat-health failures you couldn't fix get one grouped message
-per run in `#qa-agent-native`. Never post one message per failure, and never
-open GitHub issues for them.
+per run in `#qa-agent-native`: one short line per workflow that is still
+failing, linking only its latest failed run. Leave out runs that later passed
+or were superseded. Never post one message per failure, and never open GitHub
+issues for them.
 <!-- framework-repo-only:end -->
 
 Before ending, re-read each thread you touched and check:
