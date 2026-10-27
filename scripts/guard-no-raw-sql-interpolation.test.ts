@@ -123,6 +123,31 @@ describe("raw SQL interpolation guard", () => {
     ).toHaveLength(1);
   });
 
+  it("recognizes the fenced-write callback's contextual DbExec parameter", () => {
+    const text = source([
+      'import { withFencedExecutionWrite } from "./agent/execution-fence.js";',
+      "withFencedExecutionWrite((tx) =>",
+      "  tx.execute(`SELECT * FROM records WHERE id = ${recordId}`),",
+      ");",
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolations(FILE, text, new Set([3])),
+    ).toHaveLength(1);
+  });
+
+  it("recognizes a transaction callback on a DbExec receiver", () => {
+    const text = source([
+      "database.transaction((tx) =>",
+      "  tx.execute(`SELECT * FROM records WHERE id = ${recordId}`),",
+      ");",
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolations(FILE, text, new Set([2])),
+    ).toHaveLength(1);
+  });
+
   it("finds interpolated templates assigned to a variable before execute", () => {
     const text = source([
       "const statement = `SELECT * FROM records WHERE id = ${recordId}`;",

@@ -184,6 +184,18 @@ function isCoreStateMachineModule(moduleName: string, file: string): boolean {
   );
 }
 
+function isCoreExecutionFenceModule(moduleName: string, file: string): boolean {
+  if (moduleName === "@agent-native/core/agent/execution-fence") return true;
+  if (!moduleName.startsWith(".")) return false;
+  const resolved = path
+    .resolve(path.dirname(file), moduleName)
+    .replace(/\.(?:[cm]?[jt]s|tsx?)$/i, "");
+  return (
+    resolved ===
+    path.resolve(rootDir, "packages/core/src/agent/execution-fence")
+  );
+}
+
 function isImportedSqlIdentifier(
   identifier: ts.Identifier,
   checker: ts.TypeChecker,
@@ -282,6 +294,32 @@ function isImportedDbExecFactory(
   );
 }
 
+function isImportedFencedExecutionWrite(
+  identifier: ts.Identifier,
+  checker: ts.TypeChecker,
+  sourceFile: ts.SourceFile,
+): boolean {
+  const symbol = checker.getSymbolAtLocation(identifier);
+  return (
+    symbol?.declarations?.some((declaration) => {
+      if (!ts.isImportSpecifier(declaration)) return false;
+      const importedName = declaration.propertyName ?? declaration.name;
+      if (importedName.text !== "withFencedExecutionWrite") return false;
+      const importClause = declaration.parent.parent;
+      if (!ts.isImportClause(importClause)) return false;
+      const importDeclaration = importClause.parent;
+      return (
+        ts.isImportDeclaration(importDeclaration) &&
+        ts.isStringLiteral(importDeclaration.moduleSpecifier) &&
+        isCoreExecutionFenceModule(
+          importDeclaration.moduleSpecifier.text,
+          sourceFile.fileName,
+        )
+      );
+    }) ?? false
+  );
+}
+
 function isImportedDbExecType(
   type: ts.TypeNode,
   checker: ts.TypeChecker,
@@ -369,11 +407,53 @@ function isDbExecExpression(
           ts.isParameter(declaration) ||
           ts.isPropertyDeclaration(declaration) ||
           ts.isPropertySignature(declaration)) &&
-        declaration.type !== undefined &&
-        isImportedDbExecType(declaration.type, checker, sourceFile)
+        ((declaration.type !== undefined &&
+          isImportedDbExecType(declaration.type, checker, sourceFile)) ||
+          (ts.isParameter(declaration) &&
+            isDbExecContextParameter(declaration, checker, sourceFile)))
       );
     }) ?? false
   );
+}
+
+function isDbExecContextParameter(
+  parameter: ts.ParameterDeclaration,
+  checker: ts.TypeChecker,
+  sourceFile: ts.SourceFile,
+): boolean {
+  const parameterParent = parameter.parent;
+  const callback =
+    ts.isArrowFunction(parameterParent) ||
+    ts.isFunctionExpression(parameterParent)
+      ? parameterParent
+      : parameterParent.parent;
+  if (!ts.isArrowFunction(callback) && !ts.isFunctionExpression(callback)) {
+    return false;
+  }
+  const call = callback.parent;
+  if (
+    !ts.isCallExpression(call) ||
+    !call.arguments.some((argument) => argument === callback) ||
+    call.arguments[0] !== callback
+  ) {
+    return false;
+  }
+  if (
+    ts.isIdentifier(call.expression) &&
+    isImportedFencedExecutionWrite(call.expression, checker, sourceFile)
+  ) {
+    return true;
+  }
+  const callee = call.expression;
+  if (
+    (ts.isPropertyAccessExpression(callee) &&
+      callee.name.text === "transaction") ||
+    (ts.isElementAccessExpression(callee) &&
+      staticStringPropertyName(callee.argumentExpression) === "transaction")
+  ) {
+    return isDbExecExpression(callee.expression, checker, sourceFile);
+  }
+  return false;
 }
 
 function isImportedSqlFragmentType(
