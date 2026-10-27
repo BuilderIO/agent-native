@@ -49,7 +49,10 @@ function returnRows(...rows: unknown[][]) {
 describe("remove-filler-words", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.assertAccess.mockResolvedValue({
+      role: "editor",
+      resource: { expiresAt: null },
+    });
     mocks.queueBackgroundAiRequest.mockResolvedValue(undefined);
   });
 

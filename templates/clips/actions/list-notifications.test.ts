@@ -156,14 +156,19 @@ describe("list-notifications recording lifecycle", () => {
   );
 
   it.each(["viewer@example.com", "owner@example.com"])(
-    "preserves expiry filtering for %s",
+    "applies the owner expiry exception for %s",
     async (email) => {
       state.email = email;
       state.recording.expiresAt = "2020-01-01T00:00:00Z";
-      expect(await action.run({ days: 30, limit: 200 })).toEqual({
-        items: [],
-        count: 0,
-      });
+      const result = await action.run({ days: 30, limit: 200 });
+      if (email === "owner@example.com") {
+        expect(result.count).toBe(1);
+        expect(result.items.map((item) => item.preview)).toEqual([
+          "Fake discussion",
+        ]);
+      } else {
+        expect(result).toEqual({ items: [], count: 0 });
+      }
     },
   );
 });

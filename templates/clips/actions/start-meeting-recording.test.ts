@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
+  email: "owner@example.com",
   meeting: null as null | Record<string, unknown>,
   existingRecording: null as null | Record<string, unknown>,
   inserted: [] as Record<string, unknown>[],
@@ -14,7 +15,10 @@ vi.mock("@agent-native/core/action", async (importOriginal) => ({
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: async () => {},
 }));
-vi.mock("@agent-native/core/sharing", () => ({ assertAccess: async () => {} }));
+vi.mock("@agent-native/core/sharing", async (original) => ({
+  ...(await original<typeof import("@agent-native/core/sharing")>()),
+  assertAccess: vi.fn(async () => {}),
+}));
 vi.mock("drizzle-orm", async (importOriginal) => ({
   ...(await importOriginal<typeof import("drizzle-orm")>()),
   eq: (column: unknown) => ({ column }),
@@ -28,7 +32,7 @@ vi.mock("../server/lib/calendar-event-meetings.js", () => ({
   parseCalendarMeetingId: () => null,
 }));
 vi.mock("../server/lib/recordings.js", () => ({
-  getCurrentOwnerEmail: () => "owner@example.com",
+  getCurrentOwnerEmail: () => state.email,
   getActiveOrganizationId: async () => "org-1",
   nanoid: () => "rec-meeting",
 }));
@@ -71,6 +75,7 @@ describe("start-meeting-recording recording_created", () => {
   beforeEach(() => {
     state.trackRecordingCreated.mockReset();
     state.inserted = [];
+    state.email = "owner@example.com";
     state.existingRecording = null;
     state.meeting = {
       id: "meeting-1",
@@ -108,4 +113,43 @@ describe("start-meeting-recording recording_created", () => {
     expect(state.inserted).toHaveLength(0);
     expect(state.trackRecordingCreated).not.toHaveBeenCalled();
   });
+});
+
+describe("existing meeting recording expiry", () => {
+  it.each(["2000-01-01T00:00:00Z", "not-a-date"])(
+    "withholds %s from a meeting editor who is not its recording owner",
+    async (expiresAt) => {
+      state.email = "meeting-owner@example.test";
+      state.meeting = { id: "meeting-1", recordingId: "expired" };
+      state.existingRecording = {
+        id: "expired",
+        ownerEmail: "recording-owner@example.test",
+        expiresAt,
+        title: "Fake title",
+        videoUrl: "https://media.example.test/fake.mp4",
+      };
+      state.inserted = [];
+      await expect(
+        action.run({ meetingId: "meeting-1" }),
+      ).rejects.toMatchObject({ statusCode: 403 });
+      expect(state.inserted).toEqual([]);
+    },
+  );
+  it.each([
+    { ownerEmail: "OWNER@example.com", expiresAt: "not-a-date" },
+    { ownerEmail: "another@example.test", expiresAt: null },
+  ])(
+    "retains owner and live existing recordings ($ownerEmail, $expiresAt)",
+    async (recording) => {
+      state.email = "owner@example.com";
+      state.meeting = { id: "meeting-1", recordingId: "existing" };
+      state.existingRecording = { id: "existing", ...recording };
+      await expect(
+        action.run({ meetingId: "meeting-1" }),
+      ).resolves.toMatchObject({
+        recording: state.existingRecording,
+        created: false,
+      });
+    },
+  );
 });

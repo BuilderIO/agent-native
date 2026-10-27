@@ -512,7 +512,10 @@ describe("requestTranscript regeneration", () => {
     mockSelectRows.lockedRows = null;
     mockSelectRows.lockedWhereConditions = [];
     mockResolveHasBuilderGatewayCredential.mockResolvedValue(true);
-    mockAssertAccess.mockResolvedValue({ role: "editor" });
+    mockAssertAccess.mockResolvedValue({
+      role: "editor",
+      resource: { expiresAt: null },
+    });
     mockPrepareRecordingTranscriptionAudio.mockResolvedValue({
       mimeType: "audio/mp4",
       maxVolumeDb: -12,

@@ -32,6 +32,7 @@ vi.mock("../server/db/index.js", () => ({
       transcriptStatus: "meetings.transcriptStatus",
       updatedAt: "meetings.updatedAt",
     },
+    recordings: { table: "recordings", id: "recordings.id" },
     recordingTranscripts: {
       recordingId: "recordingTranscripts.recordingId",
       fullText: "recordingTranscripts.fullText",
@@ -64,9 +65,15 @@ function createDb(transcriptStatus: "pending" | "ready" = "ready") {
   let selectCount = 0;
   const selectResults = [[meeting], []];
   const select = vi.fn(() => {
-    const result = selectResults[selectCount++] ?? [];
+    let result: unknown[] = [];
     const builder = {
-      from: vi.fn(() => builder),
+      from: vi.fn((table) => {
+        result =
+          table.table === "recordings"
+            ? [{ ownerEmail: "owner@example.test", expiresAt: null }]
+            : (selectResults[selectCount++] ?? []);
+        return builder;
+      }),
       where: vi.fn(() => builder),
       limit: vi.fn(async () => result),
     };

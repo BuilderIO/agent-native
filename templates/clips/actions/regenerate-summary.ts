@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import { withFullVideoAiInstructions } from "../shared/clips-ai-prefs.js";
 import cleanupTranscript from "./cleanup-transcript.js";
 import {
@@ -26,7 +27,9 @@ export default defineAction({
       ),
   }),
   run: async (args) => {
-    await assertAccess("recording", args.recordingId, "editor");
+    assertRecordingNotExpired(
+      await assertAccess("recording", args.recordingId, "editor"),
+    );
 
     const db = getDb();
     const [rec] = await db

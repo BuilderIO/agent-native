@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
-import { assertAccess } from "@agent-native/core/sharing";
+import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -10,6 +10,7 @@ import {
   parseCalendarMeetingId,
 } from "../server/lib/calendar-event-meetings.js";
 import { trackRecordingCreated } from "../server/lib/recording-created.js";
+import { isRecordingExpiredForEmail } from "../server/lib/recording-page-access.js";
 import {
   getCurrentOwnerEmail,
   getActiveOrganizationId,
@@ -57,6 +58,9 @@ export default defineAction({
         .where(eq(schema.recordings.id, meeting.recordingId))
         .limit(1);
       if (existing) {
+        if (isRecordingExpiredForEmail(existing, ownerEmail)) {
+          throw new ForbiddenError();
+        }
         return {
           recording: existing,
           meetingId,

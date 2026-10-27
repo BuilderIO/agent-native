@@ -37,6 +37,22 @@ export function isRecordingExpiredForViewer(input: {
   return !input.viewerIsOwner && isRecordingExpired(input.expiresAt, input.now);
 }
 
+export function isRecordingExpiredForEmail(
+  recording: {
+    expiresAt: string | null | undefined;
+    ownerEmail: string | null | undefined;
+  },
+  viewerEmail: string | null | undefined,
+): boolean {
+  return isRecordingExpiredForViewer({
+    expiresAt: recording.expiresAt,
+    viewerIsOwner:
+      Boolean(recording.ownerEmail && viewerEmail) &&
+      recording.ownerEmail?.trim().toLowerCase() ===
+        viewerEmail?.trim().toLowerCase(),
+  });
+}
+
 export function isRecordingTrashedForViewer(input: {
   trashedAt: string | null | undefined;
   viewerIsOwner: boolean;
@@ -76,7 +92,11 @@ export function canReceiveRecordingActivity(input: {
     input.ownerEmail.trim().toLowerCase() ===
       input.recipientEmail.trim().toLowerCase();
   return (
-    !isRecordingExpired(input.expiresAt, input.now) &&
+    !isRecordingExpiredForViewer({
+      expiresAt: input.expiresAt,
+      viewerIsOwner,
+      now: input.now ?? Date.now(),
+    }) &&
     !isRecordingTrashedForViewer({
       trashedAt: input.trashedAt,
       viewerIsOwner,

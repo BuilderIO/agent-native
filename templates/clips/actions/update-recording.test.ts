@@ -24,11 +24,13 @@ vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
 }));
 
-vi.mock("@agent-native/core/sharing", () => ({
+vi.mock("@agent-native/core/sharing", async (original) => ({
+  ...(await original<typeof import("@agent-native/core/sharing")>()),
   assertAccess: (...args: unknown[]) => mockAssertAccess(...args),
 }));
 
-vi.mock("drizzle-orm", () => ({
+vi.mock("drizzle-orm", async (original) => ({
+  ...(await original<typeof import("drizzle-orm")>()),
   eq: (column: unknown, value: unknown) => ({ column, value }),
 }));
 
@@ -79,7 +81,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   state.patches = [];
   state.selectRows = [[recording()], [recording()]];
-  mockAssertAccess.mockResolvedValue(undefined);
+  mockAssertAccess.mockResolvedValue({
+    role: "editor",
+    resource: { expiresAt: null },
+  });
   mockWriteAppState.mockResolvedValue(undefined);
   mockSaveChapters.mockResolvedValue({
     updatedAt: "2026-10-16T00:00:00.000Z",
@@ -228,3 +233,57 @@ describe("update-recording chapters", () => {
     expect(mockSaveChapters).not.toHaveBeenCalled();
   });
 });
+
+it.each(["2000-01-01T00:00:00Z", "not-a-date"])(
+  "refuses an ID-only metadata read of an unavailable nonowned recording (%s)",
+  async (expiresAt) => {
+    const row = recording({
+      expiresAt,
+      title: "Fake expired title",
+      videoUrl: "https://media.example.test/fake.mp4",
+    });
+    state.selectRows = [[row], [row]];
+    mockAssertAccess.mockResolvedValue({ role: "editor", resource: row });
+    await expect(run({ id: row.id })).rejects.toMatchObject({
+      statusCode: 403,
+    });
+    expect(state.patches).toEqual([]);
+    expect(mockWriteAppState).not.toHaveBeenCalled();
+  },
+);
+it.each([
+  { role: "owner", expiresAt: "not-a-date" },
+  { role: "editor", expiresAt: null },
+])(
+  "retains authorized metadata writes for $role ($expiresAt)",
+  async ({ role, expiresAt }) => {
+    const row = recording({ expiresAt });
+    state.selectRows = [[row], [row]];
+    mockAssertAccess.mockResolvedValue({ role, resource: row });
+    await expect(run({ id: row.id })).resolves.toMatchObject({
+      recording: row,
+    });
+    expect(state.patches).toHaveLength(1);
+  },
+);
+
+it.each(["owner", "editor"])(
+  "returns only readable metadata when %s sets immediate expiry",
+  async (role) => {
+    const before = recording({ expiresAt: null });
+    const after = recording({
+      expiresAt: "2000-01-01T00:00:00.000Z",
+      title: "Fake title",
+      videoUrl: "https://media.example.test/fake.mp4",
+    });
+    state.selectRows = [[before], [after]];
+    mockAssertAccess.mockResolvedValue({ role, resource: before });
+    const result = await run({ id: before.id, expiresAt: after.expiresAt });
+    expect(state.patches).toHaveLength(1);
+    expect(result).toEqual(
+      role === "owner"
+        ? { id: before.id, recording: after }
+        : { id: before.id, recording: null, reason: "unavailable" },
+    );
+  },
+);

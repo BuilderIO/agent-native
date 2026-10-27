@@ -22,6 +22,7 @@ import {
 } from "../../../shared/transcript-segments.js";
 import { resolveTranscriptPresentation } from "../../../shared/transcript-status.js";
 import { getDb, schema } from "../../db/index.js";
+import { isRecordingExpiredForEmail } from "../../lib/recording-page-access.js";
 
 interface Bullet {
   text: string;
@@ -70,8 +71,8 @@ export default defineEventHandler(async (event) => {
 
   const session = await getSession(event).catch(() => null);
   const accessContext = {
-    userEmail: session?.email,
-    orgId: session?.orgId,
+    ...(session?.email ? { userEmail: session.email } : {}),
+    ...(session?.orgId ? { orgId: session.orgId } : {}),
   };
 
   return runWithRequestContext(accessContext, async () => {
@@ -94,6 +95,21 @@ export default defineEventHandler(async (event) => {
     }
 
     db ??= getDb();
+    let canReadTranscript = false;
+    if (meeting.shareTranscript && meeting.recordingId) {
+      const recordingRows = await db
+        .select({
+          ownerEmail: schema.recordings.ownerEmail,
+          expiresAt: schema.recordings.expiresAt,
+        })
+        .from(schema.recordings)
+        .where(eq(schema.recordings.id, meeting.recordingId))
+        .limit(1);
+      const recording = recordingRows.values().next().value;
+      canReadTranscript = Boolean(
+        recording && !isRecordingExpiredForEmail(recording, session?.email),
+      );
+    }
     const [participants, actionItems, transcriptRows] = await Promise.all([
       db
         .select({
@@ -112,7 +128,7 @@ export default defineEventHandler(async (event) => {
         })
         .from(schema.meetingActionItems)
         .where(eq(schema.meetingActionItems.meetingId, meetingId)),
-      meeting.shareTranscript && meeting.recordingId
+      canReadTranscript && meeting.recordingId
         ? db
             .select({
               status: schema.recordingTranscripts.status,

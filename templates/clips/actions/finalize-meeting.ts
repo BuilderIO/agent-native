@@ -1,11 +1,13 @@
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
-import { assertAccess } from "@agent-native/core/sharing";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
 import type { VoiceContextPack } from "@agent-native/core/voice";
 import { and, eq, inArray, lt, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { isRecordingExpiredForEmail } from "../server/lib/recording-page-access.js";
 import { nanoid } from "../server/lib/recordings.js";
 import { PENDING_MEETING_FINALIZATION_STALE_MS } from "../shared/meeting-finalization.js";
 import cleanupTranscript, { CleanupResult } from "./cleanup-transcript.js";
@@ -60,6 +62,29 @@ export default defineAction({
       .where(eq(schema.meetings.id, args.meetingId))
       .limit(1);
     if (!meeting) throw new Error(`Meeting not found: ${args.meetingId}`);
+
+    const recordingRows = meeting.recordingId
+      ? await db
+          .select({
+            ownerEmail: schema.recordings.ownerEmail,
+            expiresAt: schema.recordings.expiresAt,
+            title: schema.recordings.title,
+            sourceAppName: schema.recordings.sourceAppName,
+            sourceWindowTitle: schema.recordings.sourceWindowTitle,
+            description: schema.recordings.description,
+          })
+          .from(schema.recordings)
+          .where(eq(schema.recordings.id, meeting.recordingId))
+          .limit(1)
+      : [];
+    const linkedRecording = recordingRows.values().next().value;
+    if (
+      meeting.recordingId &&
+      (!linkedRecording ||
+        isRecordingExpiredForEmail(linkedRecording, getRequestUserEmail()))
+    ) {
+      throw new ForbiddenError();
+    }
 
     let transcriptText = args.overrideTranscript ?? "";
     if (!transcriptText && meeting.recordingId) {
@@ -125,29 +150,16 @@ export default defineAction({
       };
     }
 
-    const [participants, recordingRows, agentsContext] = await Promise.all([
+    const [participants, agentsContext] = await Promise.all([
       db
         .select()
         .from(schema.meetingParticipants)
         .where(eq(schema.meetingParticipants.meetingId, args.meetingId)),
-      meeting.recordingId
-        ? db
-            .select({
-              title: schema.recordings.title,
-              sourceAppName: schema.recordings.sourceAppName,
-              sourceWindowTitle: schema.recordings.sourceWindowTitle,
-              description: schema.recordings.description,
-            })
-            .from(schema.recordings)
-            .where(eq(schema.recordings.id, meeting.recordingId))
-            .limit(1)
-        : Promise.resolve([]),
       loadAgentsMdContext({
         ownerEmail: meeting.ownerEmail,
         purpose: "summary",
       }),
     ]);
-    const linkedRecording = recordingRows[0] ?? null;
 
     const contextSnippets: NonNullable<VoiceContextPack["snippets"]> = [];
     const addSnippet = (label: string, value: string, maxChars = 2_000) => {

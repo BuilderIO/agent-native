@@ -11,6 +11,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { writeBrainExportState } from "../server/lib/brain-export-state.js";
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
+import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import {
   getCurrentOwnerEmail,
   ownerEmailMatches,
@@ -1033,7 +1034,9 @@ const requestTranscriptAction = defineAction({
       ),
   }),
   run: async (args, context?: ActionRunContext) => {
-    const access = await assertAccess("recording", args.recordingId, "editor");
+    const access = assertRecordingNotExpired(
+      await assertAccess("recording", args.recordingId, "editor"),
+    );
 
     const db = getDb();
 

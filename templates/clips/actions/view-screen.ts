@@ -22,6 +22,8 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { agentRecordingAccessFilter } from "../server/lib/agent-recording-access.js";
 import { listingThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
+import { recordingExpiryQuery } from "../server/lib/recording-expiry-query.js";
+import { isRecordingExpiredForEmail } from "../server/lib/recording-page-access.js";
 import {
   isRecordingExpiredForViewer,
   isRecordingTrashedForViewer,
@@ -207,6 +209,7 @@ async function fetchLibrary({
   const ownerEmail = getRequestUserEmail();
   if (!ownerEmail) return [];
   const conditions = [
+    recordingExpiryQuery(ownerEmail).available,
     agentRecordingAccessFilter(
       schema.recordings,
       schema.recordingShares,
@@ -408,22 +411,28 @@ async function fetchMeetingDetail(meetingId: string) {
   let recording: { id: string; title: string } | null = null;
   let transcriptSnippet: string | null = null;
   if (meeting.recordingId) {
-    const [rec] = await db
+    const recordingRows = await db
       .select({
         id: schema.recordings.id,
         title: schema.recordings.title,
+        ownerEmail: schema.recordings.ownerEmail,
+        expiresAt: schema.recordings.expiresAt,
       })
       .from(schema.recordings)
       .where(eq(schema.recordings.id, meeting.recordingId))
       .limit(1);
-    recording = rec ?? null;
-    const [tr] = await db
-      .select({ fullText: schema.recordingTranscripts.fullText })
-      .from(schema.recordingTranscripts)
-      .where(eq(schema.recordingTranscripts.recordingId, meeting.recordingId))
-      .limit(1);
-    if (tr?.fullText) {
-      transcriptSnippet = tr.fullText.slice(0, 2000);
+    const rec = recordingRows.values().next().value;
+    if (rec && !isRecordingExpiredForEmail(rec, getRequestUserEmail())) {
+      recording = { id: rec.id, title: rec.title };
+      const transcriptRows = await db
+        .select({ fullText: schema.recordingTranscripts.fullText })
+        .from(schema.recordingTranscripts)
+        .where(eq(schema.recordingTranscripts.recordingId, meeting.recordingId))
+        .limit(1);
+      const tr = transcriptRows.values().next().value;
+      if (tr?.fullText) {
+        transcriptSnippet = tr.fullText.slice(0, 2000);
+      }
     }
   }
 
