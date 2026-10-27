@@ -80,6 +80,7 @@ import {
   type McpDirectoryWidgetReadArgument,
   renewMcpDirectoryWidgetCapabilityScope,
 } from "../shared/embed-auth.js";
+import { ForbiddenError } from "../sharing/errors.js";
 import {
   isAutoReadExcludedActionName,
   isMcpActionInputEligible,
@@ -4723,7 +4724,10 @@ export async function resolveMcpIdentityOrgId(
   try {
     const { resolveOrgIdForEmail } = await import("../org/context.js");
     return (await resolveOrgIdForEmail(userEmail)) ?? undefined;
-  } catch {
-    return undefined;
+  } catch (cause) {
+    if (cause instanceof ForbiddenError) {
+      throw new McpIdentityVerificationRefusedError();
+    }
+    throw new McpIdentityVerificationUnavailableError(cause);
   }
 }

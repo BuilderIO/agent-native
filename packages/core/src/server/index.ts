@@ -678,6 +678,7 @@ export {
 
 export {
   CredentialStoreUnavailableError,
+  CredentialStoreLookupError,
   FeatureNotConfiguredError,
   hasBuilderPrivateKey,
   isBuilderEnvManaged,

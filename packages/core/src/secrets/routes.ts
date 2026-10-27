@@ -163,7 +163,7 @@ async function hasOAuthSecretForEvent(
 ): Promise<boolean> {
   if (!secret.oauthProvider) return false;
   const { getSession } = await import("../server/auth.js");
-  const session = await getSession(event).catch(() => null);
+  const session = await getSession(event);
   if (!session?.email) return false;
   const accounts = await listOAuthAccountsByOwner(
     secret.oauthProvider,
@@ -181,7 +181,7 @@ async function resolveScopeId(
     import("../org/context.js"),
   ]);
   if (scope === "user") {
-    const session = await getSession(event).catch(() => null);
+    const session = await getSession(event);
     if (!session?.email) {
       return { scopeId: null, reason: "Authentication required" };
     }
@@ -194,7 +194,7 @@ async function resolveScopeId(
   }
   const ctx = await getOrgContext(event).catch(() => null);
   if (ctx?.orgId) return { scopeId: ctx.orgId };
-  const session = await getSession(event).catch(() => null);
+  const session = await getSession(event);
   if (session?.email) return { scopeId: `solo:${session.email}` };
   return { scopeId: null, reason: "No workspace or session context" };
 }

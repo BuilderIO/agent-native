@@ -65,7 +65,7 @@ export function createVoiceProvidersStatusHandler() {
       return { error: "Method not allowed" };
     }
 
-    const session = await getSession(event).catch(() => null);
+    const session = await getSession(event);
     const orgCtx = session?.email
       ? await getOrgContext(event).catch(() => null)
       : null;

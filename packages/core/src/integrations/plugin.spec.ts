@@ -3,6 +3,7 @@ import { createHmac } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { resetAppConfigForTests } from "../app-config/index.js";
+import { ForbiddenError } from "../sharing/errors.js";
 import { IntegrationIdentityDeclinedError } from "./identity.js";
 import { createIntegrationsPlugin } from "./plugin.js";
 import type { PlatformAdapter } from "./types.js";
@@ -105,7 +106,8 @@ vi.mock("../deploy/route-discovery.js", () => ({
   getMissingDefaultPlugins: vi.fn(async () => []),
 }));
 
-vi.mock("../server/auth.js", () => ({
+vi.mock("../server/auth.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../server/auth.js")>()),
   getSession: getSessionMock,
 }));
 
@@ -118,6 +120,7 @@ vi.mock("../server/credential-provider.js", async () => {
 
 vi.mock("../org/context.js", () => ({
   getOrgContext: getOrgContextMock,
+  hasOrgScopeResolutionUnavailable: () => false,
   resolveOrgScopeForEmail: resolveOrgScopeForEmailMock,
 }));
 
@@ -347,7 +350,11 @@ async function dispatch(
     return middleware(event, next);
   };
   const responseBody = await next();
-  return { body: responseBody, status: event.res.status };
+  return {
+    body: responseBody,
+    status: event.res.status,
+    headers: event.res.headers,
+  };
 }
 
 const adapter: PlatformAdapter = {
@@ -473,6 +480,64 @@ describe("integrations plugin routes", () => {
       dispatchFailed: 0,
     });
     resourceGetByPathMock.mockImplementation(async () => null);
+  });
+
+  it.each([
+    ["fake/enable", "POST"],
+    ["fake/setup", "POST"],
+    ["fake/status", "GET"],
+    ["installations", "GET"],
+    ["scopes", "POST"],
+    ["slack/oauth/install", "GET"],
+  ])(
+    "fails closed when a signed-in org member's lookup fails on %s",
+    async (action, method) => {
+      getSessionMock.mockResolvedValue({
+        email: "member@example.test",
+        orgId: "fake-org",
+      });
+      getOrgContextMock.mockRejectedValue(
+        Object.assign(new Error("permission denied for table org_members"), {
+          code: "42501",
+        }),
+      );
+      const app = createNitroApp();
+      await createIntegrationsPlugin({ adapters: [adapter] })(app);
+      const response = await dispatch(
+        app,
+        `/_agent-native/integrations/${action}`,
+        method,
+      );
+      expect(saveIntegrationConfigMock).not.toHaveBeenCalled();
+      expect(response.status).toBe(503);
+      expect(response.headers.get("retry-after")).toBe("5");
+      expect(JSON.stringify(response.body)).not.toContain("org_members");
+    },
+  );
+
+  it.each([
+    ["fake/enable", "POST"],
+    ["fake/setup", "POST"],
+    ["fake/status", "GET"],
+    ["installations", "GET"],
+    ["scopes", "POST"],
+    ["slack/oauth/install", "GET"],
+  ])("preserves definitive org refusal on %s", async (action, method) => {
+    getSessionMock.mockResolvedValue({
+      email: "member@example.test",
+      orgId: "fake-org",
+    });
+    getOrgContextMock.mockRejectedValue(new ForbiddenError());
+    const app = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(app);
+    const response = await dispatch(
+      app,
+      `/_agent-native/integrations/${action}`,
+      method,
+    );
+    expect(saveIntegrationConfigMock).not.toHaveBeenCalled();
+    expect(response.status).toBe(403);
+    expect(response.headers.get("retry-after")).toBeNull();
   });
 
   it.each([

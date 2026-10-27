@@ -3893,7 +3893,7 @@ export function createCoreRoutesPlugin(
             setResponseStatus(event, 405);
             return { error: "Method not allowed" };
           }
-          const session = await getSession(event).catch(() => null);
+          const session = await getSession(event);
           if (!session?.email) {
             setResponseStatus(event, 401);
             return { error: "Authentication required" };
@@ -4207,7 +4207,7 @@ export function createCoreRoutesPlugin(
         `${P}/debug/runtime`,
         defineEventHandler(async (event) => {
           setResponseHeader(event, "cache-control", "no-store");
-          const session = await getSession(event).catch(() => null);
+          const session = await getSession(event);
           const productionLike =
             process.env.NODE_ENV?.trim() === "production" ||
             isProductionServerlessFunctionRuntime();
@@ -5046,7 +5046,7 @@ export function createCoreRoutesPlugin(
               error: error instanceof Error ? error.message : "Invalid context",
             };
           }
-          const session = await getSession(event).catch(() => null);
+          const session = await getSession(event);
           if (!session?.email) {
             setResponseStatus(event, 401);
             return { error: "Authentication required" };
@@ -5123,7 +5123,7 @@ export function createCoreRoutesPlugin(
             setResponseStatus(event, 405);
             return { error: "Method not allowed" };
           }
-          const session = await getSession(event).catch(() => null);
+          const session = await getSession(event);
           const body = ((await readBody(event).catch(() => ({}))) ??
             {}) as BuilderWaitlistBody;
           const waitlistEmail = resolveWaitlistEmail(
@@ -5529,7 +5529,7 @@ export function createCoreRoutesPlugin(
             pending.tracking && typeof pending.tracking === "object"
               ? (pending.tracking as BuilderConnectTrackingParams)
               : {};
-          const session = await getSession(event).catch(() => null); // coercion-ok: callback treats session read failure as unauthenticated
+          const session = await getSession(event);
           const expiresAt =
             typeof pending.expiresAt === "number" ? pending.expiresAt : 0;
           const encryptedOAuthFlow =
@@ -5772,7 +5772,7 @@ export function createCoreRoutesPlugin(
             setResponseStatus(event, 403);
             return { error: "Cross-origin request rejected" };
           }
-          const session = await getSession(event).catch(() => null);
+          const session = await getSession(event);
           if (!session?.email) {
             setResponseStatus(event, 401);
             return { error: "unauthorized" };
@@ -5952,7 +5952,7 @@ export function createCoreRoutesPlugin(
             return { error: "Method not allowed" };
           }
 
-          const session = await getSession(event).catch(() => null);
+          const session = await getSession(event);
           if (!session?.email) {
             setResponseStatus(event, 401);
             return { error: "unauthorized" };
@@ -6033,7 +6033,7 @@ export function createCoreRoutesPlugin(
         getH3App(nitroApp).use(
           `${P}/env-status`,
           defineEventHandler(async (event) => {
-            const session = await getSession(event).catch(() => null);
+            const session = await getSession(event);
             const userEmail = session?.email;
             let orgId: string | undefined;
             if (userEmail) {
@@ -6109,8 +6109,7 @@ export function createCoreRoutesPlugin(
                 setResponseStatus(event, err.statusCode);
                 return { error: err.message };
               }
-              setResponseStatus(event, 500);
-              return { error: "Failed to save keys" };
+              throw err;
             }
           }),
         );
@@ -6205,7 +6204,7 @@ export function createCoreRoutesPlugin(
             setResponseStatus(event, 405);
             return { error: "Method not allowed" };
           }
-          const session = await getSession(event).catch(() => null);
+          const session = await getSession(event);
           const userEmail = session?.email;
           if (!userEmail) {
             setResponseStatus(event, 401);
@@ -6273,7 +6272,7 @@ export function createCoreRoutesPlugin(
       getH3App(nitroApp).use(
         `${P}/agent-loop-settings`,
         defineEventHandler(async (event: H3Event) => {
-          const session = await getSession(event).catch(() => null);
+          const session = await getSession(event);
           if (!session?.email) {
             setResponseStatus(event, 401);
             return { error: "unauthorized" };
@@ -6358,7 +6357,7 @@ export function createCoreRoutesPlugin(
       getH3App(nitroApp).use(
         `${P}/usage`,
         defineEventHandler(async (event: H3Event) => {
-          const session = await getSession(event).catch(() => null);
+          const session = await getSession(event);
           if (!session?.email) {
             setResponseStatus(event, 401);
             return { error: "unauthorized" };
@@ -6397,7 +6396,7 @@ export function createCoreRoutesPlugin(
           // (DB), which requires request context (AsyncLocalStorage) to know which
           // user to scope by. Without runWithRequestContext() the ALS store is empty
           // and it falls back to process.env only — missing OAuth-connected users.
-          const session = await getSession(event).catch(() => null);
+          const session = await getSession(event);
           const userEmail = session?.email;
 
           return userEmail

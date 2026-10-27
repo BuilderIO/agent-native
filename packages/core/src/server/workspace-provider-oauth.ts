@@ -254,7 +254,7 @@ export async function handleWorkspaceProviderOAuthStart(
   providerId: GenericWorkspaceOAuthProvider,
 ): Promise<Response | Record<string, unknown>> {
   if (getMethod(event) !== "GET") return methodNotAllowed(event);
-  const session = await getSession(event).catch(() => null);
+  const session = await getSession(event);
   if (!session?.email) return unauthorized(event);
   const query = getQuery(event);
   const requestedScope = parseWorkspaceProviderOAuthScope(text(query.scope));
@@ -473,7 +473,7 @@ export async function handleWorkspaceProviderOAuthCallback(
   providerId: GenericWorkspaceOAuthProvider,
 ): Promise<Response | Record<string, unknown>> {
   if (getMethod(event) !== "GET") return methodNotAllowed(event);
-  const session = await getSession(event).catch(() => null);
+  const session = await getSession(event);
   if (!session?.email) return unauthorized(event);
   const storedFlow = readStoredFlow(event, providerId);
   if (!storedFlow.flow) {

@@ -794,12 +794,13 @@ function createMountedMiddleware(
     } catch (err) {
       const reqPath = originalPathname ?? event.url?.pathname ?? "";
       const e = err as any;
-      const status =
+      const declaredStatus =
         typeof e?.statusCode === "number"
           ? e.statusCode
           : typeof e?.status === "number"
             ? e.status
-            : 500;
+            : undefined;
+      const status = declaredStatus ?? 500;
       if (isClientAbortError(err, event)) {
         debugClientAbort({ method: event.method, route: reqPath, error: err });
         return undefined;
@@ -826,12 +827,18 @@ function createMountedMiddleware(
       }
       try {
         setResponseStatus(event, status);
+        new Headers(e?.headers).forEach((value, key) => {
+          setResponseHeader(event, key, value);
+        });
         setResponseHeader(event, "content-type", "application/json");
       } catch {
         // Response already sent — best effort.
       }
       return {
-        error: e?.message || "Internal server error",
+        error:
+          declaredStatus === undefined || e?.unhandled === true
+            ? "Internal server error"
+            : e?.message || "Internal server error",
         // Clients name a failure by its code (no model connected, run slot
         // busy); a bare HTTP status reaches them as an unnamed "forbidden".
         ...(typeof e?.data?.code === "string" ? { code: e.data.code } : {}),

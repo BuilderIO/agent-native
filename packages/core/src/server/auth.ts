@@ -44,6 +44,7 @@ import {
   MCP_EMBED_CORS_ALLOW_HEADERS,
   shouldAllowMcpEmbedCredentials,
 } from "../shared/mcp-embed-headers.js";
+import { ForbiddenError } from "../sharing/errors.js";
 import {
   createConsentHandler,
   createConsentRegionHandler,
@@ -4807,10 +4808,23 @@ async function backfillSessionOrg(
 ): Promise<AuthSession> {
   if (session.orgId || hasExplicitPersonalOrgScope(event)) return session;
   const { resolveOrgIdForEmailViaEvent } = await import("../org/context.js");
-  const orgId = await resolveOrgIdForEmailViaEvent(event, session.email).catch(
-    () => null,
-  );
-  return orgId ? { ...session, orgId } : session;
+  try {
+    const orgId = await resolveOrgIdForEmailViaEvent(event, session.email);
+    return orgId ? { ...session, orgId } : session;
+  } catch (cause) {
+    if (cause instanceof ForbiddenError) throw cause;
+    throw new SessionResolutionUnavailableError({ cause });
+  }
+}
+
+export class SessionResolutionUnavailableError extends Error {
+  readonly statusCode = 503;
+  readonly headers = { "Retry-After": "5" };
+
+  constructor(options?: ErrorOptions) {
+    super("Session unavailable", options);
+    this.name = "SessionResolutionUnavailableError";
+  }
 }
 
 export async function getSession(event: H3Event): Promise<AuthSession | null> {
