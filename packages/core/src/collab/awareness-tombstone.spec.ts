@@ -106,7 +106,12 @@ function rowKey(docId: string, clientId: number): string {
 }
 
 function event(docId: string) {
-  return { _params: { docId }, _status: 200, _headers: {} } as any;
+  return {
+    _params: { docId },
+    _status: 200,
+    _headers: {},
+    context: { _collabAwarenessCanEdit: true },
+  } as any;
 }
 
 describe("awareness clear tombstones", () => {

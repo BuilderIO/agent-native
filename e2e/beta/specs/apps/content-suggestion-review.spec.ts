@@ -72,6 +72,8 @@ interface View {
   editable: string | null;
   cards: string[];
   paragraphs: string[];
+  /** The struck-out words in each paragraph, in the same order. */
+  struck: string[];
 }
 
 interface Frame extends View {
@@ -98,7 +100,9 @@ interface PageEditor {
       ): void;
     };
   };
-  commands: { setTextSelection(at: number): boolean };
+  commands: {
+    setTextSelection(at: number | { from: number; to: number }): boolean;
+  };
   view: { focus(): void };
 }
 
@@ -153,6 +157,13 @@ async function watch(page: Page): Promise<void> {
               }
               return text.replace(/ /g, " ");
             })
+          : [],
+        struck: root
+          ? [...root.querySelectorAll(":scope > p")].map((p) =>
+              [...p.querySelectorAll<HTMLElement>(".suggestion-deleted-text")]
+                .map((struck) => struck.innerText)
+                .join(""),
+            )
           : [],
       };
     };
@@ -315,6 +326,110 @@ async function typeInsideChange(page: Page, n: number, text: string) {
     { n, editor: ACTIVE_EDITOR },
   );
   await page.keyboard.type(text, { delay: 40 });
+}
+
+/** Turns on Suggesting mode from the page menu. */
+async function startSuggesting(page: Page) {
+  await page.getByRole("button", { name: "More page actions" }).click();
+  await page.getByRole("menuitem", { name: "Suggest edits" }).click();
+  await expect(
+    page.getByRole("button", { name: "Stop suggesting" }),
+  ).toBeVisible({ timeout: 30_000 });
+}
+
+/** In Suggesting mode, types `word` over "lazy" in paragraph `n`. */
+async function suggestOverLazy(page: Page, n: number, word: string) {
+  await page.evaluate(
+    ({ n, editor }) => {
+      const tiptap = (
+        document.querySelector(editor) as
+          | (Element & { editor?: PageEditor })
+          | null
+      )?.editor;
+      if (!tiptap) throw new Error(`No TipTap editor on ${editor}`);
+      let at: number | null = null;
+      tiptap.state.doc.descendants((node, position) => {
+        if (at !== null || !node.isText) return;
+        const index = node.text?.indexOf(`lazy dog number ${n}.`) ?? -1;
+        if (index >= 0) at = position + index;
+      });
+      if (at === null) throw new Error(`No "lazy dog" in paragraph ${n}`);
+      tiptap.commands.setTextSelection({ from: at, to: at + "lazy".length });
+      tiptap.view.focus();
+    },
+    { n, editor: ACTIVE_EDITOR },
+  );
+  await page.keyboard.type(word, { delay: 40 });
+}
+
+/** Paragraph `n` shows "lazy" struck out with `word` suggested beside it. */
+const suggests = (view: View, n: number, word: string) => {
+  const index = view.paragraphs.findIndex((p) =>
+    p.includes(`dog number ${n}.`),
+  );
+  return (
+    index >= 0 &&
+    !!view.paragraphs.at(index)?.includes(word) &&
+    !!view.struck.at(index)?.includes("lazy")
+  );
+};
+
+/** Paragraph `n` shows `word`'s suggestion decided. */
+const decidedAs = (
+  view: View,
+  n: number,
+  word: string,
+  decision: "accepted" | "rejected",
+) => {
+  const text = view.paragraphs.find((p) => p.includes(`dog number ${n}.`));
+  if (!text) return false;
+  return decision === "accepted"
+    ? text.includes(`${word} dog`) && !text.includes("lazy")
+    : text.includes("lazy dog") && !text.includes(word);
+};
+
+/** The page's saved suggestions, each with the words it suggests. */
+async function savedSuggestions(page: Page, r: Review) {
+  const list = await readContentAction(
+    page,
+    r.origin,
+    "list-resource-suggestions",
+    { resourceType: "document", resourceId: r.id },
+  );
+  return (
+    list.suggestions as Array<{
+      id: string;
+      status: string;
+      operations: Array<{ after?: { changedText?: string } }>;
+    }>
+  ).map((suggestion) => ({
+    id: suggestion.id,
+    status: suggestion.status,
+    text: suggestion.operations.at(0)?.after?.changedText ?? null,
+  }));
+}
+
+/** Waits until `text`'s suggestion is saved and its card shows, and returns its ID. */
+async function savedSuggestionFor(page: Page, r: Review, text: string) {
+  await expect
+    .poll(
+      async () =>
+        (await savedSuggestions(page, r)).some(
+          (suggestion) => suggestion.text === text,
+        ),
+      { message: `"${text}" saved as a suggestion`, timeout: 30_000 },
+    )
+    .toBe(true);
+  const saved = (await savedSuggestions(page, r)).find(
+    (suggestion) => suggestion.text === text,
+  );
+  if (!saved) throw new Error(`"${text}" is not saved as a suggestion`);
+  await expectView(
+    page,
+    (view) => view.cards.includes(saved.id),
+    `the card for "${text}"`,
+  );
+  return saved.id;
 }
 
 interface Saved {
@@ -1262,6 +1377,127 @@ test.describe("[content-review] deciding suggestions on a beta page", () => {
         "the comment whose resolve failed is back",
       );
       expect(await resolved()).toEqual({ [first]: true, [second]: false });
+    });
+  });
+
+  for (const decision of ["accepted", "rejected"] as const) {
+    test(`in Suggesting mode, ${decision === "accepted" ? "Accept" : "Reject"} on a suggestion typed a moment ago shows at once and leaves the other suggestion`, async ({
+      browser,
+    }) => {
+      await runReview(`suggesting ${decision}`, browser, {}, async (r) => {
+        const page = await r.open();
+        await page.route(
+          /\/_agent-native\/actions\/(create-resource-suggestion-proposal|update-resource-suggestion|decide-resource-suggestion)/,
+          async (route) => {
+            await sleep(1_500);
+            await route.continue();
+          },
+        );
+        await startSuggesting(page);
+        await suggestOverLazy(page, 3, "sleepy");
+        const earlier = await savedSuggestionFor(page, r, "sleepy");
+
+        await suggestOverLazy(page, 5, "drowsy");
+        await page.waitForTimeout(250);
+        const typed = (
+          await page.evaluate(() => {
+            const read = (window as WatchedWindow).__reviewView;
+            if (!read) throw new Error("The page is not being watched");
+            return read();
+          })
+        ).cards.find((card) => card.startsWith("draft-"));
+        if (!typed) throw new Error("The typed suggestion has no card");
+        const [clicked] = await click(page, [{ suggestion: typed, decision }]);
+
+        await expectShownAtOnce(
+          page,
+          clicked,
+          (frame) => decidedAs(frame, 5, "drowsy", decision),
+          `the ${decision} suggestion`,
+        );
+        await r.expectSaved({
+          includes: [
+            "lazy dog number 3.",
+            decision === "accepted"
+              ? "drowsy dog number 5."
+              : "lazy dog number 5.",
+          ],
+          excludes: ["sleepy", ...(decision === "accepted" ? [] : ["drowsy"])],
+          statuses: { [earlier]: "pending" },
+        });
+        // Exactly one suggestion is decided: the one clicked. A rejection
+        // leaves the page as it was, so wait for the decision itself.
+        await expect
+          .poll(
+            async () =>
+              (await savedSuggestions(page, r))
+                .map(({ status, text }) => `${text}: ${status}`)
+                .sort(),
+            { message: "the saved suggestions", timeout: 30_000 },
+          )
+          .toEqual([`drowsy: ${decision}`, "sleepy: pending"]);
+        // The editor opens for typing again once the decided page reads back.
+        await expectView(
+          page,
+          (view) =>
+            view.editable === "true" &&
+            decidedAs(view, 5, "drowsy", decision) &&
+            !view.cards.some((card) => card.startsWith("draft-")),
+          "the decided page, read back",
+        );
+        await page.waitForTimeout(1_000);
+        const dropped = (await framesSoFar(page)).filter(
+          (frame) =>
+            frame.at >= clicked &&
+            !(suggests(frame, 3, "sleepy") && frame.cards.includes(earlier)),
+        );
+        expect(
+          dropped.map(
+            ({ at, cards, paragraphs, struck }) =>
+              `${at} ms: ${paragraphs.join(" / ")} struck [${struck.join(", ")}] cards [${cards.join(", ")}]`,
+          ),
+          "the other suggestion's struck-out words or card dropped out",
+        ).toEqual([]);
+      });
+    });
+  }
+
+  test("in Suggesting mode, Accept right after adding to a saved suggestion accepts it with the addition", async ({
+    browser,
+  }) => {
+    await runReview("suggesting amended", browser, {}, async (r) => {
+      const page = await r.open();
+      await startSuggesting(page);
+      await suggestOverLazy(page, 5, "drowsy");
+      const saved = await savedSuggestionFor(page, r, "drowsy");
+      // The addition saves and the Accept decides while both are slow.
+      await page.route(
+        /\/_agent-native\/actions\/(update-resource-suggestion|decide-resource-suggestion)/,
+        async (route) => {
+          await sleep(1_500);
+          await route.continue();
+        },
+      );
+
+      await page.keyboard.type("x");
+      await page.waitForTimeout(150);
+      const [clicked] = await click(page, [
+        { suggestion: saved, decision: "accepted" },
+      ]);
+      await expectShownAtOnce(
+        page,
+        clicked,
+        (frame) => decidedAs(frame, 5, "drowsyx", "accepted"),
+        "the accepted suggestion",
+      );
+      await r.expectSaved({
+        includes: ["drowsyx dog number 5."],
+        excludes: ["lazy dog number 5."],
+        statuses: { [saved]: "accepted" },
+      });
+      expect(await savedSuggestions(page, r)).toEqual([
+        { id: saved, status: "accepted", text: "drowsyx" },
+      ]);
     });
   });
 });

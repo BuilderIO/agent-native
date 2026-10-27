@@ -114,27 +114,32 @@ export function diffTopLevelHunks(
   return hunks;
 }
 
-function hunksOverlap(left: TopLevelHunk, right: TopLevelHunk): boolean {
-  const leftInsert = left.baseFromIndex === left.baseToIndex;
-  const rightInsert = right.baseFromIndex === right.baseToIndex;
-  if (leftInsert && rightInsert) {
-    return left.baseFromIndex === right.baseFromIndex;
+// `local` is the live doc's change, `server` the snapshot's.
+function hunksOverlap(local: TopLevelHunk, server: TopLevelHunk): boolean {
+  const localInsert = local.baseFromIndex === local.baseToIndex;
+  const serverInsert = server.baseFromIndex === server.baseToIndex;
+  if (localInsert && serverInsert) {
+    return local.baseFromIndex === server.baseFromIndex;
   }
-  if (leftInsert) {
+  // A local insertion at either end of a server replacement would map into
+  // the replaced range and be overwritten, so it counts as overlapping.
+  if (localInsert) {
     return (
-      left.baseFromIndex >= right.baseFromIndex &&
-      left.baseFromIndex <= right.baseToIndex
+      local.baseFromIndex >= server.baseFromIndex &&
+      local.baseFromIndex <= server.baseToIndex
     );
   }
-  if (rightInsert) {
+  // A server insertion at either end of a local change maps to just before or
+  // just after it, so only one strictly inside it overlaps.
+  if (serverInsert) {
     return (
-      right.baseFromIndex >= left.baseFromIndex &&
-      right.baseFromIndex <= left.baseToIndex
+      server.baseFromIndex > local.baseFromIndex &&
+      server.baseFromIndex < local.baseToIndex
     );
   }
   return (
-    left.baseFromIndex < right.baseToIndex &&
-    right.baseFromIndex < left.baseToIndex
+    local.baseFromIndex < server.baseToIndex &&
+    server.baseFromIndex < local.baseToIndex
   );
 }
 
