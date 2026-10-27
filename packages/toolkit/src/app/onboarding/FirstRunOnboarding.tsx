@@ -124,6 +124,7 @@ function firstRunStepProperties(
   extensionIndex: number,
   extensionStepIndex: number,
   setupSkippable: boolean,
+  setupRecoverySkippable = false,
 ): Record<string, unknown> {
   // `optional` must match whether the screen offers a skip: Analytics funnels
   // read it to keep a skip from counting as drop-off.
@@ -162,7 +163,10 @@ function firstRunStepProperties(
     flow: "first_run",
     step_id: screen,
     step_index: stepIndex,
-    optional: screen === "role" || (screen === "choice" && setupSkippable),
+    optional:
+      screen === "role" ||
+      (screen === "choice" && setupSkippable) ||
+      (screen === "connecting" && setupRecoverySkippable),
   };
 }
 
@@ -422,7 +426,9 @@ export function FirstRunOnboarding({
   const setupSkipStartedRef = useRef(false);
   const creditsV2ExposureStartedRef = useRef(false);
   const creditsV2ExposureFailedRef = useRef(false);
+  const creditsV2ExposureSettledRef = useRef(false);
   const creditsV2ExposureTrackedRef = useRef(false);
+  const setupExperimentTimedOutRef = useRef(false);
   const onboardingTerminalRef = useRef(false);
   const abandonmentTrackedRef = useRef(false);
   const onboardingStartedRef = useRef(false);
@@ -504,86 +510,6 @@ export function FirstRunOnboarding({
     (!creditsV2FlagPending &&
       (!clipsCreditsV2 || setupExperimentDecision !== null) &&
       (setupVariant === null || setupExperimentDecision !== null));
-  useEffect(() => {
-    if (
-      previewMode ||
-      !firstRun ||
-      !canTrackOnboardingScreen ||
-      !choiceStepKnown
-    ) {
-      stepViewRef.current = null;
-      return;
-    }
-    const step = firstRunStepProperties(
-      screen,
-      beforeSetupExtensions,
-      afterSetupExtensions,
-      extensionPlacement,
-      extensionIndex,
-      extensionStepIndex,
-      choiceSkippable,
-    );
-    const key = [step.step_id, step.extension_id, step.step_index].join(":");
-    if (stepViewRef.current?.key !== key) {
-      stepViewRef.current = { key, id: createOnboardingCorrelationId() };
-    }
-    trackOnboardingEvent("onboarding_step_viewed", {
-      ...step,
-      step_view_id: stepViewRef.current.id,
-    });
-    // setupSkippable changes only when the profile loads; re-running here
-    // would send this screen's view again. A screen change re-reads it.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    afterSetupExtensions,
-    beforeSetupExtensions,
-    extensionIndex,
-    extensionPlacement,
-    extensionStepIndex,
-    firstRun,
-    previewMode,
-    canTrackOnboardingScreen,
-    choiceStepKnown,
-    screen,
-  ]);
-  useEffect(() => {
-    if (previewMode || !firstRun || !canTrackOnboardingScreen) return;
-    const handlePageHide = (event: PageTransitionEvent) => {
-      if (event.persisted) return;
-      if (
-        onboardingTerminalRef.current ||
-        abandonmentTrackedRef.current ||
-        completionInFlightRef.current
-      )
-        return;
-      abandonmentTrackedRef.current = true;
-      trackOnboardingEvent("onboarding_abandoned", {
-        ...firstRunStepProperties(
-          screen,
-          beforeSetupExtensions,
-          afterSetupExtensions,
-          extensionPlacement,
-          extensionIndex,
-          extensionStepIndex,
-          choiceSkippable,
-        ),
-        reason: "page_exit",
-      });
-    };
-    window.addEventListener("pagehide", handlePageHide);
-    return () => window.removeEventListener("pagehide", handlePageHide);
-  }, [
-    afterSetupExtensions,
-    beforeSetupExtensions,
-    extensionIndex,
-    extensionPlacement,
-    extensionStepIndex,
-    firstRun,
-    previewMode,
-    canTrackOnboardingScreen,
-    screen,
-    choiceSkippable,
-  ]);
   const beginBeforeSetup = useCallback(() => {
     if (beforeSetupExtensions.length === 0) {
       setScreen("choice");
@@ -642,6 +568,102 @@ export function FirstRunOnboarding({
     trackingFlow: "connect_llm",
     onConnected: handleBuilderConnected,
   });
+  const accountExists = connectFlow.accountExists && !connectFlow.connecting;
+  const provisioning = builderConnectionMode === "provision" && !accountExists;
+  const provisioningFailed =
+    provisioning &&
+    !connectFlow.connecting &&
+    Boolean(connectFlow.terminalError);
+  const connectionFailed = provisioningFailed;
+  useEffect(() => {
+    if (
+      previewMode ||
+      !firstRun ||
+      !canTrackOnboardingScreen ||
+      !choiceStepKnown
+    ) {
+      stepViewRef.current = null;
+      return;
+    }
+    const step = firstRunStepProperties(
+      screen,
+      beforeSetupExtensions,
+      afterSetupExtensions,
+      extensionPlacement,
+      extensionIndex,
+      extensionStepIndex,
+      choiceSkippable,
+      provisioningFailed,
+    );
+    const key = [
+      step.step_id,
+      step.extension_id,
+      step.step_index,
+      step.optional,
+    ].join(":");
+    if (stepViewRef.current?.key !== key) {
+      stepViewRef.current = { key, id: createOnboardingCorrelationId() };
+    }
+    trackOnboardingEvent("onboarding_step_viewed", {
+      ...step,
+      step_view_id: stepViewRef.current.id,
+    });
+    // setupSkippable changes only when the profile loads; re-running here
+    // would send this screen's view again. A screen change re-reads it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    afterSetupExtensions,
+    beforeSetupExtensions,
+    extensionIndex,
+    extensionPlacement,
+    extensionStepIndex,
+    firstRun,
+    previewMode,
+    canTrackOnboardingScreen,
+    choiceStepKnown,
+    provisioningFailed,
+    screen,
+  ]);
+  useEffect(() => {
+    if (previewMode || !firstRun || !canTrackOnboardingScreen) return;
+    const handlePageHide = (event: PageTransitionEvent) => {
+      if (event.persisted) return;
+      if (
+        onboardingTerminalRef.current ||
+        abandonmentTrackedRef.current ||
+        completionInFlightRef.current
+      )
+        return;
+      abandonmentTrackedRef.current = true;
+      trackOnboardingEvent("onboarding_abandoned", {
+        ...firstRunStepProperties(
+          screen,
+          beforeSetupExtensions,
+          afterSetupExtensions,
+          extensionPlacement,
+          extensionIndex,
+          extensionStepIndex,
+          choiceSkippable,
+          provisioningFailed,
+        ),
+        reason: "page_exit",
+      });
+    };
+    window.addEventListener("pagehide", handlePageHide);
+    return () => window.removeEventListener("pagehide", handlePageHide);
+  }, [
+    afterSetupExtensions,
+    beforeSetupExtensions,
+    extensionIndex,
+    extensionPlacement,
+    extensionStepIndex,
+    firstRun,
+    previewMode,
+    canTrackOnboardingScreen,
+    screen,
+    choiceSkippable,
+    provisioningFailed,
+  ]);
   const builderStatusReadCount = connectFlow.statusReadSettledCount ?? 0;
   useEffect(() => {
     const startedAt = retryingBuilderStatusAtCountRef.current;
@@ -734,6 +756,7 @@ export function FirstRunOnboarding({
       screen !== "choice" ||
       !creditsV2Enabled ||
       !setupStatusSettled ||
+      setupExperimentTimedOutRef.current ||
       setupExperimentDecision === true
     ) {
       return;
@@ -746,10 +769,13 @@ export function FirstRunOnboarding({
     if (creditsV2ExposureFailedRef.current) return;
     if (creditsV2ExposureStartedRef.current) return;
     creditsV2ExposureStartedRef.current = true;
+    creditsV2ExposureSettledRef.current = false;
     setSetupExperimentDecision(null);
     void creditsV2Exposure
       .mutateAsync({})
       .then(({ assignment }) => {
+        creditsV2ExposureSettledRef.current = true;
+        if (setupExperimentTimedOutRef.current) return;
         if (
           assignment?.experiment_id !==
             FIRST_RUN_BUILDER_CREDITS_V2_EXPERIMENT_ID ||
@@ -770,6 +796,8 @@ export function FirstRunOnboarding({
         setSetupExperimentDecision(true);
       })
       .catch(() => {
+        creditsV2ExposureSettledRef.current = true;
+        if (setupExperimentTimedOutRef.current) return;
         creditsV2ExposureStartedRef.current = false;
         creditsV2ExposureFailedRef.current = true;
         setSetupExperimentDecision(false);
@@ -791,6 +819,7 @@ export function FirstRunOnboarding({
       screen !== "choice" ||
       !creditsV2Enabled ||
       !setupExperimentEligible ||
+      setupExperimentTimedOutRef.current ||
       setupExperimentDecision !== true ||
       !creditsV2Assignment ||
       creditsV2ExposureTrackedRef.current
@@ -823,15 +852,15 @@ export function FirstRunOnboarding({
       screen !== "choice" ||
       creditsV2FlagPending ||
       (!setupVariant && !clipsCreditsV2) ||
-      (clipsCreditsV2 && setupStatusSettled) ||
       setupExperimentDecision !== null
     ) {
       return;
     }
-    const timer = window.setTimeout(
-      () => setSetupExperimentDecision((decision) => decision ?? false),
-      SETUP_EXPERIMENT_DECISION_TIMEOUT_MS,
-    );
+    const timer = window.setTimeout(() => {
+      if (creditsV2ExposureSettledRef.current) return;
+      setupExperimentTimedOutRef.current = true;
+      setSetupExperimentDecision((decision) => decision ?? false);
+    }, SETUP_EXPERIMENT_DECISION_TIMEOUT_MS);
     return () => window.clearTimeout(timer);
   }, [
     clipsCreditsV2,
@@ -1577,13 +1606,6 @@ export function FirstRunOnboarding({
     );
   }
 
-  const accountExists = connectFlow.accountExists && !connectFlow.connecting;
-  const provisioning = builderConnectionMode === "provision" && !accountExists;
-  const provisioningFailed =
-    provisioning &&
-    !connectFlow.connecting &&
-    Boolean(connectFlow.terminalError);
-  const connectionFailed = provisioningFailed;
   const returnToSetupChoice = () => setScreen("choice");
   return (
     <OnboardingShell
