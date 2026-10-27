@@ -333,7 +333,7 @@ describe("appMountPath", () => {
     expect(context.basename).toBe("/dispatch");
   });
 
-  it("keeps an explicit root mount above matching sibling mounts", () => {
+  it("prefers a matching sibling mount over the explicit root fallback", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv(
       "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
@@ -347,8 +347,8 @@ describe("appMountPath", () => {
       },
     });
 
-    expect(appBasePath()).toBe("");
-    expect(isWorkspaceAppPath("/settings/model")).toBe(true);
+    expect(appBasePath()).toBe("/settings");
+    expect(isWorkspaceAppPath("/settings/model")).toBe(false);
     expect(appMountedPath("/settings/model", "/")).toBe("/settings/model");
   });
 
