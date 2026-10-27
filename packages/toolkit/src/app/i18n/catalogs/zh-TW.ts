@@ -709,6 +709,12 @@ const messages: ToolkitAgentChatTranslation = {
   "history.copyLink": "複製連結",
   "history.linkCopied": "已複製連結",
   "history.copyLinkFailed": "無法複製連結",
+  "history.onlyYou": "僅限自己",
+  "history.hide": "從我的清單中隱藏",
+  "history.hidden": "已從你的清單中隱藏",
+  "history.undo": "復原",
+  "history.hideFailed": "無法隱藏聊天",
+  "history.unhideFailed": "無法還原聊天",
   "integrations.availableSection": "可用整合",
   "integrations.connectedSection": "已連線",
   "integrations.goToApiKeys": "前往 API 金鑰",
@@ -2030,6 +2036,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.appGroup.labsSaveError": "無法變更 {{lab}}。請再試一次。",
   "settingsShell.appGroup.mcpAbout":
     "將 {{app}} 連接到 Claude、ChatGPT、Cursor 或任何支援 MCP 的 AI 應用程式。之後該應用程式就能代你在 {{app}} 中工作。它只能看到你有權看到的內容。",
+  "settingsShell.appGroup.mcpAppCards": "聊天應用程式中的應用程式卡片",
+  "settingsShell.appGroup.mcpAppCardsDescription":
+    "在支援 MCP Apps 的聊天應用程式（例如 Claude 和 ChatGPT）中，工具會顯示可互動的卡片，例如可以編輯並傳送的電子郵件草稿。變更此設定後，請在聊天應用程式中重新連接此應用程式。",
   "settingsShell.appGroup.mcpFootnote":
     "如需代理本身使用的工具，請參閱{{integrations}}。",
   "settingsShell.appGroup.newAutomation": "新增自動化",

@@ -91,6 +91,12 @@ describe("SqlChart table column widths", () => {
     return header;
   }
 
+  // "name" is the table's first text column, so it takes the spare width and
+  // a width set on it is its minimum, never under 96px.
+  function nameWidth(): string {
+    return nameHeader().style.minWidth;
+  }
+
   async function doubleClick(target: Element) {
     await act(async () => {
       target.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
@@ -205,6 +211,22 @@ describe("SqlChart table column widths", () => {
     ]);
   });
 
+  it("keeps resizable headers sticky", async () => {
+    await act(async () => {
+      root.render(
+        <SqlChart
+          panel={TABLE}
+          resultOverride={{ rows: ROWS }}
+          onSaveColumns={() => {}}
+        />,
+      );
+    });
+    expect(separators()).not.toHaveLength(0);
+    const classes = nameHeader().classList;
+    expect(classes.contains("sticky")).toBe(true);
+    expect(classes.contains("relative")).toBe(false);
+  });
+
   it("draws a viewer's own width over the saved one", async () => {
     await act(async () => {
       root.render(
@@ -216,7 +238,7 @@ describe("SqlChart table column widths", () => {
         />,
       );
     });
-    expect(nameHeader().style.width).toBe("260px");
+    expect(nameWidth()).toBe("260px");
   });
 
   it("lets a viewer size a dashboard table's columns but not rename, reorder, or format them", async () => {
@@ -232,9 +254,9 @@ describe("SqlChart table column widths", () => {
     const [handle] = separators();
     expect(handle?.title).toBe("dashboardMode.columnResizePersonal");
     await drag(handle!, 200);
-    expect(nameHeader().style.width).toBe("200px");
+    expect(nameWidth()).toBe("200px");
     await doubleClick(handle!);
-    expect(nameHeader().style.width).toBe("90px");
+    expect(nameWidth()).toBe("96px");
 
     expect(onSaveColumns).not.toHaveBeenCalled();
   });

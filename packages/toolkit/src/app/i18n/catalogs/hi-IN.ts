@@ -741,6 +741,12 @@ const messages: ToolkitAgentChatTranslation = {
   "history.copyLink": "लिंक कॉपी करें",
   "history.linkCopied": "लिंक कॉपी हो गया",
   "history.copyLinkFailed": "लिंक कॉपी नहीं हो सका",
+  "history.onlyYou": "सिर्फ़ आप",
+  "history.hide": "मेरी सूची से छिपाएँ",
+  "history.hidden": "आपकी सूची से छिपाया गया",
+  "history.undo": "पूर्ववत करें",
+  "history.hideFailed": "चैट छिपाई नहीं जा सकी",
+  "history.unhideFailed": "चैट वापस नहीं लाई जा सकी",
   "integrations.availableSection": "उपलब्ध इंटीग्रेशन",
   "integrations.connectedSection": "कनेक्ट किए गए",
   "integrations.goToApiKeys": "API कुंजियों पर जाएं",
@@ -2154,6 +2160,9 @@ const messages: ToolkitAgentChatTranslation = {
     "{{lab}} बदला नहीं जा सका। फिर से कोशिश करें।",
   "settingsShell.appGroup.mcpAbout":
     "{{app}} को Claude, ChatGPT, Cursor या MCP का समर्थन करने वाले किसी भी AI ऐप से कनेक्ट करें। फिर वह ऐप आपके लिए {{app}} में काम कर सकता है। वह केवल वही देखता है जो आप देख सकते हैं।",
+  "settingsShell.appGroup.mcpAppCards": "चैट ऐप्स में ऐप कार्ड",
+  "settingsShell.appGroup.mcpAppCardsDescription":
+    "MCP Apps का समर्थन करने वाले चैट ऐप्स, जैसे Claude और ChatGPT, में टूल इंटरैक्टिव कार्ड दिखाते हैं, जैसे ईमेल ड्राफ़्ट जिसे आप संपादित करके भेज सकते हैं। इसे बदलने के बाद, अपने चैट ऐप में इस ऐप को फिर से कनेक्ट करें।",
   "settingsShell.appGroup.mcpFootnote":
     "एजेंट जिन टूल्स का खुद उपयोग करता है, उनके लिए {{integrations}} देखें।",
   "settingsShell.appGroup.newAutomation": "नया ऑटोमेशन",
