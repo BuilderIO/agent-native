@@ -15,6 +15,7 @@ export {
   isOtherGuidedAnswer,
   makeOtherGuidedAnswer,
   normalizeGuidedAnswers,
+  SETTLED_ANSWERS_INSTRUCTION,
   type AskUserQuestionInput,
   type AskUserQuestionOption,
   type AskUserQuestionResult,

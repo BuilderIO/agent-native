@@ -1,4 +1,7 @@
+import { parseJobResource } from "@agent-native/core/jobs/frontmatter";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { defaultAutomationConfig } from "../lib/factory-automation-config.js";
 
 const deleteAutomationRunsMock = vi.hoisted(() => vi.fn());
 const listAutomationDefinitionsMock = vi.hoisted(() => vi.fn());
@@ -7,6 +10,7 @@ const resourceGetByPathMock = vi.hoisted(() => vi.fn());
 const resourceListMock = vi.hoisted(() => vi.fn());
 const resourceListContentMock = vi.hoisted(() => vi.fn());
 const resourcePutMock = vi.hoisted(() => vi.fn());
+const resourcePutIfAbsentMock = vi.hoisted(() => vi.fn());
 const resourcePutIfCurrentMock = vi.hoisted(() => vi.fn());
 const recordFactoryGovernanceAuditMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue(undefined),
@@ -55,6 +59,7 @@ vi.mock("@agent-native/core/resources", () => ({
   resourceList: resourceListMock,
   resourceListContentByOwnersAndPrefixes: resourceListContentMock,
   resourcePut: resourcePutMock,
+  resourcePutIfAbsent: resourcePutIfAbsentMock,
   resourcePutIfCurrent: resourcePutIfCurrentMock,
   WORKSPACE_OWNER: "workspace",
 }));
@@ -73,7 +78,8 @@ vi.mock("@agent-native/core/server", () => ({
     callback(),
 }));
 
-vi.mock("@agent-native/core/triggers", () => ({
+vi.mock("@agent-native/core/triggers", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/triggers")>()),
   deleteAutomationRuns: deleteAutomationRunsMock,
   listAutomationDefinitions: listAutomationDefinitionsMock,
 }));
@@ -87,6 +93,7 @@ vi.mock("../lib/factory-automation-repair.js", () => ({
 }));
 
 import {
+  createFactoryAutomation,
   ensureFactoryAutomations,
   factoryAutomationTemplatePrompt,
   recordFinishedAutomationPrompt,
@@ -100,6 +107,7 @@ beforeEach(() => {
   listAutomationDefinitionsMock.mockResolvedValue([]);
   resourceListMock.mockResolvedValue([]);
   resourceListContentMock.mockResolvedValue([]);
+  resourcePutIfAbsentMock.mockReset().mockResolvedValue({ id: "new-job" });
   resourceDeleteByPathMock.mockResolvedValue(true);
   deleteAutomationRunsMock.mockResolvedValue(undefined);
   insertAutomationVersionValuesMock.mockResolvedValue(undefined);
@@ -109,7 +117,334 @@ beforeEach(() => {
   });
 });
 
+describe("createFactoryAutomation origin", () => {
+  const input = {
+    displayName: "Watch",
+    prompt: "Watch this repository.",
+    config: defaultAutomationConfig("github", "blank"),
+  };
+
+  it("requires a single-line timezone before creation", async () => {
+    await expect(
+      createFactoryAutomation(
+        "owner@example.com",
+        "org-1",
+        "support-triage",
+        {
+          ...input,
+          config: {
+            ...input.config,
+            repository: "example/project",
+            scheduleMode: "daily",
+            timezone: "UTC\nmcpTools: not-json",
+          },
+        },
+        { caller: "tool", networkProtocol: "mcp" } as never,
+      ),
+    ).rejects.toMatchObject({
+      actionContractError: true,
+      statusCode: 400,
+      errorCode: "invalid_request",
+      message: expect.stringContaining("timezone"),
+    });
+    expect(resourcePutIfAbsentMock).not.toHaveBeenCalled();
+    expect(resourcePutMock).not.toHaveBeenCalled();
+    expect(insertAutomationVersionValuesMock).not.toHaveBeenCalled();
+  });
+
+  it.each(
+    [
+      "displayName",
+      "slackChannelId",
+      "slackChannelName",
+      "repository",
+      "sentryOrgSlug",
+      "sentryProjectSlug",
+      "sentryEnvironment",
+      "timezone",
+    ].flatMap((field) =>
+      ["\r", "\n", "\u0085", "\u2028", "\u2029"].map((separator) => ({
+        field,
+        separator,
+      })),
+    ),
+  )(
+    "requires single-line creation $field with separator $separator",
+    async ({ field, separator }) => {
+      const value = `Selected${separator}continued`;
+      const settings = {
+        ...input,
+        config: {
+          ...input.config,
+          scheduleMode: "daily" as const,
+          timezone: "UTC",
+          [field]: value,
+        },
+        ...(field === "displayName" ? { displayName: value } : {}),
+      };
+      await expect(
+        createFactoryAutomation(
+          "owner@example.com",
+          "org-1",
+          "support-triage",
+          settings,
+          { caller: "tool", networkProtocol: "mcp" } as never,
+        ),
+      ).rejects.toMatchObject({
+        actionContractError: true,
+        statusCode: 400,
+        errorCode: "invalid_request",
+        message: expect.stringContaining(field),
+      });
+      expect(resourcePutIfAbsentMock).not.toHaveBeenCalled();
+      expect(resourcePutMock).not.toHaveBeenCalled();
+      expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
+      expect(insertAutomationVersionValuesMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    { caller: "tool" as const, networkProtocol: "mcp" as const },
+    { caller: "tool" as const, networkProtocol: "a2a" as const },
+    { caller: "cli" as const },
+    undefined,
+  ])(
+    "marks outside-created definitions from %o using server context",
+    async (context) => {
+      await createFactoryAutomation(
+        "owner@example.com",
+        "org-1",
+        "support-triage",
+        {
+          ...input,
+          prompt: "---\nmcpManaged: false\n---\nWatch GitHub.",
+        },
+        context as never,
+      );
+      const content = resourcePutIfAbsentMock.mock.calls[0]?.[2] as string;
+      expect(parseJobResource(content).meta.mcpManaged).toBe(true);
+      expect(
+        content
+          .split("\n---")
+          .shift()
+          ?.split("\n")
+          .filter((line) => line.split(":").shift()?.trim() === "mcpManaged"),
+      ).toEqual(["mcpManaged: true"]);
+      expect(resourcePutMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["frontend", "tool"] as const)(
+    "keeps ordinary %s definitions unmarked despite input marker",
+    async (caller) => {
+      await createFactoryAutomation(
+        "owner@example.com",
+        "org-1",
+        "support-triage",
+        {
+          ...input,
+          mcpManaged: true,
+        } as typeof input,
+        { caller } as never,
+      );
+      expect(
+        parseJobResource(resourcePutIfAbsentMock.mock.calls[0]?.[2]).meta
+          .mcpManaged,
+      ).toBeUndefined();
+    },
+  );
+
+  it("preserves an existing marked peer definition and retries a raced name without dropping origin", async () => {
+    const existing = `---\norgId: org-1\ncreatedBy: peer@example.com\nrunAs: creator\nmcpManaged: true\nenabled: false\n---\nPeer job.\n`;
+    resourceListContentMock.mockResolvedValue([
+      {
+        id: "peer-job",
+        owner: "__organization__:org-1",
+        path: "jobs/factories/support-triage/factory-github-watch.md",
+        content: existing,
+      },
+    ]);
+    resourcePutIfAbsentMock
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: "new-job" });
+    const result = await createFactoryAutomation(
+      "owner@example.com",
+      "org-1",
+      "support-triage",
+      input,
+      { caller: "tool", networkProtocol: "mcp" } as never,
+    );
+    expect(resourcePutIfAbsentMock).toHaveBeenCalledTimes(2);
+    const paths = resourcePutIfAbsentMock.mock.calls.map((call) => call[1]);
+    expect(paths).toEqual([
+      "jobs/factories/support-triage/factory-github-watch-2.md",
+      "jobs/factories/support-triage/factory-github-watch-3.md",
+    ]);
+    expect(result.path).toBe(paths[1]);
+    for (const call of resourcePutIfAbsentMock.mock.calls) {
+      expect(parseJobResource(call[2]).meta.mcpManaged).toBe(true);
+    }
+    expect(resourcePutMock).not.toHaveBeenCalled();
+  });
+
+  it("accepts success on the fourth create attempt after three name races", async () => {
+    resourcePutIfAbsentMock
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: "fourth-job" });
+
+    await expect(
+      createFactoryAutomation(
+        "owner@example.com",
+        "org-1",
+        "support-triage",
+        input,
+        { caller: "tool", networkProtocol: "mcp" } as never,
+      ),
+    ).resolves.toEqual({
+      id: "fourth-job",
+      name: "factory-github-watch-4",
+      path: "jobs/factories/support-triage/factory-github-watch-4.md",
+    });
+    expect(resourcePutIfAbsentMock).toHaveBeenCalledTimes(4);
+    expect(resourcePutIfAbsentMock.mock.calls.map((call) => call[1])).toEqual([
+      "jobs/factories/support-triage/factory-github-watch.md",
+      "jobs/factories/support-triage/factory-github-watch-2.md",
+      "jobs/factories/support-triage/factory-github-watch-3.md",
+      "jobs/factories/support-triage/factory-github-watch-4.md",
+    ]);
+    for (const call of resourcePutIfAbsentMock.mock.calls) {
+      expect(parseJobResource(call[2]).meta.mcpManaged).toBe(true);
+    }
+    expect(resourcePutMock).not.toHaveBeenCalled();
+    expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
+  });
+
+  it("exhausts exactly four raced creates after scanning occupied names without overwriting a marked job", async () => {
+    const occupiedPaths = [
+      "jobs/factories/support-triage/factory-github-watch.md",
+      "jobs/factories/support-triage/factory-github-watch-2.md",
+      "jobs/factories/support-triage/factory-github-watch-3.md",
+      "jobs/factories/support-triage/factory-github-watch-4.md",
+      "jobs/factories/support-triage/factory-github-watch-5.md",
+      "jobs/factories/support-triage/factory-github-watch-6.md",
+    ];
+    resourceListContentMock.mockResolvedValue(
+      occupiedPaths.map((path, index) => ({
+        id: `peer-job-${index}`,
+        owner: "__organization__:org-1",
+        path,
+        content:
+          "---\norgId: org-1\ncreatedBy: peer@example.com\nrunAs: creator\nmcpManaged: true\nenabled: false\n---\nPeer job.\n",
+      })),
+    );
+    resourcePutIfAbsentMock
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: "forbidden-fifth-job" });
+
+    await expect(
+      createFactoryAutomation(
+        "owner@example.com",
+        "org-1",
+        "support-triage",
+        input,
+        { caller: "tool", networkProtocol: "a2a" } as never,
+      ),
+    ).rejects.toMatchObject({
+      actionContractError: true,
+      message:
+        "Factory automation changed concurrently. Refresh and try again.",
+      statusCode: 409,
+      errorCode: "automation_version_conflict",
+    });
+    expect(resourcePutIfAbsentMock).toHaveBeenCalledTimes(4);
+    expect(resourcePutIfAbsentMock.mock.calls.map((call) => call[1])).toEqual([
+      "jobs/factories/support-triage/factory-github-watch-7.md",
+      "jobs/factories/support-triage/factory-github-watch-8.md",
+      "jobs/factories/support-triage/factory-github-watch-9.md",
+      "jobs/factories/support-triage/factory-github-watch-10.md",
+    ]);
+    for (const call of resourcePutIfAbsentMock.mock.calls) {
+      expect(parseJobResource(call[2]).meta.mcpManaged).toBe(true);
+    }
+    expect(resourcePutMock).not.toHaveBeenCalled();
+    expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
+  });
+});
+
 describe("ensureFactoryAutomations", () => {
+  it.each(["crlf", "headerless"])(
+    "preserves compatible %s seed settings",
+    async (format) => {
+      const path = "jobs/factories/support-triage/factory-pr-governance.md";
+      const content =
+        format === "headerless"
+          ? "Legacy prompt.\nSecond paragraph.\n"
+          : [
+              "---",
+              'schedule: "15 10 * * *"',
+              "enabled: false",
+              "timezone: Pacific/Auckland",
+              "source: github",
+              "template: pr-governance",
+              "repository: acme/widgets",
+              "displayName: Custom governance",
+              "scheduleMode: daily",
+              "dailyTime: 10:15",
+              "intervalMinutes: 60",
+              "orgId: org-1",
+              "createdBy: owner@example.com",
+              "runAs: creator",
+              "mcpManaged: true",
+              "maxIterations: 9",
+              "maxRunInputTokens: 54321",
+              "---",
+              "Custom prompt.",
+              "",
+            ].join("\r\n");
+      resourceListContentMock.mockResolvedValue([
+        { id: "compatible", owner: "__organization__:org-1", path, content },
+      ]);
+      resourceGetByPathMock.mockImplementation(
+        (_owner: string, selectedPath: string) =>
+          selectedPath === path
+            ? {
+                id: "compatible",
+                owner: "__organization__:org-1",
+                path,
+                content,
+                updatedAt: 42,
+              }
+            : null,
+      );
+      await expect(
+        ensureFactoryAutomations(
+          "owner@example.com",
+          "org-1",
+          "support-triage",
+        ),
+      ).resolves.toBeUndefined();
+      expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
+      expect(resourcePutMock).not.toHaveBeenCalled();
+      expect(resourcePutIfAbsentMock).not.toHaveBeenCalled();
+      expect(insertAutomationVersionValuesMock).not.toHaveBeenCalled();
+      expect(resourceDeleteByPathMock).not.toHaveBeenCalled();
+      if (format === "crlf")
+        expect(parseJobResource(content).meta).toMatchObject({
+          enabled: false,
+          schedule: "15 10 * * *",
+          timezone: "Pacific/Auckland",
+          mcpManaged: true,
+          maxIterations: 9,
+          maxRunInputTokens: 54321,
+        });
+    },
+  );
+
   it("does not create missing seed jobs", async () => {
     resourceGetByPathMock.mockResolvedValue(null);
 

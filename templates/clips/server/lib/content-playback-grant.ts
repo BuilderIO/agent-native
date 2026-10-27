@@ -77,7 +77,7 @@ export function signContentPlaybackGrant(input: {
   const token = signShortLivedToken(
     {
       resourceId: grantResourceId(input.recordingId, input.bindingId),
-      viewerEmail: input.viewerEmail ?? undefined,
+      ...(input.viewerEmail !== null ? { viewerEmail: input.viewerEmail } : {}),
       ttlSeconds: CONTENT_CLIP_PLAYBACK_GRANT_SECONDS,
     },
     { signingKey: contentPlaybackGrantKey(peerSecret.secret) },

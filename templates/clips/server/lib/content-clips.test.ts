@@ -3,8 +3,8 @@ import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 
 import { getTableConfig, type PgTable } from "drizzle-orm/pg-core";
-import { drizzle } from "drizzle-orm/pglite";
-import { mockEvent } from "h3";
+import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
+import { mockEvent, type H3Event } from "h3";
 import {
   afterAll,
   afterEach,
@@ -32,7 +32,10 @@ const state = vi.hoisted(() => {
     "OAUTH_STATE_SECRET",
     "content-clips-grant-secret-0123456789abcdef",
   );
-  return { db: null as any, blobs: new Map<string, unknown>() };
+  return {
+    db: null as unknown as PgliteDatabase,
+    blobs: new Map<string, unknown>(),
+  };
 });
 
 vi.mock("@agent-native/core/db", async (importOriginal) => ({
@@ -302,7 +305,11 @@ function publicReaderToken(input: TokenInput = {}) {
 
 function peerEvent(
   path: string,
-  options: { bearer?: string; method?: string; body?: unknown } = {},
+  options: {
+    bearer?: string | undefined;
+    method?: string;
+    body?: unknown;
+  } = {},
 ) {
   const event = mockEvent(`${CLIPS_URL}${path}`, {
     method: options.method ?? "GET",
@@ -313,14 +320,18 @@ function peerEvent(
     ...(options.body ? { body: JSON.stringify(options.body) } : {}),
   });
   const recordingId = /\/api\/content-clips\/([^/]+)\//.exec(path)?.[1];
-  event.context.params = { recordingId: decodeURIComponent(recordingId!) };
+  if (!recordingId) throw new Error(`No recording id in ${path}`);
+  event.context.params = { recordingId: decodeURIComponent(recordingId) };
   return event;
 }
 
+// oxlint-disable-next-line typescript/no-explicit-any -- each case reads the fields of the route it called
+type RouteBody = any;
+
 async function respond(
-  handler: (event: any) => unknown,
-  event: any,
-): Promise<{ status: number; body: any; response?: Response }> {
+  handler: (event: H3Event) => unknown,
+  event: H3Event,
+): Promise<{ status: number; body: RouteBody; response?: Response }> {
   const result = await withDbExec(coreDb(), () => handler(event));
   if (result instanceof Response) {
     const type = result.headers.get("content-type") ?? "";
@@ -366,15 +377,15 @@ function writeComment(recordingId: string, bearer: string, body: unknown) {
 }
 
 async function fetchMedia(
-  handler: (event: any) => unknown,
+  handler: (event: H3Event) => unknown,
   absoluteUrl: string,
 ) {
   const url = new URL(absoluteUrl);
   expect(url.origin).toBe(CLIPS_URL);
   const event = mockEvent(url.href);
-  event.context.params = {
-    recordingId: decodeURIComponent(url.pathname.split("/").pop()!),
-  };
+  const recordingId = url.pathname.split("/").pop();
+  if (!recordingId) throw new Error(`No recording id in ${absoluteUrl}`);
+  event.context.params = { recordingId: decodeURIComponent(recordingId) };
   const result = await withDbExec(coreDb(), () => handler(event));
   if (result instanceof Response) {
     return {
@@ -385,7 +396,7 @@ async function fetchMedia(
   return {
     status: event.res.status ?? 200,
     bytes: result instanceof Uint8Array ? result : null,
-    body: result instanceof Uint8Array ? null : (result as any),
+    body: result instanceof Uint8Array ? null : (result as RouteBody),
   };
 }
 
@@ -396,8 +407,10 @@ function withRewrittenGrant(
   key = contentPlaybackGrantKey(PEER_SECRET),
 ): string {
   const url = new URL(mediaUrl);
-  const [payload] = url.searchParams.get("content_grant")!.split(".");
-  const claims = JSON.parse(Buffer.from(payload!, "base64url").toString());
+  const grant = url.searchParams.get("content_grant");
+  if (!grant) throw new Error(`No content_grant in ${mediaUrl}`);
+  const [payload = ""] = grant.split(".");
+  const claims = JSON.parse(Buffer.from(payload, "base64url").toString());
   rewrite(claims);
   const encoded = Buffer.from(JSON.stringify(claims)).toString("base64url");
   const signature = createHmac("sha256", key)
@@ -470,7 +483,7 @@ describe("Content doc readers play a Clip uploaded to the doc", () => {
 
     const video = await fetchMedia(videoRoute, result.body.playback.videoUrl);
     expect(video.status).toBe(200);
-    expect(Buffer.from(video.bytes!)).toEqual(VIDEO_BYTES);
+    expect(Buffer.from(video.bytes ?? [])).toEqual(VIDEO_BYTES);
 
     const poster = await fetchMedia(
       thumbnailRoute,

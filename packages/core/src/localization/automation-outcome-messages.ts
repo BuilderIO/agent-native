@@ -22,9 +22,9 @@ export const AUTOMATION_OUTCOME_MESSAGES: Record<
 > = {
   "en-US": {
     mcpTakeoverWhileRunning:
-      "This automation is running. Wait for it to finish before managing it through MCP.",
+      "This automation is running. Wait for it to finish before managing it through an external agent.",
     mcpApprovalUnavailable:
-      "MCP-managed automations cannot use features without per-action approval.",
+      "Automations managed by an external agent cannot use features without per-action approval.",
     chainingUnsupported: "An automation cannot run another automation.",
     noOpInstruction:
       "If nothing needs doing, call automation-no-op with a short reason. Failed tools, sends, or missing credentials are errors, not no-ops.",
@@ -38,9 +38,9 @@ export const AUTOMATION_OUTCOME_MESSAGES: Record<
   },
   "es-ES": {
     mcpTakeoverWhileRunning:
-      "Esta automatización se está ejecutando. Espera a que termine antes de gestionarla mediante MCP.",
+      "Esta automatización se está ejecutando. Espera a que termine antes de gestionarla mediante un agente externo.",
     mcpApprovalUnavailable:
-      "Las automatizaciones gestionadas por MCP no pueden usar funciones sin aprobación por acción.",
+      "Las automatizaciones gestionadas por un agente externo no pueden usar funciones sin aprobación por acción.",
     chainingUnsupported:
       "Una automatización no puede ejecutar otra automatización.",
     noOpInstruction:
@@ -55,9 +55,9 @@ export const AUTOMATION_OUTCOME_MESSAGES: Record<
   },
   "fr-FR": {
     mcpTakeoverWhileRunning:
-      "Cette automatisation est en cours d’exécution. Attendez qu’elle se termine avant de la gérer via MCP.",
+      "Cette automatisation est en cours d’exécution. Attendez qu’elle se termine avant de la gérer via un agent externe.",
     mcpApprovalUnavailable:
-      "Les automatisations gérées par MCP ne peuvent pas utiliser de fonctionnalités sans approbation pour chaque action.",
+      "Les automatisations gérées par un agent externe ne peuvent pas utiliser de fonctionnalités sans approbation pour chaque action.",
     chainingUnsupported:
       "Une automatisation ne peut pas exécuter une autre automatisation.",
     noOpInstruction:
@@ -73,9 +73,9 @@ export const AUTOMATION_OUTCOME_MESSAGES: Record<
   },
   "de-DE": {
     mcpTakeoverWhileRunning:
-      "Diese Automatisierung wird gerade ausgeführt. Warten Sie, bis sie beendet ist, bevor Sie sie über MCP verwalten.",
+      "Diese Automatisierung wird gerade ausgeführt. Warten Sie, bis sie beendet ist, bevor Sie sie über einen externen Agenten verwalten.",
     mcpApprovalUnavailable:
-      "MCP-verwaltete Automatisierungen können keine Funktionen ohne Genehmigung für jede Aktion verwenden.",
+      "Von einem externen Agenten verwaltete Automatisierungen können keine Funktionen ohne Genehmigung für jede Aktion verwenden.",
     chainingUnsupported:
       "Eine Automatisierung kann keine andere Automatisierung ausführen.",
     noOpInstruction:
@@ -90,9 +90,9 @@ export const AUTOMATION_OUTCOME_MESSAGES: Record<
   },
   "pt-BR": {
     mcpTakeoverWhileRunning:
-      "Esta automação está em execução. Aguarde a conclusão antes de gerenciá-la pelo MCP.",
+      "Esta automação está em execução. Aguarde a conclusão antes de gerenciá-la por um agente externo.",
     mcpApprovalUnavailable:
-      "Automações gerenciadas por MCP não podem usar recursos sem aprovação por ação.",
+      "Automações gerenciadas por um agente externo não podem usar recursos sem aprovação por ação.",
     chainingUnsupported: "Uma automação não pode executar outra automação.",
     noOpInstruction:
       "Se não houver nada a fazer, chame automation-no-op com um motivo breve. Falhas de ferramentas ou envios e credenciais ausentes são erros, não ausência de trabalho.",
@@ -106,9 +106,9 @@ export const AUTOMATION_OUTCOME_MESSAGES: Record<
   },
   "zh-CN": {
     mcpTakeoverWhileRunning:
-      "此自动化正在运行。请等待其完成后再通过 MCP 管理。",
+      "此自动化正在运行。请等待其完成后再通过外部智能体管理。",
     mcpApprovalUnavailable:
-      "MCP 管理的自动化无法使用不支持逐项操作审批的功能。",
+      "由外部智能体管理的自动化无法使用不支持逐项操作审批的功能。",
     chainingUnsupported: "自动化无法运行另一个自动化。",
     noOpInstruction:
       "如果没有需要执行的工作，请调用 automation-no-op 并提供简短原因。工具失败、发送失败或缺少凭据属于错误，不是无需操作。",
@@ -119,9 +119,9 @@ export const AUTOMATION_OUTCOME_MESSAGES: Record<
   },
   "zh-TW": {
     mcpTakeoverWhileRunning:
-      "此自動化正在執行。請等待其完成後再透過 MCP 管理。",
+      "此自動化正在執行。請等待其完成後再透過外部代理管理。",
     mcpApprovalUnavailable:
-      "MCP 管理的自動化無法使用不支援逐項操作核准的功能。",
+      "由外部代理管理的自動化無法使用不支援逐項操作核准的功能。",
     chainingUnsupported: "自動化無法執行另一個自動化。",
     noOpInstruction:
       "如果沒有需要執行的工作，請呼叫 automation-no-op 並提供簡短原因。工具失敗、傳送失敗或缺少憑證屬於錯誤，不是無需操作。",
@@ -132,9 +132,9 @@ export const AUTOMATION_OUTCOME_MESSAGES: Record<
   },
   "ja-JP": {
     mcpTakeoverWhileRunning:
-      "この自動化は実行中です。完了してから MCP 経由で管理してください。",
+      "この自動化は実行中です。完了してから外部エージェント経由で管理してください。",
     mcpApprovalUnavailable:
-      "MCP 管理の自動化では、操作ごとの承認に対応していない機能は使用できません。",
+      "外部エージェントが管理する自動化では、操作ごとの承認に対応していない機能は使用できません。",
     chainingUnsupported: "自動化から別の自動化を実行することはできません。",
     noOpInstruction:
       "対応が不要な場合は、短い理由を添えて automation-no-op を呼び出してください。ツールや送信の失敗、認証情報の不足はエラーであり、対応不要には該当しません。",
@@ -147,9 +147,9 @@ export const AUTOMATION_OUTCOME_MESSAGES: Record<
   },
   "ko-KR": {
     mcpTakeoverWhileRunning:
-      "이 자동화가 실행 중입니다. 완료된 후 MCP를 통해 관리하세요.",
+      "이 자동화가 실행 중입니다. 완료된 후 외부 에이전트를 통해 관리하세요.",
     mcpApprovalUnavailable:
-      "MCP가 관리하는 자동화는 작업별 승인을 지원하지 않는 기능을 사용할 수 없습니다.",
+      "외부 에이전트가 관리하는 자동화는 작업별 승인을 지원하지 않는 기능을 사용할 수 없습니다.",
     chainingUnsupported: "자동화는 다른 자동화를 실행할 수 없습니다.",
     noOpInstruction:
       "할 일이 없으면 짧은 이유와 함께 automation-no-op을 호출하세요. 도구 또는 전송 실패와 자격 증명 누락은 작업 없음이 아닌 오류입니다.",
@@ -162,9 +162,9 @@ export const AUTOMATION_OUTCOME_MESSAGES: Record<
   },
   "hi-IN": {
     mcpTakeoverWhileRunning:
-      "यह ऑटोमेशन चल रहा है। MCP के माध्यम से इसे प्रबंधित करने से पहले इसके पूरा होने की प्रतीक्षा करें।",
+      "यह ऑटोमेशन चल रहा है। बाहरी एजेंट के माध्यम से इसे प्रबंधित करने से पहले इसके पूरा होने की प्रतीक्षा करें।",
     mcpApprovalUnavailable:
-      "MCP द्वारा प्रबंधित ऑटोमेशन उन सुविधाओं का उपयोग नहीं कर सकते जो हर कार्रवाई के लिए अनुमोदन का समर्थन नहीं करतीं।",
+      "बाहरी एजेंट द्वारा प्रबंधित ऑटोमेशन उन सुविधाओं का उपयोग नहीं कर सकते जो हर कार्रवाई के लिए अनुमोदन का समर्थन नहीं करतीं।",
     chainingUnsupported: "एक ऑटोमेशन दूसरा ऑटोमेशन नहीं चला सकता।",
     noOpInstruction:
       "यदि कुछ करने की आवश्यकता नहीं है, तो संक्षिप्त कारण के साथ automation-no-op कॉल करें। विफल टूल, विफल भेजने की कोशिश या अनुपलब्ध क्रेडेंशियल त्रुटियाँ हैं, काम न होने की स्थिति नहीं।",
@@ -178,9 +178,9 @@ export const AUTOMATION_OUTCOME_MESSAGES: Record<
   },
   "ar-SA": {
     mcpTakeoverWhileRunning:
-      "هذه الأتمتة قيد التشغيل. انتظر حتى تنتهي قبل إدارتها عبر MCP.",
+      "هذه الأتمتة قيد التشغيل. انتظر حتى تنتهي قبل إدارتها عبر وكيل خارجي.",
     mcpApprovalUnavailable:
-      "لا يمكن للأتمتة المُدارة عبر MCP استخدام ميزات لا تدعم الموافقة على كل إجراء.",
+      "لا يمكن للأتمتة التي يديرها وكيل خارجي استخدام ميزات لا تدعم الموافقة على كل إجراء.",
     chainingUnsupported: "لا يمكن لأتمتة تشغيل أتمتة أخرى.",
     noOpInstruction:
       "إذا لم يكن هناك ما يجب فعله، استدعِ automation-no-op مع سبب موجز. فشل الأدوات أو الإرسال أو غياب بيانات الاعتماد أخطاء، وليس حالات لا تتطلب عملاً.",

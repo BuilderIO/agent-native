@@ -361,7 +361,12 @@ export default defineEventHandler(async (event: H3Event) => {
     ? (contentGrant.viewerEmail ?? undefined)
     : session?.email;
 
-  return runWithRequestContext({ userEmail: viewerEmail, orgId }, () =>
+  const requestContext = {
+    ...(viewerEmail !== undefined ? { userEmail: viewerEmail } : {}),
+    ...(orgId !== undefined ? { orgId } : {}),
+  };
+
+  return runWithRequestContext(requestContext, () =>
     runWithContentPlayback(contentGrant, async () => {
       const clipId = await contextClipIdForFootage(recordingId);
       // Access, expiry, redaction, and password are the clip's, not the footage's.
