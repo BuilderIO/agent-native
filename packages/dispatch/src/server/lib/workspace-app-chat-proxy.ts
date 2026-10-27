@@ -1,7 +1,9 @@
 import { getOrgContext } from "@agent-native/core/org";
 import {
+  getAppProductionUrl,
   getForwardedRequestOrigin,
   getSession,
+  resolveAppRuntimeUrl,
   runWithRequestContext,
 } from "@agent-native/core/server";
 import {
@@ -84,6 +86,37 @@ function sessionCacheKey(input: {
     input.requestOrigin,
     input.appId,
   ].join("\u0000");
+}
+
+function httpOrigin(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  const url = new URL(value);
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error("Application origin must use HTTP or HTTPS.");
+  }
+  return url.origin;
+}
+
+function trustedWorkspaceRequestOrigin(
+  event: WorkspaceAppChatProxyEvent,
+): string {
+  const configuredOrigin = httpOrigin(getAppProductionUrl());
+  const runtimeOrigin = httpOrigin(resolveAppRuntimeUrl());
+  const allowedOrigins = new Set(
+    [configuredOrigin, runtimeOrigin].filter((origin): origin is string =>
+      Boolean(origin),
+    ),
+  );
+  const requestOrigin = httpOrigin(
+    getForwardedRequestOrigin(
+      event as unknown as Parameters<typeof getForwardedRequestOrigin>[0],
+    ),
+  );
+
+  if (requestOrigin && allowedOrigins.has(requestOrigin)) return requestOrigin;
+  if (configuredOrigin) return configuredOrigin;
+  if (runtimeOrigin) return runtimeOrigin;
+  throw new Error("No trusted application origin is configured for app chat.");
 }
 
 function errorMessage(error: unknown): string {
@@ -274,9 +307,7 @@ export function createWorkspaceAppChatProxyHandler(
       return proxyErrorResponse(401, "Sign in to Dispatch to use app chat.");
     }
 
-    const requestOrigin = getForwardedRequestOrigin(
-      event as unknown as Parameters<typeof getForwardedRequestOrigin>[0],
-    );
+    const requestOrigin = trustedWorkspaceRequestOrigin(event);
     let appSession: WorkspaceAppChatSession;
     try {
       appSession = await resolveWorkspaceAppChatSession({

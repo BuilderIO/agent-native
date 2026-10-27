@@ -4,7 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   getSession: vi.fn(),
   getOrgContext: vi.fn(),
+  getAppProductionUrl: vi.fn(),
   getForwardedRequestOrigin: vi.fn(),
+  resolveAppRuntimeUrl: vi.fn(),
   createWorkspaceSsoEmbedSession: vi.fn(),
   createGrantedDispatchMcpEmbedSession: vi.fn(),
 }));
@@ -14,8 +16,10 @@ vi.mock("@agent-native/core/server", async (importOriginal) => {
     await importOriginal<typeof import("@agent-native/core/server")>();
   return {
     ...actual,
+    getAppProductionUrl: mocks.getAppProductionUrl,
     getForwardedRequestOrigin: mocks.getForwardedRequestOrigin,
     getSession: mocks.getSession,
+    resolveAppRuntimeUrl: mocks.resolveAppRuntimeUrl,
   };
 });
 
@@ -101,8 +105,14 @@ describe("workspace app chat proxy", () => {
     clearWorkspaceAppChatSessions();
     mocks.getSession.mockResolvedValue({ email: "owner@example.com" });
     mocks.getOrgContext.mockResolvedValue({ orgId: "org-1" });
+    mocks.getAppProductionUrl.mockReturnValue(
+      "https://dispatch.agent-native.com",
+    );
     mocks.getForwardedRequestOrigin.mockReturnValue(
       "https://dispatch.agent-native.com",
+    );
+    mocks.resolveAppRuntimeUrl.mockReturnValue(
+      "https://workspace.agent-native.com/dispatch",
     );
     mocks.createWorkspaceSsoEmbedSession.mockResolvedValue({
       startUrl: START_URL,
@@ -140,7 +150,7 @@ describe("workspace app chat proxy", () => {
     expect(headers.get("cookie")).toBeNull();
   });
 
-  it("preserves the forwarded origin for both embed-session signing paths", async () => {
+  it("preserves a configured request origin for both embed-session signing paths", async () => {
     const requestOrigin = "https://dispatch.agent-native.com";
     mocks.createWorkspaceSsoEmbedSession.mockImplementation(async () => {
       expect(getRequestContext()?.requestOrigin).toBe(requestOrigin);
@@ -163,10 +173,10 @@ describe("workspace app chat proxy", () => {
     expect(mocks.createGrantedDispatchMcpEmbedSession).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps cached app sessions scoped to the request origin", async () => {
+  it("ignores untrusted forwarded origins for context and session caching", async () => {
     const requestOrigins = [
-      "https://dispatch.agent-native.com",
-      "https://workspace.agent-native.com",
+      "https://attacker-one.example",
+      "https://attacker-two.example",
     ];
     const observedOrigins: string[] = [];
     mocks.getForwardedRequestOrigin
@@ -185,8 +195,8 @@ describe("workspace app chat proxy", () => {
     await send();
     await send();
 
-    expect(observedOrigins).toEqual(requestOrigins);
-    expect(mocks.createWorkspaceSsoEmbedSession).toHaveBeenCalledTimes(2);
+    expect(observedOrigins).toEqual(["https://dispatch.agent-native.com"]);
+    expect(mocks.createWorkspaceSsoEmbedSession).toHaveBeenCalledTimes(1);
   });
 
   it("forwards agent-chat sub-paths and query strings unchanged", async () => {

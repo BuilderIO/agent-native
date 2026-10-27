@@ -21,10 +21,12 @@ import {
   buildDeepLink,
   buildEmbedStartPath,
   createEmbedSessionTicket,
+  getAppProductionUrl,
   getConfiguredAppBasePath,
   getRequestContext,
   getRequestOrgId,
   getRequestUserEmail,
+  resolveAppRuntimeUrl,
 } from "@agent-native/core/server";
 import {
   discoverAgents,
@@ -484,7 +486,9 @@ function withConfiguredBasePath(baseUrl: string): string {
 
 function dispatchSelfBaseUrl(): string {
   const requestOrigin = normalizeBaseUrl(getRequestContext()?.requestOrigin);
-  if (requestOrigin) return withConfiguredBasePath(requestOrigin);
+  if (requestOrigin && isTrustedRequestOrigin(requestOrigin)) {
+    return withConfiguredBasePath(requestOrigin);
+  }
 
   const configured =
     normalizeBaseUrl(process.env.WORKSPACE_GATEWAY_URL) ??
@@ -497,6 +501,14 @@ function dispatchSelfBaseUrl(): string {
   return process.env.NODE_ENV === "production"
     ? "https://dispatch.agent-native.com"
     : "http://localhost:8092";
+}
+
+function isTrustedRequestOrigin(value: string): boolean {
+  // An embed ticket is fetched from this origin and becomes a bearer token.
+  const origin = new URL(value).origin;
+  return [getAppProductionUrl(), resolveAppRuntimeUrl()]
+    .map(normalizeBaseUrl)
+    .some((url) => url !== null && new URL(url).origin === origin);
 }
 
 function dispatchSelfApp(

@@ -1465,6 +1465,30 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
     });
   });
 
+  it("pins Dispatch self embeds to configured hosts instead of request context", async () => {
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "");
+    vi.stubEnv("APP_URL", "https://dispatch.agent-native.test");
+    vi.stubEnv("APP_BASE_PATH", "");
+    vi.stubEnv("VITE_APP_BASE_PATH", "");
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "https://attacker.example",
+      },
+      () =>
+        createGrantedDispatchMcpEmbedSession({
+          app: "dispatch",
+          path: "/extensions/ext-1/github-stars-over-time",
+          chrome: "minimal",
+        }),
+    );
+
+    expect(result.startUrl).toBe(
+      "https://dispatch.agent-native.test/_agent-native/embed/start?ticket=ticket-123",
+    );
+  });
+
   it("keeps workspace sign-in behind the rollout flag", async () => {
     mocks.isFeatureFlagEnabled.mockResolvedValue(false);
 
