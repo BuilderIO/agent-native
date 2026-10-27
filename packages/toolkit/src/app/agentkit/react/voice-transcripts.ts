@@ -138,6 +138,20 @@ export function realtimeVoiceWorkEvents(
     .map(({ event }) => ({ ...event, sequence: ++sequence }));
 }
 
+/**
+ * Whether a voice reply's work has started but not completed. A snapshot saved
+ * now would keep that run with no terminal event, queued after a reload.
+ */
+function hasOpenVoiceWork(events: readonly AgentEvent[]): boolean {
+  const open = new Set<string>();
+  for (const event of events) {
+    if (!event.runId.startsWith("voice:")) continue;
+    if (event.type === "run.completed") open.delete(event.runId);
+    else open.add(event.runId);
+  }
+  return open.size > 0;
+}
+
 /** A voice chat turn still being spoken; hosts must not save it. */
 export function isStreamingVoiceMessage(message: AgentMessage): boolean {
   const custom = message.metadata?.custom as { source?: unknown } | undefined;
@@ -162,9 +176,12 @@ export function useRealtimeVoiceTranscripts(
     const upsert = controller.upsertLocalMessages.bind(controller);
     const appendEvents = controller.appendLocalEvents?.bind(controller);
     const persist = () => {
-      const messages = controller
-        .getThread(threadId)
-        .messages.filter((message) => !isStreamingVoiceMessage(message));
+      const thread = controller.getThread(threadId);
+      // The work's completion saves the thread, this turn included.
+      if (hasOpenVoiceWork(thread.events)) return;
+      const messages = thread.messages.filter(
+        (message) => !isStreamingVoiceMessage(message),
+      );
       // A failed save surfaces through the controller's connection error;
       // a host without transport persistence saves the thread itself.
       void controller.persistThreadSnapshotWithResult?.(threadId, messages);

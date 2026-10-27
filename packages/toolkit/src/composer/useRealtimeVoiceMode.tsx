@@ -2700,8 +2700,13 @@ function useRealtimeVoiceModeController(
             JSON.parse(String(messageEvent.data)),
             stateRef.current === "ending",
           );
-        } catch {
-          // Ignore malformed provider events without ending a healthy call.
+        } catch (eventError) {
+          // A malformed provider event must not end a healthy call, but the
+          // text it carried is lost, so say so.
+          console.warn(
+            "Ignored a realtime voice event that could not be handled.",
+            eventError,
+          );
         }
       };
       channel.onerror = () => {

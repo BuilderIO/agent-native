@@ -195,6 +195,55 @@ describe("voice chat transcripts in AgentKitChat", () => {
     expect(messages(container)).toEqual([]);
   });
 
+  it("waits for running work to finish before saving a final turn", async () => {
+    const threadId = "thread-voice-open-work";
+    const { saved } = await mountChat(threadId);
+    const call = {
+      id: "call-edit",
+      name: "edit-design",
+      startedAt: "2026-10-24T00:00:02.000Z",
+    };
+    const publishWork = async (update: RealtimeVoiceWorkUpdate) => {
+      await act(async () => {
+        realtimeVoiceTranscriptRegistry.publishWork(update);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    };
+
+    await publishWork({
+      id: "call-edit",
+      threadId,
+      calls: [{ ...call, status: "running" }],
+    });
+    await publish(threadId, {
+      id: `${threadId}:user-2`,
+      role: "user",
+      text: "Make it blue too.",
+      createdAt: "2026-10-24T00:00:03.000Z",
+    });
+    expect(saved).toEqual([]);
+
+    await publishWork({
+      id: "call-edit",
+      threadId,
+      calls: [
+        {
+          ...call,
+          status: "completed",
+          output: "{}",
+          completedAt: "2026-10-24T00:00:04.000Z",
+        },
+      ],
+      completedAt: "2026-10-24T00:00:04.000Z",
+    });
+    expect(saved.at(-1)?.runs).toEqual([
+      expect.objectContaining({ id: "voice:call-edit", status: "completed" }),
+    ]);
+    expect(saved.at(-1)?.messages.map((message) => message.id)).toContain(
+      `${threadId}:user-2`,
+    );
+  });
+
   it("shows a reply's tool calls as one work item between the turns and saves it", async () => {
     const threadId = "thread-voice-work";
     const { container, client, saved } = await mountChat(threadId);
