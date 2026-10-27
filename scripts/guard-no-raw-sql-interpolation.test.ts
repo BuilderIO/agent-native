@@ -701,6 +701,34 @@ describe("raw SQL interpolation guard", () => {
     ]);
   });
 
+  it("reports a new wrapper call that reuses an unchanged unsafe SQL value", () => {
+    const wrapperFile = "packages/core/src/sql-helpers.ts";
+    const storeFile = "packages/core/src/store.ts";
+    const wrapper = [
+      'import { getDbExec } from "./db/client.js";',
+      "export function runQuery(query: string) {",
+      "  getDbExec().execute({ sql: query, args: [] });",
+      "}",
+    ].join("\n");
+    const store = [
+      'import { runQuery } from "./sql-helpers.js";',
+      "const query = `SELECT * FROM records WHERE id = ${recordId}`;",
+      "runQuery(query);",
+    ].join("\n");
+    const sources = new Map<string, RawSqlGuardSource>([
+      [wrapperFile, { source: wrapper, addedLines: new Set<number>() }],
+      [storeFile, { source: store, addedLines: new Set([3]) }],
+    ]);
+
+    expect(findRawSqlInterpolationViolationsInSources(sources)).toEqual([
+      {
+        file: storeFile,
+        line: 3,
+        snippet: "runQuery(query);",
+      },
+    ]);
+  });
+
   it("traces a template assigned before an unchanged imported wrapper call", () => {
     const wrapperFile = "packages/core/src/sql-helpers.ts";
     const storeFile = "packages/core/src/store.ts";
@@ -839,6 +867,42 @@ describe("raw SQL interpolation guard", () => {
         file: storeFile,
         line: 2,
         snippet: "runQuery(`SELECT * FROM records WHERE id = ${recordId}`);",
+      },
+    ]);
+  });
+
+  it("traces each callsite when a wrapper is reused", () => {
+    const wrapperFile = "packages/core/src/sql-helpers.ts";
+    const storeFile = "packages/core/src/store.ts";
+    const wrapper = [
+      'import { getDbExec } from "./db/client.js";',
+      "export function runQuery(query: string) {",
+      "  getDbExec().execute({ sql: query, args: [] });",
+      "}",
+    ].join("\n");
+    const store = [
+      'import { runQuery } from "./sql-helpers.js";',
+      "runQuery(`SELECT * FROM records WHERE id = ${firstId}`);",
+      "runQuery(`SELECT * FROM records WHERE id = ${secondId}`);",
+    ].join("\n");
+
+    expect(
+      findRawSqlInterpolationViolationsInSources(
+        new Map([
+          [wrapperFile, { source: wrapper, addedLines: new Set<number>() }],
+          [storeFile, { source: store, addedLines: new Set([2, 3]) }],
+        ]),
+      ),
+    ).toEqual([
+      {
+        file: storeFile,
+        line: 2,
+        snippet: "runQuery(`SELECT * FROM records WHERE id = ${firstId}`);",
+      },
+      {
+        file: storeFile,
+        line: 3,
+        snippet: "runQuery(`SELECT * FROM records WHERE id = ${secondId}`);",
       },
     ]);
   });
