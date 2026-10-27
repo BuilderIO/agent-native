@@ -7,6 +7,7 @@
     "pool": "forks"
   },
   "coverageAnalysis": "perTest",
+  "dryRunTimeoutMinutes": 20,
   "mutate": [
     "src/**/*.ts",
     "src/**/*.tsx",
@@ -18,16 +19,16 @@
   ],
   "ignorePatterns": [
     "**/.claude",
-    "dist",
-    "docs",
-    "changelog",
-    "blueprints",
-    "third-party-licenses",
-    "test-support",
-    "CHANGELOG.md",
-    "README.md",
-    "export-snapshot.json",
-    "migration-manifest.json"
+    "/dist",
+    "/docs/*",
+    "!/docs/migrations",
+    "/changelog",
+    "/blueprints",
+    "/third-party-licenses",
+    "/test-support",
+    "/CHANGELOG.md",
+    "/README.md",
+    "/export-snapshot.json"
   ],
   "reporters": ["clear-text", "progress", "json"],
   "jsonReporter": {

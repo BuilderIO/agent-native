@@ -64,7 +64,7 @@
     }
   ],
   "coverage": {
-    "syncCommit": "c8190ab8eb1e9138b23618e38d3a178b6dd44977",
+    "syncCommit": "5d0a977551988461d84ffed6f663cb2d92f4d955",
     "code": [
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -89,7 +89,7 @@
       {
         "file": "packages/core/src/agent/run-store.ts",
         "name": "beginAgentExecutionStep",
-        "sha256": "cff9b204dc26a240f6c6aa000d143ce503a1fa2263fc70e089ae516893129fee"
+        "sha256": "2b7fcb58d698d5f19f94409327e75a63c21bd5de3f25f639f787f5e489809cf4"
       },
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -139,7 +139,12 @@
       {
         "file": "packages/core/src/agent/run-store.ts",
         "name": "markTurnAborted",
-        "sha256": "faaef7711ac57308a0c64e3c4ac9f37ef67e50702d96f2e1f23a33258d9fd0d7"
+        "sha256": "94a1135fb503d0100c463da1c4ee2d392d5539a8b99ac7b0d7b4333b654941b9"
+      },
+      {
+        "file": "packages/core/src/agent/run-store.ts",
+        "name": "insertTurnAbortMarkers",
+        "sha256": "7d31e5b3916aa80ef72a9e9c1a9eb2e6731d984d74e82d164fb6bdb6cd5e5842"
       },
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -169,7 +174,7 @@
       {
         "file": "packages/core/src/agent/run-store.ts",
         "name": "tryClaimRunSlot",
-        "sha256": "863598b3172d3696f6715da45ce9bbbf5596c7ddead5fbf6bc0e689a547fcc60"
+        "sha256": "318bcabe060e9e1c5918c8f5164494d00ed2bb2bfb8e539c08b7b4a2e944e66e"
       },
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -189,7 +194,7 @@
       {
         "file": "packages/core/src/agent/execution-fence.ts",
         "name": "lockAndAssertCurrentExecutionFences",
-        "sha256": "49db08ccca30f65fe25e1702e91b8be238a8e7e0121c81ecaf1290a6317d0a71"
+        "sha256": "14275075908e01dd143ff3054343b5fc7dec85001f5d2c78ba4852b14a6c1d8a"
       },
       {
         "file": "packages/core/src/agent/execution-fence.ts",
@@ -204,13 +209,13 @@
       {
         "file": "packages/core/src/jobs/background-automation-runner.ts",
         "name": "confirmAutomationWork",
-        "sha256": "0214bfb2dfb7efd2738142d3b7d8c638f00845ab476e5d9674d21c1e106b204a"
+        "sha256": "36cf9d9ff22400f37fb938cbfa84e358bbfa59ec7cad5c6435a8fa33cf363fef"
       },
       {
         "file": "packages/core/src/agent/production-agent.ts",
         "from": "const executionFence = currentExecutionFence();",
         "to": "? await beginAgentExecutionStep(executionStepIntent)",
-        "sha256": "33f555f580487826c05b7efc449557e398f4b1d98f601771f2c5e07e27fbcb04"
+        "sha256": "2523a512cffb1241265ea26195a5765c5bbe3410350558820db39acc437f3582"
       },
       {
         "file": "packages/core/src/agent/execution-fence.ts",

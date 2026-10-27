@@ -150,7 +150,7 @@ async function file(
   return found.content as string;
 }
 
-test.use({ viewport: { width: 1600, height: 1000 } });
+test.use({ viewport: { width: 1640, height: 1000 } });
 
 test("free-position drag of an unselected element follows the pointer and saves left/top at the drop point", async ({
   app,

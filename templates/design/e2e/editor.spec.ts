@@ -108,7 +108,7 @@ test("editor renders the toolbar and the design iframe content", async ({
   ).toBeVisible();
 });
 
-test("agent rail keeps the shared chat header and conversation tabs", async ({
+test("agent rail keeps the shared chat header and chat switcher", async ({
   app,
 }) => {
   await openFixture(app);
@@ -122,8 +122,13 @@ test("agent rail keeps the shared chat header and conversation tabs", async ({
     .click();
 
   const agentPanel = page.locator("[data-design-agent-panel]");
-  const newChatButton = agentPanel.locator('button[aria-label="New chat"]');
-  await expect(newChatButton).toBeVisible();
+  // The Agent column is narrower than the tab strip needs, so its chats sit
+  // behind one switcher whose menu carries the only New chat entry.
+  const switcher = agentPanel.locator("[data-agent-thread-switcher]");
+  await expect(switcher).toHaveText("New chat");
+  await expect(agentPanel.locator('button[aria-label="New chat"]')).toHaveCount(
+    0,
+  );
   await expect(
     agentPanel.getByRole("button", {
       name: "Agent panel options",
@@ -139,11 +144,19 @@ test("agent rail keeps the shared chat header and conversation tabs", async ({
     ).toHaveCount(0);
   }
 
-  await newChatButton.click();
-  const conversationTabs = agentPanel.locator('[role="button"].agent-tab');
-  await expect(conversationTabs).toHaveCount(2);
+  const threadMenu = page.locator("[data-agent-thread-menu]");
+  await switcher.click();
+  await threadMenu
+    .getByRole("menuitem")
+    .and(page.locator(":not([data-agent-thread-menu-item])"))
+    .click();
+  await expect(threadMenu).toHaveCount(0);
+  await switcher.click();
+  await expect(threadMenu.locator("[data-agent-thread-menu-item]")).toHaveCount(
+    2,
+  );
   await expect(
-    agentPanel.locator('[role="button"].agent-tab.bg-accent'),
+    threadMenu.locator('[data-agent-thread-menu-item][aria-current="true"]'),
   ).toHaveCount(1);
 });
 
@@ -186,7 +199,7 @@ test("designs list shared sidebar stays contained at normal and narrow widths", 
   await page.getByRole("button", { name: "Toggle agent", exact: true }).click();
   const sidebar = page
     .locator('[data-agent-sidebar-state="open"]')
-    .filter({ has: page.locator('button[aria-label="New chat"]') });
+    .filter({ has: page.locator("[data-agent-sidebar-chat-header]") });
   await expect(sidebar.locator('button[aria-label="New chat"]')).toBeVisible();
   await expect(
     sidebar.getByRole("button", { name: "Agent panel options", exact: true }),
@@ -201,6 +214,7 @@ test("designs list shared sidebar stays contained at normal and narrow widths", 
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
     .toBeLessThanOrEqual(390);
+  await expect(sidebar.locator("[data-agent-thread-switcher]")).toBeVisible();
   const narrow = (await sidebar.boundingBox())!;
   expect(narrow.x).toBeGreaterThanOrEqual(0);
   expect(narrow.x + narrow.width).toBeLessThanOrEqual(390);

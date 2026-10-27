@@ -46,12 +46,6 @@ function isAutoSyncEnabled(source: SourceRow): boolean {
   return AUTO_SYNC_PROVIDERS.includes(source.provider as BrainSourceProvider);
 }
 
-function transientRetryAt(source: SourceRow) {
-  const cursor = parseJson<Record<string, unknown>>(source.cursorJson, {});
-  const value = cursor.transientRetryAt;
-  return typeof value === "string" ? Date.parse(value) : Number.NaN;
-}
-
 function retryAfterAt(source: SourceRow): number | null {
   const cursor = parseJson<Record<string, unknown>>(source.cursorJson, {});
   const retry = parseJson<Record<string, unknown>>(
@@ -76,8 +70,18 @@ function sourceSyncDueAt(source: SourceRow, nowMs: number): number | null {
   if (source.status === "error") {
     const failedAt = Date.parse(source.updatedAt);
     if (Number.isFinite(failedAt)) pollAt = failedAt + pollIntervalMs;
-    const transientAt = transientRetryAt(source);
-    if (Number.isFinite(transientAt)) pollAt = Math.min(pollAt, transientAt);
+    const cursor = parseJson<Record<string, unknown>>(source.cursorJson, {});
+    const transientAt =
+      typeof cursor.transientRetryAt === "string"
+        ? Date.parse(cursor.transientRetryAt)
+        : Number.NaN;
+    if (Number.isFinite(transientAt)) {
+      const isZoomTimeout =
+        source.provider === "zoom" &&
+        typeof cursor.consecutiveTimeouts === "number" &&
+        cursor.consecutiveTimeouts > 0;
+      pollAt = isZoomTimeout ? transientAt : Math.min(pollAt, transientAt);
+    }
   } else if (source.lastSyncedAt) {
     const lastSynced = Date.parse(source.lastSyncedAt);
     if (Number.isFinite(lastSynced)) pollAt = lastSynced + pollIntervalMs;

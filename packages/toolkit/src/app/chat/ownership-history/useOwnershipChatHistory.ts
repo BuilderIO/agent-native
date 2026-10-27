@@ -1,6 +1,8 @@
 import {
+  hideChatThread,
   useChatThreadList,
   type ChatThreadListRow,
+  type ChatThreadScope,
   type UseChatThreadListOptions,
 } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
@@ -24,6 +26,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 
+import { useChatUnreadThreads } from "../run-awareness/chat-unread-state.js";
 import {
   chatThreadToHistoryItem,
   ownDraftToHistoryItem,
@@ -68,7 +71,10 @@ export interface OwnershipChatHistoryListProps {
   onTogglePin?: (id: string) => Promise<boolean>;
   onRename?: (id: string, title: string) => Promise<boolean>;
   onDelete?: (id: string) => Promise<boolean>;
+  deleteAction?: "archive";
   onCopyLink?: (id: string) => Promise<void>;
+  /** Hides a shared chat from the viewer's lists; its toast offers Undo. */
+  onHide?: (id: string) => Promise<boolean>;
 }
 
 export interface UseOwnershipChatHistoryResult {
@@ -103,12 +109,21 @@ interface FieldState<Value> {
   successful?: { intent: FieldIntent<Value>; reconciled: boolean };
 }
 
+interface HideTarget {
+  apiUrl: string;
+  scope?: ChatThreadScope;
+}
+
 type OverrideField = keyof OverrideValues;
 type Override = {
   [Field in OverrideField]?: FieldState<OverrideValues[Field]>;
 };
 
 const OVERRIDE_FIELDS = ["title", "pinned", "hidden"] as const;
+
+function isShared(row: ChatThreadListRow | OwnDraftRow | undefined) {
+  return !!row && "accessBasis" in row && row.accessBasis !== "owner";
+}
 
 function isPersistedOwner(row: ChatThreadListRow | OwnDraftRow | undefined) {
   return (
@@ -205,20 +220,22 @@ function matches(
   mine: readonly ChatThreadListRow[],
   shared: readonly ChatThreadListRow[],
 ): boolean {
-  if (mine === intent.mineAtStart) return false;
-  const row = mine.find((row) => row.id === id);
-  if (field === "hidden")
-    return (
-      shared !== intent.sharedAtStart &&
-      !row &&
-      !shared.some((row) => row.id === id)
-    );
-  return (
-    !!row &&
-    (field === "title"
-      ? intent.value === row.title
-      : intent.value === (row.pinnedAt != null))
-  );
+  const owned = mine.find((row) => row.id === id);
+  if (field === "hidden") {
+    if (mine === intent.mineAtStart || shared === intent.sharedAtStart)
+      return false;
+    const listed = !!owned || shared.some((row) => row.id === id);
+    return intent.value ? !listed : listed;
+  }
+  const row = owned ?? shared.find((row) => row.id === id);
+  if (
+    !row ||
+    (owned ? mine === intent.mineAtStart : shared === intent.sharedAtStart)
+  )
+    return false;
+  return field === "title"
+    ? intent.value === row.title
+    : intent.value === (row.pinnedAt != null);
 }
 
 export function useOwnershipChatHistory(
@@ -251,6 +268,7 @@ export function useOwnershipChatHistory(
   };
   const mine = useChatThreadList({ ...listOptions, ownership: "mine" });
   const shared = useChatThreadList({ ...listOptions, ownership: "shared" });
+  const { unreadThreadIds } = useChatUnreadThreads({ enabled });
   const t = useT();
   const locale = useOptionalLocale()?.locale ?? DEFAULT_LOCALE;
   const scopeKey = JSON.stringify([
@@ -280,6 +298,13 @@ export function useOwnershipChatHistory(
   const [revision, publish] = useState(0);
   const overrides = generation.rows;
   const tokenRef = useRef(0);
+  // Undo can outlive the view that hid the row, e.g. after a search change.
+  const hiddenShared = useRef(
+    new Map<string, { row: ChatThreadListRow; index: number; view: string }>(),
+  );
+  const unhideRef = useRef<
+    (id: string, target: HideTarget) => Promise<boolean>
+  >(async () => false);
   const latest = useRef({ mine, shared, options });
   latest.current = { mine, shared, options };
 
@@ -352,7 +377,11 @@ export function useOwnershipChatHistory(
         publish((value) => value + 1);
     }
   }, [current, enabled, generation, updateOverrides]);
+  // The list reports one error for any failed request, so remember which kind
+  // of request the user last asked for to name the failure correctly.
+  const loadingMoreRef = useRef({ mine: false, shared: false });
   const refresh = useCallback(async () => {
+    loadingMoreRef.current = { mine: false, shared: false };
     await refreshWithResults();
   }, [refreshWithResults]);
 
@@ -435,14 +464,28 @@ export function useOwnershipChatHistory(
     mineRows.find((row) => row.id === id && row.accessBasis === "owner") ??
     drafts.find((row) => row.id === id);
 
+  const findShared = (id: string) => sharedRows.find((row) => row.id === id);
+  // Rename and archive stay with the owner; pin and hide are the viewer's own.
+  const permits = (
+    kind: OwnershipChatHistoryMutationKind | "hide",
+    id: string,
+  ) =>
+    kind === "hide"
+      ? !!findShared(id) || hiddenShared.current.has(id)
+      : isPersistedOwner(findMine(id)) || (kind === "pin" && !!findShared(id));
+
   const mutate = async <Field extends OverrideField>(
-    kind: OwnershipChatHistoryMutationKind,
+    kind: OwnershipChatHistoryMutationKind | "hide",
     id: string,
     field: Field,
     value: OverrideValues[Field],
     persist: () => Promise<boolean>,
+    failed: (...cause: [] | [unknown]) => void = (...cause) => {
+      if (kind !== "hide")
+        latest.current.options.onMutationFailed?.(kind, id, ...cause);
+    },
   ) => {
-    if (!enabled || !current() || !isPersistedOwner(findMine(id))) return false;
+    if (!enabled || !current() || !permits(kind, id)) return false;
     const view = generation.view;
     const permitted = () => current() && generation.view === view;
     const token = ++tokenRef.current;
@@ -488,14 +531,12 @@ export function useOwnershipChatHistory(
       );
     } catch (cause) {
       const isLatest = complete(false);
-      if (permitted() && isLatest)
-        latest.current.options.onMutationFailed?.(kind, id, cause);
+      if (permitted() && isLatest) failed(cause);
       return false;
     }
     if (!succeeded) {
       const isLatest = complete(false);
-      if (permitted() && isLatest)
-        latest.current.options.onMutationFailed?.(kind, id);
+      if (permitted() && isLatest) failed();
       return false;
     }
     complete(true);
@@ -534,7 +575,7 @@ export function useOwnershipChatHistory(
   if (options.mutations?.pin)
     listProps.onTogglePin = async (id) => {
       const persist = options.mutations!.pin!;
-      const row = findMine(id);
+      const row = findMine(id) ?? findShared(id);
       if (!row) return false;
       const nextPinned = !(
         projectedIntent(generation.rows.get(id)?.pinned)?.value ??
@@ -552,11 +593,64 @@ export function useOwnershipChatHistory(
         persist(id, nextTitle),
       );
     };
-  if (options.mutations?.archive)
+  if (options.mutations?.archive) {
     listProps.onDelete = (id) => {
       const persist = options.mutations!.archive!;
       return mutate("archive", id, "hidden", true, () => persist(id));
     };
+    listProps.deleteAction = "archive";
+  }
+  const setHidden = (
+    id: string,
+    hidden: boolean,
+    target: HideTarget,
+    failed: (...cause: [] | [unknown]) => void,
+  ) =>
+    mutate(
+      "hide",
+      id,
+      "hidden",
+      hidden,
+      () => hideChatThread(id, hidden, target),
+      failed,
+    );
+  // Undo goes to the scope that hid the chat, and its toast outlives this
+  // view, so a closed view sends the request itself.
+  unhideRef.current = async (id, target) => {
+    const failed = () => toast.error(t("agentChat.history.unhideFailed"));
+    if (current()) return setHidden(id, false, target, failed);
+    let unhidden: boolean;
+    try {
+      unhidden = await persistInOrder(
+        JSON.stringify([target.apiUrl, id, "hidden"]),
+        () => hideChatThread(id, false, target),
+      );
+    } catch {
+      unhidden = false;
+    }
+    if (!unhidden) failed();
+    return unhidden;
+  };
+  listProps.onHide = (id) => {
+    const row = findShared(id);
+    if (!row) return Promise.resolve(false);
+    hiddenShared.current.set(id, {
+      row,
+      index: sharedRows.indexOf(row),
+      view: scopeKey,
+    });
+    const target = { apiUrl: endpoint, ...(scope ? { scope } : {}) };
+    const notice = toast(t("agentChat.history.hidden"), {
+      action: {
+        label: t("agentChat.history.undo"),
+        onClick: () => void unhideRef.current(id, target),
+      },
+    });
+    return setHidden(id, true, target, () => {
+      toast.dismiss(notice);
+      toast.error(t("agentChat.history.hideFailed"));
+    });
+  };
   if (options.getThreadUrl)
     listProps.onCopyLink = async (id) => {
       const url = new URL(
@@ -600,25 +694,40 @@ export function useOwnershipChatHistory(
     const item = {
       ...mapped,
       ...(pin === undefined ? {} : { pinned: pin.value }),
+      ...(unreadThreadIds.has(row.id) ? { unread: true } : {}),
     };
     const decorated = decorateItem?.(item, effectiveRow, { section }) ?? item;
-    return section === "shared"
-      ? { ...decorated, pinned: false, readOnly: true }
+    return isShared(row)
+      ? { ...decorated, readOnly: true }
       : isPersistedOwner(row)
         ? decorated
         : { ...decorated, hideActions: true };
   };
-  const visibleMine = mineRows.filter(
-    (row) => !projectedIntent(overrides.get(row.id)?.hidden)?.value,
-  );
+  const hiddenIntent = (id: string) =>
+    projectedIntent(overrides.get(id)?.hidden)?.value;
+  const visibleMine = mineRows.filter((row) => !hiddenIntent(row.id));
+  const visibleShared = sharedRows.filter((row) => !hiddenIntent(row.id));
+  // Undo shows the row again before the refresh that returns it, but only in
+  // the view that hid it; any other view waits for the server.
+  for (const [id, { row, index, view }] of hiddenShared.current) {
+    if (view === scopeKey && hiddenIntent(id) === false && !serverIds.has(id))
+      visibleShared.splice(Math.min(index, visibleShared.length), 0, row);
+  }
+  const pinIntent = (id: string) => projectedIntent(overrides.get(id)?.pinned);
+  // A pin that has no server time yet is the newest one.
+  const pinTime = (row: ChatThreadListRow) =>
+    pinIntent(row.id) ? Infinity : (row.pinnedAt ?? -Infinity);
   const pinnedRows = pinned
-    ? visibleMine.filter(
-        (row) =>
-          projectedIntent(overrides.get(row.id)?.pinned)?.value ??
-          row.pinnedAt != null,
-      )
+    ? [...visibleMine, ...visibleShared]
+        .filter((row) => pinIntent(row.id)?.value ?? row.pinnedAt != null)
+        .sort((a, b) =>
+          pinTime(a) === pinTime(b) ? 0 : pinTime(a) < pinTime(b) ? 1 : -1,
+        )
     : [];
   const pinnedIds = new Set(pinnedRows.map((row) => row.id));
+  const sharedItems = visibleShared
+    .filter((row) => !pinnedIds.has(row.id))
+    .map((row) => mapItem(row, "shared"));
   const mineItems = [
     ...drafts
       .filter((row) => !projectedIntent(overrides.get(row.id)?.hidden)?.value)
@@ -636,20 +745,28 @@ export function useOwnershipChatHistory(
       .filter((row) => !pinnedIds.has(row.id))
       .map((row) => mapItem(row, "mine")),
   ];
-  const sectionState = (list: typeof mine) => ({
+  const sectionState = (list: typeof mine, key: "mine" | "shared") => ({
     loading: enabled && list.loading,
     error: list.error
       ? t(
-          list.threads.length
+          loadingMoreRef.current[key]
             ? "agentChat.history.loadMoreFailed"
-            : "agentChat.history.loadFailed",
+            : list.threads.length
+              ? "agentChat.history.refreshFailed"
+              : "agentChat.history.loadFailed",
         )
       : undefined,
     onRetry: refresh,
     hasMore: enabled && list.hasMore,
     loadingMore: list.loadingMore,
-    onLoadMore: list.loadMore,
+    onLoadMore: () => {
+      loadingMoreRef.current = { ...loadingMoreRef.current, [key]: true };
+      return list.loadMore();
+    },
   });
+  // Both lists fail together when the server is unreachable, and one Retry
+  // refreshes both, so the shared section does not repeat the error.
+  const sharedErrorShown = Boolean(shared.error) && !mine.error;
   const sections: ChatHistoryRailSection[] = [];
   if (pinnedRows.length)
     sections.push({
@@ -666,20 +783,23 @@ export function useOwnershipChatHistory(
     label: t("agentChat.history.mine"),
     items: mineItems,
     previewCount: minePreviewCount,
-    ...sectionState(mine),
+    ...sectionState(mine, "mine"),
     emptyLabel:
       pinnedRows.length || mine.hasMore
         ? undefined
         : t("agentChat.history.emptyMine"),
   });
-  if (sharedRows.length || shared.error)
+  if (sharedItems.length || sharedErrorShown || (enabled && shared.hasMore))
     sections.push({
       id: "shared",
       label: t("agentChat.history.sharedWithYou"),
-      items: sharedRows.map((row) => mapItem(row, "shared")),
+      items: sharedItems,
       previewCount: sharedPreviewCount,
-      ...sectionState(shared),
-      emptyLabel: t("agentChat.history.emptyShared"),
+      ...sectionState(shared, "shared"),
+      ...(sharedErrorShown ? {} : { error: undefined }),
+      emptyLabel: shared.hasMore
+        ? undefined
+        : t("agentChat.history.emptyShared"),
     });
   return {
     sections,

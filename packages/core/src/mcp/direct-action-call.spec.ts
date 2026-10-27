@@ -42,6 +42,26 @@ vi.mock("./analytics.js", async (importOriginal) => {
   };
 });
 
+// People who turned on the "App cards in chat apps" lab. Other labs read the
+// real store.
+const appCardsLab = vi.hoisted(() => ({ optedIn: new Set<string>() }));
+
+vi.mock("../labs/store.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../labs/store.js")>();
+  return {
+    ...actual,
+    getUserLabEnabled: vi.fn(
+      async (...args: Parameters<typeof actual.getUserLabEnabled>) => {
+        const [email, lab] = args;
+        const key = typeof lab === "string" ? lab : lab.key;
+        return key === "mcp-app-cards"
+          ? appCardsLab.optedIn.has(email)
+          : actual.getUserLabEnabled(...args);
+      },
+    ),
+  };
+});
+
 vi.mock("../tracking/registry.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../tracking/registry.js")>()),
   track: (name: string, properties: unknown) => {
@@ -638,7 +658,7 @@ describe("direct tools/call wire output", () => {
     vi.setSystemTime(NOW);
     process.env.ACCESS_TOKEN = "test-access-token";
     process.env.BETTER_AUTH_SECRET = "oauth-secret-at-least-32-characters-long";
-    process.env.AGENT_NATIVE_MCP_APPS_INLINE = "1";
+    appCardsLab.optedIn = new Set(["oauth@example.com"]);
     delete process.env.A2A_SECRET;
     delete process.env.AGENT_NATIVE_OWNER_EMAIL;
     delete process.env.AGENT_NATIVE_AUDIT_ENABLED;
@@ -649,7 +669,7 @@ describe("direct tools/call wire output", () => {
     vi.useRealTimers();
     delete process.env.ACCESS_TOKEN;
     delete process.env.BETTER_AUTH_SECRET;
-    delete process.env.AGENT_NATIVE_MCP_APPS_INLINE;
+    appCardsLab.optedIn.clear();
   });
 
   const fullCatalogCalls: Array<[string, Record<string, unknown>?]> = [
@@ -1066,13 +1086,13 @@ describe("direct tools/call embed credential redaction", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(NOW);
     process.env.BETTER_AUTH_SECRET = "oauth-secret-at-least-32-characters-long";
-    process.env.AGENT_NATIVE_MCP_APPS_INLINE = "1";
+    appCardsLab.optedIn = new Set(["oauth@example.com"]);
     trace.length = 0;
   });
   afterEach(() => {
     vi.useRealTimers();
     delete process.env.BETTER_AUTH_SECRET;
-    delete process.env.AGENT_NATIVE_MCP_APPS_INLINE;
+    appCardsLab.optedIn.clear();
   });
 
   // An embed start URL inside another URL, where its own path is never the
@@ -1349,9 +1369,11 @@ describe("direct tools/call embed credential redaction", () => {
     for (const leak of nestedEmbedStarts) {
       nested = leak;
       const expected: Record<string, unknown> = {
-        "leak-in-value": { keep: "me" },
+        "leak-in-value": { next: "[hidden embed URL]", keep: "me" },
         "leak-in-key": { links: {}, keep: "me" },
-        "leak-beside-ticket": { items: [{}, { id: "kept" }] },
+        "leak-beside-ticket": {
+          items: [{ url: "[hidden embed URL]" }, { id: "kept" }],
+        },
       };
       for (const [name, value] of Object.entries(expected)) {
         const result = await call(name);
@@ -1376,6 +1398,7 @@ describe("direct tools/call embed credential redaction", () => {
         embed: true,
         url: "/inbox/thread-1",
         title: "Thread",
+        deepLinkUrl: "[hidden embed URL]",
       });
       // Its open link would be the nested start URL, so it is left out.
       expect(result._meta["agent-native/openLink"]).toBeUndefined();
@@ -1454,6 +1477,7 @@ ${imageNote(leak, "#1")}`,
       expiresAt: 1735689600,
     });
     expect(started.structuredContent).toEqual({
+      startUrl: "[hidden embed URL]",
       targetPath: "/inbox",
       expiresAt: 1735689600,
     });
@@ -1463,7 +1487,10 @@ ${imageNote(leak, "#1")}`,
       nested = leak;
       const result = await call("app-only-nested");
       expect(result._meta["agent-native/embedStart"], leak).toBeUndefined();
-      expect(result.structuredContent, leak).toEqual({ ok: true });
+      expect(result.structuredContent, leak).toEqual({
+        next: "[hidden embed URL]",
+        ok: true,
+      });
       expect(JSON.stringify(result), leak).not.toContain("leaked-ticket");
     }
   });
@@ -1513,6 +1540,7 @@ ${imageNote(leak, "#1")}`,
       { type: "text", text: "[hidden embed ticket]" },
     ]);
     expect((await call("getter-start")).structuredContent).toEqual({
+      startUrl: "[hidden embed URL]",
       keep: "me",
     });
     const linked = await call("split-link");
@@ -1530,7 +1558,10 @@ ${imageNote(leak, "#1")}`,
     expect(result.content).toEqual([
       {
         type: "text",
-        text: JSON.stringify({ code: "[hidden embed ticket]" }),
+        text: JSON.stringify({
+          next: "[hidden embed URL]",
+          code: "[hidden embed ticket]",
+        }),
       },
     ]);
   });
@@ -1598,13 +1629,13 @@ describe("direct tools/call after the action has run", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(NOW);
     process.env.BETTER_AUTH_SECRET = "oauth-secret-at-least-32-characters-long";
-    process.env.AGENT_NATIVE_MCP_APPS_INLINE = "1";
+    appCardsLab.optedIn = new Set(["oauth@example.com"]);
     trace.length = 0;
   });
   afterEach(() => {
     vi.useRealTimers();
     delete process.env.BETTER_AUTH_SECRET;
-    delete process.env.AGENT_NATIVE_MCP_APPS_INLINE;
+    appCardsLab.optedIn.clear();
   });
 
   // Valid base64 as well as a ticket, so it can stand in for image data.

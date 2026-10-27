@@ -320,6 +320,27 @@ export function workspaceAppIdFromRoute(pathname: string): string | null {
   }
 }
 
+// A mounted app's registry `url` is the Dispatch page that hosts it
+// (`<dispatch>/apps/<id>`). Read from that same Dispatch, it is the page doing
+// the framing, so framing it again nests Dispatch inside itself.
+export function isWorkspaceAppHostPageUrl(
+  app: Pick<WorkspaceAppSummary, "id" | "url">,
+  dispatchOrigin: string | undefined,
+): boolean {
+  const rawUrl = app.url?.trim();
+  if (!rawUrl || !dispatchOrigin) return false;
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    // coercion-ok: a URL that does not parse is not Dispatch's page for the app.
+    return false;
+  }
+  if (url.origin !== dispatchOrigin) return false;
+  const pathname = url.pathname.replace(/\/+$/, "").toLowerCase();
+  return pathname.endsWith(workspaceAppRoute(app.id.trim()).toLowerCase());
+}
+
 export function workspaceAppHref(app: WorkspaceAppSummary): string | null {
   if (app.status === "pending") {
     return app.builderUrl

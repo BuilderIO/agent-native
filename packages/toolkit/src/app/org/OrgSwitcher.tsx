@@ -61,22 +61,16 @@ import { cn } from "@agent-native/toolkit/utils";
 import {
   IconArrowUpRight,
   IconBriefcase,
-  IconChartBar,
   IconCheck,
   IconChevronLeft,
   IconChevronRight,
   IconCoin,
-  IconDownload,
   IconExternalLink,
   IconAlertCircle,
   IconKey,
   IconLoader2,
-  IconLogout,
-  IconPlus,
   IconPresentation,
   IconSelector,
-  IconSettings,
-  IconUsersGroup,
 } from "@tabler/icons-react";
 import {
   useEffect,
@@ -769,7 +763,6 @@ export function OrgSwitcher({
             className={ITEM_CLASS}
             onSelect={() => setBrowserDemoModeEnabled(false)}
           >
-            <IconPresentation className={ITEM_ICON_CLASS} />
             <span className="flex-1">
               {t("agentChat.accountMenu.turnOffDemoMode")}
             </span>
@@ -827,7 +820,6 @@ export function OrgSwitcher({
               }}
             >
               <span className="flex items-center gap-2">
-                <IconUsersGroup className={ITEM_ICON_CLASS} />
                 <span className="min-w-0 flex-1 truncate">{inv.orgName}</span>
                 {acceptInvitation.isPending ? (
                   <IconLoader2
@@ -874,7 +866,6 @@ export function OrgSwitcher({
                   });
                 }}
               >
-                <IconUsersGroup className={ITEM_ICON_CLASS} />
                 <span className="min-w-0 flex-1 truncate">{match.orgName}</span>
                 {isJoining ? (
                   <IconLoader2
@@ -895,7 +886,6 @@ export function OrgSwitcher({
         {workspaceUrl && (
           <DropdownMenuItem asChild className={ITEM_CLASS}>
             <a href={workspaceUrl}>
-              <IconExternalLink className={ITEM_ICON_CLASS} />
               <span className="flex-1">
                 {t("agentChat.accountMenu.yourWorkspace")}
               </span>
@@ -913,7 +903,6 @@ export function OrgSwitcher({
             setCreateOpen(true);
           }}
         >
-          <IconPlus className={ITEM_ICON_CLASS} />
           <span className="flex-1">
             {t("agentChat.accountMenu.createOrganization")}
           </span>
@@ -926,7 +915,6 @@ export function OrgSwitcher({
           className={ITEM_CLASS}
           onSelect={() => void navigate(buildSettingsRoute("account"))}
         >
-          <IconSettings className={ITEM_ICON_CLASS} />
           <span className="flex-1">{t("agentChat.common.settings")}</span>
           <DropdownMenuShortcut className="tracking-normal">
             {settingsShortcut}
@@ -936,7 +924,6 @@ export function OrgSwitcher({
           className={ITEM_CLASS}
           onSelect={() => void navigate(buildSettingsRoute("usage"))}
         >
-          <IconChartBar className={ITEM_ICON_CLASS} />
           <span className="flex-1">{t("agentChat.accountMenu.usage")}</span>
         </DropdownMenuItem>
         {links.length > 0 && (
@@ -947,7 +934,6 @@ export function OrgSwitcher({
               showView("apps");
             }}
           >
-            <IconDownload className={ITEM_ICON_CLASS} />
             <span className="flex-1">{t("agentChat.accountMenu.getApps")}</span>
             <IconChevronRight
               className={cn(ITEM_ICON_CLASS, "rtl:-scale-x-100")}
@@ -965,12 +951,10 @@ export function OrgSwitcher({
           void handleSignOut();
         }}
       >
+        <span className="flex-1">{t("agentChat.auth.logOut")}</span>
         {signingOut ? (
           <IconLoader2 className={cn(ITEM_ICON_CLASS, "animate-spin")} />
-        ) : (
-          <IconLogout className={cn(ITEM_ICON_CLASS, "rtl:-scale-x-100")} />
-        )}
-        <span className="flex-1">{t("agentChat.auth.logOut")}</span>
+        ) : null}
       </DropdownMenuItem>
 
       {menuError && (

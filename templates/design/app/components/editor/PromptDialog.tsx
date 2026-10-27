@@ -713,6 +713,8 @@ export default function PromptPopover({
       submitting={submitting}
       layoutVariant={inline ? "hero" : undefined}
       className={inline ? "design-home-prompt-composer-area" : undefined}
+      voiceEnabled
+      voiceChatEnabled={false}
       composerRef={composerRef}
       ariaLabel={placeholder ?? t("home.describeBuild")}
       showModelSelector={showModelSelector}
@@ -986,7 +988,12 @@ export default function PromptPopover({
     </>
   );
 
-  if (inline) return <div data-design-inline-prompt>{content}</div>;
+  if (inline)
+    return (
+      <div data-design-inline-prompt data-agentkit-composer-size="large">
+        {content}
+      </div>
+    );
 
   return (
     <Popover open={open} onOpenChange={onOpenChange}>

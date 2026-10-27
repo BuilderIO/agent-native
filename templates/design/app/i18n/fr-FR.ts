@@ -1917,8 +1917,12 @@ export default {
         small: "Petit déplacement",
         big: "Grand déplacement",
         unit: "px",
-        description:
-          "Les flèches déplacent de la petite valeur et Maj flèche de la grande. Dans un cadre en disposition automatique, les flèches réorganisent le calque.",
+        close: "Fermer la valeur de déplacement",
+        done: "Terminé",
+        smallDescription:
+          "Définit le nombre de pixels dont un objet se déplace avec les flèches.",
+        bigDescription:
+          "Définit le nombre de pixels dont un objet se déplace avec Maj + flèches.",
       },
       keys: {
         or: "ou",

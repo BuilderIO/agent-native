@@ -45,9 +45,54 @@ Helper invariants, checked in the same runs:
   reaping may terminalize a run. Run admission also has pending-inbox and
   pending-approval gates that the model omits, so `InsertRun` is an
   over-approximation. These changes do not add an unfenced step-journal write.
+- A run stopped by request saves its completion under a fence with
+  `outlivesStop` (`run-manager.ts` `withWorkerFence`), which
+  `lockAndAssertCurrentExecutionFences` accepts while the lease row still names
+  the run and generation, however expired. Writes in that callback pass this
+  check when they go through `withFencedExecutionWrite`, such as the
+  chat-thread projection (`updateThreadData`) and background-worker run
+  diagnostics (`recordRunDiagnostic`); none of the framework's own writes in
+  the callback is a step-journal write or an action effect, so `Current` stays
+  the fence for every modelled action. Writes that bypass the helper are not fence-checked
+  and are outside the model, such as completing the tracked progress run
+  (`completeProgressRun`) and whatever app-supplied completion hooks do. A claim
+  replaces owner and generation under the same row lock, so the stopped run's
+  save cannot land in a successor's turn.
 - Not covered: thread content folding, liveness (an abandoned run is
   eventually reaped or resumed), lock-order deadlocks, the team queue, and A2A
   task leases beyond their revoke.
+- Approval scheduling between turns is outside this one-turn model. The queued
+  submission approval gate only defers a new turn; it leaves the same-turn
+  `InsertRun` transition and all execution lease and step journal writes unchanged.
+  Stopping a completed approval pause also writes the turn-abort marker without
+  changing a run or lease; this is a stuttering step for the model's `AbortTurn`.
+  Explicit interruption records those same markers in the slot-admission
+  transaction before inserting its replacement turn. Legacy turns tied without
+  admission metadata retain every unresolved approval pause; interruption writes
+  each completed pause's marker in that transaction. Completed runs and their
+  leases remain unchanged; cross-turn admission is outside this model.
+
+## Coverage review for MCP automation approval
+
+The coverage refresh at `bc6ca396161a` re-read `beginAgentExecutionStep`,
+`confirmAutomationWork`, and the production loop's fence-to-intent region.
+The store still holds the lease fence and row lock while admitting a step;
+completed results and non-replayable dispatched steps retain their existing
+outcomes. Comparing the canonical arguments hash instead of JSON key order
+changes intent identity validation, not the model's one-step lease protocol.
+The loop now derives a stable step name from the checkpoint, action, arguments
+hash and identical-call occurrence, and recovers the ledger's existing step
+name. Step identity remains outside the one-step model as documented above.
+The marked-automation delivery check precedes dispatch and can only refuse it;
+`markAgentExecutionStepDispatched` still commits before adapter invocation.
+No fence, dispatch ordering, reset, replay policy or lease transition changed,
+so the existing model and its deliberate counterexamples remain applicable.
+
+The subsequent merge of main `5252c0e3345b` retains its 44 coverage entries,
+including `insertTurnAbortMarkers`. Re-reading that helper, `tryClaimRunSlot`
+and `markTurnAborted` confirms that current-turn approval admission and
+completed-pause interruption use the cross-turn scope described above. They
+do not weaken step fencing or move an effect ahead of durable dispatch.
 
 ## Results against source snapshot c8190ab8
 
@@ -182,7 +227,7 @@ not reproduced.
 Paths are under `packages/core/src/`. Every action in `ExecutionLease.tla`
 cites the lines it models.
 
-Drift coverage (`manifest.json`, 43 entries) hashes the code in this map, the
+Drift coverage (`manifest.json`, 44 entries) hashes the code in this map, the
 step-intent and replay-policy derivation in `production-agent.ts`, and the
 helpers that compute the policy's inputs: `classifyActionCall`,
 `actionCallIntent`, `preparedCallArguments`, `actionCallIsRetrySafe`,

@@ -16,6 +16,7 @@ import {
 import { fetchOllamaModels } from "./agent-engine-key.js";
 import {
   buildChatModelGroups,
+  resolveDefaultModelSelection,
   usesLiveOllamaModels,
   type ChatModelEngineEntry,
   type EngineModelGroup,
@@ -112,6 +113,8 @@ export type ChatModelCatalogLoad =
       currentModelEngine: ModelEngineConfig | null;
       /** The server's current model, or `DEFAULT_MODEL` when it names none. */
       defaultModel: string;
+      /** The server's current engine, when it names one. */
+      defaultEngine?: string;
       /**
        * The catalog again with Ollama's installed models in place of its
        * static suggestions, or null when there is nothing to swap in (Ollama
@@ -222,6 +225,7 @@ export async function loadChatModelCatalog(): Promise<ChatModelCatalogLoad> {
     modelEngines,
     currentModelEngine,
     defaultModel,
+    ...(currentEngineName ? { defaultEngine: currentEngineName } : {}),
     loadLiveGroups: async () => {
       // Gated on Ollama actually being the current engine (not merely present
       // in the catalog, which it always is): every app registers it by
@@ -439,7 +443,11 @@ export function useChatModels({
             finish();
             return;
           }
-          const { groups, defaultModel: nextDefaultModel } = catalog;
+          const {
+            groups,
+            defaultModel: nextDefaultModel,
+            defaultEngine: nextDefaultEngine,
+          } = catalog;
           setAvailableModels(groups);
           setDefaultModel(nextDefaultModel);
 
@@ -454,20 +462,16 @@ export function useChatModels({
 
           const configuredGroups = groups.filter((g) => g.configured);
           const resolveRoutableSelection = () => {
-            const group =
-              configuredGroups.find((g) =>
-                g.models.includes(nextDefaultModel),
-              ) ?? configuredGroups[0];
-            if (!group) return null;
-            const model =
-              group.models.find((m) => m === nextDefaultModel) ??
-              group.models[0];
-            if (!model) return null;
+            const next = resolveDefaultModelSelection(
+              groups,
+              nextDefaultModel,
+              nextDefaultEngine,
+            );
+            if (!next) return null;
             return {
-              model,
-              engine: group.engine,
+              ...next,
               effort: resolveReasoningEffortSelection(
-                model,
+                next.model,
                 selection.selectedEffort,
               ),
             };

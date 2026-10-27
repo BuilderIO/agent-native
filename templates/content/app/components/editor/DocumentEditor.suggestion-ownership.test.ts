@@ -9,6 +9,8 @@ import {
   documentEditorSuggestionPresentations,
   createDocumentSuggestionDraftSession,
   observedSuggestionDecisionTransition,
+  sessionEditsDrawnAsSaved,
+  suggestionDecisionPreviewContent,
   suggestionDraftHasChanges,
   visibleSavedSuggestionsDuringDraftMaterialization,
 } from "./DocumentEditor";
@@ -474,4 +476,116 @@ describe("document suggestion presentation ownership", () => {
       editor.destroy();
     }
   });
+
+  it.each(["accepted", "rejected"] as const)(
+    "keeps the session's other edit drawn while a just-typed suggestion is %s",
+    (decision) => {
+      const base = "First.\n\nSecond.";
+      const { session } = createDocumentSuggestionDraftSession({
+        id: "session",
+        baseContent: base,
+        baseRevision: "revision",
+        startedAt: "2026-10-01T00:00:00.000Z",
+      });
+      const drafts = draftSuggestionsForSession(
+        session,
+        docToNfm(nfmToDoc("First edited.\n\nSecond edited.")),
+        null,
+      );
+      expect(drafts).toHaveLength(2);
+      const [earlier, typed] = drafts as [DraftSuggestion, DraftSuggestion];
+      const earlierSaved = {
+        id: "earlier",
+        threadId: "earlier-thread",
+        status: "pending",
+        operations: earlier.operations,
+      } as ResourceSuggestion;
+      const typedSaved = {
+        id: "typed",
+        threadId: "typed-thread",
+        status: decision,
+        operations: typed.operations,
+      } as ResourceSuggestion;
+      const entries = (...suggestions: ResourceSuggestion[]) =>
+        new Map(
+          suggestions.flatMap((suggestion) =>
+            suggestion.operations
+              .slice(0, 1)
+              .map(
+                (operation) =>
+                  [
+                    suggestionOperationKey(operation),
+                    { idempotencyKey: suggestion.id, operation, suggestion },
+                  ] as const,
+              ),
+          ),
+        );
+      const page = suggestionDecisionPreviewContent(typed, decision, base);
+      const observedTransition = observedSuggestionDecisionTransition(
+        {
+          decision,
+          optimistic: true,
+          continueSuggesting: true,
+          suggestion: typed,
+        },
+        null,
+      );
+      const editor = new Editor({
+        extensions: createVisualEditorExtensions(),
+        content: nfmToDoc(page),
+      });
+      try {
+        const canonical = editor.getJSON();
+        // The decision shows before the typed suggestion saves, and stays
+        // once the save gives it a saved copy.
+        for (const stage of [
+          {
+            saved: [earlierSaved],
+            entries: entries(earlierSaved),
+            deciding: new Set([typed.id]),
+          },
+          {
+            saved: [earlierSaved, typedSaved],
+            entries: entries(earlierSaved, typedSaved),
+            deciding: new Set([typed.id, typedSaved.id]),
+          },
+        ]) {
+          const visuals = suggestionSessionVisuals(drafts, stage.entries);
+          const presentations = documentEditorSuggestionPresentations({
+            savedSuggestions: sessionEditsDrawnAsSaved(
+              stage.saved,
+              visuals,
+              stage.deciding,
+            ),
+            drafts: [],
+            currentMarkdown: docToNfm(nfmToDoc(page)),
+            editingSuggestionId: null,
+            pendingSuggestionId: typed.id,
+            transitions: new Map(),
+            ...(observedTransition ? { observedTransition } : {}),
+          });
+          const specs = presentations.flatMap((presentation) => {
+            const spec = suggestionHighlightSpec(
+              editor.state.doc,
+              presentation,
+            );
+            return spec ? [spec] : [];
+          });
+          expect(specs).toHaveLength(presentations.length);
+          setSuggestionHighlights(editor.view, { specs });
+          expect(
+            new Set(
+              [...editor.view.dom.querySelectorAll("[data-suggestion-id]")].map(
+                (node) => node.getAttribute("data-suggestion-id"),
+              ),
+            ),
+          ).toEqual(new Set(["earlier"]));
+          expect(editor.view.dom.textContent).toContain("First edited.");
+          expect(editor.getJSON()).toEqual(canonical);
+        }
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
 });

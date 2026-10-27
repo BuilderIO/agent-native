@@ -14,6 +14,7 @@ import {
   timeRangeDays,
 } from "../../app/pages/adhoc/sql-dashboard/pivot";
 import type {
+  ChartValueFormatter,
   ColumnFormat,
   SqlDashboardConfig,
   PanelEvent,
@@ -34,6 +35,11 @@ import {
   type DataNoteTone,
 } from "../../shared/data-notes";
 import { formatDollars } from "../../shared/format-dollars";
+import {
+  EMPTY_DURATION,
+  formatDuration,
+  isEmptyDuration,
+} from "../../shared/format-duration";
 import { panelEventsWithKeyDates } from "../../shared/key-dates";
 import { resolvePanelEvents } from "../../shared/panel-events";
 import {
@@ -285,25 +291,24 @@ function toNumber(value: unknown): number | null {
   return null;
 }
 
-function formatYValue(
-  value: number,
-  formatter?: "number" | "currency" | "percent",
-): string {
+function formatYValue(value: number, formatter?: ChartValueFormatter): string {
   if (formatter === "currency") return formatDollars(value);
   if (formatter === "percent") {
     const pct = value <= 1 && value >= -1 ? value * 100 : value;
     return `${pct.toFixed(2)}%`;
   }
+  if (formatter === "duration") return formatDuration(value);
   return value.toLocaleString();
 }
 
 function formatMetricValue(
   raw: unknown,
-  formatter?: "number" | "currency" | "percent",
+  formatter?: ChartValueFormatter,
   valueLabels?: Record<string, string>,
 ): string {
   const label = valueLabels?.[String(raw)];
   if (label !== undefined) return label;
+  if (formatter === "duration" && isEmptyDuration(raw)) return EMPTY_DURATION;
   const numeric = toNumber(raw);
   return numeric !== null
     ? formatYValue(numeric, formatter)
@@ -313,7 +318,12 @@ function formatMetricValue(
 }
 
 function formatCell(value: unknown, format: ColumnFormat | undefined): string {
+  if (format === "duration" && isEmptyDuration(value)) return EMPTY_DURATION;
   if (value == null) return "";
+  if (format === "duration") {
+    const seconds = toNumber(value);
+    if (seconds !== null) return formatDuration(seconds);
+  }
   if (typeof value === "number") {
     if (format === "number") return value.toLocaleString();
     if (format === "currency") return formatDollars(value);

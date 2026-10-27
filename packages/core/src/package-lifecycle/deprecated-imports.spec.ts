@@ -229,6 +229,45 @@ describe("scanDeprecatedImports", () => {
     ).toEqual([sourceFinding]);
   });
 
+  it("skips deploy output that bundles Core", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-doctor-deploy-"));
+    roots.push(root);
+    const source = path.join(root, "app", "consumer.ts");
+    const bundles = [
+      ".netlify/functions-internal/server/_chunks/agent-native-core.mjs",
+      ".vercel/output/functions/index.func/index.mjs",
+      ".nitro/dev/index.mjs",
+      ".deploy-tmp/server/index.mjs",
+    ].map((relativePath) => path.join(root, relativePath));
+    for (const file of [source, ...bundles]) {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(
+        file,
+        'import { AgentSidebar } from "@agent-native/core/client";\n',
+      );
+    }
+    const manifest: MigrationManifest = {
+      sinceVersion: "0.110.0",
+      moves: {
+        "@agent-native/core/client": {
+          to: "@agent-native/toolkit/app/chat",
+        },
+      },
+    };
+
+    const sourceFinding = expect.objectContaining({ file: source });
+    expect(scanDeprecatedImports({ root, manifests: [manifest] })).toEqual([
+      sourceFinding,
+    ]);
+    expect(
+      scanDeprecatedImports({
+        root,
+        files: [source, ...bundles],
+        manifests: [manifest],
+      }),
+    ).toEqual([sourceFinding]);
+  });
+
   it.each(["ENOENT", "ENOTDIR"] as const)(
     "ignores a source file that disappears during the scan (%s)",
     (code) => {

@@ -4,7 +4,11 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { advanceBufferedText, AgentStreamingText } from "./streaming-text.js";
+import {
+  advanceBufferedText,
+  AgentStreamingText,
+  useStreamingRevealOrigin,
+} from "./streaming-text.js";
 
 let container: HTMLDivElement;
 let root: Root;
@@ -39,6 +43,22 @@ beforeEach(() => {
   root = createRoot(container);
 });
 
+function preferReducedMotion() {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn((query: string) => ({
+      matches: query === "(prefers-reduced-motion: reduce)",
+      media: query,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    })),
+  );
+}
+
+function wordCount(text: string | null | undefined): number {
+  return (text ?? "").split(/\s+/).filter(Boolean).length;
+}
+
 afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
@@ -59,7 +79,8 @@ describe("advanceBufferedText", () => {
     const target = "Hello 👩‍💻";
     let visible = "";
     for (let index = 0; index < 20 && visible !== target; index += 1) {
-      visible = advanceBufferedText(visible, target);
+      visible = advanceBufferedText(visible, target, { inputDone: true });
+      expect(Array.from(visible).at(-1)).not.toBe("\u200d");
     }
 
     expect(visible).toBe(target);
@@ -130,5 +151,65 @@ describe("advanceBufferedText", () => {
 
     await renderBufferedText({ active: false, resetKey, text: complete });
     expect(container.textContent).toBe(complete);
+  });
+});
+
+describe("reduced motion", () => {
+  it("still paces a network chunk instead of landing it at once", async () => {
+    preferReducedMotion();
+    const text =
+      "One network chunk carries fifteen words that should still arrive at a steady pace for readers.";
+
+    await renderBufferedText({
+      active: true,
+      resetKey: "reduced-motion-burst",
+      text,
+    });
+    expect(container.textContent).toBe("");
+
+    await act(async () => vi.advanceTimersByTime(20));
+    const first = container.textContent ?? "";
+    expect(first.length).toBeGreaterThan(0);
+    expect(wordCount(first)).toBeLessThanOrEqual(3);
+
+    let previous = first;
+    for (let frame = 0; frame < 200 && previous !== text; frame += 1) {
+      await act(async () => vi.advanceTimersByTime(20));
+      const next = container.textContent ?? "";
+      expect(text.startsWith(next)).toBe(true);
+      expect(wordCount(next) - wordCount(previous)).toBeLessThanOrEqual(3);
+      previous = next;
+    }
+    expect(previous).toBe(text);
+  });
+
+  it("drains the tail after the run ends instead of snapping", async () => {
+    preferReducedMotion();
+    const resetKey = "reduced-motion-drain";
+    const initial = "The release";
+    const complete =
+      "The release is ready after validating protocol compatibility, accessibility, and recovery behavior.";
+
+    await renderBufferedText({ active: true, resetKey, text: initial });
+    await act(async () => vi.runAllTimers());
+    await renderBufferedText({ active: false, resetKey, text: complete });
+    expect(container.textContent).toBe(initial);
+
+    await act(async () => vi.runAllTimers());
+    expect(container.textContent).toBe(complete);
+  });
+
+  it("keeps newly revealed text from fading", async () => {
+    preferReducedMotion();
+    const origins: (number | null)[] = [];
+    function Probe({ length }: { length: number }) {
+      origins.push(useStreamingRevealOrigin(length, true));
+      return null;
+    }
+
+    await act(async () => root.render(createElement(Probe, { length: 0 })));
+    await act(async () => root.render(createElement(Probe, { length: 12 })));
+    expect(origins.length).toBeGreaterThan(0);
+    expect(origins.every((origin) => origin === null)).toBe(true);
   });
 });

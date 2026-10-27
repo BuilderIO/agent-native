@@ -431,13 +431,13 @@ async function assertLeftPanelWidth(page: Page): Promise<void> {
   );
   const width = async () =>
     (await readGeometry(leftPanel, ["width"])).styles.width;
-  expect(await width()).toBe("280px");
+  expect(await width()).toBe("320px");
   await dragLeftPanelBy(page, 9);
-  await expect.poll(width).toBe("288px");
+  await expect.poll(width).toBe("328px");
   await dragLeftPanelBy(page, 1000);
   await expect.poll(width).toBe("416px");
   await dragLeftPanelBy(page, -1000);
-  await expect.poll(width).toBe("232px");
+  await expect.poll(width).toBe("320px");
 }
 
 test("keeps Design chrome geometry stable at compact and wide inspector widths", async ({

@@ -42,6 +42,7 @@ import {
   databaseViewHasNoMatchingPages,
   dbText,
   isDatabasePropertyVisibleInView,
+  openDatabaseItemOnClick,
   startOfMonth,
   type DatabaseFilter,
 } from "./DatabaseView";
@@ -480,14 +481,17 @@ function DatabaseTimelineCard({
   const visibleProperties = properties.slice(0, 2);
 
   return (
-    <div className="group/card rounded-md border border-border bg-background px-2 py-2 text-xs shadow-sm transition-colors hover:bg-accent/60">
+    <div
+      className="group/card cursor-pointer rounded-md border border-border bg-background px-2 py-2 text-xs shadow-sm transition-colors hover:bg-accent/60"
+      onClick={openDatabaseItemOnClick(onPreview)}
+    >
       <div className="flex min-w-0 items-start gap-1">
-        <button
-          type="button"
-          className="grid min-w-0 flex-1 gap-1 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={onPreview}
-        >
-          <span className="flex min-w-0 items-center gap-1.5 font-medium">
+        <div className="grid min-w-0 flex-1 gap-1">
+          <button
+            type="button"
+            className="flex min-w-0 items-center gap-1.5 rounded text-left font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={onPreview}
+          >
             <DatabaseItemPageIcon
               document={item.document}
               className="size-3.5 text-xs"
@@ -496,7 +500,7 @@ function DatabaseTimelineCard({
             <span className="truncate">
               {item.document.title || "Untitled"}
             </span>
-          </span>
+          </button>
           <span className="truncate text-[11px] text-muted-foreground">
             {dateLabel}
           </span>
@@ -516,14 +520,16 @@ function DatabaseTimelineCard({
                   >
                     <Icon className="size-3 shrink-0" />
                     <span className="truncate">
-                      {displayValue(itemProperty)}
+                      {displayValue(itemProperty, undefined, "compact", {
+                        interactiveUrls: true,
+                      })}
                     </span>
                   </span>
                 );
               })}
             </span>
           ) : null}
-        </button>
+        </div>
         {canEdit ? (
           <RowActionsCell
             item={item}
