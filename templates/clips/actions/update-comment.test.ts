@@ -20,14 +20,9 @@ const mockGetUserEmail = vi.hoisted(() =>
 );
 const mockWriteAppState = vi.hoisted(() => vi.fn());
 const mockIsOrgMember = vi.hoisted(() => vi.fn());
-const { MockForbiddenError } = vi.hoisted(() => {
-  class MockForbiddenError extends Error {}
-  return { MockForbiddenError };
-});
-
-vi.mock("@agent-native/core/sharing", () => ({
+vi.mock("@agent-native/core/sharing", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/sharing")>()),
   assertAccess: (...args: unknown[]) => mockAssertAccess(...args),
-  ForbiddenError: MockForbiddenError,
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
@@ -126,7 +121,10 @@ async function run(args: { id: string; content: string }) {
 
 beforeEach(() => {
   vi.resetAllMocks();
-  mockAssertAccess.mockResolvedValue({ role: "viewer", resource: {} });
+  mockAssertAccess.mockResolvedValue({
+    role: "viewer",
+    resource: { enableComments: true },
+  });
   state.conflict = false;
   state.rows = [
     {
