@@ -1460,6 +1460,8 @@ interface AgentKitSurfaceContextValue {
   hasRenderedMessages: boolean;
   canChat: boolean;
   setupMissing: boolean;
+  /** Only the server's readiness answer, never the model list's early guess. */
+  setupConfirmedMissing: boolean;
   providerStatus: AgentEngineConfiguredState;
   modelListUnavailable: boolean;
   retryProviderStatus: () => void;
@@ -1481,6 +1483,7 @@ interface AgentKitSurfaceContextValue {
   authSessionAvailable: boolean;
   setupBouncePulse: number;
   bounceSetupCard: () => void;
+  onComposerSetupRequiredChange: (required: boolean) => void;
   isSubmissionInFlight: boolean;
   composerSubmissionPending: boolean;
   onComposerSubmissionPendingChange: (pending: boolean) => void;
@@ -2346,8 +2349,22 @@ const AgentKitAssistantChatBody = forwardRef<
     props.showModelSelector !== false && props.modelListError === true;
   const effectiveReadiness = readiness.state;
   const canChat = !providerChecksEnabled || effectiveReadiness === "configured";
-  const setupMissing =
+  const [composerSetupRequired, setComposerSetupRequired] = useState(false);
+  const setupConfirmedMissing =
     providerChecksEnabled && effectiveReadiness === "missing";
+  // The composer's model list knows nothing is connected well before the
+  // readiness check answers; an answer of "configured" still wins. Only this
+  // chat's own card can show on that guess: a host-owned card waits for the
+  // server, and acting on the guess without it closes the prompt with nothing
+  // on screen to explain why.
+  const ownsSetupCard =
+    props.showMissingApiKeySetup !== false && props.setupCardOwner !== "host";
+  const setupMissing =
+    setupConfirmedMissing ||
+    (providerChecksEnabled &&
+      ownsSetupCard &&
+      effectiveReadiness !== "configured" &&
+      composerSetupRequired);
   const providerStatus: AgentEngineConfiguredState = setupMissing
     ? "missing"
     : modelListUnavailable
@@ -4952,6 +4969,7 @@ const AgentKitAssistantChatBody = forwardRef<
     hasRenderedMessages,
     canChat,
     setupMissing,
+    setupConfirmedMissing,
     providerStatus,
     modelListUnavailable,
     retryProviderStatus,
@@ -4976,6 +4994,7 @@ const AgentKitAssistantChatBody = forwardRef<
     authSessionAvailable,
     setupBouncePulse,
     bounceSetupCard,
+    onComposerSetupRequiredChange: setComposerSetupRequired,
     isSubmissionInFlight,
     composerSubmissionPending,
     onComposerSubmissionPendingChange: setComposerSubmissionPending,
@@ -5690,6 +5709,7 @@ function AgentKitComposerSurface({
   showSuggestions,
   setupBouncePulse,
   bounceSetupCard,
+  onComposerSetupRequiredChange,
   contextItems,
   providerContextItems,
   selectionLength,
@@ -5728,6 +5748,7 @@ function AgentKitComposerSurface({
   hasRenderedMessages: boolean;
   setupBouncePulse: number;
   bounceSetupCard: () => void;
+  onComposerSetupRequiredChange: (required: boolean) => void;
   contextItems: AgentChatContextItem[];
   providerContextItems: { current: readonly AgentChatContextItem[] };
   selectionLength: number | null;
@@ -6097,6 +6118,7 @@ function AgentKitComposerSurface({
           initialTextKey={`${props.tabId ?? threadId}:${prefillRevision}`}
           showMissingApiKeySetup={false}
           setupCardVisible={composerShowsSetupCard({ setupMissing, props })}
+          onModelConnectionRequiredChange={onComposerSetupRequiredChange}
           onTextChange={onTextChange}
           announcePendingSubmission={!isThinkingVisibleInTranscript}
           onSubmissionPendingChange={onComposerSubmissionPendingChange}
@@ -6874,7 +6896,9 @@ function useResumeAfterAiSetup(
 ): () => void {
   const surface = useAgentKitSurface();
   const sawSetupMissingRef = useRef(false);
-  if (surface.setupMissing) sawSetupMissingRef.current = true;
+  // A resend fires without a fresh user action, so only the server's answer
+  // arms it; the model list's early guess can be briefly wrong.
+  if (surface.setupConfirmedMissing) sawSetupMissingRef.current = true;
   const latestRef = useRef({ resendKey, enabled, resend });
   latestRef.current = { resendKey, enabled, resend };
   const resumed = surface.resumedAfterSetup;

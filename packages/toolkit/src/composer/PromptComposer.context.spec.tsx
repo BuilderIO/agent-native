@@ -1258,9 +1258,9 @@ describe("controlled composer context", () => {
         expect(
           container.querySelector('[data-testid="provider-setup"]'),
         ).not.toBeNull();
-        // A draft can be typed before connecting; only sending is gated.
+        // Nothing can be typed until AI is connected.
         expect(
-          container.querySelector('[contenteditable="true"]'),
+          container.querySelector('[contenteditable="false"]'),
         ).not.toBeNull();
         const uploadTrigger = container.querySelector<HTMLButtonElement>(
           'button[aria-label="Add context"]',
@@ -1271,7 +1271,7 @@ describe("controlled composer context", () => {
           container
             .querySelector('[role="textbox"]')
             ?.getAttribute("aria-disabled"),
-        ).toBe("false");
+        ).toBe("true");
         await act(async () =>
           uploadTrigger.dispatchEvent(
             new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
@@ -1290,6 +1290,10 @@ describe("controlled composer context", () => {
           ).toBe(false),
         );
         expect(onSubmit).not.toHaveBeenCalled();
+        expect(onDisabledClick).not.toHaveBeenCalled();
+        await act(async () =>
+          container.querySelector<HTMLElement>(".ProseMirror")!.click(),
+        );
         expect(onDisabledClick).toHaveBeenCalledOnce();
         onDisabledClick.mockClear();
         blocked = false;
@@ -1662,7 +1666,7 @@ describe("controlled composer context", () => {
         expect(
           container.querySelector('[data-testid="provider-setup"]'),
         ).not.toBeNull();
-        expect(editor.getAttribute("contenteditable")).toBe("true");
+        expect(editor.getAttribute("contenteditable")).toBe("false");
         expect(editor.textContent).toBe("Typed while readiness was checking");
       } else {
         expect(onSubmit).not.toHaveBeenCalled();

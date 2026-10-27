@@ -3042,22 +3042,19 @@ describe("AgentKitAssistantChat host behavior", () => {
     }
   });
 
-  it("keeps the real editor editable while AI setup is missing", async () => {
+  it("closes the real editor to typing while AI setup is missing", async () => {
     chatMocks.useRealChat = true;
     chatMocks.readiness = { canChat: false, missing: true, state: "missing" };
     await useRealComposer();
     await mount(baseProps({ showModelSelector: false }));
 
-    const editor = container.querySelector<HTMLElement>(
-      '[contenteditable="true"]',
-    );
-    expect(editor).not.toBeNull();
-    expect(chatMocks.composerProps.disabled).toBe(false);
-
-    await act(async () =>
-      chatMocks.composerProps.composerRef.current.setText("Draft before setup"),
-    );
-    expect(editor?.textContent).toBe("Draft before setup");
+    expect(container.querySelector('[contenteditable="false"]')).not.toBeNull();
+    expect(container.querySelector('[contenteditable="true"]')).toBeNull();
+    expect(
+      container
+        .querySelector('[role="textbox"]')
+        ?.getAttribute("aria-disabled"),
+    ).toBe("true");
   });
 
   it("keeps the real editor editable while a submission is in flight", async () => {
@@ -9365,6 +9362,55 @@ describe("AgentKitAssistantChat host behavior", () => {
         agentNativeRecoveryOfRunId: "run-1",
       },
     });
+  });
+
+  it("keeps a host-owned setup route open until the server confirms setup is missing", async () => {
+    chatMocks.readiness = { canChat: false, missing: false, state: "unknown" };
+    const props = baseProps({ setupCardOwner: "host" });
+    await mount(props);
+    await act(async () =>
+      chatMocks.composerProps.onModelConnectionRequiredChange(true),
+    );
+    await flush();
+
+    expect(chatMocks.composerProps.setupCardVisible).toBe(false);
+
+    chatMocks.readiness = { canChat: false, missing: true, state: "missing" };
+    await act(async () => root.render(<AgentKitAssistantChat {...props} />));
+    await flush();
+
+    expect(chatMocks.composerProps.setupCardVisible).toBe(true);
+  });
+
+  it("does not replay a refused prompt when only the model list guessed setup was missing", async () => {
+    chatMocks.readiness = { canChat: false, missing: false, state: "unknown" };
+    chatMocks.failureError = {
+      code: "missing_credentials",
+      message: "No LLM provider is connected.",
+    };
+    chatMocks.thread.messages = [
+      {
+        id: "user-refused",
+        role: "user",
+        parts: [{ type: "text", text: "Old prompt" }],
+      },
+    ];
+    const props = baseProps({});
+    await mount(props);
+    await act(async () =>
+      chatMocks.composerProps.onModelConnectionRequiredChange(true),
+    );
+    await flush();
+
+    chatMocks.readiness = {
+      canChat: true,
+      missing: false,
+      state: "configured",
+    };
+    await act(async () => root.render(<AgentKitAssistantChat {...props} />));
+    await flush();
+
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
   });
 
   it("does not replay a refused prompt when the thread reopens already connected", async () => {
