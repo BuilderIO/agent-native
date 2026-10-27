@@ -1,4 +1,4 @@
-// Slide transition catalog, matching the Google Slides Transitions panel.
+// Slide transition catalog used by the transition controls.
 // A slide's transition belongs to the boundary before it. It plays when moving
 // across that boundary in either direction, and the later slide of the pair
 // supplies the type and speed (boundarySlideIndex in slide-navigation.ts).
@@ -16,8 +16,8 @@ export const SLIDE_TRANSITION_TYPES = [
 
 export type SlideTransitionType = (typeof SLIDE_TRANSITION_TYPES)[number];
 
-// Values stored before the Google Slides catalog. They normalize on every
-// read and write so a stored deck keeps a defined meaning.
+// Values saved by older versions normalize on every read and write so a
+// stored deck keeps a defined meaning.
 export const LEGACY_SLIDE_TRANSITIONS = {
   instant: "none",
   slide: "slide-from-right",
@@ -29,7 +29,7 @@ export const SLIDE_TRANSITION_INPUTS = [
   ...Object.keys(LEGACY_SLIDE_TRANSITIONS),
 ] as const;
 
-// Google Slides speed slider. Measured at v = 0..45 (5.0 s to 0.5 s); the
+// Transition speed range is v = 0..45 (5.0 s to 0.5 s); the
 // upper end (46..49) is extrapolated from the same line and not yet measured.
 export const SLIDE_TRANSITION_SPEED = { min: 0, max: 49, default: 45 } as const;
 
