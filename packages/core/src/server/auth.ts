@@ -6957,9 +6957,16 @@ async function mountBetterAuthRoutes(
         const hasMcpSignupCookie =
           hasMcpSignupAttributionCookie(signupCookieHeader);
         const mcpSignupAttribution = hasMcpSignupCookie
-          ? readMcpSignupContextFromCookieHeader(
+          ? filterMcpSignupAttributionByConsent(
+              readMcpSignupContextFromCookieHeader(
+                signupCookieHeader,
+                getAuthSecret(),
+              ),
               signupCookieHeader,
-              getAuthSecret(),
+              {
+                performance: performanceAllowed,
+                targeting: targetingAllowed,
+              },
             )
           : undefined;
         const attributionToken =

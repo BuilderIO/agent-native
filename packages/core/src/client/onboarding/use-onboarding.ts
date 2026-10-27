@@ -791,12 +791,18 @@ export function trackOnboardingEvent(
   if (typeof window === "undefined") return;
   const identityKey = getAnalyticsIdentityKey() ?? "anonymous";
   const sessionId = getAnalyticsSessionId() ?? "unknown-session";
+  const experiment =
+    properties.flow === "first_run"
+      ? (onboardingExperiment ?? readStoredOnboardingExperiment())
+      : null;
   const key = [
     sessionId,
     identityKey,
     name,
     properties.flow,
     properties.step_id,
+    properties.experiment_id ?? experiment?.experiment_id,
+    properties.experiment_variant ?? experiment?.experiment_variant,
     properties.extension_id,
     properties.integration_id,
     properties.role,
@@ -840,10 +846,6 @@ export function trackOnboardingEvent(
     if (seenOnboardingEvents.has(key)) return;
     seenOnboardingEvents.add(key);
   }
-  const experiment =
-    properties.flow === "first_run"
-      ? (onboardingExperiment ?? readStoredOnboardingExperiment())
-      : null;
   trackEvent(name, experiment ? { ...experiment, ...properties } : properties);
 }
 

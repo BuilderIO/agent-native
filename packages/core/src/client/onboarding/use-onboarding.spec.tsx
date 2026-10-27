@@ -556,6 +556,49 @@ describe("trackOnboardingEvent", () => {
     );
   });
 
+  it("deduplicates exposure events separately for each experiment", () => {
+    setOnboardingExperiment({
+      id: "first_run_builder_credits",
+      variant: "control",
+    });
+    trackEventMock.mockClear();
+
+    trackOnboardingEvent("onboarding_experiment_exposed", {
+      flow: "first_run",
+      step_id: "choice",
+    });
+    trackOnboardingEvent("onboarding_experiment_exposed", {
+      flow: "first_run",
+      step_id: "choice",
+      experiment_id: "first_run_builder_credits_v2",
+      experiment_variant: "credits",
+    });
+    trackOnboardingEvent("onboarding_experiment_exposed", {
+      flow: "first_run",
+      step_id: "choice",
+      experiment_id: "first_run_builder_credits_v2",
+      experiment_variant: "credits",
+    });
+
+    expect(trackEventMock).toHaveBeenCalledTimes(2);
+    expect(trackEventMock).toHaveBeenNthCalledWith(
+      1,
+      "onboarding_experiment_exposed",
+      expect.objectContaining({
+        experiment_id: "first_run_builder_credits",
+        experiment_variant: "control",
+      }),
+    );
+    expect(trackEventMock).toHaveBeenNthCalledWith(
+      2,
+      "onboarding_experiment_exposed",
+      expect.objectContaining({
+        experiment_id: "first_run_builder_credits_v2",
+        experiment_variant: "credits",
+      }),
+    );
+  });
+
   it("restores the exposed arm from storage after a page reload", () => {
     const originalStorage = Object.getOwnPropertyDescriptor(
       window,

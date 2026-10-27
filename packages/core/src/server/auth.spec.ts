@@ -750,6 +750,46 @@ describe("server/auth", () => {
         anonymousId: "anon_opted_out",
         sessionId: "session_opted_out",
       });
+
+      const geoDeniedMcpSignup = encodeMcpSignupAttribution(
+        {
+          signupOrigin: "mcp_oauth",
+          vendorHint: "openai",
+          anonymousId: "anon_geo_denied",
+          sessionId: "session_geo_denied",
+          firstTouchPathAllowed: true,
+        },
+        secret,
+      );
+      await handler(
+        createJsonPostEvent(
+          "/_agent-native/auth/magic-link",
+          { email: "geo-denied@example.com", callbackURL: "/welcome" },
+          {
+            "x-country": "DE",
+            cookie: `an_aid=anon_geo_denied; an_sid=session_geo_denied; an_ft=${firstTouch}; an_mcp_signup=${geoDeniedMcpSignup}`,
+          },
+        ),
+      );
+      const geoDeniedCallback = new URL(
+        signInMagicLink.mock.calls[3]?.[0].body.newUserCallbackURL,
+      );
+      const geoDeniedVerification = new URL(verification);
+      geoDeniedVerification.searchParams.set(
+        "newUserCallbackURL",
+        geoDeniedCallback.toString(),
+      );
+      expect(
+        readMagicLinkSignupAttribution(
+          geoDeniedVerification.toString(),
+          secret,
+        ),
+      ).toEqual({
+        mcpSignupAttribution: {
+          signupOrigin: "mcp_oauth",
+          firstTouchPathAllowed: false,
+        },
+      });
     });
 
     it("promotes tracking callbacks that Better Auth cannot accept relatively", async () => {
