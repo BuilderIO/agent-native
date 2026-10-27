@@ -3,4 +3,5 @@ export const MAIL_CONNECTOR_CATALOG = [
   "get-email",
   "get-thread",
   "create-attachment-upload",
+  "manage-draft",
 ] as const;

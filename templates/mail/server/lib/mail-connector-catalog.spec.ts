@@ -6,12 +6,13 @@ import { describe, expect, it } from "vitest";
 import { MAIL_CONNECTOR_CATALOG } from "./mail-connector-catalog";
 
 describe("Mail MCP connector catalog", () => {
-  it("exposes bounded inventory, exact body reads, and attachment uploads", () => {
+  it("exposes bounded reads, attachment uploads, and draft review", () => {
     expect(MAIL_CONNECTOR_CATALOG).toEqual([
       "list-emails",
       "get-email",
       "get-thread",
       "create-attachment-upload",
+      "manage-draft",
     ]);
     expect(MAIL_CONNECTOR_CATALOG).not.toContain("search-emails");
     expect(MAIL_CONNECTOR_CATALOG).not.toContain("send-email");
