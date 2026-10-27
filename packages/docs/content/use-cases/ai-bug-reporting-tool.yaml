@@ -91,7 +91,7 @@ other_uses:
 faqs:
   heading: Questions? We have answers
   items:
-    - q: Is Clips free?
+    - q: Is Agent-Native Clips free?
       a: Yes. Agent-Native Clips is free and open source, including the Chrome extension. Titles, summaries and transcript cleanup run on Builder.io AI credits by default, so AI use isn't unlimited, and recordings need a place to store the video. Clips is in alpha, so expect changes as it grows.
     - q: What does Clips capture from my browser?
       a: The Clips Chrome extension captures [console messages, JavaScript errors and network requests](https://www.agent-native.com/docs/template-clips-features/#chrome-extension-browser-logs) from up to five tabs, reaching back up to 30 seconds before you pressed record. Each request keeps its address, status, timing and whether it failed. Editors see it all in the clip's Debug tab, and agents get it through the link.
