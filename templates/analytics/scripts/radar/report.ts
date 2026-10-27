@@ -94,6 +94,8 @@ export interface RadarWeeklyReport {
     bigQueryScan: {
       maxGb: number;
       reservedBytes: number;
+      actualBytesProcessed: number;
+      actualQueryCount: number;
       exceeded: boolean;
     };
   };
@@ -493,6 +495,8 @@ async function buildWeeklyReportWithinBudget(
       bigQueryScan: {
         maxGb: bigQueryScanBudget.maxGb,
         reservedBytes: bigQueryScanBudget.reservedBytes,
+        actualBytesProcessed: bigQueryScanBudget.actualBytesProcessed,
+        actualQueryCount: bigQueryScanBudget.actualQueryCount,
         exceeded: bigQueryScanBudget.exceeded,
       },
     },
@@ -595,12 +599,14 @@ async function prefetchWeeklyBigQuery(
 export function formatWeeklyMarkdown(report: RadarWeeklyReport): string {
   const bigQueryScanGb =
     report.coverage.bigQueryScan.reservedBytes / 1_000_000_000;
+  const actualBigQueryScanGb =
+    report.coverage.bigQueryScan.actualBytesProcessed / 1_000_000_000;
   const lines = [
     `# First-touch radar report: ${report.week} to ${report.weekEnd}`,
     "",
     `Exit ${report.exitCode}. Daily runs ${report.coverage.dailyRuns.completed}/${report.coverage.dailyRuns.expected}. Query count ${report.coverage.queryCount}.`,
     `Coverage: campaign ${report.coverage.campaignFollowup ? "ready" : "missing"}; A/B ${report.coverage.abReadout ? "ready" : "missing"}; triage ${report.coverage.replayTriage ? "ready" : "missing"}; journey snapshot ${report.coverage.journeySnapshot}; Slack feedback ${report.coverage.feedbackIngest}.`,
-    `BigQuery dry-run estimate: ${bigQueryScanGb.toFixed(2)} GB / ${report.coverage.bigQueryScan.maxGb} GB${report.coverage.bigQueryScan.exceeded ? " (budget reached)" : ""}.`,
+    `BigQuery actual bytes processed: ${actualBigQueryScanGb.toFixed(2)} GB across ${report.coverage.bigQueryScan.actualQueryCount} executed queries. Dry-run estimate: ${bigQueryScanGb.toFixed(2)} GB / ${report.coverage.bigQueryScan.maxGb} GB${report.coverage.bigQueryScan.exceeded ? " (budget reached)" : ""}.`,
     "",
     "## Daily watch",
     "",
@@ -687,7 +693,7 @@ export function formatWeeklyMarkdown(report: RadarWeeklyReport): string {
     }
     lines.push(
       "",
-      "Recipient-level matching uses identified email fields. Anonymous landings cannot be assigned to a recipient.",
+      "Recipient-level matching uses SHA-256 digests of identified email addresses. This report contains counts only; anonymous landings cannot be assigned to a recipient.",
       "",
       "| Period | Activity app | Recipients | Any visit | UTM landing | Builder connect | First output |",
       "| --- | --- | ---: | ---: | ---: | ---: | ---: |",

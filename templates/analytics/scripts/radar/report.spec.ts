@@ -134,7 +134,13 @@ describe("weekly funnel cohort reporting", () => {
         journeySnapshot: "skipped",
         feedbackIngest: "agent_required",
         queryCount: 0,
-        bigQueryScan: { maxGb: 100, reservedBytes: 0, exceeded: false },
+        bigQueryScan: {
+          maxGb: 100,
+          reservedBytes: 12_340_000_000,
+          actualBytesProcessed: 9_876_000_000,
+          actualQueryCount: 7,
+          exceeded: false,
+        },
       },
       dailyRuns: [
         {
@@ -169,9 +175,12 @@ describe("weekly funnel cohort reporting", () => {
       exitCode: 2,
     } satisfies RadarWeeklyReport;
 
-    expect(formatWeeklyMarkdown(report)).toContain(
-      "| 2026-10-26 | 2026-10-25 | 1 | 0 | 0 | - |",
+    const formatted = formatWeeklyMarkdown(report);
+    expect(formatted).toContain("| 2026-10-26 | 2026-10-25 | 1 | 0 | 0 | - |");
+    expect(formatted).toContain(
+      "BigQuery actual bytes processed: 9.88 GB across 7 executed queries.",
     );
+    expect(formatted).toContain("Dry-run estimate: 12.34 GB / 100 GB.");
   });
 });
 

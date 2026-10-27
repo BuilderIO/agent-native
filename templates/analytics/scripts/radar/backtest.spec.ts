@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   backtestHourOf,
   formatRadarBacktest,
+  hasBacktestAppCoverage,
   parseRadarBacktestArgs,
 } from "./backtest.ts";
 
@@ -23,6 +24,19 @@ describe("backtestHourOf", () => {
     });
     expect(() => parseRadarBacktestArgs(["--max-total-gb"])).toThrow(
       "--max-total-gb must be positive.",
+    );
+  });
+
+  it("requires app-specific source rows before reporting replay coverage", () => {
+    const dailyRows = [
+      { period_start: "2026-10-12", app: "slides", event_name: "signup" },
+    ];
+
+    expect(hasBacktestAppCoverage("2026-10-12", "slides", [], dailyRows)).toBe(
+      true,
+    );
+    expect(hasBacktestAppCoverage("2026-10-12", "design", [], dailyRows)).toBe(
+      false,
     );
   });
 

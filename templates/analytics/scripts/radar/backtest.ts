@@ -196,6 +196,22 @@ function observation(
   };
 }
 
+export function hasBacktestAppCoverage(
+  date: string,
+  app: string,
+  rejectionRows: readonly Record<string, unknown>[],
+  dailyRows: readonly Record<string, unknown>[],
+): boolean {
+  return (
+    rejectionRows.some((row) => String(row.app ?? "unknown") === app) ||
+    dailyRows.some(
+      (row) =>
+        dateOf(row.period_start) === date &&
+        String(row.app ?? "unknown") === app,
+    )
+  );
+}
+
 export async function runRadarBacktest(
   options: RadarBacktestOptions = {},
 ): Promise<RadarBacktestResult> {
@@ -327,21 +343,24 @@ export async function runRadarBacktest(
             );
           }
         }
-        const hasEventCoverage =
-          rowsForDate.length > 0 ||
-          dailyRows.some((row) => dateOf(row.period_start) === date);
         for (const app of ["design", "slides", "clips"]) {
           if (checkedApps.has(app)) continue;
           const label = date >= INCIDENT.start ? "incident" : "clean";
+          const hasAppCoverage = hasBacktestAppCoverage(
+            date,
+            app,
+            rowsForDate,
+            dailyRows,
+          );
           observations.push({
             check: "replay-upload-rejection",
             app,
             period: `${label}:${date}`,
-            status: hasEventCoverage ? "clear" : "insufficient",
+            status: hasAppCoverage ? "clear" : "insufficient",
             numerator: 0,
             denominator: null,
             value: null,
-            detail: hasEventCoverage
+            detail: hasAppCoverage
               ? `No replay upload rejection events for ${app} on ${date}; other event data was available.`
               : `No event data was available to establish replay rejection coverage for ${app} on ${date}.`,
           });

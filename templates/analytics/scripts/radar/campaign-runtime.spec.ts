@@ -55,14 +55,61 @@ describe("campaign follow-up query privacy", () => {
     fs.rmSync(directory, { recursive: true, force: true });
   });
 
-  it("fails closed for BigQuery until keyed recipient matching is configured", async () => {
-    await expect(runCampaignFollowup("org-1")).rejects.toMatchObject({
-      exitCode: 2,
-      message:
-        "Campaign follow-up is unavailable for the BigQuery sink until keyed recipient matching is configured.",
+  it("matches BigQuery recipients by hash without sending or returning email addresses", async () => {
+    mocks.runBigQuery.mockResolvedValue({
+      rows: [
+        {
+          period: "after_send",
+          recipient_app: "clips",
+          activity_app: "clips",
+          metric: "any_visit",
+          recipients: 1,
+          recipients_with_activity: 1,
+        },
+      ],
+      bytesProcessed: 10,
+      actualBytesProcessed: 10,
+      cacheHit: false,
     });
-    expect(mocks.runBigQuery).not.toHaveBeenCalled();
+
+    const result = await runCampaignFollowup("org-1");
+    const [sql, options] = mocks.runBigQuery.mock.calls[0] as [
+      string,
+      {
+        fresh: boolean;
+        cache: boolean;
+        params: Array<{ name: string; value: string }>;
+      },
+    ];
+    const recipientRows = JSON.parse(
+      options.params.find((param) => param.name === "recipients_json")?.value ??
+        "[]",
+    ) as Array<Record<string, string>>;
+
+    expect(sql).toContain(
+      "sha256(cast(lower(trim(e.identity_email)) AS bytes))",
+    );
+    expect(sql).not.toContain("recipient@example.test");
+    expect(options).toMatchObject({ fresh: true, cache: false });
+    expect(options.params.map((param) => param.value).join(" ")).not.toContain(
+      "recipient@example.test",
+    );
+    expect(recipientRows).toHaveLength(1);
+    expect(recipientRows[0]).toMatchObject({
+      email_hash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      sent_at: "2026-10-26T12:00:00.000Z",
+      app: "clips",
+    });
     expect(mocks.runPostgresQuery).not.toHaveBeenCalled();
+    expect(result.rows).toContainEqual(
+      expect.objectContaining({
+        period: "after_send",
+        activity_app: "clips",
+        metric: "any_visit",
+        recipients_with_activity: 1,
+      }),
+    );
+    expect(JSON.stringify(result)).not.toContain("recipient@example.test");
   });
 
   it("runs PostgreSQL campaign matching with uncached recipient parameters", async () => {
@@ -82,6 +129,7 @@ describe("campaign follow-up query privacy", () => {
         },
       ],
       bytesProcessed: null,
+      actualBytesProcessed: null,
       cacheHit: false,
     });
 

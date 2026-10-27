@@ -4,6 +4,7 @@ import {
   bigQueryIdentityExclusionSql,
   bigQueryFirstTouchEventsCte,
   buildBigQueryEventStatsSql,
+  buildBigQueryCampaignFollowupSql,
   buildBigQueryFunnelDailySql,
   buildBigQueryPromptOutputSloSql,
   buildBigQueryPromptOutputSloByDateSql,
@@ -44,6 +45,25 @@ describe("first-party BigQuery radar SQL", () => {
     expect(sql).toContain(
       "lower(coalesce(hostname, '')) NOT IN ('localhost', '127.0.0.1', '::1')",
     );
+  });
+
+  it("matches campaign recipients by hash and aggregates only event counts", () => {
+    const sql = buildBigQueryCampaignFollowupSql(range);
+    expect(sql).toContain(
+      "FROM `project_id.analytics.events_raw_query_range`(@start_date, @end_date)",
+    );
+    expect(sql).toContain("e.event_date >= @start_date");
+    expect(sql).toContain("e.event_date <= @end_date");
+    expect(sql).toContain(
+      "lower(to_hex(sha256(cast(lower(trim(e.identity_email)) AS bytes)))) = r.email_hash",
+    );
+    expect(sql).toContain("JSON_QUERY_ARRAY(@recipients_json)");
+    expect(sql).toContain("'prior_7_days'");
+    expect(sql).toContain("outage_recovery_20261026");
+    expect(sql).toContain("'deck_created'");
+    expect(sql).toContain("'design_ready_viewed'");
+    expect(sql).toContain("'recording_ready'");
+    expect(sql).not.toContain("identity_email, email_hash");
   });
 
   it("bounds first-party reads to the partitioned table function and org", () => {

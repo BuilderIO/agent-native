@@ -542,6 +542,108 @@ FROM counts c JOIN percentiles p USING (target_date, app)
 ORDER BY c.target_date, c.app`;
 }
 
+export function buildBigQueryCampaignFollowupSql(
+  eventsTableRange: string,
+): string {
+  return `${bigQueryFirstTouchEventsCte(eventsTableRange, {
+    startDateParam: "@start_date",
+    endDateParam: "@end_date",
+    orgIdParam: "@org_id",
+    includeAllApps: true,
+    eventNames: [
+      "pageview",
+      "builder_connect_succeeded",
+      "builder connect succeeded",
+      "deck_created",
+      "design_ready_viewed",
+      "recording_ready",
+    ],
+    columns: {
+      id: false,
+      eventDate: true,
+      sessionId: false,
+      url: true,
+      personKey: false,
+      identityEmail: true,
+      referralSource: false,
+      properties: true,
+    },
+  })},
+recipients AS (
+  SELECT lower(json_value(sent, '$.email_hash')) AS email_hash,
+    timestamp(json_value(sent, '$.sent_at')) AS sent_at,
+    lower(coalesce(nullif(json_value(sent, '$.app'), ''), 'unknown')) AS recipient_app
+  FROM UNNEST(JSON_QUERY_ARRAY(@recipients_json)) AS sent
+),
+recipient_totals AS (
+  SELECT recipient_app, count(DISTINCT email_hash) AS recipients
+  FROM recipients GROUP BY recipient_app
+),
+activity AS (
+  SELECT r.email_hash, r.recipient_app, e.app AS activity_app, e.event_name,
+    CASE WHEN e.happened_at >= r.sent_at THEN 'after_send' ELSE 'prior_7_days' END AS period,
+    (e.event_name = 'pageview' AND (
+      lower(replace(coalesce(json_value(e.properties, '$.utm_campaign'), ''), '${ZERO_WIDTH_SPACE}', '')) = 'outage_recovery_20261026'
+      OR regexp_contains(concat(
+        coalesce(json_value(e.properties, '$.search'), ''), '&',
+        coalesce(e.url, ''), '&',
+        coalesce(json_value(e.properties, '$.url'), '')
+      ), r'(?i)(^|[?&#])utm_campaign=outage_recovery_20261026([&#]|$)')
+    )) AS campaign_landing
+  FROM recipients r
+  JOIN base_events e
+    ON lower(to_hex(sha256(cast(lower(trim(e.identity_email)) AS bytes)))) = r.email_hash
+    AND e.happened_at >= timestamp_sub(r.sent_at, INTERVAL 7 DAY)
+    AND e.happened_at <= current_timestamp()
+),
+measurements AS (
+  SELECT period, recipient_app, activity_app, email_hash, measure.metric
+  FROM activity
+  CROSS JOIN UNNEST([
+    STRUCT('any_visit' AS metric, event_name = 'pageview' AS matched),
+    STRUCT('campaign_landing' AS metric, campaign_landing AS matched),
+    STRUCT('builder_connect_succeeded' AS metric,
+      event_name IN ('builder_connect_succeeded', 'builder connect succeeded') AS matched),
+    STRUCT('first_output' AS metric,
+      (activity_app = 'slides' AND event_name = 'deck_created') OR
+      (activity_app = 'design' AND event_name = 'design_ready_viewed') OR
+      (activity_app = 'clips' AND event_name = 'recording_ready') AS matched)
+  ]) AS measure
+  WHERE measure.matched
+),
+activity_apps AS (
+  SELECT DISTINCT activity_app FROM (
+    SELECT app AS activity_app FROM base_events
+    UNION ALL SELECT recipient_app AS activity_app FROM recipients
+    UNION ALL SELECT app AS activity_app FROM UNNEST([
+      ${CAMPAIGN_APPS.map((name) => `'${name}'`).join(", ")}
+    ]) AS app
+  )
+),
+periods AS (
+  SELECT period FROM UNNEST(['after_send', 'prior_7_days']) AS period
+),
+metrics AS (
+  SELECT metric FROM UNNEST([
+    'any_visit', 'campaign_landing', 'builder_connect_succeeded', 'first_output'
+  ]) AS metric
+),
+counts AS (
+  SELECT period, recipient_app, activity_app, metric,
+    count(DISTINCT email_hash) AS recipients_with_activity
+  FROM measurements GROUP BY period, recipient_app, activity_app, metric
+)
+SELECT p.period, t.recipient_app, a.activity_app, m.metric, t.recipients,
+  coalesce(c.recipients_with_activity, 0) AS recipients_with_activity
+FROM recipient_totals t
+CROSS JOIN activity_apps a
+CROSS JOIN periods p
+CROSS JOIN metrics m
+LEFT JOIN counts c ON c.period = p.period AND c.recipient_app = t.recipient_app
+  AND c.activity_app = a.activity_app AND c.metric = m.metric
+ORDER BY t.recipient_app, p.period, a.activity_app, m.metric`;
+}
+
 export function buildBigQueryUploadRejectionSql(
   eventsTableRange: string,
 ): string {

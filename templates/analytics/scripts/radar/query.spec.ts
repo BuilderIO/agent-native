@@ -13,6 +13,7 @@ import {
   getRadarBigQueryScanBudget,
   isReadOnlySql,
   parseBigQueryTimestamp,
+  parseActualBigQueryBytes,
   parseRadarBigQueryTableParts,
   radarCliExitCode,
   radarRunCliExitCode,
@@ -23,6 +24,16 @@ import {
 } from "./query.ts";
 
 describe("radar query safety", () => {
+  it("accepts only non-negative safe integer execution byte counts", () => {
+    expect(parseActualBigQueryBytes("1234")).toBe(1234);
+    expect(parseActualBigQueryBytes(0)).toBe(0);
+    expect(parseActualBigQueryBytes(null)).toBeNull();
+    expect(parseActualBigQueryBytes("")).toBeNull();
+    expect(parseActualBigQueryBytes(" 1234 ")).toBeNull();
+    expect(parseActualBigQueryBytes("not-bytes")).toBeNull();
+    expect(parseActualBigQueryBytes(Number.MAX_SAFE_INTEGER + 1)).toBeNull();
+  });
+
   it("enforces the weekly cumulative BigQuery scan budget", () => {
     setRadarBigQueryScanBudget(0.00000001);
     try {

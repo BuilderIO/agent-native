@@ -65,6 +65,7 @@ function isRadarJsonbParameter(value: unknown): value is RadarJsonbParameter {
 export interface RadarQueryResult {
   rows: Record<string, unknown>[];
   bytesProcessed: number | null;
+  actualBytesProcessed: number | null;
   cacheHit: boolean;
 }
 
@@ -650,6 +651,7 @@ function readCache(key: string, ttlMs: number): RadarQueryResult | undefined {
     return {
       rows: cached.rows,
       bytesProcessed: cached.bytesProcessed,
+      actualBytesProcessed: null,
       cacheHit: true,
     };
   } catch (error) {
@@ -747,6 +749,7 @@ export async function runPostgresQuery(
     const result: RadarQueryResult = {
       rows: rows as Record<string, unknown>[],
       bytesProcessed: null,
+      actualBytesProcessed: null,
       cacheHit: false,
     };
     if (cacheEnabled) writeCache(key, result);
@@ -825,6 +828,8 @@ export interface RadarBigQueryScanBudget {
   maxGb: number;
   maxBytes: number;
   reservedBytes: number;
+  actualBytesProcessed: number;
+  actualQueryCount: number;
   exceeded: boolean;
 }
 
@@ -840,6 +845,8 @@ export function setRadarBigQueryScanBudget(maxGb: number | undefined): void {
     maxGb: validatedMaxGb,
     maxBytes: validatedMaxGb * 1_000_000_000,
     reservedBytes: 0,
+    actualBytesProcessed: 0,
+    actualQueryCount: 0,
     exceeded: false,
   };
 }
@@ -866,6 +873,33 @@ export function recordRadarBigQueryDryRunBytes(bytes: number): void {
     );
   }
   budget.reservedBytes = next;
+}
+
+function recordRadarBigQueryActualBytes(bytes: number): void {
+  const budget = activeBigQueryScanBudget;
+  if (!budget) return;
+  if (!Number.isSafeInteger(bytes) || bytes < 0) {
+    throw new RadarQueryError(
+      "BigQuery returned invalid actual bytes processed.",
+      1,
+    );
+  }
+  const next = budget.actualBytesProcessed + bytes;
+  if (!Number.isSafeInteger(next)) {
+    throw new RadarQueryError(
+      "BigQuery actual bytes processed exceeded the safe integer range.",
+      1,
+    );
+  }
+  budget.actualBytesProcessed = next;
+  budget.actualQueryCount += 1;
+}
+
+export function parseActualBigQueryBytes(value: unknown): number | null {
+  if (typeof value !== "number" && typeof value !== "string") return null;
+  if (typeof value === "string" && !/^\d+$/.test(value)) return null;
+  const bytes = Number(value);
+  return Number.isSafeInteger(bytes) && bytes >= 0 ? bytes : null;
 }
 
 function secretHash(value: string): Buffer {
@@ -1497,6 +1531,9 @@ export async function runBigQuery(
   const accumulator: BigQueryRowsAccumulator = { rows: [], bytes: 0 };
   appendBigQueryPayloadRows(accumulator, fields, first.rows ?? []);
   const rows = accumulator.rows;
+  let actualBytesProcessed = parseActualBigQueryBytes(
+    first.totalBytesProcessed,
+  );
   let pageToken = first.pageToken as string | undefined;
   let jobComplete = first.jobComplete === true;
   let location = first.jobReference?.location as string | undefined;
@@ -1528,14 +1565,26 @@ export async function runBigQuery(
       fields.splice(0, fields.length, ...page.schema.fields);
     }
     appendBigQueryPayloadRows(accumulator, fields, page.rows ?? []);
+    actualBytesProcessed =
+      parseActualBigQueryBytes(page.totalBytesProcessed) ??
+      actualBytesProcessed;
     pageToken = page.pageToken as string | undefined;
     jobComplete = page.jobComplete === true;
     location = page.jobReference?.location ?? location;
   }
 
+  if (actualBytesProcessed === null) {
+    throw new RadarQueryError(
+      "BigQuery query completed without actual bytes processed.",
+      1,
+    );
+  }
+  recordRadarBigQueryActualBytes(actualBytesProcessed);
+
   const result: RadarQueryResult = {
     rows,
     bytesProcessed,
+    actualBytesProcessed,
     cacheHit: false,
   };
   if (cacheEnabled) writeCache(key, result);
