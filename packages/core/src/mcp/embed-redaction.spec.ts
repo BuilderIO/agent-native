@@ -37,6 +37,7 @@ describe("embed redaction at diagnostic and proxy boundaries", () => {
     "embed/start#ticket=synthetic-ticket",
     "https://docs.example/_agent-native/embed/start.tsx?ticket=SUP-2026-123",
     "https://docs.example/docs/_agent-native/embed/start?ticket=SUP-2026-123",
+    "https://docs.example/guide=/_agent-native/embed/start?ticket=SUP-2026-123",
     "objectives/tasks/Fix chat failing because the embed start URL is redacted.md",
     "Saved the note about the embed start URL.",
   ])(
@@ -55,6 +56,22 @@ describe("embed redaction at diagnostic and proxy boundaries", () => {
 
   it.each([
     ["absolute", start],
+    [
+      "root path on its own line",
+      `Hello\n/_agent-native/embed/start?ticket=${ticket}`,
+    ],
+    [
+      "root path in an outer query",
+      `https://mail.agent-native.com/login?next=/_agent-native/embed/start?ticket=${ticket}`,
+    ],
+    [
+      "root path with a comma segment in an outer query",
+      `https://mail.agent-native.com/login?next=/_agent-native/embed/x,y/../start?ticket=${ticket}`,
+    ],
+    [
+      "relative path in a later outer query",
+      `https://mail.agent-native.com/login?mode=read&next=embed/start?ticket=${ticket}`,
+    ],
     ["absolute URL adjacent to prose", `Token${start}`],
     [
       "browser HTTP scheme without slashes",
@@ -126,8 +143,8 @@ describe("embed redaction at diagnostic and proxy boundaries", () => {
     expect(describeThrownForLog(error)).toBe("[hidden embed URL]");
   });
 
-  it("preserves a large separator-heavy body without blocking the event loop", () => {
-    const content = "a/b?x=y&".repeat(15_000);
+  it("preserves a large body with separators and blank lines without blocking the event loop", () => {
+    const content = "a/b?x=y&".repeat(15_000) + "\n".repeat(50_000);
     const started = performance.now();
     expect(readString(content)).toMatchObject({
       complete: true,
@@ -135,6 +152,28 @@ describe("embed redaction at diagnostic and proxy boundaries", () => {
     });
     expect(performance.now() - started).toBeLessThan(2_000);
   });
+
+  it.each(
+    [",", ";", "\n", "\r\n", "\t", " "].flatMap((separator) =>
+      [true, false].map((fragment) => [separator, fragment] as const),
+    ),
+  )(
+    "preserves an ordinary URL list separated by %j, fragment=%s",
+    (separator, fragment) => {
+      const content = Array.from(
+        { length: 30 },
+        (_, index) =>
+          `https://docs.example/guide-${index}?page=${index}${fragment ? "#section" : ""}`,
+      ).join(separator);
+      expect(readString(content)).toMatchObject({
+        complete: true,
+        mentionsRoute: false,
+      });
+      expect(
+        redactEmbedCredentials({ content, ticket: "SUP-2026-123" }),
+      ).toEqual({ content, ticket: "SUP-2026-123" });
+    },
+  );
 
   it("withholds an ambiguously nested reference when bounded inspection cannot finish", () => {
     const content = "https://docs.example/".repeat(200);

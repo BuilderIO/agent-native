@@ -56,7 +56,8 @@ const EMBED_START_PATH = /^\/_agent-native\/embed\/start(?:[/?#]|$)/;
 const SHORT_EMBED_START_PATH = /^\/embed\/start(?:\/|$)/;
 // Charge all candidate text before parsing it, including overlapping nested
 // URLs. Ambiguous inputs beyond this linear budget are unreadable, not safe.
-const REFERENCE_READ_FACTOR = 4;
+const REFERENCE_READ_FACTOR = 6;
+const URL_REFERENCE_START = /https?:\/*|(?<![:/])\/{2,}[^/]/g;
 export const MAX_DECODE_ROUNDS = 8;
 
 const PERCENT_ESCAPE = /%([0-9a-f]{2})/gi;
@@ -110,28 +111,84 @@ const UNREAD_ESCAPE =
   /&[a-z0-9#]+;|\\(?:u\{[0-9a-f]*\}|u[0-9a-f]{4}|x[0-9a-f]{2}|[0-7]{1,3}|[\s\S])/g;
 
 /**
- * Whole references in prose, JSON or HTML. Relative paths can start a token
- * or an assignment's value, but never restart inside a URL query/fragment.
- * Absolute schemes and network URLs independently identify nested references,
- * even adjacent to prose.
+ * Raw query values retain their own bounds and may hold nested path references.
+ * Fragment text does not introduce a relative reference.
  */
-function* references(text: string): Iterable<string> {
+function* queryReferences(
+  text: string,
+  nestedQuestions = true,
+): Iterable<string> {
+  const fragment = text.indexOf("#");
+  const end = fragment < 0 ? text.length : fragment;
+  const query = text.indexOf("?");
+  if (query < 0 || query >= end) return;
+  const parameters = text.slice(query, end);
+  const lastSlash = parameters.lastIndexOf("/");
+  const fields = nestedQuestions ? /[?&][^?&#=]*=/g : /(?:^\?|&)[^&=]*=/g;
+  for (const field of parameters.matchAll(fields)) {
+    const start = field.index + field[0].length;
+    if (start > lastSlash) continue;
+    const ampersand = parameters.indexOf("&", start);
+    yield parameters.slice(
+      start,
+      ampersand < 0 ? parameters.length : ampersand,
+    );
+  }
+}
+
+interface EmbedReference {
+  text: string;
+  allowRelative: boolean;
+}
+
+function* references(text: string): Iterable<EmbedReference> {
+  const seen = new Set<string>();
+  function* emit(
+    value: string,
+    allowRelative = true,
+  ): Iterable<EmbedReference> {
+    const key = `${allowRelative ? 1 : 0}:${value}`;
+    if (!value || seen.has(key)) return;
+    seen.add(key);
+    yield { text: value, allowRelative };
+  }
+  // Inspect the whole spelling first, before lexical boundaries divide lists
+  // or line breaks. URL parsing itself removes controls inside a real URL.
+  yield* emit(text);
+  const firstUrl = text.search(URL_REFERENCE_START);
+  if (firstUrl > 0) yield* emit(text.slice(firstUrl));
   for (const [token] of text.matchAll(/[^\s<>"'`()[\]{}]+/gu)) {
-    yield token;
-    const queryOrFragment = token.search(/[?#]/);
-    const assignment = token.indexOf("=");
-    const valueStart =
-      assignment >= 0 && (queryOrFragment < 0 || assignment < queryOrFragment)
-        ? assignment + 1
-        : -1;
-    if (valueStart >= 0) {
-      yield token.slice(valueStart);
-    }
-    // A schema diagnostic can put an absolute URL inside a JSON Pointer's
-    // path segment. Its scheme starts a reference; a bare path suffix does not.
-    for (const urlStart of token.matchAll(/https?:\/*|(?<![:/])\/{2,}[^/]/g)) {
-      if (urlStart.index > 0 && urlStart.index !== valueStart) {
-        yield token.slice(urlStart.index);
+    yield* emit(token);
+    // Query values may themselves contain a comma in a browser path. Inspect
+    // each outer parameter once before treating commas as list separators.
+    for (const nested of queryReferences(token, false)) yield* emit(nested);
+    const fragment = token.indexOf("#");
+    // List members have independent bounds, rather than repeatedly parsing
+    // the entire remaining list after every scheme.
+    for (const part of token.matchAll(/[^,;]+/g)) {
+      const value = part[0];
+      const absolute = /^(?:https?:|\/\/)/.test(value);
+      const allowRelative = absolute || fragment < 0 || part.index <= fragment;
+      yield* emit(value, allowRelative);
+      if (allowRelative) {
+        const boundary = value.search(/[?#]/);
+        const assignment = value.indexOf("=");
+        const urlStart = value.search(URL_REFERENCE_START);
+        if (
+          !absolute &&
+          assignment >= 0 &&
+          (urlStart < 0 || assignment < urlStart) &&
+          (boundary < 0 || assignment < boundary)
+        ) {
+          yield* emit(value.slice(assignment + 1));
+        }
+        for (const nested of queryReferences(value)) yield* emit(nested);
+      }
+      for (const urlStart of value.matchAll(URL_REFERENCE_START)) {
+        if (urlStart.index === 0) continue;
+        const nested = value.slice(urlStart.index);
+        yield* emit(nested);
+        for (const path of queryReferences(nested)) yield* emit(path);
       }
     }
   }
@@ -151,7 +208,8 @@ function serverPathname(path: string): string {
   }
 }
 
-function isEmbedReference(reference: string): boolean {
+function isEmbedReference(reference: string, allowRelative: boolean): boolean {
+  if (!allowRelative && !/^(?:https?:|\/\/)/.test(reference)) return false;
   // Only parse path/URL candidates, not the ordinary words between them.
   if (!reference.includes("/") && !/^https?:/.test(reference)) return false;
   const url = URL.parse(reference, REFERENCE_BASE);
@@ -210,15 +268,29 @@ function scanEmbedReferences(text: string): {
     .toLowerCase()
     .replace(UNREAD_ESCAPE, "")
     .replace(/\p{Cf}/gu, "");
-  for (const reading of exact === loose ? [exact] : [exact, loose]) {
-    let remaining = reading.length * REFERENCE_READ_FACTOR;
-    for (const reference of references(reading.replace(/\\/g, "/"))) {
-      if (reference.length > remaining) {
-        return { complete: false, mentionsRoute: false };
-      }
-      remaining -= reference.length;
-      if (isEmbedReference(reference)) {
-        return { complete: true, mentionsRoute: true };
+  for (const variant of exact === loose ? [exact] : [exact, loose]) {
+    // Keep a new URL on its own line separate while retaining a browser's
+    // control folding inside a URL (including an escaped/obfuscated scheme).
+    const followingUrl = /[^\s<>"'`()[\]{},;]*https?:/y;
+    const folded = variant.replace(
+      /[\t\n\r]+/g,
+      (controls: string, offset: number) => {
+        // Consume each control run once. A lookahead on the quantified run
+        // would backtrack quadratically through a long series of blank lines.
+        followingUrl.lastIndex = offset + controls.length;
+        return followingUrl.test(variant) ? " " : "";
+      },
+    );
+    for (const reading of variant === folded ? [variant] : [variant, folded]) {
+      let remaining = reading.length * REFERENCE_READ_FACTOR;
+      for (const reference of references(reading.replace(/\\/g, "/"))) {
+        if (reference.text.length > remaining) {
+          return { complete: false, mentionsRoute: false };
+        }
+        remaining -= reference.text.length;
+        if (isEmbedReference(reference.text, reference.allowRelative)) {
+          return { complete: true, mentionsRoute: true };
+        }
       }
     }
   }
@@ -229,9 +301,8 @@ function scanEmbedReferences(text: string): {
 export interface StringReading {
   /**
    * The string and each layer of percent, JavaScript string and HTML escaping
-   * under it, to `MAX_DECODE_ROUNDS` layers deep. A URL parser drops tabs and
-   * line breaks anywhere in a URL before reading anything else, so no layer
-   * holds any.
+   * under it, to `MAX_DECODE_ROUNDS` layers deep. Each layer also contributes
+   * its control-free spelling for ticket discovery and echo matching.
    */
   layers: string[];
   /**
@@ -248,11 +319,14 @@ export interface StringReading {
 
 export function readString(text: string): StringReading {
   const layers: string[] = [];
+  const scanLayers: string[] = [];
   let current = text;
   let complete = true;
   for (let round = 0; ; round += 1) {
-    current = current.replace(/[\t\n\r]/g, "");
     layers.push(current);
+    scanLayers.push(current);
+    const controlFree = current.replace(/[\t\n\r]/g, "");
+    if (controlFree !== current) layers.push(controlFree);
     const decoded = decodeOnce(current);
     if (decoded === current) break;
     if (round === MAX_DECODE_ROUNDS) {
@@ -262,7 +336,7 @@ export function readString(text: string): StringReading {
     current = decoded;
   }
   let mentionsRoute = false;
-  for (const layer of layers) {
+  for (const layer of scanLayers) {
     const scanned = scanEmbedReferences(layer);
     if (!scanned.complete) complete = false;
     if (scanned.mentionsRoute) mentionsRoute = true;
