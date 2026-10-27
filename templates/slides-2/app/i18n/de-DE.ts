@@ -106,7 +106,7 @@ const messages = {
     retry: "Erneut versuchen",
     reload: "Neu laden",
     mcpAbout:
-      "Verbinde Slides 2 mit Claude, ChatGPT, Cursor oder einer anderen KI-App, die MCP unterstützt. Diese App kann dann in Slides 2 für dich arbeiten: Decks erstellen, Folien hinzufügen und nach PowerPoint exportieren. Sie sieht nur, was du sehen kannst.",
+      "Verbinden Sie diesen Arbeitsbereich mit Claude, ChatGPT, Cursor oder einer anderen App mit MCP-Unterstützung. Sie kann Präsentationen erstellen, Folien ergänzen und nach PowerPoint exportieren. Der Zugriff bleibt auf das beschränkt, was Sie sehen können.",
     workspaceTitle: "Arbeitsbereich",
     workspaceDescription:
       "Verwalte Teammitglieder, Organisationszugriff und gemeinsame Arbeitsbereichseinstellungen.",
@@ -316,7 +316,7 @@ const messages = {
     deleteError: "Designsystem konnte nicht gelöscht werden",
     emptyTitle: "Markenidentität einrichten",
     emptyDescription:
-      "Erstelle ein Designsystem mit Markenfarben, Typografie und Logos. Jedes neue Deck folgt deiner visuellen Identität.",
+      "Wählen Sie Farben, Schriften und Logo einmal aus. Neue Präsentationen übernehmen den Stil auf allen Folien, damit Sie sich auf den Inhalt konzentrieren können.",
     tierLimitTitle: "Limit für Designsysteme erreicht",
     tierLimitDescription:
       "Du hast das Limit für Designsysteme deines Builder-Plans erreicht. Upgrade deinen Builder-Plan, um ein weiteres zu erstellen.",
@@ -819,7 +819,7 @@ const messages = {
   generateSlides: {
     title: "Generar diapositivas con AI",
     description:
-      "Describe el tema de tu presentación y AI generará diapositivas para ti.",
+      "Teilen Sie ein Thema, und Ihr Agent gestaltet die Folien gemeinsam mit Ihnen.",
     topic: "Tema",
     topicPlaceholder:
       "p. ej. Introducción a React Hooks, informe de ventas Q4, roadmap de producto 2025...",
@@ -1482,7 +1482,7 @@ const messages = {
     newDeckPlaceholder:
       "Beschreibe die Präsentation, die du erstellen möchtest...",
     skipPrompt: "Prompt überspringen",
-    firstDeckPromptTitle: "Erstellen wir deine erste Präsentation",
+    firstDeckPromptTitle: "Erstellen wir gemeinsam Ihre erste Präsentation.",
     firstDeckSkip: "Überspringen",
     chooseReferences: "Referenzen auswählen",
     addDesignSystem: "+ Designsystem",
@@ -1546,7 +1546,7 @@ const messages = {
     emptyTitle: "Noch keine Decks",
     createFirstDeck: "Erstelle dein erstes Deck",
     emptyDescription:
-      "Erstelle schöne Präsentationen mit KI-gestützter Generierung.",
+      "Beginnen Sie mit einem Thema und gestalten Sie Ihre Präsentation gemeinsam mit Ihrem Agenten.",
   },
   agentChat: {
     setup: {

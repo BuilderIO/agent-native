@@ -1,6 +1,16 @@
 import { defineAction, fail } from "@agent-native/core/action";
+import {
+  getBrowserCookieSession,
+  hasSameOriginBrowserEvidence,
+} from "@agent-native/core/server";
+import {
+  getRequestAuthCapability,
+  getRequestContext,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
+import { H3Event } from "h3";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
@@ -28,14 +38,33 @@ export default defineAction({
   // token intentionally stays server-side: browser callers only need grant
   // metadata because write-local-file adds bridge authentication itself.
   agentTool: false,
-  capabilityScopes: ["visual-edit"],
   schema: z.object({
     designId: z.string().describe("Design ID."),
     connectionId: z
       .string()
       .describe("Localhost connection ID (from list-localhost-connections)."),
   }),
-  run: async ({ designId, connectionId }) => {
+  run: async ({ designId, connectionId }, ctx) => {
+    const origin = getRequestContext()?.requestOrigin;
+    const event =
+      origin && ctx?.requestHeaders
+        ? new H3Event(new Request(origin, { headers: ctx.requestHeaders }))
+        : null;
+    const session = event ? await getBrowserCookieSession(event) : null;
+    // Consent uses the account's own access, never the link's editor role.
+    if (
+      !session?.email ||
+      session.email.trim().toLowerCase() !==
+        getRequestUserEmail()?.trim().toLowerCase() ||
+      getRequestAuthCapability() ||
+      !event ||
+      !hasSameOriginBrowserEvidence(event)
+    ) {
+      fail("Unauthorized", {
+        errorCode: "browser_session_required",
+        statusCode: 401,
+      });
+    }
     await assertAccess("design", designId, "editor");
 
     const { ownerEmail, orgId } = await resolveLocalhostConnectionScope({

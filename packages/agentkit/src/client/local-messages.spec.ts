@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type {
+  AgentEvent,
   AgentMessage,
   AgentThreadSnapshot,
   AgentTransport,
@@ -92,5 +93,61 @@ describe("AgentKitClient.upsertLocalMessages", () => {
     expect(saved?.messages).toEqual([
       userTurn("Make the header blue", "complete"),
     ]);
+  });
+});
+
+describe("AgentKitClient.appendLocalEvents", () => {
+  const at = "2026-10-24T00:00:00.000Z";
+  const toolEvents = (threadId: string): AgentEvent[] => [
+    {
+      id: "voice:call-1:1",
+      threadId,
+      runId: "voice:call-1",
+      sequence: 1,
+      occurredAt: at,
+      type: "tool.started",
+      toolCall: { id: "call-1", name: "web-search", status: "running" },
+    },
+    {
+      id: "voice:call-1:2",
+      threadId,
+      runId: "voice:call-1",
+      sequence: 2,
+      occurredAt: at,
+      type: "run.completed",
+    },
+  ];
+
+  it("folds a local run into the thread and skips repeated sequences", () => {
+    const client = new AgentKitClient({ transport: createTransport() });
+    const [started, completed] = toolEvents("thread-1");
+
+    client.appendLocalEvents("thread-1", [started!]);
+    client.appendLocalEvents("thread-1", [started!, completed!]);
+
+    const thread = client.getThread("thread-1");
+    expect(thread.events.map((event) => event.id)).toEqual([
+      "voice:call-1:1",
+      "voice:call-1:2",
+    ]);
+    expect(thread.runs["voice:call-1"]?.status).toBe("completed");
+    expect(thread.tools["call-1"]?.name).toBe("web-search");
+    expect(thread.activeRunIds).toEqual([]);
+  });
+
+  it("rejects a sequence gap or another thread's event without applying any", () => {
+    const client = new AgentKitClient({ transport: createTransport() });
+    const [started, completed] = toolEvents("thread-1");
+
+    expect(() =>
+      client.appendLocalEvents("thread-1", [
+        started!,
+        { ...completed!, sequence: 3 },
+      ]),
+    ).toThrow(/contiguous/);
+    expect(() =>
+      client.appendLocalEvents("thread-1", toolEvents("thread-2")),
+    ).toThrow(/threadId/);
+    expect(client.getThread("thread-1").events).toEqual([]);
   });
 });

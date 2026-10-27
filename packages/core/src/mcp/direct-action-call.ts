@@ -22,6 +22,7 @@ import { extractAgentImagesFromActionResult } from "../agent/tool-result-images.
 import { writeActionChangeMarker } from "../server/action-change-marker-write.js";
 import { captureError } from "../server/capture-error.js";
 import {
+  getRequestContext,
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
@@ -32,6 +33,7 @@ import {
   buildLinkArtifacts,
   conciseMcpAppToolText,
   conciseToolResultText,
+  getMcpDirectoryWidgetResourceUri,
   hasVerifiedMcpUserIdentity,
   MCP_ACTION_APPROVAL_INPUT_KEY,
   type MCPActionEntry,
@@ -59,7 +61,12 @@ import {
   withServerMintedMcpAppEmbedStart,
 } from "./build-server.js";
 import { mcpCallAttribution } from "./call-attribution.js";
-import { describeThrownForLog, redactEmbedText } from "./embed-redaction.js";
+import {
+  describeThrownForLog,
+  HIDDEN_EMBED_URL,
+  isEmbedStartUrl,
+  redactEmbedText,
+} from "./embed-redaction.js";
 import {
   embedCredentialSources,
   type EmbedCredentialGuard,
@@ -424,43 +431,58 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         mcpAppWidgetsEnabledForIdentity(config, effectiveIdentity)
           ? await resolveMcpAppResourceSafely(config, name, entry, requestMeta)
           : null;
-      let directoryLinkUrl: string | undefined;
-      if (config.catalogMode === "directory" && entry.link) {
-        const linked = entry.link({
-          args: callArgs(),
-          result: rawResult,
-        });
-        directoryLinkUrl = linked?.url ?? undefined;
-        produced(directoryLinkUrl);
-      }
       const trustedCredentialIssuedAtMs =
         effectiveIdentity?.mcpCredentialIssuedAtMs;
-      const directoryWidget =
-        directoryCatalog &&
+      let directoryWidget: Awaited<
+        ReturnType<typeof mcpDirectoryWidgetCapabilityForTool>
+      >;
+      if (
+        !mcpResultIsError &&
         mcpAppResourceCandidate &&
+        getRequestContext()?.requestOrigin &&
+        hasVerifiedMcpUserIdentity(effectiveIdentity) &&
         typeof trustedCredentialIssuedAtMs === "number" &&
         Number.isSafeInteger(trustedCredentialIssuedAtMs)
-          ? await mcpDirectoryWidgetCapabilityForTool(
-              config,
-              mcpAppResourceCandidate,
-              name,
-              (args as Record<string, unknown>) ?? {},
-              projectedRawResult,
-              visibleActions,
-              effectiveIdentity,
-            )
-          : undefined;
-      const missingDirectoryWidgetCapability =
-        directoryCatalog &&
-        config.directoryProfile !== undefined &&
-        mcpAppResourceCandidate !== null &&
+      ) {
+        try {
+          directoryWidget = await mcpDirectoryWidgetCapabilityForTool(
+            config,
+            directoryCatalog
+              ? mcpAppResourceCandidate
+              : {
+                  ...mcpAppResourceCandidate,
+                  uri: getMcpDirectoryWidgetResourceUri(
+                    config.appId ?? config.name,
+                  ),
+                },
+            name,
+            callArgs(),
+            projectedRawResult,
+            visibleActions,
+            effectiveIdentity,
+          );
+        } catch (error) {
+          if (directoryCatalog) throw error;
+          console.warn(
+            `[mcp] ${name} returned no scoped widget capability; using a full-app link: ${describeThrownForLog(error)}`,
+          );
+        }
+      }
+      const requiresEmbedSession =
+        directoryCatalog ||
+        entry.mcpApp?.resource?.requiresEmbedSession === true;
+      const missingWidgetCapability =
+        requiresEmbedSession &&
+        entry.mcpApp?.resource !== undefined &&
         directoryWidget === undefined;
       const suppressDirectoryWidget =
         directoryCatalog && !hasVerifiedMcpUserIdentity(effectiveIdentity);
       // The host mounts a widget for this tool from its descriptor, with or
       // without a ticket in the result, so a withheld ticket must be visible.
       if (
-        missingDirectoryWidgetCapability &&
+        directoryCatalog &&
+        mcpAppResourceCandidate &&
+        missingWidgetCapability &&
         !suppressDirectoryWidget &&
         !mcpResultIsError
       ) {
@@ -473,13 +495,13 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         );
       }
       const rawResultForClient =
-        missingDirectoryWidgetCapability || suppressDirectoryWidget
+        entry.mcpApp?.resource !== undefined &&
+        (!directoryWidget || suppressDirectoryWidget)
           ? withoutMcpAppEmbedTicket(projectedRawResult)
           : mcpAppResourceCandidate
             ? await withServerMintedMcpAppEmbedStart(
                 projectedRawResult,
                 requestMeta,
-                directoryLinkUrl,
                 directoryWidget,
               )
             : projectedRawResult;
@@ -501,13 +523,19 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         resultImages.length > 0 || mcpResultHasContent(actionResultForClient);
       const mcpAppResource =
         mcpAppResourceCandidate &&
-        !missingDirectoryWidgetCapability &&
+        (!requiresEmbedSession ||
+          (directoryWidget &&
+            typeof metadataObject(actionResultForClient).embedStartUrl ===
+              "string")) &&
         !mcpResultIsError &&
         embedHasContent
           ? mcpAppResourceCandidate
           : null;
       const embedProducedNothing =
-        !!mcpAppResourceCandidate && !mcpResultIsError && !embedHasContent;
+        !!mcpAppResourceCandidate &&
+        !missingWidgetCapability &&
+        !mcpResultIsError &&
+        !embedHasContent;
       const mcpAppOpenLinkMeta = mcpAppResource
         ? mcpAppEmbedOpenLinkMeta(
             actionResultForClient,
@@ -524,7 +552,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       // Built before the first redaction, which throws on a result it
       // cannot read.
       handoffMeta = {
-        ...(directoryCatalog && mcpAppResource
+        ...(directoryWidget && mcpAppResource
           ? mcpDirectoryWidgetSourceMeta(name, mcpAppOpenLinkMeta)
           : {}),
         ...mcpAppOpenLinkMeta,
@@ -537,8 +565,42 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       };
       // The link is built from the result as the action returned it, and
       // checked with the rest of the response.
+      const useFullAppLink =
+        (!directoryCatalog || !getRequestContext()?.requestOrigin) &&
+        requiresEmbedSession &&
+        !!entry.mcpApp?.resource &&
+        !mcpAppResource;
+      const linkEntry: ActionEntry = useFullAppLink
+        ? {
+            ...entry,
+            link: ({ args, result }) => {
+              const record = metadataObject(result);
+              const linked = entry.link?.({
+                args,
+                result: { ...record, embed: false },
+              });
+              if (
+                linked?.url &&
+                linked.url !== HIDDEN_EMBED_URL &&
+                !isEmbedStartUrl(linked.url)
+              )
+                return linked;
+              const url = [record.deepLinkUrl, record.url, record.path].find(
+                (value): value is string =>
+                  typeof value === "string" &&
+                  value.trim().length > 0 &&
+                  value !== HIDDEN_EMBED_URL &&
+                  !isEmbedStartUrl(value),
+              );
+              return {
+                url: url ?? `${requestMeta?.basePath ?? ""}/`,
+                label: `Open ${config.title ?? config.appId ?? config.name}`,
+              };
+            },
+          }
+        : entry;
       const { block, _meta } = buildLinkArtifacts(
-        entry,
+        linkEntry,
         callArgs(),
         actionResultForClient,
         requestMeta,
@@ -558,7 +620,8 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         returned.text !== undefined ? projectedResultForClient : visible;
       const wantsStructuredResult =
         (returnsQueryPayload(entry) ||
-          entry.mcpApp?.structuredContent === true) &&
+          entry.mcpApp?.structuredContent === true ||
+          (!mcpResultIsError && entry.mcpApp?.resource !== undefined)) &&
         visible &&
         typeof visible === "object";
       const contracted = () =>

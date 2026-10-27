@@ -15,6 +15,7 @@ import {
   type BearerCredentialRefusal,
 } from "../server/bearer-credential-refusal.js";
 import { CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE } from "../server/credential-membership-unavailable.js";
+import { resolveEmbedRequestOrigin } from "../server/embed-request-origin.js";
 import { getH3App } from "../server/framework-request-handler.js";
 import { getOrigin } from "../server/google-oauth.js";
 import { readBody } from "../server/h3-helpers.js";
@@ -453,6 +454,7 @@ async function handleMcpRequestInternal(
 
   const serverRequestMeta: MCPRequestMeta = {
     ...requestMeta,
+    resolveEmbedRequestOrigin: () => resolveEmbedRequestOrigin(event),
     approvalRoute,
     ...(requestConfig.createLocalAgentTaskClient
       ? {
