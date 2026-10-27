@@ -629,7 +629,8 @@ export function FirstRunOnboarding({
   const setupExperimentEligible =
     setupStatusSettled &&
     canActivateBuilderFreeCredits &&
-    !connectFlow.configured;
+    !connectFlow.configured &&
+    !connectFlow.statusUnavailable;
   useEffect(() => {
     if (
       previewMode ||

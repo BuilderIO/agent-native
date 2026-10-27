@@ -2978,8 +2978,13 @@ describe("FirstRunOnboarding", () => {
       expect(mocks.setOnboardingExperiment).not.toHaveBeenCalled();
     });
 
-    const openClipsChoice = (start = vi.fn()) => {
-      mocks.useBuilderConnectFlow.mockReturnValue(flow({ start }));
+    const openClipsChoice = (
+      start = vi.fn(),
+      overrides: Record<string, unknown> = {},
+    ) => {
+      mocks.useBuilderConnectFlow.mockReturnValue(
+        flow({ start, ...overrides }),
+      );
       mocks.useOnboarding.mockReturnValue({
         ...mocks.useOnboarding(),
         profile: { ...mocks.useOnboarding().profile, appId: "clips" },
@@ -2987,6 +2992,19 @@ describe("FirstRunOnboarding", () => {
       openChoice();
       return start;
     };
+
+    it("does not expose the Clips credits v2 experiment when connection status is unavailable", () => {
+      mocks.creditsV2FlagState = { status: "ready", enabled: true };
+      openClipsChoice(vi.fn(), { statusUnavailable: true });
+
+      expect(mocks.recordCreditsV2Exposure).not.toHaveBeenCalled();
+      expect(mocks.trackOnboardingEvent).not.toHaveBeenCalledWith(
+        "onboarding_experiment_exposed",
+        expect.objectContaining({
+          experiment_id: "first_run_builder_credits_v2",
+        }),
+      );
+    });
 
     it("retries the Clips credits v2 exposure after a transient mutation failure", async () => {
       mocks.recordCreditsV2Exposure

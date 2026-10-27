@@ -287,6 +287,7 @@ export default defineAction({
           generationAttemptId?: string;
           targetSlideCount?: number;
           generationStartedAt?: number;
+          firstOutputAttemptId?: string;
         }
       | undefined;
     if (browserGenerationAttemptId !== undefined) {
@@ -472,6 +473,13 @@ export default defineAction({
           existingDeck,
           prevData,
         );
+        const browserFirstOutputAttemptId =
+          browserGenerationAttemptId !== undefined &&
+          slides.some(isRealSlide) &&
+          browserGenerationContext?.firstOutputAttemptId !==
+            browserGenerationAttemptId
+            ? browserGenerationAttemptId
+            : undefined;
         const data = {
           ...prevData,
           title: existingDeckTitle,
@@ -489,6 +497,14 @@ export default defineAction({
                       generationStartedAt,
                     }
                   : undefined,
+              }
+            : {}),
+          ...(browserFirstOutputAttemptId !== undefined
+            ? {
+                generationContext: {
+                  ...(browserGenerationContext ?? {}),
+                  firstOutputAttemptId: browserFirstOutputAttemptId,
+                },
               }
             : {}),
         };
@@ -515,10 +531,7 @@ export default defineAction({
             );
           assertDeckWriteApplied(updateResult, deckId, "deck replacement");
         });
-        if (
-          browserGenerationAttemptId !== undefined &&
-          slides.some(isRealSlide)
-        ) {
+        if (browserFirstOutputAttemptId !== undefined) {
           const targetSlideCount =
             typeof browserGenerationContext?.targetSlideCount === "number" &&
             Number.isFinite(browserGenerationContext.targetSlideCount) &&

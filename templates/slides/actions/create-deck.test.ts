@@ -1057,6 +1057,18 @@ describe("create-deck — generation lifecycle tracking", () => {
         generationStartedAt,
       },
     );
+    expect(
+      (
+        JSON.parse(String(updatedFields?.data)) as {
+          generationContext?: Record<string, unknown>;
+        }
+      ).generationContext,
+    ).toMatchObject({
+      generationAttemptId,
+      targetSlideCount: 7,
+      generationStartedAt,
+      firstOutputAttemptId: generationAttemptId,
+    });
   });
 
   it("does not mark a blank browser-owned replacement as generated output", async () => {
