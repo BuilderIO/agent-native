@@ -126,6 +126,28 @@ describe("update-recording share password version", () => {
   });
 });
 
+describe("update-recording expiration", () => {
+  it.each(["not-a-date", "2026-02-30T12:00:00Z", "12:30:00"])(
+    "rejects invalid expiry %s before writing",
+    async (expiresAt) => {
+      await expect(run({ id: "recording-1", expiresAt })).rejects.toThrow();
+      expect(state.patches).toEqual([]);
+    },
+  );
+
+  it("stores offset expiry as a canonical UTC instant", async () => {
+    await run({ id: "recording-1", expiresAt: "2026-07-15T13:00:00+02:00" });
+    expect(state.patches[0]).toMatchObject({
+      expiresAt: "2026-07-15T11:00:00.000Z",
+    });
+  });
+
+  it.each([null, ""])("clears expiry with %j", async (expiresAt) => {
+    await run({ id: "recording-1", expiresAt });
+    expect(state.patches[0]).toMatchObject({ expiresAt: null });
+  });
+});
+
 describe("update-recording chapters", () => {
   const intro = { startMs: 0, title: "Intro" };
   const demo = { startMs: 48_000, title: "Demo" };

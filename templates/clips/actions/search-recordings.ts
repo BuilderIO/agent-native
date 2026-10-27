@@ -1,7 +1,7 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { and, eq, isNull, or, sql } from "drizzle-orm";
+import { and, eq, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -122,12 +122,21 @@ export default defineAction({
       userEmail: ctx?.userEmail,
     };
     const userEmail = ctx?.userEmail ?? getRequestUserEmail();
-    const lifecycleFilter = userEmail
-      ? or(
-          isNull(schema.recordings.trashedAt),
-          ownerEmailMatches(schema.recordings.ownerEmail, userEmail),
-        )
-      : isNull(schema.recordings.trashedAt);
+    const ownerFilter = userEmail
+      ? ownerEmailMatches(schema.recordings.ownerEmail, userEmail)
+      : sql`false`;
+    // PostgreSQL 15's SQL/JSON parser needs a numeric offset instead of UTC Z.
+    const expiryIsCurrent = sql<boolean | null>`jsonb_path_match_tz(
+      to_jsonb(regexp_replace(${schema.recordings.expiresAt}, '[zZ]$', '+00:00')),
+      '$.datetime() >= $now.datetime()',
+      jsonb_build_object('now', ${new Date(Date.now()).toISOString().replace(/Z$/, "+00:00")}::text), true
+    )`;
+    const expiryAbsent = sql`nullif(${schema.recordings.expiresAt}, '') is null`;
+    const expiryNeedsRepair = sql<boolean>`not (${expiryAbsent}) and ${expiryIsCurrent} is null`;
+    const lifecycleFilter = sql`case when ${ownerFilter} then true else
+      ${schema.recordings.trashedAt} is null and
+      (case when ${expiryAbsent} then true else ${expiryIsCurrent} end)
+    end`;
 
     const recMatches = await db
       .select({
@@ -138,6 +147,7 @@ export default defineAction({
         kind: schema.recordings.kind,
         mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
         trashedAt: schema.recordings.trashedAt,
+        expiryNeedsRepair,
         durationMs: schema.recordings.durationMs,
         ownerEmail: schema.recordings.ownerEmail,
         visibility: schema.recordings.visibility,
@@ -171,6 +181,7 @@ export default defineAction({
         kind: schema.recordings.kind,
         mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
         trashedAt: schema.recordings.trashedAt,
+        expiryNeedsRepair,
         durationMs: schema.recordings.durationMs,
         ownerEmail: schema.recordings.ownerEmail,
         visibility: schema.recordings.visibility,
@@ -208,6 +219,7 @@ export default defineAction({
         kind: schema.recordings.kind,
         mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
         trashedAt: schema.recordings.trashedAt,
+        expiryNeedsRepair,
         durationMs: schema.recordings.durationMs,
         ownerEmail: schema.recordings.ownerEmail,
         visibility: schema.recordings.visibility,
@@ -348,9 +360,19 @@ export default defineAction({
       return (b.updatedAt ?? "").localeCompare(a.updatedAt ?? "");
     });
 
+    const invalidExpiryIds = Array.from(
+      new Set(
+        [...recMatches, ...transcriptRows, ...commentRows]
+          .filter((row) => row.expiryNeedsRepair)
+          .map((row) => row.id),
+      ),
+    );
     return {
       query: args.query,
       results: results.slice(0, args.limit),
+      warnings: invalidExpiryIds.length
+        ? [{ code: "invalid_recording_expiry", recordingIds: invalidExpiryIds }]
+        : [],
     };
   },
   link: ({ result }) => {

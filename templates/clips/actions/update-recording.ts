@@ -41,7 +41,10 @@ export default defineAction({
     defaultSpeed: z.string().optional(),
     animatedThumbnailEnabled: z.union([z.boolean(), cliBoolean]).optional(),
     password: z.string().nullish(),
-    expiresAt: z.string().nullish(),
+    expiresAt: z
+      .union([z.literal(""), z.iso.datetime({ offset: true })])
+      .transform((value) => (value ? new Date(value).toISOString() : null))
+      .nullish(),
     chaptersJson: z
       .string()
       .optional()
