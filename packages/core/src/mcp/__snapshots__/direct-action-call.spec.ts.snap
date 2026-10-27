@@ -77,6 +77,7 @@ After they approve, call publish again with exactly the same arguments before 20
 }
 `;
 
+// oracle-change: a grant that expired in the store is still refused; the trace adds the review page check, the fuller grant record and the readable prompt that names the draft
 exports[`direct tools/call wire output > approval: a grant that expired in the store is refused 1`] = `
 {
   "trace": [
@@ -215,6 +216,7 @@ Draft id: d-8",
 }
 `;
 
+// oracle-change: a resume after the prompt window is now a tool error, because the grant can still be approved on the review page, instead of an invalid requestState protocol error
 exports[`direct tools/call wire output > approval: a resume after the approval window is refused 1`] = `
 {
   "trace": [
@@ -398,6 +400,7 @@ exports[`direct tools/call wire output > approval: a static-token caller cannot 
 }
 `;
 
+// oracle-change: the approved round trip now records the grant's run as completed, with the review page check, fuller grant record and readable prompt
 exports[`direct tools/call wire output > approval: client-fulfilled elicitation round trip 1`] = `
 {
   "trace": [
@@ -624,6 +627,7 @@ Draft id: d-4",
 }
 `;
 
+// oracle-change: a denial is now recorded as the grant's answer, with the review page check, fuller grant record and readable prompt
 exports[`direct tools/call wire output > approval: denied decision and predicate outcomes 1`] = `
 {
   "trace": [
@@ -938,6 +942,7 @@ Big: Yes",
 }
 `;
 
+// oracle-change: the approved retry now records the grant's run as completed, with the review page check, fuller grant record and readable prompt
 exports[`direct tools/call wire output > approval: elicitation, approved retry, and replay 1`] = `
 {
   "trace": [
@@ -1247,6 +1252,7 @@ Draft id: d-1",
 }
 `;
 
+// oracle-change: the round limit still ends the call; the trace adds the review page check, the fuller grant record and the readable prompt that names the draft
 exports[`direct tools/call wire output > approval: the client gives up when its round limit is exhausted 1`] = `
 {
   "trace": [
@@ -1345,6 +1351,7 @@ Draft id: d-7",
 }
 `;
 
+// oracle-change: the one run of two concurrent resumes is now recorded as completed on the grant, with the review page check, fuller grant record and readable prompt
 exports[`direct tools/call wire output > approval: two concurrent resumes of one approval run the action once 1`] = `
 {
   "firstLeg": {

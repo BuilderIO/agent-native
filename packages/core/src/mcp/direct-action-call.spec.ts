@@ -864,6 +864,7 @@ describe("direct tools/call wire output", () => {
     expect(snapshot(wire)).toMatchSnapshot();
   });
 
+  // oracle-change(packages/core/src/mcp/__snapshots__/direct-action-call.spec.ts.snap): a client without elicitation now gets a review page link instead of a protocol error, so this snapshot replaces "cannot be asked".
   it("approval: a client without elicitation gets the review page link", async () => {
     const { client, wire } = await connect({
       ...(await oauthHeaders()),
