@@ -14,8 +14,10 @@ export type FigmaSyncStatus =
   | "both-changed";
 
 export function stableJson(value: unknown): string {
-  if (value === null || typeof value !== "object") {
-    return JSON.stringify(value) ?? "null";
+  if (value === undefined || value === null) return "null";
+  if (typeof value !== "object") {
+    if (typeof value === "function" || typeof value === "symbol") return "null";
+    return JSON.stringify(value);
   }
   if (Array.isArray(value)) {
     return `[${value.map(stableJson).join(",")}]`;

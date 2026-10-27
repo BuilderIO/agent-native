@@ -42,6 +42,10 @@ interface LocalFigmaMapping {
   parentFigmaCommentId: string | null;
 }
 
+interface PendingFigmaMapping extends LocalFigmaMapping {
+  pendingSince: string;
+}
+
 const LOCAL_MAPPING_KEY = "figmaCommentMappings";
 
 const schemaInput = z.object({
@@ -165,12 +169,12 @@ function commentIdFromMetadata(comment: ReviewComment, fileKey: string) {
 function readLocalMappings(
   data: Record<string, unknown>,
   fileKey: string,
-): Record<string, LocalFigmaMapping> {
+): Partial<Record<string, LocalFigmaMapping>> {
   const rootValue = data[LOCAL_MAPPING_KEY];
   const root = isRecord(rootValue) ? rootValue : {};
   const fileValue = root[fileKey];
   const file = isRecord(fileValue) ? fileValue : {};
-  return file as Record<string, LocalFigmaMapping>;
+  return file as Partial<Record<string, LocalFigmaMapping>>;
 }
 
 async function writeLocalMapping(input: {
@@ -227,7 +231,7 @@ async function writeLocalMapping(input: {
       return expected
         ? JSON.stringify(mappings[input.reviewCommentId]) ===
             JSON.stringify(expected)
-        : mappings[input.reviewCommentId] === undefined;
+        : !Object.hasOwn(mappings, input.reviewCommentId);
     },
   });
 }
@@ -318,17 +322,18 @@ export default defineAction({
       reviewContext,
       "editor",
     );
-    const [design] = await getDb()
+    const designs = await getDb()
       .select({ data: schema.designs.data })
       .from(schema.designs)
       .where(eq(schema.designs.id, args.designId));
+    const design = designs.at(0);
     if (!design) {
       failAction("Design not found.", {
         errorCode: "not_found",
         statusCode: 404,
       });
     }
-    const [screen] = await getDb()
+    const screens = await getDb()
       .select({ id: schema.designFiles.id })
       .from(schema.designFiles)
       .where(
@@ -337,6 +342,7 @@ export default defineAction({
           eq(schema.designFiles.designId, args.designId),
         ),
       );
+    const screen = screens.at(0);
     if (!screen) {
       failAction("Choose a screen linked to the source file.", {
         errorCode: "figma_sync_screen_missing",
@@ -559,9 +565,8 @@ export default defineAction({
       for (const comment of commentsToPublish) {
         const importedId = commentIdFromMetadata(comment, fileKey);
         const mappedId = localCommentMapping(mappings[comment.id]);
-        if (importedId || mappedId) {
-          localToFigma.set(comment.id, importedId ?? mappedId!);
-        }
+        if (importedId) localToFigma.set(comment.id, importedId);
+        else if (mappedId) localToFigma.set(comment.id, mappedId);
       }
       const sortedComments = [...commentsToPublish].sort((left, right) => {
         const leftRoot = left.parentCommentId === null;
@@ -598,9 +603,10 @@ export default defineAction({
           userId: currentUser.id,
           since: pendingSince,
         });
-        if (existing.length === 1) {
+        const existingComment = existing.at(0);
+        if (existing.length === 1 && existingComment) {
           const reconciled = {
-            figmaCommentId: existing[0]!.id,
+            figmaCommentId: existingComment.id,
             messageHash: createHash("sha256")
               .update(comment.body)
               .digest("hex"),
@@ -617,7 +623,7 @@ export default defineAction({
           });
           Object.assign(designData, updated.data);
           mappings[comment.id] = reconciled;
-          localToFigma.set(comment.id, existing[0]!.id);
+          localToFigma.set(comment.id, existingComment.id);
           result.published += 1;
           continue;
         }
@@ -635,7 +641,7 @@ export default defineAction({
           );
           continue;
         }
-        const pending: LocalFigmaMapping = {
+        const pending: PendingFigmaMapping = {
           pendingSince: new Date().toISOString(),
           messageHash: createHash("sha256").update(comment.body).digest("hex"),
           parentFigmaCommentId,
@@ -696,30 +702,54 @@ export default defineAction({
               );
               continue;
             }
-            const failure = (
+            const failureByStatus = new Map<
+              number,
               {
-                400: {
+                errorCode: (typeof errors.codes)[number];
+                message: string;
+              }
+            >([
+              [
+                400,
+                {
                   errorCode: "figma_comments_invalid_request",
                   message:
                     "The comment or reply target was rejected. Check it and try again.",
                 },
-                401: {
+              ],
+              [
+                401,
+                {
                   errorCode: "figma_comments_auth_failed",
                   message:
                     "The connected source account rejected this comment. Reconnect and try again.",
                 },
-                403: {
+              ],
+              [
+                403,
+                {
                   errorCode: "figma_comments_write_forbidden",
                   message:
                     "The connected account does not have permission to publish comments to this Draft.",
                 },
-                404: {
+              ],
+              [
+                404,
+                {
                   errorCode: "figma_comments_target_not_found",
                   message:
                     "The linked source or reply target could not be found. Refresh the link and try again.",
                 },
-              } as const
-            )[status as 400 | 401 | 403 | 404]!;
+              ],
+            ]);
+            const failure = failureByStatus.get(status);
+            if (!failure) {
+              result.skipped += 1;
+              result.warnings.push(
+                `The source returned status ${status} while publishing comment ${comment.id}. Run sync again to reconcile it before retrying.`,
+              );
+              continue;
+            }
             failAction(failure.message, {
               errorCode: failure.errorCode,
               statusCode: status,

@@ -324,7 +324,7 @@ export default createAgentChatPlugin({
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
   prepareRequest: async ({ message, displayMessage }) => {
     return prepareFigmaSyncAgentRequest(
-      { message, displayMessage },
+      displayMessage === undefined ? { message } : { message, displayMessage },
       await isFigmaSyncEnabled(),
     );
   },

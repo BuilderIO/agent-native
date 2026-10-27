@@ -272,17 +272,18 @@ export default defineAction({
     await assertFigmaSyncEnabled();
     await assertAccess("design", args.designId, "editor");
     const db = getDb();
-    const [design] = await db
+    const designs = await db
       .select({ data: schema.designs.data })
       .from(schema.designs)
       .where(eq(schema.designs.id, args.designId));
+    const design = designs.at(0);
     if (!design) {
       failAction("Design not found.", {
         errorCode: "not_found",
         statusCode: 404,
       });
     }
-    const [screenFile] = await db
+    const screenFiles = await db
       .select({
         id: schema.designFiles.id,
         filename: schema.designFiles.filename,
@@ -296,6 +297,7 @@ export default defineAction({
           eq(schema.designFiles.designId, args.designId),
         ),
       );
+    const screenFile = screenFiles.at(0);
     if (!screenFile || screenFile.fileType !== "html") {
       failAction("Choose an HTML screen linked to a source node.", {
         errorCode: "figma_sync_screen_missing",

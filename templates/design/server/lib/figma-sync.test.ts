@@ -4,7 +4,12 @@ import {
   filterFigmaSyncAgentActions,
   prepareFigmaSyncAgentRequest,
 } from "./figma-sync-flag.js";
-import { classifyFigmaSync, hashJson, hashText } from "./figma-sync.js";
+import {
+  classifyFigmaSync,
+  hashJson,
+  hashText,
+  stableJson,
+} from "./figma-sync.js";
 
 describe("Figma sync baselines", () => {
   const baseline = {
@@ -27,6 +32,10 @@ describe("Figma sync baselines", () => {
     expect(hashJson({ id: "1:2", name: "Frame" })).toBe(
       hashJson({ name: "Frame", id: "1:2" }),
     );
+  });
+
+  it("serializes undefined values with a stable JSON fallback", () => {
+    expect(stableJson(undefined)).toBe("null");
   });
 
   it("stays idempotent across repeated checks", () => {

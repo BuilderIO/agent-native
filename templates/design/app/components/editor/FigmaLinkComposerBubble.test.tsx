@@ -85,6 +85,10 @@ function button(label: string): HTMLButtonElement {
   return match;
 }
 
+function renderedText(): string {
+  return container?.textContent ?? "";
+}
+
 describe("FigmaLinkComposerBubble", () => {
   it("asks for a token when Figma is not connected and saves it outside chat", async () => {
     connectionMocks.get.mockResolvedValue({
@@ -216,8 +220,8 @@ describe("FigmaLinkComposerBubble", () => {
 
     expect(button("chat.figmaLink.importFrame")).toBeTruthy();
     expect(button("chat.figmaLink.exportSvg")).toBeTruthy();
-    expect(container!.textContent).not.toContain("chat.figmaLink.syncDesign");
-    expect(container!.textContent).not.toContain("chat.figmaLink.syncComments");
+    expect(renderedText()).not.toContain("chat.figmaLink.syncDesign");
+    expect(renderedText()).not.toContain("chat.figmaLink.syncComments");
   });
 
   it("keeps the newest connection result when status checks finish out of order", async () => {
@@ -323,7 +327,7 @@ describe("FigmaLinkComposerBubble", () => {
     await renderBubble();
 
     expect(button("chat.figmaLink.exportSvg").disabled).toBe(true);
-    expect(container!.textContent).not.toContain("chat.figmaLink.syncDesign");
-    expect(container!.textContent).not.toContain("chat.figmaLink.syncComments");
+    expect(renderedText()).not.toContain("chat.figmaLink.syncDesign");
+    expect(renderedText()).not.toContain("chat.figmaLink.syncComments");
   });
 });

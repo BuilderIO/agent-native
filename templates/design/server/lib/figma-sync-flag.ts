@@ -35,9 +35,11 @@ export function filterFigmaSyncAgentActions(
 }
 
 export async function isFigmaSyncEnabled(): Promise<boolean> {
+  const userEmail = getRequestUserEmail();
+  const orgId = getRequestOrgId();
   return isFeatureFlagEnabled(FIGMA_SYNC, {
-    userEmail: getRequestUserEmail(),
-    orgId: getRequestOrgId(),
+    ...(userEmail === undefined ? {} : { userEmail }),
+    ...(orgId === undefined ? {} : { orgId }),
   });
 }
 

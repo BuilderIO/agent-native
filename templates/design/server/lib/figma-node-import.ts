@@ -624,7 +624,15 @@ export async function fetchFigmaNodeSnapshot(
   const nodes = await fetchFigmaNodes(fileKey, [nodeId], true, (metadata) => {
     fileMetadata = metadata;
   });
-  return { node: nodes[nodeId]!, ...fileMetadata };
+  const node = Object.hasOwn(nodes, nodeId) ? nodes[nodeId] : undefined;
+  if (!node) {
+    failFigmaImport(
+      `Figma node ${nodeId} was not found in the response for file ${fileKey}.`,
+      FIGMA_IMPORT_ERROR_CODES.requestFailed,
+      { statusCode: 502, details: { fileKey, nodeId } },
+    );
+  }
+  return { node, ...fileMetadata };
 }
 
 async function fetchFallbackImageUrls(
