@@ -6,6 +6,8 @@ import {
   shouldScheduleWorkflowTimeoutFallback,
   shouldRetryWorkflowStop,
   WORKFLOW_STOP_MAX_ATTEMPTS,
+  WORKFLOW_STOP_RETRY_DELAY_MS,
+  workflowStopAttemptAfterFailure,
   workflowGenerationProgressAt,
   workflowGenerationStaleAt,
   workflowSessionTabId,
@@ -54,6 +56,46 @@ describe("shouldRetryWorkflowStop", () => {
     expect(shouldRetryWorkflowStop(new Error("Network unavailable"), 1)).toBe(
       true,
     );
+  });
+});
+
+describe("workflowStopAttemptAfterFailure", () => {
+  const attempt = {
+    recordingId: "rec_123",
+    requestedAt: "2026-10-18T19:51:00.000Z",
+    reason: "cancelled" as const,
+    failedAttempts: 0,
+    exhausted: false,
+    retryAt: null,
+  };
+
+  it("persists the retry deadline and failure count with the attempt", () => {
+    const now = Date.parse("2026-10-18T20:00:00.000Z");
+    expect(
+      workflowStopAttemptAfterFailure(
+        attempt,
+        Object.assign(new Error("Unavailable"), { status: 503 }),
+        now,
+      ),
+    ).toEqual({
+      ...attempt,
+      failedAttempts: 1,
+      retryAt: now + WORKFLOW_STOP_RETRY_DELAY_MS,
+    });
+  });
+
+  it("keeps permanent failures and the attempt limit exhausted", () => {
+    expect(
+      workflowStopAttemptAfterFailure(
+        { ...attempt, failedAttempts: WORKFLOW_STOP_MAX_ATTEMPTS - 1 },
+        Object.assign(new Error("Unavailable"), { status: 503 }),
+      ),
+    ).toEqual({
+      ...attempt,
+      failedAttempts: WORKFLOW_STOP_MAX_ATTEMPTS,
+      exhausted: true,
+      retryAt: null,
+    });
   });
 });
 

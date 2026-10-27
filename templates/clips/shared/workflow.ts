@@ -105,6 +105,17 @@ export function shouldScheduleWorkflowTimeoutFallback(
 }
 
 export const WORKFLOW_STOP_MAX_ATTEMPTS = 5;
+export const WORKFLOW_STOP_RETRY_DELAY_MS = 30_000;
+
+export interface WorkflowStopAttempt {
+  recordingId: string;
+  requestedAt: string;
+  requestId?: string;
+  reason: "cancelled" | "timed_out";
+  failedAttempts: number;
+  exhausted: boolean;
+  retryAt: number | null;
+}
 
 export function shouldRetryWorkflowStop(
   error: unknown,
@@ -118,4 +129,19 @@ export function shouldRetryWorkflowStop(
     status >= 500 ||
     [408, 409, 425, 429].includes(status)
   );
+}
+
+export function workflowStopAttemptAfterFailure(
+  attempt: WorkflowStopAttempt,
+  error: unknown,
+  now = Date.now(),
+): WorkflowStopAttempt {
+  const failedAttempts = attempt.failedAttempts + 1;
+  const retry = shouldRetryWorkflowStop(error, failedAttempts);
+  return {
+    ...attempt,
+    failedAttempts,
+    exhausted: !retry,
+    retryAt: retry ? now + WORKFLOW_STOP_RETRY_DELAY_MS : null,
+  };
 }

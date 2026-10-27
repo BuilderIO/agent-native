@@ -54,8 +54,9 @@ import {
   isRecentWorkflowGeneration,
   matchesWorkflowRequest,
   shouldScheduleWorkflowTimeoutFallback,
-  shouldRetryWorkflowStop,
   type WorkflowKind,
+  type WorkflowStopAttempt,
+  workflowStopAttemptAfterFailure,
   workflowGenerationProgressAt,
   workflowGenerationStaleAt,
   workflowSessionTabId,
@@ -1422,14 +1423,8 @@ export default function RecordingPage() {
       ? generatedWorkflowQ.data
       : null;
   const workflowGenerationExpiry = workflowGenerationStaleAt(generatedWorkflow);
-  const [workflowStopAttempt, setWorkflowStopAttempt] = useState<{
-    recordingId: string;
-    requestedAt: string;
-    requestId?: string;
-    reason: "cancelled" | "timed_out";
-    failedAttempts: number;
-    exhausted: boolean;
-  } | null>(null);
+  const [workflowStopAttempt, setWorkflowStopAttempt] =
+    useState<WorkflowStopAttempt | null>(null);
   const workflowStopInFlightRef = useRef<string | null>(null);
   const reconcileWorkflowGeneration = useActionMutation<
     WorkflowGenerationStopResult,
@@ -1494,6 +1489,7 @@ export default function RecordingPage() {
           reason: "cancelled",
           failedAttempts: 0,
           exhausted: false,
+          retryAt: null,
         });
         startWorkflowToast(t("recordingPage.workflowStillGenerating"), {
           action: { label: t("common.cancel"), onClick: requestStop },
@@ -1545,9 +1541,9 @@ export default function RecordingPage() {
                 reason: "timed_out",
                 failedAttempts: 0,
                 exhausted: false,
+                retryAt: null,
               },
         );
-        startWorkflowToast(t("recordingPage.workflowStillGenerating"));
       },
       Math.max(0, workflowGenerationExpiry - Date.now()),
     );
@@ -1558,8 +1554,6 @@ export default function RecordingPage() {
     generatedWorkflow?.recordingId,
     generatedWorkflow?.requestedAt,
     generatedWorkflow?.status,
-    startWorkflowToast,
-    t,
     workflowStopAttempt,
     workflowGenerationExpiry,
   ]);
@@ -1577,56 +1571,64 @@ export default function RecordingPage() {
     }
     if (workflowStopAttempt.exhausted) return;
 
+    if (
+      workflowStopAttempt.retryAt !== null &&
+      workflowStopAttempt.retryAt > Date.now()
+    ) {
+      const retryAt = workflowStopAttempt.retryAt;
+      const timer = window.setTimeout(() => {
+        setWorkflowStopAttempt((current) =>
+          current?.recordingId === workflowStopAttempt.recordingId &&
+          matchesWorkflowRequest(current, workflowStopAttempt) &&
+          current.retryAt === retryAt
+            ? { ...current, retryAt: null }
+            : current,
+        );
+      }, retryAt - Date.now());
+      return () => window.clearTimeout(timer);
+    }
+
     const attemptKey = `${workflowStopAttempt.recordingId}:${workflowStopAttempt.requestedAt}:${workflowStopAttempt.requestId ?? ""}`;
     if (workflowStopInFlightRef.current === attemptKey) return;
     workflowStopInFlightRef.current = attemptKey;
 
     let active = true;
-    let retryTimer: number | undefined;
     const attemptStop = async () => {
       try {
         await stopWorkflowGeneration(workflow, workflowStopAttempt.reason);
-        if (active) setWorkflowStopAttempt(null);
+        setWorkflowStopAttempt((current) =>
+          current?.recordingId === workflowStopAttempt.recordingId &&
+          matchesWorkflowRequest(current, workflowStopAttempt)
+            ? null
+            : current,
+        );
       } catch (error) {
-        if (!active) return;
-        const failedAttempts = workflowStopAttempt.failedAttempts + 1;
-        startWorkflowToast(t("recordingPage.workflowStillGenerating"), {
-          description:
-            actionErrorMessage(error) ?? t("recordingPage.tryAgainMoment"),
-          action: {
-            label: t("common.cancel"),
-            onClick: () => cancelWorkflowGeneration(workflow),
-          },
-        });
-        if (shouldRetryWorkflowStop(error, failedAttempts)) {
-          retryTimer = window.setTimeout(() => {
-            setWorkflowStopAttempt((current) =>
-              current &&
-              current.recordingId === workflowStopAttempt.recordingId &&
-              matchesWorkflowRequest(current, workflowStopAttempt)
-                ? { ...current, failedAttempts }
-                : current,
-            );
-          }, 30_000);
-        } else {
-          setWorkflowStopAttempt((current) =>
-            current &&
-            current.recordingId === workflowStopAttempt.recordingId &&
-            matchesWorkflowRequest(current, workflowStopAttempt)
-              ? { ...current, failedAttempts, exhausted: true }
-              : current,
-          );
+        if (active) {
+          startWorkflowToast(t("recordingPage.workflowStillGenerating"), {
+            description:
+              actionErrorMessage(error) ?? t("recordingPage.tryAgainMoment"),
+            action: {
+              label: t("common.cancel"),
+              onClick: () => cancelWorkflowGeneration(workflow),
+            },
+          });
         }
-      }
-      if (workflowStopInFlightRef.current === attemptKey) {
-        workflowStopInFlightRef.current = null;
+        setWorkflowStopAttempt((current) =>
+          current?.recordingId === workflowStopAttempt.recordingId &&
+          matchesWorkflowRequest(current, workflowStopAttempt)
+            ? workflowStopAttemptAfterFailure(current, error)
+            : current,
+        );
+      } finally {
+        if (workflowStopInFlightRef.current === attemptKey) {
+          workflowStopInFlightRef.current = null;
+        }
       }
     };
     void attemptStop();
 
     return () => {
       active = false;
-      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
     };
   }, [
     canEdit,
@@ -1727,6 +1729,12 @@ export default function RecordingPage() {
       generatedWorkflow.status !== "generating" ||
       !generatedWorkflow.recordingId ||
       !generatedWorkflow.requestedAt
+    ) {
+      return;
+    }
+    if (
+      workflowStopAttempt?.recordingId === generatedWorkflow.recordingId &&
+      matchesWorkflowRequest(generatedWorkflow, workflowStopAttempt)
     ) {
       return;
     }
