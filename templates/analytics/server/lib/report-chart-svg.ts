@@ -790,8 +790,8 @@ function renderCartesianChartSvg({
 
   // Each axis formats its values like the first series drawn on it.
   const axisFormatter = (seriesIndexes: number[]) => {
-    const first = seriesIndexes[0];
-    return first === undefined ? undefined : series[first]?.formatter;
+    const first = seriesIndexes.at(0);
+    return first === undefined ? undefined : series.at(first)?.formatter;
   };
   const leftFormatter = axisFormatter(leftAxisIndexes);
   const rightFormatter = axisFormatter(rightAxisIndexes);
