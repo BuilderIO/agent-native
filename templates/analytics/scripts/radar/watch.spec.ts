@@ -91,6 +91,52 @@ describe("hourly event query", () => {
   );
 });
 
+describe("weekly prefetched SLO rows", () => {
+  it("evaluates only SLO rows for the current watch date", async () => {
+    queryMocks.resolveRadarOrganizationId.mockResolvedValue("org-id");
+    queryMocks.resolveRadarFirstPartyBackend.mockResolvedValue({
+      sink: "bigquery",
+      table: null,
+    });
+    queryMocks.runPostgresQuery.mockResolvedValue({ rows: [] });
+
+    const run = await runWatch({
+      window: "daily",
+      date: "2026-10-26",
+      includeCampaign: false,
+      prefetched: {
+        eventRows: [],
+        funnelRows: [],
+        uploadRows: [],
+        sloRows: [
+          {
+            target_date: "2026-10-26",
+            app: "design",
+            sample_size: 10,
+            p90_seconds: 500,
+          },
+          {
+            target_date: "2026-10-25",
+            app: "design",
+            sample_size: 10,
+            p90_seconds: 1_000,
+          },
+        ],
+      },
+    });
+
+    expect(
+      run.checks.filter((check) => check.id === "prompt-output-p90"),
+    ).toEqual([
+      expect.objectContaining({
+        app: "design",
+        status: "fired",
+        numerator: 500,
+      }),
+    ]);
+  });
+});
+
 describe("radar event labels", () => {
   it("redacts unreviewed event names before report output", () => {
     expect(safeRadarEventLabel("signup")).toBe("signup");

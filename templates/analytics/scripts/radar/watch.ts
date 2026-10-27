@@ -1339,7 +1339,10 @@ export async function runWatch(
     troubleRows = trouble.rows as QueryRow[];
     uploadRows = upload;
     issueRows = issues.rows as QueryRow[];
-    sloRows = slo.rows as QueryRow[];
+    const loadedSloRows = slo.rows as QueryRow[];
+    sloRows = options.prefetched
+      ? loadedSloRows.filter((row) => asDate(row.target_date) === date)
+      : loadedSloRows;
     additionalQueries = options.prefetched
       ? 2 + 1
       : 5 + (backend.sink === "bigquery" ? 1 : 0);
