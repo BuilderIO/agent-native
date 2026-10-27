@@ -106,7 +106,7 @@ describe("cliApprovalRefusal", () => {
     },
   );
 
-  it("keeps the Windows rerun for a lone percent sign or plain JSON", () => {
+  it("keeps the Windows rerun for a lone percent sign, or JSON in a POSIX shell", () => {
     onPlatform("win32");
     vi.stubEnv("SHELL", "");
     expect(cliApprovalRefusal("send", ["--note", "50%"])).toBe(
@@ -114,10 +114,20 @@ describe("cliApprovalRefusal", () => {
         `pnpm action send --note '50%' --approved\n` +
         `In cmd.exe: pnpm action send --note "50%" --approved`,
     );
+    vi.stubEnv("SHELL", "C:\\Program Files\\Git\\usr\\bin\\bash.exe");
     expect(cliApprovalRefusal("send", ['{"id":"x"}', "--note", "a b"])).toBe(
       `Action "send" requires human approval. Ask the person to approve this call, then rerun:\n` +
-        `pnpm action send '{"id":"x"}' --note 'a b' --approved\n` +
-        `In cmd.exe: pnpm action send "{\\"id\\":\\"x\\"}" --note "a b" --approved`,
+        `pnpm action send '{"id":"x"}' --note 'a b' --approved`,
+    );
+  });
+
+  it("sends a double quote to the prompt when Windows may be PowerShell 5.1", () => {
+    onPlatform("win32");
+    vi.stubEnv("SHELL", "");
+    expect(cliApprovalRefusal("send", ['{"id":"x"}'])).toBe(
+      `Action "send" requires human approval. An argument contains a double quote, which Windows PowerShell 5.1 drops when it passes arguments on, so a rerun with --approved might not use these values. Ask the person to run this in a terminal and check the values at the prompt:\n` +
+        `pnpm action send '{"id":"x"}'\n` +
+        `In cmd.exe: pnpm action send "{\\"id\\":\\"x\\"}"`,
     );
   });
 

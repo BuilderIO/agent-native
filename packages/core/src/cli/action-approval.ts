@@ -85,6 +85,8 @@ export function cliRerunCommand(
 // could run other values than the ones refused. And pnpm can't keep a `"`
 // from ending a quoted argument there, so `&|<>^` after one, in the same
 // argument or a later one, would run as a command when the person pastes it.
+// Windows PowerShell 5.1 also drops every `"` inside an argument it passes
+// on, and no single quoting suits both it and PowerShell 7.
 const CMD_VARIABLE = /%[^%]+%/;
 const CMD_METACHARACTER = /[&|<>^]/;
 
@@ -98,8 +100,13 @@ export function cliApprovalRefusal(
     if (joined.includes('"') && CMD_METACHARACTER.test(joined)) {
       return `${heading} The arguments have a quote and one of & | < > ^, which pnpm on Windows can't pass through cmd.exe intact, so there's no command to copy. Ask the person to approve this call in the app instead.`;
     }
-    if (originalArgs.some((arg) => CMD_VARIABLE.test(arg))) {
-      return `${heading} An argument contains %NAME%, which Windows expands when pnpm runs the action, so a rerun with --approved might not use these values. Ask the person to run this in a terminal and check the values at the prompt:\n${cliRerunCommand(actionName, originalArgs, false)}`;
+    const changedBy = originalArgs.some((arg) => CMD_VARIABLE.test(arg))
+      ? "An argument contains %NAME%, which Windows expands when pnpm runs the action"
+      : windowsShellUnknown() && joined.includes('"')
+        ? "An argument contains a double quote, which Windows PowerShell 5.1 drops when it passes arguments on"
+        : undefined;
+    if (changedBy) {
+      return `${heading} ${changedBy}, so a rerun with --approved might not use these values. Ask the person to run this in a terminal and check the values at the prompt:\n${cliRerunCommand(actionName, originalArgs, false)}`;
     }
   }
   return `${heading} Ask the person to approve this call, then rerun:\n${cliRerunCommand(actionName, originalArgs)}`;
