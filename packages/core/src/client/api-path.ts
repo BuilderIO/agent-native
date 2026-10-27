@@ -238,15 +238,18 @@ export function configureClientRouterBasename(): boolean {
   return true;
 }
 
-function externalEmbedTargetBasePath(): string {
-  if (typeof window === "undefined") return "";
+function externalEmbedTargetBasePath(): string | undefined {
+  if (typeof window === "undefined") return undefined;
   const target = (
     window as Window & {
       __AGENT_NATIVE_EXTERNAL_EMBED?: { target?: unknown };
     }
   ).__AGENT_NATIVE_EXTERNAL_EMBED?.target;
+  if (typeof target !== "string" || !target.startsWith("/")) {
+    return undefined;
+  }
   const mounts = workspaceAppMountPaths();
-  return resolveExternalEmbedTargetBasePath(target, {
+  const basePath = resolveExternalEmbedTargetBasePath(target, {
     workspaceRuntime: isWorkspaceRuntime(),
     routerBasePath: routerContextBasePath(),
     workspaceAppPath: workspaceAppConfiguredPath(),
@@ -254,11 +257,25 @@ function externalEmbedTargetBasePath(): string {
     explicitRootPath: hasExplicitWorkspaceRootPath(),
     frameworkRoutePrefix: frameworkRoutePrefix(),
   });
+  const pathname = window.location?.pathname;
+  if (typeof pathname !== "string" || !pathname.startsWith("/")) {
+    return basePath;
+  }
+
+  const currentMount = resolveWorkspaceAppMountPath(pathname, {
+    workspaceAppMountPaths: mounts ? [...mounts] : undefined,
+    frameworkRoutePrefix: frameworkRoutePrefix(),
+  });
+  if (currentMount !== undefined && currentMount !== basePath) {
+    return currentMount;
+  }
+  if (basePath && !pathMatchesBasePath(pathname, basePath)) return undefined;
+  return basePath;
 }
 
 export function resolveAppBasePath(): string {
   const externalEmbed = externalEmbedTargetBasePath();
-  if (externalEmbed) return externalEmbed;
+  if (externalEmbed !== undefined) return externalEmbed;
   const configured = configuredBasePath();
   const derived = pathDerivedBasePath();
   if (!configured) return derived || workspacePathBasePath();

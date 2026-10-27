@@ -20,6 +20,7 @@ vi.mock("@/components/settings/settings-links", () => ({
 
 vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => path,
+  isWorkspaceRuntime: () => false,
   resolveAppBasePath: () => "",
   appPath: (path: string) => path,
 }));
