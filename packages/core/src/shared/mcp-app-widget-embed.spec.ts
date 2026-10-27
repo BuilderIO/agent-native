@@ -133,7 +133,7 @@ describe("MCP app widget embed boot storage", () => {
   it("leaves a non-workspace external target unresolved", () => {
     expect(resolveExternalEmbedTargetBasePath("/deck/reports")).toBeUndefined();
     expect(
-      resolveExternalEmbedTargetBasePath("/api/auth", {
+      resolveExternalEmbedTargetBasePath("/reports/detail", {
         workspaceRuntime: true,
         workspaceAppMountPaths: ["/mail"],
       }),
@@ -270,10 +270,10 @@ describe("MCP app widget embed boot storage", () => {
     expect(runBootScript(undefined, true)).toBe(true);
   });
 
-  it("uses explicit embed signals when the workspace mount cannot be resolved", () => {
+  it("uses explicit embed signals when the workspace target has no declared mount", () => {
     setParent({ postMessage() {} } as unknown as Window);
     setTestUrl(
-      "http://localhost:3000/api/auth?__an_embed_token=child-token&__an_mcp_chat_bridge=1",
+      "http://localhost:3000/reports/detail?__an_embed_token=child-token&__an_mcp_chat_bridge=1",
     );
     (
       window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }
@@ -283,7 +283,7 @@ describe("MCP app widget embed boot storage", () => {
     };
     (
       window as Window & { __AGENT_NATIVE_EXTERNAL_EMBED?: unknown }
-    ).__AGENT_NATIVE_EXTERNAL_EMBED = { target: "/api/auth" };
+    ).__AGENT_NATIVE_EXTERNAL_EMBED = { target: "/reports/detail" };
     const getItem = vi.spyOn(sessionStorage, "getItem");
 
     try {

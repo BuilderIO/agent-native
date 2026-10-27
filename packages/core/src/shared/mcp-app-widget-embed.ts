@@ -96,6 +96,12 @@ export function resolveMcpAppEmbedBasePath(
 
     if (matchingMount) return matchingMount;
     if (explicitRootPath) return "";
+    if (
+      options.preferDeclaredMounts &&
+      Array.isArray(options.workspaceAppMountPaths)
+    ) {
+      return undefined;
+    }
     return fallbackPath || undefined;
   };
 

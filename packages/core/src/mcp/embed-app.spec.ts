@@ -403,7 +403,7 @@ describe("embedApp", () => {
     const storedBeforeUnresolvedTarget = [...stored.entries()];
     installRuntime({
       origin: "https://app.example",
-      target: "/api/auth/session",
+      target: "/reports/detail",
       token: "unresolved-token",
       chatBridgeActive: true,
       appConfig: {
