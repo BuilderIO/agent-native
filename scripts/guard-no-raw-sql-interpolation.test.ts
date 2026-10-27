@@ -99,6 +99,25 @@ describe("raw SQL interpolation guard", () => {
     );
   });
 
+  it("recognizes execute bindings destructured from DbExec values", () => {
+    const direct = source([
+      "const { execute } = getDbExec();",
+      "execute(`DELETE FROM records WHERE id = ${recordId}`);",
+    ]);
+    const renamed = source([
+      "const database = getDbExec();",
+      "const { execute: runQuery } = database;",
+      "runQuery(`DELETE FROM records WHERE id = ${recordId}`);",
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolations(FILE, direct, new Set([2])),
+    ).toHaveLength(1);
+    expect(
+      findRawSqlInterpolationViolations(FILE, renamed, new Set([3])),
+    ).toHaveLength(1);
+  });
+
   it("does not treat a non-DbExec execute method as a SQL sink", () => {
     const text = source([
       'import { sql } from "drizzle-orm";',

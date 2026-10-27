@@ -768,6 +768,25 @@ function buildSqlAnalysis(
             executeAliases.add(symbol);
           }
         }
+      } else if (
+        ts.isObjectBindingPattern(node.name) &&
+        isDbExecExpression(node.initializer, checker, sourceFile)
+      ) {
+        for (const element of node.name.elements) {
+          const propertyName = element.propertyName ?? element.name;
+          if (
+            element.dotDotToken ||
+            !(
+              ts.isIdentifier(propertyName) || ts.isStringLiteral(propertyName)
+            ) ||
+            propertyName.text !== "execute" ||
+            !ts.isIdentifier(element.name)
+          ) {
+            continue;
+          }
+          const symbol = checker.getSymbolAtLocation(element.name);
+          if (symbol) executeAliases.add(symbol);
+        }
       }
     }
     if (

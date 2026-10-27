@@ -31,7 +31,7 @@ import {
   postgresStatementTimeoutMs,
   assertHostedRuntimeDatabase,
 } from "./client.js";
-import type { DbExec, DbExecStatement } from "./client.js";
+import type { DbExec, DbExecInput } from "./client.js";
 import {
   assertPoolConnectionAvailable,
   runHoldingPoolConnection,
@@ -531,7 +531,7 @@ function drizzleTransactionExec(
   queryQueue = createDrizzleTransactionQueryQueue(),
 ): DbExec {
   const executeStatement = async (
-    statement: DbExecStatement,
+    statement: DbExecInput, // raw-sql-ok: bind fragment values before adapter execution.
     remainingMs: () => number,
     timedOut: () => boolean,
   ) => {
@@ -596,7 +596,9 @@ function drizzleTransactionExec(
     return queryResult;
   };
 
-  const execute = async (statement: DbExecStatement) => {
+  const execute = async (
+    statement: DbExecInput, // raw-sql-ok: this is the typed-fragment execution boundary.
+  ) => {
     const query = typeof statement === "string" ? statement : statement.sql;
     const { timeoutMs } = dbExecQueryBudget(statement);
     const startedAt = Date.now();

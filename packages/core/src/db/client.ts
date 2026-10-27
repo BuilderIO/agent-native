@@ -48,10 +48,11 @@ export interface DbExecQuery {
   maxAttempts?: number;
 }
 
-export type DbExecStatement = string | DbExecQuery | SqlFragment;
+export type DbExecStatement = string | DbExecQuery;
+export type DbExecInput = DbExecStatement | SqlFragment;
 
 export interface DbExec {
-  execute(sql: DbExecStatement): Promise<{
+  execute(sql: DbExecInput): Promise<{
     rows: any[];
     rowsAffected: number;
   }>;
@@ -943,7 +944,9 @@ export function toPostgresParams(
   return out;
 }
 
-function sqlAndArgs(sql: DbExecStatement): {
+function sqlAndArgs(
+  sql: DbExecInput, // raw-sql-ok: unwrap fragments at the database adapter boundary.
+): {
   rawSql: string;
   args: unknown[];
 } {
@@ -953,7 +956,7 @@ function sqlAndArgs(sql: DbExecStatement): {
 }
 
 function postgresSqlForStatement(
-  statement: DbExecStatement,
+  statement: DbExecInput,
   rawSql: string,
 ): string {
   return isSqlFragment(statement)
@@ -965,7 +968,7 @@ const POSTGRES_STATEMENT_TIMEOUT_HEADROOM_MS = 250;
 const POSTGRES_STATEMENT_TIMEOUT_RESET_MS = 5_000;
 const POSTGRES_MAX_INT = 2_147_483_647;
 
-export function hasExplicitDbTimeout(statement: DbExecStatement): boolean {
+export function hasExplicitDbTimeout(statement: DbExecInput): boolean {
   if (typeof statement === "string" || !("timeoutMs" in statement)) {
     return false;
   }
@@ -985,7 +988,7 @@ export function postgresStatementTimeoutMs(clientTimeoutMs: number): number {
   return Math.max(1, safeTimeoutMs - headroomMs);
 }
 
-export function dbExecQueryBudget(statement: DbExecStatement): {
+export function dbExecQueryBudget(statement: DbExecInput): {
   timeoutMs: number;
   maxAttempts: number;
 } {
@@ -1319,11 +1322,11 @@ export function assertHostedRuntimeDatabase(): void {
 const SCHEMA_MUTATION_STATEMENT =
   /^\s*(?:CREATE|ALTER|DROP|TRUNCATE|COMMENT|REINDEX|GRANT|REVOKE)\b/i;
 
-function rawSql(statement: DbExecStatement): string {
+function rawSql(statement: DbExecInput): string {
   return typeof statement === "string" ? statement : statement.sql;
 }
 
-export function isSchemaMutationStatement(statement: DbExecStatement): boolean {
+export function isSchemaMutationStatement(statement: DbExecInput): boolean {
   return SCHEMA_MUTATION_STATEMENT.test(rawSql(statement));
 }
 
@@ -1333,7 +1336,7 @@ export function isSchemaMutationStatement(statement: DbExecStatement): boolean {
  * reporting success against a missing table. The release migration wrapper
  * is the only supported production opt-in.
  */
-export function assertSchemaMutationAllowed(statement: DbExecStatement): void {
+export function assertSchemaMutationAllowed(statement: DbExecInput): void {
   const migrationRuntimeCanMutate =
     isMigrationExecutingRuntime() ||
     (isMigrationAuthorizedRuntime() && !isHostedFunctionInvocationRuntime());
@@ -2418,18 +2421,19 @@ export function getDbExec(): DbExec {
   // Never hand out the raw `_exec`: it bypasses the schema-mutation guard.
   if (_proxy) return _proxy;
 
+  function sanitize(sql: DbExecStatement): DbExecStatement;
+  function sanitize(sql: DbExecInput): DbExecInput;
   function sanitize(
-    sql: DbExecStatement, // raw-sql-ok: this wrapper forwards typed fragments and legacy statements unchanged.
-  ): DbExecStatement {
+    sql: DbExecInput, // raw-sql-ok: this wrapper forwards typed fragments and legacy statements unchanged.
+  ): DbExecInput {
+    if (isSqlFragment(sql)) return sql;
     if (typeof sql === "object" && sql.args !== undefined) {
       return { ...sql, args: sql.args.map((a) => a ?? null) };
     }
     return sql;
   }
 
-  async function execAnnotated(
-    s: DbExecStatement,
-  ): ReturnType<DbExec["execute"]> {
+  async function execAnnotated(s: DbExecInput): ReturnType<DbExec["execute"]> {
     assertSchemaMutationAllowed(s);
     try {
       return await getCurrentDbExec().execute(sanitize(s));

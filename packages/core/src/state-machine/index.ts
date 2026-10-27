@@ -40,9 +40,15 @@ export interface Machine<S extends string, E extends string> {
   transition(from: S, event: E): S;
   fromStates(event: E): readonly S[];
   sqlStateList(event: E): string;
-  sqlIn(event: E): SqlFragment;
   isTerminal(state: S): boolean;
   shortestPaths(): ReadonlyMap<S, readonly E[]>;
+}
+
+export interface SqlMachine<S extends string, E extends string> extends Machine<
+  S,
+  E
+> {
+  sqlIn(event: E): SqlFragment;
 }
 
 interface Transition<S extends string, E extends string> {
@@ -103,7 +109,7 @@ export function defineMachine<
       readonly to: NoInfer<S>;
     };
   };
-}): Machine<S, E> {
+}): SqlMachine<S, E> {
   const { id } = def;
   const states = Object.freeze([...def.states]);
   if (states.length === 0) {

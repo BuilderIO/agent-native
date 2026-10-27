@@ -29,6 +29,7 @@ export {
   isUniqueViolation,
   type DbExec,
   type DbExecConfig,
+  type DbExecInput,
   type DbExecQuery,
   type DbExecStatement,
 } from "./client.js";
