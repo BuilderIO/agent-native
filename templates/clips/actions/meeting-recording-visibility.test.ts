@@ -56,12 +56,19 @@ vi.mock("h3", async (original) => ({
 }));
 import publicMeeting from "../server/routes/api/public-meeting.get.js";
 const cleanup = vi.hoisted(() =>
-  vi.fn(async () => ({
-    summaryMd: "Fake copied notes",
-    bullets: [],
-    actionItems: [],
-    provider: "fixture",
-  })),
+  vi.fn(
+    async (): Promise<{
+      summaryMd: string;
+      bullets: { text: string }[];
+      actionItems: { text: string }[];
+      provider: string;
+    }> => ({
+      summaryMd: "Fake copied notes",
+      bullets: [],
+      actionItems: [],
+      provider: "fixture",
+    }),
+  ),
 );
 vi.mock("./cleanup-transcript.js", () => ({ default: { run: cleanup } }));
 vi.mock("./lib/agents-md-context.js", () => ({
@@ -416,6 +423,53 @@ describe("meeting-linked recording visibility with real sharing", () => {
           })
           .from(schema.meetings),
       ).toEqual([{ summaryMd: "", status: "failed" }]);
+    },
+  );
+  it.each(["revoked-with-clip-grant", "downgraded-with-transcript-opt-in"])(
+    "rechecks meeting editor permission after cleanup (%s)",
+    async (change) => {
+      await db.update(schema.meetingShares).set({ role: "editor" });
+      await db.update(schema.meetings).set({
+        transcriptStatus: "ready",
+        summaryMd: "",
+        shareTranscript: change === "downgraded-with-transcript-opt-in",
+      });
+      if (change === "revoked-with-clip-grant") await grantRecording();
+      cleanup.mockImplementationOnce(async () => {
+        if (change === "revoked-with-clip-grant")
+          await db.delete(schema.meetingShares);
+        else await db.update(schema.meetingShares).set({ role: "viewer" });
+        return {
+          summaryMd: "Fake unauthorized notes",
+          bullets: [{ text: "Fake generated bullet" }],
+          actionItems: [{ text: "Fake generated task" }],
+          provider: "fixture",
+        };
+      });
+      await asUser(viewerEmail, async () => {
+        await expect(
+          finalizeMeeting.run({ meetingId: "fake-meeting", force: true }),
+        ).rejects.toMatchObject({ statusCode: 403 });
+      });
+      expect(cleanup).toHaveBeenCalledOnce();
+      expect(
+        await db
+          .select({
+            summaryMd: schema.meetings.summaryMd,
+            bulletsJson: schema.meetings.bulletsJson,
+            actionItemsJson: schema.meetings.actionItemsJson,
+            status: schema.meetings.transcriptStatus,
+          })
+          .from(schema.meetings),
+      ).toEqual([
+        {
+          summaryMd: "",
+          bulletsJson: "[]",
+          actionItemsJson: "[]",
+          status: "failed",
+        },
+      ]);
+      expect(await db.select().from(schema.meetingActionItems)).toEqual([]);
     },
   );
   it("generates notes from an explicitly shared transcript without Clip metadata", async () => {

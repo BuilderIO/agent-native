@@ -225,6 +225,7 @@ export default defineAction({
             : null;
         if (!current?.canReadTranscript) throw new ForbiddenError();
       }
+      await assertAccess("meeting", args.meetingId, "editor");
     } catch (err) {
       await db
         .update(schema.meetings)
