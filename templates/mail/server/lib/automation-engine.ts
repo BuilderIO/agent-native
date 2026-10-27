@@ -1817,6 +1817,22 @@ async function runAutomationsForAccount(
   const failedMessageIds = new Set(
     accountFailures.map((failure) => failure.emailId),
   );
+  const decisionAttempts = {
+    ...(nextWatermark.pendingDecisionAttempts ?? {}),
+  };
+  const terminalFailureIds = new Set<string>();
+  for (const message of messages) {
+    const failures = accountFailures.filter(
+      (failure) => failure.emailId === message.id,
+    );
+    if (
+      failures.length > 0 &&
+      (failures.every((failure) => failure.retryable === false) ||
+        (decisionAttempts[message.id] ?? 0) + 1 >= MAX_DECISION_RETRIES)
+    ) {
+      terminalFailureIds.add(message.id);
+    }
+  }
   const matches = evaluation.matches;
   const pendingNotificationKeys = new Set(
     pendingNotifications.map((action) =>
@@ -1848,7 +1864,12 @@ async function runAutomationsForAccount(
           aiPriorityEmailKey(candidate.accountEmail, candidate.id) === emailKey,
       );
       if (!message) continue;
-      if (failedMessageIds.has(message.id)) continue;
+      if (
+        failedMessageIds.has(message.id) &&
+        !terminalFailureIds.has(message.id)
+      ) {
+        continue;
+      }
       const messageId = message.id;
 
       for (const matchedRule of matchedRules) {
@@ -2013,11 +2034,7 @@ async function runAutomationsForAccount(
     throwIfAborted(signal);
   }
 
-  const decisionAttempts = {
-    ...(nextWatermark.pendingDecisionAttempts ?? {}),
-  };
   const retryMessageIds: string[] = [];
-  const terminalFailureIds = new Set<string>();
   for (const message of messages) {
     const failures = accountFailures.filter(
       (failure) => failure.emailId === message.id,
@@ -2029,13 +2046,9 @@ async function runAutomationsForAccount(
     }
 
     const attempts = (decisionAttempts[message.id] ?? 0) + 1;
-    if (
-      failures.every((failure) => failure.retryable === false) ||
-      attempts >= MAX_DECISION_RETRIES
-    ) {
+    if (terminalFailureIds.has(message.id)) {
       processedIds.add(message.id);
       delete decisionAttempts[message.id];
-      terminalFailureIds.add(message.id);
       continue;
     }
 

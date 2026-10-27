@@ -1379,6 +1379,7 @@ describe("Mail decision automation routing", () => {
       feedback: [],
       decisions: [],
     });
+    mocks.executeActions.mockResolvedValue({ successes: 1, failures: 0 });
     mocks.userSettings.set("owner@example.com:automation-watermark", {
       lastHistoryId: "history-1",
       lastTimestamp: now,
@@ -1468,7 +1469,90 @@ describe("Mail decision automation routing", () => {
     );
 
     expect(retried.decisionFailures).toEqual([]);
+    expect(mocks.executeActions).toHaveBeenCalledTimes(1);
     expect(mocks.gmailBatchGetMessages).toHaveBeenCalledTimes(2);
+    expect(
+      mocks.userSettings.get("owner@example.com:automation-watermark"),
+    ).not.toHaveProperty("pendingMessageIds");
+    expect(
+      mocks.userSettings.get("owner@example.com:automation-processed-ids"),
+    ).toMatchObject({ ids: ["partial"] });
+  });
+
+  it("executes successful rule matches before terminalizing an oversized rule", async () => {
+    const now = Date.now();
+    mocks.activeRules = [
+      {
+        id: "successful-rule",
+        domain: "mail",
+        kind: "automation",
+        name: "Star project mail",
+        condition: "Project updates",
+        actions: JSON.stringify([{ type: "star" }]),
+        enabled: 1,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: "oversized-rule",
+        domain: "mail",
+        kind: "automation",
+        name: "Oversized rule",
+        condition: "x".repeat(MAX_DECISION_PAYLOAD_BYTES + 1),
+        actions: JSON.stringify([{ type: "trash" }]),
+        enabled: 1,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ];
+    mocks.executeActions.mockResolvedValue({ successes: 1, failures: 0 });
+    mocks.userSettings.set("owner@example.com:automation-watermark", {
+      lastHistoryId: "history-1",
+      lastTimestamp: now,
+    });
+    mocks.gmailListHistory.mockResolvedValueOnce({
+      historyId: "history-2",
+      history: [
+        {
+          messagesAdded: [{ message: { id: "partial", labelIds: ["INBOX"] } }],
+        },
+      ],
+    });
+    mocks.gmailBatchGetMessages.mockResolvedValueOnce([
+      {
+        id: "partial",
+        data: {
+          id: "partial",
+          threadId: "thread-partial",
+          internalDate: String(now + 1_000),
+          labelIds: ["INBOX"],
+          payload: { headers: [] },
+        },
+      },
+    ]);
+
+    const result = await processAutomationsForAccount(
+      "owner@example.com",
+      "mailbox@example.com",
+      "google-access-token",
+    );
+
+    expect(result).toMatchObject({
+      errors: 1,
+      decisionFailures: [
+        expect.objectContaining({
+          emailId: "partial",
+          ruleId: "oversized-rule",
+          reason: "invalid_input",
+          retryable: false,
+        }),
+      ],
+    });
+    expect(mocks.executeActions).toHaveBeenCalledOnce();
+    expect(mocks.executeActions).toHaveBeenCalledWith(
+      [{ type: "star" }],
+      expect.objectContaining({ messageId: "partial" }),
+    );
     expect(
       mocks.userSettings.get("owner@example.com:automation-watermark"),
     ).not.toHaveProperty("pendingMessageIds");
