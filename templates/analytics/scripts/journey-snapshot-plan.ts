@@ -338,7 +338,7 @@ export function selectCaptureTree<T extends SnapshotTree>(
         );
       }
       if (exampleIndex >= available.length) continue;
-      const example = available[exampleIndex];
+      const example = available.at(exampleIndex);
       if (!example) continue;
       examples.push(example);
       frameCount += 1;
