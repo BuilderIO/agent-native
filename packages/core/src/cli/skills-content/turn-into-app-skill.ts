@@ -2593,14 +2593,16 @@ person should choose between setting things up and making an account.
 
 - **Browser host.** Builder is the only route: make the Dispatch handoff in
   [the browser-host guide](fresh-project.md).
-- **The person already chose.** "Build it here", "run it locally", "host it on
-  Builder", or a target that is already an Agent-Native workspace (a parent
-  \`package.json\` has \`agent-native.workspaceCore\`) all count.
+- **The person already chose.** "Build it here", "run it locally", or "host it
+  on Builder" all count. So does a target that is already an Agent-Native
+  workspace (a parent \`package.json\` has \`agent-native.workspaceCore\`): build
+  on this machine, inside that workspace.
 - **Resuming.** Keep the route the earlier run took.
 - **Files on this machine are the source of truth** (Local File Mode). Builder
-  can't reach them, so build here and say why.
-- **Headless.** Build on this machine, and say in the report that nobody was
-  there to ask where it should run.
+  can't reach them, so build here even if the person asked for Builder, and
+  say why.
+- **Headless, with no route named.** Build on this machine, and say in the
+  report that nobody was there to ask where it should run.
 
 ## The question
 
@@ -2614,8 +2616,8 @@ why, and use these labels:
   on. In Claude Cowork, add that the person starts it from their own terminal,
   since Cowork can't keep it running.
 - **Hosted with Builder.** Nothing to install, just a free Builder account.
-  Builder builds the app and hosts it online. The free plan has a daily credit
-  limit.
+  The brief and the source files it uses are sent to Builder, which builds the
+  app and hosts it online. The free plan has a daily credit limit.
 
 Recommend **Hosted with Builder** in Claude Cowork, or when Node.js 22.22+ or
 pnpm is missing. Otherwise recommend **On your machine**.
@@ -2641,6 +2643,10 @@ local host:
 - Run nothing for the app: no \`npm\`, \`pnpm\`, scaffold, or dev server. The only
   commands allowed are the Dispatch connector setup below.
 
+A handoff leaves nothing in this folder, so the resume check can't see one. If
+this thread already shows a handoff for the same source, give that result and
+ask before sending another: a second handoff makes a second app.
+
 If \`start-workspace-app-creation\` is missing or Dispatch is not signed in, say
 so and offer two ways on:
 
@@ -2652,7 +2658,8 @@ so and offer two ways on:
    host. If it is configured but signed out, sign in from the host's MCP
    settings (in Claude Code, \`/mcp\`, then Authenticate); for Codex or Cowork,
    run the same command with \`reconnect\` in place of \`connect\`. The person
-   restarts the agent, then runs \`/turn-into-app\` again with the same source.
+   restarts the agent and runs \`/turn-into-app\` again with the same source,
+   saying to host it on Builder so the question is skipped.
 2. Build on this machine instead.
 
 Never fall back to a local build without asking, and never claim the app
