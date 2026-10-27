@@ -506,6 +506,20 @@ describe("the owner's view", () => {
     });
   });
 
+  it("stamps the view after its own reads, so a slow read isn't clock skew", async () => {
+    const grant = await createdGrant();
+    oauth.getOAuthClientConnection.mockImplementationOnce(async () => {
+      vi.setSystemTime(grant.expiresAt + 1);
+      return { clientName: "Claude Code", connectedAt: CONNECTED_AT };
+    });
+
+    const { body } = await getJson(grant.nonce);
+
+    expect(body.servedAt).toBe(grant.expiresAt + 1);
+    expect(body.state).toBe("expired");
+    expect(body.csrfToken).toBeUndefined();
+  });
+
   it("names no requester for a call made without an OAuth client", async () => {
     const grant = await createdGrant({ oauthClientId: undefined });
 

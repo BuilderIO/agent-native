@@ -248,6 +248,16 @@ async function buildView(
   messages: McpApprovalMessages,
   preference: ResolvedLocalizationPreference | null,
 ): Promise<McpApprovalView> {
+  const requester = await requesterFor(record, reader.email);
+  const decidable = mcpApprovalViewState(record, Date.now()) === "pending";
+  const priorRun = decidable
+    ? await findPriorApprovedRun(record, record.retrySafe)
+    : undefined;
+  const csrfToken = decidable
+    ? await decisionToken(record.nonce, reader)
+    : undefined;
+  // The page reads the gap between servedAt and its own clock as clock skew,
+  // so the time and the state it decides from are taken after every read.
   const now = Date.now();
   const state = mcpApprovalViewState(record, now);
   return {
@@ -260,19 +270,14 @@ async function buildView(
       argumentsJson: record.argumentsJson,
       labels: messages,
     }),
-    requester: await requesterFor(record, reader.email),
+    requester,
     createdAt: record.createdAt,
     expiresAt: record.expiresAt,
     servedAt: now,
-    priorRun:
-      state === "pending"
-        ? await findPriorApprovedRun(record, record.retrySafe)
-        : undefined,
+    priorRun: state === "pending" ? priorRun : undefined,
     readerTimeZone: readerTimeZone(preference) ?? null,
     locale,
-    ...(state === "pending"
-      ? { csrfToken: await decisionToken(record.nonce, reader) }
-      : {}),
+    ...(state === "pending" && csrfToken !== undefined ? { csrfToken } : {}),
   };
 }
 
