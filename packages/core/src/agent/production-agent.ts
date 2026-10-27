@@ -97,7 +97,6 @@ import {
   reconcileImageBytes,
   reconcilePdfBytes,
 } from "../file-upload/attachment-bytes.js";
-import { downscaleInlineImageBase64 } from "../file-upload/downscale-inline-image.js";
 import {
   decodeTextAttachmentData,
   isOverTextAttachmentLimit,
@@ -108,6 +107,7 @@ import {
   type TextAttachmentStorage,
   unwrapOwnAttachmentEnvelope,
 } from "../file-upload/attachment-text.js";
+import { downscaleInlineImageBase64 } from "../file-upload/downscale-inline-image.js";
 import {
   formatBase64CharBudget,
   MAX_INLINE_FILE_BASE64_CHARS,
