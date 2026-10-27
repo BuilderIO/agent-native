@@ -460,17 +460,19 @@ function truncatePromptResourceContent(
   content: string,
   path: string,
   maxChars = SHARED_PROMPT_RESOURCE_MAX_CHARS,
-  readHint?: string,
+  readHint?: string | null,
 ): string {
   const trimmed = content.trim();
   if (trimmed.length <= maxChars) return trimmed;
   const omitted = trimmed.length - maxChars;
   const hint =
-    readHint ??
-    resourceToolHint(
-      "read",
-      `\`path: "${path}"\` and the resource's \`scope\` for the full content`,
-    );
+    readHint === null
+      ? ""
+      : (readHint ??
+        resourceToolHint(
+          "read",
+          `\`path: "${path}"\` and the resource's \`scope\` for the full content`,
+        ));
   return `${trimmed.slice(0, maxChars)}\n\n[Resource ${path} truncated after ${maxChars.toLocaleString()} characters; ${omitted.toLocaleString()} characters omitted. ${hint}]`;
 }
 
@@ -481,7 +483,7 @@ export function promptResourceBlock(input: {
   content: string;
   path?: string;
   maxChars?: number;
-  readHint?: string;
+  readHint?: string | null;
 }): string | null {
   const normalizedPath = input.path
     ? normalizeResourcePathForPrompt(input.path)
@@ -533,17 +535,22 @@ function promptSectionLabel(content: string): string {
 function promptBudgetTrimNote(
   skipped: SkippedPromptSection[],
   maxChars: number,
+  runtimeToolHints = true,
 ): string {
   const labels = compactPromptLine(
     skipped.map((section) => section.label).join(", "),
     TRIM_NOTE_LABELS_MAX_CHARS,
   );
-  return `<context-budget-note>Your startup context was trimmed: ${skipped.length} section(s) did not fit the ${maxChars.toLocaleString()}-character first-request budget and were omitted (${labels}). Treat them as unread, not as absent — use \`resources\` with \`action: "list"\` or \`"read"\`, \`docs-search\`, and \`tool-search\` before telling the user something does not exist.</context-budget-note>`;
+  const hint = runtimeToolHints
+    ? 'Treat them as unread, not as absent — use `resources` with `action: "list"` or `"read"`, `docs-search`, and `tool-search` before telling the user something does not exist.'
+    : "Treat omitted sections as unread, not as evidence that the information does not exist.";
+  return `<context-budget-note>Your startup context was trimmed: ${skipped.length} section(s) did not fit the ${maxChars.toLocaleString()}-character first-request budget and were omitted (${labels}). ${hint}</context-budget-note>`;
 }
 
 export function selectPromptSectionsWithinBudget(
   sections: PromptSection[],
   maxChars: number,
+  runtimeToolHints = true,
 ): PromptSectionBudgetResult {
   const required = sections.filter(
     (section) => section.governance === "required",
@@ -585,7 +592,7 @@ export function selectPromptSectionsWithinBudget(
     .filter((_section, index) => keep.has(index))
     .map((section) => section.content);
   if (skipped.length > 0) {
-    selected.push(promptBudgetTrimNote(skipped, maxChars));
+    selected.push(promptBudgetTrimNote(skipped, maxChars, runtimeToolHints));
   }
 
   const totalChars =
@@ -661,6 +668,7 @@ async function loadAgentsResourceForPrompt(
   scope: string,
   maxChars = SHARED_PROMPT_RESOURCE_MAX_CHARS,
   orgId?: string | null,
+  readHint?: string | null,
 ): Promise<string | null> {
   let agents: Awaited<ReturnType<typeof resourceGetByPath>>;
   try {
@@ -678,6 +686,7 @@ async function loadAgentsResourceForPrompt(
     path: "AGENTS.md",
     content: agents.content,
     maxChars,
+    readHint,
   });
 }
 
@@ -687,6 +696,7 @@ async function loadInstructionResourcesForPrompt(
   maxChars = SHARED_PROMPT_RESOURCE_MAX_CHARS,
   summaryOnly = false,
   orgId?: string | null,
+  readHint?: string | null,
 ): Promise<string[]> {
   const resources = await resourceList(owner, "instructions/", { orgId });
   const sorted = resources
@@ -729,6 +739,7 @@ async function loadInstructionResourcesForPrompt(
       path: resource.path,
       content: full.content,
       maxChars,
+      readHint,
     });
     if (block) blocks.push(block);
   }
@@ -824,11 +835,30 @@ async function loadResourceSkillPromptEntries(
 async function loadResourceSkillsPromptBlock(
   owner: string,
   orgId?: string | null,
+  runtimeToolHints = true,
 ): Promise<string | null> {
   const { entries, total, metadataRead } = await loadResourceSkillPromptEntries(
     owner,
     orgId,
   );
+  if (!runtimeToolHints) {
+    return (
+      entries
+        .slice(0, PROMPT_SKILL_SUMMARY_LIMIT)
+        .map(({ resource, full, scope }) =>
+          promptResourceBlock({
+            name: resource.path,
+            path: resource.path,
+            scope,
+            content: full.content,
+            maxChars: COMPACT_PROMPT_RESOURCE_MAX_CHARS,
+            readHint: null,
+          }),
+        )
+        .filter(Boolean)
+        .join("\n\n") || null
+    );
+  }
   const lines = entries
     .slice(0, PROMPT_SKILL_SUMMARY_LIMIT)
     .map(
@@ -1843,6 +1873,8 @@ export async function loadResourcesForPrompt(
      *  or `null` when the request registry has none. Omitted means
      *  `docs-search`, the framework default. */
     skillReadTool?: string | null;
+    /** Omit framework runtime lookup hints when those tools are unavailable. */
+    runtimeToolHints?: boolean;
     /** Absolute deadline for optional app discovery shared with prompt preload. */
     promptPreloadDeadlineAt?: number;
   },
@@ -1852,6 +1884,8 @@ export async function loadResourcesForPrompt(
   await ensurePersonalDefaults(owner);
   const skillReadTool =
     opts?.skillReadTool === undefined ? "docs-search" : opts.skillReadTool;
+  const runtimeToolHints = opts?.runtimeToolHints !== false;
+  const resourceReadHint = runtimeToolHints ? undefined : null;
 
   const sections: PromptSection[] = [];
   const addSection = (
@@ -1884,8 +1918,9 @@ export async function loadResourcesForPrompt(
       path: "AGENTS.md",
       content: bundle.workspaceAgentsMd,
       maxChars: promptResourceMaxChars,
-      readHint:
-        'Use docs-search --slug "agents-workspace" to read the full workspace AGENTS.md.',
+      readHint: skillReadTool
+        ? `Use ${skillReadTool} --slug "agents-workspace" to read the full workspace AGENTS.md.`
+        : null,
     });
     addSection(block, "required");
   }
@@ -1898,8 +1933,9 @@ export async function loadResourcesForPrompt(
       path: "AGENTS.md",
       content: runtimeAgentsMd,
       maxChars: promptResourceMaxChars,
-      readHint:
-        'Use docs-search --slug "agents-template" to read the full template AGENTS.md.',
+      readHint: skillReadTool
+        ? `Use ${skillReadTool} --slug "agents-template" to read the full template AGENTS.md.`
+        : null,
     });
     addSection(block);
   }
@@ -1910,11 +1946,23 @@ export async function loadResourcesForPrompt(
       ? (getRequestUserEmail() ?? getRequestRunContext()?.owner)
       : owner,
   );
-  if (!compact) {
+  if (!compact && (runtimeToolHints || skillReadTool)) {
     const skillsBlock = generateSkillsPromptBlock(bundle, runtimeSkills);
     addSection(skillsBlock);
-  } else {
+  } else if (skillReadTool) {
     addSection(buildCompactSkillsSummary(runtimeSkills, skillReadTool));
+  } else if (!runtimeToolHints) {
+    for (const skill of runtimeSkills) {
+      addSection(
+        promptResourceBlock({
+          name: skill.meta.name,
+          scope: "template-skill",
+          content: skill.content,
+          maxChars: promptResourceMaxChars,
+          readHint: null,
+        }),
+      );
+    }
   }
 
   const workspaceOwner = workspaceResourceOwner(orgId);
@@ -1923,6 +1971,7 @@ export async function loadResourcesForPrompt(
     "workspace",
     promptResourceMaxChars,
     orgId,
+    resourceReadHint,
   );
   addSection(workspaceAgents, "required");
   addSections(
@@ -1930,8 +1979,9 @@ export async function loadResourcesForPrompt(
       workspaceOwner,
       "workspace-instruction",
       promptResourceMaxChars,
-      compact,
+      compact && runtimeToolHints,
       orgId,
+      resourceReadHint,
     ),
   );
 
@@ -1942,6 +1992,7 @@ export async function loadResourcesForPrompt(
     organizationOwner === SHARED_OWNER ? "shared" : "app-default",
     promptResourceMaxChars,
     orgId,
+    resourceReadHint,
   );
   addSection(appDefaultAgents, "required");
   addSections(
@@ -1951,8 +2002,9 @@ export async function loadResourcesForPrompt(
         ? "shared-instruction"
         : "app-default-instruction",
       promptResourceMaxChars,
-      compact,
+      compact && runtimeToolHints,
       orgId,
+      resourceReadHint,
     ),
   );
 
@@ -1962,6 +2014,7 @@ export async function loadResourcesForPrompt(
       "organization",
       promptResourceMaxChars,
       orgId,
+      resourceReadHint,
     );
     addSection(organizationAgents, "required");
     addSections(
@@ -1969,8 +2022,9 @@ export async function loadResourcesForPrompt(
         organizationOwner,
         "organization-instruction",
         promptResourceMaxChars,
-        compact,
+        compact && runtimeToolHints,
         orgId,
+        resourceReadHint,
       ),
     );
   }
@@ -1981,6 +2035,7 @@ export async function loadResourcesForPrompt(
       "personal",
       promptResourceMaxChars,
       orgId,
+      resourceReadHint,
     );
     addSection(personalAgents, "required");
     addSections(
@@ -1988,8 +2043,9 @@ export async function loadResourcesForPrompt(
         owner,
         "personal-instruction",
         promptResourceMaxChars,
-        compact,
+        compact && runtimeToolHints,
         orgId,
+        resourceReadHint,
       ),
       "user",
     );
@@ -2015,15 +2071,20 @@ export async function loadResourcesForPrompt(
           path: "memory/INSTRUCTIONS.md",
           content: memoryInstructions.content,
           maxChars: promptResourceMaxChars,
-          readHint:
-            'Use the `resources` tool with `action: "read"` and `path: "memory/INSTRUCTIONS.md"` to read the full instructions.',
+          readHint: runtimeToolHints
+            ? 'Use the `resources` tool with `action: "read"` and `path: "memory/INSTRUCTIONS.md"` to read the full instructions.'
+            : null,
         }),
         "required",
       );
     }
   }
 
-  const resourceSkillsBlock = await loadResourceSkillsPromptBlock(owner, orgId);
+  const resourceSkillsBlock = await loadResourceSkillsPromptBlock(
+    owner,
+    orgId,
+    runtimeToolHints,
+  );
   addSection(resourceSkillsBlock);
 
   let sharedLearnings: Awaited<ReturnType<typeof resourceGetByPath>> = null;
@@ -2045,13 +2106,15 @@ export async function loadResourcesForPrompt(
         path: "LEARNINGS.md",
         content: sharedLearnings.content,
         maxChars: COMPACT_PROMPT_RESOURCE_MAX_CHARS,
+        readHint: resourceReadHint,
       });
       addSection(block);
     }
-    addSection(
-      `<context-note>\`resources\` reads personal memory (memory/MEMORY.md) and organization learnings. Keep setup findings personal; shared LEARNINGS.md or organization-memory writes require approval. "Remember this" alone is not approval.</context-note>`,
-      "required",
-    );
+    if (runtimeToolHints)
+      addSection(
+        `<context-note>\`resources\` reads personal memory (memory/MEMORY.md) and organization learnings. Keep setup findings personal; shared LEARNINGS.md or organization-memory writes require approval. "Remember this" alone is not approval.</context-note>`,
+        "required",
+      );
   } else {
     if (sharedLearnings?.content?.trim()) {
       const block = promptResourceBlock({
@@ -2060,6 +2123,7 @@ export async function loadResourcesForPrompt(
         path: "LEARNINGS.md",
         content: sharedLearnings.content,
         maxChars: SHARED_PROMPT_RESOURCE_MAX_CHARS,
+        readHint: resourceReadHint,
       });
       addSection(block);
     }
@@ -2076,6 +2140,7 @@ export async function loadResourcesForPrompt(
             path: "memory/MEMORY.md",
             content: memoryIndex.content,
             maxChars: SHARED_PROMPT_RESOURCE_MAX_CHARS,
+            readHint: resourceReadHint,
           });
           addSection(block, "user");
         }
@@ -2083,26 +2148,28 @@ export async function loadResourcesForPrompt(
     }
   }
 
-  const workspaceResourceIndex = await loadResourceIndexForPrompt(
-    workspaceOwner,
-    "workspace",
-    orgId,
-  );
-  addSection(workspaceResourceIndex);
+  if (runtimeToolHints) {
+    const workspaceResourceIndex = await loadResourceIndexForPrompt(
+      workspaceOwner,
+      "workspace",
+      orgId,
+    );
+    addSection(workspaceResourceIndex);
 
-  const appDefaultResourceIndex = await loadResourceIndexForPrompt(
-    SHARED_OWNER,
-    "shared",
-    orgId,
-  );
-  addSection(appDefaultResourceIndex);
-  if (organizationOwner !== SHARED_OWNER) {
-    const organizationResourceIndex = await loadResourceIndexForPrompt(
-      organizationOwner,
+    const appDefaultResourceIndex = await loadResourceIndexForPrompt(
+      SHARED_OWNER,
       "shared",
       orgId,
     );
-    addSection(organizationResourceIndex);
+    addSection(appDefaultResourceIndex);
+    if (organizationOwner !== SHARED_OWNER) {
+      const organizationResourceIndex = await loadResourceIndexForPrompt(
+        organizationOwner,
+        "shared",
+        orgId,
+      );
+      addSection(organizationResourceIndex);
+    }
   }
 
   addSections(
@@ -2198,6 +2265,7 @@ export async function loadResourcesForPrompt(
     const budget = selectPromptSectionsWithinBudget(
       sections,
       COMPACT_PROMPT_RESOURCES_TOTAL_MAX_CHARS,
+      runtimeToolHints,
     );
     selectedSections = budget.sections;
     if (budget.skipped.length > 0) {

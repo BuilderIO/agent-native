@@ -136,6 +136,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleOther": "Andere",
   "onboarding.roleOtherInputLabel": "Beschreibe deine Rolle",
   "onboarding.skipForNow": "Vorerst überspringen",
+  "onboarding.builderProvisionFailedDetail":
+    "Dein Builder.io-Konto konnte nicht erstellt werden. Versuche es erneut oder melde dich mit einem bestehenden Konto an.",
   "onboarding.saveRoleError": "Deine Rolle konnte nicht gespeichert werden.",
   "onboarding.builderCreateAccount": "Builder.io verwenden",
   "onboarding.builderSignInWithAccount": "Mit einem Builder.io-Konto anmelden",
@@ -438,6 +440,9 @@ const messages: ToolkitAgentChatTranslation = {
     "Die abgelegte Datei konnte nicht hinzugefügt werden. Versuche ein anderes Format.",
   "composer.openDesktop": "Öffne Desktop, um diesen Chat zu verwenden.",
   "composer.removeAttachment": "{{name}} entfernen",
+  "composer.attachmentReadFailed": "Datei konnte nicht gelesen werden",
+  "composer.attachmentTooLarge": "Datei ist größer als 8 MB",
+  "composer.attachmentNotUtf8": "Datei ist kein UTF-8-Text",
   "composer.scrollToBottom": "Nach unten scrollen",
   "composer.suggestedPrompts": "Vorgeschlagene Prompts",
   "composer.stopResponse": "Antwort stoppen",

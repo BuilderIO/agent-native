@@ -1,9 +1,5 @@
 import { collectFinalResponseTextFromAgentEvents } from "../a2a/response-text.js";
-import {
-  isActionExposedToExternalAgents,
-  type ActionAutomationContext,
-  type ActionCaller,
-} from "../action.js";
+import { type ActionAutomationContext, type ActionCaller } from "../action.js";
 import {
   CREDENTIAL_STORE_UNAVAILABLE_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
@@ -89,7 +85,7 @@ import {
 import { withDbExec, type DbExec } from "../db/client.js";
 import { automationOutcomeMessagesForUser } from "../localization/automation-outcome-messages.js";
 import { automationRecoveryMessagesForLocale } from "../localization/automation-recovery-messages.js";
-import { isMcpActionEligible } from "../mcp/action-eligibility.js";
+import { isFrameworkRuntimeAction } from "../mcp/action-eligibility.js";
 import { queryOrgMembers } from "../org/context.js";
 import {
   organizationIdFromResourceOwner,
@@ -1418,8 +1414,9 @@ async function executeBackgroundAutomation(
               Object.entries(registeredActions)
                 .filter(
                   ([name, entry]) =>
-                    isActionExposedToExternalAgents(entry) &&
-                    isMcpActionEligible(name, entry),
+                    entry.agentTool !== false &&
+                    entry.uiOnly !== true &&
+                    !isFrameworkRuntimeAction(name, entry),
                 )
                 .map(([name, entry]) => [
                   name,

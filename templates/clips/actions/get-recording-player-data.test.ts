@@ -553,7 +553,7 @@ describe("get-recording-player-data view count", () => {
   });
 
   it.each(["owner", "viewer"])(
-    "omits disabled comments from the %s player payload",
+    "applies owner visibility to disabled comments in the %s player payload",
     async (role) => {
       mockResolveAccess.mockResolvedValue({
         role,
@@ -593,7 +593,9 @@ describe("get-recording-player-data view count", () => {
         return query;
       };
       const result = await action.run({ recordingId: "rec-1" });
-      expect(result.comments).toEqual([]);
+      expect(result.comments.map((comment) => comment.content)).toEqual(
+        role === "owner" ? ["Saved comment"] : [],
+      );
     },
   );
 

@@ -5,6 +5,7 @@ import {
   resourcePutIfCurrent,
 } from "@agent-native/core/resources";
 import { isReasoningEffort } from "@agent-native/core/shared";
+import { isOutsideAutomationOrigin } from "@agent-native/core/triggers";
 import { z } from "zod";
 
 import {
@@ -35,6 +36,8 @@ import {
 import { findFactoryAutomationDefinition } from "../server/lib/factory-automation-resources.js";
 import {
   factoryIdSchema,
+  assertSingleLineFactoryAutomationSettings,
+  normalizeFactoryAutomationWriteContent,
   readAutomationDisplayName,
   readAutomationEnabled,
   readAutomationModel,
@@ -106,7 +109,25 @@ export default defineAction({
       ),
   }),
   http: { method: "POST" },
+  needsApproval: (_input, ctx) => isOutsideAutomationOrigin(ctx),
   run: async (input, context) => {
+    assertSingleLineFactoryAutomationSettings({
+      factoryId: input.factoryId,
+      displayName: input.displayName,
+      model: input.model,
+      reasoningEffort: input.reasoningEffort,
+      slackWorkspace: input.slackWorkspace,
+      slackChannelId: input.slackChannelId,
+      slackChannelName: input.slackChannelName,
+      repository: input.repository,
+      sentryOrgSlug: input.sentryOrgSlug,
+      sentryProjectSlug: input.sentryProjectSlug,
+      sentryEnvironment: input.sentryEnvironment,
+      authorMode: input.authorMode,
+      authorIds: input.authorIds?.join(","),
+      scheduleMode: input.scheduleMode,
+      timezone: input.timezone,
+    });
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
@@ -130,8 +151,12 @@ export default defineAction({
       definition.resource.path,
     );
     if (!resource) throw new Error("Factory automation not found.");
-    const storedDisplayName = readAutomationDisplayName(resource.content);
-    const current = readFactoryAutomationConfig(resource.content, input.name);
+    const normalizedContent = normalizeFactoryAutomationWriteContent(
+      resource.content,
+      { context },
+    );
+    const storedDisplayName = readAutomationDisplayName(normalizedContent);
+    const current = readFactoryAutomationConfig(normalizedContent, input.name);
     if (
       input.displayName !== undefined &&
       !input.displayName.trim() &&
@@ -250,7 +275,7 @@ export default defineAction({
       throw new Error(`Invalid cron expression "${schedule}".`);
     }
     const previousSnapshot = snapshotFromAutomationResource(
-      resource.content,
+      normalizedContent,
       input.name,
       input.factoryId,
     );
@@ -270,7 +295,7 @@ export default defineAction({
       previous: previousSnapshot,
     });
     const resolvedPromptVersion = versionAllocation.promptVersion;
-    let content = applyAutomationConfigFrontmatter(resource.content, config);
+    let content = applyAutomationConfigFrontmatter(normalizedContent, config);
     content = replaceAutomationContentWithUserPrompt(
       content,
       normalizedPrompt,
@@ -338,6 +363,10 @@ export default defineAction({
       ).toISOString();
       content = setAutomationFrontmatterField(content, "nextRun", nextRun);
     }
+    content = normalizeFactoryAutomationWriteContent(content, {
+      context,
+      currentContent: normalizedContent,
+    });
     const insertedVersion = await insertFactoryAutomationVersionIfChanged({
       automationId: definition.resource.id,
       factoryId: input.factoryId,

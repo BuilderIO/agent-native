@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import deleteRecordingPermanent from "./delete-recording-permanent.js";
 
 export default defineAction({
@@ -11,7 +12,7 @@ export default defineAction({
     "Delete an expired agent-created Clip only if it is still private and has not been renamed, shared, commented on, reacted to, tagged, archived, or trashed.",
   schema: z.object({ id: z.string() }),
   run: async ({ id }) => {
-    await assertAccess("recording", id, "editor");
+    assertRecordingNotExpired(await assertAccess("recording", id, "editor"));
     const db = getDb();
     const [recording] = await db
       .select()
