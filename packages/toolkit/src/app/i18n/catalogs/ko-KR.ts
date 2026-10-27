@@ -130,6 +130,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleOther": "기타",
   "onboarding.roleOtherInputLabel": "역할을 입력해 주세요",
   "onboarding.skipForNow": "지금 건너뛰기",
+  "onboarding.builderProvisionFailedDetail":
+    "Builder.io 계정을 만들지 못했습니다. 다시 시도하거나 기존 계정으로 로그인하세요.",
   "onboarding.saveRoleError": "역할을 저장하지 못했습니다.",
   "onboarding.builderCreateAccount": "Builder.io 사용",
   "onboarding.builderSignInWithAccount": "Builder.io 계정으로 로그인",

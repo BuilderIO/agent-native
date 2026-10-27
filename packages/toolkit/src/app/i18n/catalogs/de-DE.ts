@@ -136,6 +136,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleOther": "Andere",
   "onboarding.roleOtherInputLabel": "Beschreibe deine Rolle",
   "onboarding.skipForNow": "Vorerst überspringen",
+  "onboarding.builderProvisionFailedDetail":
+    "Dein Builder.io-Konto konnte nicht erstellt werden. Versuche es erneut oder melde dich mit einem bestehenden Konto an.",
   "onboarding.saveRoleError": "Deine Rolle konnte nicht gespeichert werden.",
   "onboarding.builderCreateAccount": "Builder.io verwenden",
   "onboarding.builderSignInWithAccount": "Mit einem Builder.io-Konto anmelden",

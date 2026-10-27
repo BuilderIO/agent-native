@@ -130,6 +130,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleOther": "أخرى",
   "onboarding.roleOtherInputLabel": "صف دورك",
   "onboarding.skipForNow": "تخطي الآن",
+  "onboarding.builderProvisionFailedDetail":
+    "تعذّر إنشاء حساب Builder.io الخاص بك. حاول مرة أخرى أو سجّل الدخول بحساب موجود.",
   "onboarding.saveRoleError": "تعذر حفظ دورك.",
   "onboarding.builderCreateAccount": "استخدم Builder.io",
   "onboarding.builderSignInWithAccount": "سجّل الدخول بحساب Builder.io",

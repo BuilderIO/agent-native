@@ -48,6 +48,7 @@ import {
 } from "@agent-native/toolkit/ui/tooltip";
 import { cn } from "@agent-native/toolkit/utils";
 import {
+  IconAlertCircle,
   IconArrowRight,
   IconChevronDown,
   IconChevronUp,
@@ -123,6 +124,7 @@ function firstRunStepProperties(
   extensionIndex: number,
   extensionStepIndex: number,
   setupSkippable: boolean,
+  setupRecoverySkippable = false,
 ): Record<string, unknown> {
   // `optional` must match whether the screen offers a skip: Analytics funnels
   // read it to keep a skip from counting as drop-off.
@@ -161,7 +163,10 @@ function firstRunStepProperties(
     flow: "first_run",
     step_id: screen,
     step_index: stepIndex,
-    optional: screen === "role" || (screen === "choice" && setupSkippable),
+    optional:
+      screen === "role" ||
+      (screen === "choice" && setupSkippable) ||
+      (screen === "connecting" && setupRecoverySkippable),
   };
 }
 
@@ -227,12 +232,57 @@ export function FirstRunOnboarding({
   const [setupExperimentDecision, setSetupExperimentDecision] = useState<
     boolean | null
   >(null);
-  const setupVariant = useMemo(
-    () =>
-      (previewMode && getPreviewFirstRunSetupVariant(window.location.search)) ||
-      assignFirstRunSetupVariant(),
-    [previewMode],
+  const [creditsV2Assignment, setCreditsV2Assignment] = useState<{
+    experiment_id: typeof FIRST_RUN_BUILDER_CREDITS_V2_EXPERIMENT_ID;
+    experiment_variant: "control" | "credits";
+  } | null>(null);
+  const creditsV2Flag = useFeatureFlagState(
+    FIRST_RUN_BUILDER_CREDITS_V2_FLAG_KEY,
   );
+  const creditsV2Exposure = useActionMutation<
+    {
+      assignment: {
+        experiment_id: string;
+        experiment_variant: string;
+      } | null;
+    },
+    Record<string, never>
+  >("record-first-run-builder-credits-v2-exposure" as never, {
+    uiOnly: true,
+    skipActionQueryInvalidation: true,
+  });
+  const previewCreditsV2 =
+    previewMode &&
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("experiment") === "v2";
+  const creditsV2Enabled =
+    profile?.appId === "clips" &&
+    creditsV2Flag.status === "ready" &&
+    creditsV2Flag.enabled;
+  const clipsCreditsV2 = creditsV2Enabled || previewCreditsV2;
+  const creditsV2FlagPending =
+    !previewMode &&
+    profile?.appId === "clips" &&
+    creditsV2Flag.status === "loading";
+  const setupVariant = useMemo(() => {
+    const previewVariant =
+      previewMode && getPreviewFirstRunSetupVariant(window.location.search);
+    if (previewCreditsV2) return previewVariant;
+    if (previewVariant) return previewVariant;
+    if (clipsCreditsV2) {
+      return creditsV2Assignment?.experiment_variant ?? null;
+    }
+    return assignFirstRunSetupVariant();
+  }, [
+    clipsCreditsV2,
+    creditsV2Assignment,
+    previewCreditsV2,
+    previewMode,
+    profile?.appId,
+  ]);
+  const setupExperimentId = clipsCreditsV2
+    ? FIRST_RUN_BUILDER_CREDITS_V2_EXPERIMENT_ID
+    : FIRST_RUN_SETUP_EXPERIMENT_ID;
   // The credits arm offers Skip in every app, so analytics must mark the choice step optional there too.
   const choiceSkippable =
     setupSkippable ||
@@ -294,22 +344,6 @@ export function FirstRunOnboarding({
     ((currentStepIndex + 1) / totalOnboardingStepCount) * 100,
   )}%`;
   const redesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
-  const creditsV2Flag = useFeatureFlagState(
-    FIRST_RUN_BUILDER_CREDITS_V2_FLAG_KEY,
-  );
-  const creditsV2Exposure = useActionMutation<
-    {
-      assignment: {
-        experiment_id: string;
-        experiment_variant: string;
-      } | null;
-    },
-    Record<string, never>
-  >("record-first-run-builder-credits-v2-exposure" as never, {
-    uiOnly: true,
-    skipActionQueryInvalidation: true,
-  });
-  const creditsV2ExposureStartedRef = useRef(false);
   const [moreInfoOpen, setMoreInfoOpen] = useState(false);
   const [skipConfirmOpen, setSkipConfirmOpen] = useState(false);
   const skipGoBackRef = useRef<HTMLButtonElement>(null);
@@ -353,6 +387,7 @@ export function FirstRunOnboarding({
       reason = "user_action",
       stepExtensionIndex = extensionIndex,
       stepIndex = extensionStepIndex,
+      optionalOverride?: boolean,
     ) => {
       if (previewMode) return;
       trackOnboardingEvent("onboarding_step_skipped", {
@@ -365,6 +400,9 @@ export function FirstRunOnboarding({
           stepIndex,
           choiceSkippable,
         ),
+        ...(optionalOverride !== undefined
+          ? { optional: optionalOverride }
+          : {}),
         reason,
       });
     },
@@ -386,6 +424,11 @@ export function FirstRunOnboarding({
   const completionInFlightRef = useRef(false);
   const completionRedirectRef = useRef<string | null>(null);
   const setupSkipStartedRef = useRef(false);
+  const creditsV2ExposureStartedRef = useRef(false);
+  const creditsV2ExposureFailedRef = useRef(false);
+  const creditsV2ExposureSettledRef = useRef(false);
+  const creditsV2ExposureTrackedRef = useRef(false);
+  const setupExperimentTimedOutRef = useRef(false);
   const onboardingTerminalRef = useRef(false);
   const abandonmentTrackedRef = useRef(false);
   const onboardingStartedRef = useRef(false);
@@ -464,88 +507,9 @@ export function FirstRunOnboarding({
   // no decision is ever made, and the choice UI renders as is.
   const choiceStepKnown =
     screen !== "choice" ||
-    setupVariant === null ||
-    setupExperimentDecision !== null;
-  useEffect(() => {
-    if (
-      previewMode ||
-      !firstRun ||
-      !canTrackOnboardingScreen ||
-      !choiceStepKnown
-    ) {
-      stepViewRef.current = null;
-      return;
-    }
-    const step = firstRunStepProperties(
-      screen,
-      beforeSetupExtensions,
-      afterSetupExtensions,
-      extensionPlacement,
-      extensionIndex,
-      extensionStepIndex,
-      choiceSkippable,
-    );
-    const key = [step.step_id, step.extension_id, step.step_index].join(":");
-    if (stepViewRef.current?.key !== key) {
-      stepViewRef.current = { key, id: createOnboardingCorrelationId() };
-    }
-    trackOnboardingEvent("onboarding_step_viewed", {
-      ...step,
-      step_view_id: stepViewRef.current.id,
-    });
-    // setupSkippable changes only when the profile loads; re-running here
-    // would send this screen's view again. A screen change re-reads it.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    afterSetupExtensions,
-    beforeSetupExtensions,
-    extensionIndex,
-    extensionPlacement,
-    extensionStepIndex,
-    firstRun,
-    previewMode,
-    canTrackOnboardingScreen,
-    choiceStepKnown,
-    screen,
-  ]);
-  useEffect(() => {
-    if (previewMode || !firstRun || !canTrackOnboardingScreen) return;
-    const handlePageHide = (event: PageTransitionEvent) => {
-      if (event.persisted) return;
-      if (
-        onboardingTerminalRef.current ||
-        abandonmentTrackedRef.current ||
-        completionInFlightRef.current
-      )
-        return;
-      abandonmentTrackedRef.current = true;
-      trackOnboardingEvent("onboarding_abandoned", {
-        ...firstRunStepProperties(
-          screen,
-          beforeSetupExtensions,
-          afterSetupExtensions,
-          extensionPlacement,
-          extensionIndex,
-          extensionStepIndex,
-          choiceSkippable,
-        ),
-        reason: "page_exit",
-      });
-    };
-    window.addEventListener("pagehide", handlePageHide);
-    return () => window.removeEventListener("pagehide", handlePageHide);
-  }, [
-    afterSetupExtensions,
-    beforeSetupExtensions,
-    extensionIndex,
-    extensionPlacement,
-    extensionStepIndex,
-    firstRun,
-    previewMode,
-    canTrackOnboardingScreen,
-    screen,
-    choiceSkippable,
-  ]);
+    (!creditsV2FlagPending &&
+      (!clipsCreditsV2 || setupExperimentDecision !== null) &&
+      (setupVariant === null || setupExperimentDecision !== null));
   const beginBeforeSetup = useCallback(() => {
     if (beforeSetupExtensions.length === 0) {
       setScreen("choice");
@@ -570,6 +534,25 @@ export function FirstRunOnboarding({
     },
     [afterSetupExtensions.length, finishOnboarding, trackFirstRunStepCompleted],
   );
+  const skipFailedBuilderSetup = useCallback(() => {
+    if (setupSkipStartedRef.current || completionInFlightRef.current) return;
+    setupSkipStartedRef.current = true;
+    trackFirstRunStepSkipped(
+      "connecting",
+      "builder_provision_failed",
+      extensionIndex,
+      extensionStepIndex,
+      true,
+    );
+    if (setupSkippable) completionRedirectRef.current = "/record";
+    handleFinish(null);
+  }, [
+    extensionIndex,
+    extensionStepIndex,
+    handleFinish,
+    setupSkippable,
+    trackFirstRunStepSkipped,
+  ]);
   const handleBuilderConnected = useCallback(() => {
     trackFirstRunSetupOutcome(builderSetupAttemptRef.current, "connected");
     builderSetupAttemptRef.current = null;
@@ -585,6 +568,102 @@ export function FirstRunOnboarding({
     trackingFlow: "connect_llm",
     onConnected: handleBuilderConnected,
   });
+  const accountExists = connectFlow.accountExists && !connectFlow.connecting;
+  const provisioning = builderConnectionMode === "provision" && !accountExists;
+  const provisioningFailed =
+    provisioning &&
+    !connectFlow.connecting &&
+    Boolean(connectFlow.terminalError);
+  const connectionFailed = provisioningFailed;
+  useEffect(() => {
+    if (
+      previewMode ||
+      !firstRun ||
+      !canTrackOnboardingScreen ||
+      !choiceStepKnown
+    ) {
+      stepViewRef.current = null;
+      return;
+    }
+    const step = firstRunStepProperties(
+      screen,
+      beforeSetupExtensions,
+      afterSetupExtensions,
+      extensionPlacement,
+      extensionIndex,
+      extensionStepIndex,
+      choiceSkippable,
+      provisioningFailed,
+    );
+    const key = [
+      step.step_id,
+      step.extension_id,
+      step.step_index,
+      step.optional,
+    ].join(":");
+    if (stepViewRef.current?.key !== key) {
+      stepViewRef.current = { key, id: createOnboardingCorrelationId() };
+    }
+    trackOnboardingEvent("onboarding_step_viewed", {
+      ...step,
+      step_view_id: stepViewRef.current.id,
+    });
+    // setupSkippable changes only when the profile loads; re-running here
+    // would send this screen's view again. A screen change re-reads it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    afterSetupExtensions,
+    beforeSetupExtensions,
+    extensionIndex,
+    extensionPlacement,
+    extensionStepIndex,
+    firstRun,
+    previewMode,
+    canTrackOnboardingScreen,
+    choiceStepKnown,
+    provisioningFailed,
+    screen,
+  ]);
+  useEffect(() => {
+    if (previewMode || !firstRun || !canTrackOnboardingScreen) return;
+    const handlePageHide = (event: PageTransitionEvent) => {
+      if (event.persisted) return;
+      if (
+        onboardingTerminalRef.current ||
+        abandonmentTrackedRef.current ||
+        completionInFlightRef.current
+      )
+        return;
+      abandonmentTrackedRef.current = true;
+      trackOnboardingEvent("onboarding_abandoned", {
+        ...firstRunStepProperties(
+          screen,
+          beforeSetupExtensions,
+          afterSetupExtensions,
+          extensionPlacement,
+          extensionIndex,
+          extensionStepIndex,
+          choiceSkippable,
+          provisioningFailed,
+        ),
+        reason: "page_exit",
+      });
+    };
+    window.addEventListener("pagehide", handlePageHide);
+    return () => window.removeEventListener("pagehide", handlePageHide);
+  }, [
+    afterSetupExtensions,
+    beforeSetupExtensions,
+    extensionIndex,
+    extensionPlacement,
+    extensionStepIndex,
+    firstRun,
+    previewMode,
+    canTrackOnboardingScreen,
+    screen,
+    choiceSkippable,
+    provisioningFailed,
+  ]);
   const builderStatusReadCount = connectFlow.statusReadSettledCount ?? 0;
   useEffect(() => {
     const startedAt = retryingBuilderStatusAtCountRef.current;
@@ -608,12 +687,13 @@ export function FirstRunOnboarding({
       trackFirstRunSetupOutcome(attempt, "failed", "account_exists");
       return;
     }
-    if (connectFlow.terminalError) {
+    if (connectFlow.terminalError || connectFlow.statusUnavailable) {
       trackFirstRunSetupOutcome(attempt, "failed", "connection_error");
     }
   }, [
     connectFlow.accountExists,
     connectFlow.connecting,
+    connectFlow.statusUnavailable,
     connectFlow.terminalError,
   ]);
   // Preview never fetches status, so show the activation path it would offer.
@@ -636,55 +716,8 @@ export function FirstRunOnboarding({
       previewMode ||
       !firstRun ||
       screen !== "choice" ||
-      profile?.appId !== "clips" ||
-      creditsV2Flag.status !== "ready" ||
-      !creditsV2Flag.enabled ||
-      !setupExperimentEligible ||
-      creditsV2ExposureStartedRef.current
-    ) {
-      return;
-    }
-    creditsV2ExposureStartedRef.current = true;
-    void creditsV2Exposure
-      .mutateAsync({})
-      .then(({ assignment }) => {
-        if (
-          assignment?.experiment_id !==
-            FIRST_RUN_BUILDER_CREDITS_V2_EXPERIMENT_ID ||
-          (assignment.experiment_variant !== "control" &&
-            assignment.experiment_variant !== "credits")
-        ) {
-          return;
-        }
-        trackOnboardingEvent("onboarding_experiment_exposed", {
-          flow: "first_run",
-          step_id: "choice",
-          experiment_id: FIRST_RUN_BUILDER_CREDITS_V2_EXPERIMENT_ID,
-          experiment_variant: assignment.experiment_variant,
-        });
-      })
-      .catch((error) => {
-        creditsV2ExposureStartedRef.current = false;
-        const errorType = error instanceof Error ? error.name : "unknown_error";
-        console.warn(
-          `[onboarding] Could not record Clips credits v2 exposure (${errorType}).`,
-        );
-      });
-  }, [
-    creditsV2Exposure.mutateAsync,
-    creditsV2Flag.enabled,
-    creditsV2Flag.status,
-    firstRun,
-    previewMode,
-    profile?.appId,
-    screen,
-    setupExperimentEligible,
-  ]);
-  useEffect(() => {
-    if (
-      previewMode ||
-      !firstRun ||
-      screen !== "choice" ||
+      creditsV2FlagPending ||
+      clipsCreditsV2 ||
       !setupVariant ||
       !setupStatusSettled ||
       setupExperimentDecision !== null
@@ -693,12 +726,14 @@ export function FirstRunOnboarding({
     }
     if (setupExperimentEligible) {
       setOnboardingExperiment({
-        id: FIRST_RUN_SETUP_EXPERIMENT_ID,
+        id: setupExperimentId,
         variant: setupVariant,
       });
       trackOnboardingEvent("onboarding_experiment_exposed", {
         flow: "first_run",
         step_id: "choice",
+        experiment_id: setupExperimentId,
+        experiment_variant: setupVariant,
       });
     }
     setSetupExperimentDecision(setupExperimentEligible);
@@ -706,10 +741,106 @@ export function FirstRunOnboarding({
     firstRun,
     previewMode,
     screen,
+    creditsV2FlagPending,
+    clipsCreditsV2,
     setupExperimentEligible,
     setupExperimentDecision,
     setupStatusSettled,
+    setupExperimentId,
     setupVariant,
+  ]);
+  useEffect(() => {
+    if (
+      previewMode ||
+      !firstRun ||
+      screen !== "choice" ||
+      !creditsV2Enabled ||
+      !setupStatusSettled ||
+      setupExperimentTimedOutRef.current ||
+      setupExperimentDecision === true
+    ) {
+      return;
+    }
+    if (!setupExperimentEligible) {
+      creditsV2ExposureFailedRef.current = false;
+      setSetupExperimentDecision(false);
+      return;
+    }
+    if (creditsV2ExposureFailedRef.current) return;
+    if (creditsV2ExposureStartedRef.current) return;
+    creditsV2ExposureStartedRef.current = true;
+    creditsV2ExposureSettledRef.current = false;
+    setSetupExperimentDecision(null);
+    void creditsV2Exposure
+      .mutateAsync({})
+      .then(({ assignment }) => {
+        creditsV2ExposureSettledRef.current = true;
+        if (setupExperimentTimedOutRef.current) return;
+        if (
+          assignment?.experiment_id !==
+            FIRST_RUN_BUILDER_CREDITS_V2_EXPERIMENT_ID ||
+          (assignment.experiment_variant !== "control" &&
+            assignment.experiment_variant !== "credits")
+        ) {
+          setSetupExperimentDecision(false);
+          return;
+        }
+        setCreditsV2Assignment({
+          experiment_id: FIRST_RUN_BUILDER_CREDITS_V2_EXPERIMENT_ID,
+          experiment_variant: assignment.experiment_variant,
+        });
+        setOnboardingExperiment({
+          id: FIRST_RUN_BUILDER_CREDITS_V2_EXPERIMENT_ID,
+          variant: assignment.experiment_variant,
+        });
+        setSetupExperimentDecision(true);
+      })
+      .catch(() => {
+        creditsV2ExposureSettledRef.current = true;
+        if (setupExperimentTimedOutRef.current) return;
+        creditsV2ExposureStartedRef.current = false;
+        creditsV2ExposureFailedRef.current = true;
+        setSetupExperimentDecision(false);
+      });
+  }, [
+    creditsV2Enabled,
+    creditsV2Exposure.mutateAsync,
+    firstRun,
+    previewMode,
+    screen,
+    setupExperimentDecision,
+    setupExperimentEligible,
+    setupStatusSettled,
+  ]);
+  useEffect(() => {
+    if (
+      previewMode ||
+      !firstRun ||
+      screen !== "choice" ||
+      !creditsV2Enabled ||
+      !setupExperimentEligible ||
+      setupExperimentTimedOutRef.current ||
+      setupExperimentDecision !== true ||
+      !creditsV2Assignment ||
+      creditsV2ExposureTrackedRef.current
+    ) {
+      return;
+    }
+    creditsV2ExposureTrackedRef.current = true;
+    trackOnboardingEvent("onboarding_experiment_exposed", {
+      flow: "first_run",
+      step_id: "choice",
+      experiment_id: creditsV2Assignment.experiment_id,
+      experiment_variant: creditsV2Assignment.experiment_variant,
+    });
+  }, [
+    creditsV2Assignment,
+    creditsV2Enabled,
+    firstRun,
+    previewMode,
+    screen,
+    setupExperimentDecision,
+    setupExperimentEligible,
   ]);
   // A stalled Builder status read must not leave the setup screen blank. Past
   // the limit the person gets the existing page and stays out of the
@@ -719,17 +850,28 @@ export function FirstRunOnboarding({
       previewMode ||
       !firstRun ||
       screen !== "choice" ||
-      !setupVariant ||
+      creditsV2FlagPending ||
+      (!setupVariant && !clipsCreditsV2) ||
       setupExperimentDecision !== null
     ) {
       return;
     }
-    const timer = window.setTimeout(
-      () => setSetupExperimentDecision((decision) => decision ?? false),
-      SETUP_EXPERIMENT_DECISION_TIMEOUT_MS,
-    );
+    const timer = window.setTimeout(() => {
+      if (creditsV2ExposureSettledRef.current) return;
+      setupExperimentTimedOutRef.current = true;
+      setSetupExperimentDecision((decision) => decision ?? false);
+    }, SETUP_EXPERIMENT_DECISION_TIMEOUT_MS);
     return () => window.clearTimeout(timer);
-  }, [firstRun, previewMode, screen, setupExperimentDecision, setupVariant]);
+  }, [
+    clipsCreditsV2,
+    creditsV2FlagPending,
+    firstRun,
+    previewMode,
+    screen,
+    setupExperimentDecision,
+    setupStatusSettled,
+    setupVariant,
+  ]);
   const retryOnboardingCompletion = useCallback(() => {
     const attempt = completionAttemptRef.current;
     void finishOnboarding(
@@ -958,9 +1100,13 @@ export function FirstRunOnboarding({
     );
 
     const inCreditsArm = setupVariant === "credits";
-    // Both arms must wait: the control setup actions can be used as soon as
-    // they render, so exposure has to be recorded before either arm is usable.
-    if (!previewMode && setupVariant && setupExperimentDecision === null) {
+    // Both arms wait for exposure so the recorded arm matches what is shown.
+    if (
+      !previewMode &&
+      (creditsV2FlagPending ||
+        (clipsCreditsV2 && setupExperimentDecision === null) ||
+        (setupVariant && setupExperimentDecision === null))
+    ) {
       return <OnboardingSkeleton />;
     }
     const creditsEligible =
@@ -1212,74 +1358,88 @@ export function FirstRunOnboarding({
               </div>
             )}
             <div className="fixed bottom-6 right-6 z-10">
-              <Popover open={skipConfirmOpen} onOpenChange={setSkipConfirmOpen}>
-                <PopoverTrigger asChild>
-                  <button
-                    type="button"
-                    data-testid="first-run-credits-skip"
-                    className="inline-flex min-h-6 items-center px-2 rounded-sm text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    {t("agentChat.onboarding.creditsSkip")}
-                  </button>
-                </PopoverTrigger>
-                <PopoverContent
-                  side="top"
-                  align="end"
-                  portalled={false}
-                  aria-labelledby="first-run-credits-skip-title"
-                  aria-describedby="first-run-credits-skip-body"
-                  className="w-96 max-w-[calc(100vw-2rem)] space-y-3 p-4 text-left"
-                  onOpenAutoFocus={(event) => {
-                    event.preventDefault();
-                    skipGoBackRef.current?.focus();
-                  }}
+              {clipsCreditsV2 ? (
+                <button
+                  type="button"
+                  data-testid="first-run-credits-skip"
+                  className="inline-flex min-h-6 items-center px-2 rounded-sm text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={skipSetup}
                 >
-                  <div className="space-y-1">
-                    <p
-                      id="first-run-credits-skip-title"
-                      className="text-sm font-semibold text-foreground"
-                    >
-                      {t("agentChat.onboarding.creditsSkipConfirmTitle")}
-                    </p>
-                    <p
-                      id="first-run-credits-skip-body"
-                      className="text-xs leading-5 text-muted-foreground"
-                    >
-                      {t("agentChat.onboarding.creditsSkipConfirmBody")}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <Button
+                  {t("agentChat.onboarding.creditsSkip")}
+                </button>
+              ) : (
+                <Popover
+                  open={skipConfirmOpen}
+                  onOpenChange={setSkipConfirmOpen}
+                >
+                  <PopoverTrigger asChild>
+                    <button
                       type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="px-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
-                      onClick={() => void handleOpenSettings()}
+                      data-testid="first-run-credits-skip"
+                      className="inline-flex min-h-6 items-center px-2 rounded-sm text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
-                      {t("agentChat.onboarding.creditsUseCustomKeys")}
-                    </Button>
-                    <div className="flex flex-wrap justify-end gap-2">
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        size="sm"
-                        data-testid="first-run-credits-skip-confirm"
-                        onClick={skipSetup}
+                      {t("agentChat.onboarding.creditsSkip")}
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    side="top"
+                    align="end"
+                    portalled={false}
+                    aria-labelledby="first-run-credits-skip-title"
+                    aria-describedby="first-run-credits-skip-body"
+                    className="w-96 max-w-[calc(100vw-2rem)] space-y-3 p-4 text-left"
+                    onOpenAutoFocus={(event) => {
+                      event.preventDefault();
+                      skipGoBackRef.current?.focus();
+                    }}
+                  >
+                    <div className="space-y-1">
+                      <p
+                        id="first-run-credits-skip-title"
+                        className="text-sm font-semibold text-foreground"
                       >
-                        {t("agentChat.onboarding.creditsSkipAnyway")}
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        ref={skipGoBackRef}
-                        onClick={() => setSkipConfirmOpen(false)}
+                        {t("agentChat.onboarding.creditsSkipConfirmTitle")}
+                      </p>
+                      <p
+                        id="first-run-credits-skip-body"
+                        className="text-xs leading-5 text-muted-foreground"
                       >
-                        {t("agentChat.onboarding.creditsSkipGoBack")}
-                      </Button>
+                        {t("agentChat.onboarding.creditsSkipConfirmBody")}
+                      </p>
                     </div>
-                  </div>
-                </PopoverContent>
-              </Popover>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="px-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
+                        onClick={() => void handleOpenSettings()}
+                      >
+                        {t("agentChat.onboarding.creditsUseCustomKeys")}
+                      </Button>
+                      <div className="flex flex-wrap justify-end gap-2">
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          data-testid="first-run-credits-skip-confirm"
+                          onClick={skipSetup}
+                        >
+                          {t("agentChat.onboarding.creditsSkipAnyway")}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          ref={skipGoBackRef}
+                          onClick={() => setSkipConfirmOpen(false)}
+                        >
+                          {t("agentChat.onboarding.creditsSkipGoBack")}
+                        </Button>
+                      </div>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              )}
             </div>
           </div>
         </OnboardingShell>
@@ -1446,8 +1606,6 @@ export function FirstRunOnboarding({
     );
   }
 
-  const accountExists = connectFlow.accountExists && !connectFlow.connecting;
-  const provisioning = builderConnectionMode === "provision" && !accountExists;
   const returnToSetupChoice = () => setScreen("choice");
   return (
     <OnboardingShell
@@ -1462,23 +1620,37 @@ export function FirstRunOnboarding({
         aria-live="polite"
         aria-busy={connectFlow.connecting}
       >
-        <div className="flex size-10 items-center justify-center rounded-full bg-primary/10 text-primary">
-          {accountExists ? (
-            <IconKey size={19} />
-          ) : (
-            <IconLoader2 className="animate-spin" size={19} />
+        <div
+          className={cn(
+            "flex size-10 items-center justify-center rounded-full",
+            connectionFailed
+              ? "bg-destructive/10 text-destructive"
+              : "bg-primary/10 text-primary",
           )}
+        >
+          {accountExists ? <IconKey size={19} /> : null}
+          {connectionFailed ? <IconAlertCircle size={19} /> : null}
+          {!accountExists && !connectionFailed ? (
+            <IconLoader2 className="animate-spin" size={19} />
+          ) : null}
         </div>
         <h1 className="mt-5 text-xl font-semibold tracking-[-0.04em]">
           {accountExists
             ? t("agentChat.onboarding.builderAccountExistsTitle")
-            : provisioning
-              ? t("agentChat.onboarding.creditsActivating")
-              : t("agentChat.onboarding.builderConnecting")}
+            : provisioningFailed
+              ? t("agentChat.settingsShell.builder.setupFailed")
+              : provisioning
+                ? t("agentChat.onboarding.creditsActivating")
+                : t("agentChat.onboarding.builderConnecting")}
         </h1>
-        <p className="mt-2 text-sm text-muted-foreground">
+        <p
+          className="mt-2 text-sm text-muted-foreground"
+          role={connectionFailed ? "alert" : undefined}
+        >
           {accountExists ? (
             t("agentChat.onboarding.builderAccountExistsDescription")
+          ) : provisioningFailed ? (
+            t("agentChat.onboarding.builderProvisionFailedDetail")
           ) : provisioning ? (
             <>
               {t("agentChat.onboarding.builderProvisioningDescription")}
@@ -1515,18 +1687,20 @@ export function FirstRunOnboarding({
           </button>
         ) : (
           <>
-            <div className="mt-7 w-full rounded-xl bg-muted/35 p-4 text-left">
-              <div className="flex items-center justify-between gap-3">
-                <Skeleton className="h-3 w-28" />
-                <Skeleton className="h-5 w-16 rounded-full" />
+            {connectFlow.connecting ? (
+              <div className="mt-7 w-full rounded-xl bg-muted/35 p-4 text-left">
+                <div className="flex items-center justify-between gap-3">
+                  <Skeleton className="h-3 w-28" />
+                  <Skeleton className="h-5 w-16 rounded-full" />
+                </div>
+                <Skeleton className="mt-4 h-8 w-full" />
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  <Skeleton className="h-7 w-full" />
+                  <Skeleton className="h-7 w-full" />
+                  <Skeleton className="h-7 w-full" />
+                </div>
               </div>
-              <Skeleton className="mt-4 h-8 w-full" />
-              <div className="mt-3 grid grid-cols-3 gap-2">
-                <Skeleton className="h-7 w-full" />
-                <Skeleton className="h-7 w-full" />
-                <Skeleton className="h-7 w-full" />
-              </div>
-            </div>
+            ) : null}
             {connectFlow.connecting &&
               (builderCancelRequested ? (
                 <div className="mt-4 flex flex-col items-center gap-2">
@@ -1573,6 +1747,7 @@ export function FirstRunOnboarding({
               </p>
             )}
             {!connectFlow.connecting &&
+              !provisioningFailed &&
               (connectFlow.statusUnavailable || connectFlow.terminalError) && (
                 <div className="mt-4 flex flex-col items-center gap-2">
                   <p className="text-xs text-destructive" role="alert">
@@ -1600,6 +1775,34 @@ export function FirstRunOnboarding({
                   </button>
                 </div>
               )}
+            {provisioningFailed ? (
+              <div className="mt-4 flex w-full flex-col items-center gap-2">
+                <button
+                  type="button"
+                  data-testid="first-run-retry-builder"
+                  className={cn(ONBOARDING_PRIMARY_BUTTON_CLASS, "w-full")}
+                  onClick={() => handleBuilder(true)}
+                >
+                  {t("agentChat.settingsShell.builder.retry")}
+                </button>
+                <button
+                  type="button"
+                  data-testid="first-run-open-key-settings-after-failure"
+                  className={cn(secondaryButtonClass, "w-full")}
+                  onClick={() => void handleOpenSettings()}
+                >
+                  {t("agentChat.onboarding.openAiKeySettings")}
+                </button>
+                <button
+                  type="button"
+                  data-testid="first-run-skip-builder-after-failure"
+                  className="inline-flex min-h-9 items-center justify-center rounded-lg px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={skipFailedBuilderSetup}
+                >
+                  {t("agentChat.onboarding.skipForNow")}
+                </button>
+              </div>
+            ) : null}
             {!connectFlow.connecting &&
               !connectFlow.statusUnavailable &&
               !connectFlow.terminalError && (
