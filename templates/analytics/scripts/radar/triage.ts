@@ -41,7 +41,7 @@ export function triageMetadataParams(
   orgId: string,
   windowEnd: string,
 ): unknown[] {
-  return [selected, orgId, windowEnd];
+  return [JSON.stringify(selected), orgId, windowEnd];
 }
 
 function addDays(date: string, amount: number): string {

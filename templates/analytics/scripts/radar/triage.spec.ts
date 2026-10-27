@@ -58,7 +58,7 @@ describe("BigQuery triage metadata parameters", () => {
       unknown[],
     ];
     expect(sql).toContain("jsonb_to_recordset($1::jsonb)");
-    expect(params[0]).toEqual([
+    expect(JSON.parse(String(params[0]))).toEqual([
       {
         session_id: "session-1",
         app: "clips",

@@ -107,7 +107,7 @@ export function campaignPostgresParams(
   endDate: string,
   orgId: string,
 ): unknown[] {
-  return [recipients, startDate, endDate, orgId];
+  return [JSON.stringify(recipients), startDate, endDate, orgId];
 }
 
 interface BigQueryCampaignActivityRow extends Record<string, unknown> {
