@@ -373,7 +373,6 @@ export default function Index() {
     if (homeLibraryTabWasSelectedRef.current) return;
 
     setHomeSection("recent");
-    homeLibraryTabWasSelectedRef.current = true;
   }, [
     accessibleDesignCount,
     accessibleDesignsSummary.isSuccess,

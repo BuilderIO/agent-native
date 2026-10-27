@@ -1609,6 +1609,24 @@ describe("home library", () => {
     expect(window.localStorage.getItem("design-home-has-recents")).toBe("true");
   });
 
+  it("switches back to Templates when the last accessible design is removed", async () => {
+    mocks.ownCount = 1;
+    await act(async () => root.render(<Index />));
+
+    expect(
+      container.querySelector('[role="tab"][aria-selected="true"]')
+        ?.textContent,
+    ).toBe("home.recent");
+
+    mocks.ownCount = 0;
+    await act(async () => root.render(<Index />));
+
+    expect(
+      container.querySelector('[role="tab"][aria-selected="true"]')
+        ?.textContent,
+    ).toBe("navigation.templates");
+  });
+
   it("does not server-render the home library", () => {
     expect(renderToString(<Index />)).not.toContain(
       "agent-prompt-home-library",
