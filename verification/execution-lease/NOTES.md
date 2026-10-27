@@ -107,18 +107,18 @@ do not weaken step fencing or move an effect ahead of durable dispatch.
 | Config                                                           | Result                          | Distinct states | Time   |
 | ---------------------------------------------------------------- | ------------------------------- | --------------- | ------ |
 | `ExecutionLease.cfg` (policy `never`, prune on)                  | pass                            | 43,211          | 1.7 s  |
-| `ExecutionLeasePolicyFlip.cfg` (each run's policy chosen freely) | pass                            | 2,274,034       | 39.8 s |
+| `ExecutionLeasePolicyFlip.cfg` (each run's policy chosen freely) | pass                            | 2,274,034       | 37.7 s |
 | `sufficiency/fence-alone.cfg` dispatch keeps only the fence      | P8 and P1 hold                  | 43,211          | 1.4 s  |
 | `sufficiency/clause-alone.cfg` dispatch keeps only the clause    | P8 holds                        | 68,110          | 1.7 s  |
-| `mutations/a` dispatch without the fence (ownership clause kept) | P1 violated                     | 153             | 0.7 s  |
-| `mutations/b` begin replays a dispatched never step              | P8 violated                     | 19,662          | 1.0 s  |
-| `mutations/c` action starts before the dispatch commits          | P8 violated                     | 2,564           | 0.8 s  |
+| `mutations/a` dispatch without the fence (ownership clause kept) | P1 violated                     | 151             | 0.7 s  |
+| `mutations/b` begin replays a dispatched never step              | P8 violated                     | 20,216          | 1.0 s  |
+| `mutations/c` action starts before the dispatch commits          | P8 violated                     | 2,585           | 0.8 s  |
 | `mutations/d` claim takes a live lease from a running owner      | ClaimRespectsLiveOwner violated | 16              | 0.9 s  |
-| `mutations/e` fence check commits before the write               | P1 violated                     | 138             | 0.8 s  |
-| `mutations/g` reset fallback without successor fence             | P1 violated                     | 321             | 1.1 s  |
-| `mutations/h` prune a live dispatched step before a late effect  | P8 violated                     | 67,127          | 2.5 s  |
+| `mutations/e` fence check commits before the write               | P1 violated                     | 148             | 0.7 s  |
+| `mutations/g` reset fallback without successor fence             | P1 violated                     | 334             | 0.7 s  |
+| `mutations/h` prune a live dispatched step before a late effect  | P8 violated                     | 67,070          | 2.2 s  |
 | `checks/F2` prune reaches a turn that still sees work            | pass                            | 72,909          | 2.3 s  |
-| `checks/F3` policy flip after a retry-safe dispatch              | pass                            | 2,274,034       | 36.8 s |
+| `checks/F3` policy flip after a retry-safe dispatch              | pass                            | 2,274,034       | 33.1 s |
 
 Each mutation config checks only the invariant it is meant to break, and the
 runner requires that exact invariant to be the one violated. F2 and F3 now pass
@@ -211,7 +211,7 @@ with `AGENT_RUN_SIM_SEEDS`. A failing property includes fast-check's seed and
 the last compact event trace.
 
 The full default simulation file (24 property runs plus named scenarios and a
-concurrent-claim check) took 9.9 seconds locally. The property alone took
+concurrent-claim check) took 10.2 seconds locally. The property alone took
 63.6 seconds with 64 runs.
 
 ## Code to model map

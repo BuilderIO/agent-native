@@ -64,7 +64,7 @@
   ],
   "findings": [],
   "coverage": {
-    "syncCommit": "0b6cac4b78d650ec81a80151f8b1a7b521befd66",
+    "syncCommit": "d58f9c8aeba61e1227fd54ed4cb723dd855d67bc",
     "code": [
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -189,7 +189,7 @@
       {
         "file": "packages/core/src/agent/run-store.ts",
         "name": "pruneAndRollUpPrunedRunOutcomes",
-        "sha256": "00649c3a1283836fd0cfa458d7efd18edbf4b2118b924e2b257c067abae082d0"
+        "sha256": "1d4616a8ec7fc6f155b213dd197649cc2d4550b6c08407a235c2e74f4b08934f"
       },
       {
         "file": "packages/core/src/agent/execution-fence.ts",
