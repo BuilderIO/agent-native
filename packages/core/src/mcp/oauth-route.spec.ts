@@ -399,7 +399,7 @@ describe("MCP OAuth route", () => {
         code_challenge_method: "S256",
       };
       const consent = await handleMcpOAuth(
-        event({ query: params }),
+        event({ query: params, headers: { "x-country": "US" } }),
         "/authorize",
       );
       const consentToken = (await consent.text()).match(
@@ -1103,7 +1103,7 @@ describe("MCP OAuth route", () => {
       query: Record<string, string> = {},
       resource = "https://mail.agent-native.com/mcp/directory",
       connector = { name: "ChatGPT", redirect: chatgptRedirect },
-      headers: Record<string, string> = {},
+      headers: Record<string, string> = { "x-country": "US" },
     ) {
       const client = await (
         await handleMcpOAuth(
@@ -1212,6 +1212,35 @@ describe("MCP OAuth route", () => {
       expect(
         decodeMcpSignupAttribution(mcpToken, "mcp-oauth-test-secret"),
       ).toMatchObject({ signupOrigin: "mcp_oauth", vendorHint: "openai" });
+    });
+
+    it("fails closed for analytics and attribution when the country is unknown", async () => {
+      getSessionMock.mockResolvedValueOnce(null);
+      const { response } = await openAuthorize({}, undefined, undefined, {});
+
+      expect(response.status).toBe(200);
+      expect(authorizeFunnelCalls()).toEqual([]);
+      const cookies = response.headers.get("set-cookie") ?? "";
+      expect(cookies).not.toContain("an_aid=mcp_");
+      expect(cookies).not.toContain("an_sid=mcp_");
+      const mcpToken = cookies.match(/(?:^|,\s*)an_mcp_signup=([^;,]+)/)?.[1];
+      const { decodeMcpSignupAttribution } =
+        await import("../server/mcp-signup-attribution.js");
+      expect(
+        decodeMcpSignupAttribution(mcpToken, "mcp-oauth-test-secret"),
+      ).toMatchObject({
+        signupOrigin: "mcp_oauth",
+        firstTouchPathAllowed: false,
+      });
+      expect(
+        decodeMcpSignupAttribution(mcpToken, "mcp-oauth-test-secret"),
+      ).not.toHaveProperty("vendorHint");
+      expect(
+        decodeMcpSignupAttribution(mcpToken, "mcp-oauth-test-secret"),
+      ).not.toHaveProperty("anonymousId");
+      expect(
+        decodeMcpSignupAttribution(mcpToken, "mcp-oauth-test-secret"),
+      ).not.toHaveProperty("sessionId");
     });
 
     it("counts a signed-in open once, with the user, and not the consent POST", async () => {

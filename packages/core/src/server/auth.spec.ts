@@ -663,6 +663,7 @@ describe("server/auth", () => {
         "/_agent-native/auth/magic-link",
         { email: "new@example.com", callbackURL: "/welcome" },
         {
+          "x-country": "US",
           cookie: `an_aid=anon_123; an_ft=${firstTouch}; an_mcp_signup=${mcpSignup}`,
         },
       );
@@ -3215,6 +3216,7 @@ describe("server/auth", () => {
           headers: {
             host: "agent-workspace.builder.io",
             "x-forwarded-proto": "https",
+            "x-country": "US",
             referer: `${previewOrigin}/?builder.preview=interact`,
             cookie: `an_ft=${firstTouch}; an_aid=anon_preview_1`,
           },
@@ -11238,6 +11240,7 @@ describe("server/auth", () => {
       const event = createMockEvent({
         headers: {
           "x-forwarded-proto": "https",
+          "x-country": "US",
           cookie: `an_ft=${firstTouch}; an_aid=anon_google_1; an_sid=session_google_1`,
         },
       });
@@ -11304,7 +11307,7 @@ describe("server/auth", () => {
 
       const { createOAuthSession } = await import("./google-oauth.js");
       const event = createMockEvent({
-        headers: { "x-forwarded-proto": "https" },
+        headers: { "x-forwarded-proto": "https", "x-country": "US" },
       });
 
       await createOAuthSession(event, "user@gmail.com", {
@@ -11408,9 +11411,72 @@ describe("server/auth", () => {
           sessionId: undefined,
         }),
       );
-      expect(
-        trackSignupEvent.mock.calls[0]?.[0].attribution,
-      ).not.toHaveProperty("$mcp_vendor_client_hint");
+      expect(trackSignupEvent.mock.calls[0]?.[0].attribution).toBeUndefined();
+    });
+
+    it("drops signed first touch and MCP vendor after targeting consent is revoked", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("APP_NAME", "plan");
+
+      const mockExecute = vi.fn(async (query: { sql?: string } | string) => {
+        const sql = typeof query === "string" ? query : query.sql || "";
+        if (/SELECT 1 FROM sessions WHERE email = \?/i.test(sql)) {
+          return { rows: [] };
+        }
+        return { rows: [] };
+      });
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isLocalDatabase: () => false,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+
+      const trackSignupEvent = vi.fn(async () => {});
+      vi.doMock("./better-auth-instance.js", () => ({
+        getAuthSecret: vi.fn(() => "test-auth-secret"),
+        getBetterAuth: vi.fn(),
+        getBetterAuthSync: vi.fn(),
+        getBetterAuthUserIdForEmail: vi.fn(async () => "better-auth-user-id"),
+        hasBetterAuthUserEmail: vi.fn(async () => false),
+        trackSignupEvent,
+      }));
+
+      const { createOAuthSession } = await import("./google-oauth.js");
+      const event = createMockEvent({
+        headers: {
+          "x-forwarded-proto": "https",
+          cookie: "an_consent=1.p1.t0",
+        },
+      });
+
+      await createOAuthSession(event, "user@gmail.com", {
+        hasProductionSession: false,
+        trackSignup: {
+          authProvider: "google",
+          authUserId: "google-user-1",
+          attribution: {
+            utm_source: "newsletter",
+            first_touch_path: "/mcp/oauth/authorize",
+          },
+          signupAnonymousId: "anon_state_targeting_revoked",
+          signupSessionId: "session_state_targeting_revoked",
+          mcpSignupAttribution: {
+            vendor: "openai",
+            anonymousId: "anon_state_targeting_revoked",
+            sessionId: "session_state_targeting_revoked",
+            firstTouchPathAllowed: true,
+          },
+        },
+      });
+
+      expect(trackSignupEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          origin: "mcp_oauth",
+          attribution: undefined,
+          anonymousId: "anon_state_targeting_revoked",
+          sessionId: "session_state_targeting_revoked",
+        }),
+      );
     });
 
     it("does not track Google OAuth signup for an existing legacy session email", async () => {

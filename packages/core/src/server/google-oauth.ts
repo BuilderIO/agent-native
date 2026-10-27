@@ -891,12 +891,15 @@ export async function createOAuthSession(
         event,
         "performance",
       );
-      const baseAttribution =
-        opts.trackSignup.attribution ??
-        signupAttributionFromCookieHeader(signupCookieHeader);
+      const targetingAllowed = requestAllowsConsentCategory(event, "targeting");
+      const baseAttribution = targetingAllowed
+        ? (opts.trackSignup.attribution ??
+          signupAttributionFromCookieHeader(signupCookieHeader))
+        : undefined;
       const mcpSignupAttribution = filterMcpSignupAttributionByConsent(
         opts.trackSignup.mcpSignupAttribution,
         signupCookieHeader,
+        { performance: performanceAllowed, targeting: targetingAllowed },
       );
       const attribution = applyMcpSignupAttribution(
         baseAttribution,

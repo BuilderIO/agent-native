@@ -230,8 +230,9 @@ export default defineAction({
       generationComplete,
     },
     ctx,
-  ) =>
-    withDeckLock(deckId, async () => {
+  ) => {
+    let shouldTrackActionGenerationCompletion = false;
+    return withDeckLock(deckId, async () => {
       await assertAccess("deck", deckId, "editor");
       const db = getDb();
 
@@ -366,6 +367,25 @@ export default defineAction({
         deck.generationContext = {
           ...(generationContext ?? {}),
           targetSlideCount: targetSlideCountOverride,
+        };
+      }
+
+      const generationAttemptId =
+        typeof generationContext?.generationAttemptId === "string"
+          ? generationContext.generationAttemptId
+          : undefined;
+      shouldTrackActionGenerationCompletion = Boolean(
+        generationComplete &&
+        generationAttemptId &&
+        generationContext?.generationMode === "action" &&
+        generationContext.completedAttemptId !== generationAttemptId,
+      );
+      if (shouldTrackActionGenerationCompletion && generationAttemptId) {
+        deck.generationContext = {
+          ...((deck.generationContext as Record<string, unknown> | undefined) ??
+            generationContext ??
+            {}),
+          completedAttemptId: generationAttemptId,
         };
       }
 
@@ -574,10 +594,6 @@ export default defineAction({
           error instanceof Error && error.name ? error.name : "unknown_error";
       }
 
-      const generationAttemptId =
-        typeof generationContext?.generationAttemptId === "string"
-          ? generationContext.generationAttemptId
-          : undefined;
       const generationStartedAt =
         typeof generationContext?.generationStartedAt === "number" &&
         Number.isFinite(generationContext.generationStartedAt) &&
@@ -631,11 +647,7 @@ export default defineAction({
           ctx,
         );
       }
-      if (
-        generationComplete &&
-        generationAttemptId &&
-        generationContext?.generationMode === "action"
-      ) {
+      if (shouldTrackActionGenerationCompletion && generationAttemptId) {
         const generationEndedAt = Date.now();
         track(
           "generation_completed",
@@ -685,7 +697,8 @@ export default defineAction({
       };
 
       return base;
-    }),
+    });
+  },
   link: ({ result, args }) => {
     const deckId =
       result && typeof result === "object"

@@ -90,7 +90,6 @@ import {
   isBootstrapAdmin,
 } from "../org/signup-admission.js";
 import { normalizeAnalyticsSessionId } from "../shared/analytics-session-id.js";
-import { CONSENT_COOKIE_NAME, parseConsent } from "../shared/consent.js";
 import { isGoogleProfileImageUrl } from "../shared/google-profile-image.js";
 import { loadOptionalPeer } from "../shared/optional-peer.js";
 import {
@@ -107,10 +106,10 @@ import { getConfiguredAppBasePath } from "./app-base-path.js";
 import { getAppProductionUrl } from "./app-url.js";
 import {
   type SignupOrigin,
-  parseCookieHeader,
   signupAttributionContextFromCookieHeader,
   signupAttributionContextFromHeaders,
 } from "./attribution.js";
+import { requestAllowsConsentCategoryFromHeaders } from "./consent-route.js";
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import {
   getMissingAuthSecretKey,
@@ -290,10 +289,14 @@ export async function emitSignupEventForCreatedUser(
   const requestHeaders = context?.headers ?? context?.request?.headers ?? null;
   if (!requestHeaders) return;
   const cookieHeader = requestHeaders.get("cookie");
-  const consent = parseConsent(
-    parseCookieHeader(cookieHeader)[CONSENT_COOKIE_NAME],
+  const performanceAllowed = requestAllowsConsentCategoryFromHeaders(
+    requestHeaders,
+    "performance",
   );
-  const performanceAllowed = consent?.performance !== false;
+  const targetingAllowed = requestAllowsConsentCategoryFromHeaders(
+    requestHeaders,
+    "targeting",
+  );
   const requestSessionId = performanceAllowed
     ? normalizeAnalyticsSessionId(
         requestHeaders.get("x-agent-native-session-id"),
@@ -320,6 +323,7 @@ export async function emitSignupEventForCreatedUser(
       mcpSignupAttribution = filterMcpSignupAttributionByConsent(
         magicLinkAttribution.mcpSignupAttribution,
         cookieHeader,
+        { performance: performanceAllowed, targeting: targetingAllowed },
       );
       const filteredMagicLinkAttribution = { ...magicLinkAttribution };
       delete filteredMagicLinkAttribution.mcpSignupAttribution;
@@ -337,7 +341,7 @@ export async function emitSignupEventForCreatedUser(
       scoped?.signupAttribution ??
       signupAttributionContextFromHeaders(requestHeaders) ??
       signupAttributionContextFromCookieHeader(cookieHeader);
-    attribution = browser?.attribution;
+    attribution = targetingAllowed ? browser?.attribution : undefined;
     anonymousId = performanceAllowed ? browser?.anonymousId : undefined;
     sessionId = performanceAllowed
       ? (normalizeAnalyticsSessionId(browser?.sessionId) ?? requestSessionId)

@@ -59,7 +59,7 @@ function firstTouchCookie(value: Record<string, string>): string {
 }
 
 function headersWithCookie(cookie: string): Headers {
-  return new Headers({ cookie });
+  return new Headers({ cookie, "x-country": "US" });
 }
 
 function mcpMagicLinkVerifyUrl(
@@ -119,6 +119,7 @@ describe("emitSignupEventForCreatedUser", () => {
     await emitSignupEventForCreatedUser(USER, {
       headers: new Headers({
         "x-agent-native-session-id": "browser-session-42",
+        "x-country": "US",
       }),
     });
     expect(tracked[0]?.source?.sessionId).toBe("browser-session-42");
@@ -127,6 +128,7 @@ describe("emitSignupEventForCreatedUser", () => {
     await emitSignupEventForCreatedUser(USER, {
       headers: new Headers({
         "x-agent-native-session-id": "not a session id",
+        "x-country": "US",
       }),
     });
     expect(tracked[0]?.source?.sessionId).toBeUndefined();
@@ -162,6 +164,25 @@ describe("emitSignupEventForCreatedUser", () => {
     expect(tracked).toHaveLength(1);
     expect(tracked[0].properties).not.toHaveProperty("referral_source");
     expect(tracked[0].source?.anonymousId).toBeUndefined();
+  });
+
+  it("requires consent for analytics ids and first touch in a consent region", async () => {
+    await emitSignupEventForCreatedUser(USER, {
+      headers: new Headers({
+        cookie: `an_aid=anon_eu; an_sid=session_eu; ${firstTouchCookie({
+          utm_source: "newsletter",
+          landing_path: "/welcome",
+        })}`,
+        "x-country": "DE",
+      }),
+    });
+
+    expect(tracked).toHaveLength(1);
+    expect(tracked[0]?.source?.anonymousId).toBeUndefined();
+    expect(tracked[0]?.source?.sessionId).toBeUndefined();
+    expect(tracked[0]?.properties).not.toHaveProperty("utm_source");
+    expect(tracked[0]?.properties).not.toHaveProperty("first_touch_path");
+    expect(persisted).toEqual([]);
   });
 
   it("still records direct for a real visitor who arrived with no campaign", async () => {
@@ -374,6 +395,7 @@ describe("emitSignupEventForCreatedUser", () => {
     await emitSignupEventForCreatedUser(USER, {
       headers: new Headers({
         "x-agent-native-session-id": "session_recipient_1",
+        "x-country": "US",
       }),
       request: {
         url: `https://app.example.com/_agent-native/auth/ba/magic-link/verify?token=t&newUserCallbackURL=${encodeURIComponent(
@@ -397,6 +419,7 @@ describe("emitSignupEventForCreatedUser", () => {
     await emitSignupEventForCreatedUser(USER, {
       headers: new Headers({
         "x-agent-native-session-id": "session_admin_1",
+        "x-country": "US",
       }),
       context: { session: { user: { id: "admin_1" } } },
     });
@@ -520,6 +543,7 @@ describe("emitSignupEventForCreatedUser", () => {
 
     await emitSignupEventForCreatedUser(USER, {
       headers: new Headers({
+        "x-country": "US",
         "x-agent-native-signup-attribution": encodeURIComponent(
           JSON.stringify({
             attribution: { utm_source: "spoofed" },

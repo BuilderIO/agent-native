@@ -170,6 +170,7 @@ export function readMcpSignupContextFromCookieHeader(
 export function filterMcpSignupAttributionByConsent(
   context: McpSignupAttribution | null | undefined,
   cookieHeader: string | null | undefined,
+  requestConsent?: { performance?: boolean; targeting?: boolean },
 ): McpSignupAttribution | null | undefined {
   if (!context) return context;
 
@@ -177,11 +178,11 @@ export function filterMcpSignupAttributionByConsent(
     parseCookieHeader(cookieHeader)[CONSENT_COOKIE_NAME],
   );
   const allowedContext = { ...context };
-  if (consent?.performance === false) {
+  if ((requestConsent?.performance ?? consent?.performance) === false) {
     delete allowedContext.anonymousId;
     delete allowedContext.sessionId;
   }
-  if (consent?.targeting === false) {
+  if ((requestConsent?.targeting ?? consent?.targeting) === false) {
     delete allowedContext.vendor;
     delete allowedContext.vendorHint;
     allowedContext.firstTouchPathAllowed = false;

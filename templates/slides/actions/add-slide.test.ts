@@ -633,6 +633,53 @@ describe("add-slide", () => {
     });
   });
 
+  it("does not emit completion again for a persisted generation attempt", async () => {
+    deckData.generationContext = {
+      generationAttemptId: "attempt-once",
+      generationStartedAt: 100,
+      generationMode: "action",
+    };
+
+    await action.run({
+      deckId: "deck-1",
+      slideId: "slide-final",
+      content: "<div>Final</div>",
+      generationComplete: true,
+    });
+
+    expect(
+      mockTrack.mock.calls.filter(([name]) => name === "generation_completed"),
+    ).toHaveLength(1);
+    const savedDeck = JSON.parse(String(updatedFields?.data)) as Record<
+      string,
+      unknown
+    >;
+    expect(savedDeck.generationContext).toMatchObject({
+      generationAttemptId: "attempt-once",
+      completedAttemptId: "attempt-once",
+    });
+
+    deckData = savedDeck;
+    mockTrack.mockClear();
+    await action.run({
+      deckId: "deck-1",
+      slideId: "slide-follow-up",
+      content: "<div>Follow-up edit</div>",
+      generationComplete: true,
+    });
+
+    expect(
+      mockTrack.mock.calls.some(([name]) => name === "generation_completed"),
+    ).toBe(false);
+    const updatedAgain = JSON.parse(String(updatedFields?.data)) as Record<
+      string,
+      unknown
+    >;
+    expect(updatedAgain.generationContext).toMatchObject({
+      completedAttemptId: "attempt-once",
+    });
+  });
+
   it("marks a skewed incremental completion instead of clamping duration", async () => {
     deckData.generationContext = {
       generationAttemptId: "attempt-1",
