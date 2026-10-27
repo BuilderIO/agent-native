@@ -118,6 +118,11 @@ export interface RequestRunContext {
 }
 
 export interface RequestContext {
+  /**
+   * The id the server stamps on this request's response, so a failure captured
+   * anywhere in the request names the id the person sees on screen.
+   */
+  requestId?: string;
   isSyntheticTraffic?: boolean;
   mcpRequestId?: string;
   userEmail?: string;

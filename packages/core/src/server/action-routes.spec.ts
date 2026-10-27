@@ -7409,6 +7409,22 @@ describe("action boundary error classification", () => {
     expect(explicit.captured).not.toHaveBeenCalled();
   });
 
+  it("returns a failed session lookup as a typed 503, not a 401 or a generic 500", async () => {
+    const { sessionResolutionUnavailableError } =
+      await import("./session-resolution-unavailable.js");
+    const { status, result, captured } = await invoke(
+      sessionResolutionUnavailableError(),
+    );
+
+    expect(status).toBe(503);
+    expect(result).toEqual({
+      error: "Your session could not be verified. Retry shortly.",
+      errorCode: "session_unavailable",
+    });
+    // Already reported with its real cause where the lookup failed.
+    expect(captured).not.toHaveBeenCalled();
+  });
+
   it("does not trust an expected marker without a typed code", async () => {
     const error = Object.assign(new Error("relation does not exist"), {
       expected: true,
