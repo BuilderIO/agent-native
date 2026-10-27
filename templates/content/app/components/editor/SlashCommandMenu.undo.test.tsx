@@ -13,11 +13,9 @@ import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 
+import { runPersistableHistoryCommand } from "./editor-transaction-meta";
 import { SlashCommandMenu } from "./SlashCommandMenu";
-import {
-  createVisualEditorExtensions,
-  runPersistableHistoryCommand,
-} from "./VisualEditor";
+import { createVisualEditorExtensions } from "./VisualEditor";
 
 const PARAGRAPH = "Paragraph block for the block menu.";
 
