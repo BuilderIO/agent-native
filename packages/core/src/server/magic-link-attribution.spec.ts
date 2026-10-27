@@ -122,7 +122,7 @@ describe("magic-link attribution handoff", () => {
       anonymousId: "anon_mcp_1",
       sessionId: "session_mcp_1",
       mcpSignupAttribution: {
-        vendor: "openai",
+        vendorHint: "openai",
         anonymousId: "anon_mcp_1",
         sessionId: "session_mcp_1",
       },
