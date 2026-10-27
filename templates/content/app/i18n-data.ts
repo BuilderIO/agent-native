@@ -2,6 +2,7 @@ import { type BuiltinLocaleCode as LocaleCode } from "@agent-native/core/client/
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 import { commentAttributionMessagesByLocale } from "../shared/comment-attribution-messages";
+import { clipEmbedMessagesByLocale } from "./clip-embed-messages";
 import {
   discussionMessages,
   discussionMessagesByLocale,
@@ -2128,6 +2129,7 @@ const enUS = {
   },
   trash: trashMessagesByLocale["en-US"],
   contentImport: importMessagesByLocale["en-US"],
+  clipEmbed: clipEmbedMessagesByLocale["en-US"],
 };
 
 type Messages = typeof enUS;
@@ -2191,6 +2193,7 @@ function mergeMessages(overrides: PartialMessages): Messages {
     sidebar: { ...enUS.sidebar, ...overrides.sidebar },
     trash: enUS.trash,
     contentImport: enUS.contentImport,
+    clipEmbed: enUS.clipEmbed,
     creativeContext: {
       ...enUS.creativeContext,
       ...overrides.creativeContext,
@@ -2710,6 +2713,7 @@ function mergeMessagesForLocale(
     sidebar: { ...base.sidebar, ...rawLiteralOverrides.sidebar },
     trash: trashMessagesByLocale[locale],
     contentImport: importMessagesByLocale[locale],
+    clipEmbed: clipEmbedMessagesByLocale[locale],
   };
 }
 

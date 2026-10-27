@@ -76,6 +76,7 @@ const BUBBLE_TOOLBAR_EXCLUDED_NODE_TYPES = new Set([
   "audio",
   "contentReference",
   "localMdxComponent",
+  "registryBlock",
 ]);
 
 type SelectionFillRange = {
