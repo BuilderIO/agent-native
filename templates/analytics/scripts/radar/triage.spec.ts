@@ -50,7 +50,7 @@ describe("BigQuery triage metadata parameters", () => {
     });
   });
 
-  it("serializes a non-empty selected session array for jsonb_to_recordset", async () => {
+  it("passes non-empty selected session rows as a PostgreSQL JSONB value", async () => {
     await runTriage({ date: "2026-10-26" });
 
     const [sql, params] = mocks.runPostgresQuery.mock.calls[0] as [
@@ -58,9 +58,13 @@ describe("BigQuery triage metadata parameters", () => {
       unknown[],
     ];
     expect(sql).toContain("jsonb_to_recordset($1::jsonb)");
-    expect(params[0]).toBe(
-      '[{"session_id":"session-1","app":"clips","signup_at":"2026-10-26T12:00:00.000Z"}]',
-    );
+    expect(params[0]).toEqual([
+      {
+        session_id: "session-1",
+        app: "clips",
+        signup_at: "2026-10-26T12:00:00.000Z",
+      },
+    ]);
     expect(params[1]).toBe("org-1");
     expect(params[2]).toBe("2026-10-27T00:00:00.000Z");
   });

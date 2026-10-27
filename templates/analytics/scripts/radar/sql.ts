@@ -1,5 +1,5 @@
 const APPS = ["design", "slides", "clips"] as const;
-const CAMPAIGN_APPS = [
+export const CAMPAIGN_APPS = [
   "analytics",
   "assets",
   "brain",

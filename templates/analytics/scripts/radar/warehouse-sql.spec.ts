@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   bigQueryIdentityExclusionSql,
   bigQueryFirstTouchEventsCte,
+  buildBigQueryCampaignActivitySql,
   buildBigQueryEventStatsSql,
   buildBigQueryFunnelDailySql,
   buildBigQueryPromptOutputSloSql,
@@ -73,6 +74,18 @@ describe("first-party BigQuery radar SQL", () => {
     expect(funnel).toContain("design_ready_viewed");
     expect(funnel).toContain("prompt_output_p90_seconds");
     expect(slo).toContain("percentile_cont(seconds, 0.9)");
+  });
+
+  it("selects only identified campaign activity without recipient parameters", () => {
+    const campaign = buildBigQueryCampaignActivitySql(range);
+    expect(campaign).toContain("identity_email IS NOT NULL");
+    expect(campaign).toContain("ARRAY_AGG(happened_at) AS happened_at_values");
+    expect(campaign).toContain("outage_recovery_20261026");
+    expect(campaign).toContain("@start_date");
+    expect(campaign).toContain("@end_date");
+    expect(campaign).toContain("@org_id");
+    expect(campaign).not.toContain("@recipients_json");
+    expect(campaign).not.toContain("email_hash");
   });
 
   it("bounds selected BigQuery triage sessions and excludes their identity fields", () => {

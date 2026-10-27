@@ -7,7 +7,7 @@ import {
 } from "./campaign.ts";
 
 describe("campaign follow-up summaries", () => {
-  it("serializes campaign recipients for the PostgreSQL JSONB parameter", () => {
+  it("passes campaign recipients as a PostgreSQL JSONB value", () => {
     const params = campaignPostgresParams(
       [
         {
@@ -21,9 +21,13 @@ describe("campaign follow-up summaries", () => {
       "org-1",
     );
 
-    expect(params[0]).toBe(
-      '[{"email":"person@example.test","sent_at":"2026-10-26T12:00:00.000Z","app":"clips"}]',
-    );
+    expect(params[0]).toEqual([
+      {
+        email: "person@example.test",
+        sent_at: "2026-10-26T12:00:00.000Z",
+        app: "clips",
+      },
+    ]);
   });
 
   it("aggregates recipient counts by activity app without repeating denominators", () => {

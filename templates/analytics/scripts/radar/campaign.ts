@@ -1,9 +1,18 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { RadarQueryError, REPO_ROOT, runPostgresQuery } from "./query.ts";
-import { buildCampaignFollowupSql } from "./sql.ts";
+import {
+  RadarQueryError,
+  REPO_ROOT,
+  resolveRadarBigQueryEventsTable,
+  resolveRadarFirstPartyBackend,
+  runBigQuery,
+  runPostgresQuery,
+} from "./query.ts";
+import { CAMPAIGN_APPS, buildCampaignFollowupSql } from "./sql.ts";
+import { buildBigQueryCampaignActivitySql } from "./warehouse-sql.ts";
 
 function itemAt<T>(items: readonly T[], index: number): T | undefined {
   if (index < 0 || index >= items.length) return undefined;
@@ -98,7 +107,133 @@ export function campaignPostgresParams(
   endDate: string,
   orgId: string,
 ): unknown[] {
-  return [JSON.stringify(recipients), startDate, endDate, orgId];
+  return [recipients, startDate, endDate, orgId];
+}
+
+interface BigQueryCampaignActivityRow extends Record<string, unknown> {
+  identity_email: string;
+  activity_app: string;
+  event_name: string;
+  happened_at_values: string[];
+  campaign_landing: boolean;
+}
+
+function recipientFingerprint(email: string, key: Buffer): string {
+  return crypto.createHmac("sha256", key).update(email).digest("hex");
+}
+
+function campaignRowsFromBigQuery(
+  recipients: CampaignRecipient[],
+  activityRows: Record<string, unknown>[],
+  key: Buffer,
+): CampaignFollowupRow[] {
+  const recipientsByFingerprint = new Map<string, CampaignRecipient>();
+  const recipientsByApp = new Map<string, number>();
+  const activityApps = new Set<string>(CAMPAIGN_APPS);
+  for (const recipient of recipients) {
+    const fingerprint = recipientFingerprint(recipient.email, key);
+    recipientsByFingerprint.set(fingerprint, recipient);
+    recipientsByApp.set(
+      recipient.app,
+      (recipientsByApp.get(recipient.app) ?? 0) + 1,
+    );
+    activityApps.add(recipient.app);
+  }
+
+  const matches = new Map<string, Set<string>>();
+  for (const rawRow of activityRows) {
+    const row = rawRow as BigQueryCampaignActivityRow;
+    if (
+      typeof row.identity_email !== "string" ||
+      typeof row.activity_app !== "string" ||
+      typeof row.event_name !== "string" ||
+      !Array.isArray(row.happened_at_values) ||
+      typeof row.campaign_landing !== "boolean"
+    ) {
+      throw new RadarQueryError(
+        "BigQuery campaign query returned malformed activity rows.",
+        1,
+      );
+    }
+    const fingerprint = recipientFingerprint(
+      row.identity_email.trim().toLowerCase(),
+      key,
+    );
+    const recipient = recipientsByFingerprint.get(fingerprint);
+    if (!recipient) continue;
+
+    const activityApp = normalizeApp(row.activity_app);
+    activityApps.add(activityApp);
+    const sentAt = Date.parse(recipient.sent_at);
+    const baselineStart = sentAt - 7 * 24 * 60 * 60 * 1000;
+    const metrics: CampaignFollowupRow["metric"][] = [];
+    if (row.event_name === "pageview") {
+      metrics.push("any_visit");
+      if (row.campaign_landing) metrics.push("campaign_landing");
+    }
+    if (
+      row.event_name === "builder_connect_succeeded" ||
+      row.event_name === "builder connect succeeded"
+    ) {
+      metrics.push("builder_connect_succeeded");
+    }
+    if (
+      (activityApp === "slides" && row.event_name === "deck_created") ||
+      (activityApp === "design" && row.event_name === "design_ready_viewed") ||
+      (activityApp === "clips" && row.event_name === "recording_ready")
+    ) {
+      metrics.push("first_output");
+    }
+
+    for (const timestamp of row.happened_at_values) {
+      const happenedAt = Date.parse(timestamp);
+      if (!Number.isFinite(happenedAt)) {
+        throw new RadarQueryError(
+          "BigQuery campaign query returned a malformed timestamp.",
+          1,
+        );
+      }
+      const period =
+        happenedAt >= sentAt
+          ? "after_send"
+          : happenedAt >= baselineStart
+            ? "prior_7_days"
+            : null;
+      if (!period) continue;
+      for (const metric of metrics) {
+        const countKey = `${period}|${recipient.app}|${activityApp}|${metric}`;
+        const matchedRecipients = matches.get(countKey) ?? new Set<string>();
+        matchedRecipients.add(fingerprint);
+        matches.set(countKey, matchedRecipients);
+      }
+    }
+  }
+
+  const metrics: CampaignFollowupRow["metric"][] = [
+    "any_visit",
+    "campaign_landing",
+    "builder_connect_succeeded",
+    "first_output",
+  ];
+  const rows: CampaignFollowupRow[] = [];
+  for (const [recipientApp, count] of recipientsByApp) {
+    for (const activityApp of activityApps) {
+      for (const period of ["after_send", "prior_7_days"] as const) {
+        for (const metric of metrics) {
+          const key = `${period}|${recipientApp}|${activityApp}|${metric}`;
+          rows.push({
+            period,
+            recipient_app: recipientApp,
+            activity_app: activityApp,
+            metric,
+            recipients: count,
+            recipients_with_activity: matches.get(key)?.size ?? 0,
+          });
+        }
+      }
+    }
+  }
+  return rows;
 }
 
 function normalizeApp(value: string | undefined): string {
@@ -106,7 +241,14 @@ function normalizeApp(value: string | undefined): string {
   for (const name of ["design", "slides", "clips"]) {
     if (app === `beta-${name}` || app.startsWith(`beta-${name}-`)) return name;
   }
-  return app.startsWith("beta-") ? app.slice("beta-".length) : app;
+  const withoutBeta = app.startsWith("beta-") ? app.slice("beta-".length) : app;
+  const betaNormalized = withoutBeta === "plans" ? "plan" : withoutBeta;
+  if (
+    CAMPAIGN_APPS.includes(betaNormalized as (typeof CAMPAIGN_APPS)[number])
+  ) {
+    return betaNormalized;
+  }
+  return "other";
 }
 
 function campaignPeriod(value: unknown): CampaignFollowupRow["period"] {
@@ -257,13 +399,36 @@ export async function runCampaignFollowup(
   );
   const startDate = dateBefore(oldest.slice(0, 10), 7);
   const endDate = new Date().toISOString().slice(0, 10);
-  const rows = (
-    await runPostgresQuery(
-      buildCampaignFollowupSql(),
-      campaignPostgresParams(recipients, startDate, endDate, orgId),
-      { fresh: true, cache: false },
-    )
-  ).rows;
+  const backend = await resolveRadarFirstPartyBackend();
+  const rows =
+    backend.sink === "bigquery"
+      ? campaignRowsFromBigQuery(
+          recipients,
+          (
+            await runBigQuery(
+              buildBigQueryCampaignActivitySql(
+                await resolveRadarBigQueryEventsTable(),
+              ),
+              {
+                params: [
+                  { name: "start_date", type: "DATE", value: startDate },
+                  { name: "end_date", type: "DATE", value: endDate },
+                  { name: "org_id", type: "STRING", value: orgId },
+                ],
+                fresh: true,
+                cache: false,
+              },
+            )
+          ).rows,
+          crypto.randomBytes(32),
+        )
+      : (
+          await runPostgresQuery(
+            buildCampaignFollowupSql(),
+            campaignPostgresParams(recipients, startDate, endDate, orgId),
+            { fresh: true, cache: false },
+          )
+        ).rows;
   const byRecipientApp: Record<string, number> = {};
   const aggregateRows = rows.map((row) => {
     const recipientApp = String(row.recipient_app ?? "unknown");

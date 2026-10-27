@@ -338,6 +338,34 @@ FROM counts c JOIN percentiles p USING (app)
 ORDER BY c.app`;
 }
 
+export function buildBigQueryCampaignActivitySql(
+  eventsTableRange: string,
+): string {
+  return `${bigQueryFirstTouchEventsCte(eventsTableRange, { includeAllApps: true })},
+campaign_activity AS (
+  SELECT identity_email, app AS activity_app, event_name, happened_at,
+    (event_name = 'pageview' AND (
+      lower(replace(coalesce(json_value(properties, '$.utm_campaign'), ''), '${ZERO_WIDTH_SPACE}', '')) = 'outage_recovery_20261026'
+      OR regexp_contains(lower(concat(
+        coalesce(json_value(properties, '$.search'), ''), '&', coalesce(url, ''), '&',
+        coalesce(json_value(properties, '$.url'), '')
+      )), r'(^|[?&#])utm_campaign=outage_recovery_20261026([&#]|$)')
+    )) AS campaign_landing
+  FROM base_events
+  WHERE identity_email IS NOT NULL
+    AND event_name IN ('pageview', 'builder_connect_succeeded', 'builder connect succeeded',
+      'deck_created', 'design_ready_viewed', 'recording_ready')
+),
+grouped_activity AS (
+  SELECT identity_email, activity_app, event_name, campaign_landing,
+    ARRAY_AGG(happened_at) AS happened_at_values
+  FROM campaign_activity
+  GROUP BY identity_email, activity_app, event_name, campaign_landing
+)
+SELECT identity_email, activity_app, event_name, happened_at_values, campaign_landing
+FROM grouped_activity`;
+}
+
 export function buildBigQueryTriageEventsSql(eventsTableRange: string): string {
   return `${bigQueryFirstTouchEventsCte(eventsTableRange, { startDateParam: "@event_start_date", endDateParam: "@event_end_date", orgIdParam: "@org_id" })},
 signup_sessions AS (

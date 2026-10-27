@@ -4,11 +4,16 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ runPostgresQuery: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  resolveRadarBigQueryEventsTable: vi.fn(),
+  resolveRadarFirstPartyBackend: vi.fn(),
+  runBigQuery: vi.fn(),
+  runPostgresQuery: vi.fn(),
+}));
 
 vi.mock("./query.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./query.ts")>();
-  return { ...actual, runPostgresQuery: mocks.runPostgresQuery };
+  return { ...actual, ...mocks };
 });
 
 import { runCampaignFollowup } from "./campaign.ts";
@@ -34,18 +39,24 @@ describe("campaign follow-up query privacy", () => {
     fs.chmodSync(sentFile, 0o600);
     previousSentFile = process.env.FIRST_TOUCH_RADAR_SENT_FILE;
     process.env.FIRST_TOUCH_RADAR_SENT_FILE = sentFile;
-    mocks.runPostgresQuery.mockResolvedValue({
+    mocks.resolveRadarFirstPartyBackend.mockResolvedValue({
+      sink: "bigquery",
+      table: null,
+    });
+    mocks.resolveRadarBigQueryEventsTable.mockResolvedValue(
+      "`project_id.analytics.events_raw_query_range`",
+    );
+    mocks.runBigQuery.mockResolvedValue({
       rows: [
         {
-          period: "after_send",
-          recipient_app: "clips",
           activity_app: "clips",
-          metric: "any_visit",
-          recipients: 1,
-          recipients_with_activity: 1,
+          campaign_landing: true,
+          event_name: "pageview",
+          happened_at_values: ["2026-10-26T12:30:00.000Z"],
+          identity_email: "recipient@example.test",
         },
       ],
-      bytesProcessed: null,
+      bytesProcessed: 10,
       cacheHit: false,
     });
   });
@@ -57,25 +68,42 @@ describe("campaign follow-up query privacy", () => {
     fs.rmSync(directory, { recursive: true, force: true });
   });
 
-  it("uses the PostgreSQL event mirror and returns counts without recipient emails", async () => {
+  it("matches BigQuery activity in memory without sending or returning emails", async () => {
     const result = await runCampaignFollowup("org-1");
 
-    const [sql, params, options] = mocks.runPostgresQuery.mock.calls[0] as [
+    const [sql, options] = mocks.runBigQuery.mock.calls[0] as [
       string,
-      unknown[],
-      { fresh: boolean; cache: boolean },
-    ];
-    expect(sql).toContain("jsonb_to_recordset($1::jsonb)");
-    expect(params[0]).toBeTypeOf("string");
-    expect(JSON.parse(String(params[0]))).toEqual([
       {
-        email: "recipient@example.test",
-        sent_at: "2026-10-26T12:00:00.000Z",
-        app: "clips",
+        params: Array<{ name: string; type: string; value: string }>;
+        fresh: boolean;
+        cache: boolean;
       },
+    ];
+    expect(sql).toContain("ARRAY_AGG(happened_at) AS happened_at_values");
+    expect(options.params).toEqual([
+      { name: "start_date", type: "DATE", value: "2026-10-19" },
+      {
+        name: "end_date",
+        type: "DATE",
+        value: new Date().toISOString().slice(0, 10),
+      },
+      { name: "org_id", type: "STRING", value: "org-1" },
     ]);
-    expect(options).toEqual({ fresh: true, cache: false });
+    expect(JSON.stringify(options.params)).not.toContain(
+      "recipient@example.test",
+    );
+    expect(options).toMatchObject({ fresh: true, cache: false });
+    expect(mocks.runPostgresQuery).not.toHaveBeenCalled();
     expect(result.sentRecipients).toBe(1);
+    expect(result.rows).toContainEqual(
+      expect.objectContaining({
+        period: "after_send",
+        recipient_app: "clips",
+        activity_app: "clips",
+        metric: "campaign_landing",
+        recipients_with_activity: 1,
+      }),
+    );
     expect(JSON.stringify(result)).not.toContain("recipient@example.test");
   });
 });
