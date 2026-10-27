@@ -76,13 +76,40 @@ describe("cliApprovalRefusal", () => {
     },
   );
 
-  it("keeps the Windows rerun for a lone percent sign", () => {
+  it("keeps the Windows rerun for a lone percent sign or plain JSON", () => {
     onPlatform("win32");
     vi.stubEnv("SHELL", "");
     expect(cliApprovalRefusal("send", ["--note", "50%"])).toBe(
       `Action "send" requires human approval. Ask the person to approve this call, then rerun:\n` +
         `pnpm action send --note '50%' --approved\n` +
         `In cmd.exe: pnpm action send --note "50%" --approved`,
+    );
+    expect(cliApprovalRefusal("send", ['{"id":"x"}', "--note", "a b"])).toBe(
+      `Action "send" requires human approval. Ask the person to approve this call, then rerun:\n` +
+        `pnpm action send '{"id":"x"}' --note 'a b' --approved\n` +
+        `In cmd.exe: pnpm action send "{\\"id\\":\\"x\\"}" --note "a b" --approved`,
+    );
+  });
+
+  it.each([
+    ["", ['a" & echo hi & "b', "%USERNAME%"]],
+    ["C:\\Program Files\\Git\\usr\\bin\\bash.exe", ['a"', "& echo hi"]],
+  ])(
+    "shows no Windows command when a quote meets & | < > ^ (SHELL=%j)",
+    (shell, args) => {
+      onPlatform("win32");
+      vi.stubEnv("SHELL", shell);
+      expect(cliApprovalRefusal("send", args)).toBe(
+        `Action "send" requires human approval. The arguments have a quote and one of & | < > ^, which pnpm on Windows can't pass through cmd.exe intact, so there's no command to copy. Ask the person to approve this call in the app instead.`,
+      );
+    },
+  );
+
+  it("keeps the rerun for a quote and & on a POSIX system", () => {
+    onPlatform("linux");
+    expect(cliApprovalRefusal("send", ['a" & b'])).toBe(
+      `Action "send" requires human approval. Ask the person to approve this call, then rerun:\n` +
+        `pnpm action send 'a" & b' --approved`,
     );
   });
 });

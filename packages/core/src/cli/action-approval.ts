@@ -63,21 +63,27 @@ export function cliRerunCommand(
   return cmd === command ? command : `${command}\nIn cmd.exe: ${cmd}`;
 }
 
-// On Windows, pnpm runs the action script through cmd.exe from any shell,
-// and cmd.exe expands %NAME% even inside quotes. A rerun with --approved
-// could then run other values than the ones refused, so none is offered.
+// On Windows, pnpm runs the action script through cmd.exe from any shell.
+// cmd.exe expands %NAME% even inside quotes, so a rerun with --approved
+// could run other values than the ones refused. And pnpm can't keep a `"`
+// from ending a quoted argument there, so `&|<>^` after one, in the same
+// argument or a later one, would run as a command when the person pastes it.
 const CMD_VARIABLE = /%[^%]+%/;
+const CMD_METACHARACTER = /[&|<>^]/;
 
 export function cliApprovalRefusal(
   actionName: string,
   originalArgs: string[],
 ): string {
   const heading = `Action "${actionName}" requires human approval.`;
-  if (
-    process.platform === "win32" &&
-    originalArgs.some((arg) => CMD_VARIABLE.test(arg))
-  ) {
-    return `${heading} An argument contains %NAME%, which Windows expands when pnpm runs the action, so a rerun with --approved might not use these values. Ask the person to run this in a terminal and check the values at the prompt:\n${cliRerunCommand(actionName, originalArgs, false)}`;
+  if (process.platform === "win32") {
+    const joined = originalArgs.join(" ");
+    if (joined.includes('"') && CMD_METACHARACTER.test(joined)) {
+      return `${heading} The arguments have a quote and one of & | < > ^, which pnpm on Windows can't pass through cmd.exe intact, so there's no command to copy. Ask the person to approve this call in the app instead.`;
+    }
+    if (originalArgs.some((arg) => CMD_VARIABLE.test(arg))) {
+      return `${heading} An argument contains %NAME%, which Windows expands when pnpm runs the action, so a rerun with --approved might not use these values. Ask the person to run this in a terminal and check the values at the prompt:\n${cliRerunCommand(actionName, originalArgs, false)}`;
+    }
   }
   return `${heading} Ask the person to approve this call, then rerun:\n${cliRerunCommand(actionName, originalArgs)}`;
 }

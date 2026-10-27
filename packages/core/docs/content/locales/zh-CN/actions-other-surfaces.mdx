@@ -72,7 +72,7 @@ pnpm action reply-to-email --emailId thread-123 --body "Thanks!"
 pnpm action reply-to-email --emailId thread-123 --body "Thanks!" --approved
 ```
 
-`--approved` 是保留的 CLI 元数据，会在解析输入前移除。对无需审批的 action 使用它没有影响。CLI 无法确认是谁加上了它：代理不经询问就加上它，便会跳过确认。这个标志让审批显示在本人批准的命令中，也显示在审计日志里，审计日志会将其标为未验证。在没有 POSIX `SHELL` 的 Windows 上，拒绝信息会给出 PowerShell 用的命令；引号规则不同时，还会给出 cmd.exe 用的命令。在 Windows 上，无论从哪个 shell 运行，pnpm 都会经由 cmd.exe 传递 action 参数，而 cmd.exe 即使在引号内也会展开 `%NAME%`。参数中含有这类变量时，拒绝信息不会给出带 `--approved` 的重跑命令：由本人在终端中运行命令，并在确认提示中核对参数值。
+`--approved` 是保留的 CLI 元数据，会在解析输入前移除。对无需审批的 action 使用它没有影响。CLI 无法确认是谁加上了它：代理不经询问就加上它，便会跳过确认。这个标志让审批显示在本人批准的命令中，也显示在审计日志里，审计日志会将其标为未验证。在没有 POSIX `SHELL` 的 Windows 上，拒绝信息会给出 PowerShell 用的命令；引号规则不同时，还会给出 cmd.exe 用的命令。在 Windows 上，无论从哪个 shell 运行，pnpm 都会经由 cmd.exe 传递 action 参数，而 cmd.exe 即使在引号内也会展开 `%NAME%`。参数中含有这类变量时，拒绝信息不会给出带 `--approved` 的重跑命令：由本人在终端中运行命令，并在确认提示中核对参数值。如果参数中同时含有引号和 `&`、`|`、`<`、`>`、`^` 之一，pnpm 无法把它们原样传给 cmd.exe，因此拒绝信息不会给出任何命令，由本人在应用中批准这次调用。
 
 本地开发桥接会在 JSON 请求体中将审批元数据放在 `input` 之外：
 
