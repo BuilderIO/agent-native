@@ -172,6 +172,15 @@ describe("first-touch SQL helpers", () => {
     expect(recorderCounts).toContain("analytics_session_events i");
     expect(recorderCounts).toContain("jsonb_array_elements($4::jsonb)");
     expect(recorderCounts).toContain(
+      "(group_data.value ->> 'event_date')::date AS event_date",
+    );
+    expect(recorderCounts).toContain(
+      "GROUP BY event_date, app, reason, status",
+    );
+    expect(recorderCounts).toContain(
+      "SELECT k.event_date, k.app, k.reason, k.status",
+    );
+    expect(recorderCounts).toContain(
       "jsonb_array_elements_text(g.session_ids)",
     );
     expect(recorderCounts).toContain("AS rejected_recorders");

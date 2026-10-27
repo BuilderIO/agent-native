@@ -231,6 +231,7 @@ export async function loadUploadRejectionRows(
   date: string,
   orgId: string,
   prefetchedRows?: readonly QueryRow[],
+  endDate = date,
 ): Promise<QueryRow[]> {
   if (backend.sink !== "bigquery") {
     const { rows } = await runPostgresQuery(buildUploadRejectionSql(), [
@@ -242,14 +243,17 @@ export async function loadUploadRejectionRows(
   }
 
   let rejectedRows = prefetchedRows
-    ? prefetchedRows.filter((row) => asDate(row.event_date) === date)
+    ? prefetchedRows.filter((row) => {
+        const eventDate = asDate(row.event_date);
+        return eventDate >= date && eventDate <= endDate;
+      })
     : undefined;
   if (!rejectedRows) {
     const table = await resolveRadarBigQueryEventsTable();
     const rejected = await runBigQuery(buildBigQueryUploadRejectionSql(table), {
       params: [
         { name: "start_date", type: "DATE", value: date },
-        { name: "end_date", type: "DATE", value: date },
+        { name: "end_date", type: "DATE", value: endDate },
         { name: "org_id", type: "STRING", value: orgId },
       ],
       fresh: true,
@@ -259,6 +263,13 @@ export async function loadUploadRejectionRows(
   }
   if (!rejectedRows.length) return [];
   const rejectionGroups = rejectedRows.map((row) => {
+    const eventDate = asDate(row.event_date);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(eventDate)) {
+      throw new RadarQueryError(
+        "BigQuery returned an invalid replay rejection date.",
+        1,
+      );
+    }
     const sessionIds = row.rejected_session_ids;
     if (
       !Array.isArray(sessionIds) ||
@@ -282,6 +293,7 @@ export async function loadUploadRejectionRows(
       );
     }
     return {
+      event_date: eventDate,
       app: String(row.app ?? "unknown"),
       reason: String(row.reason ?? "unknown"),
       status: String(row.status ?? "unknown"),
@@ -291,7 +303,7 @@ export async function loadUploadRejectionRows(
   });
   const recorders = await runPostgresQuery(
     buildUploadRejectionAttributionSql(),
-    [date, date, orgId, radarJsonbParam(rejectionGroups)],
+    [date, endDate, orgId, radarJsonbParam(rejectionGroups)],
     { fresh: true },
   );
   return recorders.rows as QueryRow[];

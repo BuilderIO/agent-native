@@ -284,14 +284,21 @@ export async function runRadarBacktest(
       },
     );
     const rejectionRows = rejectionResult.rows;
+    const rejectionAttributionRows =
+      rejectionRows.length > 0
+        ? await loadUploadRejectionRows(
+            backend,
+            CLEAN.start,
+            orgId,
+            rejectionRows,
+            INCIDENT.end,
+          )
+        : undefined;
     for (const window of [CLEAN, INCIDENT]) {
       for (const date of datesBetween(window)) {
-        const rowsForDate = rejectionRows.filter(
+        const rows = (rejectionAttributionRows ?? []).filter(
           (row) => dateOf(row.event_date) === date,
         );
-        const rows = rowsForDate.length
-          ? await loadUploadRejectionRows(backend, date, orgId, rejectionRows)
-          : [];
         const checkedApps = new Set<string>();
         for (const row of rows) {
           const check = uploadRejectionCheck(row);

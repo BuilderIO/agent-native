@@ -557,6 +557,7 @@ describe("upload rejection evidence routing", () => {
     queryMocks.runBigQuery.mockResolvedValue({
       rows: [
         {
+          event_date: "2026-10-25",
           app: "other",
           reason: "storage",
           status: "413",
@@ -565,6 +566,7 @@ describe("upload rejection evidence routing", () => {
           rejected_session_ids: ["recording-1", "recording-2"],
         },
         {
+          event_date: "2026-10-25",
           app: "other",
           reason: "network",
           status: "502",
@@ -615,6 +617,7 @@ describe("upload rejection evidence routing", () => {
           __radarJsonbParameter: true,
           value: [
             {
+              event_date: "2026-10-25",
               app: "other",
               reason: "storage",
               status: "413",
@@ -622,6 +625,7 @@ describe("upload rejection evidence routing", () => {
               unidentified_rejections: 0,
             },
             {
+              event_date: "2026-10-25",
               app: "other",
               reason: "network",
               status: "502",
@@ -654,6 +658,58 @@ describe("upload rejection evidence routing", () => {
         recorders: 8,
       },
     ]);
+  });
+
+  it("attributes a multi-day replay window in one PostgreSQL query", async () => {
+    const rejectionRows = [
+      {
+        event_date: "2026-10-02",
+        app: "clips",
+        reason: "storage",
+        status: "413",
+        unidentified_rejections: 0,
+        rejected_session_ids: ["session-1"],
+      },
+      {
+        event_date: "2026-10-03",
+        app: "clips",
+        reason: "network",
+        status: "502",
+        unidentified_rejections: 0,
+        rejected_session_ids: ["session-2"],
+      },
+    ];
+    queryMocks.runPostgresQuery.mockResolvedValue({ rows: [] });
+
+    await loadUploadRejectionRows(
+      { sink: "bigquery", table: "analytics.events" },
+      "2026-10-02",
+      "org-id",
+      rejectionRows,
+      "2026-10-03",
+    );
+
+    expect(queryMocks.runBigQuery).not.toHaveBeenCalled();
+    expect(queryMocks.runPostgresQuery).toHaveBeenCalledExactlyOnceWith(
+      expect.stringContaining("jsonb_array_elements($4::jsonb)"),
+      [
+        "2026-10-02",
+        "2026-10-03",
+        "org-id",
+        {
+          __radarJsonbParameter: true,
+          value: rejectionRows.map((row) => ({
+            event_date: row.event_date,
+            app: row.app,
+            reason: row.reason,
+            status: row.status,
+            session_ids: row.rejected_session_ids,
+            unidentified_rejections: row.unidentified_rejections,
+          })),
+        },
+      ],
+      { fresh: true },
+    );
   });
 
   it("uses the combined Postgres query for Postgres and dual sinks", async () => {

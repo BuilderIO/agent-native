@@ -17,6 +17,9 @@ import {
   parseActualBigQueryBytes,
   parseRadarBigQueryTableParts,
   radarCliExitCode,
+  radarDatabaseCacheNamespace,
+  radarEnvironmentFiles,
+  radarProcessEnvironment,
   radarRunCliExitCode,
   recordRadarBigQueryJobUsage,
   radarJsonbParam,
@@ -26,6 +29,41 @@ import {
 } from "./query.ts";
 
 describe("radar query safety", () => {
+  it("isolates selected live environment settings while allowing campaign secrets", () => {
+    expect(radarEnvironmentFiles("/analytics", "/live/.env")).toEqual([
+      "/live/.env",
+    ]);
+    expect(
+      radarProcessEnvironment(
+        {
+          DATABASE_URL: "postgres://other/db",
+          BIGQUERY_PROJECT_ID: "other-project",
+          ANALYTICS_RADAR_ORG_ID: "other-org",
+          ANALYTICS_RADAR_CAMPAIGN_HMAC_KEY: "fake-hmac-key",
+          ANALYTICS_RADAR_CAMPAIGN_HMAC_FUNCTION: "p.d.f",
+        },
+        true,
+      ),
+    ).toEqual({
+      ANALYTICS_RADAR_CAMPAIGN_HMAC_KEY: "fake-hmac-key",
+    });
+    expect(radarEnvironmentFiles("/analytics")).toEqual([
+      "/analytics/.env",
+      "/analytics/.env.local",
+    ]);
+  });
+
+  it("scopes PostgreSQL cache keys to a hashed database identity", () => {
+    const first = radarDatabaseCacheNamespace(
+      "postgres://user:fake-password@first.example.test/analytics",
+    );
+    const second = radarDatabaseCacheNamespace(
+      "postgres://user:fake-password@second.example.test/analytics",
+    );
+    expect(first).not.toBe(second);
+    expect(first).not.toContain("fake-password");
+  });
+
   it("bypasses the BigQuery server result cache for fresh queries", () => {
     expect(
       buildBigQueryQueryPayload("SELECT 1", [], { fresh: true }),

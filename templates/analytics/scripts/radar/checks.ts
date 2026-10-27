@@ -321,7 +321,10 @@ export function evaluateThreshold(input: {
 export function radarExitCode(results: readonly RadarCheckResult[]): 0 | 1 {
   if (
     results.some(
-      (result) => result.status === "fired" || result.status === "unavailable",
+      (result) =>
+        result.status === "fired" ||
+        result.status === "unavailable" ||
+        result.status === "insufficient",
     )
   )
     return 1;

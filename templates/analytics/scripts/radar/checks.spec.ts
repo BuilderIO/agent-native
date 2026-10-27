@@ -178,11 +178,13 @@ describe("radar check evaluation", () => {
     ).toBe("unavailable");
   });
 
-  it("uses 1 for fired or unavailable checks and 0 for quiet or small samples", () => {
-    expect(radarExitCode([result("clear"), result("insufficient")])).toBe(0);
+  it("uses 1 for fired, unavailable, or insufficient checks", () => {
+    expect(radarExitCode([result("clear"), result("insufficient")])).toBe(1);
     expect(radarExitCode([result("fired"), result("clear")])).toBe(1);
     expect(radarExitCode([result("fired"), result("unavailable")])).toBe(1);
     expect(radarExitCode([result("unavailable")])).toBe(1);
+    expect(radarExitCode([result("insufficient")])).toBe(1);
+    expect(radarExitCode([result("clear")])).toBe(0);
     expect(radarExitCode([result("observed")])).toBe(0);
   });
 });

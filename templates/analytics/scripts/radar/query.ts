@@ -134,7 +134,12 @@ let loadedOrganizationId: string | undefined;
 let loadedFirstPartyBackend:
   | { sink: "postgres" | "dual" | "bigquery"; table: string | null }
   | undefined;
-let pgClient: ReturnType<typeof postgres> | undefined;
+let pgClient:
+  | {
+      client: ReturnType<typeof postgres>;
+      cacheNamespace: string;
+    }
+  | undefined;
 let bqAuth:
   | {
       token: string;
@@ -176,19 +181,38 @@ export function isLocalDatabaseUrl(value: string): boolean {
   return ["localhost", "127.0.0.1", "::1"].includes(hostname);
 }
 
+const SELECTED_ENV_RUNTIME_KEYS = new Set([
+  "ANALYTICS_RADAR_CAMPAIGN_HMAC_KEY",
+]);
+
+export function radarEnvironmentFiles(
+  templateDir: string,
+  override?: string,
+): string[] {
+  return override
+    ? [override]
+    : [path.join(templateDir, ".env"), path.join(templateDir, ".env.local")];
+}
+
+export function radarProcessEnvironment(
+  processValues: Record<string, string | undefined>,
+  selectedFile: boolean,
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(processValues).filter(
+      (entry): entry is [string, string] =>
+        entry[1] !== undefined &&
+        (!selectedFile || SELECTED_ENV_RUNTIME_KEYS.has(entry[0])),
+    ),
+  );
+}
+
 function loadEnv(): EnvConfig {
   if (loadedEnv) return loadedEnv;
 
   const templateDir = path.join(REPO_ROOT, "templates/analytics");
   const override = process.env.ANALYTICS_ENV;
-  const files = override
-    ? [
-        override,
-        ...(override.endsWith(".env")
-          ? [override.replace(/\.env$/, ".env.local")]
-          : []),
-      ]
-    : [path.join(templateDir, ".env"), path.join(templateDir, ".env.local")];
+  const files = radarEnvironmentFiles(templateDir, override);
   const values: Record<string, string | undefined> = {};
   const encryptionMaterials = new Set<string>();
 
@@ -222,7 +246,9 @@ function loadEnv(): EnvConfig {
     }
   }
 
-  for (const [key, value] of Object.entries(process.env)) {
+  for (const [key, value] of Object.entries(
+    radarProcessEnvironment(process.env, Boolean(override)),
+  )) {
     if (value === undefined) continue;
     if (
       key === "DATABASE_URL" &&
@@ -257,7 +283,11 @@ function isEncryptionKey(key: string): boolean {
   );
 }
 
-function getPostgres(): ReturnType<typeof postgres> {
+export function radarDatabaseCacheNamespace(databaseUrl: string): string {
+  return crypto.createHash("sha256").update(databaseUrl).digest("hex");
+}
+
+function getPostgres(): NonNullable<typeof pgClient> {
   if (pgClient) return pgClient;
   const configured = process.env.ANALYTICS_RADAR_DATABASE_URL;
   const databaseUrl = configured ?? loadEnv().values.DATABASE_URL;
@@ -273,12 +303,15 @@ function getPostgres(): ReturnType<typeof postgres> {
       2,
     );
   }
-  pgClient = postgres(databaseUrl, {
-    max: 1,
-    idle_timeout: 5,
-    connect_timeout: 20,
-    prepare: false,
-  });
+  pgClient = {
+    client: postgres(databaseUrl, {
+      max: 1,
+      idle_timeout: 5,
+      connect_timeout: 20,
+      prepare: false,
+    }),
+    cacheNamespace: radarDatabaseCacheNamespace(databaseUrl),
+  };
   return pgClient;
 }
 
@@ -718,8 +751,8 @@ export async function runPostgresQuery(
   options: { fresh?: boolean; cache?: boolean; cacheTtlMs?: number } = {},
 ): Promise<RadarQueryResult> {
   requireReadOnly(query);
-  const db = getPostgres();
-  const key = queryKey("postgres", query, [...params]);
+  const { client: db, cacheNamespace } = getPostgres();
+  const key = queryKey(`postgres:${cacheNamespace}`, query, [...params]);
   const boundParams = bindRadarPostgresParams(params, (value) =>
     db.json(value),
   );
@@ -1700,7 +1733,7 @@ export function buildBigQueryQueryPayload(
 
 export async function closeRadarQueries(): Promise<void> {
   if (!pgClient) return;
-  const client = pgClient;
+  const { client } = pgClient;
   pgClient = undefined;
   await client.end({ timeout: 2 });
 }
