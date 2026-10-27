@@ -244,6 +244,37 @@ describe("useThemeFamily", () => {
     );
   });
 
+  it("tracks a URL pin when navigation keeps the selected family unchanged", async () => {
+    deps.mutation.mutateAsync.mockResolvedValue({
+      family: "agent-native",
+      appId: "sample-app",
+    });
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => root?.render(<Probe />));
+
+    expect(current?.family).toBe("original");
+    expect(current?.isForcedByUrl).toBe(false);
+
+    act(() => window.history.replaceState(null, "", "/?theme-family=original"));
+    expect(current?.family).toBe("original");
+    expect(current?.isForcedByUrl).toBe(true);
+    await expect(current?.setFamily("agent-native")).rejects.toThrow(
+      "pinned by the URL parameter",
+    );
+    expect(deps.mutation.mutateAsync).not.toHaveBeenCalled();
+
+    act(() => window.history.replaceState(null, "", "/"));
+    expect(current?.isForcedByUrl).toBe(false);
+    await act(async () => {
+      await current?.setFamily("agent-native");
+    });
+    expect(deps.mutation.mutateAsync).toHaveBeenCalledWith({
+      family: "agent-native",
+    });
+  });
+
   it("preserves the current family when storage becomes unreadable on navigation", async () => {
     deps.query.data = {
       family: "agent-native",

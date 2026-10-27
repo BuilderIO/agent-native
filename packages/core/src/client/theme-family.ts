@@ -344,10 +344,21 @@ export function useThemeFamily(): ThemeFamilyHook {
       getFamilySnapshot(appId, families, defaultFamily),
     [appId, defaultFamily, families],
   );
+  const getIsForcedByUrlSnapshot = useCallback(
+    () =>
+      typeof window !== "undefined" &&
+      getThemeFamilyUrlOverride(window.location.search, families) !== null,
+    [families],
+  );
   const family = useSyncExternalStore(
     subscribeToFamilyChanges,
     getFamilySnapshotForRender,
     () => defaultFamily,
+  );
+  const isForcedByUrl = useSyncExternalStore(
+    subscribeToFamilyChanges,
+    getIsForcedByUrlSnapshot,
+    () => false,
   );
 
   useEffect(() => {
@@ -515,7 +526,7 @@ export function useThemeFamily(): ThemeFamilyHook {
     status,
     error,
     storageStatus,
-    isForcedByUrl: urlOverride !== null,
+    isForcedByUrl,
     setFamily,
   };
 }
