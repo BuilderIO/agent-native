@@ -176,8 +176,12 @@ the invocation gives), plus 14 days for open items.
   phrase may be on its own line or, in older replies, at the end of the
   sentence (`... this was sent from a bot.`). Or when the root is listed under "Claimed, not
   yet answered" in the automation's `memory.md`. Any other Steve 👀 means Steve
-  has it: leave it alone. Of the workflow's roots, any without ✅ or 🎫, or
-  with a human reply newer than our last reply, comes first in this run. A
+  has it: leave it alone. A root listed in the `Reports` section of a sweep
+  PR that is still open belongs to the run working on that PR: don't react
+  or reply there, and leave it out of your self-check; just list it under
+  "Still open from earlier runs". Of the remaining workflow roots, any
+  without ✅ or 🎫, or with a human reply newer than our last reply, comes
+  first in this run. A
   reply like "still broken" after a ✅ means the earlier fix failed. Find what
   that fix changed and why it didn't hold before trying again.
 - **New reports:** roots from the last 5 days. React and reply on the root
