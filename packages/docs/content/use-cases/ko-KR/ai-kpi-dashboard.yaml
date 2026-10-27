@@ -1,6 +1,9 @@
 template: v2
 slug: ai-kpi-dashboard
 app: analytics
+roles:
+  - founders
+  - finance
 title: 스타트업 KPI 대시보드를 만들어 보세요
 seo_title: 스타트업 창업자를 위한 AI KPI 대시보드
 meta_description: "추적하는 지표를 설명하면, Agent-Native Analytics가 Stripe, HubSpot, 제품 데이터로 스타트업 KPI 대시보드를 만들고 무엇이 움직였는지 알려 줘요."

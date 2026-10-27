@@ -1,6 +1,9 @@
 template: v2
 slug: ai-kpi-dashboard
 app: analytics
+roles:
+  - founders
+  - finance
 title: Ein KPI-Dashboard für Ihr Startup erstellen
 seo_title: KI-KPI-Dashboard für Startup-Gründer
 meta_description: Beschreiben Sie Ihre Kennzahlen, und Agent-Native Analytics baut Ihr Startup-KPI-Dashboard aus Stripe, HubSpot und Produktdaten und sagt, was sich bewegt hat.

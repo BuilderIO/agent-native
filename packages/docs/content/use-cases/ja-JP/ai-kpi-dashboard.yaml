@@ -1,6 +1,9 @@
 template: v2
 slug: ai-kpi-dashboard
 app: analytics
+roles:
+  - founders
+  - finance
 title: スタートアップのKPIダッシュボードを作成
 seo_title: スタートアップ創業者向けのAI KPIダッシュボード
 meta_description: 追っている指標を説明すれば、Agent-Native AnalyticsがStripe、HubSpot、製品データからスタートアップのKPIダッシュボードを作り、数値が動いた理由も伝えます。

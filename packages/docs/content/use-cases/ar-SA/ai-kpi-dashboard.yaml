@@ -1,6 +1,9 @@
 template: v2
 slug: ai-kpi-dashboard
 app: analytics
+roles:
+  - founders
+  - finance
 title: "أنشئ لوحة مؤشرات أداء لشركتك الناشئة"
 seo_title: "لوحة مؤشرات أداء بالذكاء الاصطناعي لمؤسسي الشركات"
 meta_description: "صِف المقاييس التي تتابعها، فيبني Agent-Native Analytics لوحة مؤشرات الأداء لشركتك من Stripe وHubSpot وبيانات المنتج، ثم يخبرك بما تغيّر."

@@ -1,6 +1,9 @@
 template: v2
 slug: ai-kpi-dashboard
 app: analytics
+roles:
+  - founders
+  - finance
 title: Créez le tableau de bord KPI de votre startup
 seo_title: Tableau de bord KPI par IA pour fondateurs
 meta_description: Décrivez les métriques que vous suivez, et Agent-Native Analytics crée le tableau de bord KPI de votre startup depuis Stripe, HubSpot et vos données produit.

@@ -1,6 +1,9 @@
 template: v2
 slug: ai-kpi-dashboard
 app: analytics
+roles:
+  - founders
+  - finance
 title: Monte um dashboard de KPIs para sua startup
 seo_title: Dashboard de KPIs com IA para startups
 meta_description: Descreva as métricas que você acompanha, e o Agent-Native Analytics monta o dashboard de KPIs da sua startup com Stripe, HubSpot e produto, e diz o que mudou.

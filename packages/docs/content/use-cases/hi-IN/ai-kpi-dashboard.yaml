@@ -1,6 +1,9 @@
 template: v2
 slug: ai-kpi-dashboard
 app: analytics
+roles:
+  - founders
+  - finance
 title: "अपने स्टार्टअप के लिए KPI डैशबोर्ड बनाएँ"
 seo_title: "स्टार्टअप फ़ाउंडर्स के लिए AI KPI डैशबोर्ड"
 meta_description: "अपने मेट्रिक्स बताएँ, और Agent-Native Analytics Stripe, HubSpot और प्रोडक्ट डेटा से आपके स्टार्टअप का KPI डैशबोर्ड बनाता है, फिर बताता है कि क्या बदला।"

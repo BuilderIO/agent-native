@@ -1,6 +1,9 @@
 template: v2
 slug: ai-kpi-dashboard
 app: analytics
+roles:
+  - founders
+  - finance
 title: Crea un panel de KPI para tu startup
 seo_title: Panel de KPI con IA para fundadores de startups
 meta_description: Describe las métricas que sigues y Agent-Native Analytics crea el panel de KPI de tu startup con Stripe, HubSpot y datos de producto, y te dice qué ha cambiado.

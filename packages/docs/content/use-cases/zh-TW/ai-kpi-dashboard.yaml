@@ -1,6 +1,9 @@
 template: v2
 slug: ai-kpi-dashboard
 app: analytics
+roles:
+  - founders
+  - finance
 title: 為你的新創公司打造 KPI 儀表板
 seo_title: 給新創創辦人的 AI KPI 儀表板
 meta_description: 描述你追蹤的指標，Agent-Native Analytics 就會用 Stripe、HubSpot 和產品資料建立新創公司的 KPI 儀表板，並告訴你哪些數字有變動。
