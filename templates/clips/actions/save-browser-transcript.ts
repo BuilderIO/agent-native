@@ -7,6 +7,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
+import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 import { isAutoTitleReplaceable } from "../shared/title-source.js";
 import { IMPORTED_TRANSCRIPT_SOURCE } from "../shared/transcript-import.js";
@@ -72,7 +73,9 @@ export default defineAction({
       .describe("Why native speech recognition could not save text"),
   }),
   run: async (args, context) => {
-    await assertAccess("recording", args.recordingId, "editor");
+    assertRecordingNotExpired(
+      await assertAccess("recording", args.recordingId, "editor"),
+    );
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
     const now = new Date().toISOString();

@@ -13,7 +13,10 @@ let db: ReturnType<typeof drizzle>;
 const mocks = vi.hoisted(() => ({
   dispatchPostFinalizeJob: vi.fn(async () => undefined),
   writeAppState: vi.fn(async () => undefined),
-  assertAccess: vi.fn(async () => ({ role: "owner" })),
+  assertAccess: vi.fn(async () => ({
+    role: "owner",
+    resource: { expiresAt: null as string | null },
+  })),
 }));
 
 vi.mock("../server/db/index.js", async () => {
@@ -29,7 +32,8 @@ vi.mock("@agent-native/core/action", () => ({
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: mocks.writeAppState,
 }));
-vi.mock("@agent-native/core/sharing", () => ({
+vi.mock("@agent-native/core/sharing", async (original) => ({
+  ...(await original<typeof import("@agent-native/core/sharing")>()),
   assertAccess: mocks.assertAccess,
 }));
 vi.mock("../server/lib/recordings.js", () => ({
@@ -161,6 +165,10 @@ beforeEach(async () => {
      VALUES ('rec_1', 'ready', 10000, 'PR 7419', 'manual', 'Chart fixes')`,
   );
   vi.clearAllMocks();
+  mocks.assertAccess.mockResolvedValue({
+    role: "owner",
+    resource: { expiresAt: null },
+  });
 });
 
 afterEach(async () => {
@@ -626,5 +634,75 @@ describe("restore-transcript-version", () => {
     expect((restoreTranscriptVersion as any).mcpApp).toEqual({
       compactCatalog: true,
     });
+  });
+});
+
+it.each(["2000-01-01T00:00:00Z", "not-a-date"])(
+  "refuses late transcript import without mutating content (%s)",
+  async (expiresAt) => {
+    await insertTranscript({
+      status: "pending",
+      fullText: "Fake original transcript",
+    });
+    const before = await readFullTranscript();
+    mocks.assertAccess.mockResolvedValue({
+      role: "editor",
+      resource: { expiresAt },
+    });
+    await expect(run({ text: VTT })).rejects.toMatchObject({ statusCode: 403 });
+    expect(await readFullTranscript()).toEqual(before);
+    expect(await readVersions()).toEqual([]);
+    expect(mocks.dispatchPostFinalizeJob).not.toHaveBeenCalled();
+  },
+);
+it.each(["2000-01-01T00:00:00Z", "not-a-date"])(
+  "refuses late transcript restore without version churn (%s)",
+  async (expiresAt) => {
+    await insertTranscript({
+      status: "ready",
+      fullText: "Fake original transcript",
+    });
+    const imported = await run({
+      text: VTT,
+      replace: true,
+      replaceImportId: null,
+    });
+    const before = await readFullTranscript();
+    const versions = await readVersions();
+    mocks.dispatchPostFinalizeJob.mockClear();
+    mocks.assertAccess.mockResolvedValue({
+      role: "editor",
+      resource: { expiresAt },
+    });
+    await expect(restore(imported.savedVersionId)).rejects.toMatchObject({
+      statusCode: 403,
+    });
+    expect(await readFullTranscript()).toEqual(before);
+    expect(await readVersions()).toEqual(versions);
+    expect(mocks.dispatchPostFinalizeJob).not.toHaveBeenCalled();
+  },
+);
+it.each([
+  { role: "editor", expiresAt: null },
+  { role: "owner", expiresAt: "2000-01-01T00:00:00Z" },
+  { role: "owner", expiresAt: "not-a-date" },
+])("preserves import/restore for $role ($expiresAt)", async (access) => {
+  await insertTranscript({
+    status: "ready",
+    fullText: "Fake original transcript",
+  });
+  mocks.assertAccess.mockResolvedValue({
+    role: access.role,
+    resource: { expiresAt: access.expiresAt },
+  });
+  const imported = await run({
+    text: VTT,
+    replace: true,
+    replaceImportId: null,
+  });
+  expect(await readTranscript()).toMatchObject({ source: "imported" });
+  await restore(imported.savedVersionId);
+  expect(await readTranscript()).toMatchObject({
+    full_text: "Fake original transcript",
   });
 });

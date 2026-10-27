@@ -8,6 +8,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
+import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 import {
   hasTranscriptContent,
@@ -67,7 +68,9 @@ export default defineAction({
       ),
   }),
   run: async (args) => {
-    await assertAccess("recording", args.recordingId, "editor");
+    assertRecordingNotExpired(
+      await assertAccess("recording", args.recordingId, "editor"),
+    );
     const db = getDb();
 
     const [rec] = await db
