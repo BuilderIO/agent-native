@@ -1,0 +1,111 @@
+template: v2
+slug: visually-recap-agent-changes
+app: plans
+title: "احصل على ملخص مرئي لتغييرات وكيل البرمجة"
+seo_title: "ملخص مرئي لتغييرات وكيل البرمجة"
+meta_description: "يعرض Agent-Native Plan ما غيّره وكيل البرمجة كشاشات قبل وبعد، وحقول بيانات مميّزة، وخريطة ملفات، وفروقات كود مشروحة يمكنك التعليق عليها."
+updated: 2026-10-27
+hero:
+  body: "يعرض Agent-Native Plan ما فعله وكيل البرمجة كشاشات قبل وبعد، وتغييرات بيانات مميّزة، وخريطة للملفات المتغيّرة. وإن بدا شيء خاطئًا، علّق عليه فيصلحه الوكيل."
+  button:
+    label: "لخّص تغييرًا"
+    url: https://plan.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa973dc8304494af9b6d069e9a409d409
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F68e6bd29a3834942ad098459e08fbd42
+    alt: "ملخص مكتمل في Plan لتغيير أجراه وكيل برمجة يضيف دعوات الفريق. في الأعلى العنوان وملخص قصير لما تغيّر. وتحتهما مخططان أوليان قبل وبعد لصفحة إعدادات Members، وشجرة بالملفات المتغيّرة مع شارات الإضافة والتعديل."
+how_to:
+  heading: "كيف تلخّص تغييرات وكيلك بصريًا"
+  steps:
+    - title: "اطلب من وكيلك ملخصًا"
+      body: "أضف Plan إلى وكيل البرمجة [بأمر تثبيت من سطر واحد](https://www.agent-native.com/docs/template-plan/#install). وفي المحادثة التي أجرى فيها الوكيل التغيير، شغّل `/visual-recap` وافتح الرابط الذي يعيده."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F060c82d850f34b3096f166c04ead386c
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F287f076a9ec84124a0afc7fbaeda2ece
+        alt: "محادثة وكيل البرمجة وفيها الرسالة المرسلة «/visual-recap of everything you changed in this thread»، ورد الوكيل برابط الملخص المنشور."
+    - title: "اقرأ التغيير صورًا أولًا"
+      body: "ابدأ بالمخططات الأولية قبل وبعد، وتغييرات البيانات المميّزة، وخريطة الملفات المتغيّرة. ثم افتح **Key changes**، حيث لكل ملف مهم تبويب خاص فيه فروقات جنبًا إلى جنب وملاحظات."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff15296c5ef824f5ead19d6e64de1388f
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Faf5572fc8bbd4962972bfc0b24cf2bc0
+        alt: "مخططان أوليان قبل وبعد لصفحة Members، يضيف الثاني منهما زر Invite ودعوة معلّقة. وبجانبهما يميّز نموذج البيانات جدول الدعوات الجديد كمُضاف، وحقل دور الأعضاء كمعدّل، من نص إلى قائمة أدوار ثابتة."
+    - title: "أرسل تعليقاتك إلى الوكيل"
+      body: "اترك [تعليقات مراجعة](https://www.agent-native.com/docs/template-plan-review-workflow/) على أي نص أو موضع في المخطط الأولي. انقر على **إرسال إلى الوكيل**، واختر **نسخ لوكيلك**، والصق المطالبة في وكيل البرمجة، فيُجري التغييرات ويغلق تعليقاتك."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2256a69fdcd542a18a14a292050ff391
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2b4a48126c4f45c39c0b6f0389673387
+        alt: "تعليق موجّه إلى الوكيل مثبّت على زر Invite في مخطط «بعد» يطلب إظهاره للمسؤولين فقط. وقائمة Send to agent مفتوحة وفيها Copy for your agent وSend to inline agent."
+features:
+  heading: "كل ما تحتاجه في ملخص مرئي"
+  items:
+    - title: "الشاشات قبل الكود"
+      body: "عندما يمسّ التغيير الواجهة، يبدأ الملخص بمخططات أولية قبل وبعد، فترى أولًا ما سيراه المستخدمون."
+    - title: "تغييرات البيانات مميّزة"
+      body: "تُعلَّم تغييرات المخطط والـ API على كل حقل: مُضاف أو معدّل أو محذوف أو أُعيدت تسميته، مع النوع القديم بجانب الجديد."
+    - title: "كل ملف متغيّر على الخريطة"
+      body: "تسرد شجرة الملفات كل ملف لمسه التغيير، بشارة مُضاف أو معدّل أو محذوف أو أُعيدت تسميته، مع ملاحظات عمّا تغيّر."
+    - title: "فروقات أساسية مشروحة"
+      body: "من ثلاثة إلى ثمانية ملفات أساسية تحصل على فروقات جنبًا إلى جنب، لكل منها ملخص من سطر وملاحظات على الأسطر الجديرة بانتباهك."
+    - title: "يغطي المحادثة كلها"
+      body: "شغّل `/visual-recap` في المحادثة بعد انتهاء العمل، فيغطي الملخص كل ما فعله الوكيل فيها، من أول تغيير حتى الإصلاحات الأخيرة."
+    - title: "راجعه مع فريقك"
+      body: "شارك رابط الملخص: يفتحه الضيوف دون حساب ويسجّلون الدخول للتعليق. وصدّره بصيغة HTML أو Markdown أو JSON لتحتفظ بنسخة."
+integrations:
+  heading: "اربط Plan بالأدوات التي تستخدمها بالفعل"
+  cards:
+    - title: "شغّله من وكيل البرمجة"
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+        - name: OpenCode
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F947e193ba37846a88afc8a076c9fec26
+          mono: true
+        - name: GitHub Copilot
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8be66b264343497caddac07fd7c26935
+          mono: true
+      body: "أمر تثبيت واحد يجهّز `/visual-recap` في Claude Code أو Codex أو Cursor أو OpenCode أو GitHub Copilot، ويُفتح الملخص من المحادثة."
+    - title: "ملخص على كل طلب سحب"
+      logos:
+        - name: GitHub
+        - name: Anthropic
+        - name: OpenAI
+        - name: DeepSeek
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fdd2aa693886c4451b8a65836931b6c5d
+      body: "تنشر GitHub Action ملخصًا مرئيًا على كل طلب سحب، بمفتاحك الخاص من Anthropic أو OpenAI أو DeepSeek، أو بنموذج آخر متوافق مع OpenAI."
+    - title: "اربط أي أداة عبر MCP"
+      logos:
+        - name: Linear
+        - name: Sentry
+        - name: Semgrep
+        - name: Supabase
+      more: true
+      body: "اربط الأدوات التي يستخدمها فريقك عبر MCP، أو أضف أي خادم MCP بعنوان URL الخاص به."
+other_uses:
+  heading: "أشياء أخرى يمكنك فعلها مع Agent-Native Plan"
+  cards:
+    - title: "راجع خطة وكيل البرمجة قبل أن يكتب الكود"
+      url: https://www.agent-native.com/use-cases/visual-plan-mode/
+      body: "اقرأ خطة وكيل البرمجة كمخططات وكود مشروح، وصحّحها قبل أن يبدأ الوكيل."
+    - title: "خطّط للشاشات الجديدة مع وكيل البرمجة"
+      url: https://www.agent-native.com/use-cases/ui-planning/
+      body: "اطلب من وكيل البرمجة رسم شاشة جديدة بكل حالاتها قبل البناء، وعلّق حتى تصبح كما تريد."
+faqs:
+  heading: "لديك أسئلة؟ لدينا الإجابات"
+  items:
+    - q: "هل Agent-Native Plan مجاني؟"
+      a: "نعم، Agent-Native Plan مجاني ومفتوح المصدر. يشغّل كل ملخص مرئي جلسة وكيل كاملة على النموذج الذي تختاره، فالتغييرات الأكبر تستهلك من ذلك النموذج أكثر. لا يزال Plan في مرحلة ألفا، فتوقّع تغييرات."
+    - q: "متى يستحق التغيير ملخصًا مرئيًا؟"
+      a: "شغّل الملخص المرئي على التغييرات الكبيرة: التي تمتد عبر عدة ملفات، أو تمسّ مخطط البيانات أو الـ API أو طريقة ترابط أجزاء التطبيق. أما التغيير الصغير في ملف واحد، فقراءة الـ diff مباشرة أسرع من انتظار ملخص."
+    - q: "كيف يختلف الملخص المرئي عن قراءة الـ diff؟"
+      a: "يسرد الـ diff كل سطر تغيّر، ملفًا بعد ملف. أما الملخص المرئي فيبدأ بما يفعله التغيير: الشاشات التي عدّلها كمخططات أولية، وحقول البيانات التي غيّرها، وخريطة للملفات المعنية. ثم يعرض الفروقات الجديرة بالقراءة فقط، مع ملاحظات."
+    - q: "مع أي وكلاء برمجة يعمل Plan؟"
+      a: "يجهّز أمر التثبيت Plan في Claude Code وCodex وCursor وOpenCode وGitHub Copilot في VS Code وClaude Cowork، ويسجّل دخولك. ويعمل Plan أيضًا في Cline وGoose وأي وكيل آخر يتصل بخوادم MCP، عبر موصله المستضاف."
+    - q: "هل يمكنني الحصول على ملخص لكل طلب سحب؟"
+      a: "نعم. [PR Visual Recap GitHub Action](https://www.agent-native.com/docs/pr-visual-recap/) يشغّل Claude Code أو Codex أو أي نموذج متوافق مع OpenAI بمفتاح API الخاص بك مع كل push. ويُبقي تعليقًا واحدًا على طلب السحب محدّثًا، مع لقطة شاشة للملخص، ولا يمنع الدمج أبدًا. وتُقتطع الفروقات التي تتجاوز نحو 600 KB."
+    - q: "من يمكنه رؤية ملخصاتي؟"
+      a: "افتراضيًا، لا يفتح الملخص إلا من سجّل الدخول إلى مؤسستك؛ واجعله خاصًا فلا يفتحه غيرك. ومع GitHub Action، يرى لقطة الملخص كل من يرى طلب السحب. و[وضع الملفات المحلية](https://www.agent-native.com/docs/template-plan-local-and-desktop/) يُبقي الملخص خارج التطبيق المستضاف، مع أن نموذج وكيلك يظل يعمل حيث يعمل دائمًا."

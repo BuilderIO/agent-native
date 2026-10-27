@@ -1,0 +1,111 @@
+template: v2
+slug: visually-recap-agent-changes
+app: plans
+title: Änderungen Ihres Coding-Agenten visuell nachvollziehen
+seo_title: Visueller Rückblick auf Änderungen Ihres Agenten
+meta_description: Agent-Native Plan zeigt, was Ihr Coding-Agent geändert hat, als Vorher-nachher-Screens, markierte Datenfelder, Dateiübersicht und kommentierbare Diffs.
+updated: 2026-10-27
+hero:
+  body: Agent-Native Plan zeigt die Arbeit Ihres Coding-Agenten als Vorher-nachher-Screens, markierte Datenänderungen und Dateiübersicht. Stimmt etwas nicht, kommentieren Sie es, und der Agent behebt es.
+  button:
+    label: Änderung zusammenfassen
+    url: https://plan.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa973dc8304494af9b6d069e9a409d409
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F68e6bd29a3834942ad098459e08fbd42
+    alt: Ein fertiger Rückblick in Plan auf die Änderung eines Coding-Agenten, die Team-Einladungen hinzufügt. Oben stehen der Titel und eine kurze Zusammenfassung der Änderung. Darunter folgen Vorher-nachher-Wireframes der Mitglieder-Einstellungsseite und ein Dateibaum der geänderten Dateien mit Markierungen für hinzugefügt und geändert.
+how_to:
+  heading: So fassen Sie die Änderungen Ihres Agenten visuell zusammen
+  steps:
+    - title: Den Agenten um einen Rückblick bitten
+      body: Fügen Sie Plan per [Einzeiler](https://www.agent-native.com/docs/template-plan/#install) zu Ihrem Coding-Agenten hinzu. Führen Sie im Chat, in dem der Agent die Änderung gemacht hat, `/visual-recap` aus und öffnen Sie den zurückgegebenen Link.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F060c82d850f34b3096f166c04ead386c
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F287f076a9ec84124a0afc7fbaeda2ece
+        alt: Der Chat des Coding-Agenten mit der gesendeten Nachricht „/visual-recap of everything you changed in this thread“ und der Antwort des Agenten mit dem Link zum veröffentlichten Rückblick.
+    - title: Die Änderung zuerst als Bilder lesen
+      body: Beginnen Sie mit den Vorher-nachher-Wireframes, den markierten Datenänderungen und der Dateiübersicht. Öffnen Sie dann **Key changes**, wo jede wichtige Datei einen eigenen Tab mit Diff nebeneinander und Notizen hat.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff15296c5ef824f5ead19d6e64de1388f
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Faf5572fc8bbd4962972bfc0b24cf2bc0
+        alt: Vorher-nachher-Wireframes der Mitgliederseite, wobei die Nachher-Version eine Einladen-Schaltfläche und eine ausstehende Einladung ergänzt. Daneben markiert das Datenmodell die neue Einladungstabelle als hinzugefügt und das Rollenfeld der Mitglieder als geändert, von Text zu einer festen Liste von Rollen.
+    - title: Kommentare an den Agenten senden
+      body: Hinterlassen Sie [Review-Kommentare](https://www.agent-native.com/docs/template-plan-review-workflow/) an beliebigem Text oder einer Stelle im Wireframe. Klicken Sie auf **An den Agenten senden**, wählen Sie **Für Ihren Agenten kopieren** und fügen Sie den Prompt in Ihren Coding-Agenten ein, der die Änderungen umsetzt und Ihre Kommentare schließt.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2256a69fdcd542a18a14a292050ff391
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2b4a48126c4f45c39c0b6f0389673387
+        alt: Ein Kommentar an den Agenten an der Einladen-Schaltfläche im Nachher-Wireframe bittet darum, sie nur Admins zu zeigen. Das Menü „An den Agenten senden“ ist geöffnet, mit „Für Ihren Agenten kopieren“ und „An den Inline-Agenten senden“.
+features:
+  heading: Alles, was ein visueller Rückblick braucht
+  items:
+    - title: Screens vor Code
+      body: Betrifft die Änderung die UI, beginnt der Rückblick mit Vorher-nachher-Wireframes, damit Sie zuerst sehen, was Nutzer sehen.
+    - title: Datenänderungen markiert
+      body: Schema- und API-Änderungen markieren jedes Feld als hinzugefügt, geändert, entfernt oder umbenannt, mit altem und neuem Typ.
+    - title: Jede geänderte Datei erfasst
+      body: Ein Dateibaum listet jede berührte Datei, markiert als hinzugefügt, geändert, entfernt oder umbenannt, mit Notizen zur Änderung.
+    - title: Kommentierte Key-Diffs
+      body: Drei bis acht zentrale Dateien erhalten Diffs nebeneinander, je mit einzeiliger Zusammenfassung und Notizen zu wichtigen Zeilen.
+    - title: Deckt den ganzen Thread ab
+      body: Führen Sie `/visual-recap` nach der Arbeit im Chat aus, und der Rückblick umfasst alles, was der Agent dort getan hat, bis zu späten Korrekturen.
+    - title: Mit dem Team prüfen
+      body: "Teilen Sie den Link: Gäste öffnen ihn ohne Konto und melden sich zum Kommentieren an. Exportieren Sie ihn als HTML, Markdown oder JSON."
+integrations:
+  heading: Verbinden Sie Plan mit den Tools, die Sie schon nutzen
+  cards:
+    - title: Aus Ihrem Coding-Agenten starten
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+        - name: OpenCode
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F947e193ba37846a88afc8a076c9fec26
+          mono: true
+        - name: GitHub Copilot
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8be66b264343497caddac07fd7c26935
+          mono: true
+      body: Ein Installationsbefehl richtet `/visual-recap` in Claude Code, Codex, Cursor, OpenCode oder GitHub Copilot ein, der Rückblick öffnet sich aus dem Chat.
+    - title: Ein Rückblick zu jedem Pull Request
+      logos:
+        - name: GitHub
+        - name: Anthropic
+        - name: OpenAI
+        - name: DeepSeek
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fdd2aa693886c4451b8a65836931b6c5d
+      body: Eine GitHub Action postet zu jedem Pull Request einen visuellen Rückblick, mit Ihrem Anthropic-, OpenAI- oder DeepSeek-Schlüssel oder einem OpenAI-kompatiblen Modell.
+    - title: Alles per MCP verbinden
+      logos:
+        - name: Linear
+        - name: Sentry
+        - name: Semgrep
+        - name: Supabase
+      more: true
+      body: Verbinden Sie die Tools Ihres Teams per MCP oder fügen Sie einen beliebigen MCP-Server über seine URL hinzu.
+other_uses:
+  heading: Was Sie sonst noch mit Agent-Native Plan tun können
+  cards:
+    - title: Den Plan Ihres Coding-Agenten vor dem Coden prüfen
+      url: https://www.agent-native.com/use-cases/visual-plan-mode/
+      body: Lesen Sie den Plan Ihres Coding-Agenten als Diagramme und kommentierten Code, und korrigieren Sie ihn, bevor der Agent startet.
+    - title: Neue Screens mit Ihrem Coding-Agenten planen
+      url: https://www.agent-native.com/use-cases/ui-planning/
+      body: Lassen Sie Ihren Coding-Agenten einen neuen Screen in jedem Zustand skizzieren, und kommentieren Sie, bis er stimmt.
+faqs:
+  heading: Fragen? Wir haben Antworten
+  items:
+    - q: Ist Agent-Native Plan kostenlos?
+      a: Ja, Agent-Native Plan ist kostenlos und Open Source. Jeder visuelle Rückblick läuft als vollständige Agenten-Sitzung mit dem Modell Ihrer Wahl, größere Änderungen verbrauchen also mehr von diesem Modell. Plan ist in der Alpha-Phase, rechnen Sie also mit Änderungen.
+    - q: Bei welchen Änderungen lohnt sich ein visueller Rückblick?
+      a: "Bei größeren Änderungen: solchen, die mehrere Dateien umfassen oder das Datenschema, eine API oder den Aufbau der App betreffen. Bei einer kleinen Änderung an einer Datei ist der einfache Diff schneller gelesen, als ein Rückblick dauert."
+    - q: Worin unterscheidet sich ein visueller Rückblick vom Lesen des Diffs?
+      a: "Ein Diff listet jede geänderte Zeile, Datei für Datei. Ein visueller Rückblick beginnt damit, was die Änderung bewirkt: die geänderten Screens als Wireframes, die geänderten Datenfelder und eine Übersicht der beteiligten Dateien. Danach zeigt er nur die Diffs, die sich zu lesen lohnen, mit Notizen."
+    - q: Mit welchen Coding-Agenten funktioniert Plan?
+      a: Der Installationsbefehl richtet Plan in Claude Code, Codex, Cursor, OpenCode, GitHub Copilot in VS Code und Claude Cowork ein und meldet Sie an. Plan funktioniert über seinen gehosteten Connector auch in Cline, Goose und jedem anderen Agenten, der sich mit MCP-Servern verbindet.
+    - q: Kann ich zu jedem Pull Request einen Rückblick bekommen?
+      a: Ja. Die [GitHub Action PR Visual Recap](https://www.agent-native.com/docs/pr-visual-recap/) führt bei jedem Push Claude Code, Codex oder ein beliebiges OpenAI-kompatibles Modell mit Ihrem eigenen API-Schlüssel aus. Sie hält einen Kommentar im Pull Request aktuell, mit einem Screenshot des Rückblicks, und blockiert nie einen Merge. Diffs über etwa 600 KB werden gekürzt.
+    - q: Wer kann meine Rückblicke sehen?
+      a: Standardmäßig nur Personen, die in Ihrer Organisation angemeldet sind; stellen Sie einen Rückblick auf privat, sehen nur Sie ihn. Mit der GitHub Action sieht jeder, der den Pull Request sieht, den Screenshot des Rückblicks. Der [Modus für lokale Dateien](https://www.agent-native.com/docs/template-plan-local-and-desktop/) hält einen Rückblick aus der gehosteten App heraus, das Modell Ihres Agenten läuft aber weiterhin dort, wo es immer läuft.

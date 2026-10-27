@@ -1,0 +1,111 @@
+template: v2
+slug: visually-recap-agent-changes
+app: plans
+title: Obtén un resumen visual de los cambios de tu agente de código
+seo_title: Resumen visual de los cambios de tu agente
+meta_description: Agent-Native Plan muestra los cambios de tu agente con pantallas de antes y después, campos de datos señalados, un mapa de archivos y diffs para comentar.
+updated: 2026-10-27
+hero:
+  body: Agent-Native Plan muestra lo que hizo tu agente con pantallas de antes y después, cambios de datos señalados y un mapa de los archivos modificados. Si algo no cuadra, coméntalo y el agente lo corrige.
+  button:
+    label: Resume un cambio
+    url: https://plan.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa973dc8304494af9b6d069e9a409d409
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F68e6bd29a3834942ad098459e08fbd42
+    alt: Un resumen terminado en Plan del cambio de un agente de código que añade invitaciones de equipo. Arriba están el título y un breve resumen de lo que ha cambiado. Debajo, wireframes de antes y después de la página de ajustes de Miembros y un árbol con los archivos modificados, con etiquetas de añadido y modificado.
+how_to:
+  heading: Cómo obtener un resumen visual de los cambios de tu agente
+  steps:
+    - title: Pide un resumen a tu agente
+      body: Añade Plan a tu agente de código con su [instalación de una línea](https://www.agent-native.com/docs/template-plan/#install). En el chat donde el agente hizo el cambio, ejecuta `/visual-recap` y abre el enlace que te devuelve.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F060c82d850f34b3096f166c04ead386c
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F287f076a9ec84124a0afc7fbaeda2ece
+        alt: El chat del agente de código con el mensaje «/visual-recap of everything you changed in this thread» enviado y la respuesta del agente con el enlace al resumen publicado.
+    - title: Lee primero el cambio en imágenes
+      body: Empieza por los wireframes de antes y después, los cambios de datos señalados y el mapa de archivos modificados. Después abre **Cambios clave**, donde cada archivo importante tiene su pestaña con un diff lado a lado y notas.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff15296c5ef824f5ead19d6e64de1388f
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Faf5572fc8bbd4962972bfc0b24cf2bc0
+        alt: Wireframes de antes y después de la página de Miembros; en el de después aparecen un botón Invite y una invitación pendiente. Al lado, el modelo de datos marca la nueva tabla de invitaciones como añadida y el campo de rol de los miembros como modificado, de texto a una lista fija de roles.
+    - title: Envía tus comentarios al agente
+      body: Deja [comentarios de revisión](https://www.agent-native.com/docs/template-plan-review-workflow/) en cualquier texto o en un punto de un wireframe. Haz clic en **Enviar al agente**, elige **Copiar para tu agente** y pega el prompt en tu agente de código, que hace los cambios y resuelve tus comentarios.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2256a69fdcd542a18a14a292050ff391
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2b4a48126c4f45c39c0b6f0389673387
+        alt: Un comentario para el agente, fijado en el botón Invite del wireframe de después, pide que solo lo vean los administradores. El menú Send to agent está abierto, con Copy for your agent y Send to inline agent.
+features:
+  heading: Todo lo que necesitas en un resumen visual
+  items:
+    - title: Pantallas antes que código
+      body: Si el cambio afecta a la interfaz, el resumen empieza con wireframes de antes y después, para que veas primero lo que verán los usuarios.
+    - title: Cambios de datos señalados
+      body: Los cambios de esquema y de API marcan cada campo como añadido, cambiado, eliminado o renombrado, con el tipo anterior junto al nuevo.
+    - title: Todos los archivos, en un mapa
+      body: Un árbol lista cada archivo que tocó el cambio, marcado como añadido, modificado, eliminado o renombrado, con notas sobre qué cambió.
+    - title: Diffs clave comentados
+      body: De tres a ocho archivos clave tienen diffs lado a lado, cada uno con un resumen de una línea y notas en las líneas que merecen tu atención.
+    - title: Cubre todo el hilo
+      body: Ejecuta `/visual-recap` en el chat al terminar, y el resumen cubre todo lo que hizo el agente ahí, del primer cambio a los últimos arreglos.
+    - title: Revísalo con tu equipo
+      body: "Comparte el enlace: los invitados lo abren sin cuenta e inician sesión para comentar. Expórtalo en HTML, Markdown o JSON para guardar una copia."
+integrations:
+  heading: Conecta Plan con las herramientas que ya usas
+  cards:
+    - title: Ejecútalo desde tu agente de código
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+        - name: OpenCode
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F947e193ba37846a88afc8a076c9fec26
+          mono: true
+        - name: GitHub Copilot
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8be66b264343497caddac07fd7c26935
+          mono: true
+      body: Un solo comando instala `/visual-recap` en Claude Code, Codex, Cursor, OpenCode o GitHub Copilot, y el resumen se abre desde el chat.
+    - title: Un resumen en cada pull request
+      logos:
+        - name: GitHub
+        - name: Anthropic
+        - name: OpenAI
+        - name: DeepSeek
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fdd2aa693886c4451b8a65836931b6c5d
+      body: Una GitHub Action publica un resumen visual en cada pull request, con tu propia clave de Anthropic, OpenAI o DeepSeek, u otro modelo compatible con OpenAI.
+    - title: Conecta lo que quieras con MCP
+      logos:
+        - name: Linear
+        - name: Sentry
+        - name: Semgrep
+        - name: Supabase
+      more: true
+      body: Conecta las herramientas que usa tu equipo mediante MCP, o añade cualquier servidor MCP con su URL.
+other_uses:
+  heading: Otras cosas que puedes hacer con Agent-Native Plan
+  cards:
+    - title: Revisa el plan de tu agente de código antes de que programe
+      url: https://www.agent-native.com/use-cases/visual-plan-mode/
+      body: Lee el plan de tu agente de código como diagramas y código comentado, y corrígelo antes de que empiece.
+    - title: Planifica pantallas nuevas con tu agente de código
+      url: https://www.agent-native.com/use-cases/ui-planning/
+      body: Pide a tu agente de código que dibuje una pantalla nueva en cada estado antes de desarrollarla, y coméntala hasta que esté bien.
+faqs:
+  heading: ¿Dudas? Aquí tienes las respuestas
+  items:
+    - q: ¿Agent-Native Plan es gratis?
+      a: Sí, Agent-Native Plan es gratuito y de código abierto. Cada resumen visual ejecuta una sesión completa del agente con el modelo que elijas, así que los cambios más grandes consumen más de ese modelo. Plan está en alfa, así que espera cambios.
+    - q: ¿En qué cambios merece la pena un resumen visual?
+      a: "Usa un resumen visual en los cambios grandes: los que abarcan varios archivos o tocan el esquema de datos, una API o cómo encaja la aplicación. Para un cambio pequeño en un solo archivo, leer el diff es más rápido que esperar a un resumen."
+    - q: ¿En qué se diferencia un resumen visual de leer el diff?
+      a: "Un diff lista cada línea cambiada, archivo por archivo. Un resumen visual empieza por lo que hace el cambio: las pantallas que modifica, como wireframes, los campos de datos que cambia y un mapa de los archivos implicados. Después muestra solo los diffs que merece la pena leer, con notas."
+    - q: ¿Con qué agentes de código funciona Plan?
+      a: El comando de instalación configura Plan en Claude Code, Codex, Cursor, OpenCode, GitHub Copilot en VS Code y Claude Cowork, e inicia tu sesión. Plan también funciona en Cline, Goose y cualquier otro agente que se conecte a servidores MCP, mediante su conector alojado.
+    - q: ¿Puedo tener un resumen en cada pull request?
+      a: Sí. La [GitHub Action PR Visual Recap](https://www.agent-native.com/docs/pr-visual-recap/) ejecuta Claude Code, Codex o cualquier modelo compatible con OpenAI con tu propia clave de API en cada push. Mantiene actualizado un único comentario en la pull request, con una captura del resumen, y nunca bloquea un merge. Los diffs de más de unos 600 KB se recortan.
+    - q: ¿Quién puede ver mis resúmenes?
+      a: Por defecto, solo las personas que han iniciado sesión en tu organización pueden abrir un resumen; si lo haces privado, solo tú. Con la GitHub Action, cualquiera que vea la pull request ve la captura del resumen. El [modo de archivos locales](https://www.agent-native.com/docs/template-plan-local-and-desktop/) deja el resumen fuera de la aplicación alojada, aunque el modelo de tu agente se sigue ejecutando donde siempre.

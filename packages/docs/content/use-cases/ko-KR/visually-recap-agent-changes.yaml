@@ -1,0 +1,111 @@
+template: v2
+slug: visually-recap-agent-changes
+app: plans
+title: 코딩 에이전트가 바꾼 내용을 시각적 요약으로 받아 보세요
+seo_title: 코딩 에이전트 변경 사항을 한눈에 보는 시각적 요약
+meta_description: "Agent-Native Plan은 코딩 에이전트가 바꾼 내용을 전후 화면, 표시된 데이터 필드, 파일 맵, 댓글을 달 수 있는 주석 달린 diff로 보여 줘요."
+updated: 2026-10-27
+hero:
+  body: "Agent-Native Plan은 코딩 에이전트가 한 일을 전후 화면, 표시된 데이터 변경, 바뀐 파일 맵으로 보여 줘요. 이상한 부분이 보이면 댓글을 달고, 에이전트가 고쳐요."
+  button:
+    label: 변경 사항 요약하기
+    url: https://plan.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa973dc8304494af9b6d069e9a409d409
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F68e6bd29a3834942ad098459e08fbd42
+    alt: "팀 초대 기능을 추가한 코딩 에이전트의 변경 사항을 Plan에서 정리한 완성된 요약. 맨 위에 제목과 변경 내용의 짧은 요약이 있어요. 그 아래에는 Members 설정 페이지의 전후 와이어프레임과, 추가됨·수정됨 배지가 붙은 바뀐 파일의 파일 트리가 있어요."
+how_to:
+  heading: 에이전트의 변경 사항을 시각적으로 요약하는 방법
+  steps:
+    - title: 에이전트에게 요약 요청하기
+      body: "[한 줄 설치](https://www.agent-native.com/docs/template-plan/#install)로 코딩 에이전트에 Plan을 추가하세요. 에이전트가 변경한 채팅에서 `/visual-recap`을 실행하고, 돌아온 링크를 여세요."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F060c82d850f34b3096f166c04ead386c
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F287f076a9ec84124a0afc7fbaeda2ece
+        alt: "“/visual-recap of everything you changed in this thread”를 보낸 코딩 에이전트 채팅과, 게시된 요약 링크가 담긴 에이전트의 답장."
+    - title: 먼저 그림으로 변경 사항 읽기
+      body: "전후 와이어프레임, 표시된 데이터 변경, 바뀐 파일 맵부터 보세요. 그다음 **Key changes**를 열면 중요한 파일마다 탭이 있고, 나란히 놓인 diff와 메모를 볼 수 있어요."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff15296c5ef824f5ead19d6e64de1388f
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Faf5572fc8bbd4962972bfc0b24cf2bc0
+        alt: "Members 페이지의 전후 와이어프레임. 변경 후 화면에는 Invite 버튼과 대기 중인 초대가 추가돼 있어요. 옆의 데이터 모델은 새 invites 테이블을 추가됨으로, members의 role 필드를 텍스트에서 정해진 역할 목록으로 바뀐 수정됨으로 표시해요."
+    - title: 에이전트에게 댓글 보내기
+      body: "어떤 텍스트나 와이어프레임의 한 지점에든 [리뷰 댓글](https://www.agent-native.com/docs/template-plan-review-workflow/)을 남기세요. **에이전트에게 보내기**를 클릭하고 **에이전트용으로 복사**을 선택해 프롬프트를 코딩 에이전트에 붙여 넣으면, 에이전트가 수정하고 댓글을 해결해요."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2256a69fdcd542a18a14a292050ff391
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2b4a48126c4f45c39c0b6f0389673387
+        alt: "변경 후 와이어프레임의 Invite 버튼에 고정된 에이전트용 댓글이 이 버튼을 관리자에게만 보여 달라고 요청해요. Send to agent 메뉴가 열려 Copy for your agent와 Send to inline agent가 보여요."
+features:
+  heading: 시각적 요약에 필요한 모든 것
+  items:
+    - title: 코드보다 화면 먼저
+      body: "UI가 바뀌면 요약은 전후 와이어프레임으로 시작하니, 사용자가 보게 될 화면을 가장 먼저 확인할 수 있어요."
+    - title: 데이터 변경 표시
+      body: "스키마와 API 변경은 필드마다 추가, 변경, 삭제, 이름 변경을 표시하고, 이전 타입을 새 타입 옆에 보여 줘요."
+    - title: 바뀐 파일을 모두 지도로
+      body: "파일 트리가 변경으로 건드린 파일을 모두 나열하고, 추가·수정·삭제·이름 변경 배지와 무엇이 바뀌었는지 메모를 달아요."
+    - title: 주석 달린 핵심 diff
+      body: "핵심 파일 3~8개는 나란히 놓인 diff로 보여 주고, 파일마다 한 줄 요약과 눈여겨볼 줄에 대한 메모가 붙어요."
+    - title: 채팅 전체를 한 번에
+      body: "작업이 끝난 채팅에서 `/visual-recap`을 실행하면, 첫 변경부터 마지막 수정까지 에이전트가 그 채팅에서 한 모든 일을 담아요."
+    - title: 팀과 함께 검토하기
+      body: "요약 링크를 공유하세요. 게스트는 계정 없이 열 수 있고, 로그인하면 댓글을 달 수 있어요. 사본은 HTML, 마크다운, JSON으로 내보내요."
+integrations:
+  heading: 이미 쓰는 도구와 Plan 연결하기
+  cards:
+    - title: 코딩 에이전트에서 실행하기
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+        - name: OpenCode
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F947e193ba37846a88afc8a076c9fec26
+          mono: true
+        - name: GitHub Copilot
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8be66b264343497caddac07fd7c26935
+          mono: true
+      body: "설치 명령어 하나로 Claude Code, Codex, Cursor, OpenCode, GitHub Copilot에 `/visual-recap`이 설정되고, 요약은 채팅에서 바로 열려요."
+    - title: 모든 풀 리퀘스트에 요약을
+      logos:
+        - name: GitHub
+        - name: Anthropic
+        - name: OpenAI
+        - name: DeepSeek
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fdd2aa693886c4451b8a65836931b6c5d
+      body: "GitHub Action이 내 Anthropic, OpenAI, DeepSeek 키나 다른 OpenAI 호환 모델로 풀 리퀘스트마다 시각적 요약을 올려요."
+    - title: MCP로 무엇이든 연결하기
+      logos:
+        - name: Linear
+        - name: Sentry
+        - name: Semgrep
+        - name: Supabase
+      more: true
+      body: "팀이 쓰는 도구를 MCP로 연결하거나, URL로 어떤 MCP 서버든 추가하세요."
+other_uses:
+  heading: Agent-Native Plan으로 할 수 있는 다른 일
+  cards:
+    - title: 코드를 쓰기 전에 코딩 에이전트의 계획을 검토하세요
+      url: https://www.agent-native.com/use-cases/visual-plan-mode/
+      body: "코딩 에이전트의 계획을 다이어그램과 주석 달린 코드로 읽고, 에이전트가 시작하기 전에 바로잡으세요."
+    - title: 코딩 에이전트와 새 화면을 계획해 보세요
+      url: https://www.agent-native.com/use-cases/ui-planning/
+      body: "코딩 에이전트가 만들기 전에 새 화면을 상태별로 스케치하게 하고, 마음에 들 때까지 댓글을 다세요."
+faqs:
+  heading: 궁금한 점이 있으신가요? 답해 드릴게요
+  items:
+    - q: Agent-Native Plan은 무료인가요?
+      a: "네, Agent-Native Plan은 무료 오픈 소스예요. 시각적 요약은 매번 내가 고른 모델에서 에이전트 세션 전체를 실행하니, 변경이 클수록 그 모델을 더 많이 써요. Plan은 알파 버전이라 바뀌는 부분이 있을 수 있어요."
+    - q: 어떤 변경에 시각적 요약을 쓰면 좋을까요?
+      a: "큰 변경에 쓰세요. 여러 파일에 걸치거나 데이터 스키마, API, 앱 구조를 건드리는 변경이요. 파일 하나만 조금 바꿨다면 요약을 기다리는 것보다 diff를 그냥 읽는 편이 빨라요."
+    - q: 시각적 요약은 diff를 읽는 것과 무엇이 다른가요?
+      a: "diff는 바뀐 줄을 파일별로 전부 나열해요. 시각적 요약은 변경이 무엇을 하는지부터 보여 줘요. 바뀐 화면은 와이어프레임으로, 바뀐 데이터 필드, 관련 파일 맵까지요. 그다음 읽을 가치가 있는 diff만 메모와 함께 보여 줘요."
+    - q: Plan은 어떤 코딩 에이전트와 함께 쓸 수 있나요?
+      a: "설치 명령어가 Claude Code, Codex, Cursor, OpenCode, VS Code의 GitHub Copilot, Claude Cowork에 Plan을 설정하고 로그인까지 해 줘요. Cline, Goose 등 MCP 서버에 연결하는 다른 에이전트에서도 호스팅 커넥터로 Plan을 쓸 수 있어요."
+    - q: 모든 풀 리퀘스트에서 요약을 받을 수 있나요?
+      a: "네. [PR Visual Recap GitHub Action](https://www.agent-native.com/docs/pr-visual-recap/)이 푸시할 때마다 내 API 키로 Claude Code, Codex, 또는 OpenAI 호환 모델을 실행해요. 풀 리퀘스트에 요약 스크린샷이 담긴 댓글 하나를 최신 상태로 유지하고, 병합을 막지 않아요. 약 600KB가 넘는 diff는 잘려요."
+    - q: 내 요약은 누가 볼 수 있나요?
+      a: "기본적으로 내 조직에 로그인한 사람만 요약을 열 수 있고, 비공개로 바꾸면 나만 볼 수 있어요. GitHub Action을 쓰면 풀 리퀘스트를 볼 수 있는 사람은 누구나 요약 스크린샷을 봐요. [로컬 파일 모드](https://www.agent-native.com/docs/template-plan-local-and-desktop/)를 쓰면 요약이 호스팅 앱에 올라가지 않지만, 에이전트의 모델은 원래 실행되던 곳에서 그대로 실행돼요."

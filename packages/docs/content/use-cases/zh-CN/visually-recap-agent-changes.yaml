@@ -1,0 +1,111 @@
+template: v2
+slug: visually-recap-agent-changes
+app: plans
+title: 用可视化回顾看懂编码 agent 的改动
+seo_title: 编码 agent 改动的可视化回顾
+meta_description: Agent-Native Plan 用前后对比界面、标注出的数据字段、文件地图和带注释的 diff 展示编码 agent 改了什么，每一处都能评论。
+updated: 2026-10-27
+hero:
+  body: Agent-Native Plan 用前后对比界面、标注出的数据改动和改动文件地图，展示编码 agent 做了什么。哪里看着不对就评论，agent 会把它改好。
+  button:
+    label: 回顾一次改动
+    url: https://plan.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa973dc8304494af9b6d069e9a409d409
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F68e6bd29a3834942ad098459e08fbd42
+    alt: Plan 中一份已完成的回顾，内容是编码 agent 为添加团队邀请功能所做的改动。顶部是标题和改动的简短摘要。下方是成员设置页面的前后对比线框图，以及标有新增和修改标记的改动文件树。
+how_to:
+  heading: 如何可视化回顾 agent 的改动
+  steps:
+    - title: 让 agent 生成回顾
+      body: 用[一行安装命令](https://www.agent-native.com/docs/template-plan/#install)把 Plan 添加到编码 agent。在 agent 完成改动的那个聊天里运行 `/visual-recap`，打开它返回的链接。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F060c82d850f34b3096f166c04ead386c
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F287f076a9ec84124a0afc7fbaeda2ece
+        alt: 编码 agent 的聊天界面，已发送“/visual-recap of everything you changed in this thread”，agent 的回复里附有已发布回顾的链接。
+    - title: 先看图，再看改动
+      body: 先看前后对比线框图、标注出的数据改动和改动文件地图。然后打开 **Key changes**，每个重要文件都有自己的标签页，带并排 diff 和注释。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff15296c5ef824f5ead19d6e64de1388f
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Faf5572fc8bbd4962972bfc0b24cf2bc0
+        alt: 成员页面的前后对比线框图，改动后多了一个 Invite 按钮和一条待接受的邀请。旁边的数据模型把新的 invites 表标为新增，把 members 的 role 字段标为修改，从文本改为固定的角色列表。
+    - title: 把评论发给 agent
+      body: 在任意文字或线框图的某个位置留下[审阅评论](https://www.agent-native.com/docs/template-plan-review-workflow/)。点击 **发送给 agent**，选择 **复制给你的 agent**，把提示词粘贴到编码 agent 里，它会完成修改并解决你的评论。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2256a69fdcd542a18a14a292050ff391
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2b4a48126c4f45c39c0b6f0389673387
+        alt: 一条写给 agent 的评论固定在改动后线框图的 Invite 按钮上，要求只对管理员显示。Send to agent 菜单已展开，包含 Copy for your agent 和 Send to inline agent。
+features:
+  heading: 可视化回顾所需的一切
+  items:
+    - title: 先看界面，再看代码
+      body: 改动涉及 UI 时，回顾会先展示前后对比线框图，让你先看到用户会看到的样子。
+    - title: 数据改动一目了然
+      body: Schema 和 API 的改动会把每个字段标为新增、修改、删除或重命名，并把旧类型和新类型并排列出。
+    - title: 每个改动文件都有标注
+      body: 文件树列出这次改动涉及的每个文件，标明新增、修改、删除或重命名，并附上改了什么的说明。
+    - title: 带注释的关键 diff
+      body: 三到八个关键文件会得到并排 diff，每个都有一行摘要，并对值得留意的代码行加上注释。
+    - title: 覆盖整个对话
+      body: 工作完成后在聊天里运行 `/visual-recap`，回顾会涵盖 agent 在这里做的所有事，从第一处改动到最后的修复。
+    - title: 和团队一起审阅
+      body: 分享回顾链接：访客无需账号即可打开，登录后即可评论。也可以导出为 HTML、Markdown 或 JSON 留存一份。
+integrations:
+  heading: 把 Plan 连接到你已经在用的工具
+  cards:
+    - title: 从编码 agent 里运行
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+        - name: OpenCode
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F947e193ba37846a88afc8a076c9fec26
+          mono: true
+        - name: GitHub Copilot
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8be66b264343497caddac07fd7c26935
+          mono: true
+      body: 一条安装命令即可在 Claude Code、Codex、Cursor、OpenCode 或 GitHub Copilot 中装好 `/visual-recap`，回顾直接从聊天里打开。
+    - title: 每个 pull request 都有回顾
+      logos:
+        - name: GitHub
+        - name: Anthropic
+        - name: OpenAI
+        - name: DeepSeek
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fdd2aa693886c4451b8a65836931b6c5d
+      body: 一个 GitHub Action 会在每个 pull request 上发布可视化回顾，使用你自己的 Anthropic、OpenAI 或 DeepSeek 密钥，或其他兼容 OpenAI 的模型。
+    - title: 通过 MCP 连接任何工具
+      logos:
+        - name: Linear
+        - name: Sentry
+        - name: Semgrep
+        - name: Supabase
+      more: true
+      body: 通过 MCP 连接团队在用的工具，或通过 URL 添加任意 MCP 服务器。
+other_uses:
+  heading: 用 Agent-Native Plan 还能做的其他事
+  cards:
+    - title: 在编码 agent 写代码前审阅它的计划
+      url: https://www.agent-native.com/use-cases/visual-plan-mode/
+      body: 以图表和带注释代码的形式阅读编码 agent 的计划，在它动手前把问题改掉。
+    - title: 和编码 agent 一起规划新界面
+      url: https://www.agent-native.com/use-cases/ui-planning/
+      body: 让编码 agent 在构建前把新界面的每种状态都画出来，不断评论直到满意。
+faqs:
+  heading: 有疑问？这里有答案
+  items:
+    - q: Agent-Native Plan 免费吗？
+      a: 是的，Agent-Native Plan 免费且开源。每次可视化回顾都会用你选择的模型运行一次完整的 agent 会话，改动越大，消耗的模型用量越多。Plan 目前处于 alpha 阶段，后续还会有变化。
+    - q: 哪些改动值得做一次可视化回顾？
+      a: 较大的改动值得做可视化回顾：跨多个文件，或涉及数据 schema、API、应用整体结构的改动。如果只是单个文件的小改动，直接看 diff 比等回顾更快。
+    - q: 可视化回顾和直接看 diff 有什么不同？
+      a: diff 逐个文件列出每一行改动。可视化回顾先讲清这次改动做了什么：以线框图展示改动的界面、改了哪些数据字段，以及涉及文件的地图。然后只展示值得细看的 diff，并附上注释。
+    - q: Plan 支持哪些编码 agent？
+      a: 安装命令会在 Claude Code、Codex、Cursor、OpenCode、VS Code 中的 GitHub Copilot 和 Claude Cowork 里装好 Plan，并帮你完成登录。通过托管连接器，Plan 也能在 Cline、Goose 以及任何能连接 MCP 服务器的 agent 中使用。
+    - q: 能为每个 pull request 生成回顾吗？
+      a: 可以。[PR Visual Recap GitHub Action](https://www.agent-native.com/docs/pr-visual-recap/) 会在每次推送时，用你自己的 API 密钥运行 Claude Code、Codex 或任何兼容 OpenAI 的模型。它会在 pull request 上保持一条持续更新的评论，附上回顾截图，并且从不阻止合并。超过约 600 KB 的 diff 会被截断。
+    - q: 谁能看到我的回顾？
+      a: 默认情况下，只有登录到你所在组织的人能打开回顾；设为私密后只有你自己能看。使用 GitHub Action 时，能看到 pull request 的人都能看到回顾截图。[本地文件模式](https://www.agent-native.com/docs/template-plan-local-and-desktop/)可以让回顾不进入托管应用，不过 agent 的模型仍在原来的地方运行。

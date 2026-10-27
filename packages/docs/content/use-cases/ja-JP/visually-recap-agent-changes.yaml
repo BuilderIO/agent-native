@@ -1,0 +1,111 @@
+template: v2
+slug: visually-recap-agent-changes
+app: plans
+title: コーディングエージェントの変更をビジュアルで要約
+seo_title: コーディングエージェントの変更のビジュアル要約
+meta_description: Agent-Native Planは、コーディングエージェントの変更を、変更前後の画面、印の付いたデータ項目、ファイルマップ、コメントできる注釈付き差分で見せます。
+updated: 2026-10-27
+hero:
+  body: Agent-Native Planは、コーディングエージェントの作業を、変更前後の画面、印の付いたデータの変更、変更ファイルのマップで見せます。おかしな点にコメントすれば、エージェントが修正します。
+  button:
+    label: 変更を要約する
+    url: https://plan.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa973dc8304494af9b6d069e9a409d409
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F68e6bd29a3834942ad098459e08fbd42
+    alt: チーム招待機能を追加したコーディングエージェントの変更を、Planでまとめた完成済みの要約。上部にはタイトルと変更内容の短いまとめがあります。その下に、メンバー設定ページの変更前後のワイヤーフレームと、追加・変更のバッジが付いた変更ファイルのファイルツリーが表示されています。
+how_to:
+  heading: エージェントの変更をビジュアルで要約する方法
+  steps:
+    - title: エージェントに要約を頼む
+      body: '[1行のインストール](https://www.agent-native.com/docs/template-plan/#install)でコーディングエージェントにPlanを追加します。エージェントが変更を行ったチャットで`/visual-recap`を実行し、返ってきたリンクを開きます。'
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F060c82d850f34b3096f166c04ead386c
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F287f076a9ec84124a0afc7fbaeda2ece
+        alt: コーディングエージェントのチャット。「このスレッドで変更したものすべてを/visual-recap」と送信され、エージェントが公開済みの要約へのリンクで返信しています。
+    - title: まず図で変更を把握する
+      body: 変更前後のワイヤーフレーム、印の付いたデータの変更、変更ファイルのマップから見始めます。次に**Key changes**を開くと、重要なファイルごとにタブがあり、左右に並んだ差分とメモを確認できます。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff15296c5ef824f5ead19d6e64de1388f
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Faf5572fc8bbd4962972bfc0b24cf2bc0
+        alt: メンバーページの変更前後のワイヤーフレーム。変更後には「招待」ボタンと保留中の招待が加わっています。横のデータモデルでは、新しい招待テーブルが追加、メンバーのロール項目がテキストから固定のロール一覧への変更として示されています。
+    - title: コメントをエージェントに送る
+      body: テキストやワイヤーフレームの任意の場所に[レビューコメント](https://www.agent-native.com/docs/template-plan-review-workflow/)を残します。**エージェントに送信**をクリックして**エージェント用にコピー**を選び、プロンプトをコーディングエージェントに貼り付ければ、変更を行ってコメントを解決します。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2256a69fdcd542a18a14a292050ff391
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2b4a48126c4f45c39c0b6f0389673387
+        alt: 変更後のワイヤーフレームの「招待」ボタンにピン留めされた、エージェント宛てのコメント。管理者にだけ表示するよう依頼しています。「Send to agent」メニューが開き、「Copy for your agent」と「Send to inline agent」が表示されています。
+features:
+  heading: ビジュアル要約に必要な機能がすべて揃っています
+  items:
+    - title: コードより先に画面
+      body: UIに関わる変更では、要約は変更前後のワイヤーフレームから始まるので、ユーザーに見える部分をまず確認できます。
+    - title: データの変更に印
+      body: スキーマやAPIの変更では、項目ごとに追加・変更・削除・名前変更の印が付き、古い型と新しい型が並んで表示されます。
+    - title: 変更ファイルをすべてマップ
+      body: ファイルツリーには変更が及んだすべてのファイルが並び、追加・変更・削除・名前変更のバッジと変更内容のメモが付きます。
+    - title: 注釈付きの主要な差分
+      body: 主要なファイル3〜8個は左右に並んだ差分で表示され、それぞれに1行の要約と、注目すべき行へのメモが付きます。
+    - title: スレッド全体をカバー
+      body: 作業後のチャットで`/visual-recap`を実行すると、最初の変更から後半の修正まで、エージェントがそこで行ったすべてが要約に入ります。
+    - title: チームで確認
+      body: 要約のリンクを共有すれば、ゲストはアカウントなしで開け、サインインするとコメントできます。HTML、Markdown、JSONで書き出して保存もできます。
+integrations:
+  heading: いつものツールとPlanを連携
+  cards:
+    - title: コーディングエージェントから実行
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+        - name: OpenCode
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F947e193ba37846a88afc8a076c9fec26
+          mono: true
+        - name: GitHub Copilot
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8be66b264343497caddac07fd7c26935
+          mono: true
+      body: 1つのインストールコマンドで、Claude Code、Codex、Cursor、OpenCode、GitHub Copilotに`/visual-recap`が設定され、チャットから要約を開けます。
+    - title: すべてのプルリクエストに要約
+      logos:
+        - name: GitHub
+        - name: Anthropic
+        - name: OpenAI
+        - name: DeepSeek
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fdd2aa693886c4451b8a65836931b6c5d
+      body: GitHub Actionが、各プルリクエストにビジュアル要約を投稿します。ご自身のAnthropic、OpenAI、DeepSeekのキーか、OpenAI互換のモデルを使います。
+    - title: MCPであらゆるツールと連携
+      logos:
+        - name: Linear
+        - name: Sentry
+        - name: Semgrep
+        - name: Supabase
+      more: true
+      body: チームが使っているツールをMCPで連携できます。URLを指定して任意のMCPサーバーを追加することもできます。
+other_uses:
+  heading: Agent-Native Planでできるその他のこと
+  cards:
+    - title: コード作成前にコーディングエージェントの計画を確認
+      url: https://www.agent-native.com/use-cases/visual-plan-mode/
+      body: コーディングエージェントの計画を図や注釈付きコードで読み、作業を始める前に修正できます。
+    - title: コーディングエージェントと新しい画面を計画
+      url: https://www.agent-native.com/use-cases/ui-planning/
+      body: 作り始める前に、新しい画面をあらゆる状態でコーディングエージェントに描いてもらい、納得いくまでコメントできます。
+faqs:
+  heading: よくある質問
+  items:
+    - q: Agent-Native Planは無料ですか？
+      a: はい、Agent-Native Planは無料のオープンソースです。ビジュアル要約は、選んだモデルでエージェントのセッションを丸ごと1回実行するため、変更が大きいほどモデルの使用量が増えます。Planはアルファ版のため、今後変更が加わる可能性があります。
+    - q: ビジュアル要約はどんな変更で使うとよいですか？
+      a: 大きめの変更で使いましょう。複数のファイルにまたがる変更や、データスキーマ、API、アプリ全体の構成に関わる変更です。1つのファイルへの小さな変更なら、要約を待つより差分をそのまま読むほうが早く済みます。
+    - q: ビジュアル要約は差分を読むのと何が違いますか？
+      a: 差分は、変更された行をファイルごとにすべて並べます。ビジュアル要約は、変更が何をするのかから始まります。変わった画面のワイヤーフレーム、変わったデータ項目、関係するファイルのマップです。そのうえで、読む価値のある差分だけをメモ付きで表示します。
+    - q: Planはどのコーディングエージェントに対応していますか？
+      a: インストールコマンドで、Claude Code、Codex、Cursor、OpenCode、VS CodeのGitHub Copilot、Claude CoworkにPlanが設定され、サインインも完了します。Cline、Gooseなど、MCPサーバーに接続できるエージェントでも、ホスト版のコネクターを通じてPlanを使えます。
+    - q: すべてのプルリクエストで要約を作れますか？
+      a: はい。[PR Visual Recap GitHub Action](https://www.agent-native.com/docs/pr-visual-recap/)は、プッシュのたびにご自身のAPIキーでClaude Code、Codex、またはOpenAI互換のモデルを実行します。プルリクエスト上の1つのコメントを要約のスクリーンショット付きで更新し続け、マージを妨げることはありません。約600KBを超える差分は途中で切り詰められます。
+    - q: 要約は誰が見られますか？
+      a: デフォルトでは、組織にサインインしている人だけが要約を開けます。非公開にすれば自分だけが見られます。GitHub Actionを使う場合、プルリクエストを見られる人は誰でも要約のスクリーンショットを見られます。[ローカルファイルモード](https://www.agent-native.com/docs/template-plan-local-and-desktop/)なら要約はホスト版アプリに置かれませんが、エージェントのモデルはこれまでどおりの場所で動きます。
