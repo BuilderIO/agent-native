@@ -22,6 +22,18 @@ let unregisterRecurringSweepHandler: (() => void) | undefined;
 let inProcessSweep: IntervalJobHandle | undefined;
 let sweepStartTimer: ReturnType<typeof setTimeout> | undefined;
 
+/** Lets the process exit while the timer waits. Outside Node a timer is a number, with no unref. */
+function unrefTimer(timer: unknown): void {
+  if (
+    typeof timer === "object" &&
+    timer !== null &&
+    "unref" in timer &&
+    typeof timer.unref === "function"
+  ) {
+    timer.unref();
+  }
+}
+
 async function runContentWebhookSweep(context: RecurringSweepContext) {
   await drainContentWebhookDeliveries(context);
   await purgeSettledContentWebhookDeliveries();
@@ -35,7 +47,14 @@ async function runContentWebhookSweep(context: RecurringSweepContext) {
  * commits; this sweep is the guarantee, not the fast path. It also clears
  * out old deliveries and the webhooks of permanently deleted pages.
  */
-export default function registerContentWebhookDelivery(nitroApp?: any) {
+/** The part of the Nitro app this plugin uses: its close hook. */
+interface NitroAppCloseHook {
+  hooks?: { hook?: (name: "close", handler: () => void) => unknown };
+}
+
+export default function registerContentWebhookDelivery(
+  nitroApp?: NitroAppCloseHook,
+) {
   unregisterRecurringSweepHandler ??= registerRecurringSweepHandler(
     "content-webhook-delivery",
     runContentWebhookSweep,
@@ -60,7 +79,7 @@ export default function registerContentWebhookDelivery(nitroApp?: any) {
         },
       );
     }, SWEEP_START_DELAY_MS);
-    sweepStartTimer.unref?.();
+    unrefTimer(sweepStartTimer);
   }
 
   nitroApp?.hooks?.hook?.("close", () => {

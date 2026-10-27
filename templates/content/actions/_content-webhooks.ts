@@ -36,6 +36,7 @@ import {
   or,
   sql,
 } from "drizzle-orm";
+import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { contentWebhookHeaders } from "../server/lib/content-webhook-signature.js";
@@ -109,6 +110,14 @@ const TRASH_RECHECK_MS = 15 * 60_000;
 const MAX_VALUE_CHARS = 16_000;
 const MAX_COMMENT_CHARS = 2_000;
 const AGENT_CALLERS = new Set(["tool", "mcp", "webmcp", "a2a"]);
+
+/**
+ * The first row a query returned, typed as possibly missing: Drizzle types an
+ * empty result's first row as present, which hides the not-found check.
+ */
+export function firstRow<T>(rows: readonly T[]): T | undefined {
+  return rows[0];
+}
 
 export function contentWebhookSecretRef(webhook: {
   secretKey: string;
@@ -657,26 +666,28 @@ async function claimDelivery(db: Db, id: string) {
   const deliveries = schema.contentWebhookDeliveries;
   const now = new Date().toISOString();
   const leaseToken = randomUUID();
-  const [delivery] = await db
-    .update(deliveries)
-    .set({
-      leaseToken,
-      leaseExpiresAt: new Date(Date.now() + LEASE_MS).toISOString(),
-      attempts: sql`${deliveries.attempts} + 1`,
-      updatedAt: now,
-    })
-    .where(
-      and(
-        eq(deliveries.id, id),
-        eq(deliveries.status, "pending"),
-        lte(deliveries.nextAttemptAt, now),
-        or(
-          isNull(deliveries.leaseExpiresAt),
-          lt(deliveries.leaseExpiresAt, now),
+  const delivery = firstRow(
+    await db
+      .update(deliveries)
+      .set({
+        leaseToken,
+        leaseExpiresAt: new Date(Date.now() + LEASE_MS).toISOString(),
+        attempts: sql`${deliveries.attempts} + 1`,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(deliveries.id, id),
+          eq(deliveries.status, "pending"),
+          lte(deliveries.nextAttemptAt, now),
+          or(
+            isNull(deliveries.leaseExpiresAt),
+            lt(deliveries.leaseExpiresAt, now),
+          ),
         ),
-      ),
-    )
-    .returning();
+      )
+      .returning(),
+  );
   return delivery ? { delivery, leaseToken } : null;
 }
 
@@ -748,11 +759,13 @@ async function inTrash(
 ): Promise<boolean> {
   // guard:allow-unscoped — the sender runs with no signed-in user; it reads only whether the watched collection or page, or the event's row page, is in Trash.
   if (webhook.scopeType === "database") {
-    const [database] = await db
-      .select({ deletedAt: schema.contentDatabases.deletedAt })
-      .from(schema.contentDatabases)
-      .where(eq(schema.contentDatabases.id, webhook.scopeId))
-      .limit(1);
+    const database = firstRow(
+      await db
+        .select({ deletedAt: schema.contentDatabases.deletedAt })
+        .from(schema.contentDatabases)
+        .where(eq(schema.contentDatabases.id, webhook.scopeId))
+        .limit(1),
+    );
     if (database?.deletedAt) return true;
   }
   const pages = await db
@@ -807,11 +820,13 @@ async function deliverOne(
   delivery: DeliveryRow,
   transport: ContentWebhookTransport,
 ): Promise<ContentWebhookTransportResult> {
-  const [webhook] = await db
-    .select()
-    .from(schema.contentWebhooks)
-    .where(eq(schema.contentWebhooks.id, delivery.webhookId))
-    .limit(1);
+  const webhook = firstRow(
+    await db
+      .select()
+      .from(schema.contentWebhooks)
+      .where(eq(schema.contentWebhooks.id, delivery.webhookId))
+      .limit(1),
+  );
   if (!webhook) {
     // An event queued while its webhook was being removed can commit just
     // after the removal deleted the webhook's events. Delete it the same way
@@ -1034,14 +1049,9 @@ export async function resolveContentWebhookScope(target: {
   databaseId?: string;
   documentId?: string;
 }): Promise<ContentWebhookScope> {
-  if (Boolean(target.databaseId) === Boolean(target.documentId)) {
-    throw new ActionContractError(
-      "Pass exactly one of databaseId (every row of a collection) or documentId (one page).",
-      { errorCode: "WEBHOOK_SCOPE_REQUIRED", statusCode: 400 },
-    );
-  }
-  if (target.databaseId) {
-    const database = await getDatabaseById(target.databaseId);
+  const { databaseId, documentId } = target;
+  if (databaseId && !documentId) {
+    const database = await getDatabaseById(databaseId);
     if (!database) {
       throw new ActionContractError("Collection not found.", {
         errorCode: "DATABASE_NOT_FOUND",
@@ -1057,14 +1067,20 @@ export async function resolveContentWebhookScope(target: {
       orgId: database.orgId ?? null,
     };
   }
-  const access = await assertAccess("document", target.documentId!, "admin");
-  return {
-    scopeType: "document",
-    scopeId: target.documentId!,
-    accessDocumentId: target.documentId!,
-    ownerEmail: access.resource.ownerEmail as string,
-    orgId: (access.resource.orgId as string | null) ?? null,
-  };
+  if (documentId && !databaseId) {
+    const access = await assertAccess("document", documentId, "admin");
+    return {
+      scopeType: "document",
+      scopeId: documentId,
+      accessDocumentId: documentId,
+      ownerEmail: access.resource.ownerEmail as string,
+      orgId: (access.resource.orgId as string | null) ?? null,
+    };
+  }
+  throw new ActionContractError(
+    "Pass exactly one of databaseId (every row of a collection) or documentId (one page).",
+    { errorCode: "WEBHOOK_SCOPE_REQUIRED", statusCode: 400 },
+  );
 }
 
 /** Admin access to the watched database or page; null when the caller lacks it. */
@@ -1098,6 +1114,33 @@ export type RecentContentWebhookDelivery = Pick<
   | "createdAt"
   | "deliveredAt"
 >;
+
+/** A webhook as create- and list-content-webhooks return it. */
+export const contentWebhookOutputSchema = z.object({
+  id: z.string(),
+  url: z.string(),
+  databaseId: z.string().nullable(),
+  documentId: z.string().nullable(),
+  events: z.array(z.enum(CONTENT_WEBHOOK_EVENT_TYPES)),
+  propertyIds: z.array(z.string()).nullable(),
+  description: z.string().nullable(),
+  createdBy: z.string(),
+  createdAt: z.string(),
+  recentDeliveries: z.array(
+    z.object({
+      id: z.string(),
+      type: z.string(),
+      documentId: z.string(),
+      status: z.string(),
+      attempts: z.number(),
+      lastStatusCode: z.number().nullable(),
+      lastError: z.string().nullable(),
+      nextAttemptAt: z.string().nullable(),
+      createdAt: z.string(),
+      deliveredAt: z.string().nullable(),
+    }),
+  ),
+});
 
 export function serializeContentWebhook(
   webhook: WebhookRow,

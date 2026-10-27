@@ -27,6 +27,7 @@ import { resolveContentDocumentAccess } from "./_content-document-access.js";
 import {
   contentChangeActor,
   enqueuePropertyChangeWebhooks,
+  firstRow,
   scheduleContentWebhookDelivery,
 } from "./_content-webhooks.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
@@ -518,18 +519,20 @@ export default defineAction({
           "This value is already claimed as another row's stable key.",
         );
       }
-      const [existing] = await tx
-        .select({
-          id: schema.documentPropertyValues.id,
-          valueJson: schema.documentPropertyValues.valueJson,
-        })
-        .from(schema.documentPropertyValues)
-        .where(
-          and(
-            eq(schema.documentPropertyValues.documentId, documentId),
-            eq(schema.documentPropertyValues.propertyId, propertyId),
+      const existing = firstRow(
+        await tx
+          .select({
+            id: schema.documentPropertyValues.id,
+            valueJson: schema.documentPropertyValues.valueJson,
+          })
+          .from(schema.documentPropertyValues)
+          .where(
+            and(
+              eq(schema.documentPropertyValues.documentId, documentId),
+              eq(schema.documentPropertyValues.propertyId, propertyId),
+            ),
           ),
-        );
+      );
       if (existing) {
         await tx
           .update(schema.documentPropertyValues)

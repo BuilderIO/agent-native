@@ -1144,6 +1144,14 @@ export default {
         animation: "Animation",
         distance: "Distance",
         amount: "Amount",
+        axis: "Axis",
+        axisBoth: "Both",
+        axisX: "X",
+        axisY: "Y",
+        startWidth: "Start width",
+        endWidth: "End width",
+        startHeight: "Start height",
+        endHeight: "End height",
         delay: "Delay",
         easing: "Easing",
         editCurve: "Edit easing curve",
@@ -1816,8 +1824,12 @@ export default {
         small: "Small nudge",
         big: "Big nudge",
         unit: "px",
-        description:
-          "Arrow keys move by the small amount and Shift arrow by the big one. Inside an auto layout frame, arrows reorder the layer instead of moving it.",
+        close: "Close nudge amount",
+        done: "Done",
+        smallDescription:
+          "Sets the number of pixels an object is moved when using arrow keys.",
+        bigDescription:
+          "Sets the number of pixels an object is moved when using shift + arrow keys.",
       },
       keys: {
         or: "or",

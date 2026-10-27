@@ -170,7 +170,7 @@ async function openDesignWithLocalNetworkPermission(page: Page): Promise<void> {
     .toBe("granted");
   await expect(
     page.getByRole("button", { name: "Move", exact: true }),
-  ).toBeVisible({ timeout: 30_000 });
+  ).toBeVisible();
   await expect(page.getByRole("tree", { name: "Layers" })).toBeVisible();
   await expect(
     page
@@ -769,7 +769,7 @@ test("promotes and edits a URL-backed React component through the live iframe", 
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(
     page.getByRole("button", { name: "Move", exact: true }),
-  ).toBeVisible({ timeout: 30_000 });
+  ).toBeVisible();
   await expect(
     page
       .getByRole("tree", { name: "Layers" })
@@ -851,7 +851,7 @@ test("promotes and edits a URL-backed React component through the live iframe", 
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(
     page.getByRole("button", { name: "Move", exact: true }),
-  ).toBeVisible({ timeout: 30_000 });
+  ).toBeVisible();
   await page
     .getByRole("tree", { name: "Layers" })
     .locator(`[data-layer-row-button][data-layer-node-id="${screenId}"]`)

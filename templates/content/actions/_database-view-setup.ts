@@ -28,7 +28,10 @@ import {
   savableContentDatabaseItemLayout,
   startingContentDatabaseItemLayout,
 } from "../shared/database-item-layout.js";
-import { contentDatabaseFilterOperatorsForType } from "../shared/database-query.js";
+import {
+  contentDatabaseChangedDateFilterValueError,
+  contentDatabaseFilterOperatorsForType,
+} from "../shared/database-query.js";
 import {
   normalizePropertyVisibility,
   parsePropertyOptions,
@@ -247,6 +250,7 @@ function validateTablePatch(
     | z.infer<typeof updateViewPatchSchema>
     | z.infer<typeof boundedTablePatchSchema>,
   definitions: readonly (typeof schema.documentPropertyDefinitions.$inferSelect)[],
+  savedFilters: readonly ContentDatabaseFilter[] = [],
 ) {
   const typeById = new Map(
     definitions.map((definition) => [
@@ -337,6 +341,12 @@ function validateTablePatch(
       );
     }
   }
+  const dateError = contentDatabaseChangedDateFilterValueError(
+    patch.filters ?? [],
+    savedFilters,
+    (key) => typeById.get(key),
+  );
+  if (dateError) setupError("INVALID_VIEW_REFERENCE", dateError, 400);
 }
 
 type PropertyDefinitionRow =
@@ -645,7 +655,12 @@ export async function runUpdateContentDatabaseView(
       let nextViews: unknown[];
 
       if (input.operation === "create") {
-        validateTablePatch(input.view.config ?? {}, context.definitions);
+        // A new view may copy any saved view's filters, as a full save allows.
+        validateTablePatch(
+          input.view.config ?? {},
+          context.definitions,
+          normalized.views.flatMap((view) => view.filters),
+        );
         viewId = nanoid();
         nextViews = [
           ...rawViews,
@@ -696,7 +711,11 @@ export async function runUpdateContentDatabaseView(
               400,
             );
           }
-          validateTablePatch(input.patch, context.definitions);
+          validateTablePatch(
+            input.patch,
+            context.definitions,
+            existing.filters,
+          );
         } else {
           setupError(
             "UNSUPPORTED_SCHEMA_CHANGE",
@@ -796,6 +815,12 @@ export async function runReplaceContentDatabaseViews(input: {
         ? rawConfig.views
         : [];
       const desired = parseDatabaseViewConfig(JSON.stringify(input.viewConfig));
+      const dateError = viewConfigDateFilterError(
+        desired,
+        parseDatabaseViewConfig(context.database.viewConfigJson),
+        context.definitions,
+      );
+      if (dateError) setupError("INVALID_VIEW_REFERENCE", dateError, 400);
       const views = desired.views.map((view) => {
         const saved = currentRawViews.find(
           (candidate) =>
@@ -852,6 +877,37 @@ export async function runReplaceContentDatabaseViews(input: {
       };
     },
   });
+}
+
+/**
+ * The first unreadable date among the filters `next` adds or changes from
+ * `saved`. Each view is compared with its own saved filters, and a new view
+ * with every saved view's, since "Duplicate view" copies another view's
+ * filters. The config's own filters are the active view's, so the views cover
+ * them.
+ */
+export function viewConfigDateFilterError(
+  next: ContentDatabaseViewConfig,
+  saved: ContentDatabaseViewConfig,
+  definitions: readonly { id: string; type: string }[],
+) {
+  const typeById = new Map(
+    definitions.map((definition) => [
+      definition.id,
+      definition.type as DocumentPropertyType,
+    ]),
+  );
+  const savedById = new Map(saved.views.map((view) => [view.id, view.filters]));
+  const everySaved = saved.views.flatMap((view) => view.filters);
+  for (const view of next.views) {
+    const error = contentDatabaseChangedDateFilterValueError(
+      view.filters,
+      savedById.get(view.id) ?? everySaved,
+      (key) => typeById.get(key),
+    );
+    if (error) return error;
+  }
+  return null;
 }
 
 export function filterIsCompatible(

@@ -24,6 +24,7 @@ import {
 import {
   contentChangeActor,
   enqueueCommentWebhooks,
+  firstRow,
   scheduleContentWebhookDelivery,
 } from "./_content-webhooks.js";
 
@@ -123,22 +124,24 @@ export default defineAction({
     let webhookEvents = 0;
     if (args.resolved !== undefined) {
       await db.transaction(async (tx) => {
-        const [root] = await tx
-          .select({
-            id: schema.documentComments.id,
-            authorEmail: schema.documentComments.authorEmail,
-            content: schema.documentComments.content,
-            resolved: schema.documentComments.resolved,
-          })
-          .from(schema.documentComments)
-          .where(
-            and(
-              eq(schema.documentComments.id, comment.threadId),
-              eq(schema.documentComments.documentId, comment.documentId),
-            ),
-          )
-          .limit(1)
-          .for("update");
+        const root = firstRow(
+          await tx
+            .select({
+              id: schema.documentComments.id,
+              authorEmail: schema.documentComments.authorEmail,
+              content: schema.documentComments.content,
+              resolved: schema.documentComments.resolved,
+            })
+            .from(schema.documentComments)
+            .where(
+              and(
+                eq(schema.documentComments.id, comment.threadId),
+                eq(schema.documentComments.documentId, comment.documentId),
+              ),
+            )
+            .limit(1)
+            .for("update"),
+        );
         if (args.content !== undefined || args.mentions !== undefined) {
           await tx
             .update(schema.documentComments)

@@ -36,10 +36,13 @@ vi.mock("../../lib/workspace-apps", () => ({
     routeSplat: string | undefined,
     search: string,
     hash: string,
-  ) =>
-    routeSplat || search || hash
+  ) => {
+    const appPath = new URLSearchParams(search).get("__workspace_app_path");
+    if (appPath !== null) return appPath;
+    return routeSplat || search || hash
       ? `/${routeSplat ?? ""}${search}${hash}`
-      : undefined,
+      : undefined;
+  },
 }));
 
 import WorkspaceAppRoute from "./apps.$appId";
@@ -111,5 +114,20 @@ describe("WorkspaceAppRoute", () => {
     expect(routeState.navigate).toHaveBeenCalledWith("/apps/mail/archive", {
       replace: true,
     });
+  });
+
+  it("passes a flat-shell child path from the workspace route query to the host", async () => {
+    routeState.routeSplat = undefined;
+    routeState.location = {
+      pathname: "/apps/mail",
+      search: "?__workspace_app_path=%2Ftriage%3Fview%3Dopen%23latest",
+      hash: "",
+    };
+
+    await act(async () => {
+      root.render(<WorkspaceAppRoute />);
+    });
+
+    expect(routeState.hostProps?.initialPath).toBe("/triage?view=open#latest");
   });
 });

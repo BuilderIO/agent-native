@@ -13,6 +13,7 @@ import {
 } from "../server/lib/content-webhook-signature.js";
 import {
   CONTENT_WEBHOOK_EVENT_TYPES,
+  contentWebhookOutputSchema,
   resolveContentWebhookScope,
   serializeContentWebhook,
   type ContentWebhookScope,
@@ -108,6 +109,15 @@ export default defineAction({
       .max(200)
       .optional()
       .describe("What the receiver does, shown when listing webhooks"),
+  }),
+  outputSchema: z.object({
+    webhook: contentWebhookOutputSchema,
+    secret: z.string(),
+    signing: z.object({
+      scheme: z.string(),
+      headers: z.array(z.string()),
+      verify: z.string(),
+    }),
   }),
   run: async (args) => {
     const userEmail = getRequestUserEmail()?.trim().toLowerCase();

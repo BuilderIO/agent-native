@@ -8,6 +8,7 @@ import { getDb, schema } from "../server/db/index.js";
 import {
   contentWebhookScopeForRow,
   contentWebhookSecretRef,
+  firstRow,
 } from "./_content-webhooks.js";
 
 export default defineAction({
@@ -23,13 +24,16 @@ export default defineAction({
   schema: z.object({
     id: z.string().describe("Webhook ID from create- or list-content-webhooks"),
   }),
+  outputSchema: z.object({ ok: z.boolean(), id: z.string() }),
   run: async (args) => {
     const db = getDb();
-    const [webhook] = await db
-      .select()
-      .from(schema.contentWebhooks)
-      .where(eq(schema.contentWebhooks.id, args.id))
-      .limit(1);
+    const webhook = firstRow(
+      await db
+        .select()
+        .from(schema.contentWebhooks)
+        .where(eq(schema.contentWebhooks.id, args.id))
+        .limit(1),
+    );
     if (!webhook || !(await contentWebhookScopeForRow(webhook))) {
       throw new ActionContractError(`Webhook not found: ${args.id}`, {
         errorCode: "WEBHOOK_NOT_FOUND",

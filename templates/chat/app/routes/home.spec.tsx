@@ -3,6 +3,10 @@
 import { readFileSync } from "node:fs";
 
 import {
+  useHeaderActions,
+  useHeaderTitle,
+} from "@agent-native/toolkit/app-shell/header-actions";
+import {
   COMPOSER_CONTEXT_MAX_BYTES,
   type PromptComposerProps,
 } from "@agent-native/toolkit/composer";
@@ -76,7 +80,9 @@ const trackEvent = vi.hoisted(() => vi.fn());
 const toastError = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/toolkit/app/chat/agentkit-chat/rail", () => ({
+  isClientDraftThread: () => false,
   markAgentChatHomeHandoff: markHandoff,
+  markClientDraftThread: vi.fn(),
 }));
 vi.mock("@agent-native/core/client/api-path", () => ({
   appPath: (path: string) => `${routeState.basePath}${path}`,
@@ -159,7 +165,16 @@ vi.mock("@agent-native/toolkit/app/agentkit/react/components", () => ({
     );
   },
 }));
-vi.mock("@agent-native/toolkit/app/chat/chat/run-recovery", () => ({
+vi.mock("@agent-native/toolkit/app/chat/chat/run-recovery", async () => ({
+  IMPLEMENT_PLAN_PROMPT: "Implement the plan.",
+  getReplyRequestMode: (
+    await vi.importActual<
+      typeof import("@agent-native/toolkit/app/chat/chat/run-recovery")
+    >("@agent-native/toolkit/app/chat/chat/run-recovery")
+  ).getReplyRequestMode,
+  PlanModeCallout: ({ onImplementPlan }: { onImplementPlan: () => void }) => (
+    <button data-testid="chat-plan-ready" onClick={onImplementPlan} />
+  ),
   BuilderSetupCard: ({ onRetry }: { onRetry?: () => void }) => (
     <div data-testid="chat-builder-setup">
       {onRetry ? (
@@ -198,8 +213,9 @@ vi.mock("@agent-native/toolkit/app/agentkit/react/context", () => ({
     thread: routeState.title ? { title: routeState.title } : undefined,
   }),
 }));
+const translate = vi.hoisted(() => (key: string) => key);
 vi.mock("@agent-native/core/client/i18n", () => ({
-  useT: () => (key: string) => key,
+  useT: () => translate,
 }));
 vi.mock("sonner", () => ({ toast: { error: toastError } }));
 
@@ -340,6 +356,60 @@ describe("ChatRoute AgentKit surface", () => {
     expect(
       container.querySelector("[data-agent-page-workspace-toggle]"),
     ).toBeNull();
+  });
+
+  it("offers to implement a reloaded plan reply once the run is done", async () => {
+    routeState.threadId = "thread-one";
+    routeState.messages = [
+      {
+        id: "plan-request",
+        role: "user",
+        parts: [{ type: "text", text: "Plan the migration" }],
+        metadata: { requestMode: "plan" },
+      },
+      {
+        id: "server-run-plan",
+        role: "assistant",
+        parts: [{ type: "text", text: "1. Back up. 2. Migrate." }],
+      },
+    ];
+    act(() => root.render(<ChatRoute />));
+    const slots = routeState.rootProps?.slots as {
+      footer: React.ComponentType<{ children: React.ReactNode }>;
+    };
+    const renderFooter = () =>
+      act(() =>
+        root.render(
+          React.createElement(
+            slots.footer,
+            null,
+            <div data-testid="composer" />,
+          ),
+        ),
+      );
+
+    routeState.activeRunIds = ["run-plan"];
+    renderFooter();
+    expect(
+      container.querySelector('[data-testid="chat-plan-ready"]'),
+    ).toBeNull();
+
+    routeState.activeRunIds = [];
+    renderFooter();
+    const implement = container.querySelector<HTMLButtonElement>(
+      '[data-testid="chat-plan-ready"]',
+    );
+    expect(implement).not.toBeNull();
+    await act(async () => implement!.click());
+
+    expect(routeState.sendMessage).toHaveBeenCalledWith({
+      text: "Implement the plan.",
+      options: {
+        mode: "act",
+        metadata: { mode: "act", requestMode: "act" },
+      },
+      metadata: { mode: "act", requestMode: "act" },
+    });
   });
 
   it("passes connection request scope to the MCP connection card", () => {
@@ -701,7 +771,12 @@ describe("ChatRoute AgentKit surface", () => {
     );
 
     expect(routeState.sendMessage).not.toHaveBeenCalled();
-    expect(container.querySelector("[role='alert']")?.textContent).toBe(
+    const attachmentNotice = container.querySelector<HTMLElement>(
+      "[data-notice='chat-retry-attachment-unavailable']",
+    );
+    expect(attachmentNotice?.getAttribute("role")).toBe("alert");
+    expect(attachmentNotice?.dataset.tone).toBe("warning");
+    expect(attachmentNotice?.textContent).toBe(
       "chat.retryAttachmentUnavailable",
     );
     expect(
@@ -964,10 +1039,11 @@ describe("ChatRoute AgentKit surface", () => {
         selectedEngine: "anthropic",
         selectedModel: "claude-example",
         selectedEffort: "high",
-        mode: "plan",
         contextItems,
       },
     });
+    // A recovered plan request keeps its mode.
+    expect(routeState.chatProps?.composerProps).not.toHaveProperty("mode");
     expect(
       container.querySelector('[data-recovery-source="reference"]')
         ?.textContent,
@@ -1024,7 +1100,9 @@ describe("ChatRoute AgentKit surface", () => {
     );
     expect(window.sessionStorage.getItem(storageKey)).toBeNull();
     expect(routeState.chatProps).toMatchObject({
-      composerProps: { initialText: undefined },
+      composerProps: expect.not.objectContaining({
+        initialText: expect.anything(),
+      }),
     });
 
     routeState.threadId = "another-thread";
@@ -1032,7 +1110,9 @@ describe("ChatRoute AgentKit surface", () => {
     routeState.threadId = "chat-from-home";
     act(() => root.render(<ChatRoute />));
     expect(routeState.chatProps).toMatchObject({
-      composerProps: { initialText: undefined },
+      composerProps: expect.not.objectContaining({
+        initialText: expect.anything(),
+      }),
     });
   });
 
@@ -1315,7 +1395,9 @@ describe("ChatRoute AgentKit surface", () => {
     routeState.locationState = null;
     await act(async () => root.render(<ChatRoute />));
     expect(routeState.chatProps).toMatchObject({
-      composerProps: { initialText: undefined },
+      composerProps: expect.not.objectContaining({
+        initialText: expect.anything(),
+      }),
     });
     expect(
       container.querySelector('[data-testid="chat-recovery-draft-unsaved"]'),
@@ -1357,7 +1439,9 @@ describe("ChatRoute AgentKit surface", () => {
 
     expect(routeState.sendMessage).not.toHaveBeenCalled();
     expect(routeState.chatProps).toMatchObject({
-      composerProps: { initialText: undefined },
+      composerProps: expect.not.objectContaining({
+        initialText: expect.anything(),
+      }),
     });
   });
 
@@ -1391,7 +1475,9 @@ describe("ChatRoute AgentKit surface", () => {
     root = createRoot(container);
     await act(async () => root.render(<ChatRoute />));
     expect(routeState.chatProps).toMatchObject({
-      composerProps: { initialText: undefined },
+      composerProps: expect.not.objectContaining({
+        initialText: expect.anything(),
+      }),
     });
   });
 
@@ -1526,6 +1612,49 @@ describe("ChatRoute AgentKit surface", () => {
     act(() => toggle?.click());
     expect(panel?.dataset.state).toBe("open");
     expect(toggle?.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("publishes the app bar title and actions only when they change", () => {
+    routeState.threadId = "thread-one";
+    routeState.messages = [
+      { id: "user-1", role: "user", parts: [{ type: "text", text: "Hi" }] },
+    ];
+    routeState.title = "Release review";
+    let headerRenders = 0;
+    let publishedTitle: React.ReactNode = null;
+    let publishedActions: React.ReactNode = null;
+    function HeaderProbe() {
+      headerRenders += 1;
+      publishedTitle = useHeaderTitle();
+      publishedActions = useHeaderActions();
+      return null;
+    }
+    const tree = () => (
+      <>
+        <ChatRoute />
+        <HeaderProbe />
+      </>
+    );
+
+    act(() => root.render(tree()));
+    expect(publishedTitle).toBe("Release review");
+    expect(publishedActions).not.toBeNull();
+    const rendersAfterMount = headerRenders;
+
+    routeState.messages = [
+      ...routeState.messages,
+      {
+        id: "assistant-1",
+        role: "assistant",
+        parts: [{ type: "text", text: "Streaming" }],
+      },
+    ];
+    act(() => root.render(tree()));
+    expect(headerRenders - rendersAfterMount).toBe(1);
+
+    routeState.title = "Release review v2";
+    act(() => root.render(tree()));
+    expect(publishedTitle).toBe("Release review v2");
   });
 
   it("attributes a pending home handoff as a created thread", () => {

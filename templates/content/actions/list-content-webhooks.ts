@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
+  contentWebhookOutputSchema,
   contentWebhookScopeForRow,
   resolveContentWebhookScope,
   serializeContentWebhook,
@@ -33,6 +34,9 @@ export default defineAction({
       .string()
       .optional()
       .describe("Page ID whose webhooks to list"),
+  }),
+  outputSchema: z.object({
+    webhooks: z.array(contentWebhookOutputSchema),
   }),
   http: { method: "GET" },
   run: async (args) => {

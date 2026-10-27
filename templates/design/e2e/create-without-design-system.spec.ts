@@ -75,7 +75,8 @@ test("Home creates a blank design without a system and reloads it", async ({
     }
     designId = createdId;
 
-    const editorUrl = new RegExp(`/design/${createdId}$`);
+    // The editor writes its view state (editorView, screen, zoom) into the query.
+    const editorUrl = new RegExp(`/design/${createdId}(?:\\?.*)?$`);
     await expect(page).toHaveURL(editorUrl, { timeout: 30_000 });
     const moveTool = page.getByRole("button", {
       name: "Move",
@@ -85,7 +86,7 @@ test("Home creates a blank design without a system and reloads it", async ({
 
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(page).toHaveURL(editorUrl);
-    await expect(moveTool).toBeVisible({ timeout: 30_000 });
+    await expect(moveTool).toBeVisible();
 
     const saved = await request.get(
       appPath("/_agent-native/actions/get-design"),
