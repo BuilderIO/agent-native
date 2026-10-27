@@ -105,7 +105,7 @@ const messages = {
     retry: "다시 시도",
     reload: "새로고침",
     mcpAbout:
-      "Slides 2를 Claude, ChatGPT, Cursor 또는 MCP를 지원하는 AI 앱에 연결하세요. 그러면 해당 앱이 Slides 2에서 프레젠테이션 만들기, 슬라이드 추가, PowerPoint 내보내기를 대신할 수 있습니다. 사용자가 볼 수 있는 항목만 볼 수 있습니다.",
+      "이 워크스페이스를 Claude, ChatGPT, Cursor 등 MCP를 지원하는 앱과 연결하세요. 앱에서 프레젠테이션을 만들고, 슬라이드를 추가하고, PowerPoint로 내보낼 수 있습니다. 접근 범위는 내가 볼 수 있는 내용으로 제한됩니다.",
     workspaceTitle: "워크스페이스",
     workspaceDescription:
       "팀원, 조직 접근 권한, 공유 워크스페이스 환경설정을 관리합니다.",
@@ -304,7 +304,7 @@ const messages = {
     deleteError: "디자인 시스템을 삭제하지 못했습니다",
     emptyTitle: "브랜드 아이덴티티 설정",
     emptyDescription:
-      "브랜드 색상, 타이포그래피, 로고로 디자인 시스템을 만드세요. 새 덱은 모두 이 시각적 정체성을 따릅니다.",
+      "색상, 글꼴, 로고를 한 번 정해 두세요. 새 프레젠테이션의 모든 슬라이드에 같은 스타일을 적용해 내용에 집중할 수 있습니다.",
     tierLimitTitle: "디자인 시스템 한도에 도달했습니다",
     tierLimitDescription:
       "현재 Builder 플랜의 디자인 시스템 한도에 도달했습니다. Builder 플랜을 업그레이드하여 새로 만드세요.",
@@ -797,7 +797,7 @@ const messages = {
   },
   generateSlides: {
     title: "用 AI 生成幻灯片",
-    description: "描述你的演示主题，AI 会为你生成幻灯片。",
+    description: "주제를 알려 주시면 에이전트가 함께 슬라이드를 구성합니다.",
     topic: "主题",
     topicPlaceholder: "例如：React Hooks 入门、Q4 销售报告、2025 产品路线图...",
     slides: "幻灯片",
@@ -1432,7 +1432,7 @@ const messages = {
     newDeckPromptTitle: "새 프레젠테이션",
     newDeckPlaceholder: "생성할 프레젠테이션을 설명해 주세요...",
     skipPrompt: "프롬프트 건너뛰기",
-    firstDeckPromptTitle: "첫 프레젠테이션을 만들어 보세요",
+    firstDeckPromptTitle: "첫 프레젠테이션을 함께 만들어 보세요.",
     firstDeckSkip: "건너뛰기",
     chooseReferences: "참조 선택",
     addDesignSystem: "+ 디자인 시스템",
@@ -1494,7 +1494,8 @@ const messages = {
     signIn: "로그인",
     emptyTitle: "아직 덱이 없습니다",
     createFirstDeck: "첫 덱 만들기",
-    emptyDescription: "AI 생성으로 아름다운 프레젠테이션을 만드세요.",
+    emptyDescription:
+      "주제를 정하고 에이전트와 함께 프레젠테이션을 만들어 보세요.",
   },
   agentChat: {
     setup: {
