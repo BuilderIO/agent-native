@@ -281,8 +281,8 @@ const messages = {
       openWorkflow: "Abrir {{name}}",
       turnOn: "Ativar {{name}}",
       turnOff: "Desativar {{name}}",
-      dryRunRequired: "Execute um teste antes de ativar.",
-      runTest: "Executar um teste",
+      dryRunRequired: "Execute uma simulação antes de ativar.",
+      runTest: "Simulação",
       neverRun: "Nenhuma execução ainda",
       olderRun: "Nenhuma execução recente",
       runsFailed: "As execuções não carregaram",
@@ -378,9 +378,9 @@ const messages = {
       connectionsNeeded: "{{count}} para conectar",
       connectionsListName: "Conexões necessárias",
       jumpToProblem: "Mostrar no canvas",
-      testRun: "Execução de teste",
+      testRun: "Simulação",
       testing: "Iniciando",
-      saveAndTest: "Salvar e testar",
+      saveAndTest: "Salvar e simular",
       moreActions: "Mais ações",
       runNow: "Executar agora",
       runNowSaveFirst: "Salve suas alterações antes de executar de verdade.",
@@ -422,7 +422,7 @@ const messages = {
         "Ela é salva como uma nova versão, então nenhuma versão se perde.",
       confirmDiscards: "Suas alterações não salvas serão descartadas.",
       confirmSwitchesOff:
-        "O fluxo de trabalho fica desativado até ser testado de novo.",
+        "O fluxo de trabalho fica desativado até que uma simulação volte a passar sem erros.",
       restored: "Restaurada como versão {{version}}.",
       restoreFailed: "Não foi possível restaurar essa versão.",
       restoreInvalid_one:
@@ -437,7 +437,7 @@ const messages = {
       invalid_many: "Não salvo: {{count}} de problemas para corrigir.",
       invalid_other: "Não salvo: {{count}} problemas para corrigir.",
       switchedOff:
-        "Salvo. O fluxo de trabalho foi desativado: teste-o e ative-o de novo.",
+        "Salvo. O fluxo de trabalho foi desativado: simule-o e ative-o de novo.",
       jobSyncFailed:
         "Salvo, mas não foi possível atualizar a agenda. Salve de novo para tentar outra vez.",
       notFound: "Este fluxo de trabalho não existe mais.",
@@ -465,9 +465,9 @@ const messages = {
       cancel: "Cancelar",
     },
     run: {
-      started: "Execução de teste iniciada.",
-      unavailable: "As execuções de teste ainda não estão disponíveis.",
-      failed: "Não foi possível iniciar a execução de teste. {{reason}}",
+      started: "Simulação iniciada.",
+      unavailable: "As simulações ainda não estão disponíveis.",
+      failed: "Não foi possível iniciar a simulação. {{reason}}",
       liveStarted: "Execução iniciada.",
       liveFailed: "Não foi possível iniciar a execução. {{reason}}",
       enableFailed: "Não foi possível alterar o fluxo de trabalho. {{reason}}",
@@ -508,8 +508,8 @@ const messages = {
       ofTotal: "{{shown}} de {{total}} itens",
       noInputConnected: "Nenhuma entrada conectada",
       noInputData: "Nenhum dado de entrada",
-      testWorkflowHint: "Teste o fluxo de trabalho para ver os itens aqui",
-      testWorkflow: "Testar fluxo de trabalho",
+      testWorkflowHint: "Simule o fluxo de trabalho para ver os itens aqui",
+      testWorkflow: "Simulação",
       noOutputData: "Nenhum dado de saída",
       previewHint: "Execute o fluxo de trabalho para ver valores reais",
       noMatchingItems: "Nenhum item correspondente",
@@ -523,7 +523,7 @@ const messages = {
       copyPath: "Copiar caminho",
       pathCopied: "Caminho copiado",
       pathCopyFailed: "Não foi possível copiar o caminho",
-      dragHint: "Arraste até um campo para mapeá-lo",
+      dragHint: "Arraste esta alça até um campo para mapeá-lo",
       mappedFirstField: "Você acabou de mapear um campo.",
     },
     diagnostics: {
@@ -936,8 +936,8 @@ const messages = {
     },
     canvasActions: {
       addFirstStep: "Adicionar a primeira etapa",
-      testWorkflow: "Testar fluxo de trabalho",
-      saveAndTestWorkflow: "Salvar e testar fluxo de trabalho",
+      testWorkflow: "Simulação",
+      saveAndTestWorkflow: "Salvar e simular",
       describeFirstPrefill: "Crie um fluxo de trabalho que ",
       describeTile: "Descrever para o agente",
       or: "ou",
@@ -1381,6 +1381,37 @@ const messages = {
       deleteMany: "Excluir {{count}} etapas",
       selectAll: "Selecionar tudo",
       clearSelection: "Limpar seleção",
+    },
+  },
+  providerPicker: {
+    choose: {
+      channels: "Escolha um canal",
+      repositories: "Escolha um repositório",
+      organizations: "Escolha uma organização",
+      projects: "Escolha um projeto",
+    },
+    search: "Pesquise ou digite um valor",
+    useTyped: "Usar “{{value}}”",
+    noMatches: "Nenhum resultado",
+    loadMore: "Carregar mais",
+    retry: "Tentar novamente",
+    changeOrganization: "Trocar de organização",
+    tag: {
+      private: "Privado",
+      botNotMember: "Bot fora do canal",
+      archived: "Arquivado",
+    },
+    error: {
+      notConnected:
+        "{{provider}} não está conectado, então a lista não pode ser carregada. Você ainda pode digitar um valor.",
+      refused:
+        "{{provider}} recusou a credencial conectada. Você ainda pode digitar um valor.",
+      missingScope:
+        "A conexão com {{provider}} não tem a permissão {{scope}}. Você ainda pode digitar um valor.",
+      rateLimited:
+        "{{provider}} está limitando as solicitações. Tente novamente em instantes ou digite um valor.",
+      unreadable:
+        "Não foi possível ler a lista de {{provider}}. Tente novamente ou digite um valor.",
     },
   },
 };

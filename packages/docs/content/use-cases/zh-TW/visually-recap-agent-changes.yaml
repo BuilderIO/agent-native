@@ -1,0 +1,112 @@
+slug: visually-recap-agent-changes
+app: plans
+roles:
+  - engineering
+title: 用視覺化回顧看懂程式開發 agent 的變更
+seo_title: 程式開發 agent 變更的視覺化回顧
+meta_description: Agent-Native Plan 把程式開發 agent 的變更呈現為前後對照畫面、標示出的資料欄位、檔案地圖和加註解的 diff，每一處都能留言。
+updated: 2026-10-27
+hero:
+  body: Agent-Native Plan 把程式開發 agent 做的事呈現為前後對照畫面、標示出的資料變更和變更檔案地圖。哪裡看起來不對，就在那裡留言，agent 會修正。
+  button:
+    label: 回顧一次變更
+    url: https://plan.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa973dc8304494af9b6d069e9a409d409
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F68e6bd29a3834942ad098459e08fbd42
+    alt: Plan 中一份已完成的回顧，內容是程式開發 agent 新增團隊邀請功能的變更。標題和變更摘要在最上方，下方是「成員」設定頁的前後對照線框圖，以及標有新增和修改標記的變更檔案樹。
+how_to:
+  heading: 如何用視覺化方式回顧 agent 的變更
+  steps:
+    - title: 請 agent 產生回顧
+      body: 用[一行安裝指令](https://www.agent-native.com/docs/template-plan/#install)把 Plan 加到你的程式開發 agent。在 agent 做出變更的那個對話中執行 `/visual-recap`，再開啟它回傳的連結。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F060c82d850f34b3096f166c04ead386c
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F287f076a9ec84124a0afc7fbaeda2ece
+        alt: 程式開發 agent 的對話，已送出「/visual-recap of everything you changed in this thread」，agent 回覆了已發布回顧的連結。
+    - title: 先用圖像看懂變更
+      body: 從前後對照線框圖、標示出的資料變更和變更檔案地圖看起。接著開啟 **Key changes**，每個重要檔案都有自己的分頁，附並排 diff 和說明。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff15296c5ef824f5ead19d6e64de1388f
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Faf5572fc8bbd4962972bfc0b24cf2bc0
+        alt: 「成員」頁面的前後對照線框圖，變更後多了「邀請」按鈕和一筆待處理的邀請。旁邊的資料模型把新的邀請資料表標為新增，把成員的角色欄位標為修改，從文字改成固定的角色清單。
+    - title: 把留言傳給 agent
+      body: 在任何文字或線框圖的某一處留下[審查留言](https://www.agent-native.com/docs/template-plan-review-workflow/)。點選 **傳送給代理**，選擇 **複製給您的代理**，把提示貼到程式開發 agent，它會做出修改並解決你的留言。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2256a69fdcd542a18a14a292050ff391
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2b4a48126c4f45c39c0b6f0389673387
+        alt: 一則給 agent 的留言釘在變更後線框圖的「邀請」按鈕上，要求只對管理員顯示。「傳送給代理」選單已展開，有「複製給您的代理」和「傳送給內嵌代理」。
+features:
+  heading: 視覺化回顧所需的一切
+  items:
+    - title: 先看畫面，再看程式碼
+      body: 變更涉及 UI 時，回顧會先呈現前後對照線框圖，讓你先看到使用者會看到的樣子。
+    - title: 標示出資料變更
+      body: 結構描述和 API 的變更會把每個欄位標為新增、變更、移除或重新命名，並把舊型別和新型別並列。
+    - title: 每個變更檔案都在地圖上
+      body: 檔案樹列出這次變更動到的每個檔案，標上新增、修改、移除或重新命名，並說明改了什麼。
+    - title: 加註解的關鍵 diff
+      body: 三到八個關鍵檔案有並排 diff，各附一行摘要，並註明值得你留意的程式碼行。
+    - title: 涵蓋整個對話
+      body: 工作完成後在對話中執行 `/visual-recap`，回顧會涵蓋 agent 在那裡做的所有事，從第一個變更到最後的修正。
+    - title: 和團隊一起審查
+      body: 分享回顧的連結：訪客不需帳號就能開啟，登入後即可留言。也可以匯出為 HTML、Markdown 或 JSON 保留一份副本。
+integrations:
+  heading: 將 Plan 連接到你已在用的工具
+  cards:
+    - title: 從程式開發 agent 執行
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+        - name: OpenCode
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F947e193ba37846a88afc8a076c9fec26
+          mono: true
+        - name: GitHub Copilot
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8be66b264343497caddac07fd7c26935
+          mono: true
+      body: 一行安裝指令就能在 Claude Code、Codex、Cursor、OpenCode 或 GitHub Copilot 中設定 `/visual-recap`，回顧可直接從對話開啟。
+    - title: 每個 pull request 都有回顧
+      logos:
+        - name: GitHub
+        - name: Anthropic
+        - name: OpenAI
+        - name: DeepSeek
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fdd2aa693886c4451b8a65836931b6c5d
+      body: GitHub Action 會在每個 pull request 上貼出視覺化回顧，使用你自己的 Anthropic、OpenAI 或 DeepSeek 金鑰，或其他相容 OpenAI 的模型。
+    - title: 透過 MCP 連接任何工具
+      logos:
+        - name: Linear
+        - name: Sentry
+        - name: Semgrep
+        - name: Supabase
+      more: true
+      body: 透過 MCP 連接團隊使用的工具，或用網址加入任何 MCP 伺服器。
+other_uses:
+  heading: 你還能用 Agent-Native Plan 做的其他事
+  cards:
+    - title: 在程式開發 agent 寫程式前，先審查計畫
+      url: https://www.agent-native.com/use-cases/visual-plan-mode/
+      body: 以圖表和加註解的程式碼閱讀程式開發 agent 的計畫，在它動手之前先修正。
+    - title: 和程式開發 agent 一起規劃新畫面
+      url: https://www.agent-native.com/use-cases/ui-planning/
+      body: 讓程式開發 agent 在開發前畫出新畫面的每種狀態，留言到滿意為止。
+faqs:
+  heading: 有問題？我們來解答
+  items:
+    - q: Agent-Native Plan 是免費的嗎？
+      a: 是的，Agent-Native Plan 免費且開源。每次視覺化回顧都會在你選擇的模型上執行完整的 agent 工作階段，所以變更越大，用掉的模型用量越多。Plan 目前是 alpha 版，功能會持續調整。
+    - q: 哪些變更值得做視覺化回顧？
+      a: 較大的變更值得做視覺化回顧：橫跨多個檔案，或動到資料結構描述、API 或應用程式整體架構的變更。如果只是單一檔案的小改動，直接看 diff 會比等回顧更快。
+    - q: 視覺化回顧和直接看 diff 有什麼不同？
+      a: diff 會逐檔列出每一行變更。視覺化回顧則從這次變更做了什麼開始：以線框圖呈現它改動的畫面、它變更的資料欄位，以及相關檔案的地圖。接著只顯示值得閱讀的 diff，並附上說明。
+    - q: Plan 支援哪些程式開發 agent？
+      a: 安裝指令會在 Claude Code、Codex、Cursor、OpenCode、VS Code 的 GitHub Copilot 和 Claude Cowork 中設定 Plan，並幫你登入。Plan 也能透過託管的連接器，在 Cline、Goose 和其他可連接 MCP 伺服器的 agent 中使用。
+    - q: 每個 pull request 都能有回顧嗎？
+      a: 可以。[PR Visual Recap GitHub Action](https://www.agent-native.com/docs/pr-visual-recap/) 會在每次 push 時，用你自己的 API 金鑰執行 Claude Code、Codex 或任何相容 OpenAI 的模型。它會在 pull request 上維持一則持續更新的留言，附上回顧的螢幕截圖，而且絕不會阻擋合併。超過約 600 KB 的 diff 會被截斷。
+    - q: 誰能看到我的回顧？
+      a: 預設只有登入你組織的人能開啟回顧；設為私人則只有你能看。使用 GitHub Action 時，看得到 pull request 的人都能看到回顧的螢幕截圖。[本機檔案模式](https://www.agent-native.com/docs/template-plan-local-and-desktop/)讓回顧不經過託管的應用程式，不過你的 agent 模型仍在原本的地方執行。

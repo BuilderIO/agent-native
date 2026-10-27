@@ -2,7 +2,7 @@
 slug: how-do-you-add-skills-to-claude-code-and-codex
 topic: coding-agents
 apps: [plans]
-use_case: see-what-your-coding-agent-plans
+use_case: visual-plan-mode
 job_id: job-agent-plan-review
 title: "How do you add skills to Claude Code and Codex?"
 meta_description: "A skill is a Markdown file that teaches your coding agent a workflow. How skills work in Agent-Native, how to install them, and how to write your own."

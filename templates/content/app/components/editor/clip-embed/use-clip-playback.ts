@@ -16,6 +16,24 @@ import {
 /** No write changes a grant, so Clip queries refetch only when asked. */
 const CLIP_PLAYBACK_RESOURCE = "clip-playback";
 
+/**
+ * How a tab asks about a Clip still being made while it shows it: `first`,
+ * then each gap doubled up to `longest`, from `first` again whenever Clips
+ * reports a new status. After `stopAfter` with no new status the checks wait
+ * for the reader to ask, or to come back to the tab.
+ */
+export const CLIP_MAKING_CHECK_MS = {
+  first: 4_000,
+  longest: 60_000,
+  stopAfter: 15 * 60_000,
+} as const;
+
+/** Clips is still receiving the Clip's file, or making the Clip from it. */
+export function isClipBeingMade(grant: ClipPlayback | null): boolean {
+  const status = grant?.recording.status;
+  return status === "uploading" || status === "processing";
+}
+
 export type ClipPlayerError =
   | ClipPlaybackErrorCode
   /** A refresh failed with no reason Content knows. */
@@ -43,7 +61,8 @@ type RefreshCause =
   | "expiring"
   /** The source failed to load or play. */
   | "media-error"
-  /** The reader asked again, or came back to the tab, from a failure. */
+  /** The reader asked again, or came back to the tab, from a failure; or a
+   *  Clip being made is checked on. */
   | "asked";
 
 export interface ClipPlaybackState {
@@ -54,6 +73,10 @@ export interface ClipPlaybackState {
   /** The `<video>` failed to load or play its source. */
   onMediaError: () => void;
   retry: () => void;
+  /** The Clip is still being made, and the checks wait for the reader. */
+  makingChecksStopped: boolean;
+  /** Asks once about a Clip being made, keeping what's on screen. */
+  checkAgain: () => void;
 }
 
 /**
@@ -66,6 +89,10 @@ export interface ClipPlaybackState {
 export function useClipPlayback(
   documentId: string,
   recordingId: string,
+  options: {
+    /** Asks again while the Clip is being made, until it's ready or failed. */
+    checkWhileMaking?: boolean;
+  } = {},
 ): ClipPlaybackState {
   const query = useActionQuery(
     "get-clip-playback",
@@ -118,9 +145,11 @@ export function useClipPlayback(
 
   const expiresAt = grant?.playback.expiresAt;
   const playsFromYoutube = youtubeEmbedSrc(grant?.playback.videoUrl ?? null);
+  const beingMade = isClipBeingMade(grant);
   useEffect(() => {
-    // A YouTube player streams on its own; swapping its URL restarts it.
-    if (!expiresAt || failure || playsFromYoutube) return;
+    // A YouTube player streams on its own; swapping its URL restarts it. A
+    // Clip being made has nothing to play, and the checks below renew it.
+    if (!expiresAt || failure || playsFromYoutube || beingMade) return;
     const now = Date.now();
     if (!stalled) {
       const timer = setTimeout(
@@ -147,7 +176,83 @@ export function useClipPlayback(
       clearTimeout(retryTimer);
       clearTimeout(expiryTimer);
     };
-  }, [expiresAt, failure, playsFromYoutube, refresh, stalled]);
+  }, [beingMade, expiresAt, failure, playsFromYoutube, refresh, stalled]);
+
+  // A Clip being made has nothing to play yet, so this asks again after each
+  // answer, further apart each time, until it's made. It never asks while the
+  // tab is hidden, and stops once the status has sat still too long.
+  const status = grant?.recording.status ?? null;
+  const checkWhileMaking = options.checkWhileMaking ?? true;
+  const [makingChecks, setMakingChecks] = useState(0);
+  const [makingChecksStopped, setMakingChecksStopped] = useState(false);
+  const makingGap = useRef<{ next: number; since: number }>({
+    next: CLIP_MAKING_CHECK_MS.first,
+    since: 0,
+  });
+  // A new status, or this tab's own send ending, starts the checks over.
+  useEffect(() => {
+    makingGap.current = { next: CLIP_MAKING_CHECK_MS.first, since: Date.now() };
+    setMakingChecksStopped(false);
+  }, [checkWhileMaking, status]);
+  useEffect(() => {
+    if (!beingMade || !checkWhileMaking || failure || makingChecksStopped) {
+      return;
+    }
+    if (
+      Date.now() - makingGap.current.since >=
+      CLIP_MAKING_CHECK_MS.stopAfter
+    ) {
+      setMakingChecksStopped(true);
+      return;
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    function schedule() {
+      clearTimeout(timer);
+      if (document.visibilityState !== "visible") return;
+      timer = setTimeout(() => {
+        const gap = makingGap.current;
+        gap.next = Math.min(gap.next * 2, CLIP_MAKING_CHECK_MS.longest);
+        void refresh("asked").finally(() => setMakingChecks((n) => n + 1));
+      }, makingGap.current.next);
+    }
+    schedule();
+    document.addEventListener("visibilitychange", schedule);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", schedule);
+    };
+  }, [
+    beingMade,
+    checkWhileMaking,
+    failure,
+    makingChecks,
+    makingChecksStopped,
+    refresh,
+  ]);
+
+  const checkingAgain = useRef(false);
+  const checkAgain = useCallback(() => {
+    if (checkingAgain.current) return;
+    checkingAgain.current = true;
+    void refresh("asked").finally(() => {
+      checkingAgain.current = false;
+    });
+  }, [refresh]);
+  // Stopped, the checks wait for Check again, or for the reader to come back.
+  useEffect(() => {
+    if (!makingChecksStopped || !beingMade || !checkWhileMaking || failure) {
+      return;
+    }
+    function onBack() {
+      if (document.visibilityState === "visible") checkAgain();
+    }
+    window.addEventListener("focus", onBack);
+    document.addEventListener("visibilitychange", onBack);
+    return () => {
+      window.removeEventListener("focus", onBack);
+      document.removeEventListener("visibilitychange", onBack);
+    };
+  }, [beingMade, checkAgain, checkWhileMaking, failure, makingChecksStopped]);
 
   const videoUrl = grant?.playback.videoUrl ?? null;
   const onMediaError = useCallback(() => {
@@ -192,8 +297,17 @@ export function useClipPlayback(
     };
   }, [outage, refresh]);
 
+  const stopped = makingChecksStopped && beingMade;
   if (retrying) {
-    return { grant: null, loading: true, error: null, onMediaError, retry };
+    return {
+      grant: null,
+      loading: true,
+      error: null,
+      onMediaError,
+      retry,
+      makingChecksStopped: stopped,
+      checkAgain,
+    };
   }
   return {
     grant,
@@ -201,6 +315,8 @@ export function useClipPlayback(
     error,
     onMediaError,
     retry,
+    makingChecksStopped: stopped,
+    checkAgain,
   };
 }
 

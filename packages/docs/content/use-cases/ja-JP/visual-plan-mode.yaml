@@ -1,0 +1,106 @@
+slug: visual-plan-mode
+app: plans
+roles:
+  - engineering
+title: コード作成前にコーディングエージェントの計画を確認
+seo_title: Claude Code・Codex・Cursor向けビジュアルプランモード
+meta_description: Agent-Native Planは、コーディングエージェントの計画を、図やファイルツリー、注釈付きコードで確認できるページにします。確認はコードが書かれる前に行えます。
+updated: 2026-10-27
+hero:
+  body: Agent-Native Planは、エージェントが書いた計画を、図やファイルツリー、注釈付きコードのページにします。どこにでもコメントでき、承認するまでエージェントはコードを編集せず計画を修正します。
+  button:
+    label: 開発を計画する
+    url: https://plan.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Faad0afc668dc461f9023eeba3ba55800
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2c2e3c83e79248e69829bb38f71a6704
+    alt: Planで開いた、チーム招待機能を追加する計画。図には、設定ページからAPI、招待テーブルを経て招待メールに至る招待の流れが描かれています。その下のファイルツリーでは、変更される5つのファイルに印が付いています。メールの手順には、チームメンバーがエージェント宛てに書いたコメントがピン留めされています。
+how_to:
+  heading: コーディングエージェントでビジュアルプランモードを使う方法
+  steps:
+    - title: ビジュアルな計画を依頼する
+      body: '[1つのインストールコマンド](https://www.agent-native.com/docs/plan-plugin/)で、Claude Code、Codex、CursorにPlanを追加します。次に`/visual-plan`とタスクを入力します。エージェントがコードを読み、計画へのリンクを返します。'
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F15e26ab97a68472a958aabf9657fdeb2
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F01168fa31ed5412080d49febc37f1068
+        alt: コーディングエージェントのチャット。ユーザーがチーム招待機能を追加するタスクとともに/visual-planと入力しています。エージェントは読んだファイルを一覧にし、計画を公開してそのリンクを返信しています。
+    - title: 変えてほしい点にコメントする
+      body: 文や図の一部を選び、変更してほしい内容を書きます。エージェントに直してもらうなら[コメント](https://www.agent-native.com/docs/template-plan-review-workflow/)を**エージェント**に、チームメンバー宛てなら**人間**に設定します。計画に残っている質問にも答えましょう。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe8a16bd566384f4080dde591a1b30c3f
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F598a137b56d149f98409ed79c024cb2b
+        alt: 計画の図にある招待メールの手順にピン留めされた新しいコメントの拡大図。エージェントと人間の切り替えはエージェント側になっていて、コメントが入力されています。
+    - title: コメントをエージェントに送る
+      body: '**エージェントに送信**をクリックし、**エージェント用にコピー**を選ぶと、コメントがプロンプトとしてコピーされます。エージェントのチャットに貼り付ければ計画が更新されます。計画が固まったらチャットで承認し、エージェントが開発を始めます。'
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F0f841d0983ec4e3386d13c4c4ad7895d
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F356c269c867048c392ca26ef5c5767c8
+        alt: 計画の「Send to agent」ボタンの拡大図。メニューが開き、「Copy for your agent」と「Send to inline agent」が、それぞれ1行の説明とともに表示されています。
+features:
+  heading: エージェントの計画を確認するために必要な機能がすべて揃っています
+  items:
+    - title: 進め方を図で確認
+      body: リクエストの流れ、データモデル、APIエンドポイントが図になるので、誤ったエンドポイントや足りないテーブルに作る前に気付けます。
+    - title: 変更されるファイルがわかる
+      body: ファイルツリーと注釈付きコードで、作業がどこに入るか、各ステップがコードベースの何を再利用するかがわかります。
+    - title: おすすめの回答付きの質問
+      body: エージェントがコードから決められない事項は、最後に1つのフォームにまとまり、それぞれにおすすめの回答が添えられます。
+    - title: プランモードから始められる
+      body: Claude CodeやCodex、Markdownファイルの計画がすでにあれば、`/visual-plan`は一から作り直さず、その計画からページを作ります。
+    - title: 承認までコードは書かない
+      body: Planの指示により、エージェントは計画中はコードを読むだけです。編集を始めるのは、あなたが計画を承認してからです。
+    - title: チームメンバーと一緒に確認
+      body: 計画のリンクをチームメンバーに送れます。ゲストとして閲覧・編集でき、Agent-Nativeアカウントでサインインすればコメントもできます。
+integrations:
+  heading: いつものツールとPlanを連携
+  cards:
+    - title: コーディングエージェント用プラグイン
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+      body: Claude CodeやCodexにプラグインとしてPlanをインストールすれば、いつものチャットで`/visual-plan`を使えます。
+    - title: ほかのエージェントもコマンド1つで
+      logos:
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+        - name: OpenCode
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F947e193ba37846a88afc8a076c9fec26
+          mono: true
+        - name: GitHub Copilot
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8be66b264343497caddac07fd7c26935
+          mono: true
+      body: 1つのインストールコマンドで、Cursor、OpenCode、VS CodeのGitHub CopilotにPlanを設定できます。ほかのMCPエージェントもURLで追加できます。
+    - title: MCPであらゆるツールと連携
+      logos:
+        - name: Linear
+        - name: Sentry
+        - name: Context7
+      more: true
+      body: チームが使っているツールをMCPで連携できます。URLを指定して任意のMCPサーバーを追加することもできます。
+other_uses:
+  heading: Agent-Native Planでできるその他のこと
+  cards:
+    - title: コーディングエージェントの変更をビジュアルで要約
+      url: https://www.agent-native.com/use-cases/visually-recap-agent-changes/
+      body: プルリクエストやコミット、差分を、何が変わったかを順に見られるビジュアルな解説にします。
+    - title: コーディングエージェントと新しい画面を計画
+      url: https://www.agent-native.com/use-cases/ui-planning/
+      body: コーディングエージェントに画面のワイヤーフレームを描いてもらい、作り始める前にフィードバックできます。
+faqs:
+  heading: よくある質問
+  items:
+    - q: Agent-Native Planは無料ですか？
+      a: はい、Agent-Native Planは無料のオープンソースです。計画はそれぞれ、選んだモデルで動くコーディングエージェントのセッションとして実行されます。そのためエージェントのトークンを消費し、大きな計画ほど多く使います。Planはアルファ版のため、今後変更が加わる可能性があります。
+    - q: Planはどのコーディングエージェントに対応していますか？
+      a: Claude CodeとCodexはプラグインでインストールできます。1つのインストールコマンドで、Cursor、OpenCode、VS CodeのGitHub Copilot、Claude CoworkにもPlanを設定できます。ClineやGooseなど、ほかのMCPホストはURLでPlanのコネクターを追加できます。どの計画もブラウザーで確認します。
+    - q: コーディングエージェントのプランモードと何が違いますか？
+      a: Claude Code、Codex、Cursor、OpenCodeのプランモードでは、計画がチャットにテキストで表示されます。Planは、その計画やMarkdownファイルの計画を、図やファイルツリー、注釈付きコードのページにします。そのページで特定の箇所にコメントし、エージェントの質問に答え、チームメンバーを招くことができます。
+    - q: 計画中にエージェントがコードを変更することはありますか？
+      a: いいえ。計画を書いたり修正したりしている間、Planの指示によりエージェントはコードを読むだけです。編集を始めるのは計画を承認してからで、大きなステップの前には承認済みの計画を読み直します。
+    - q: アカウントがなくてもチームメンバーは計画を確認できますか？
+      a: 一部は可能です。リンクを共有された人は誰でも、ゲストとして計画を開いて編集できます。コメント、保存、共有にはAgent-Nativeアカウントが必要なので、コメントしたいチームメンバーは先にサインインします。
+    - q: 計画を自分のパソコンだけに保存できますか？
+      a: はい。[ローカルファイルモード](https://www.agent-native.com/docs/template-plan-local-and-desktop/)では、計画をMDXファイルとしてパソコンに保存するので、内容がホスト版アプリに届くことはありません。その代わり、ローカルの計画は共有したりブラウザーでコメントしたりできず、リンクも自分のパソコンでしか開けません。ローカルファイルモードにしても、コーディングエージェントのAIモデルが動く場所は変わりません。

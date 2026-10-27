@@ -1,0 +1,104 @@
+slug: ai-kpi-dashboard
+app: analytics
+roles:
+  - founders
+  - finance
+title: "अपने स्टार्टअप के लिए KPI डैशबोर्ड बनाएँ"
+seo_title: "स्टार्टअप फ़ाउंडर्स के लिए AI KPI डैशबोर्ड"
+meta_description: "अपने मेट्रिक्स बताएँ, और Agent-Native Analytics Stripe, HubSpot और प्रोडक्ट डेटा से आपके स्टार्टअप का KPI डैशबोर्ड बनाता है, फिर बताता है कि क्या बदला।"
+updated: 2026-10-27
+hero:
+  body: "Agent-Native Analytics आपके MRR, churn और साइनअप्स को Stripe, HubSpot और प्रोडक्ट डेटा से बने एक डैशबोर्ड में रखता है। बताएँ कि आप क्या ट्रैक करते हैं, एजेंट उसे बनाता है और बताता है कि कोई नंबर क्यों बदला।"
+  button:
+    label: "अपना डैशबोर्ड बनाएँ"
+    url: https://analytics.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb23d4e197c9841e7b0eeaefc15090443
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F260764ee953f4b4f80f6a6cf631b2143
+    alt: "Analytics में एक स्टार्टअप का KPI डैशबोर्ड, जिसमें MRR, churn, नए साइनअप्स और activation के कार्ड, मासिक MRR और साइनअप चार्ट्स के ऊपर हैं। एजेंट साइडबार प्लान के हिसाब से टेबल के साथ बताता है कि इस तिमाही MRR बढ़त किस प्लान से आई।"
+how_to:
+  heading: "AI से KPI डैशबोर्ड कैसे बनाएँ"
+  steps:
+    - title: "अपना रेवेन्यू और प्रोडक्ट डेटा कनेक्ट करें"
+      body: "**डेटा स्रोत** पेज पर अपनी Stripe secret key पेस्ट करें, फिर HubSpot और अपना प्रोडक्ट एनालिटिक्स टूल जोड़ें। Analytics उसे पढ़ पा रहा है या नहीं, यह जाँचने के लिए सोर्स के मेन्यू से **कनेक्शन का परीक्षण करें** चुनें।"
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6ea7e1568d3b4afd9fc6a2a01bc969b0
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F78b97b8d077644f28c627377157f1331
+        alt: "Data Sources पेज पर Stripe का क्लोज़-अप, Connected मार्क किया हुआ, secret key कॉन्फ़िगर की हुई और कनेक्शन टेस्ट करने के बाद \"Connection successful\"।"
+    - title: "अपना चाहा डैशबोर्ड बताएँ"
+      body: "**नया डैशबोर्ड** पर क्लिक करें और [जो SaaS मेट्रिक्स आप ट्रैक करते हैं](https://www.agent-native.com/articles/what-should-a-saas-metrics-dashboard-include/) उन्हें बताएँ, जैसे \"Stripe से MRR और churn, PostHog से नए साइनअप्स और activation, महीने-दर-महीने\"। एजेंट पहले कुछ सवाल पूछ सकता है, फिर हर पैनल बनाकर डैशबोर्ड खोलता है।"
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fca8b7f3746ca419383e042cc0c142271
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb167e98f0ac049fa8ad4b169e8f77ec9
+        alt: "साइडबार की Dashboards लिस्ट से खोले गए New dashboard बॉक्स का क्लोज़-अप, जिसमें स्टार्टअप KPI डैशबोर्ड का विवरण टाइप किया हुआ है।"
+    - title: "पूछें कि कोई नंबर क्यों बदला"
+      body: "किसी चार्ट के मेन्यू से **पैनल के बारे में चैट करें** चुनें और सवाल पूछें, जैसे \"सितंबर में churn क्यों बढ़ा?\"। एजेंट आपके कनेक्ट किए डेटा से जवाब देता है, और आपके कहने पर डैशबोर्ड में पैनल जोड़ता है।"
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9b18fbf5a7cd4b4ba65d9efede75538b
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9edee9cd613741e2ba670e414be767c7
+        alt: "महीने के हिसाब से churn वाला पैनल, बगल में एजेंट चैट। सितंबर में churn क्यों बढ़ा, यह पूछने पर एजेंट बढ़त को प्लान के हिसाब से बाँटकर दिखाता है: Starter churn लगभग दोगुना हो गया।"
+features:
+  heading: "अपने स्टार्टअप के KPIs ट्रैक करने के लिए आपको जो कुछ चाहिए"
+  items:
+    - title: "रेवेन्यू, पाइपलाइन और इस्तेमाल एक साथ"
+      body: "Stripe से MRR, HubSpot से डील्स और PostHog या Mixpanel से साइनअप्स, एक ही डैशबोर्ड में अगल-बगल।"
+    - title: "हाथ से एडिट करें या पूछें"
+      body: "फ़िल्टर खुद बदलें या एजेंट से नया पैनल माँगें। दोनों एक ही डैशबोर्ड पर होते हैं, और उसकी हिस्ट्री कोई भी पुराना वर्ज़न वापस ला सकती है।"
+    - title: "हर नंबर के पीछे की क्वेरी"
+      body: "चार्ट के किसी भी पॉइंट पर क्लिक करके उसके पीछे के रिकॉर्ड, उन्हें ढूँढने वाला SQL और CSV डाउनलोड देखें।"
+    - title: "MRR की आपकी परिभाषा"
+      body: "**सिमेंटिक लेयर** पेज पर लिखें कि आपकी कंपनी MRR या एक्टिव यूज़र को कैसे गिनती है। क्वेरी लिखने से पहले एजेंट उसे देखता है।"
+    - title: "शेयर करने तक प्राइवेट"
+      body: "नया डैशबोर्ड सिर्फ़ आपका होता है। तैयार होने पर उसे किसी को-फ़ाउंडर या पूरी कंपनी के साथ देखने या एडिट करने के लिए शेयर करें।"
+    - title: "आपके KPIs ईमेल से"
+      body: "नंबर खुद आप तक आते हैं: डैशबोर्ड हर सुबह आपके चुने समय पर ईमेल से पाएँ, पाँच लोगों तक के लिए।"
+integrations:
+  heading: "Analytics को उन टूल्स से जोड़ें जो आप पहले से इस्तेमाल करते हैं"
+  cards:
+    - title: "आपका रेवेन्यू और पाइपलाइन"
+      logos:
+        - name: Stripe
+        - name: HubSpot
+      body: "Analytics, Stripe से सब्सक्रिप्शन और पेमेंट्स और HubSpot से डील्स पढ़ता है, ताकि रेवेन्यू के नंबर सीधे सोर्स से आएँ।"
+    - title: "आपके प्रोडक्ट का इस्तेमाल"
+      logos:
+        - name: PostHog
+        - name: Mixpanel
+        - name: Amplitude
+        - name: Google Analytics
+        - name: BigQuery
+      body: "साइनअप्स, एक्टिव यूज़र्स और activation उसी प्रोडक्ट एनालिटिक्स टूल या डेटा वेयरहाउस से आते हैं जो आप पहले से इस्तेमाल करते हैं।"
+    - title: "MCP से कुछ भी कनेक्ट करें"
+      logos:
+        - name: Notion
+        - name: Intercom
+        - name: Linear
+      more: true
+      body: "आपकी टीम जो टूल्स इस्तेमाल करती है, उन्हें MCP से कनेक्ट करें, या किसी भी MCP सर्वर को उसके URL से जोड़ें।"
+other_uses:
+  heading: "Agent-Native Analytics से आप और क्या कर सकते हैं"
+  cards:
+    - title: "अपने डेटा से आसान भाषा में सवाल पूछें"
+      url: https://www.agent-native.com/use-cases/ask-your-database/
+      body: "अपने BigQuery डेटा के बारे में सवाल पूछें और SQL लिखे बिना जवाब पाएँ।"
+    - title: "जानें कि नए यूज़र्स कहाँ छोड़ देते हैं"
+      url: https://www.agent-native.com/use-cases/ai-funnel-analysis/
+      body: "देखें कि आपके साइनअप और ऑनबोर्डिंग स्टेप्स में नए यूज़र्स कहाँ रुकते हैं।"
+    - title: "स्प्रेडशीट के बिना अपनी वीकली मार्केटिंग रिपोर्ट बनाएँ"
+      url: https://www.agent-native.com/use-cases/weekly-marketing-report/
+      body: "अपनी वीकली मार्केटिंग रिपोर्ट एक बार बनाएँ और उसे हर बार हाथ से बनाना बंद करें।"
+faqs:
+  heading: "सवाल हैं? हमारे पास जवाब हैं"
+  items:
+    - q: "क्या Agent-Native Analytics फ़्री है?"
+      a: "हाँ, Agent-Native Analytics फ़्री और ओपन सोर्स है। एजेंट Builder.io AI क्रेडिट्स या आपकी अपनी मॉडल key पर चलता है, और हर डेटा सोर्स के लिए उसके अपने क्रेडेंशियल्स चाहिए, जैसे Stripe secret key। Analytics अभी alpha में है, इसलिए स्क्रीन्स और फ़ीचर्स अभी बदल सकते हैं।"
+    - q: "Analytics मेरे KPIs किन टूल्स से ला सकता है?"
+      a: "Analytics, Stripe, HubSpot, PostHog, Mixpanel, Amplitude, Google Analytics (GA4), BigQuery और एक दर्जन से ज़्यादा दूसरे सोर्स से जुड़ता है। हर एक को आप [डेटा स्रोत पेज](https://www.agent-native.com/docs/template-analytics-connectors/) पर उसकी अपनी key के साथ जोड़ते हैं, और एक डैशबोर्ड में कई सोर्स मिल सकते हैं।"
+    - q: "क्या KPI डैशबोर्ड बनाने के लिए मुझे SQL आना चाहिए?"
+      a: "नहीं। आप आसान भाषा में डैशबोर्ड बताते हैं या सवाल पूछते हैं, और एजेंट SQL लिखता है। हर चार्ट के पीछे क्वेरी दिखती रहती है, ताकि आपके डेटा को जानने वाला कोई व्यक्ति उसे जाँच या एडिट कर सके।"
+    - q: "मुझे कैसे पता चलेगा कि नंबर सही हैं?"
+      a: "डैशबोर्ड का हर नंबर उस क्वेरी से आता है जो एजेंट ने आपके कनेक्ट किए डेटा पर चलाई, और आप किसी भी चार्ट के पीछे की क्वेरी और रिकॉर्ड खोल सकते हैं। जब एजेंट क्वेरी नहीं चला पाया, तो वह आँकड़े को \"Unverified\" मार्क करता है। डैशबोर्ड पर भरोसा करने से पहले कुछ नंबर Stripe से मिलाएँ।"
+    - q: "मेरा KPI डैशबोर्ड कौन देख सकता है?"
+      a: "सिर्फ़ आप, जब तक आप उसे शेयर न करें। आप किसी टीममेट या पूरे संगठन के साथ viewer, editor या admin के रूप में [डैशबोर्ड शेयर](https://www.agent-native.com/docs/sharing/) कर सकते हैं। आपके बदले फ़िल्टर सिर्फ़ आप पर लागू होते हैं; उन्हें शेयर करने के लिए व्यू सेव करें या लिंक भेजें।"
+    - q: "Analytics मेरे एनालिटिक्स टूल के AI से कैसे अलग है?"
+      a: "किसी एक एनालिटिक्स टूल के अंदर का AI असिस्टेंट उसी टूल के डेटा पर काम करता है। Analytics, Stripe, आपके CRM और प्रोडक्ट डेटा पर काम करता है, और उसका एजेंट वही डैशबोर्ड बनाता और एडिट करता है जिसे आप देखते हैं, इसलिए उसके जवाब ऐसे पैनल बन जाते हैं जिन्हें आप रखते हैं। यही Analytics को एक [एजेंटिक ऐप](https://www.agent-native.com/articles/what-is-an-agent-native-app/) बनाता है: एजेंट का दिमाग, ऐप जैसी आसानी।"

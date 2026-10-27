@@ -6,6 +6,7 @@ import {
 import { nfmToDoc } from "@shared/nfm";
 import { registryBlockSpecByType } from "@shared/nfm-registry";
 import { Extension } from "@tiptap/core";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 
 export function createContentBlockId(blockType: string): string {
@@ -56,15 +57,20 @@ export const RegistryBlockNode = createRegistryBlockNode({
   readPastedSource: readPastedContentBlock,
 });
 
+/** A component from the page's source, which the page can't add or remove. */
+export function isSourceComponentNode(node: ProseMirrorNode): boolean {
+  return (
+    node.type.name === "registryBlock" &&
+    node.attrs.blockType === "source-component" &&
+    typeof node.attrs.blockId === "string" &&
+    !!node.attrs.blockId
+  );
+}
+
 function sourceComponentIdCounts(doc: { descendants: (fn: any) => void }) {
   const counts = new Map<string, number>();
   doc.descendants((node: any) => {
-    if (
-      node.type?.name === "registryBlock" &&
-      node.attrs?.blockType === "source-component" &&
-      typeof node.attrs.blockId === "string" &&
-      node.attrs.blockId
-    ) {
+    if (isSourceComponentNode(node)) {
       counts.set(node.attrs.blockId, (counts.get(node.attrs.blockId) ?? 0) + 1);
     }
     return true;

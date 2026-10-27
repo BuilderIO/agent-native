@@ -1,0 +1,98 @@
+slug: ai-prototype-generator
+app: design
+roles:
+  - product
+  - design
+  - founders
+title: ブリーフからクリックできるプロトタイプを作成
+seo_title: プロダクトブリーフ向けAIプロトタイプジェネレーター
+meta_description: プロダクトやデザインのブリーフを貼り付けると、Agent-Native Designがクリックして試せる画面を作ります。AIエージェントに複数の方向性を出してもらい、選んだ案を磨き込めます。
+updated: 2026-10-27
+hero:
+  body: Agent-Native Designは、プロダクトやデザインのブリーフに書かれた画面を、試せるHTMLとして作ります。AIエージェントに方向性をいくつか出してもらい、選んだ案を手作業や依頼で磨き込めます。
+  button:
+    label: ブリーフをプロトタイプにする
+    url: https://design.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F003e186182b74e3cbe462fe098559bc6
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe8f432f3b71d432698c025a7147301bc
+    alt: Designエディター。チーム向け経費アプリのオンボーディングで選ばれた方向性「Guided checklist」が、デスクトップとモバイルのフレームで表示されています。エージェントチャットには、貼り付けたブリーフ、「方向を選択」での選択、その後にエージェントが変更した内容が並んでいます。
+how_to:
+  heading: AIでブリーフをプロトタイプにする方法
+  steps:
+    - title: 必要な画面を説明する
+      body: Designのホーム画面で、プロンプト欄にブリーフを貼り付けます。対象ユーザー、画面やフロー、実現すべきことを書き、方向性を3つ頼みましょう。重要な情報が抜けていれば、Designが先に質問します。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6ef31fb673e2437fb4dd6ed256a7ba9d
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8209bd4f55d7432c94e05172c5475f17
+        alt: Designのホームにあるプロンプト欄の拡大図。経費アプリのオンボーディングフローについての短いブリーフが貼り付けられ、最後は「方向性を3つ見せて」で終わっています。
+    - title: 気に入った方向性を選ぶ
+      body: Designはキャンバス上に3つの方向性を並べます。どれもスタイルの異なる、実際に動く画面です。**インタラクト**でそれぞれを試し、**方向を選択**で1つを選ぶと、エージェントが残りの部分を作り込みます。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F137893c57370435d94967b9d5bc6a82a
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fda7cdd9a2f3e42b58f44efec2b950fc9
+        alt: 3つのオンボーディングの方向性が並んだキャンバス。エージェントチャットには「方向を選択」と、方向性の名前ごとのボタンが表示されています。
+    - title: チームで磨き込む
+      body: '**デザイン**タブでテキスト、余白、色を編集するか、要素を選んでエージェントに頼みます。チームメンバーがコメントをピン留めしたら、**エージェントに送信**をクリックすれば、エージェントがその変更を行います。'
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F406b66f9b62e49c09f697f5d08599b5e
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F566ca2f3c44f439aac2c5307c72aa572
+        alt: 選ばれたオンボーディング画面。招待ステップにチームメンバーのコメントがピン留めされ、「コメント」タブでコメントのスレッドが「エージェントに送信」ボタンとともに開いています。
+features:
+  heading: ブリーフからプロトタイプまでに必要な機能がすべて揃っています
+  items:
+    - title: 最初からクリックできる
+      body: 選んだ案は実際に動くHTMLになり、デスクトップとモバイルの枠で表示されます。**Design プレビュー**でブラウザーのタブに開けます。
+    - title: ブリーフの言葉を守る
+      body: エージェントはブリーフの用語と主張をそのまま使います。重要な選択がブリーフになければ、質問するか、置いた前提を伝えます。
+    - title: 完成前にチェック
+      body: エージェントは、デザインの完成を伝える前に、プロトタイプのアクセシビリティと見た目を自らチェックします。
+    - title: 自社ブランドのプロトタイプ
+      body: Figmaファイル、Webサイト、GitHubリポジトリからデザインシステムを作れば、新しいプロトタイプは自社の色とフォントで始まります。
+    - title: エージェントが対応するフィードバック
+      body: コメントは要素にピン留めされたままです。エージェントがその箇所を編集し、変更の反映を確かめてから、スレッドを解決するか判断を仰ぎます。
+    - title: コーディングエージェントに引き継ぎ
+      body: HTMLやファイルのZIPを書き出すか、ファイルとデザイントークンをコーディングエージェントに渡す、すぐ使えるプロンプトをコピーできます。
+integrations:
+  heading: いつものツールとDesignを連携
+  cards:
+    - title: 自社ブランドから始める
+      logos:
+        - name: Figma
+        - name: GitHub
+      body: Figmaのフレームを編集可能な画面として取り込んだり、FigmaファイルやGitHubリポジトリからデザインシステムを作ったりできます。
+    - title: コーディングエージェントに渡す
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+      body: ファイルとデザイントークン入りのプロンプトをコピーするか、DesignのMCPサーバーでコーディングエージェントにデザインを開かせます。
+    - title: MCPであらゆるツールと連携
+      logos:
+        - name: Notion
+        - name: Linear
+        - name: Granola
+      more: true
+      body: チームが使っているツールをMCPで連携できます。URLを指定して任意のMCPサーバーを追加することもできます。
+other_uses:
+  heading: Agent-Native Designで作れるその他のもの
+  cards:
+    - title: ローンチブリーフからランディングページを試作
+      url: https://www.agent-native.com/use-cases/landing-page-prototypes/
+      body: ローンチブリーフから、並べて比べられるランディングページの案を複数作れます。
+faqs:
+  heading: よくある質問
+  items:
+    - q: Agent-Native Designは無料ですか？
+      a: はい、Agent-Native Designは無料のオープンソースです。エージェントには、Builder.io経由かご自身のAIキーによるAI接続が必要です。Designはアルファ版のため、成長に合わせて変更が加わる可能性があります。
+    - q: PRDやプロダクトブリーフから始められますか？
+      a: はい。ブリーフ、または製品要求仕様書（PRD）の該当部分をプロンプト欄に貼り付け、選択肢が欲しければ方向性を頼みます。エージェントは用語や主張を正確に守り、デザインを左右する選択がブリーフになければ、質問するか置いた前提を伝えます。[デザインブリーフに書くべきこと](https://www.agent-native.com/articles/how-to-turn-a-design-brief-into-a-prototype-with-ai/)もご覧ください。
+    - q: プロトタイプはクリックして操作できますか？
+      a: はい。各画面は操作が実際に動く本物のHTMLで、選んだ方向性にはデフォルトでデスクトップとモバイルのフレームが付きます。**インタラクト**モードでキャンバス上で試すか、**Design プレビュー**で画面をブラウザーの新しいタブに開けます。
+    - q: 自社のデザインシステムやFigmaのデザインを使えますか？
+      a: はい。[デザインシステム](https://www.agent-native.com/docs/template-design-features/)は、Figmaファイル、Webサイト、GitHubリポジトリ、design.mdファイル、メモから作れ、新しいデザインはそれに従います。Figmaのフレームを編集可能な画面として取り込むこともでき、正確に再現できなかった部分はDesignが一覧にします。
+    - q: プロトタイプはそのまま本番のコードになりますか？
+      a: いいえ。プロトタイプは出発点で、アプリのロジック、連携、テスト、デプロイはこれから作る必要があります。HTMLやファイルのZIPを書き出すか、**コーディング引き継ぎをコピー**でファイル、デザイントークン、すぐ使えるプロンプトをコーディングエージェントに渡せます。Claude CodeとCodexは[DesignのMCPサーバー経由でデザインを開く](https://www.agent-native.com/docs/template-design-integrations/)こともできます。
+    - q: チャットボットにUIを頼むのと何が違いますか？
+      a: Designでは、エージェントがキャンバス上にプロトタイプを作り、そこでクリックして試し、方向性を比べ、編集できます。チームのコメントもそのままエージェントに届きます。チャットボットでは、結果は会話の中にとどまります。だからDesignは[エージェント型アプリ](https://www.agent-native.com/articles/what-is-an-agent-native-app/)なのです。エージェントの頭脳と、アプリの直感的な使いやすさを兼ね備えています。

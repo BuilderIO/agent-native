@@ -1,0 +1,95 @@
+slug: specs-for-coding-agents
+app: content
+roles:
+  - engineering
+  - product
+title: コーディングエージェントが読める仕様書を作成
+seo_title: Claude Code・Codex・Cursor向けの仕様書
+meta_description: Agent-Native Contentは仕様書を1つのページにまとめ、Claude Code、Codex、CursorがMCP経由で読めるようにします。エージェントはチームが編集中の版をもとに開発します。
+updated: 2026-10-27
+hero:
+  body: Agent-Native Contentは、メモを、チームとコーディングエージェントが同じページで使う仕様書にします。Claude Code、Codex、Cursorが最新のページを読み、変更を提案します。
+  button:
+    label: 仕様書を書く
+    url: https://content.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd7f1bf8fa6054abcafa30bd60751ae40
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F93c61e2bc6ba476a938b13934f237b0c
+    alt: Contentで開いた「チーム招待」という仕様書。目標、対象外、決定事項、未解決の質問のセクションがあり、左にはページツリーがあります。右のエージェントチャットは、招待リンクの有効期間についての決定事項を追加しています。
+how_to:
+  heading: コーディングエージェント向けの仕様書を書く方法
+  steps:
+    - title: エージェントと仕様書を書く
+      body: サイドバーの**+**をクリックして**ページ**を選び、メモを貼り付けます。または、[Contentの組み込みエージェント](https://www.agent-native.com/docs/template-content/)にメモから「新機能のPRDを下書きして」と頼みます。手で編集するか、セクションを選んで書き直しを頼みましょう。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2f4dd334ddfa4ec5bd74e67315414e8b
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F15247dff32574395a608e454b510e22b
+        alt: 会議メモからチーム招待の仕様書を依頼するエージェントチャット。エージェントの返信には書いたセクションが並び、その横に新しいページがあります。
+    - title: コーディングエージェントで開く
+      body: '**共有**で**エージェント**を開き、**Claude Code で開く**か**Codex で開く**を選びます。エージェントがページを読みます。先にContentの接続を求められることもあります。CursorやVS Codeでは、Contentを追加し、**エージェント用指示をコピー**をクリックして貼り付けます。'
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa052d84a44fb4e6ead8b69535f25c726
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc574e414836749119ad937c14623d14e
+        alt: 共有メニューの「エージェント」タブの拡大図。「エージェント用指示をコピー」「Claude で開く」「Claude Code で開く」「Codex で開く」が並んでいます。その下の「Content を接続」には、「Add to Cursor」「Add to VS Code」「その他のエージェント」があります。
+    - title: 仕様書を最新に保つ
+      body: 開発の中で未解決の質問が決まったら、ページ上で変更を提案するようコーディングエージェントに頼みます。提案にはそれぞれエージェントの理由が表示されます。チェックをクリックすれば承認、Xをクリックすれば却下です。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F156092664ebc424bb86899f876b88a97
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F0c0108d3427d4641b5c3a2b266e8c4aa
+        alt: 仕様書の「未解決の質問」セクションの拡大図。コーディングエージェントからの編集提案に「Agent」の印が付き、理由と、承認（チェック）と却下（X）のボタンが表示されています。
+features:
+  heading: コーディングエージェント向けの仕様書作りに必要な機能がすべて揃っています
+  items:
+    - title: フィードバックはコメントで
+      body: 仕様書のレビューをエージェントに頼むと、本文を書き換えるのではなく、弱い箇所にコメントを残します。
+    - title: 機能ごとに1ページ
+      body: 調査、APIのメモ、過去の決定事項を各仕様書の下に入れ子にでき、タイトルや本文を検索すればどれでも見つかります。
+    - title: 仕様書のボード
+      body: 担当者とステータスの項目を持つコレクションに仕様書をまとめ、表やボードで表示できます。各行の裏には完全なページがあります。
+    - title: エージェントへのメモ
+      body: どのセクションが確定済みかをページの説明に書いておけば、仕様書を読むすべてのエージェントがそれも読みます。
+    - title: 未保存の編集も読む
+      body: コーディングエージェントはエディターで編集中の内容も見るので、常に今この時点のページをもとに作業します。
+    - title: チームで確認
+      body: どの箇所にもコメントでき、チームメンバーを@メンションしてスレッドで返信できます。バージョン履歴から以前の仕様書に戻せます。
+integrations:
+  heading: いつものツールとContentを連携
+  cards:
+    - title: コーディングエージェントと連携
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+        - name: GitHub Copilot
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8be66b264343497caddac07fd7c26935
+          mono: true
+      body: 共有からClaude CodeやCodexでページを開くか、ワンクリックでCursorやVS CodeのGitHub CopilotにContentを追加できます。
+    - title: 今ある仕様書を持ち込む
+      logos:
+        - name: Notion
+        - name: GitHub
+      body: ページをNotionと双方向で同期したり、Markdownの仕様書が入ったGitHubのフォルダーをコレクションにしたりできます。
+    - title: MCPであらゆるツールと連携
+      logos:
+        - name: Linear
+        - name: Granola
+        - name: Sentry
+      more: true
+      body: チームが使っているツールをMCPで連携できます。URLを指定して任意のMCPサーバーを追加することもできます。
+faqs:
+  heading: よくある質問
+  items:
+    - q: Agent-Native Contentは無料ですか？
+      a: はい、Agent-Native Contentは無料のオープンソースです。コーディングエージェントは自身のモデルで仕様書を読み書きするので、エージェントの使用量に含まれます。Contentの組み込みエージェントは、Builder.ioのクレジットかご自身のモデルキーで動きます。Contentはアルファ版のため、今後変更が加わる可能性があります。
+    - q: どのコーディングエージェントが仕様書を読めますか？
+      a: Claude CodeとCodexは**共有**からページを開き、初回だけ接続を求めます。CursorとVS CodeのGitHub Copilotは、そこからワンクリックでContentを追加できます。Claude Cowork、Goose、OpenCodeはターミナルから接続し、サインインに対応したMCPクライアントなら[URLでContentに接続](https://www.agent-native.com/docs/external-agents/#private-content-links)できます。各エージェントが見られるのは、ご自身のアカウントで見られる範囲だけです。
+    - q: リポジトリにある仕様書ファイルと何が違いますか？
+      a: リポジトリの仕様書ファイルはコピーであり、編集するのはたいていコードを触る人だけです。Contentでは、コーディングエージェントが読むのと同じページにチームが書き込み、コメントでき、エージェントの変更は提案として届きます。リポジトリにもMarkdownを置きたい場合は、Contentを[ローカルフォルダーと同期](https://www.agent-native.com/docs/template-content-sync/)できます。
+    - q: コーディングエージェントは仕様書を変更できますか？
+      a: はい、ご自身のアカウントの権限の範囲で変更できます。編集の提案を頼めば、1つずつ承認するまでページは変わりません。ページを直接編集することもできますが、エージェントが読んだ後にページが変わっていれば、Contentはその編集を拒否します。[バージョン履歴](https://www.agent-native.com/docs/template-content-editing/)には以前の版が残ります。
+    - q: 仕様書をリポジトリに置いておけますか？
+      a: はい。Contentで[ローカルのMarkdownまたはMDXフォルダー](https://www.agent-native.com/docs/template-content-local-files/)を接続し、変更の取得、確認、プッシュができます。コマンド1つでリポジトリからContentを起動することもできます。競合は確認できるように表示されます。ブラウザーだけではローカルファイルを読めないため、ローカルのContentアプリかAgent-Native Desktopが必要です。

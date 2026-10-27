@@ -285,8 +285,8 @@ const messages = {
       openWorkflow: "{{name}} öffnen",
       turnOn: "{{name}} einschalten",
       turnOff: "{{name}} ausschalten",
-      dryRunRequired: "Führe einen Test aus, bevor du das einschaltest.",
-      runTest: "Test ausführen",
+      dryRunRequired: "Führe einen Probelauf aus, bevor du das einschaltest.",
+      runTest: "Probelauf",
       neverRun: "Noch keine Läufe",
       olderRun: "Kein aktueller Lauf",
       runsFailed: "Läufe wurden nicht geladen",
@@ -380,9 +380,9 @@ const messages = {
       connectionsNeeded: "{{count}} zu verbinden",
       connectionsListName: "Benötigte Verbindungen",
       jumpToProblem: "Im Canvas anzeigen",
-      testRun: "Testlauf",
+      testRun: "Probelauf",
       testing: "Wird gestartet",
-      saveAndTest: "Speichern und testen",
+      saveAndTest: "Speichern und Probelauf",
       moreActions: "Weitere Aktionen",
       runNow: "Jetzt ausführen",
       runNowSaveFirst:
@@ -426,7 +426,7 @@ const messages = {
         "Sie wird als neue Version gespeichert, daher geht keine Version verloren.",
       confirmDiscards: "Deine nicht gespeicherten Änderungen werden verworfen.",
       confirmSwitchesOff:
-        "Der Workflow wird ausgeschaltet, bis er erneut getestet wurde.",
+        "Der Workflow bleibt ausgeschaltet, bis ein Probelauf wieder fehlerfrei durchläuft.",
       restored: "Als Version {{version}} wiederhergestellt.",
       restoreFailed: "Diese Version konnte nicht wiederhergestellt werden.",
       restoreInvalid_one:
@@ -438,7 +438,7 @@ const messages = {
       invalid_one: "Nicht gespeichert: {{count}} Problem zu beheben.",
       invalid_other: "Nicht gespeichert: {{count}} Probleme zu beheben.",
       switchedOff:
-        "Gespeichert. Der Workflow wurde ausgeschaltet: Teste ihn und schalte ihn wieder ein.",
+        "Gespeichert. Der Workflow wurde ausgeschaltet: Führe einen Probelauf aus und schalte ihn dann wieder ein.",
       jobSyncFailed:
         "Gespeichert, aber der Zeitplan konnte nicht aktualisiert werden. Speichere erneut, um es noch einmal zu versuchen.",
       notFound: "Dieser Workflow existiert nicht mehr.",
@@ -468,9 +468,9 @@ const messages = {
       cancel: "Abbrechen",
     },
     run: {
-      started: "Testlauf gestartet.",
-      unavailable: "Testläufe sind noch nicht verfügbar.",
-      failed: "Der Testlauf konnte nicht gestartet werden. {{reason}}",
+      started: "Probelauf gestartet.",
+      unavailable: "Probeläufe sind noch nicht verfügbar.",
+      failed: "Der Probelauf konnte nicht gestartet werden. {{reason}}",
       liveStarted: "Lauf gestartet.",
       liveFailed: "Der Lauf konnte nicht gestartet werden. {{reason}}",
       enableFailed: "Der Workflow konnte nicht geändert werden. {{reason}}",
@@ -510,8 +510,9 @@ const messages = {
       ofTotal: "{{shown}} von {{total}} Elementen",
       noInputConnected: "Keine Eingabe verbunden",
       noInputData: "Keine Eingabedaten",
-      testWorkflowHint: "Teste den Workflow, um hier Elemente zu sehen",
-      testWorkflow: "Workflow testen",
+      testWorkflowHint:
+        "Führe einen Probelauf des Workflows aus, um hier Elemente zu sehen",
+      testWorkflow: "Probelauf",
       noOutputData: "Keine Ausgabedaten",
       previewHint: "Starte den Workflow, um echte Werte zu sehen",
       noMatchingItems: "Keine passenden Elemente",
@@ -525,7 +526,7 @@ const messages = {
       copyPath: "Pfad kopieren",
       pathCopied: "Pfad kopiert",
       pathCopyFailed: "Der Pfad konnte nicht kopiert werden",
-      dragHint: "Auf ein Feld ziehen, um es zuzuordnen",
+      dragHint: "Diesen Griff auf ein Feld ziehen, um es zuzuordnen",
       mappedFirstField: "Du hast gerade ein Feld zugeordnet.",
     },
     diagnostics: {
@@ -931,8 +932,8 @@ const messages = {
     },
     canvasActions: {
       addFirstStep: "Ersten Schritt hinzufügen",
-      testWorkflow: "Workflow testen",
-      saveAndTestWorkflow: "Workflow speichern und testen",
+      testWorkflow: "Probelauf",
+      saveAndTestWorkflow: "Speichern und Probelauf",
       describeFirstPrefill: "Erstelle einen Workflow, der ",
       describeTile: "Beschreibe es dem Agenten",
       or: "oder",
@@ -1371,6 +1372,37 @@ const messages = {
       deleteMany: "{{count}} Schritte löschen",
       selectAll: "Alle auswählen",
       clearSelection: "Auswahl aufheben",
+    },
+  },
+  providerPicker: {
+    choose: {
+      channels: "Kanal auswählen",
+      repositories: "Repository auswählen",
+      organizations: "Organisation auswählen",
+      projects: "Projekt auswählen",
+    },
+    search: "Suchen oder einen Wert eingeben",
+    useTyped: "„{{value}}“ verwenden",
+    noMatches: "Keine Treffer",
+    loadMore: "Mehr laden",
+    retry: "Erneut versuchen",
+    changeOrganization: "Organisation ändern",
+    tag: {
+      private: "Privat",
+      botNotMember: "Bot nicht im Kanal",
+      archived: "Archiviert",
+    },
+    error: {
+      notConnected:
+        "{{provider}} ist nicht verbunden, daher kann die Liste nicht geladen werden. Du kannst trotzdem einen Wert eingeben.",
+      refused:
+        "{{provider}} hat die verbundenen Zugangsdaten abgelehnt. Du kannst trotzdem einen Wert eingeben.",
+      missingScope:
+        "Der Verbindung zu {{provider}} fehlt die Berechtigung {{scope}}. Du kannst trotzdem einen Wert eingeben.",
+      rateLimited:
+        "{{provider}} begrenzt gerade die Anfragen. Versuche es gleich erneut oder gib einen Wert ein.",
+      unreadable:
+        "Die Liste von {{provider}} konnte nicht gelesen werden. Versuche es erneut oder gib einen Wert ein.",
     },
   },
 };
