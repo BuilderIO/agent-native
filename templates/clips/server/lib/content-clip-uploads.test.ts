@@ -250,6 +250,8 @@ const { default: contentChunkRoute } =
   await import("../routes/api/uploads/[recordingId]/content-chunk.post.js");
 const { default: contentCancelRoute } =
   await import("../routes/api/uploads/[recordingId]/content-cancel.post.js");
+const { default: agentChunkRoute } =
+  await import("../routes/api/uploads/[recordingId]/agent-chunk.post.js");
 const { default: authMiddleware } = await import("../middleware/auth.js");
 const { default: playbackRoute } =
   await import("../routes/api/content-clips/[recordingId]/playback.get.js");
@@ -1812,6 +1814,26 @@ describe("chunks posted from the editor's browser", () => {
     expect(
       (await postChunk(url.href, { origin: pairedContentOrigin()! })).status,
     ).toBe(401);
+  });
+
+  it("refuses a Content upload's ticket on the agent chunk route", async () => {
+    const editor = await clipsEditor();
+    const { body } = await startUpload(await token({ sub: editor }));
+    const ticket = new URL(body.chunkUrl).searchParams.get("ticket");
+    const event = mockEvent(
+      `${CLIPS_URL}/api/uploads/${body.recordingId}/agent-chunk?index=0&total=1&isFinal=1`,
+      {
+        method: "POST",
+        headers: { authorization: `Bearer ${ticket}` },
+        body: Buffer.from("fake video bytes for one chunk"),
+      },
+    );
+    event.context.params = { recordingId: body.recordingId };
+
+    await expect(respond(agentChunkRoute, event)).rejects.toMatchObject({
+      status: 409,
+    });
+    expect(state.chunks).toEqual([]);
   });
 });
 
