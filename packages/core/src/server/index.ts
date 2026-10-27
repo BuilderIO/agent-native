@@ -124,6 +124,7 @@ export {
   type AuthOptions,
 } from "./auth.js";
 export { hasSameOriginBrowserEvidence } from "./request-origin.js";
+export { getEmbedSessionOrigin } from "./embed-request-origin.js";
 export {
   handleIdentitySso,
   ensureIdentityUser,

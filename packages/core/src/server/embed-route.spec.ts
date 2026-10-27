@@ -156,7 +156,7 @@ describe("createEmbedStartRouteHandler", () => {
       expect(consumeEmbedSessionTicket).toHaveBeenCalledWith(
         "ticket-123",
         expect.objectContaining({
-          audienceHost: "beta.calendar.agent-native.com",
+          audienceHost: "https://beta.calendar.agent-native.com",
           expectedOwnerEmail: null,
         }),
       );
@@ -165,7 +165,7 @@ describe("createEmbedStartRouteHandler", () => {
         ownerEmail: "steve@example.com",
         orgId: "builder",
         targetPath: "/inbox",
-        audienceHost: "beta.calendar.agent-native.com",
+        audienceHost: "https://beta.calendar.agent-native.com",
         scope: "full",
         ticketCreatedAtMs: expect.any(Number),
       });
@@ -306,7 +306,7 @@ describe("createEmbedStartRouteHandler", () => {
         ownerEmail: "steve@example.com",
         orgId: undefined,
         targetPath: "/visual-edit/design_1",
-        audienceHost: "app.test",
+        audienceHost: "https://app.test",
         scope: "capability:visual-edit:design:design_1",
         ttlSeconds: 45,
       });
@@ -340,7 +340,7 @@ describe("createEmbedStartRouteHandler", () => {
       ownerEmail: localWorkspacePrincipal,
       orgId: undefined,
       targetPath: "/visual-edit/design_1",
-      audienceHost: "app.test",
+      audienceHost: "https://app.test",
       scope: "capability:visual-edit:design:design_1",
       ttlSeconds: expect.any(Number),
     });

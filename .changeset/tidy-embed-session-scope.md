@@ -10,6 +10,8 @@ MCP Apps embeds use the validated public request URL. Forwarded host and protoco
 
 When public origins are configured, embed audiences and widget origins must match that allowlist. Hosted proxies must preserve an allowed public request URL.
 
+Embed tickets and sessions bind to the complete normalized origin, including scheme and non-default port. Existing hostname-only tickets and tokens require a fresh embed call. The historical `audienceHost` argument now takes a full HTTP(S) origin. Trusted loopback proxies use the same public-origin resolver for minting, redemption, renewal, and request validation.
+
 Use the embed origin consistently for widget CSP and keep ordinary sign-in session lookup independent of embed origin validation.
 
 Keep Visual Edit capabilities on their declared action set and automatic source synchronization on the signed-in user's own write access.

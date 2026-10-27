@@ -202,7 +202,7 @@ describe("UI action capability", () => {
           cookie: `${EMBED_SESSION_COOKIE}=${signEmbedSessionToken({
             ownerEmail: "embed-owner@example.com",
             targetPath: "/documents/doc-1",
-            audienceHost: "example.test",
+            audienceHost: "http://example.test",
             scope: "capability:visual-edit:design:design-1",
           })}`,
         });
@@ -276,7 +276,7 @@ describe("UI action capability", () => {
       const embedToken = signEmbedSessionToken({
         ownerEmail,
         targetPath: "/documents/doc-1",
-        audienceHost: "example.test",
+        audienceHost: "http://example.test",
         scope: "capability:visual-edit:design:design-1",
       });
       const app = createApp();
@@ -326,7 +326,7 @@ describe("UI action capability", () => {
       const token = signEmbedSessionToken({
         ownerEmail: "alice@example.com",
         targetPath: "/documents/doc-1",
-        audienceHost: "example.test",
+        audienceHost: "http://example.test",
         scope: "capability:visual-edit:design:design-1",
       });
       const app = createApp();
@@ -370,7 +370,7 @@ describe("UI action capability", () => {
       const token = signEmbedSessionToken({
         ownerEmail: "alice@example.com",
         targetPath: "/documents/doc-1",
-        audienceHost: "example.test",
+        audienceHost: "http://example.test",
         scope: "capability:visual-edit:design:design-1",
       });
       const app = createApp();
@@ -413,7 +413,9 @@ describe("UI action capability", () => {
               ownerEmail: "alice@example.com",
               targetPath: "/documents/doc-1",
               audienceHost:
-                kind === "other-host" ? "other.test" : "example.test",
+                kind === "other-host"
+                  ? "http://other.test"
+                  : "http://example.test",
               ttlSeconds: 60,
               scope:
                 kind === "other-target"
@@ -506,7 +508,7 @@ describe("UI action capability", () => {
         orgId: "org-inline",
         targetPath: "/documents/doc-1",
         scope: "minimal",
-        audienceHost: "example.test",
+        audienceHost: "https://example.test",
       },
     });
     expect(start.headers.get("set-cookie")).toContain(

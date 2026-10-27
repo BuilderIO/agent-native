@@ -336,7 +336,7 @@ export function createEmbedStartRouteHandler(
       .getExistingSession?.(event)
       .catch(() => null);
     let consumeDiagnostic: EmbedSessionTicketConsumeDiagnostic | null = null;
-    const audienceHost = new URL(resolveEmbedRequestOrigin(event)).hostname;
+    const audienceHost = resolveEmbedRequestOrigin(event);
     const consumed = await consumeEmbedSessionTicket(ticket, {
       audienceHost,
       expectedOwnerEmail: existingSession?.email ?? null,

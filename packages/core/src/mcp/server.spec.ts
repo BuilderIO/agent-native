@@ -2733,12 +2733,12 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         ).toHaveBeenCalledOnce();
         await expect(
           actual.readMcpDirectoryWidgetRenewalTicket(ticket!, {
-            audienceHost: "mail.agent-native.com",
+            audienceHost: "https://mail.agent-native.com",
           }),
         ).resolves.toMatchObject({ ownerEmail: "oauth@example.com" });
         await expect(
           actual.readMcpDirectoryWidgetRenewalTicket(ticket!, {
-            audienceHost: "attacker.example",
+            audienceHost: "https://attacker.example",
           }),
         ).resolves.toBeNull();
         expect(startUrl.hostname).not.toBe("attacker.example");
@@ -2839,13 +2839,13 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         await expect(
           actual.readMcpDirectoryWidgetRenewalTicket(
             startUrl.searchParams.get("ticket")!,
-            { audienceHost: "mail.agent-native.com" },
+            { audienceHost: "https://mail.agent-native.com" },
           ),
         ).resolves.toMatchObject({ ownerEmail: "oauth@example.com" });
         await expect(
           actual.readMcpDirectoryWidgetRenewalTicket(
             startUrl.searchParams.get("ticket")!,
-            { audienceHost: "attacker.example" },
+            { audienceHost: "https://attacker.example" },
           ),
         ).resolves.toBeNull();
         await expectWidgetResourceOrigin(event, startUrl.origin);
@@ -2895,17 +2895,17 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         const sourceTicket = startUrl.searchParams.get("ticket")!;
         await expect(
           actual.readMcpDirectoryWidgetRenewalTicket(sourceTicket, {
-            audienceHost: "workspace.example.test",
+            audienceHost: "https://workspace.example.test",
           }),
         ).resolves.toMatchObject({ ownerEmail: "oauth@example.com" });
         await expect(
           actual.readMcpDirectoryWidgetRenewalTicket(sourceTicket, {
-            audienceHost: "internal.gateway",
+            audienceHost: "https://internal.gateway",
           }),
         ).resolves.toBeNull();
         await expect(
           actual.readMcpDirectoryWidgetRenewalTicket(sourceTicket, {
-            audienceHost: "attacker.example",
+            audienceHost: "https://attacker.example",
           }),
         ).resolves.toBeNull();
         embedSessionMocks.readMcpDirectoryWidgetRenewalTicket.mockImplementationOnce(

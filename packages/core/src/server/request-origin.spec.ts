@@ -13,7 +13,7 @@ vi.mock("h3", () => ({
 
 import {
   getForwardedRequestHostname,
-  getForwardedRequestHostnameFromHeaders,
+  getForwardedRequestOriginFromHeaders,
   getForwardedRequestOrigin,
   getForwardedRequestURL,
   hasSameOriginBrowserEvidence,
@@ -189,47 +189,52 @@ describe("getForwardedRequestOrigin", () => {
     );
   });
 
-  it("resolves the same normalized hostname from Node and Fetch headers", () => {
+  it("resolves the same public origin from Node and Fetch headers", () => {
     expect(
-      getForwardedRequestHostnameFromHeaders(
+      getForwardedRequestOriginFromHeaders(
         {
           host: "internal.gateway:3000",
           "x-forwarded-host":
-            "BETA.CALENDAR.AGENT-NATIVE.COM., internal.gateway:3000",
+            "BETA.CALENDAR.AGENT-NATIVE.COM:4443, internal.gateway:3000",
+          "x-forwarded-proto": "https",
         },
         "127.0.0.1",
       ),
-    ).toBe("beta.calendar.agent-native.com");
+    ).toBe("https://beta.calendar.agent-native.com:4443");
     expect(
-      getForwardedRequestHostnameFromHeaders(
-        new Headers({ "x-forwarded-host": "beta.calendar.agent-native.com" }),
+      getForwardedRequestOriginFromHeaders(
+        new Headers({
+          host: "internal.gateway:3000",
+          "x-forwarded-host": "beta.calendar.agent-native.com:4443",
+          "x-forwarded-proto": "https",
+        }),
         "::1",
       ),
-    ).toBe("beta.calendar.agent-native.com");
+    ).toBe("https://beta.calendar.agent-native.com:4443");
   });
 
   it("ignores forwarded host headers from non-loopback peers", () => {
     expect(
-      getForwardedRequestHostnameFromHeaders(
+      getForwardedRequestOriginFromHeaders(
         {
           host: "app.example.test",
           "x-forwarded-host": "attacker.example.test",
         },
         "203.0.113.20",
       ),
-    ).toBe("app.example.test");
+    ).toBe("http://app.example.test");
   });
 
-  it("rejects malformed Node forwarded hostnames", () => {
+  it("rejects malformed Node forwarded origins", () => {
     expect(() =>
-      getForwardedRequestHostnameFromHeaders(
+      getForwardedRequestOriginFromHeaders(
         {
           host: "app.example.com",
           "x-forwarded-host": "app.example.com/path",
         },
         "127.0.0.1",
       ),
-    ).toThrow("Invalid forwarded request hostname");
+    ).toThrow("Invalid forwarded request origin");
   });
 });
 

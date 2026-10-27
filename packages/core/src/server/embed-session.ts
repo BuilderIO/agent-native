@@ -96,6 +96,7 @@ let _devSigningKey: string | undefined;
 
 export interface EmbedSessionTicketInput {
   ownerEmail: string;
+  /** Full HTTP(S) origin, including non-default ports; hostname-only audiences are refused. */
   audienceHost?: string;
   orgId?: string | null;
   targetPath: string;
@@ -672,9 +673,9 @@ function requestMethod(event: H3Event): string {
   return request.req?.method ?? request.node?.req?.method ?? "GET";
 }
 
-function requestHostname(event: H3Event): string | null {
+function requestOrigin(event: H3Event): string | null {
   try {
-    return new URL(resolveEmbedRequestOrigin(event)).hostname;
+    return resolveEmbedRequestOrigin(event);
   } catch {
     // coercion-ok: invalid authority cannot authenticate an embed session.
     return null;
@@ -689,25 +690,14 @@ function normalizedHostname(
 }
 
 interface EmbedTicketAudience {
+  // The historical field and SQL column now carry the complete origin.
   audienceHost: string;
   audienceBasePath: string;
 }
 
 function ticketAudience(audienceHost?: string): EmbedTicketAudience | null {
-  let hostname = audienceHost;
-  if (hostname === undefined) {
-    const origin = getEmbedSessionOrigin();
-    if (!origin || !URL.canParse(origin)) return null;
-    const url = new URL(origin);
-    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
-    hostname = url.hostname;
-  }
-  const normalized = normalizedHostname(hostname);
+  const normalized = normalizedOrigin(audienceHost ?? getEmbedSessionOrigin());
   if (!normalized) return null;
-  const audienceOrigin = `https://${normalized}`;
-  if (!URL.canParse(audienceOrigin)) return null;
-  const url = new URL(audienceOrigin);
-  if (url.hostname !== normalized || url.origin !== audienceOrigin) return null;
   return {
     audienceHost: normalized,
     audienceBasePath: getConfiguredAppBasePath(),
@@ -734,26 +724,45 @@ function isFirstPartyAppHostname(hostname: string | null): boolean {
 }
 
 function isFirstPartyAppRequest(event: H3Event): boolean {
-  return isFirstPartyAppHostname(normalizedHostname(requestHostname(event)));
+  const origin = requestOrigin(event);
+  return isFirstPartyAppHostname(
+    origin ? normalizedHostname(new URL(origin).hostname) : null,
+  );
 }
 
-function embedTokenMatchesHostname(
-  hostname: string | null | undefined,
+function normalizedOrigin(origin: string | null | undefined): string | null {
+  if (!origin || !URL.canParse(origin)) return null;
+  const url = new URL(origin);
+  if (
+    (url.protocol !== "http:" && url.protocol !== "https:") ||
+    url.username ||
+    url.password ||
+    url.pathname !== "/" ||
+    url.search ||
+    url.hash
+  )
+    return null;
+  return url.origin;
+}
+
+function embedTokenMatchesOrigin(
+  origin: string | null | undefined,
   claims: EmbedSessionTokenClaims,
 ): boolean {
   const basePath = getConfiguredAppBasePath();
   if ((claims.audienceBasePath ?? "") !== basePath) return false;
-  const requestHostname = normalizedHostname(hostname);
-  return claims.audienceHost === undefined
-    ? !isFirstPartyAppHostname(requestHostname)
-    : normalizedHostname(claims.audienceHost) === requestHostname;
+  const requestAudience = normalizedOrigin(origin);
+  return (
+    requestAudience !== null &&
+    normalizedOrigin(claims.audienceHost) === requestAudience
+  );
 }
 
 function embedTokenMatchesRequestAudience(
   event: H3Event,
   claims: EmbedSessionTokenClaims,
 ): boolean {
-  return embedTokenMatchesHostname(requestHostname(event), claims);
+  return embedTokenMatchesOrigin(requestOrigin(event), claims);
 }
 
 function isEmbedDocumentPath(pathname: string): boolean {
@@ -1271,7 +1280,7 @@ interface McpDirectoryWidgetSessionState {
 
 async function readMcpDirectoryWidgetSessionState(
   sessionId: string,
-  hostname: string,
+  origin: string,
 ): Promise<McpDirectoryWidgetSessionState | null> {
   if (!/^[a-f0-9]{64}$/.test(sessionId)) return null;
   await ensureTable();
@@ -1282,8 +1291,7 @@ async function readMcpDirectoryWidgetSessionState(
     args: [sessionId],
   });
   const row = rows[0] as Record<string, unknown> | undefined;
-  if (!row || !ticketMatchesAudience(row, ticketAudience(hostname)))
-    return null;
+  if (!row || !ticketMatchesAudience(row, ticketAudience(origin))) return null;
 
   const ownerEmail = stringOrUndefined(row.owner_email ?? row.ownerEmail);
   const targetPath = normalizeEmbedTargetPath(
@@ -1327,12 +1335,12 @@ async function readMcpDirectoryWidgetSessionState(
   };
 }
 
-export async function resolveEmbedSessionTokenForHost(
+export async function resolveEmbedSessionTokenForOrigin(
   token: string | undefined,
-  hostname: string,
+  origin: string,
 ): Promise<EmbedSessionTokenClaims | null> {
   const verified = verifyEmbedSessionToken(token, { allowExpired: true });
-  if (!verified.ok || !embedTokenMatchesHostname(hostname, verified.claims)) {
+  if (!verified.ok || !embedTokenMatchesOrigin(origin, verified.claims)) {
     return null;
   }
   const claims = verified.claims;
@@ -1349,7 +1357,7 @@ export async function resolveEmbedSessionTokenForHost(
     if (!widgetCapability) return null;
     const session = await readMcpDirectoryWidgetSessionState(
       claims.sessionId,
-      hostname,
+      origin,
     );
     if (
       !session ||
@@ -1390,7 +1398,7 @@ export async function resolveEmbedSessionTokenForHost(
 export async function isExpiredMcpDirectoryWidgetSessionRequest(
   event: H3Event,
 ): Promise<boolean> {
-  let hostname: string | undefined;
+  let origin: string | undefined;
   const tokens = [
     queryToken(event),
     bearerToken(event),
@@ -1405,17 +1413,17 @@ export async function isExpiredMcpDirectoryWidgetSessionRequest(
     ) {
       continue;
     }
-    hostname ??= requestHostname(event) ?? undefined;
-    if (!hostname) return false;
+    origin ??= requestOrigin(event) ?? undefined;
+    if (!origin) return false;
     if (
-      !embedTokenMatchesHostname(hostname, verified.claims) ||
+      !embedTokenMatchesOrigin(origin, verified.claims) ||
       !embedSessionAllowsRequest(event, verified.claims)
     ) {
       continue;
     }
     const session = await readMcpDirectoryWidgetSessionState(
       verified.claims.sessionId,
-      hostname,
+      origin,
     );
     if (
       !session ||
@@ -1721,6 +1729,7 @@ export function signEmbedSessionToken(input: {
   ownerEmail: string;
   orgId?: string | null;
   targetPath: string;
+  /** Full HTTP(S) origin; an unbound token cannot authenticate a request. */
   audienceHost?: string;
   scope?: string | null;
   ticketCreatedAtMs?: number;
@@ -1762,7 +1771,10 @@ export function signEmbedSessionToken(input: {
   if (input.sessionId) claims.sessionId = input.sessionId;
   if (input.orgId) claims.orgId = input.orgId;
   if (input.audienceHost) {
-    claims.audienceHost = input.audienceHost.toLowerCase();
+    const origin = normalizedOrigin(input.audienceHost);
+    if (!origin)
+      throw new Error("Embed session token requires a full origin audience.");
+    claims.audienceHost = origin;
   }
   if (input.scope) claims.scope = input.scope;
   const payload = base64UrlEncode(JSON.stringify(claims));
@@ -1913,12 +1925,12 @@ export async function resolveEmbedSessionFromRequest(
     ({ token }) => verifyEmbedSessionToken(token, { allowExpired: true }).ok,
   );
   if (!candidates.length) return null;
-  const hostname = requestHostname(event);
-  if (!hostname) return null;
+  const origin = requestOrigin(event);
+  if (!origin) return null;
   for (const candidate of candidates) {
-    const claims = await resolveEmbedSessionTokenForHost(
+    const claims = await resolveEmbedSessionTokenForOrigin(
       candidate.token,
-      hostname,
+      origin,
     );
     if (!claims) continue;
     if (!embedSessionAllowsRequest(event, claims)) continue;
@@ -1991,10 +2003,8 @@ export function hasPresentedEmbedSessionCredential(event: H3Event): boolean {
   if (!cookie.ok || !embedSessionAllowsRequest(event, cookie.claims)) {
     return false;
   }
-  const hostname = requestHostname(event);
-  return (
-    hostname === null || embedTokenMatchesHostname(hostname, cookie.claims)
-  );
+  const origin = requestOrigin(event);
+  return origin === null || embedTokenMatchesOrigin(origin, cookie.claims);
 }
 
 export function hasLiveEmbedCapabilityCookie(event: H3Event): boolean {
@@ -2002,11 +2012,9 @@ export function hasLiveEmbedCapabilityCookie(event: H3Event): boolean {
     getCookie(event, EMBED_SESSION_COOKIE),
   );
   if (!cookie.ok || !isEmbedCapabilityScope(cookie.claims.scope)) return false;
-  const hostname = requestHostname(event);
+  const origin = requestOrigin(event);
   // Invalid authority cannot establish that a live capability cookie is unrelated.
-  return (
-    hostname === null || embedTokenMatchesHostname(hostname, cookie.claims)
-  );
+  return origin === null || embedTokenMatchesOrigin(origin, cookie.claims);
 }
 
 export function requestHasEmbedAuthMarker(event: H3Event): boolean {

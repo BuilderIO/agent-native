@@ -1997,7 +1997,7 @@ describe("server/auth", () => {
       const embedToken = signEmbedSessionToken({
         ownerEmail: "owner@example.com",
         targetPath: "/inbox",
-        audienceHost: "localhost",
+        audienceHost: "http://localhost",
       });
       const event = createJsonPostEvent(
         "/_agent-native/auth/logout",
@@ -2171,18 +2171,18 @@ describe("server/auth", () => {
         signEmbedSessionToken({
           ownerEmail: "embed-owner@example.com",
           targetPath: "/inbox",
-          audienceHost: "localhost",
+          audienceHost: "http://localhost",
         }),
         signEmbedSessionToken({
           ownerEmail: "second-embed-owner@example.com",
           targetPath: "/inbox",
-          audienceHost: "localhost",
+          audienceHost: "http://localhost",
         }),
         signEmbedSessionToken({
           ownerEmail: "capability-owner@example.com",
           targetPath: "/inbox",
           scope: "capability:calendar.read",
-          audienceHost: "localhost",
+          audienceHost: "http://localhost",
         }),
       );
       const mixedCookieHeaders = {

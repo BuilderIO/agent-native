@@ -18,12 +18,24 @@ function isLoopbackAddress(address: string | undefined): boolean {
 }
 
 export function getForwardedRequestOrigin(event: H3Event): string {
-  const requestUrl = getRequestURL(event);
+  const headers: Partial<ReturnType<typeof getRequestHeaders>> =
+    getRequestHeaders(event);
+  return forwardedRequestOrigin(
+    getRequestURL(event),
+    headers["x-forwarded-host"],
+    headers["x-forwarded-proto"],
+    getRequestIP(event),
+  );
+}
+
+function forwardedRequestOrigin(
+  requestUrl: URL,
+  rawHost: string | undefined,
+  rawProto: string | undefined,
+  remoteAddress: string | undefined,
+): string {
   // Nitro does not pass Srvx's peer-checked proxy trust through to H3 events.
-  if (isLoopbackAddress(getRequestIP(event))) {
-    const headers: Partial<ReturnType<typeof getRequestHeaders>> =
-      getRequestHeaders(event);
-    const rawHost = headers["x-forwarded-host"];
+  if (isLoopbackAddress(remoteAddress)) {
     const headerHost = rawHost?.split(",")[0]?.trim();
     if (rawHost !== undefined && !headerHost) {
       throw createError({
@@ -31,7 +43,6 @@ export function getForwardedRequestOrigin(event: H3Event): string {
         statusMessage: "Invalid forwarded request origin",
       });
     }
-    const rawProto = headers["x-forwarded-proto"];
     const defaultProto =
       process.env.NODE_ENV === "production"
         ? "https"
@@ -93,24 +104,19 @@ export function getForwardedRequestHostname(event: H3Event): string {
     .replace(/\.$/, "");
 }
 
-export function getForwardedRequestHostnameFromHeaders(
+export function getForwardedRequestOriginFromHeaders(
   headers: Headers | IncomingHttpHeaders,
   remoteAddress?: string,
+  protocol: "http:" | "https:" = "http:",
 ): string {
-  const forwardedHost = isLoopbackAddress(remoteAddress)
-    ? headers instanceof Headers
-      ? headers.get("x-forwarded-host")
-      : headers["x-forwarded-host"]
-    : undefined;
-  const rawHost =
-    forwardedHost ??
-    (headers instanceof Headers ? headers.get("host") : headers.host);
-  const firstHost = Array.isArray(rawHost)
-    ? rawHost[0]?.split(",")[0]?.trim()
-    : rawHost?.split(",")[0]?.trim();
-  if (!firstHost) throw new Error("Missing forwarded request hostname");
-
-  const origin = new URL(`https://${firstHost}`);
+  const header = (name: string) => {
+    const value =
+      headers instanceof Headers ? headers.get(name) : headers[name];
+    return Array.isArray(value) ? value.join(",") : (value ?? undefined);
+  };
+  const host = header("host");
+  if (!host) throw new Error("Missing request host");
+  const origin = new URL(`${protocol}//${host}`);
   if (
     origin.username ||
     origin.password ||
@@ -118,9 +124,14 @@ export function getForwardedRequestHostnameFromHeaders(
     origin.search ||
     origin.hash
   ) {
-    throw new Error("Invalid forwarded request hostname");
+    throw new Error("Invalid request host");
   }
-  return origin.hostname.toLowerCase().replace(/\.$/, "");
+  return forwardedRequestOrigin(
+    origin,
+    header("x-forwarded-host"),
+    header("x-forwarded-proto"),
+    remoteAddress,
+  );
 }
 
 function isLoopbackHost(host: string): boolean {

@@ -864,7 +864,7 @@ describe("mountActionRoutes", () => {
                 credential === "live-capability"
                   ? "embed-owner@example.com"
                   : owner,
-              audienceHost: "app.example.com",
+              audienceHost: "https://app.example.com",
               targetPath: "/page/doc-1",
               ttlSeconds: 60,
               ...(credential.startsWith("live-capability")
@@ -2357,7 +2357,7 @@ describe("mountActionRoutes", () => {
     );
     const token = embedSessions.signEmbedSessionToken({
       ownerEmail: linkOwner,
-      audienceHost: "app.example.com",
+      audienceHost: "https://app.example.com",
       targetPath: "/visual-edit/design_1",
       scope: "capability:visual-edit:design:design_1",
     });
@@ -8376,7 +8376,7 @@ describe("mountWebMcpActionRoutes", () => {
             })!;
       const token = embedSessions.signEmbedSessionToken({
         ownerEmail: "ticket-owner@example.com",
-        audienceHost: "design.example.com",
+        audienceHost: "https://design.example.com",
         targetPath: "/design/d1",
         scope: capability,
         ...(scope === "card" ? { ticketCreatedAtMs: Date.now() } : {}),

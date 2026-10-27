@@ -2493,7 +2493,7 @@ export default {
       vi.stubEnv("OAUTH_STATE_SECRET", randomBytes(32).toString("base64url"));
       const token = signEmbedSessionToken({
         ownerEmail: "widget-owner@example.com",
-        audienceHost: "app.test",
+        audienceHost: "https://app.test",
         targetPath: "/visual-edit/design-1",
         scope: "capability:visual-edit:design:design-1",
       });
