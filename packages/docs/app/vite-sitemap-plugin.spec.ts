@@ -10,6 +10,7 @@ import {
   ARTICLES_BASE,
   ARTICLES_PAGE_SIZE,
   USE_CASES_BASE,
+  type PublicArticle,
 } from "../lib/campaign-content";
 import { loadCampaignContentFromDisk } from "../lib/campaign-content-node";
 import { DOCS_LOCALES, sitePathForLocale } from "./components/docs-locale";
@@ -198,7 +199,9 @@ describe("docs agent web generation", () => {
 
   it("uses the latest updated-or-published date for topic and article sitemap entries", () => {
     const original = loadCampaignContentFromDisk(rootDir).articles[0];
-    const articles = [
+    if (!original) throw new Error("Expected at least one article");
+    const { updated: _updated, ...withoutUpdated } = original;
+    const articles: PublicArticle[] = [
       {
         ...original,
         slug: "older-published",
@@ -206,10 +209,9 @@ describe("docs agent web generation", () => {
         updated: "2026-09-01",
       },
       {
-        ...original,
+        ...withoutUpdated,
         slug: "newer-published",
         published: "2026-08-01",
-        updated: undefined,
       },
     ];
     const pages = buildCampaignPages({

@@ -219,6 +219,7 @@ function dom(html: string) {
   return new DOMParser().parseFromString(html, "text/html");
 }
 
+// oracle-change: the original use-case template (old/new way, recipes, angles, stories, next jobs) was removed; its page, loader projection and frequency tag tests went with it, and every use-case page now renders through use-case-page.tsx.
 describe("public campaign frontend", () => {
   it.each(DOCS_LOCALES)(
     "SSR renders a single intro paragraph with only articles linked for %s",
@@ -434,7 +435,7 @@ describe("public campaign frontend", () => {
       entry,
     );
     const articleLink = articleView.getByRole("link", { name: "Test app" });
-    const url = new URL(articleLink.getAttribute("href")!);
+    const url = new URL(articleLink.getAttribute("href") ?? "");
     expect(url.searchParams.get("job")).toBe("test-job");
     expect(url.searchParams.get("utm_source")).toBe("test");
     expect(url.searchParams.get("utm_content")).toBe("existing");
@@ -1048,9 +1049,10 @@ describe("public campaign frontend", () => {
     const document = dom(
       markup(<ArticlePage article={article} useCase={null} more={[]} />),
     );
-    const band = [...document.querySelectorAll("section")].at(-1)!;
-    const content = band.firstElementChild!;
-    const stack = content.firstElementChild!;
+    const band = [...document.querySelectorAll("section")].at(-1);
+    const content = band?.firstElementChild;
+    const stack = content?.firstElementChild;
+    if (!band || !content || !stack) throw new Error("Expected a CTA band");
     expect(content.classList.contains("campaign-section")).toBe(true);
     expect(content.classList.contains("pb-16")).toBe(false);
     expect(stack.classList.contains("flex-col")).toBe(true);
@@ -1061,11 +1063,11 @@ describe("public campaign frontend", () => {
       "P",
       "A",
     ]);
-    expect(stack.children[0].querySelector("h2")?.textContent).toBe(
+    expect(stack.children.item(0)?.querySelector("h2")?.textContent).toBe(
       article.cta_band_heading,
     );
-    expect(stack.children[1].textContent).toBe(article.cta_band_subhead);
-    expect(stack.children[2].textContent).toBe(article.cta_label);
+    expect(stack.children.item(1)?.textContent).toBe(article.cta_band_subhead);
+    expect(stack.children.item(2)?.textContent).toBe(article.cta_label);
     expect(band.querySelectorAll("a")).toHaveLength(1);
     expect(band.querySelector(".template-detail-cta-actions")).toBeNull();
   });
@@ -1241,18 +1243,20 @@ describe("public campaign frontend", () => {
       ] as const) {
         for (const href of hrefs)
           expect(
-            documents[index].querySelector(`a[href="${href}"]`),
+            documents[index]?.querySelector(`a[href="${href}"]`),
             `surface ${index}: ${href}`,
           ).not.toBeNull();
       }
-      expect(documents[2].querySelector("nav a:last-child")?.textContent).toBe(
+      expect(documents[2]?.querySelector("nav a:last-child")?.textContent).toBe(
         ARTICLE_TOPICS[article.topic].name,
       );
       expect(
-        documents[2].querySelector("nav a:last-child")?.getAttribute("href"),
+        documents[2]?.querySelector("nav a:last-child")?.getAttribute("href"),
       ).toBe(path(`${ARTICLES_BASE}/topic/${article.topic}`));
-      expect(documents[2].querySelector("h1")?.textContent).toBe(article.title);
-      expect(documents[2].body.textContent).toContain("Test final paragraph.");
+      expect(documents[2]?.querySelector("h1")?.textContent).toBe(
+        article.title,
+      );
+      expect(documents[2]?.body.textContent).toContain("Test final paragraph.");
       const metadata = articleMeta({
         loaderData: { article, useCase: null, more: [] },
         params: { locale: locale.toLowerCase() },
@@ -1480,7 +1484,8 @@ describe("public campaign frontend", () => {
     vi.mocked(loadCampaignContent).mockReturnValue(content);
     const page = content.useCases.find(
       (item) => item.slug === "ai-meeting-notes",
-    )!;
+    );
+    if (!page) throw new Error("Expected the ai-meeting-notes page");
     const data = articleLoader(
       args({ slug: "how-to-use-ai-to-take-meeting-notes" }),
     );
@@ -1644,6 +1649,7 @@ describe("public campaign frontend", () => {
     expect(translated.page.title).toBe("Auf Deutsch");
     expect(translated.locales).toEqual(["en-US", "de-DE"]);
     const original = useCaseLoader(args({ slug: "translated-page" }));
+    if (original instanceof Response) throw new Error("Expected page data");
     expect(original.page).toEqual({ ...german, title: "In English" });
     expect(original.locales).toEqual(["en-US", "de-DE"]);
     expect(() => useCaseLoader(args({ slug: "missing-use-case" }))).toThrow(

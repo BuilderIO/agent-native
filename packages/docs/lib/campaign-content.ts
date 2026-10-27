@@ -243,8 +243,8 @@ export function parseCampaignContent(
   );
   const pagesBySlug = new Map(useCases.map((page) => [page.slug, page]));
   translations.forEach((translation, index) => {
-    const file = translationFiles[index]!;
-    const locale = LOCALE_FOLDER.exec(file)?.[1];
+    const file = translationFiles[index];
+    const locale = file && LOCALE_FOLDER.exec(file)?.[1];
     const page = pagesBySlug.get(translation.slug);
     if (!locale || !page || page.app !== translation.app)
       throw new Error(

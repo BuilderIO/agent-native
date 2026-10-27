@@ -221,12 +221,13 @@ export function buildCampaignPages(content: CampaignContent): AgentWebPage[] {
         ),
       }),
     );
+  const useCasesUpdated = latestDate(useCases.map((item) => item.updated));
   const pages: AgentWebPage[] = [
     {
       path: `${USE_CASES_BASE}/`,
       title: "Use cases",
       markdown: `# Use cases\n\n${useCases.map((item) => `- [${item.title}](${USE_CASES_BASE}/${item.slug}/)`).join("\n")}\n`,
-      lastmod: latestDate(useCases.map((item) => item.updated)),
+      ...(useCasesUpdated ? { lastmod: useCasesUpdated } : {}),
     },
     ...useCases
       .flatMap((entry) => [
@@ -264,6 +265,9 @@ export function buildCampaignPages(content: CampaignContent): AgentWebPage[] {
     ...articleIndex(ARTICLES_BASE, "Articles", articles),
     ...getArticleTopics(articles).map((topic) => {
       const items = articles.filter((article) => article.topic === topic.slug);
+      const lastmod = latestDate(
+        items.map((article) => article.updated ?? article.published),
+      );
       return {
         path: `${ARTICLES_BASE}/topic/${topic.slug}/`,
         title: topic.name,
@@ -274,9 +278,7 @@ export function buildCampaignPages(content: CampaignContent): AgentWebPage[] {
               `- [${article.title}](${ARTICLES_BASE}/${article.slug}/)`,
           )
           .join("\n")}\n`,
-        lastmod: latestDate(
-          items.map((article) => article.updated ?? article.published),
-        ),
+        ...(lastmod ? { lastmod } : {}),
       };
     }),
     ...articles.map((article) => ({

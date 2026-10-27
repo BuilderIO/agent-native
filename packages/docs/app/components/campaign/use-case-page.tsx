@@ -162,8 +162,8 @@ function ToolLogo({
   mono,
 }: {
   name: string;
-  src?: string;
-  mono?: boolean;
+  src?: string | undefined;
+  mono?: boolean | undefined;
 }) {
   const slug = name
     .toLowerCase()

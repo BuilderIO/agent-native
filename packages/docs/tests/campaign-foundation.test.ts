@@ -131,6 +131,7 @@ describe("campaign content", () => {
     );
   });
 
+  // oracle-change: the original use-case schema (todays_stack, recipes, angles, frequency, stories, job_id matching) was removed with its template; roles is the only one of its fields the new page schema keeps.
   it("accepts absent roles without inventing a default, and every configured role", () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     expect(parseCampaignContent(sources()).useCases[0]).not.toHaveProperty(

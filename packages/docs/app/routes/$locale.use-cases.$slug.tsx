@@ -9,24 +9,26 @@ import {
   sitePathForLocale,
 } from "../components/docs-locale";
 import { redirectLocalizedCampaign } from "./localized-campaign-redirect";
-import { useCasePageData } from "./use-cases.$slug";
+import { loader as englishLoader, useCasePageData } from "./use-cases.$slug";
 
 export { default, meta } from "./use-cases.$slug";
 
 // A page translated into this language is served here; any other page
-// redirects to its English version.
-export function loader({ params, request }: LoaderFunctionArgs) {
+// redirects to its English version, and an unknown one is the English
+// route's 404.
+export function loader(args: LoaderFunctionArgs) {
+  const { params, request } = args;
   const locale = docsLocaleFromSegment(params.locale);
   const moved = useCaseRedirectTarget(params.slug);
   if (locale && moved) {
-    throw withSsrHtmlContentType(
+    return withSsrHtmlContentType(
       redirect(sitePathForLocale(`${USE_CASES_BASE}/${moved}/`, locale), 301),
     );
   }
   const entry = loadCampaignContent().useCases.find(
     (item) => item.slug === params.slug,
   );
-  if (!entry) throw new Response(null, { status: 404 });
+  if (!entry) return englishLoader(args);
   const translation = locale ? entry.translations[locale] : undefined;
   if (translation) return useCasePageData(entry, translation);
   return redirectLocalizedCampaign(

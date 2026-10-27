@@ -33,23 +33,24 @@ export function useCasePageData(entry: UseCaseEntry, page: UseCase) {
 export function loader({ params }: LoaderFunctionArgs) {
   const moved = useCaseRedirectTarget(params.slug);
   if (moved) {
-    throw withSsrHtmlContentType(redirect(`${USE_CASES_BASE}/${moved}/`, 301));
+    return withSsrHtmlContentType(redirect(`${USE_CASES_BASE}/${moved}/`, 301));
   }
-  const entry = loadCampaignContent().useCases.find(
-    (item) => item.slug === params.slug,
-  );
-  if (!entry) throw new Response(null, { status: 404 });
-  const { translations: _translations, ...page } = entry;
-  return useCasePageData(entry, page);
+  const content = loadCampaignContent();
+  const item = content.useCases.find((item) => item.slug === params.slug);
+  if (!item) throw new Response(null, { status: 404 });
+  const { translations: _translations, ...page } = item;
+  return useCasePageData(item, page);
 }
+// A redirect never reaches meta, so it only sees a page's data.
+type UseCaseData = Exclude<ReturnType<typeof loader>, Response>;
 export const meta = ({
   data,
   loaderData,
   params,
 }: {
   params?: { locale?: string };
-  data?: ReturnType<typeof loader>;
-  loaderData?: ReturnType<typeof loader>;
+  data?: UseCaseData;
+  loaderData?: UseCaseData;
 }) => {
   const content = data ?? loaderData;
   if (!content) return [];

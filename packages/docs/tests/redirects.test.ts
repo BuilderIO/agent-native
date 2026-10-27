@@ -26,6 +26,11 @@ function captureRedirect(run: () => unknown): Response {
   throw new Error("Expected the route loader to throw a redirect response");
 }
 
+function returnedRedirect(value: unknown): Response {
+  if (value instanceof Response) return value;
+  throw new Error("Expected the route loader to return a redirect response");
+}
+
 async function captureAsyncRedirect(
   run: () => Promise<unknown>,
 ): Promise<Response> {
@@ -103,14 +108,14 @@ describe("public docs redirects", () => {
 describe("moved use-case pages", () => {
   it("redirects every old address to its new page, in every language", () => {
     for (const [from, to] of Object.entries(USE_CASE_SLUG_REDIRECTS)) {
-      const english = captureRedirect(() =>
+      const english = returnedRedirect(
         useCaseLoader({
           params: { slug: from },
         } as Parameters<typeof useCaseLoader>[0]),
       );
       expectHtmlRedirect(english, 301, `/use-cases/${to}/`);
 
-      const german = captureRedirect(() =>
+      const german = returnedRedirect(
         localizedUseCaseLoader({
           params: { locale: "de-de", slug: from },
           request: new Request(
