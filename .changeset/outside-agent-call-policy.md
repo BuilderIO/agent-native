@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Expose a shared outside-agent provenance check for action approval policies, including delegated A2A and MCP agent runs.
+Export `isOutsideAgentCall` from the browser entry of `@agent-native/core` too, so browser builds resolve the same outside-agent check as the server entry.
