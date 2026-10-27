@@ -88,7 +88,9 @@ about who does what next, or that handed them work. Each reply must be:
 Don't reply at all to jokes, venting, banter, a message meant for Steve
 himself, or a thread a person is already handling. Once a person says they
 have it, or asks the bot to stop, post nothing more in that thread. Before posting, reread the reply as the reporter: would they get it
-in five seconds, know who does what next, and feel we did the legwork?
+in five seconds, know who does what next, and feel we did the legwork? Check
+the draft before sending, not after: the first version is the one that
+notifies them, so editing it afterwards doesn't undo it.
 
 Good (each is the first line; the footer goes on the line below it):
 
@@ -184,7 +186,9 @@ the invocation gives), plus 14 days for open items.
   its run has stopped: its reports are yours again. Of the remaining
   workflow roots, any
   without ✅ or 🎫, or with a human reply newer than our last reply, comes
-  first in this run. A
+  first in this run. A root with 🎫 and our reply after its latest human
+  message is already answered: you may still fix it, but post nothing there
+  until the fix merges. A
   reply like "still broken" after a ✅ means the earlier fix failed. Find what
   that fix changed and why it didn't hold before trying again.
 - **New reports:** roots from the last 5 days. React and reply on the root
@@ -302,11 +306,15 @@ Keep the recap short and written for Steve:
 ```md
 ## Feedback sweep - <date, Pacific>
 Fixed and merged (N): <one line each, with Slack thread link> · PR <link>
+Closed out from earlier runs (N): <Slack thread link> · PR <link>
 Needs a person (N): <what's needed, who>
 Still open from earlier runs (N): <why>
 Sources unavailable: <list or "none">
 Lesson (optional): <one line>
 ```
+
+"Fixed and merged" is this run's PR only; reports you closed out for an
+earlier run's merged PR go under "Closed out from earlier runs".
 
 If the run came from an automation, append the same recap to that
 automation's `memory.md`.
