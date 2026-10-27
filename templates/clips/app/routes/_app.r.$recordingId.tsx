@@ -538,12 +538,12 @@ interface GeneratedWorkflowState {
 }
 
 type WorkflowGenerationStopInput = {
-  operation: "stop";
+  operation: "stop" | "settle";
   recordingId: string;
   requestedAt: string;
   requestId?: string;
   tabId: string;
-  stopReason: "cancelled" | "timed_out";
+  stopReason?: "cancelled" | "timed_out";
 };
 
 type WorkflowGenerationStopResult = { reconciled?: boolean };
@@ -1555,6 +1555,59 @@ export default function RecordingPage() {
     generatedWorkflow?.requestedAt,
     generatedWorkflow?.status,
     workflowStopAttempt,
+    workflowGenerationExpiry,
+  ]);
+  useEffect(() => {
+    const workflow = generatedWorkflow;
+    const recordingId = workflow?.recordingId ?? recording?.id;
+    const requestedAt = workflow?.requestedAt;
+    if (
+      canEdit ||
+      workflow?.status !== "generating" ||
+      !recordingId ||
+      !requestedAt ||
+      workflowGenerationExpiry === null
+    ) {
+      return;
+    }
+
+    const timer = window.setTimeout(
+      () => {
+        const tabId = workflowSessionTabId(
+          recordingId,
+          requestedAt,
+          workflow.requestId,
+        );
+        void reconcileWorkflowGeneration
+          .mutateAsync({
+            operation: "settle",
+            recordingId,
+            requestedAt,
+            ...(workflow.requestId ? { requestId: workflow.requestId } : {}),
+            tabId,
+          })
+          .then(() => generatedWorkflowQ.refetch())
+          .catch((error) => {
+            console.warn("[clips] failed to expire an unclaimed workflow", {
+              recordingId,
+              requestedAt,
+              error,
+            });
+          });
+      },
+      Math.max(0, workflowGenerationExpiry - Date.now()) + 1_000,
+    );
+
+    return () => window.clearTimeout(timer);
+  }, [
+    canEdit,
+    generatedWorkflow?.recordingId,
+    generatedWorkflow?.requestId,
+    generatedWorkflow?.requestedAt,
+    generatedWorkflow?.status,
+    generatedWorkflowQ.refetch,
+    reconcileWorkflowGeneration.mutateAsync,
+    recording?.id,
     workflowGenerationExpiry,
   ]);
   useEffect(() => {

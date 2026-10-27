@@ -269,7 +269,10 @@ export default defineAction({
     }
 
     const state = parsedState.data;
-    if (!isWorkflowRequester(state.requestedBy, ctx?.userEmail)) {
+    if (
+      operation === "track" &&
+      !isWorkflowRequester(state.requestedBy, ctx?.userEmail)
+    ) {
       return { reconciled: false, reason: "not-requester" as const };
     }
     if (state.status !== "generating") {
@@ -360,7 +363,13 @@ export default defineAction({
         ? { reconciled: false, tracked: true }
         : { reconciled: false, tracked: false, reason: "stale" as const };
     }
-    if (operation !== "stop" && state.tabId !== tabId) {
+    const settlingUnclaimedWorkflow =
+      operation === "settle" && state.tabId === undefined;
+    if (
+      operation !== "stop" &&
+      state.tabId !== tabId &&
+      !settlingUnclaimedWorkflow
+    ) {
       return operation === "release"
         ? {
             reconciled: false,

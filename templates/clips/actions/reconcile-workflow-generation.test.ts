@@ -630,6 +630,58 @@ describe("reconcile-workflow-generation", () => {
     expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
   });
 
+  it("expires an unclaimed workflow when only a viewer can reconcile it", async () => {
+    const state = {
+      kind: "email",
+      status: "generating",
+      recordingId: "rec_123",
+      requestedAt,
+      requestedBy: "owner@example.com",
+    };
+    const request = {
+      kind: "generate-workflow",
+      recordingId: "rec_123",
+      requestedAt,
+    };
+    mocks.readAppState
+      .mockResolvedValueOnce(state)
+      .mockResolvedValueOnce(request);
+
+    await expect(
+      action.run(
+        {
+          operation: "settle",
+          recordingId: "rec_123",
+          requestedAt,
+          tabId,
+        },
+        { userEmail: "viewer@example.com" } as never,
+      ),
+    ).resolves.toEqual({ reconciled: true, expired: true });
+
+    expect(mocks.assertAccess).toHaveBeenCalledWith(
+      "recording",
+      "rec_123",
+      "viewer",
+    );
+    expect(mocks.getActiveRunForThreadAsync).toHaveBeenCalledWith(tabId);
+    expect(mocks.compareAndSetManyAppState).toHaveBeenCalledWith([
+      {
+        key: "clips-workflow-rec_123",
+        expectedValue: state,
+        nextValue: expect.objectContaining({
+          status: "failed",
+          failureReason: "session-expired",
+        }),
+      },
+      {
+        key: "clips-ai-request-rec_123",
+        expectedValue: request,
+        nextValue: null,
+      },
+    ]);
+  });
+
   it("settles a terminal run from its durable record after the reconnect window", async () => {
     mocks.readAppState.mockResolvedValue({
       kind: "email",
