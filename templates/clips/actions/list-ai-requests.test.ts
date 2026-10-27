@@ -13,6 +13,7 @@ type PGliteClient = Awaited<ReturnType<typeof PGlite.create>>;
 let client: PGliteClient;
 
 const mocks = vi.hoisted(() => ({
+  shared: false,
   appState: [] as Array<{ key: string; value: unknown }>,
 }));
 
@@ -32,7 +33,7 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 }));
 vi.mock("@agent-native/core/sharing", () => ({
   accessFilter: (table: { ownerEmail: unknown }) =>
-    sql`${table.ownerEmail} = 'me@example.com'`,
+    mocks.shared ? sql`true` : sql`${table.ownerEmail} = 'me@example.com'`,
 }));
 
 import { backgroundAgentTurnIdForReceipt } from "@agent-native/core/shared";
@@ -53,13 +54,14 @@ beforeEach(async () => {
   await client.query(`CREATE TABLE recordings (
     id TEXT PRIMARY KEY, owner_email TEXT NOT NULL, title TEXT NOT NULL,
     title_source TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL,
-    trashed_at TEXT
+    expires_at TEXT, trashed_at TEXT
   )`);
   await client.query(`CREATE TABLE recording_transcripts (
     recording_id TEXT PRIMARY KEY, status TEXT NOT NULL,
     full_text TEXT NOT NULL, segments_json TEXT NOT NULL
   )`);
   mocks.appState = [];
+  mocks.shared = false;
 });
 
 afterEach(async () => {
@@ -298,4 +300,33 @@ describe("list-ai-requests", () => {
       },
     ]);
   });
+});
+
+it("withholds queued content from expired nonowners while preserving owner work", async () => {
+  mocks.shared = true;
+  await insertRecording(
+    "expired-shared",
+    "Fake expired title",
+    "owner@example.test",
+  );
+  await insertRecording("expired-owned", "Fake owner title", "me@example.com");
+  await insertRecording("live-shared", "Fake live title", "owner@example.test");
+  await client.query(
+    "update recordings set expires_at = '2000-01-01T00:00:00Z' where id != 'live-shared'",
+  );
+  mocks.appState = ["expired-shared", "expired-owned", "live-shared"].map(
+    (recordingId) => ({
+      key: `clips-ai-request-${recordingId}`,
+      value: {
+        kind: "regenerate-chapters",
+        recordingId,
+        transcript: "Fake queued transcript",
+      },
+    }),
+  );
+  expect(
+    (await listAiRequests.run({})).requests.map(
+      (request) => request.recordingId,
+    ),
+  ).toEqual(["expired-owned", "live-shared"]);
 });

@@ -5,6 +5,16 @@ export const PENDING_TRANSCRIPT_HEARTBEAT_MS = 60 * 1000;
 export const STALE_PENDING_TRANSCRIPT_REASON =
   "Transcription stopped before it finished. Retry transcription to start a fresh attempt.";
 
+export function isTranscriptReady(status: string | null | undefined): boolean {
+  return status === "ready";
+}
+
+export function canAttemptTranscriptCleanup(
+  status: string | null | undefined,
+): boolean {
+  return status !== "pending";
+}
+
 export function resolveTranscriptPresentation(
   transcript:
     | {

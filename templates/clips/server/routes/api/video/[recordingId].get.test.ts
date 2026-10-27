@@ -205,6 +205,58 @@ describe("/api/video/:recordingId route", () => {
     mockGetDb.mockReturnValue(createDbWithSelectResult([]));
   });
 
+  it.each(["viewer", "editor", "admin"])(
+    "does not serve a trashed recording to a %s with an existing media token",
+    async (role) => {
+      mockResolveAccess.mockResolvedValue({
+        role,
+        resource: {
+          visibility: "public",
+          password: null,
+          trashedAt: "2026-10-22T12:00:00.000Z",
+          videoUrl: "https://cdn.example.com/clip.mp4",
+        },
+      });
+      mockVerifyShortLivedToken.mockReturnValue({ ok: true });
+      vi.mocked(fetch).mockResolvedValue(new Response("video"));
+      const event = makeEvent();
+      event.query = { t: "existing-token" };
+
+      expect(
+        await handler(event as unknown as Parameters<typeof handler>[0]),
+      ).toEqual({ error: "Not found" });
+      expect(event.status).toBe(404);
+      expect(fetch).not.toHaveBeenCalled();
+      expect(mockFetchS3ObjectByUrl).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    { role: "owner", trashedAt: "2026-10-22T12:00:00.000Z" },
+    { role: "viewer", trashedAt: null },
+  ])(
+    "serves owner Trash previews and restored videos: $role",
+    async ({ role, trashedAt }) => {
+      mockResolveAccess.mockResolvedValue({
+        role,
+        resource: {
+          visibility: "public",
+          password: null,
+          trashedAt,
+          videoUrl: "https://cdn.example.com/clip.mp4",
+        },
+      });
+      vi.mocked(fetch).mockResolvedValue(
+        new Response("video", { headers: { "content-type": "video/mp4" } }),
+      );
+      const result = await handler(
+        makeEvent() as unknown as Parameters<typeof handler>[0],
+      );
+      expect(result).toBeInstanceOf(Response);
+      expect(await (result as Response).text()).toBe("video");
+    },
+  );
+
   it("returns a controlled media fetch error when upstream fetch throws", async () => {
     vi.mocked(fetch).mockRejectedValue(new Error("fetch failed"));
 

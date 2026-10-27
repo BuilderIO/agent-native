@@ -30,6 +30,10 @@ vi.mock("@agent-native/core/server", () => ({
   getRequestUserEmail: () => "author@example.com",
   getRequestUserName: () => "Authenticated Profile Name",
 }));
+vi.mock("./_content-webhooks.js", () => ({
+  enqueueCommentWebhooks: vi.fn(async () => 0),
+  scheduleContentWebhookDelivery: vi.fn(),
+}));
 vi.mock("../server/lib/comment-notifications.js", () => ({
   notifyDocumentComment: vi.fn(async () => false),
 }));

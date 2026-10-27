@@ -432,6 +432,21 @@ describe("action discovery", () => {
     expect(registry["send-email"].allowPersistentApproval).toBe(false);
   });
 
+  it("preserves the zone an approval summary gives zoneless times", () => {
+    const registry = loadActionsFromStaticRegistry({
+      "create-event": {
+        default: {
+          tool: { description: "Create an event", parameters: {} },
+          needsApproval: true,
+          zonelessTimes: "calendar",
+          run: async () => ({ ok: true }),
+        },
+      },
+    });
+
+    expect(registry["create-event"].zonelessTimes).toBe("calendar");
+  });
+
   it("threads the http config through named and default static entries", () => {
     const registry = loadActionsFromStaticRegistry({
       "named-get": {

@@ -71,7 +71,10 @@ function setupDatabase() {
 beforeEach(() => {
   vi.clearAllMocks();
   setupDatabase();
-  mocks.assertAccess.mockResolvedValue(undefined);
+  mocks.assertAccess.mockResolvedValue({
+    role: "editor",
+    resource: { expiresAt: null },
+  });
   mocks.compareAndSetManyAppState.mockResolvedValue(true);
   mocks.readAppState.mockResolvedValue(null);
   mocks.writeAppState.mockResolvedValue(undefined);

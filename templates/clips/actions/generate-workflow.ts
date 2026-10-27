@@ -11,6 +11,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import { withFullVideoAiInstructions } from "../shared/clips-ai-prefs.js";
 import {
   isRecentWorkflowGeneration,
@@ -59,7 +60,9 @@ export default defineAction({
       .describe("Open the user-visible agent chat for this request"),
   }),
   run: async (args, ctx) => {
-    await assertAccess("recording", args.recordingId, "viewer");
+    assertRecordingNotExpired(
+      await assertAccess("recording", args.recordingId, "viewer"),
+    );
 
     const stateKey = `clips-workflow-${args.recordingId}`;
     if (workflowGenerationLocks.has(stateKey)) {

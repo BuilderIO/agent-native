@@ -133,6 +133,12 @@ export default defineAction({
       await tx
         .delete(schema.documentPropertyValues)
         .where(eq(schema.documentPropertyValues.propertyId, propertyId));
+      // After the values: deleting them records a tombstone for each one.
+      await tx
+        .delete(schema.documentPropertyValueTombstones)
+        .where(
+          eq(schema.documentPropertyValueTombstones.propertyId, propertyId),
+        );
       await tx
         .delete(schema.contentDatabaseItemKeyClaims)
         .where(

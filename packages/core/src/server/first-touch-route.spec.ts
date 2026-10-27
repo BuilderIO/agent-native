@@ -23,6 +23,7 @@ function post(
       headers: {
         "content-type": "application/json",
         "sec-fetch-site": "same-origin",
+        "x-country": "US",
         ...headers,
       },
       body,

@@ -35,6 +35,7 @@ import {
   BUILDER_CREDITS_UPGRADE_URL,
   type BuilderCreditsStatus,
 } from "@shared/builder-credits";
+import { canReadRecordingComments } from "@shared/comment-access";
 import { recordingEmbedProvider } from "@shared/embed-provider";
 import { isStoredButUnservableFinalizeError } from "@shared/finalize-recovery";
 import { CLIPS_MEETINGS, CLIPS_VIDEO_EDITING } from "@shared/labs";
@@ -173,7 +174,7 @@ import { useSonnerLifecycleToast } from "@/hooks/use-sonner-lifecycle-toast";
 import { useUnviewedDebugEventCount } from "@/hooks/use-unviewed-debug-event-count";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import enMessages from "@/i18n/en-US";
-import { shouldOfferTranscriptRegeneration } from "@/lib/background-ai-error";
+import { transcriptRecoveryForError } from "@/lib/background-ai-error";
 import { withMediaVersion } from "@/lib/media-url";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import {
@@ -191,7 +192,10 @@ import { cn } from "@/lib/utils";
 import { parseRedactions } from "@/lib/video-redactions";
 
 import { buildAgentApiUrls } from "../../shared/agent-context";
-import { STALE_PENDING_TRANSCRIPT_REASON } from "../../shared/transcript-status";
+import {
+  canAttemptTranscriptCleanup,
+  STALE_PENDING_TRANSCRIPT_REASON,
+} from "../../shared/transcript-status";
 
 const UPLOAD_STUCK_TIMEOUT_MS = 5 * 60 * 1000;
 const PROCESSING_STUCK_TIMEOUT_MS = 12 * 60 * 1000;
@@ -1217,7 +1221,17 @@ export default function RecordingPage() {
     browserDiagnostics?.summary ?? null,
     panel === "debug",
   );
-  const canComment = role != null && recordingId !== VIEWER_REDESIGN_PREVIEW_ID;
+  const canReadComments =
+    Boolean(recording) &&
+    canReadRecordingComments({
+      enableComments: recording?.enableComments ?? false,
+      viewerIsOwner: role === "owner",
+    });
+  // Reactions have their own setting; turning comments off must not gate them.
+  const canReact = role != null && recordingId !== VIEWER_REDESIGN_PREVIEW_ID;
+  const canComment = Boolean(recording?.enableComments) && canReact;
+  // Turning comments off stops new discussion, not cleanup of saved history.
+  const canDeleteOwnComments = canReact;
   // Where the panel lands when the requested tab does not apply. Transcript is
   // the video default; a screenshot has no transcript tab at all, so it falls
   // back to the conversation, or to settings when comments are off. A viewer
@@ -1225,19 +1239,27 @@ export default function RecordingPage() {
   // comments rather than bounce between two tabs the guard below rejects.
   const defaultPanel: SidePanel = !isImage
     ? "transcript"
-    : recording && !recording.enableComments && canEdit
+    : recording && !canReadComments && canEdit
       ? "settings"
       : "comments";
   useEffect(() => {
     if (
       (!canEdit && panel === "settings") ||
       (!browserDiagnostics && panel === "debug") ||
-      (recording && !recording.enableComments && panel === "comments") ||
+      (recording && !canReadComments && panel === "comments") ||
       (isImage && panel === "transcript")
     ) {
       setPanel(defaultPanel);
     }
-  }, [browserDiagnostics, canEdit, defaultPanel, isImage, panel, recording]);
+  }, [
+    browserDiagnostics,
+    canEdit,
+    canReadComments,
+    defaultPanel,
+    isImage,
+    panel,
+    recording,
+  ]);
 
   useEffect(() => {
     const legacyAgentSidebar = searchParams.get(AGENT_SIDEBAR_QUERY_PARAM);
@@ -1258,9 +1280,7 @@ export default function RecordingPage() {
       return;
     }
     if (panelParam === "comments") {
-      setPanel(
-        recording && !recording.enableComments ? defaultPanel : "comments",
-      );
+      setPanel(recording && !canReadComments ? defaultPanel : "comments");
       if (isCompactLayout) {
         requestAnimationFrame(() => {
           commentsSectionRef.current?.scrollIntoView({ block: "start" });
@@ -1284,6 +1304,7 @@ export default function RecordingPage() {
     isCompactLayout,
     panelParam,
     recording?.enableComments,
+    canReadComments,
     searchParams,
     setSearchParams,
     setSidePanelCollapsed,
@@ -2033,39 +2054,47 @@ export default function RecordingPage() {
     const errorCode = (err as Error & { errorCode?: unknown }).errorCode;
     activeAiRequestRef.current = null;
     cancelCompletionCue();
-    const transcriptNeedsRegeneration = shouldOfferTranscriptRegeneration(
+    const transcriptRecovery = transcriptRecoveryForError(
       retryKind,
       errorCode,
       recording?.id,
     );
-    failAiRequestToast(
-      transcriptNeedsRegeneration
-        ? t("recordingPage.silenceTranscriptUnavailableTitle")
-        : t("recordingPage.aiRequestFailed"),
-      {
-        description: transcriptNeedsRegeneration
+    const silenceRecovery =
+      transcriptRecovery === "regenerate" && retryKind === "remove-silences";
+    const title =
+      transcriptRecovery === "wait"
+        ? t("recordingPage.transcriptNotReady")
+        : silenceRecovery
+          ? t("recordingPage.silenceTranscriptUnavailableTitle")
+          : transcriptRecovery === "regenerate"
+            ? t("transcriptPanel.transcriptUnavailableTitle")
+            : t("recordingPage.aiRequestFailed");
+    const description =
+      transcriptRecovery === "wait"
+        ? t("recordingPage.tryAfterTranscription")
+        : silenceRecovery
           ? t("recordingPage.silenceTranscriptUnavailableDescription")
           : errorCode === "edits_unreadable"
             ? t("recordingPage.silenceEditsUnreadable")
-            : (actionErrorMessage(err) ?? t("recordingPage.tryAgainMoment")),
-        ...(transcriptNeedsRegeneration
+            : (actionErrorMessage(err) ?? t("recordingPage.tryAgainMoment"));
+    const action =
+      transcriptRecovery === "regenerate" && recording?.id
+        ? {
+            label: t("transcriptPanel.regenerate"),
+            onClick: () => regenerateTranscript(recording.id),
+          }
+        : transcriptRecovery !== "wait" &&
+            (retryKind === "remove-filler-words" ||
+              retryKind === "remove-silences")
           ? {
-              action: {
-                label: t("transcriptPanel.regenerate"),
-                onClick: () => regenerateTranscript(recording!.id),
-              },
+              label: t("agentChat.common.retry"),
+              onClick: () => retryAiRequestRef.current?.(retryKind),
             }
-          : retryKind === "remove-filler-words" ||
-              retryKind === "remove-silences"
-            ? {
-                action: {
-                  label: t("agentChat.common.retry"),
-                  onClick: () => retryAiRequestRef.current?.(retryKind),
-                },
-              }
-            : {}),
-      },
-    );
+          : undefined;
+    failAiRequestToast(title, {
+      description,
+      ...(action ? { action } : {}),
+    });
   };
   const requestTranscript = useActionMutation("request-transcript" as any, {
     onSuccess: (result: any) => {
@@ -2811,7 +2840,7 @@ export default function RecordingPage() {
           sidePanelCollapsed && "lg:hidden",
         )}
       >
-        {recording.enableComments ? (
+        {canReadComments ? (
           <ViewerTabsTrigger
             value="comments"
             className="px-0 data-[state=active]:after:inset-x-0"
@@ -2902,6 +2931,7 @@ export default function RecordingPage() {
         currentUserName={session?.name}
         enableComments={recording.enableComments}
         canComment={canComment}
+        canDeleteOwnComments={canDeleteOwnComments}
         onSeek={(ms) => playerRef.current?.seek(ms)}
         queryKey={[
           "action",
@@ -2916,7 +2946,7 @@ export default function RecordingPage() {
   const renderSidePanel = (compact = false) => {
     return (
       <>
-        {recording.enableComments ? (
+        {canReadComments ? (
           <TabsContent
             forceMount
             value="comments"
@@ -3074,7 +3104,7 @@ export default function RecordingPage() {
                 type="button"
                 variant="ghost"
                 size="sm"
-                disabled={!canComment}
+                disabled={!canReact}
                 className="gap-1.5 px-2 text-xs"
               >
                 <IconMoodSmile className="size-4" />
@@ -3159,7 +3189,10 @@ export default function RecordingPage() {
                 {isEmbedBacked ? null : (
                   <>
                     <DropdownMenuItem
-                      disabled={backgroundAiBusy}
+                      disabled={
+                        backgroundAiBusy ||
+                        !canAttemptTranscriptCleanup(transcriptStatus)
+                      }
                       onSelect={() => {
                         beginAiRequest("remove-filler-words");
                         removeFillerWords.mutate({
@@ -3170,7 +3203,10 @@ export default function RecordingPage() {
                       {t("recordingPage.removeFillerWords")}
                     </DropdownMenuItem>
                     <DropdownMenuItem
-                      disabled={backgroundAiBusy}
+                      disabled={
+                        backgroundAiBusy ||
+                        !canAttemptTranscriptCleanup(transcriptStatus)
+                      }
                       onSelect={() => {
                         beginAiRequest("remove-silences");
                         removeSilences.mutate({

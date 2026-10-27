@@ -102,7 +102,7 @@
     );
     --agentkit-composer-toolbar-control-padding-inline: var(
       --agent-kit-composer-toolbar-control-padding-inline,
-      0.375rem
+      0.5rem
     );
     --agentkit-composer-toolbar-control-font-size: var(
       --agent-kit-composer-toolbar-control-font-size,
@@ -170,7 +170,7 @@
   .agentkit-composer [data-agent-composer-slot="mode-row"] {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.375rem;
+    gap: 0.5rem;
   }
 
   .agentkit-composer
@@ -228,7 +228,7 @@
     inline-size: calc(100% - 4rem);
     block-size: var(--agent-message-queue-height, 0);
     margin: 0 auto;
-    padding-block-end: 0.625rem;
+    padding-block-end: 0.75rem;
     overflow: hidden;
     border: 0;
     border-radius: var(--agentkit-radius-inner) var(--agentkit-radius-inner) 0 0;
@@ -260,7 +260,7 @@
     block-size: 100%;
     max-block-size: 10rem;
     flex-direction: column;
-    gap: 0.125rem;
+    gap: 0.25rem;
     margin: 0;
     padding: 0.25rem 0;
     overflow-y: auto;
@@ -280,14 +280,14 @@
     min-inline-size: 0;
     align-items: center;
     gap: 0.5rem;
-    padding: 0.375rem 1rem;
+    padding: 0.5rem 1rem;
     color: var(--agentkit-text);
     font-size: 0.8125rem;
     line-height: 1rem;
   }
 
   .agentkit-composer-stack [data-agent-message-queue-variant="recessed"] li {
-    padding-block: 0.125rem;
+    padding-block: 0.25rem;
   }
 
   .agentkit-composer-stack [data-agent-message-queue="true"] li > svg {
@@ -322,7 +322,7 @@
     display: flex;
     flex: none;
     align-items: center;
-    gap: 0.125rem;
+    gap: 0.25rem;
     color: var(--agentkit-text-muted-strong);
   }
 
@@ -335,7 +335,7 @@
   }
 
   .agentkit-suggestions {
-    --agent-suggestion-gap: 0.375rem;
+    --agent-suggestion-gap: 0.5rem;
   }
 
   /* The row grows to fit its caption rather than overflowing into the
@@ -583,8 +583,8 @@
   }
 
   .agentkit-transcript::-webkit-scrollbar {
-    inline-size: 0.3125rem;
-    block-size: 0.3125rem;
+    inline-size: 0.25rem;
+    block-size: 0.25rem;
   }
 
   .agentkit-transcript::-webkit-scrollbar-track {
@@ -701,19 +701,21 @@
       --agentkit-transcript-font-family,
       var(--font-sans, inherit)
     );
-    line-height: var(--agentkit-transcript-message-line-height, 1.52);
+    /* 14px text on a 20px line, so text-driven heights land on the 4px grid. */
+    line-height: var(--agentkit-transcript-message-line-height, 1.25rem);
   }
 
-  /* A user message's footer overlays the 24px zone under its bubble on hover
-   or focus, so the agent turn starts a full turn gap below that zone and its
-   summary row never sits against the user's toolbar. */
+  /* A user message's footer overlays the 28px zone under its bubble on hover
+   or focus (its 4px drop plus the 24px row), so the agent turn starts a full
+   turn gap below that zone and its summary row never sits against the user's
+   toolbar. */
   .agentkit-message[data-role="user"] {
     align-items: flex-end;
     margin-block: var(--agentkit-transcript-message-gap, 1.5rem)
-      calc(1.5rem + var(--agentkit-transcript-message-gap, 1.5rem));
+      calc(1.75rem + var(--agentkit-transcript-message-gap, 1.5rem));
     line-height: var(
       --agentkit-user-bubble-line-height,
-      var(--agentkit-transcript-message-line-height, 1.52)
+      var(--agentkit-transcript-message-line-height, 1.25rem)
     );
   }
 
@@ -784,7 +786,7 @@
   }
 
   .agentkit-message-content p {
-    margin-block: 0 0.625rem;
+    margin-block: 0 0.75rem;
     white-space: pre-wrap;
   }
 
@@ -825,8 +827,9 @@
     max-inline-size: 12.5rem;
     align-items: center;
     gap: 0.25rem;
-    margin-inline: 0.125rem;
-    padding: 0.125rem 0.375rem;
+    margin-inline: 0.25rem;
+    min-block-size: 1.25rem;
+    padding: 0 0.5rem;
     border: 1px solid var(--agentkit-border);
     border-radius: var(--agentkit-radius-inner);
     color: var(--agentkit-text);
@@ -931,7 +934,7 @@
   }
 
   .agentkit-markdown + .agentkit-markdown {
-    margin-block-start: 0.625rem;
+    margin-block-start: 0.75rem;
   }
 
   /* Streamed text fades in as it is revealed. The animation runs once when the
@@ -967,14 +970,14 @@
 
   .agentkit-markdown-table {
     max-inline-size: 100%;
-    margin-block: 0 0.625rem;
+    margin-block: 0 0.75rem;
     overflow-x: auto;
   }
 
   .agentkit-markdown table {
     display: table;
     max-inline-size: 100%;
-    margin-block: 0 0.625rem;
+    margin-block: 0 0.75rem;
     border-collapse: collapse;
   }
 
@@ -987,7 +990,7 @@
   }
 
   .agentkit-markdown :where(th, td) {
-    padding: 0.375rem 0.75rem;
+    padding: 0.5rem 0.75rem;
     border-block-end: 1px solid var(--agentkit-border);
     text-align: start;
   }
@@ -1063,7 +1066,7 @@
   }
 
   .agentkit-markdown :where(ul, ol) {
-    margin-block: 0 0.625rem;
+    margin-block: 0 0.75rem;
     padding-inline-start: 1.25rem;
   }
 
@@ -1109,8 +1112,11 @@
     font-family: var(--font-mono, ui-monospace, monospace);
   }
 
+  /* A code span's own line, on a different font's baseline, would stretch
+   its line past the 20px grid. */
   .agentkit-markdown :not(pre) > code {
     padding: 0.125rem 0.25rem;
+    line-height: 1;
     border-radius: var(--radius-sm, calc(var(--radius, 0.75rem) / 2));
     background: var(--agentkit-subtle);
     font-size: 0.875em;
@@ -1119,7 +1125,7 @@
   .agentkit-markdown pre {
     box-sizing: border-box;
     max-inline-size: 100%;
-    margin-block: 0 0.625rem;
+    margin-block: 0 0.75rem;
     padding: 0.75rem;
     overflow-x: auto;
     border: 1px solid var(--agentkit-border);
@@ -1132,7 +1138,7 @@
   }
 
   .agentkit-code-block {
-    margin: 0 0 0.625rem;
+    margin: 0 0 0.75rem;
     overflow: hidden;
     border: 1px solid var(--agentkit-border);
     border-radius: var(--agentkit-radius-inner);
@@ -1171,7 +1177,7 @@
   }
 
   .agentkit-markdown blockquote {
-    margin: 0 0 0.625rem;
+    margin: 0 0 0.75rem;
     padding-inline-start: 0.75rem;
     border-inline-start: 2px solid var(--agentkit-border);
     color: var(--agentkit-text-muted);
@@ -1198,6 +1204,13 @@
     inset-block-start: 100%;
     inset-inline: 0;
     margin-block-start: 0;
+  }
+
+  /* Reply text ends on its last line's leading, the bubble on a hard edge, so
+   the user row drops 4px to put its icons 8px below the bubble. The user
+   message's bottom zone includes the drop. */
+  .agentkit-message-actions[data-role="user"]:not([data-has-error="true"]) {
+    margin-block-start: 0.25rem;
   }
 
   /* One line under the reply: the finished work row, then the controls. The
@@ -1284,7 +1297,7 @@
     min-inline-size: 0;
     align-items: center;
     justify-content: flex-end;
-    gap: 0.125rem;
+    gap: 0.25rem;
     margin-inline-start: auto;
     color: var(--agentkit-text-muted);
   }
@@ -1301,7 +1314,7 @@
     grid-area: 1 / 1;
     justify-self: end;
     align-items: center;
-    gap: 0.125rem;
+    gap: 0.25rem;
     transition:
       opacity 140ms ease,
       translate 160ms ease;
@@ -1388,7 +1401,7 @@
     display: flex;
     min-inline-size: 0;
     align-items: center;
-    gap: 0.125rem;
+    gap: 0.25rem;
   }
 
   .agentkit-message-actions-trailing {
@@ -1572,7 +1585,7 @@
     /* minmax(0, …): an auto track grows to its widest row's unwrapped text,
      which pushes rows past the chat column instead of ellipsizing them. */
     grid-template-columns: minmax(0, 1fr);
-    gap: 0.125rem;
+    gap: 0.25rem;
   }
 
   .agentkit-activity-row,
@@ -1675,7 +1688,8 @@
     max-inline-size: 12rem;
     flex: none;
     align-items: center;
-    padding: 0.125rem 0.5rem;
+    min-block-size: 1.5rem;
+    padding: 0 0.5rem;
     border: 1px solid var(--agentkit-border);
     border-radius: 999px;
     color: var(--agentkit-text);
@@ -1731,7 +1745,7 @@
    not fit beside the head drops to its own line. */
   .agentkit-agent-interaction {
     flex-wrap: wrap;
-    row-gap: 0.125rem;
+    row-gap: 0.25rem;
   }
 
   .agentkit-agent-interaction-head {
@@ -1785,7 +1799,7 @@
   .agentkit-activity-cluster-items {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    gap: 0.125rem;
+    gap: 0.25rem;
     margin-inline-start: 0.5rem;
     padding-inline-start: 1rem;
     border-inline-start: 1px solid var(--agentkit-border);
@@ -1801,13 +1815,13 @@
   .agentkit-activities-summary-content {
     display: grid;
     min-inline-size: 0;
-    gap: 0.125rem;
+    gap: 0.25rem;
   }
 
   .agentkit-activities-current {
     display: flex;
     align-items: center;
-    gap: 0.375rem;
+    gap: 0.5rem;
     min-inline-size: 0;
   }
 
@@ -1958,7 +1972,7 @@
 
   .agentkit-work-step-body {
     margin-inline-start: 0;
-    padding-block: 0 0.375rem;
+    padding-block: 0 0.5rem;
   }
 
   .agentkit-work-groups {
@@ -1983,7 +1997,7 @@
     min-inline-size: 0;
     flex: 0 1 auto;
     align-items: center;
-    gap: 0.375rem;
+    gap: 0.5rem;
     overflow: hidden;
     color: var(--agentkit-text-muted);
     white-space: nowrap;
@@ -1993,7 +2007,7 @@
     display: inline-flex;
     min-inline-size: 0;
     align-items: center;
-    gap: 0.375rem;
+    gap: 0.5rem;
     overflow: hidden;
   }
 
@@ -2007,7 +2021,7 @@
   }
 
   .agentkit-work-object[data-kind="url"] {
-    padding: 0 0.375rem;
+    padding: 0 0.5rem;
     border: 1px solid var(--agentkit-border);
     border-radius: 999px;
     font-size: 0.75rem;
@@ -2060,7 +2074,7 @@
   .agentkit-tasks-list {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    gap: 0.125rem;
+    gap: 0.25rem;
     padding-block-start: 0.25rem;
   }
 
@@ -2149,7 +2163,7 @@
     min-inline-size: 0;
     max-inline-size: 55%;
     align-items: center;
-    gap: 0.375rem;
+    gap: 0.5rem;
     margin-inline-start: auto;
     padding: 0;
     border: 0;
@@ -2172,7 +2186,7 @@
    line rather than squeezing the label. */
   .agentkit-activity-row {
     flex-wrap: wrap;
-    row-gap: 0.125rem;
+    row-gap: 0.25rem;
   }
 
   .agentkit-activity-row > .agentkit-activity-detail {
@@ -2220,7 +2234,7 @@
     overflow: auto;
     border: 1px solid var(--agentkit-border);
     border-radius: var(--radius-md, var(--radius));
-    padding: 0.5rem 0.625rem;
+    padding: 0.5rem 0.75rem;
     background: var(--agentkit-subtle);
     color: var(--agentkit-text);
     font: inherit;
@@ -2252,7 +2266,7 @@
 
   .agentkit-connection-request-copy,
   .agentkit-widget {
-    padding: 0.875rem;
+    padding: 1rem;
   }
 
   .agentkit-widget {
@@ -2276,7 +2290,7 @@
   .agentkit-connection-request-copy {
     display: flex;
     align-items: flex-start;
-    gap: 0.625rem;
+    gap: 0.75rem;
   }
 
   .agentkit-connection-request-copy > .agentkit-icon {
@@ -2294,28 +2308,28 @@
   .agentkit-connection-request-actions {
     display: flex;
     justify-content: flex-end;
-    gap: 0.375rem;
-    padding: 0.625rem 0.875rem;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
     border-block-start: 1px solid var(--agentkit-border);
   }
 
   .agentkit-connection-request > .agentkit-command-error {
     display: flex;
     align-items: center;
-    gap: 0.375rem;
+    gap: 0.5rem;
     margin: 0;
-    padding: 0 0.875rem 0.75rem;
+    padding: 0 1rem 0.75rem;
   }
 
   .agentkit-approval-options {
     display: grid;
-    gap: 0.375rem;
+    gap: 0.5rem;
   }
 
   .agentkit-approval-options button {
     display: grid;
-    gap: 0.125rem;
-    padding: 0.625rem 0.75rem;
+    gap: 0.25rem;
+    padding: 0.75rem;
     border: 1px solid var(--agentkit-border);
     border-radius: var(--radius-md, var(--radius));
     color: var(--agentkit-text);
@@ -2359,15 +2373,15 @@
   .agentkit-widget-actions {
     display: flex;
     justify-content: flex-end;
-    gap: 0.375rem;
-    padding: 0.625rem 0.875rem;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
     border-block-start: 1px solid var(--agentkit-border);
   }
 
   /* Full-bleed divider inside the padded widget card. */
   .agentkit-widget-actions {
-    margin-inline: -0.875rem;
-    margin-block-end: -0.875rem;
+    margin-inline: -1rem;
+    margin-block-end: -1rem;
   }
 
   /* Plain buttons only: a design-system Button would also pick up the
@@ -2405,7 +2419,7 @@
   .agentkit-file {
     display: inline-flex;
     align-items: center;
-    gap: 0.375rem;
+    gap: 0.5rem;
     color: var(--agentkit-text-muted-strong);
     text-decoration: none;
   }
@@ -2413,7 +2427,8 @@
   .agentkit-file--pasted-text {
     border: 1px solid var(--agentkit-border);
     border-radius: 999px;
-    padding: 0.125rem 0.5rem;
+    min-block-size: 1.5rem;
+    padding: 0 0.5rem;
     font-size: 0.75rem;
   }
 
@@ -2421,7 +2436,7 @@
   .agentkit-citations {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.375rem;
+    gap: 0.5rem;
     margin-block-start: 0.5rem;
     font-size: 0.75rem;
   }
@@ -2439,7 +2454,7 @@
   }
 
   .agentkit-reasoning {
-    margin-block: 0.375rem 0.75rem;
+    margin-block: 0.5rem 0.75rem;
     color: var(--agentkit-text-muted);
     font-size: 0.8125rem;
   }
@@ -2489,9 +2504,9 @@
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
     align-items: start;
-    gap: 0.125rem 0.5rem;
+    gap: 0.25rem 0.5rem;
     margin-block: var(--agentkit-run-segment-gap, 0.75rem);
-    padding: 0.75rem 0.875rem;
+    padding: 0.75rem 1rem;
     border: 1px solid
       color-mix(in srgb, var(--agentkit-danger) 32%, var(--agentkit-border));
     border-radius: var(--agentkit-radius-inner);
@@ -2538,7 +2553,7 @@
     min-inline-size: 0;
     overflow-wrap: anywhere;
     flex-wrap: wrap;
-    gap: 0.125rem 0.375rem;
+    gap: 0.25rem 0.5rem;
   }
 
   .agentkit-run-failure-copy strong {
@@ -2770,7 +2785,7 @@
      runs out of room; then the name truncates and its effort stays. */
   @container (max-width: 24rem) {
     .agentkit-composer [data-agent-composer-slot="toolbar"] {
-      --agentkit-composer-toolbar-control-gap: 0.125rem;
+      --agentkit-composer-toolbar-control-gap: 0;
     }
   }
 }

@@ -163,6 +163,7 @@ export {
 export {
   loadAwarenessRows,
   loadAwarenessRowsStrict,
+  loadAwarenessRowsWith,
 } from "./awareness-store.js";
 
 export {

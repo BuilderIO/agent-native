@@ -874,6 +874,35 @@ describe("run manager soft timeout", () => {
     );
   });
 
+  it("uses a carried soft-timeout deadline when a run continues elsewhere", async () => {
+    const events: AgentChatEvent[] = [];
+    const deadlineAt = Date.now() + 25;
+    const run = startRun(
+      "run-carried-soft-timeout",
+      "thread-carried-soft-timeout",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", resolve, { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 1_000, softTimeoutDeadlineAt: deadlineAt },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await vi.advanceTimersByTimeAsync(26);
+    await run.finalized;
+
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "auto_continue", reason: "run_timeout" }),
+    );
+    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+      "run-carried-soft-timeout",
+      "truncated",
+      expect.objectContaining({ terminalReason: "run_timeout" }),
+    );
+  });
+
   it("continues run recovery when a timeout fires after its request scope closes", async () => {
     vi.useRealTimers();
     const events: AgentChatEvent[] = [];
@@ -2184,6 +2213,49 @@ describe("run manager soft timeout", () => {
         "turn-original",
       );
     });
+  });
+
+  it("waits for the transactional admission check before starting the driver", async () => {
+    let releaseAdmission!: () => void;
+    let notifyAdmission!: () => void;
+    const admissionGate = new Promise<void>((resolve) => {
+      releaseAdmission = resolve;
+    });
+    const admissionStarted = new Promise<void>((resolve) => {
+      notifyAdmission = resolve;
+    });
+    const afterRunInsert = vi.fn(async () => {
+      notifyAdmission();
+      await admissionGate;
+    });
+    vi.mocked(insertRun).mockImplementationOnce(
+      async (_runId, _threadId, _turnId, options) => {
+        await options?.afterInsert?.({} as never);
+      },
+    );
+    const runFn = vi.fn(async () => {});
+    try {
+      const run = startRun(
+        "run-transactional-admission",
+        "thread-transactional-admission",
+        runFn,
+        undefined,
+        { softTimeoutMs: 0, executionLease: true, afterRunInsert },
+      );
+      await admissionStarted;
+      expect(runFn).not.toHaveBeenCalled();
+      releaseAdmission();
+      await run.finalized;
+      expect(insertRun).toHaveBeenCalledWith(
+        "run-transactional-admission",
+        "thread-transactional-admission",
+        undefined,
+        expect.objectContaining({ afterInsert: afterRunInsert }),
+      );
+      expect(runFn).toHaveBeenCalledOnce();
+    } finally {
+      releaseAdmission();
+    }
   });
 
   it("waits for the run row before persisting and flushing a tool start", async () => {
@@ -8214,6 +8286,57 @@ describe("run manager soft timeout", () => {
     expect(data).toContain('"seq":0');
     expect(data).toContain('"eventId":"run-reconnect-during-persistence:0"');
     expect(data).toContain('"text":"durable before publish"');
+
+    await run.finalized;
+    await reader.cancel();
+  });
+
+  it("delivers a persisted event when a reconnect lands before live publication", async () => {
+    let releasePersistence!: () => void;
+    let markWriteStarted!: () => void;
+    const writeStarted = new Promise<void>((resolve) => {
+      markWriteStarted = resolve;
+    });
+    const persistenceGate = new Promise<void>((resolve) => {
+      releasePersistence = resolve;
+    });
+    const persisted = Promise.withResolvers<void>();
+    vi.mocked(insertRunEvent).mockImplementationOnce(async () => {
+      markWriteStarted();
+      await persistenceGate;
+      persisted.resolve();
+    });
+
+    const run = startRun(
+      "run-reconnect-after-persist-before-publish",
+      "thread-reconnect-after-persist-before-publish",
+      async (send) => {
+        await send({ type: "text", text: "persisted before reconnect" });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    await writeStarted;
+
+    releasePersistence();
+    await persisted.promise;
+    expect(run.events).toEqual([]);
+
+    const reader = subscribeToRun(
+      "run-reconnect-after-persist-before-publish",
+      0,
+    )!.getReader();
+    const ping = await reader.read();
+    expect(new TextDecoder().decode(ping.value)).toContain(": ping ");
+    const delivered = await reader.read();
+
+    expect(delivered.done).toBe(false);
+    const data = new TextDecoder().decode(delivered.value);
+    expect(data).toContain('"seq":0');
+    expect(data).toContain(
+      '"eventId":"run-reconnect-after-persist-before-publish:0"',
+    );
+    expect(data).toContain('"text":"persisted before reconnect"');
 
     await run.finalized;
     await reader.cancel();
