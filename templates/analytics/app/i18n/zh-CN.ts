@@ -1300,13 +1300,23 @@ export default {
     drilldownHideSql: "隐藏 SQL",
     drilldownDownloadCsv: "下载 CSV",
     drilldownShowing: "显示 {{total}} 条记录中的 {{shown}} 条",
+    drilldownShowingLoaded:
+      "显示已加载的 {{loaded}} 条记录中的 {{shown}} 条；总数未知。",
+    drilldownCsvTruncatedUnknownTotal:
+      "无法确定导出是否完整；此文件包含已加载的 {{loaded}} 条记录中经过筛选的 {{exported}} 条。",
     drilldownCsvTruncated:
       "导出不完整：查询匹配 {{total}} 条记录，但仅加载了前 {{loaded}} 条；筛选后此文件包含 {{exported}} 条。",
     drilldownCountMismatch: "图表显示 {{chart}}，但匹配到 {{total}} 条记录",
     drilldownAggregateOnly:
       "此面板只有聚合行。与所点击数据点匹配的行已高亮显示。",
     drilldownNoRecords: "没有匹配的记录",
+    drilldownNoRecordsIncomplete:
+      "未加载任何记录。结果不完整，因此仍可能有匹配的记录。",
+    drilldownNoLoadedMatches:
+      "已加载的记录中没有匹配项，但完整结果可能包含未加载的记录。",
     drilldownLoadFailed: "无法加载记录",
+    drilldownOverByteCap:
+      "这些记录将读取超过 {{gib}} GiB 的数据，因此未加载。请缩小仪表板的筛选条件或日期范围后重试。",
     filterSeries: "Filter",
     chartTimeRangeOverride: "覆盖此图表的时间范围",
     chartTimeRangeInherit: "仪表板范围",

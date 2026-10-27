@@ -8906,6 +8906,64 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
   });
 
+  it("preserves verified organization-member assurance for action calls", async () => {
+    const actions = {
+      "whoami-scope": {
+        tool: {
+          description: "Return the request identity assurance",
+          parameters: { type: "object" as const, properties: {} },
+        },
+        readOnly: true,
+        run: async () => {
+          const { getRequestContext } =
+            await import("../server/request-context.js");
+          const context = getRequestContext();
+          return {
+            userEmail: context?.userEmail,
+            orgId: context?.orgId,
+            assurance: context?.a2aIdentityAssurance,
+          };
+        },
+      },
+    };
+    const memberConfig = {
+      ...config,
+      actions,
+      productionActions: actions,
+    };
+    const server = await createMCPServerForRequest(
+      memberConfig as any,
+      {
+        userEmail: "member@example.test",
+        identityAssurance: "org-member",
+        orgId: "org-from-domain",
+        orgDomain: "example.test",
+      },
+      { transport: "http", fullCatalog: true, fullSurface: true },
+    );
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "test-client", version: "1.0.0" });
+    await Promise.all([
+      client.connect(clientTransport),
+      server.connect(serverTransport),
+    ]);
+
+    try {
+      const result = await client.callTool({
+        name: "whoami-scope",
+        arguments: {},
+      });
+      expect(result.structuredContent).toEqual({
+        userEmail: "member@example.test",
+        orgId: "org-from-domain",
+        assurance: "org-member",
+      });
+    } finally {
+      await Promise.all([client.close(), server.close()]);
+    }
+  });
+
   it("runs `tools/call` with org scope resolved from the verified token email", async () => {
     resolveOrgIdForEmailMock.mockResolvedValue("org-from-email");
     const scopedConfig = {
@@ -9316,7 +9374,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       "url-only-ticket",
     );
     expect(out.result.structuredContent.openLink).toBeUndefined();
-    expect(out.result.structuredContent.url).toBeUndefined();
+    // The widget's open-link picker skips the placeholder.
+    expect(out.result.structuredContent.url).toBe("[hidden embed URL]");
   });
 
   it("uses a durable root open link for root-path embed starts", async () => {
@@ -9490,6 +9549,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
     expect(out.error).toBeUndefined();
     expect(out.result.structuredContent).toEqual({
+      startUrl: "[hidden embed URL]",
       targetPath: "/inbox",
       expiresAt: 1735689600,
     });
@@ -9536,6 +9596,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
     expect(out.error).toBeUndefined();
     expect(out.result.structuredContent).toEqual({
+      startUrl: "[hidden embed URL]",
       payload: "x".repeat(3000),
       receipt: { id: "operation-42", verified: true },
     });
@@ -9684,6 +9745,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       id: "record-42",
       status: "failed",
       message: "The request failed",
+      url: "[hidden embed URL]",
       steps: [
         {
           kind: "network",
@@ -9697,6 +9759,113 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.result.content[0].text).not.toContain("top-level-ticket");
     expect(out.result.content[0].text).not.toContain("nested-ticket");
     expect(out.result.content[0].text).not.toContain("private/thread/42");
+  });
+
+  it("reads a hidden value back as the placeholder under its key", async () => {
+    const path =
+      "objectives/tasks/Fix chat failing because the embed start URL is redacted.md";
+    const readConfig = {
+      ...config,
+      actions: {
+        "read-row": {
+          tool: { description: "Read a collection row" },
+          readOnly: true,
+          mcpApp: { structuredContent: true },
+          run: async () => ({
+            readback: {
+              title: "Row",
+              propertyValues: { path, status: "inbox" },
+            },
+          }),
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 163,
+        method: "tools/call",
+        params: { name: "read-row", arguments: {} },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: readConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    const readback = {
+      title: "Row",
+      propertyValues: { path: "[hidden embed URL]", status: "inbox" },
+    };
+    expect(out.result.structuredContent).toEqual({ readback });
+    expect(JSON.parse(out.result.content[0].text)).toEqual({ readback });
+    expect(JSON.stringify(out.result)).not.toMatch(/embed.?start/i);
+  });
+
+  it("writes the tool text from the next field when a message is hidden", async () => {
+    const saveConfig = {
+      ...config,
+      actions: {
+        "save-row": {
+          tool: { description: "Save a collection row" },
+          run: async () => ({
+            id: "row-1",
+            title: "Row",
+            message: "Saved the note about the embed start URL.",
+            url: "/rows/row-1",
+          }),
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 164,
+        method: "tools/call",
+        params: { name: "save-row", arguments: {} },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: saveConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    expect(out.result.content[0].text).toBe(
+      "Row (row-1) is ready. /rows/row-1",
+    );
+    expect(JSON.stringify(out.result)).not.toMatch(/embed.?start/i);
+  });
+
+  it("leaves out an open link whose URL is hidden, rather than pointing it at the placeholder", () => {
+    const start =
+      "https://mail.agent-native.com/_agent-native/embed/start?ticket=link-ticket";
+    const inbox = "https://mail.agent-native.com/inbox";
+    expect(
+      mcpBuildServer.mcpAppStructuredContent(
+        { ok: true },
+        { "agent-native/openLink": { webUrl: start, label: "Open" } },
+      ),
+    ).toEqual({ ok: true });
+    expect(
+      mcpBuildServer.mcpAppStructuredContent(
+        { ok: true },
+        {
+          "agent-native/openLink": {
+            webUrl: inbox,
+            desktopUrl: start,
+            label: "Open",
+          },
+        },
+      ),
+    ).toEqual({
+      ok: true,
+      openLink: { webUrl: inbox, label: "Open" },
+      url: inbox,
+    });
   });
 
   it("preserves ordinary ticket fields on unrelated read-only payloads", async () => {

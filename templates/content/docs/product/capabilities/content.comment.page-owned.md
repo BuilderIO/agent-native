@@ -3,7 +3,7 @@ record_type: "capability"
 spec_version: 2
 id: "content.comment.page-owned"
 name: "Comments"
-user_promise: "Threaded Comments stay owned by a Page while targeting one or more precise Blocks."
+user_promise: "Threaded Comments stay owned by a Page while pointing at precise Blocks, one Property value, or the whole Page."
 primary_user_job: "Give exact feedback that remains intelligible after the document changes or appears elsewhere."
 kind: "primitive"
 state: "approved_shape"
@@ -22,7 +22,7 @@ proof_requirements:
   ]
 evidence: []
 superseded_by: null
-last_reviewed: "2026-10-18"
+last_reviewed: "2026-10-23"
 ---
 
 # Comments
@@ -37,9 +37,10 @@ A reviewer comments on two Blocks in a brief, replies with a Page reference, and
 
 ## Product contract
 
-- A Comment thread is owned by one Page and may target one or several Blocks or ranges in its Blocks fields.
+- A Comment thread is owned by one Page and may target one or several Blocks or ranges in its Blocks fields. A thread with no quoted text and no Property is a page comment about the whole Page. It is in no Blocks-field tab, so it never counts toward a tab's open comments, and a new thread in a tab must quote text from it. Where Discussion groups or filters by tab, page comments sit with the page body, as Property comments do; every thread, page comments included, lives in the Page's Discussion (`content.discussion.page`).
 - A thread on a Collection row can instead target one Property value, such as Status or a date. It records the Property's name and the value it had when the thread started. Relations, rollups, and formulas are the exception: what they show depends on who is reading, so the thread records no value and each reader sees their own current one. Once a recorded value changes, the thread shows what it was; once the Property is deleted, the thread says so. It never moves itself onto the newer value. A Property thread has no quoted text, and replies follow the ordinary thread rules.
-- A Collection table shows how many open threads each row has, and marks each cell whose Property has an open thread. The row's count opens the row's Comments. A cell's marker opens a card on the cell with that Property's open threads, where they can be read, replied to, and resolved without leaving the table, and the card can open the row at any of them. Any cell also offers a Comment button to anyone who can comment on the row, which starts a thread on its Property in the same card; on touch screens, where nothing hovers, the button shows on a selected row and starts the thread in the row's peek, or on the row's full page when the Collection opens rows as pages. Counts include only rows the viewer can read, so a row they cannot open adds nothing. One Action reads every open thread in a Collection, with each thread's row and target, so an agent need not read row by row.
+- A Collection table shows how many open threads each row has, and marks each cell whose Property has an open thread. The row's count opens the row's Discussion. A cell's marker opens a card on the cell with that Property's open threads, where they can be read, replied to, and resolved without leaving the table, and the card can open the row at any of them. Any cell also offers a Comment button to anyone who can comment on the row, which starts a thread on its Property in the same card; on touch screens, where nothing hovers, the button shows on a selected row and starts the thread in the row's peek, or on the row's full page when the Collection opens rows as pages. Counts include only rows the viewer can read, so a row they cannot open adds nothing. One Action reads every open thread in a Collection, with each thread's row and target, so an agent need not read row by row.
+- In a Page's comment margin, a Block with two or more open threads folds into one stack. It shows the thread last clicked or rested on, else the one with the newest comment, with its reply count and the other threads' authors. Clicking the stack, or any highlight in the Block, opens it in place on that thread; Collapse or a click elsewhere folds it with that thread in front, and only one stack is open at a time. The thread opened on, or a new comment's draft, sits level with its text, with the threads before it above it when they fit and after it when they don't, so the stack's Collapse row stays in reach. When another thread comes to a folded stack's front, its card comes up over the one it replaces, and the stack keeps its size. A new comment on a folded stack opens on top of it without opening it, and once posted it is the stack's front. Each Blocks-field tab keeps its own stacks; Property threads, page comments, the Discussion panel, and the narrow-screen popover never stack.
 - Rich Comment bodies use the shared Blocks-field grammar; replies and mentions retain the same Page authority.
 - Anchors follow stable Block identity where possible and preserve historical target context after deletion rather than attaching to plausible new text.
 - Resolve, reopen, edit, reply, and notification operations use shared Actions and record attributable change.
@@ -57,7 +58,7 @@ A reviewer comments on two Blocks in a brief, replies with a Page reference, and
 
 ## Boundaries and non-goals
 
-- Comments are exact-material feedback, not the Page-wide Discussion timeline.
+- Filtering, sorting, and the page-comment composer belong to the Discussion (`content.discussion.page`); this record covers the threads themselves.
 - A comment does not create a Page, Collection membership, or independent share policy.
 - This capability does not define named Version access, although Comments retain Version context.
 
@@ -75,13 +76,21 @@ Given a Comment that mentions a teammate and Claude, when it is sent, both names
 
 Given a Collection row whose Status is Blocked, when a commenter starts a thread on Status from the row's peek, the thread reads "Status · Blocked" with no "Highlight unavailable" warning, and the Status cell in the table shows a marker that opens that thread. When Status later changes to Done, the thread reads "was Blocked"; when the Property is deleted, it reads "Status (removed)". A thread started on a Property that is not on the Page, or on a Property and quoted text at once, is rejected.
 
+### Read a busy paragraph
+
+Given a paragraph with five open threads and another with one, the margin shows one stack beside the first paragraph, with the newest thread in front and "+4 more", and the single thread's card unchanged beside its own paragraph. Resting the pointer on another highlight in the first paragraph brings its thread to the front. Clicking it opens the stack on that thread with a Collapse row above; Collapse folds it again with that thread still in front. Commenting on new text in that paragraph opens the composer on top of the folded stack, and the posted comment becomes its front.
+
+### Comment across paragraphs
+
+Given a selection from the end of one paragraph into the start of the next, when a commenter chooses Comment, the composer accepts the comment and posts one thread whose highlight covers the selected text in both paragraphs. After a reload the highlight still covers both parts, and where the thread's quote shows, it reads with a space where the paragraphs meet.
+
 ### Comment on a cell from the table
 
 Given a Collection table and a commenter who cannot edit its rows, when they hover a row's Due cell, a Comment button appears. Posting from the card it opens starts a thread that reads "Due · Nov 2, 2026" without opening the row, and the cell then shows a marker and the row's count goes up. Clicking the marker reopens the card on that thread, where it can be answered, and Open row opens the row's peek on it. When an editor resolves the thread from the same card, the marker and the count clear, and an editor who clicks the cell itself still edits its value.
 
 ### See open Comments from a Collection
 
-Given a Collection where one row has two open threads and a private row has one, a viewer who can read every row but the private one sees "2" beside the first row's name and no count on the private row. Clicking the count opens that row's peek with its Comments showing. Resolving the last open thread clears the count. An agent listing the Collection's Comments in one call gets the same threads, each naming its row and target, and nothing from the private row.
+Given a Collection where one row has two open threads and a private row has one, a viewer who can read every row but the private one sees "2" beside the first row's name and no count on the private row. Clicking the count opens that row's peek with its Discussion showing. Resolving the last open thread clears the count. An agent listing the Collection's Comments in one call gets the same threads, each naming its row and target, and nothing from the private row.
 
 ### Preserve a deleted anchor
 
@@ -136,6 +145,10 @@ remain required integration proof.
 A Comment AI proposal now renders in its source thread in place of the receipt reply, with Accept and Reject, and leaves the margin. `thread-suggestions.test.ts` covers thread grouping and receipt matching; `comment-reanchor.test.ts` covers moving the quote onto accepted text and declining to invent one across Markdown syntax. A live local run proved the full loop with a real model: comment, proposal in thread, an "actually, make it X" reply, a revised proposal superseding the first, acceptance with the thread still open and its highlight intact, then a separate resolve.
 
 A thread can target one Property value. `content-database-comments.db.test.ts` proves the recorded name and value survive a value change, a relation's linked rows are never recorded for other readers, invalid targets are rejected, per-row and per-Property open counts follow row access and resolution, and the Collection-wide Comment read returns only readable rows. `comment-property-target.test.ts` covers how each Property type reads as text. Rich-text Property values do not yet offer a Property target; they keep body-style quoted Comments.
+
+A Block with several open threads stacks in the margin. `comment-stacks.test.ts` covers how threads group by Block and which one fronts a stack; `CommentsSidebar.stacks.test.tsx` covers folding, hover, opening from the card or a highlight, Collapse and focus, one open stack, new comments on folded and open stacks, the opened thread sitting level with its text, and the front change; `CommentsSidebar.stack-layout.test.ts` covers where an open stack's cards go; `CommentStack.motion.test.ts` covers rapid front changes settling on the latest; `CommentsSidebar.stack-tabs.test.tsx` covers Blocks-field tabs and Property threads. A recorded local run walked the "Read a busy paragraph" story with fake data.
+
+A thread can quote text across Blocks. Its stored quote and anchor context join each Block's text with nothing between, as every anchor does, so the editor, reload, and the server's anchor following all read it the same way; the Comments margin and panel show a space where the highlight crosses a Block. `BubbleToolbar.test.tsx` covers quoting such a selection and `CommentsSidebar.layout.test.ts` covers how its quote reads. Outside the open Page, as in a Collection's Comments or over MCP, the quote reads joined.
 
 ## Proof plan
 

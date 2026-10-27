@@ -79,10 +79,10 @@ async function clickDesign(
 
 async function selectLayerRow(app: App, name: string) {
   await expandAllLayers(app.page);
-  const input = app.page.getByPlaceholder("Search layers...");
+  const input = app.page.getByPlaceholder("Search layers");
   if (!(await input.isVisible().catch(() => false))) {
     await app.page
-      .getByRole("button", { name: "Search layers...", exact: true })
+      .getByRole("button", { name: "Search layers", exact: true })
       .click();
     await expect(input).toBeVisible();
   }
@@ -285,7 +285,8 @@ test.describe("dragging back into a screen", () => {
     app,
   }) => {
     const id = await openFixture(app);
-    await clickDesign(app, 75, 160);
+    // Cmd+click reaches a nested layer; a plain click takes the top-level one.
+    await clickDesign(app, 75, 160, [MOD]);
     await expect.poll(() => app.selectedLayers()).toEqual(["Box A"]);
     await expect.poll(() => app.selectedLayers()).toEqual(["Box A"]);
     const before = await app.savedNodes(id);
@@ -367,8 +368,8 @@ test.describe("dragging out and back onto the same screen", () => {
     app,
   }) => {
     const id = await openFixture(app);
-    await clickDesign(app, 225, 160);
-    await clickDesign(app, 225, 160);
+    // Cmd+click reaches a nested layer; a plain click takes the top-level one.
+    await clickDesign(app, 225, 160, [MOD]);
     await expect.poll(() => app.selectedLayers()).toEqual(["Box B"]);
     const before = await app.savedNodes(id);
     const board = await app.savedNodes(id, "__board__.html");

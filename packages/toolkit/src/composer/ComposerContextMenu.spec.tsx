@@ -146,7 +146,8 @@ describe("connected composer menus", () => {
     await render(items, { addAttachment: vi.fn() });
     await openRoot();
     expect(document.querySelectorAll('[role="searchbox"]')).toHaveLength(0);
-    expect(row("Upload File").querySelector("svg")).not.toBeNull();
+    // Menus are text-only.
+    expect(row("Upload File").querySelector("svg")).toBeNull();
     expect(row("Add context").getAttribute("aria-haspopup")).toBe("menu");
     expect(menus()).toHaveLength(1);
     expect(menus()[0].classList.contains("w-64")).toBe(true);

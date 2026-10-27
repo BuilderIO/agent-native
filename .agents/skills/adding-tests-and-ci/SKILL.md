@@ -53,7 +53,21 @@ its junk patterns. This section covers where it lives and what runs it.
   file from disk (a skill, a fixture, a template) will not rerun when only
   that file changes. Import it, or teach `requiresFullCoreFastTests` in
   `scripts/ci-test-lanes.ts` about the path.
+- **Prefer an oracle to hand-picked expected values.** Sometimes a reference
+  decides the right answer: a public spec through a library (RFC 5545 via
+  `rrule`), the schema, or an older implementation. Then write a fast-check
+  property against it. `templates/calendar/server/lib/series-recurrence.oracle.spec.ts`
+  found three recurrence bugs that the example tests had passed over. Mark a
+  confirmed bug `it.fails` with an `// oracle finding:` comment. Never loosen
+  the property instead.
+- **A surviving mutant is a line no test can fail on.** `pnpm mutation:changed`
+  runs Stryker on the lines this branch added in `packages/core/src`. CI runs it
+  as `Mutation test changed Core lines`.
 - Never skip, disable, or quarantine a test to get green.
+  `guard:no-oracle-loosening` fails a branch that adds `.skip`/`.only`, test
+  retries, or `passWithNoTests`, or that removes more assertions from a test
+  file than it adds. The exception is when an `oracle-change: <reason>` comment
+  says what behaviour changed.
 
 ## Writing a browser E2E test
 

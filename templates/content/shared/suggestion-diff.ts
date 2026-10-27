@@ -483,6 +483,9 @@ function diffTokens(text: string): string[] {
 // is no longer than either, as diff-match-patch's semantic cleanup does.
 // Equalities between replacements stay, so separate word swaps remain
 // separately reviewable, and a line never folds, so blocks stay separate.
+// The exception is a line the merged run begins or ends with: that is one
+// insertion (text plus a new paragraph) Myers aligned across the existing
+// separator, and it would otherwise split whenever another hunk exists.
 type ChangeRun = {
   deleted: string;
   inserted: string;
@@ -518,12 +521,17 @@ function foldShortEqualities(parts: DiffPart[]): DiffPart[] {
     const right = segments[index + 1];
     if (typeof equality !== "string" || typeof left !== "object") continue;
     if (typeof right !== "object") continue;
+    const insertions = left.ownDeleted === 0 && right.ownDeleted === 0;
     const oneSided =
-      (left.ownDeleted === 0 && right.ownDeleted === 0) ||
-      (left.ownInserted === 0 && right.ownInserted === 0);
+      insertions || (left.ownInserted === 0 && right.ownInserted === 0);
+    const merged = insertions
+      ? left.inserted + equality + right.inserted
+      : left.deleted + equality + right.deleted;
     if (
       !oneSided ||
-      equality.includes("\n") ||
+      (equality.includes("\n") &&
+        !merged.startsWith(equality) &&
+        !merged.endsWith(equality)) ||
       equality.length > Math.max(left.ownDeleted, left.ownInserted) ||
       equality.length > Math.max(right.ownDeleted, right.ownInserted)
     )
@@ -814,16 +822,24 @@ function wholeWordReplacements(
     const removed = operation.before.changedText;
     const inserted = operation.after.changedText;
     const lexicalChange = /[\p{L}\p{M}\p{N}]/u.test(removed + inserted);
+    // An edge that is a line break, as when a whole paragraph is deleted,
+    // sits beside the neighboring block's word without splitting it.
+    const lineEdge = (edge: (text: string) => boolean) =>
+      edge(removed) && (!inserted || edge(inserted));
+    const widensBefore =
+      isWordBefore(before, from) && !lineEdge((text) => text.startsWith("\n"));
+    const widensAfter =
+      isWordAt(before, to) && !lineEdge((text) => text.endsWith("\n"));
     let group = { from, to, members: [operation] };
     if (
       lexicalChange &&
       !/<br\/?\s*>/u.test(removed + inserted) &&
       (removed || !/\s/u.test(inserted)) &&
-      (isWordBefore(before, from) || isWordAt(before, to))
+      (widensBefore || widensAfter)
     ) {
-      while (isWordBefore(before, group.from))
+      while (widensBefore && isWordBefore(before, group.from))
         group.from -= characterBefore(before, group.from).length;
-      while (isWordAt(before, group.to))
+      while (widensAfter && isWordAt(before, group.to))
         group.to += characterAt(before, group.to).length;
     }
     // Two edits inside one word are one review decision.
@@ -1022,6 +1038,7 @@ export function markdownSuggestionOperationsForReplacements(input: {
     const [{ from, to }] = replacements;
     if (
       operations.length > 1 &&
+      !before.slice(from, to).includes("\n") &&
       operations.every(
         (operation) =>
           operation.anchor.from >= from && operation.anchor.to <= to,

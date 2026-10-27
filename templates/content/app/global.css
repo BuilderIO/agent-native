@@ -920,6 +920,25 @@
   border: 1px solid hsl(var(--border));
 }
 
+/* A table nobody has resized sizes its columns to their content. */
+.content-editor table[data-column-sizing="content"] {
+  table-layout: auto;
+}
+
+/* The page lets any word break anywhere, which tells the browser every column
+   can shrink to a letter, so short columns would be squeezed. Words here break
+   only when they can't fit; links and code, which can be long, still may. */
+.content-editor
+  table[data-column-sizing]
+  :is(td, th, p, span, li, h1, h2, h3, h4, h5, h6, label) {
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.content-editor table[data-column-sizing] :is(td, th) :is(a, code) {
+  overflow-wrap: anywhere;
+}
+
 .content-editor table td,
 .content-editor table th {
   border-right: 1px solid hsl(var(--border));
@@ -2595,6 +2614,33 @@ audio.media-block__content {
   color: hsl(var(--suggestion));
 }
 
+/* A whole suggested line is drawn as the block it adds or removes, marked by
+   a bar at its edge rather than an underline across it. */
+.content-editor .suggestion-block-widget[data-suggestion-widget] {
+  border-radius: 0.2em;
+  box-shadow: inset 2px 0 hsl(var(--suggestion) / 0.55);
+}
+/* A list item keeps its list's layout, which places the marker. */
+.content-editor .suggestion-block-widget[data-suggestion-widget]:not(li) {
+  display: block;
+}
+.content-editor
+  .suggestion-block-widget.suggestion-highlight--active[data-suggestion-widget] {
+  box-shadow: inset 3px 0 hsl(var(--suggestion));
+}
+.content-editor .suggestion-block-widget[data-suggestion-widget] > * {
+  color: inherit;
+}
+.content-editor
+  .suggestion-delete-widget.suggestion-block-widget[data-suggestion-widget],
+.content-editor .suggestion-delete-block {
+  box-shadow: inset 2px 0 hsl(var(--muted-foreground) / 0.5);
+}
+.content-editor .suggestion-delete-block {
+  border-radius: 0.2em;
+  background: hsl(var(--muted) / 0.7);
+}
+
 .content-editor .suggestion-highlight--active {
   background: hsl(var(--suggestion) / 0.16);
   box-shadow: inset 0 -2px hsl(var(--suggestion));
@@ -2607,6 +2653,10 @@ audio.media-block__content {
 .content-editor .suggestion-delete-widget.suggestion-highlight--active {
   background: hsl(var(--muted));
   color: hsl(var(--foreground));
+  text-decoration: none;
+}
+.content-editor .suggestion-delete-block.suggestion-highlight--active {
+  background: hsl(var(--muted));
   text-decoration: none;
 }
 
@@ -2726,6 +2776,44 @@ audio.media-block__content {
 .comment-ai-resolved-mark:hover,
 .comment-ai-resolved-mark:focus-visible {
   animation-play-state: paused;
+}
+
+/* A folded stack's new front comes up out of the sheets, over the card it
+   replaces; that card is drawn first, so it stays underneath as it sinks back. */
+@keyframes comment-stack-front-in {
+  from {
+    transform: translateY(14px) scale(0.95);
+  }
+}
+@keyframes comment-stack-front-out {
+  to {
+    opacity: 0;
+    transform: translateY(6px) scale(0.97);
+  }
+}
+@keyframes comment-stack-front-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes comment-stack-front-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+.comment-stack-front-enter {
+  animation: comment-stack-front-in 220ms var(--ease-drawer);
+}
+.comment-stack-front-leave {
+  animation: comment-stack-front-out 220ms var(--ease-drawer) forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .comment-stack-front-enter {
+    animation: comment-stack-front-fade-in 120ms linear;
+  }
+  .comment-stack-front-leave {
+    animation: comment-stack-front-fade-out 120ms linear forwards;
+  }
 }
 
 .slash-command-menu {

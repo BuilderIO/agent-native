@@ -1,0 +1,16 @@
+---
+"@agent-native/core": patch
+"@agent-native/toolkit": patch
+---
+
+Rebuild the composer model picker and add a context ring:
+
+- A model catalog (`@agent-native/core/agent/model-catalog`) gives one entry per model, resolved from every engine's spelling of its id: short name, a two or three word descriptor, a one-line description, relative 1-5 cost, reasoning, and speed ratings, and a recommended rank. `describeModelForEngine` adds the engine's facts: effort levels the engine forwards, how the engine bills usage, and the context window when it is known. Models without an entry get engine facts only. The new `describe-models` action lets the agent explain models the same way.
+- The model picker lists only models from connected engines: Auto, then the catalog's fixed root list (`PICKER_ROOT_MODEL_IDS`: Opus 5.5, Sonnet 5.5, GPT-6.1 Sol, GPT-6 Luna) as far as the engines offer it, and a More models submenu for the rest. An engine offering none of those shows its own recommended ladder instead. Rows have number shortcuts 1-9 and a trailing check, and the focused row shows a card with its ratings, context window, and billing. Provider group headers and greyed unconnected models are gone.
+- Effort is a row below the model list that opens a submenu of the model's supported levels, with a check on the effective level and a Recommended badge on the provider's documented default. It is hidden when the model and engine support no levels, and when no model is connected.
+- Behavior change: when you have not chosen an effort, requests no longer send `high`. They send no effort, so each provider's own default applies (Anthropic documents `medium` for Claude Opus 5.5 and Haiku 5.5 and `high` for the other current Claude models). Adaptive-thinking Claude models keep thinking on. An explicit choice is sent exactly as before, and saved choices are kept. Picking the Recommended level goes back to sending none. `DEFAULT_REASONING_EFFORT` is now `"auto"` (unset).
+- For Anthropic keys, `describe-models` reads the provider's model list (`max_input_tokens`, `max_tokens`, `capabilities.effort`, `capabilities.thinking.types`), cached per credential for an hour, and the picker uses its context window and effort levels; a failed read falls back to the catalog with a typed `metadata.state: "unavailable"`.
+- `DropdownMenuShortcut` and the submenu chevron share one 16px trailing slot (new `DropdownMenuTrailing` for checks and icons), so shortcuts, checks, and chevrons end on the same edge in every menu. `Badge` gains `size="sm"`.
+- `ThreadContextRing` (`@agent-native/toolkit/app/context-xray`) shows the thread's context use against the selected model's window, turns amber at 80%, and opens a summary with a segmented bar, a color-coded breakdown behind its chevron, the distance to automatic compaction, and Compact now. Hosts pass it to the composer through the new `contextUsageSlot` prop. It renders nothing until the thread has a measured model call.
+- New `context-compact` action compacts a thread's unobserved messages into observational memory on demand, owner only, with typed failures. `context-compaction-get` reports the tokens left until the automatic post-turn pass.
+- `getKnownContextWindowForModel` and `resolveKnownContextWindow` return undefined for an unknown model instead of the 128K default.

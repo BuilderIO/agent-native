@@ -253,6 +253,44 @@ describe("AutoLayoutMatrix Flow interactions", () => {
     container.remove();
   });
 
+  it("commits Resize to fit as one change instead of one per axis", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const onChildSizingChange = vi.fn();
+    const onResizeToFit = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <AutoLayoutMatrix
+          value={{ ...value, display: "flex" }}
+          onDirectionChange={vi.fn()}
+          onWrapChange={vi.fn()}
+          onAlignmentChange={vi.fn()}
+          onGapChange={vi.fn()}
+          onPaddingChange={vi.fn()}
+          onPaddingLinkedChange={vi.fn()}
+          onChildSizingChange={onChildSizingChange}
+          onResizeToFit={onResizeToFit}
+        />,
+      );
+    });
+
+    const resize = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Resize to fit"]',
+    );
+    expect(resize).not.toBeNull();
+    await act(async () => {
+      resize?.click();
+    });
+
+    expect(onResizeToFit).toHaveBeenCalledTimes(1);
+    expect(onChildSizingChange).not.toHaveBeenCalled();
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
   it("maps A to auto gap on the focused gap field", async () => {
     const container = document.createElement("div");
     document.body.append(container);

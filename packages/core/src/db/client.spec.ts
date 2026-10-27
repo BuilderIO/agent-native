@@ -274,6 +274,21 @@ describe("db/client Postgres URL handling", () => {
     );
   });
 
+  it("uses only DATABASE_URL when an explicit database is required", async () => {
+    vi.stubEnv("APP_NAME", "plan");
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("PLAN_DATABASE_URL", "postgres://plan.example/db");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "postgres://netlify.example/db");
+    const { getDatabaseUrl } = await import("./client.js");
+
+    expect(getDatabaseUrl("", { explicitOnly: true })).toBe("");
+
+    vi.stubEnv("DATABASE_URL", "postgres://selected.example/db");
+    expect(getDatabaseUrl("", { explicitOnly: true })).toBe(
+      "postgres://selected.example/db",
+    );
+  });
+
   it("keeps app-specific database URLs ahead of Netlify's shared env", async () => {
     vi.stubEnv("APP_NAME", "plan");
     vi.stubEnv("DATABASE_URL", "");

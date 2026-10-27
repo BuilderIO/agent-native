@@ -651,6 +651,15 @@ const ORIGIN_MAIN_PANEL_REPLACEMENTS: readonly FingerprintedPanelReplacement[] =
         "ba2e861c2044e2fec669bcb15a878a675eaf426f51bcfe4db32ebd228d2050f0",
       sql: buildPanel("activation-funnel")!.sql,
     },
+    // The funnel before it joined visitors without analytics consent to
+    // their signup through the session.
+    {
+      id: "activation-funnel",
+      source: "first-party",
+      sha256:
+        "21df6cc1f26862531504c21fb5a558c87b58615118fcd0ad1913a971fa8387a6",
+      sql: buildPanel("activation-funnel")!.sql,
+    },
     {
       id: "retention-over-time",
       source: "bigquery",

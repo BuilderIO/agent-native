@@ -738,6 +738,7 @@ async function processIncomingMessage(
         orgId,
         apiKey: jevCredentials.apiKey,
         personalApiKey: jevCredentials.personalApiKey,
+        directApiKey: jevCredentials.directApiKey,
         builderAuth: jevCredentials.builderAuth,
         selfAppId: options.appId,
         workspaceAppsEnabled: Boolean(actions["call-agent"]),
@@ -1169,6 +1170,7 @@ async function processIncomingMessage(
     useHostedSoftTimeoutDefault: true,
     backgroundFunction: isInBackgroundFunctionRuntime(),
     executionLease: true,
+    recoverChunkBoundaries: true,
     ...(campaign
       ? {
           turnId: campaign.row.turnId,
@@ -1182,7 +1184,7 @@ async function processIncomingMessage(
     startRun(
       runId,
       threadId,
-      async (send, signal) => {
+      async (send, signal, control) => {
         await runWithRequestContext(
           {
             userEmail: ownerEmail,
@@ -1282,6 +1284,7 @@ async function processIncomingMessage(
                       send(event);
                     },
                     signal,
+                    beforeWrite: control.flushEvents,
                     threadId,
                     approvedToolCalls: incoming.approvedToolCalls,
                     maxOutputTokens: resolveMainChatMaxOutputTokens(
@@ -1297,6 +1300,7 @@ async function processIncomingMessage(
                     useHostedDefault: true,
                     backgroundFunction: isInBackgroundFunctionRuntime(),
                   },
+                  control,
                 );
                 return usage;
               } catch (error) {

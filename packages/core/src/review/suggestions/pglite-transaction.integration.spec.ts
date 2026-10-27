@@ -61,6 +61,8 @@ const originalOperation = {
 
 let previousDatabaseUrl: string | undefined;
 let independentClientsDirectory: string | undefined;
+const coordinatedApplies: string[][] = [];
+const appliedPlacements: unknown[] = [];
 
 beforeAll(async () => {
   previousDatabaseUrl = process.env.DATABASE_URL;
@@ -100,7 +102,13 @@ beforeAll(async () => {
     kind: "pglite-review-transaction-adapter",
     version: 1,
     validateProposal: ({ operations }) => operations,
-    apply: async ({ operations, resourceId: targetId, transaction }) => {
+    apply: async ({
+      operations,
+      resourceId: targetId,
+      transaction,
+      placement,
+    }) => {
+      appliedPlacements.push(placement);
       const after = operations[0]?.after as { markdown?: unknown } | undefined;
       if (typeof after?.markdown !== "string") {
         throw new Error("Test suggestion is missing after.markdown");
@@ -111,6 +119,30 @@ beforeAll(async () => {
         sql: "UPDATE pglite_review_resources SET body = ? WHERE id = ?",
         args: [after.markdown, targetId],
       });
+    },
+  });
+  // Writes the resource in its own transaction and runs the decision in it,
+  // recording which suggestions the decision applied.
+  registerSuggestionAdapter({
+    kind: "pglite-review-coordinated-adapter",
+    version: 1,
+    validateProposal: ({ operations }) => operations,
+    coordinateDecision: (context, run) =>
+      getDbExec().transaction!(async (tx) => {
+        await tx.execute({
+          sql: "UPDATE pglite_review_resources SET body = ? WHERE id = ?",
+          args: ["Coordinated write", context.resourceId],
+        });
+        const applied: string[] = [];
+        const result = await run(applied, { transaction: tx });
+        coordinatedApplies.push(applied);
+        return result;
+      }),
+    apply: async ({ suggestion, operations, coordination }) => {
+      const after = operations[0]?.after as { markdown?: unknown } | undefined;
+      if (after?.markdown === "__fail__")
+        throw new Error("Adapter rejected member");
+      (coordination as string[]).push(suggestion.id);
     },
   });
   __resetSuggestionTablesForTests();
@@ -353,10 +385,12 @@ describe.sequential("suggestion actions on native PGlite transactions", () => {
         idempotencyKey: "accept-native-pglite",
         observedBase: baseRevision,
         observedRevision: 1,
+        placement: { shownAt: "editor" },
       },
       { userEmail: ownerEmail },
     );
     expect(decided.decision.outcome).toBe("accepted");
+    expect(appliedPlacements.at(-1)).toEqual({ shownAt: "editor" });
 
     const [resource] = await getDb()
       .select({ body: resources.body })
@@ -507,10 +541,11 @@ describe.sequential("suggestion actions on native PGlite transactions", () => {
         (suggestion) => suggestion.proposalId === created.proposal.id,
       ),
     ).toBe(true);
-    const members = created.suggestions.map((suggestion) => ({
+    const members = created.suggestions.map((suggestion, index) => ({
       id: suggestion.id,
       observedRevision: suggestion.revision,
       observedBase: suggestion.baseRevision,
+      placement: { shownAt: index },
     }));
     const decisionKey = `proposal-decision-${globalThis.crypto.randomUUID()}`;
     await expect(
@@ -558,12 +593,22 @@ describe.sequential("suggestion actions on native PGlite transactions", () => {
       "accepted",
       "accepted",
     ]);
+    // Each member's placement reaches the adapter with that member.
+    expect(appliedPlacements.slice(-2)).toEqual([
+      { shownAt: 0 },
+      { shownAt: 1 },
+    ]);
+    // A retry from an editor that shows the words elsewhere is the same
+    // decision.
     const replay = await decideResourceSuggestionProposal.run(
       {
         proposalId: created.proposal.id,
         decision: "accepted",
         idempotencyKey: decisionKey,
-        members,
+        members: members.map((member) => ({
+          ...member,
+          placement: { shownAt: 9 },
+        })),
       },
       { userEmail: ownerEmail },
     );
@@ -641,6 +686,106 @@ describe.sequential("suggestion actions on native PGlite transactions", () => {
       (await listSuggestions(resourceType, resourceId))
         .filter((suggestion) => suggestion.proposalId === created.proposal.id)
         .map((suggestion) => suggestion.status),
+    ).toEqual(["pending", "pending"]);
+  });
+
+  async function coordinatedResource(body: string) {
+    const id = `coordinated-${globalThis.crypto.randomUUID()}`;
+    await getDbExec().execute({
+      sql: "INSERT INTO pglite_review_resources (id,body,owner_email,org_id,visibility) VALUES (?,?,?,?,?)",
+      args: [id, body, ownerEmail, null, "private"],
+    });
+    return id;
+  }
+
+  async function bodyOf(id: string) {
+    return (
+      await getDb()
+        .select({ body: resources.body })
+        .from(resources)
+        .where(eq(resources.id, id))
+    )[0]!.body;
+  }
+
+  it("decides in the adapter's transaction and replays without applying", async () => {
+    const id = await coordinatedResource("Before");
+    const suggestion = await insertSuggestion({
+      resourceType,
+      resourceId: id,
+      adapterKind: "pglite-review-coordinated-adapter",
+      adapterVersion: 1,
+      threadId: `review-thread-${id}`,
+      authorEmail: ownerEmail,
+      actorKind: "human",
+      baseRevision,
+      status: "pending",
+      summary: "Coordinated suggestion",
+      ownerEmail,
+      orgId: null,
+      visibility: "private",
+      metadata: null,
+      operations: [originalOperation],
+    });
+    const accept = () =>
+      decideResourceSuggestion.run(
+        {
+          id: suggestion.id,
+          decision: "accepted",
+          idempotencyKey: `coordinated-accept-${id}`,
+          observedBase: baseRevision,
+          observedRevision: 1,
+        },
+        { userEmail: ownerEmail },
+      );
+    coordinatedApplies.length = 0;
+
+    expect((await accept()).suggestion.status).toBe("accepted");
+    expect(await bodyOf(id)).toBe("Coordinated write");
+    // The replay commits the adapter's write too, but applies nothing.
+    expect((await accept()).decision.outcome).toBe("accepted");
+    expect(coordinatedApplies).toEqual([[suggestion.id], []]);
+  });
+
+  it("rolls the adapter's write back with a failed proposal decision", async () => {
+    const id = await coordinatedResource("Before");
+    const created = await createResourceSuggestionProposal.run(
+      {
+        resourceType,
+        resourceId: id,
+        adapterKind: "pglite-review-coordinated-adapter",
+        baseRevision,
+        summary: "Coordinated edits",
+        idempotencyKey: `coordinated-create-${id}`,
+        suggestions: [
+          { summary: "First", operations: [originalOperation] },
+          {
+            summary: "Second",
+            operations: [
+              { ...originalOperation, after: { markdown: "__fail__" } },
+            ],
+          },
+        ],
+      },
+      { userEmail: ownerEmail },
+    );
+    await expect(
+      decideResourceSuggestionProposal.run(
+        {
+          proposalId: created.proposal.id,
+          decision: "accepted",
+          idempotencyKey: `coordinated-decide-${id}`,
+          members: created.suggestions.map((member) => ({
+            id: member.id,
+            observedRevision: member.revision,
+            observedBase: member.baseRevision,
+          })),
+        },
+        { userEmail: ownerEmail },
+      ),
+    ).rejects.toThrow("Adapter rejected member");
+    expect(await bodyOf(id)).toBe("Before");
+    expect(
+      (await listSuggestions(resourceType, id)).map((member) => member.status),
     ).toEqual(["pending", "pending"]);
   });
 });

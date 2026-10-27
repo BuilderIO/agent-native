@@ -9,6 +9,8 @@ import {
   type SavedNode,
 } from "./rails";
 
+const MOD = process.platform === "darwin" ? "Meta" : "Control";
+
 test.use({ viewport: { width: 1600, height: 1000 } });
 
 function childrenOf(nodes: Map<string, SavedNode>, parent: string) {
@@ -39,7 +41,10 @@ test.describe("reparenting and reordering", () => {
   }) => {
     const id = await openFixture(app);
     const grab = await app.pagePoint(60, 625);
+    // Cmd+click reaches a nested layer; a plain click takes the top-level one.
+    await app.page.keyboard.down(MOD);
     await app.page.mouse.click(grab.x, grab.y);
+    await app.page.keyboard.up(MOD);
     await expect.poll(() => app.selectedLayers()).toEqual(["Chip 1"]);
     const before = await app.savedNodes(id);
     const nudge = await app.pagePoint(72, 625);

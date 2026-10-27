@@ -111,6 +111,86 @@
       "reason": "Move text-selection inspector coverage to the lighter inspector-1a shard while balancing the nine-minute core job.",
       "evidence": "PR #7841 inspector-4b job 118275980310: seven tests passed in 6m06s, but the nine-minute outer job was cancelled after successful cleanup.",
       "owner": "design-infra"
+    },
+    {
+      "action": "rename",
+      "from": {
+        "shard": "position-1a",
+        "file": "interaction-clipboard-duplicate.spec.ts",
+        "title": "cmd+C then cmd+V with nothing else selected pastes into the SAME parent, directly above the source, keeping name and size"
+      },
+      "to": {
+        "shard": "position-1a",
+        "file": "interaction-clipboard-duplicate.spec.ts",
+        "title": "cmd+C then cmd+V with the source still selected pastes into the SAME parent, directly above the source, keeping name and size"
+      },
+      "reason": "Paste now follows the new targeting rules: with nothing selected in overview it lands free on the board. The pinned same-parent case is the source-still-selected path, so the test no longer presses Escape first; its assertions are unchanged.",
+      "evidence": "Design canvas UX fixes branch (claude/design-canvas-ux-fixes-bf57a9): paste targeting rules in app/pages/design-editor/paste-placement.ts",
+      "owner": "design-infra"
+    },
+    {
+      "action": "rename",
+      "from": {
+        "shard": "inspector-2",
+        "file": "canvas-chords.spec.ts",
+        "title": "Keyboard paste preserves relative roots without an anchor across screens"
+      },
+      "to": {
+        "shard": "inspector-2",
+        "file": "canvas-chords.spec.ts",
+        "title": "Keyboard paste into another selected screen places a relative root without an anchor at its old offset"
+      },
+      "reason": "Paste now follows the new targeting rules: with nothing selected in overview it lands free on the board, so the cross-screen case selects the destination screen first; a paste into a frame places the copy free at its old offset on whole pixels instead of keeping the relative insets.",
+      "evidence": "Design canvas UX fixes branch (claude/design-canvas-ux-fixes-bf57a9): paste targeting rules in app/pages/design-editor/paste-placement.ts and whole-pixel geometry writes",
+      "owner": "design-infra"
+    },
+    {
+      "action": "rename",
+      "from": {
+        "shard": "inspector-3b",
+        "file": "canvas-chords.spec.ts",
+        "title": "Keyboard paste preserves non-pixel margins at exact visual coordinates"
+      },
+      "to": {
+        "shard": "inspector-3b",
+        "file": "canvas-chords.spec.ts",
+        "title": "Keyboard paste with nothing selected starts a board and centres legacy layers on the view"
+      },
+      "reason": "Paste now follows the new targeting rules: with nothing selected, layers without saved geometry land free on the board centred on the visible canvas in whole pixels. When no board has rendered their leading auto, % or em margins cannot be measured, so the paste zeroes them and pins left/top instead of refusing.",
+      "evidence": "Design canvas UX fixes branch (claude/design-canvas-ux-fixes-bf57a9): canvas paste placement in app/pages/design-editor/paste-placement.ts and margin neutralizing in setRootLayerPosition (app/pages/design-editor/clone-and-pen-edit.ts, covered by clone-and-pen-edit.spec.ts)",
+      "owner": "design-infra"
+    },
+    {
+      "action": "rename",
+      "from": {
+        "shard": "position-3",
+        "file": "canvas-chords.spec.ts",
+        "title": "Keyboard paste and replacement preserve board-layer geometry"
+      },
+      "to": {
+        "shard": "position-3",
+        "file": "canvas-chords.spec.ts",
+        "title": "Keyboard paste centres legacy layers on a rendered board and replacement keeps board geometry"
+      },
+      "reason": "Paste now follows the new targeting rules: with nothing selected, layers without saved geometry are centred on the visible canvas, 16px apart on whole pixels, instead of stacking from a fixed 24px inset. Margins are still measured and kept on a rendered board, and replacement geometry is unchanged.",
+      "evidence": "Design canvas UX fixes branch (claude/design-canvas-ux-fixes-bf57a9): canvas paste placement in app/pages/design-editor/paste-placement.ts and margin neutralizing in setRootLayerPosition (app/pages/design-editor/clone-and-pen-edit.ts, covered by clone-and-pen-edit.spec.ts)",
+      "owner": "design-infra"
+    },
+    {
+      "action": "rename",
+      "from": {
+        "shard": "inspector-3b",
+        "file": "canvas-chords.spec.ts",
+        "title": "Keyboard paste and replacement measure the active breakpoint preview"
+      },
+      "to": {
+        "shard": "inspector-3b",
+        "file": "canvas-chords.spec.ts",
+        "title": "Keyboard paste into a selected screen and replacement measure the active breakpoint preview"
+      },
+      "reason": "Paste now follows the new targeting rules: with nothing selected in overview the copy lands on the board, so the case selects the screen and the copy goes in at its top level at the corner it fits in; its 10% margin is asserted against the 480px breakpoint preview, and replacement still measures that preview.",
+      "evidence": "Design canvas UX fixes branch (claude/design-canvas-ux-fixes-bf57a9): canvas paste placement in app/pages/design-editor/paste-placement.ts and margin neutralizing in setRootLayerPosition (app/pages/design-editor/clone-and-pen-edit.ts, covered by clone-and-pen-edit.spec.ts)",
+      "owner": "design-infra"
     }
   ],
   "quarantine": []

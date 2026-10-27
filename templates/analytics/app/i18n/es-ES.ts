@@ -1396,6 +1396,10 @@ export default {
     drilldownHideSql: "Ocultar SQL",
     drilldownDownloadCsv: "Descargar CSV",
     drilldownShowing: "Mostrando {{shown}} de {{total}} registros",
+    drilldownShowingLoaded:
+      "Mostrando {{shown}} de {{loaded}} registros cargados; total desconocido.",
+    drilldownCsvTruncatedUnknownTotal:
+      "Se desconoce si la exportación está completa; este archivo incluye {{exported}} de {{loaded}} registros cargados después del filtrado.",
     drilldownCsvTruncated:
       "Exportación incompleta: la consulta encontró {{total}} registros, pero solo se cargaron los primeros {{loaded}}; este archivo incluye {{exported}} después de filtrar.",
     drilldownCountMismatch:
@@ -1403,7 +1407,13 @@ export default {
     drilldownAggregateOnly:
       "Este panel solo tiene filas agregadas. Las filas del punto seleccionado aparecen resaltadas.",
     drilldownNoRecords: "No hay registros coincidentes",
+    drilldownNoRecordsIncomplete:
+      "No se cargó ningún registro. El resultado está incompleto, así que puede haber registros coincidentes.",
+    drilldownNoLoadedMatches:
+      "Ningún registro cargado coincide, pero el resultado completo puede incluir registros que no se cargaron.",
     drilldownLoadFailed: "No se pudieron cargar los registros",
+    drilldownOverByteCap:
+      "Estos registros leerían más de {{gib}} GiB, así que no se cargaron. Acota los filtros o el intervalo de fechas del panel y vuelve a intentarlo.",
     filterSeries: "Filter",
     chartTimeRangeOverride: "Anular el rango de tiempo de este gráfico",
     chartTimeRangeInherit: "Rango del panel",

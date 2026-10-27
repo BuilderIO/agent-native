@@ -55,6 +55,7 @@ import {
   titleRenamedByAnotherWriter,
   suggestionPresentations,
   suggestionDecisionPreviewContent,
+  suggestionToDecideAfterSave,
   sameSuggestionAnchorIds,
   singleSuggestionDecisionLockAfterMismatch,
   suggestionAmendmentTargetIsResolved,
@@ -77,6 +78,7 @@ import {
   firstSelectableBreadcrumbMenuItemId,
 } from "./DocumentToolbar";
 import { runPageSaveIfSessionActive } from "./pageSession";
+import { suggestionOperationKey } from "./suggestions/draft-session";
 import {
   markdownSuggestionOperation,
   markdownSuggestionOperations,
@@ -379,6 +381,10 @@ describe("document editor layout", () => {
       id: "unrelated",
       operations: [{ ordinal: 1, kind: "insert_text", after: "W" }],
     } as never;
+    const sessionNeighbor = {
+      id: "session-neighbor",
+      operations: [{ ordinal: 2, kind: "insert_text", after: "X" }],
+    } as never;
     const saved = [optimistic, unrelated];
 
     expect(
@@ -397,6 +403,65 @@ describe("document editor layout", () => {
         new Set(["optimistic"]),
       ),
     ).toEqual(saved);
+    expect(
+      visibleSavedSuggestionsDuringDraftMaterialization(
+        [optimistic, sessionNeighbor],
+        [draft],
+        true,
+        new Set(["optimistic", "session-neighbor"]),
+      ),
+    ).toEqual([sessionNeighbor]);
+  });
+
+  it("decides the saved copy a Suggesting-mode save leaves", () => {
+    const typed = markdownSuggestionOperation(
+      "One.\n\nTwo.",
+      "One typed.\n\nTwo.",
+    );
+    if (!typed) throw new Error("expected a typed operation");
+    const created = { id: "created", revision: 1, operations: [typed] };
+    const amended = { id: "amended", revision: 2, operations: [] };
+    const persisted = new Map([
+      [suggestionOperationKey(typed), created],
+      ["amended-operation", amended],
+    ]) as never;
+    const unrelated = { id: "unrelated", revision: 4 } as never;
+
+    expect(
+      suggestionToDecideAfterSave(
+        persisted,
+        { durability: "draft", id: "draft", operations: [typed] } as never,
+        null,
+      ),
+    ).toBe(created);
+    expect(
+      suggestionToDecideAfterSave(
+        persisted,
+        { id: "amended", revision: 1, operations: [] } as never,
+        null,
+      ),
+    ).toBe(amended);
+    expect(suggestionToDecideAfterSave(persisted, unrelated, null)).toBe(
+      unrelated,
+    );
+    const editing = { id: "amended", revision: 1, operations: [] } as never;
+    const recorded = { id: "amended", revision: 2, baseRevision: "page-2" };
+    expect(
+      suggestionToDecideAfterSave(
+        new Map([["edited-operation", amended]]) as never,
+        editing,
+        recorded,
+      ),
+    ).toBe(amended);
+    // An earlier save already amended it, so this save had nothing to send.
+    expect(
+      suggestionToDecideAfterSave(new Map(), editing, recorded),
+    ).toMatchObject({ id: "amended", revision: 2, baseRevision: "page-2" });
+    // Another tab amended it since, so the card's copy is newer.
+    const refreshed = { id: "amended", revision: 3, operations: [] } as never;
+    expect(suggestionToDecideAfterSave(new Map(), refreshed, recorded)).toBe(
+      refreshed,
+    );
   });
 
   it("keeps review geometry stable after the final inline decision", () => {
@@ -507,7 +572,7 @@ describe("document editor layout", () => {
 
     expect(handler).toContain("sameSuggestionAnchorIds(current, next)");
     expect(visualEditor).toContain(
-      "applySuggestionsRef.current?.(!suggestingRef.current)",
+      "applySuggestionsRef.current?.(!suggestingRef.current, transaction)",
     );
   });
 
@@ -599,9 +664,11 @@ describe("document editor layout", () => {
       start,
       source.indexOf("const position = resolveAnchorPoint", start),
     );
-    expect(effect).toContain("new Set(specs.map((spec) => spec.suggestionId))");
     expect(effect).toMatch(
-      /const visibleSpecs = showCommentIndicators\s+\? specs\s+: specs\.filter\(\(spec\) => spec\.settling\)/,
+      /new Set\(\s+specs\s+\.filter\(\(spec\) => !isProvisionalDraftSpec\(spec\)\)\s+\.map\(\(spec\) => spec\.suggestionId\)/,
+    );
+    expect(effect).toMatch(
+      /const visibleSpecs = showCommentIndicators\s+\? specs\s+: specs\.filter\(\(spec\) => spec\.settling \|\| spec\.frozen\)/,
     );
     expect(effect).toContain("specs: visibleSpecs");
     expect(effect).toMatch(
@@ -1171,7 +1238,7 @@ describe("document editor layout", () => {
       /isSuggestionStaleActionError\(error\)[\s\S]*?setUnplaceableSuggestionRevisions[\s\S]*?setCommentsBrowseOpen\(true\)[\s\S]*?toast\.error[\s\S]*?t\("editor\.suggestionUnplaceable"\)/,
     );
     expect(source).toMatch(
-      /decideSuggestionProposal\.mutateAsync[\s\S]*?catch \(error\)[\s\S]*?isSuggestionStaleActionError\(error\)[\s\S]*?t\("editor\.proposalUnplaceable"\)[\s\S]*?decideSuggestion\.mutateAsync/,
+      /decideSuggestionProposal\.mutateAsync[\s\S]*?catch \(error\)[\s\S]*?isSuggestionStaleActionError\(error\)[\s\S]*?t\("editor\.proposalUnplaceable"\)[\s\S]*?void decideSingleSuggestion\(suggestion, decision\)/,
     );
   });
   it("dismisses mobile comment focus without closing Info", () => {
@@ -3011,9 +3078,11 @@ describe("document editor layout", () => {
 
     expect(activationStart).toBeGreaterThan(-1);
     expect(activation).toContain("setSelectedThreadId(threadId)");
+    // A comment on the whole page opens in the Discussion panel.
     expect(activation).toContain(
-      "setCommentsBrowseOpen(preserveBrowseContext)",
+      "setCommentsBrowseOpen(preserveBrowseContext || !!pageThread)",
     );
+    expect(activation).toContain("isPageCommentThread(thread)");
     expect(activation).toContain('setUtilityPanel("comments")');
     expect(source).toContain(
       'activateCommentThread(threadId, presentation === "history")',
@@ -3311,8 +3380,8 @@ describe("document editor layout", () => {
       "utf8",
     );
     const decision = source.slice(
-      source.indexOf("onDecideSuggestion={async"),
-      source.indexOf("canSuggest={canSuggest}"),
+      source.indexOf("const decideSingleSuggestion = async"),
+      source.indexOf("const renderCommentsSidebar"),
     );
 
     expect(decision).toContain("flushSuggestionDraft({ keepMode: true })");
@@ -3328,7 +3397,9 @@ describe("document editor layout", () => {
     expect(decision).toContain("continueSuggesting,");
     expect(decision).toContain("await refreshSuggestionDecisionDocument(");
     expect(decision).toContain('result.suggestion.status === "accepted"');
-    expect(decision).toContain("if (suggestion.id === editingSuggestionId)");
+    expect(decision).toContain(
+      "suggestionBaseRef.current?.existingSuggestion ?? null",
+    );
     expect(source).toContain("setDecisionRefreshFailed(true)");
     expect(source).toMatch(
       /if \(decisionRefreshInFlightRef\.current === decisionGeneration\)\s+return \{ status: "in-flight" \}/,
@@ -3343,7 +3414,7 @@ describe("document editor layout", () => {
       /decisionRefreshFailed &&\s+\(pendingSuggestionDecision \|\|\s+pendingProposalDecision\)/,
     );
     expect(source).toMatch(
-      /if \(!pendingSuggestionDecision\?\.continueSuggesting && !proposalMembers\)\s+return savedSuggestions/,
+      /if \(!pendingSuggestionDecision\?\.continueSuggesting && !proposalMembers\)\s+return queuedSuggestions/,
     );
     expect(decision).not.toContain("setIsSuggesting(false)");
   });
@@ -3404,7 +3475,7 @@ describe("document editor layout", () => {
       source.match(
         /setUtilityPanel\("comments"\);\s+setCommentsBrowseOpen\(true\)/g,
       ),
-    ).toHaveLength(2);
+    ).toHaveLength(3);
     expect(source).not.toMatch(
       /setIsSuggesting\(false\);[\s\S]{0,240}setUtilityPanel\("comments"\)/,
     );

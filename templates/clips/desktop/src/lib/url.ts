@@ -6,9 +6,15 @@ export function normalizeServerUrl(serverUrl: string): string {
 
 export const SERVER_URL_STORAGE_KEY = "clips:server-url";
 
+// The release workflow sets this for the Nightly channel only.
+const BUILD_DEFAULT_SERVER_URL =
+  import.meta.env.VITE_CLIPS_DEFAULT_SERVER_URL?.trim();
+
 export const DEFAULT_SERVER_URL = import.meta.env.DEV
   ? "http://localhost:8094"
-  : "https://clips.agent-native.com";
+  : normalizeServerUrl(
+      BUILD_DEFAULT_SERVER_URL || "https://clips.agent-native.com",
+    );
 
 export function loadStoredServerUrl(): string {
   return normalizeServerUrl(

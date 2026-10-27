@@ -64,7 +64,6 @@ import type {
   FileDeletionHistorySnapshot,
   GeometryHistoryEntry,
   GeometryHistorySelection,
-  SelectionHistoryEntry,
 } from "@/pages/design-editor/history";
 import {
   applyDuplicateStackHistoryChange,
@@ -230,7 +229,7 @@ export interface RedoArgs {
   geometryUndoStackRef: RefObject<GeometryHistoryEntry[]>;
   getFreshActiveContent: () => string;
   getScreenContent: (screenId: string) => string;
-  historyOrderRef: RefObject<(UndoRedoOrderKind | "selection")[]>;
+  historyOrderRef: RefObject<UndoRedoOrderKind[]>;
   id: string | undefined;
   isSynced: boolean;
   lastLocalContentRef: RefObject<string | null>;
@@ -313,7 +312,7 @@ export interface RedoArgs {
   recordLocalContentHistoryChangeFallback: (
     change: ContentHistoryChange,
   ) => void;
-  redoOrderRef: RefObject<(UndoRedoOrderKind | "selection")[]>;
+  redoOrderRef: RefObject<UndoRedoOrderKind[]>;
   replacePreviewContent: (
     nextContent: string,
     selector?: string | null,
@@ -324,8 +323,6 @@ export interface RedoArgs {
   ) => void;
   runtimeStructureInsertRevisionRef: RefObject<number>;
   runtimeStructureMoveRevisionRef: RefObject<number>;
-  selectionRedoStackRef: RefObject<SelectionHistoryEntry[]>;
-  selectionUndoStackRef: RefObject<SelectionHistoryEntry[]>;
   setContentRenderRevision: Dispatch<SetStateAction<number>>;
   setHoveredElement: Dispatch<SetStateAction<ElementInfo | null>>;
   setPendingLayerNameReplayRequest: Dispatch<
@@ -486,8 +483,6 @@ export function runRedo({
   restoreSelectionSnapshot,
   runtimeStructureInsertRevisionRef,
   runtimeStructureMoveRevisionRef,
-  selectionRedoStackRef,
-  selectionUndoStackRef,
   setContentRenderRevision,
   setHoveredElement,
   setPendingLayerNameReplayRequest,
@@ -1363,21 +1358,6 @@ export function runRedo({
     );
     return true;
   };
-  const redoSelection = () => {
-    if (!canUseOverviewHistory) return false;
-    const entry = selectionRedoStackRef.current.pop();
-    if (!entry) return false;
-    selectionUndoStackRef.current = [
-      ...selectionUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
-      entry,
-    ];
-    historyOrderRef.current = [
-      ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
-      "selection",
-    ];
-    restoreHistorySelection(entry.after);
-    return true;
-  };
   const redoFileCreation = () => {
     if (!canUseOverviewHistory) return false;
     const redoStack = fileCreationRedoStackRef.current;
@@ -1871,11 +1851,8 @@ export function runRedo({
     }
     return false;
   };
-  const redoByOrder = (preferred?: UndoRedoOrderKind | "selection") => {
+  const redoByOrder = (preferred?: UndoRedoOrderKind) => {
     if (preferred === "clipboard-paste") return redoClipboardPaste();
-    if (preferred === "selection") {
-      return tryRedoActions(redoSelection, redoContent, redoGeometry);
-    }
     if (preferred === "file-deleted") {
       return tryRedoActions(
         redoFileDeletion,
@@ -1930,18 +1907,7 @@ export function runRedo({
           redoOrderRef.current.push(preferred);
         break;
       }
-      if (didRedo) {
-        if (preferred !== "selection") {
-          while (
-            redoOrderRef.current[redoOrderRef.current.length - 1] ===
-            "selection"
-          ) {
-            redoOrderRef.current.pop();
-            selectionRedoStackRef.current.pop();
-          }
-        }
-        break;
-      }
+      if (didRedo) break;
       if (preferred === "clipboard-paste" || preferred === undefined) break;
     }
   } else {

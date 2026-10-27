@@ -9,7 +9,11 @@ vi.mock("@agent-native/toolkit/app/chat/agentkit-chat", async () => {
   return {
     GuidedQuestionFlow: (props: {
       className?: string;
-      questions?: Array<{ submitOnSelect?: boolean }>;
+      questions?: Array<{
+        submitOnSelect?: boolean;
+        includeExplore?: boolean;
+        includeDecide?: boolean;
+      }>;
     }) =>
       React.createElement("div", {
         "data-testid": "guided-question-flow",
@@ -17,6 +21,8 @@ vi.mock("@agent-native/toolkit/app/chat/agentkit-chat", async () => {
         "data-submit-on-select": String(
           props.questions?.[0]?.submitOnSelect ?? false,
         ),
+        "data-include-explore": String(props.questions?.[0]?.includeExplore),
+        "data-include-decide": String(props.questions?.[0]?.includeDecide),
       }),
   };
 });
@@ -60,5 +66,49 @@ describe("QuestionFlow", () => {
         .getByTestId("guided-question-flow")
         .getAttribute("data-submit-on-select"),
     ).toBe("true");
+  });
+
+  it("keeps the Explore and decide rows for agent payloads that omit the flags", () => {
+    render(
+      <QuestionFlow
+        questions={[
+          {
+            id: "tone",
+            type: "text-options",
+            question: "Which tone fits?",
+            options: [{ label: "Formal", value: "formal" }],
+          },
+        ]}
+        onSubmit={vi.fn()}
+        onSkip={vi.fn()}
+      />,
+    );
+
+    const flow = screen.getByTestId("guided-question-flow");
+    expect(flow.getAttribute("data-include-explore")).toBe("true");
+    expect(flow.getAttribute("data-include-decide")).toBe("true");
+  });
+
+  it("honors an explicit opt-out of the Explore and decide rows", () => {
+    render(
+      <QuestionFlow
+        questions={[
+          {
+            id: "tone",
+            type: "text-options",
+            question: "Which tone fits?",
+            options: [{ label: "Formal", value: "formal" }],
+            includeExplore: false,
+            includeDecide: false,
+          },
+        ]}
+        onSubmit={vi.fn()}
+        onSkip={vi.fn()}
+      />,
+    );
+
+    const flow = screen.getByTestId("guided-question-flow");
+    expect(flow.getAttribute("data-include-explore")).toBe("false");
+    expect(flow.getAttribute("data-include-decide")).toBe("false");
   });
 });
