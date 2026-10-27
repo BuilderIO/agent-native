@@ -453,7 +453,7 @@ describe("Calendar direct MCP writes", () => {
     expect(result.isError).not.toBe(true);
     expect(mocks.approval).toHaveBeenCalledOnce();
     // The form names who the invitation reaches, from the stored arguments.
-    expect(mocks.approval.mock.calls[0][0].params.message).toContain(
+    expect(mocks.approval.mock.lastCall?.[0].params.message).toContain(
       "guest@example.com",
     );
     expect(mocks.createEvent).toHaveBeenCalledOnce();

@@ -194,16 +194,16 @@ function sameToken(a: string, b: string): boolean {
 
 async function readerPreference(
   email: string | undefined,
-): Promise<ResolvedLocalizationPreference | undefined> {
+): Promise<ResolvedLocalizationPreference | null> {
   return email
     ? normalizeLocalizationPreference(
         await getUserSetting(email, LOCALIZATION_SETTING_KEY),
       )
-    : undefined;
+    : null;
 }
 
 function readerTimeZone(
-  preference: ResolvedLocalizationPreference | undefined,
+  preference: ResolvedLocalizationPreference | null,
 ): string | undefined {
   const zone = preference?.timezone;
   return zone && zone !== "system" ? zone : undefined;
@@ -232,7 +232,7 @@ async function buildView(
   reader: McpApprovalReader,
   entry: ActionEntry | undefined,
   messages: McpApprovalMessages,
-  preference: ResolvedLocalizationPreference | undefined,
+  preference: ResolvedLocalizationPreference | null,
 ): Promise<McpApprovalView> {
   const now = Date.now();
   const state = mcpApprovalViewState(record, now);
@@ -558,7 +558,7 @@ export async function handleMcpApprovalRequest(
   const session = await getBrowserCookieSession(event);
   if (!session?.email) {
     const { locale } = resolveLocaleFromRequest({
-      acceptLanguage: getRequestHeader(event, "accept-language"),
+      acceptLanguage: getRequestHeader(event, "accept-language") ?? null,
     });
     const messages = mcpApprovalMessagesForLocale(locale);
     // Custom auth without the cookie-only hook never has a session here, so
@@ -596,7 +596,7 @@ export async function handleMcpApprovalRequest(
   const preference = await readerPreference(owner.email);
   const { locale } = resolveLocaleFromRequest({
     preference,
-    acceptLanguage: getRequestHeader(event, "accept-language"),
+    acceptLanguage: getRequestHeader(event, "accept-language") ?? null,
   });
   const messages = mcpApprovalMessagesForLocale(locale);
   const entry = record ? app.actions[record.actionName] : undefined;

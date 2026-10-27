@@ -85,6 +85,9 @@ const EMBEDDED_BEARER = new RegExp(
 );
 // A line that opens another field, such as `Body: visible`.
 const FIELD_LINE = String.raw`[ \t]*["']?[\w-]+["']?[ \t]*:(?:\s|$)`;
+// A field left empty takes its value from the next line, unless that line
+// opens another field.
+const VALUE_START = String.raw`(?:[ \t]*\r?\n\s*(?!${FIELD_LINE}))?[ \t]*`;
 // What can follow a scheme as its credentials (RFC 7235): one token alone on
 // its line, quoted or not, or `name=value` parameters.
 const CREDENTIAL_LINE = String.raw`[ \t]*(?:["']?[^\s"']+["']?[ \t]*(?:\r?\n|$)|[\w!#$%&*+.^|~-]+[ \t]*=)`;
@@ -94,11 +97,11 @@ const CREDENTIAL_LINE = String.raw`[ \t]*(?:["']?[^\s"']+["']?[ \t]*(?:\r?\n|$)|
 // another field, is content a reviewer must still see. Only that one line is
 // taken, so a quote it leaves open can't carry the match into later fields.
 const EMBEDDED_AUTHORIZATION = new RegExp(
-  String.raw`(["']?\b(?:proxy-)?authorization\b["']?\s*[:=]\s*)(["']?[^\s"']+["']?[ \t]*\r?\n\s*(?!${FIELD_LINE})(?=${CREDENTIAL_LINE})[^\r\n]+|${QUOTED_CREDENTIAL}|[^\r\n]+)`,
+  String.raw`(["']?\b(?:proxy-)?authorization\b["']?\s*[:=]${VALUE_START})(["']?[^\s"']+["']?[ \t]*\r?\n\s*(?!${FIELD_LINE})(?=${CREDENTIAL_LINE})[^\r\n]+|${QUOTED_CREDENTIAL}|[^\r\n]+)`,
   "gi",
 );
 const EMBEDDED_CREDENTIAL_FIELD = new RegExp(
-  String.raw`(["']?\b${SENSITIVE_KEY.source}\b["']?\s*[:=]\s*)((?:bearer\s+)?(?:${QUOTED_CREDENTIAL}|[^"'\s,}]+))`,
+  String.raw`(["']?\b${SENSITIVE_KEY.source}\b["']?\s*[:=]${VALUE_START})((?:bearer\s+)?(?:${QUOTED_CREDENTIAL}|[^"'\s,}]+))`,
   "gi",
 );
 

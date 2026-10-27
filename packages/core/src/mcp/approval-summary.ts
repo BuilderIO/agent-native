@@ -68,7 +68,7 @@ export function humanizeIdentifier(identifier: string): string {
     .replace(/[-_.]+/g, " ")
     .trim()
     .toLowerCase();
-  return words ? words[0].toUpperCase() + words.slice(1) : identifier;
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : identifier;
 }
 
 /**
@@ -80,7 +80,7 @@ function addressParts(text: string): string[] {
   let part = "";
   let quoted = false;
   for (let i = 0; i < text.length; i++) {
-    const char = text[i];
+    const char = text.charAt(i);
     if (quoted && char === "\\") {
       part += text.slice(i, i + 2);
       i++;
