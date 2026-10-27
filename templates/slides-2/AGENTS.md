@@ -54,7 +54,7 @@ Create and edit slide decks through Agent-Native chat and the visual editor, bac
 | `search-svgl-logos`, `import-svgl-logo` | Find a logo and import it as a slide asset. |
 | `export-pptx` | Export a deck as PowerPoint. |
 
-## External inline actions
+## Actions for outside agents
 
 | Action | Purpose |
 | --- | --- |

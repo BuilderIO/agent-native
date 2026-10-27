@@ -287,16 +287,18 @@ describe("Calendar direct MCP writes", () => {
     expect(askAgent).not.toHaveBeenCalled();
   });
 
-  it("refuses bulk draft deletion when the MCP host cannot request approval", async () => {
+  it("sends bulk draft deletion to the review page when the MCP host cannot request approval", async () => {
     const client = await clientFor(ownerEmail, undefined, false);
     const result = await client.callTool({
       name: "manage-event-draft",
       arguments: { action: "delete-all" },
     });
     expect(result.isError).toBe(true);
-    expect(JSON.stringify(result.content)).toContain("actionApproval");
     expect(JSON.stringify(result.content)).toContain(
-      "did not declare the required capability",
+      "manage-event-draft needs the user's approval before it runs",
+    );
+    expect(JSON.stringify(result.content)).toContain(
+      "/_agent-native/mcp/approvals/",
     );
     expect(mocks.deleteDrafts).not.toHaveBeenCalled();
   });
@@ -338,6 +340,10 @@ describe("Calendar direct MCP writes", () => {
       expect.objectContaining({
         type: "text",
         text: expect.stringContaining("Deleted 3 calendar event draft(s)"),
+      }),
+      expect.objectContaining({
+        type: "text",
+        text: expect.stringContaining("Open calendar"),
       }),
     ]);
   });

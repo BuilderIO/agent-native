@@ -72,7 +72,7 @@ Before building common workspace or agent UI, read `agent-native-toolkit`; read 
 
 Search with `rg --hidden --follow`; read the exact linked guide before deeper work.
 
-## External inline actions
+## Actions for outside agents
 
 | Action | Purpose |
 | --- | --- |

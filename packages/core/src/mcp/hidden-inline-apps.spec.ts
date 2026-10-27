@@ -16,7 +16,10 @@ vi.mock("../server/better-auth-instance.js", async (importOriginal) => ({
   >()),
   getAuthSecret: () => "fake-test-only-inline-app-approval-secret",
 }));
-vi.mock("./approval-store.js", () => ({
+vi.mock("./approval-store.js", async () => ({
+  ...(await vi.importActual<typeof import("./approval-store.js")>(
+    "./approval-store.js",
+  )),
   createMcpApprovalGrant: vi.fn(async () => {}),
   consumeMcpApprovalGrant: vi.fn(async () => true),
 }));
@@ -37,7 +40,7 @@ beforeAll(async () => {
 
 describe("explicit connector inline apps", () => {
   it(
-    "advertises each inline tool and its UI resource on the default production catalog",
+    "advertises each inline tool on the default production catalog, with a UI resource only for a scoped widget target",
     async () => {
       vi.stubEnv("AGENT_MODE", "production");
       vi.stubEnv("AGENT_PROD_CODE_EXECUTION", "off");
@@ -47,17 +50,29 @@ describe("explicit connector inline apps", () => {
           Object.keys(INLINE_ACTIONS).sort(),
         );
         for (const app of apps) {
-          const { tools } = await listAdvertised(app.surfaces[0]!.config, {
+          const config = app.surfaces[0]!.config;
+          const { tools } = await listAdvertised(config, {
             fullCatalog: false,
             fullSurface: false,
             inlineMcpApps: true,
           });
+          // An embedApp card needs an embed session scoped to one target, so
+          // it is offered only when the app declares a widget target for it.
+          const widgetTargets = config.directoryProfile?.widgetTargets ?? {};
           catalogs[app.appId] = INLINE_ACTIONS[app.appId]!.map((name) => {
             const tool = tools.find((candidate) => candidate.name === name);
             expect(tool, `${app.appId}/${name}`).toBeDefined();
-            expect(tool?._meta?.ui, `${app.appId}/${name}`).toMatchObject({
-              resourceUri: expect.stringMatching(/^ui:\/\//),
-            });
+            if (Object.hasOwn(widgetTargets, name)) {
+              expect(tool?._meta?.ui, `${app.appId}/${name}`).toMatchObject({
+                resourceUri: expect.stringMatching(/^ui:\/\//),
+              });
+            } else {
+              expect(
+                (tool?._meta?.ui as { resourceUri?: unknown } | undefined)
+                  ?.resourceUri,
+                `${app.appId}/${name}`,
+              ).toBeUndefined();
+            }
             return tool;
           });
         }
@@ -73,7 +88,7 @@ describe("explicit connector inline apps", () => {
     ["content", "share-local-file-document", { id: "local-file-test" }],
     ["design", "export-coding-handoff", { id: "design-test" }],
   ] as const)(
-    "refuses %s/%s without host approval before running it",
+    "sends %s/%s to the review page without host approval before running it",
     async (appId, name, args) => {
       const app = apps.find((candidate) => candidate.appId === appId)!;
       const config = app.surfaces[0]!.config;
@@ -101,9 +116,11 @@ describe("explicit connector inline apps", () => {
         ]);
         const result = await client.callTool({ name, arguments: args });
         expect(result.isError).toBe(true);
-        expect(JSON.stringify(result.content)).toContain("actionApproval");
         expect(JSON.stringify(result.content)).toContain(
-          "did not declare the required capability",
+          `${name} needs the user's approval before it runs`,
+        );
+        expect(JSON.stringify(result.content)).toContain(
+          "/_agent-native/mcp/approvals/",
         );
         expect(run).not.toHaveBeenCalled();
       } finally {
