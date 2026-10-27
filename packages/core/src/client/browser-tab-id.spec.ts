@@ -165,6 +165,31 @@ describe("browser tab id", () => {
     expect(window.sessionStorage.getItem(STORAGE_KEY)).toBeNull();
   });
 
+  it("keeps a known mount id when returning from an unresolved route", async () => {
+    (
+      window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }
+    ).__AGENT_NATIVE_CONFIG__ = {
+      workspaceRuntime: true,
+      workspaceAppMountPaths: ["/mail", "/calendar"],
+    };
+    window.history.replaceState({}, "", "/mail/inbox");
+    stubNavigationType("navigate");
+
+    const { getBrowserTabId, isBrowserTabIdForCurrentDocument } =
+      await loadTabId();
+    const mailId = getBrowserTabId();
+
+    window.history.replaceState({}, "", "/opening");
+    const pendingId = getBrowserTabId();
+    expect(pendingId).not.toBe(mailId);
+    expect(isBrowserTabIdForCurrentDocument(pendingId)).toBe(true);
+
+    window.history.replaceState({}, "", "/mail/inbox");
+    expect(getBrowserTabId()).toBe(mailId);
+    expect(isBrowserTabIdForCurrentDocument(pendingId)).toBe(false);
+    expect(window.sessionStorage.getItem(`${STORAGE_KEY}:/mail`)).toBe(mailId);
+  });
+
   it("keeps the pending id when a stored mount id could be reused on reload", async () => {
     (
       window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }

@@ -58,6 +58,12 @@ export function getBrowserTabId(): string {
     return getOrCreatePendingId();
   }
 
+  const cached = browserTabIdState.ids.get(key);
+  if (cached) {
+    browserTabIdState.pendingId = null;
+    return cached;
+  }
+
   const pending = browserTabIdState.pendingId;
   if (pending) {
     browserTabIdState.pendingId = null;
@@ -70,9 +76,6 @@ export function getBrowserTabId(): string {
     browserTabIdState.ids.set(key, pending);
     return pending;
   }
-
-  const cached = browserTabIdState.ids.get(key);
-  if (cached) return cached;
 
   let existing: string | null;
   try {
