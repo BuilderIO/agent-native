@@ -1,7 +1,7 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { and, eq, or, sql } from "drizzle-orm";
+import { and, eq, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -234,12 +234,16 @@ export default defineAction({
             recordingAccess,
           ),
           lifecycleFilter,
-          userEmail
-            ? or(
-                eq(schema.recordings.enableComments, true),
-                ownerEmailMatches(schema.recordings.ownerEmail, userEmail),
-              )
-            : eq(schema.recordings.enableComments, true),
+          or(
+            ownerFilter,
+            and(
+              eq(schema.recordings.enableComments, true),
+              or(
+                isNull(schema.recordings.password),
+                eq(schema.recordings.password, ""),
+              ),
+            ),
+          ),
           sql`lower(${schema.recordingComments.content}) LIKE ${pattern} ESCAPE '\\'`,
         ),
       )

@@ -21,6 +21,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { agentRecordingAccessFilter } from "../server/lib/agent-recording-access.js";
+import { assertCommentAccess } from "../server/lib/comment-access.js";
 import { loadMeetingRecordingContent } from "../server/lib/meeting-recording-access.js";
 import { listingThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
 import { recordingExpiryQuery } from "../server/lib/recording-expiry-query.js";
@@ -140,6 +141,7 @@ async function fetchTranscript(recordingId: string) {
 }
 
 async function fetchComments(recordingId: string) {
+  await assertCommentAccess(recordingId, "read");
   const db = getDb();
   const rows = await db
     .select()

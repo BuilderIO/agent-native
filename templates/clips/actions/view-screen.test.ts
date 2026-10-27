@@ -6,6 +6,7 @@ const context = vi.hoisted(() => ({
   email: "viewer@example.com",
   role: null as "owner" | "editor" | null,
   childReads: vi.fn(),
+  accessFailure: null as Error | null,
 }));
 
 const TABLES = vi.hoisted(() => ({
@@ -151,10 +152,26 @@ vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: () => context.email,
 }));
 
-vi.mock("@agent-native/core/sharing", () => ({
-  accessFilter: () => ({ kind: "access-filter" }),
-  resolveAccess: async () => (context.role ? { role: context.role } : null),
-}));
+vi.mock("@agent-native/core/sharing", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/sharing")>();
+  return {
+    ForbiddenError: actual.ForbiddenError,
+    accessFilter: () => ({ kind: "access-filter" }),
+    resolveAccess: async () => (context.role ? { role: context.role } : null),
+    assertAccess: async () => {
+      if (context.accessFailure) throw context.accessFailure;
+      return {
+        resource: context.recording,
+        role:
+          context.email.toLowerCase() ===
+          String(context.recording?.ownerEmail).toLowerCase()
+            ? "owner"
+            : (context.role ?? "viewer"),
+      };
+    },
+  };
+});
 
 vi.mock("drizzle-orm", () => ({
   and: (...conditions: unknown[]) => ({ kind: "and", conditions }),
@@ -216,6 +233,8 @@ vi.mock("./lib/transcript-preview.js", () => ({
   buildTranscriptPreview: () => null,
 }));
 
+import { ForbiddenError } from "@agent-native/core/sharing";
+
 import action from "./view-screen";
 
 describe("view-screen library view on a cold start", () => {
@@ -272,6 +291,7 @@ describe("view-screen recording access", () => {
     context.navigation.view = "recording";
     context.email = "viewer@example.com";
     context.role = null;
+    context.accessFailure = null;
     recording = {
       id: "rec-test",
       title: "Fake recording",
@@ -282,6 +302,34 @@ describe("view-screen recording access", () => {
       expiresAt: null,
     };
     context.recording = recording;
+  });
+
+  it.each([null, "editor"] as const)(
+    "refuses protected comment context for nonowner role %s",
+    async (role) => {
+      context.role = role;
+      recording.password = "fake-stored-password-hash";
+      await expect(action.run({})).rejects.toBeInstanceOf(ForbiddenError);
+      expect(context.childReads).not.toHaveBeenCalledWith("recordingComments");
+    },
+  );
+
+  it.each([true, false])(
+    "keeps protected owner history with comments enabled=%s",
+    async (enableComments) => {
+      context.email = "OWNER@example.com";
+      recording.password = "fake-stored-password-hash";
+      recording.enableComments = enableComments;
+      const screen = JSON.parse(await action.run({}));
+      expect(screen.comments[0].content).toBe("Fake discussion");
+    },
+  );
+
+  it("preserves an unreadable comment-access failure", async () => {
+    const cause = new Error("fake membership read failure");
+    context.accessFailure = cause;
+    await expect(action.run({})).rejects.toBe(cause);
+    expect(context.childReads).not.toHaveBeenCalledWith("recordingComments");
   });
 
   it.each([
