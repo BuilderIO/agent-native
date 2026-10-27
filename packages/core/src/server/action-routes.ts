@@ -895,11 +895,12 @@ function mountActionRoutesInternal(
           preferBrowserSession: true,
         });
         const presentedCapability = resolvedEmbedCapabilityScope(embedSession);
-        const authCapability =
+        const usesIndependentVisualEditAccount =
           presentedCapability?.startsWith("capability:visual-edit:") &&
-          !allowsWebMcpCapability(name, entry, presentedCapability)
-            ? undefined
-            : presentedCapability;
+          !allowsWebMcpCapability(name, entry, presentedCapability);
+        const authCapability = usesIndependentVisualEditAccount
+          ? undefined
+          : presentedCapability;
         const embedded =
           Boolean(embedSession) || hasEmbedSessionRequestMarker(event);
         const directoryWidgetWriteCapability =
@@ -1200,6 +1201,26 @@ function mountActionRoutesInternal(
             } else {
               throw error;
             }
+          }
+        }
+        // An embed credential cannot replace account identity or browser-origin proof.
+        if (usesIndependentVisualEditAccount && entry.requiresAuth !== false) {
+          const browserSession = await getBrowserCookieSession(event);
+          if (
+            !browserSession?.email ||
+            browserSession.email.trim().toLowerCase() !==
+              userEmail?.trim().toLowerCase()
+          ) {
+            throw createError({
+              statusCode: 401,
+              statusMessage: "Unauthorized",
+            });
+          }
+          if (!hasSameOriginBrowserEvidence(event)) {
+            throw createError({
+              statusCode: 403,
+              statusMessage: "Same-origin request required",
+            });
           }
         }
         if (

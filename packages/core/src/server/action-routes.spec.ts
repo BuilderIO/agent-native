@@ -3,7 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { A2AIdentityVerificationUnavailableError } from "../a2a/server.js";
+import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import type { AuthSession } from "./auth.js";
 import {
   getRequestContext,
   getRequestRunContext,
@@ -20,7 +22,7 @@ const mockGetSession = vi.hoisted(() =>
   vi.fn(async (..._args: unknown[]) => null),
 );
 const mockGetBrowserCookieSession = vi.hoisted(() =>
-  vi.fn(async (..._args: unknown[]) => null),
+  vi.fn(async (..._args: unknown[]): Promise<AuthSession | null> => null),
 );
 const mockGetOrgContext = vi.hoisted(() =>
   vi.fn(async () => ({ orgId: undefined })),
@@ -223,6 +225,7 @@ describe("mountActionRoutes", () => {
     mockHasUiActionCapability.mockReset();
     mockHasUiActionCapability.mockReturnValue(false);
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
   });
 
   it("rejects cached frontend clients before an action can read or write", async () => {
@@ -2106,6 +2109,11 @@ describe("mountActionRoutes", () => {
       const { getRequestAuthCapability } = await import("./request-context.js");
       const mounted: Array<{ path: string; handler: any }> = [];
       const visualScope = "capability:visual-edit:design:design_1";
+      if (browserUser) {
+        mockGetBrowserCookieSession.mockResolvedValue({
+          email: browserUser,
+        });
+      }
       const resolvedScope =
         scope === "card"
           ? createMcpDirectoryWidgetReadCapability({
@@ -2159,6 +2167,10 @@ describe("mountActionRoutes", () => {
         _method: "POST",
         _headers: {
           "x-agent-native-frontend": "1",
+          "sec-fetch-site": "same-origin",
+          ...(resolvedScope
+            ? { "x-agent-native-embed-target": "/visual-edit/design_1" }
+            : {}),
           ...(browserUser
             ? { cookie: "better-auth.session_token=browser-session" }
             : {}),
@@ -2189,6 +2201,227 @@ describe("mountActionRoutes", () => {
       expect(run).not.toHaveBeenCalled();
     },
   );
+
+  it.each(
+    [
+      { label: "cookie user saves its file", withToken: false },
+      { label: "mixed request saves only as cookie user" },
+      {
+        label: "cookie user cannot save link owner's file",
+        withToken: false,
+        file: "link",
+        expected: 403,
+      },
+      {
+        label: "mixed request cannot inherit link owner's file",
+        file: "link",
+        expected: 403,
+      },
+      {
+        label: "capability alone is not an account",
+        cookie: "none",
+        expected: 401,
+      },
+      {
+        label: "invalid cookie cannot fall back to another identity",
+        cookie: "invalid",
+        resolver: "api",
+        expected: 401,
+      },
+      {
+        label: "conflicting link identity cannot replace cookie user",
+        resolver: "link",
+        file: "link",
+        expected: 401,
+      },
+      {
+        label: "mixed account save requires origin evidence",
+        origin: "absent",
+        expected: 403,
+      },
+      {
+        label: "mixed account save refuses cross-site origin",
+        origin: "cross",
+        expected: 403,
+      },
+      {
+        label: "cookie-only UI refuses cross-site origin",
+        withToken: false,
+        policy: "ui",
+        origin: "cross",
+        expected: 403,
+      },
+      {
+        label: "cookie-only UI uses normal proof",
+        withToken: false,
+        policy: "ui",
+      },
+      {
+        label: "mixed credentials do not become UI proof",
+        policy: "ui",
+        expected: 403,
+      },
+      {
+        label: "cookie-only approval uses normal proof",
+        withToken: false,
+        policy: "approval",
+      },
+      {
+        label: "mixed credentials cannot skip approval",
+        policy: "approval",
+        expected: 409,
+      },
+    ].map((row) => ({
+      withToken: true,
+      cookie: "valid",
+      resolver: "cookie",
+      file: "browser",
+      origin: "same",
+      policy: "data",
+      expected: 200,
+      ...row,
+    })),
+  )("pins independent Visual Edit account access: $label", async (testCase) => {
+    const embedSessions =
+      await vi.importActual<typeof import("./embed-session.js")>(
+        "./embed-session.js",
+      );
+    const db = await import("../db/client.js");
+    const { defineAction } = await import("../action.js");
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const browserUser = "browser@example.com";
+    const linkOwner = "link-owner@example.com";
+    const apiUser = "api-user@example.com";
+    mockResolveOrgScopeForEmail.mockResolvedValue({ status: "unknown" });
+    vi.spyOn(embedSessions.embedSessionsStore, "ready").mockResolvedValue(
+      undefined,
+    );
+    vi.spyOn(db, "getDbExec").mockReturnValue({
+      execute: vi.fn(async () => ({ rows: [], rowsAffected: 0 })),
+    } as any);
+    mockResolveEmbedSessionFromRequest.mockImplementation(
+      embedSessions.resolveEmbedSessionFromRequest as any,
+    );
+    mockHasPresentedEmbedSessionCredential.mockImplementation(
+      embedSessions.hasPresentedEmbedSessionCredential,
+    );
+    mockHasUiActionCapability.mockReturnValue(true);
+    mockGetBrowserCookieSession.mockImplementation(async (event: any) =>
+      event._headers.cookie === "account-session=valid"
+        ? { email: browserUser }
+        : null,
+    );
+    const owners: Record<string, string> = {
+      browser: browserUser,
+      link: linkOwner,
+      api: apiUser,
+    };
+    let authorizedCapability: string | undefined;
+    const authorize = vi.fn((args: { id: string }, ctx?: ActionRunContext) => {
+      authorizedCapability = getRequestContext()?.authCapability;
+      return owners[args.id] === ctx?.userEmail;
+    });
+    const run = vi.fn(async (args: { id: string }, ctx?: ActionRunContext) => ({
+      id: args.id,
+      userEmail: ctx?.userEmail ?? null,
+      authCapability: getRequestContext()?.authCapability ?? null,
+    }));
+    const action = defineAction({
+      description: "Write a fixture file with its owner's account access.",
+      schema: z.object({ id: z.string() }),
+      outputSchema: z.object({
+        id: z.string(),
+        userEmail: z.string().nullable(),
+        authCapability: z.string().nullable(),
+      }),
+      requiresAuth: true,
+      uiOnly: testCase.policy === "ui",
+      needsApproval: testCase.policy === "approval",
+      authorize,
+      run,
+    });
+    const mounted: Array<{ path: string; handler: any }> = [];
+    mountActionRoutes(
+      { use: (path: string, handler: any) => mounted.push({ path, handler }) },
+      { "update-file": action },
+      {
+        getOwnerFromEvent: async (event) => {
+          if (testCase.resolver === "api") return apiUser;
+          if (testCase.resolver === "link") return linkOwner;
+          const session = await mockGetBrowserCookieSession(event);
+          if (!session?.email)
+            throw Object.assign(new Error("Unauthorized"), { statusCode: 401 });
+          return session.email;
+        },
+      },
+    );
+    const token = embedSessions.signEmbedSessionToken({
+      ownerEmail: linkOwner,
+      audienceHost: "app.example.com",
+      targetPath: "/visual-edit/design_1",
+      scope: "capability:visual-edit:design:design_1",
+    });
+    const event: any = {
+      _method: "POST",
+      _headers: {
+        host: "app.example.com",
+        "x-agent-native-frontend": "1",
+        ...(testCase.cookie === "none"
+          ? {}
+          : { cookie: `account-session=${testCase.cookie}` }),
+        ...(testCase.withToken
+          ? {
+              authorization: `Bearer ${token}`,
+              "x-agent-native-embed-target": "/visual-edit/design_1",
+            }
+          : {}),
+        ...(testCase.origin === "absent"
+          ? {}
+          : {
+              origin:
+                testCase.origin === "same"
+                  ? "https://app.example.com"
+                  : "https://chatgpt.com",
+              "sec-fetch-site":
+                testCase.origin === "same" ? "same-origin" : "cross-site",
+            }),
+      },
+      req: {
+        method: "POST",
+        url: "https://app.example.com/_agent-native/actions/update-file",
+        json: async () => ({
+          id: testCase.resolver === "api" ? "api" : testCase.file,
+        }),
+      },
+    };
+    event.req.headers = new Headers(event._headers);
+    event.url = new URL(event.req.url);
+    let result: unknown;
+    try {
+      result = await mounted[0]!.handler(event);
+    } catch (error) {
+      expect(error).toMatchObject({ statusCode: testCase.expected });
+      expect(run).not.toHaveBeenCalled();
+      expect(authorize).not.toHaveBeenCalled();
+      return;
+    }
+    expect(event._status ?? 200).toBe(testCase.expected);
+    if (testCase.expected === 200) {
+      expect(result).toEqual({
+        id: "browser",
+        userEmail: browserUser,
+        authCapability: null,
+      });
+      expect(run).toHaveBeenCalledOnce();
+    } else {
+      expect(run).not.toHaveBeenCalled();
+    }
+    if (testCase.policy === "data") {
+      expect(authorize).toHaveBeenCalledOnce();
+      expect(authorize.mock.calls[0]?.[1]?.userEmail).toBe(browserUser);
+      expect(authorizedCapability).toBeUndefined();
+    }
+  });
 
   it("refuses update-file from a capability-only client that ignores its persistence hint", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
