@@ -9,12 +9,18 @@ export type AuditActorKind = "agent" | "human" | "service" | "system";
  * accepted MCP elicitation response; the server cannot verify who responded.
  * `mcp-review` records the owner's approval of an MCP call on its review page,
  * signed in as the user the call ran for.
+ * `cli-prompt` records a yes at the `pnpm action` terminal prompt, as the CLI
+ * reports it; the server never sees the prompt. `cli-flag` records a
+ * `pnpm action` call rerun with `--approved`, which whoever ran the command
+ * added. Nothing checks that a person approved either one.
  */
 export type AuditApproval =
   | "agent-chat"
   | "a2a-review"
   | "mcp-client-accepted"
-  | "mcp-review";
+  | "mcp-review"
+  | "cli-prompt"
+  | "cli-flag";
 
 /** Verified identity provenance for a request authenticated through A2A. */
 export type AuditIdentityAssurance = "user" | "organization" | "org-member";

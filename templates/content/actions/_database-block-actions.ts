@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
+import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
 import {
   BLOCKS_FIELD_BLOCK_KINDS,
   BLOCKS_FIELD_OPERATION_CAPABILITIES,
@@ -488,6 +489,7 @@ async function writeMarkdown(
   markdown: string,
   now: string,
 ) {
+  assertNoNewlySharedVideoIds(loaded.markdown, markdown);
   if (loaded.storageTarget === "document_body") {
     const legacy = await lockLegacyBodyWrites(db, [target.rowDocumentId], {
       operation: "mutate-content-database-block",
