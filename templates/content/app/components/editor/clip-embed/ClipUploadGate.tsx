@@ -195,14 +195,14 @@ export function useClipFileUpload(input: {
   const startPick = useCallback(
     async (pick: PickedClipFile) => {
       const { file, uploadKey, blockId } = pick;
-      if (!documentId || busyRef.current) return;
+      if (!documentId || busyRef.current) return false;
       if (!isContentClipUploadMimeType(file.type)) {
         toast.error(t("clipEmbed.uploadType"));
-        return;
+        return true;
       }
       if (file.size === 0) {
         toast.error(t("clipEmbed.uploadFailed"));
-        return;
+        return true;
       }
       busyRef.current = true;
       setBusy(true);
@@ -236,14 +236,14 @@ export function useClipFileUpload(input: {
             break;
           }
           await new Promise((resolve) => setTimeout(resolve, wait));
-          if (heldRef.current !== heldBefore) return;
+          if (heldRef.current !== heldBefore) return false;
           answer = await attempt();
         }
         if (heldRef.current !== heldBefore) {
           if ("result" in answer && answer.result.status === "started") {
             void cancelClipUpload(answer.result);
           }
-          return;
+          return false;
         }
         // Clips may still make an upload a start got no answer for, or is
         // still starting, so the file keeps its key for Try again.
@@ -256,7 +256,7 @@ export function useClipFileUpload(input: {
                 ? uploadErrorKey(answer.failure)
                 : "clipEmbed.uploadFailed",
           });
-          return;
+          return false;
         }
         const { result } = answer;
         if (
@@ -289,8 +289,10 @@ export function useClipFileUpload(input: {
             }),
           );
         }
+        return result.status === "too_large";
       } catch (error) {
         toast.error(t(uploadErrorKey(error)));
+        return true;
       } finally {
         busyRef.current = false;
         setBusy(false);
@@ -299,6 +301,10 @@ export function useClipFileUpload(input: {
     [documentId, hold, startUpload, t],
   );
 
+  /**
+   * Resolves true when the file was refused and nothing of it is kept: no
+   * upload started, and no file waits for storage or Try again.
+   */
   const start = useCallback(
     (file: File) => startPick(newPick(file)),
     [startPick],

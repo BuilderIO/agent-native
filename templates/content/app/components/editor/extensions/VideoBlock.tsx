@@ -302,8 +302,26 @@ export function VideoBlock({
       tr.setMeta(EDITOR_NON_EDIT_META, true).setMeta("addToHistory", false);
       return true;
     });
-    void startClipUpload(file);
-  }, [editor, getPos, startClipUpload, uploadId, uploadsGoToClips]);
+    void startClipUpload(file).then((refused) => {
+      // The block was made for the file, so it goes when the file is refused,
+      // as a dropped file of a type Clips doesn't take gets no block. One the
+      // editor has since given a video keeps it.
+      if (!refused || editor.isDestroyed) return;
+      const pos = typeof getPos === "function" ? getPos() : undefined;
+      const current =
+        typeof pos === "number" ? editor.state.doc.nodeAt(pos) : null;
+      if (current?.type.name === node.type.name && !current.attrs.src) {
+        deleteNodeFromMenu({ editor, getPos, node: current });
+      }
+    });
+  }, [
+    editor,
+    getPos,
+    node.type.name,
+    startClipUpload,
+    uploadId,
+    uploadsGoToClips,
+  ]);
 
   function handleComment() {
     if (!options.onVideoComment) return;

@@ -129,6 +129,7 @@ let root: Root;
 let container: HTMLDivElement;
 let inserted: Array<{ range: unknown; content: unknown }>;
 let setAttrs: Array<Record<string, unknown>>;
+let deleted: unknown[];
 let swapSucceeds: boolean;
 
 function render(attrs: Record<string, unknown> = {}) {
@@ -142,9 +143,26 @@ function render(attrs: Record<string, unknown> = {}) {
           inserted.push({ range, content });
           return chain;
         },
+        command: (fn: (props: { tr: { setMeta: () => void } }) => boolean) => {
+          fn({ tr: { setMeta: () => undefined } });
+          return chain;
+        },
+        deleteRange: (range: unknown) => {
+          deleted.push(range);
+          return chain;
+        },
         run: () => swapSucceeds,
       };
       return chain;
+    },
+    state: {
+      doc: {
+        nodeAt: () => ({
+          type: { name: "video" },
+          attrs: { src: null },
+          nodeSize: 1,
+        }),
+      },
     },
     commands: {
       command: (
@@ -258,6 +276,7 @@ beforeEach(() => {
   for (const show of Object.values(state.toast)) show.mockReset();
   inserted = [];
   setAttrs = [];
+  deleted = [];
   swapSucceeds = true;
   container = document.createElement("div");
   document.body.append(container);
@@ -1121,6 +1140,32 @@ describe("the Upload tab while Clips in pages is on", () => {
     expect(state.beginClipUpload).toHaveBeenCalledWith(
       expect.objectContaining({ file }),
     );
+    expect(deleted).toEqual([]);
+  });
+
+  it("removes the block made for a dropped video Clips refuses as too large", async () => {
+    state.callAction.mockResolvedValue({
+      status: "too_large",
+      maxBytes: 2_000_000,
+    });
+    holdDroppedClipFile("video-upload-3", video("huge.mp4"));
+    await act(async () => render({ uploadId: "video-upload-3" }));
+
+    expect(state.toast.error).toHaveBeenCalledWith(
+      expect.stringContaining("clipEmbed.uploadTooLarge"),
+    );
+    expect(deleted).toEqual([{ from: 4, to: 5 }]);
+  });
+
+  it("removes the block made for an empty dropped video without asking Clips", async () => {
+    holdDroppedClipFile(
+      "video-upload-4",
+      new File([], "empty.mp4", { type: "video/mp4" }),
+    );
+    await act(async () => render({ uploadId: "video-upload-4" }));
+
+    expect(state.callAction).not.toHaveBeenCalled();
+    expect(deleted).toEqual([{ from: 4, to: 5 }]);
   });
 });
 
