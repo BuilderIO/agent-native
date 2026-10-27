@@ -867,6 +867,74 @@ describe("Mail decision automation routing", () => {
     });
   });
 
+  it("keeps completed Priority batches when a sibling batch times out", async () => {
+    const messages = Array.from({ length: 200 }, (_, index) => ({
+      ...email,
+      id: `priority-${index}`,
+      threadId: `priority-thread-${index}`,
+    }));
+    const controller = new AbortController();
+    let signalSecondStarted = () => {};
+    const secondStarted = new Promise<void>((resolve) => {
+      signalSecondStarted = resolve;
+    });
+    let callIndex = 0;
+    mocks.decide.mockImplementation(
+      ({
+        questions,
+        options,
+      }: {
+        questions: Array<{ name: string; type: string }>;
+        options: { signal?: AbortSignal };
+      }) => {
+        callIndex += 1;
+        if (callIndex === 1 || callIndex === 3) {
+          return Promise.resolve(
+            decisionResult(questions, {
+              probabilities: questions.map(() => 0.9),
+            }),
+          );
+        }
+        return new Promise((_resolve, reject) => {
+          const signal = options.signal;
+          if (!signal) throw new Error("Expected the Priority deadline.");
+          signal.addEventListener("abort", () => reject(signal.reason), {
+            once: true,
+          });
+          signalSecondStarted();
+        });
+      },
+    );
+
+    const evaluation = previewAutomationPriority(
+      messages,
+      "owner@example.com",
+      "Prioritize work messages.",
+      controller.signal,
+    );
+    await secondStarted;
+    controller.abort(new DOMException("Timed out", "TimeoutError"));
+    const result = await evaluation;
+
+    expect(result.scores.size).toBe(100);
+    expect(result).toMatchObject({ evaluatedCount: 100, failedCount: 100 });
+    expect(result.failures).toHaveLength(100);
+    expect(result.failures).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          emailId: "priority-50",
+          reason: "timeout",
+          retryable: true,
+        }),
+        expect.objectContaining({
+          emailId: "priority-150",
+          reason: "timeout",
+          retryable: true,
+        }),
+      ]),
+    );
+  });
+
   it("keeps decision batches within the provider question limit", async () => {
     const emails = Array.from({ length: 20 }, (_, index) => ({
       ...email,

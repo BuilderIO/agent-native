@@ -1608,15 +1608,51 @@ export async function previewAutomationPriority(
     failedCount: decisionBatches.oversized.length,
     model: null,
   };
+  const addTimedOutFailures = (batches: AiPriorityEmail[][]) => {
+    for (const batch of batches) {
+      result.failures.push(
+        ...batch.map((email) => ({
+          emailId: email.id,
+          ...(email.accountEmail ? { accountEmail: email.accountEmail } : {}),
+          reason: "timeout" as const,
+          retryable: true,
+        })),
+      );
+      result.failedCount += batch.length;
+    }
+  };
   for (let index = 0; index < decisionBatches.batches.length; index += 3) {
-    signal?.throwIfAborted();
     const wave = decisionBatches.batches.slice(index, index + 3);
-    const results = await Promise.all(
-      wave.map((batch) =>
-        evaluatePriorityBatch(batch, instruction, ownerEmail, signal),
-      ),
+    if (signal?.aborted) {
+      addTimedOutFailures(decisionBatches.batches.slice(index));
+      break;
+    }
+    const outcomes = await Promise.all(
+      wave.map(async (batch) => {
+        try {
+          return {
+            batch,
+            result: await evaluatePriorityBatch(
+              batch,
+              instruction,
+              ownerEmail,
+              signal,
+            ),
+          };
+        } catch (error) {
+          return { batch, error };
+        }
+      }),
     );
-    for (const batchResult of results) {
+    for (const outcome of outcomes) {
+      if ("error" in outcome) {
+        if (!signal?.aborted || outcome.error !== signal.reason) {
+          throw outcome.error;
+        }
+        addTimedOutFailures([outcome.batch]);
+        continue;
+      }
+      const batchResult = outcome.result;
       for (const [key, score] of batchResult.scores) {
         result.scores.set(key, score);
       }
@@ -1624,6 +1660,10 @@ export async function previewAutomationPriority(
       result.evaluatedCount += batchResult.evaluatedCount;
       result.failedCount += batchResult.failedCount;
       result.model ??= batchResult.model;
+    }
+    if (signal?.aborted) {
+      addTimedOutFailures(decisionBatches.batches.slice(index + wave.length));
+      break;
     }
   }
   return result;

@@ -1817,9 +1817,29 @@ async function ensureEvaluations(
   claimId: string,
   state: BackfillState,
 ): Promise<boolean> {
+  const terminalFailureKeys = new Set(
+    (state.decisionFailures ?? [])
+      .filter((failure) => !failure.retryable)
+      .map((failure) =>
+        aiPriorityEmailKey(failure.accountEmail, failure.emailId),
+      ),
+  );
+  for (const failure of state.decisionFailures ?? []) {
+    if (failure.retryable) {
+      terminalFailureKeys.delete(
+        aiPriorityEmailKey(failure.accountEmail, failure.emailId),
+      );
+    }
+  }
   const batch = state.candidates
     .slice(state.candidateIndex, state.candidateIndex + THREADS_PER_TICK)
-    .filter((candidate) => matchedForCandidate(candidate, state) === undefined);
+    .filter(
+      (candidate) =>
+        matchedForCandidate(candidate, state) === undefined &&
+        !terminalFailureKeys.has(
+          aiPriorityEmailKey(candidate.accountEmail, candidate.email.id),
+        ),
+    );
   if (batch.length === 0) return true;
   const evaluation = await evaluateAiFilterBackfillRules(
     batch.map((candidate) => candidate.email),
@@ -1898,7 +1918,15 @@ async function ensureEvaluations(
     (state.evaluatedCount ?? 0) +
     evaluation.evaluatedCount -
     partialSuccessCount;
-  state.failedCount = (state.failedCount ?? 0) + evaluation.failedCount;
+  const replacedFailureCount = (state.decisionFailures ?? []).filter(
+    (failure) =>
+      evaluatedEmailKeys.has(
+        aiPriorityEmailKey(failure.accountEmail, failure.emailId),
+      ),
+  ).length;
+  state.failedCount =
+    Math.max(0, (state.failedCount ?? 0) - replacedFailureCount) +
+    evaluation.failedCount;
   state.decisionFailures = [
     ...(state.decisionFailures ?? []).filter(
       (failure) =>
@@ -1917,7 +1945,17 @@ async function ensureEvaluations(
   ) {
     delete state.incompleteCoverage;
   }
-  return saveRunState(row.id, claimId, state, "running");
+  const saved = await saveRunState(row.id, claimId, state, "running");
+  if (!saved) return false;
+  if (
+    evaluation.failures.some((failure) => failure.retryable) &&
+    (state.retryCount ?? 0) < MAX_BACKFILL_RETRIES
+  ) {
+    const error = new Error("Mail AI-filter decision failed temporarily.");
+    Object.assign(error, { retryable: true });
+    throw error;
+  }
+  return true;
 }
 
 async function processRunningBatch(

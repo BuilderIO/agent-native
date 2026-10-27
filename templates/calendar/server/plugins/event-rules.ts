@@ -26,6 +26,7 @@ import * as googleCalendar from "../lib/google-calendar.js";
 
 const INTERVAL_MS = 5 * 60_000;
 const EVENT_BATCH_SIZE = 10;
+const MAX_EVENT_DESCRIPTION_CHARS = 1_000;
 const PROCESSED_LIMIT = 2000;
 const RUNTIME_KEY = "calendar-event-rules-runtime";
 // ponytail: five-minute RSVP lease; renew it if provider writes outlast a sweep interval.
@@ -161,7 +162,10 @@ async function evaluate(
             events: batch.map((event) => ({
               id: event.id,
               title: event.summary ?? "",
-              description: event.description ?? "",
+              description:
+                typeof event.description === "string"
+                  ? event.description.slice(0, MAX_EVENT_DESCRIPTION_CHARS)
+                  : "",
               location: event.location ?? "",
               start: event.start?.dateTime ?? event.start?.date ?? "",
               organizer: event.organizer?.email ?? "",

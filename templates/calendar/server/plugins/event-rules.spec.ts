@@ -926,6 +926,56 @@ describe("calendar event rules sweep", () => {
     expect(JSON.stringify(request)).not.toContain("guest@example.com");
   });
 
+  it("bounds event descriptions so a large invitation does not block its batch", async () => {
+    const firstEvent = {
+      id: "event-1",
+      created: new Date(Date.now() + 60_000).toISOString(),
+      updated: "2026-09-25T12:00:00.000Z",
+      status: "confirmed",
+      summary: "Planning review",
+      description: "x".repeat(8_000),
+      end: { dateTime: new Date(Date.now() + 3_600_000).toISOString() },
+      attendees: [{ email: "one@example.com", responseStatus: "needsAction" }],
+    };
+    configureOwnerSweep({ event: firstEvent });
+    mocks.calendarListEvents.mockResolvedValueOnce({
+      items: [
+        firstEvent,
+        { ...firstEvent, id: "event-2", summary: "Other invitation" },
+      ],
+      nextSyncToken: "sync-token",
+    });
+    let request: any;
+    mocks.decide.mockImplementationOnce(async (input: any) => {
+      request = input;
+      return {
+        status: "ok",
+        provider: "openai",
+        model: "gpt-6-luna",
+        answers: Object.fromEntries(
+          input.questions.map((question: { name: string }) => [
+            question.name,
+            { type: "predicate", name: question.name, probability: 0 },
+          ]),
+        ),
+      };
+    });
+
+    await runCalendarEventRulesOnce();
+
+    expect(request.input[0].value.events).toEqual([
+      expect.objectContaining({
+        id: "event-1",
+        description: "x".repeat(1_000),
+      }),
+      expect.objectContaining({
+        id: "event-2",
+        description: "x".repeat(1_000),
+      }),
+    ]);
+    expect(request.questions).toHaveLength(2);
+  });
+
   it("does not apply an event rule when one decision answer is incomplete", async () => {
     configureOwnerSweep();
     mocks.decide.mockResolvedValueOnce({

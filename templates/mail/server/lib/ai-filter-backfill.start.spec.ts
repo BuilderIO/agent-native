@@ -1463,6 +1463,137 @@ describe("startMailAiFilterBackfill", () => {
     expect(saved.snapshots).toEqual({});
   });
 
+  it("retries transient decision failures before advancing candidates", async () => {
+    const activeRule = rule("rule-a");
+    mocks.rules = [activeRule];
+    const key = aiPriorityEmailKey(undefined, "thread-a");
+    const state = { ...backfillState([activeRule]), evaluations: {} };
+    const row = runningRow([activeRule]);
+    row.stateJson = JSON.stringify(state);
+    database.rows.push(row);
+    mocks.evaluateAiFilterBackfillRules
+      .mockResolvedValueOnce(
+        ruleEvaluation(new Map([[key, []]]), [
+          {
+            emailId: "thread-a",
+            ruleId: "rule-a",
+            reason: "provider_error",
+            retryable: true,
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(ruleEvaluation(new Map([[key, []]])));
+
+    await processMailAiFilterBackfills(ownerEmail);
+
+    expect(row.status).toBe("queued");
+    const retry = JSON.parse(row.stateJson);
+    expect(retry.candidateIndex).toBe(0);
+    expect(retry.processedThreads).toBe(0);
+    expect(retry.retryCount).toBe(1);
+    expect(retry.retryAfterAt).toBeGreaterThan(Date.now());
+    expect(retry.decisionFailures).toEqual([
+      expect.objectContaining({ reason: "provider_error", retryable: true }),
+    ]);
+
+    retry.retryAfterAt = Date.now() - 1;
+    row.stateJson = JSON.stringify(retry);
+    await processMailAiFilterBackfills(ownerEmail);
+
+    expect(row.status).toBe("completed");
+    const completed = JSON.parse(row.stateJson);
+    expect(completed.candidateIndex).toBe(1);
+    expect(completed.processedThreads).toBe(1);
+    expect(completed.decisionFailures).toEqual([]);
+    expect(completed.failedCount).toBe(0);
+    expect(completed).not.toHaveProperty("retryAfterAt");
+    expect(mocks.evaluateAiFilterBackfillRules).toHaveBeenCalledTimes(2);
+  });
+
+  it("terminalizes retryable decision failures after the backfill retry budget", async () => {
+    const activeRule = rule("rule-a");
+    mocks.rules = [activeRule];
+    const key = aiPriorityEmailKey(undefined, "thread-a");
+    const state: any = {
+      ...backfillState([activeRule]),
+      evaluations: {},
+      retryCount: 6,
+    };
+    const row = runningRow([activeRule]);
+    row.stateJson = JSON.stringify(state);
+    database.rows.push(row);
+    mocks.evaluateAiFilterBackfillRules.mockResolvedValue(
+      ruleEvaluation(new Map([[key, []]]), [
+        {
+          emailId: "thread-a",
+          ruleId: "rule-a",
+          reason: "provider_error",
+          retryable: true,
+        },
+      ]),
+    );
+
+    await processMailAiFilterBackfills(ownerEmail);
+
+    expect(row.status).toBe("failed");
+    const terminal = JSON.parse(row.stateJson);
+    expect(terminal.candidateIndex).toBe(1);
+    expect(terminal.processedThreads).toBe(1);
+    expect(terminal.retryCount).toBe(6);
+    expect(terminal.decisionFailures).toEqual([
+      expect.objectContaining({ reason: "provider_error", retryable: true }),
+    ]);
+    expect(terminal).not.toHaveProperty("retryAfterAt");
+  });
+
+  it("retries a candidate when only one of its failed rules is retryable", async () => {
+    const retryingRule = rule("rule-a");
+    const terminalRule = rule("rule-b");
+    mocks.rules = [retryingRule, terminalRule];
+    const key = aiPriorityEmailKey(undefined, "thread-a");
+    const state = {
+      ...backfillState([retryingRule, terminalRule]),
+      evaluations: {},
+    };
+    const row = runningRow([retryingRule, terminalRule]);
+    row.stateJson = JSON.stringify(state);
+    database.rows.push(row);
+    const partialEvaluation = ruleEvaluation(new Map([[key, []]]), [
+      {
+        emailId: "thread-a",
+        ruleId: "rule-a",
+        reason: "provider_error",
+        retryable: true,
+      },
+      {
+        emailId: "thread-a",
+        ruleId: "rule-b",
+        reason: "invalid_response",
+        retryable: false,
+      },
+    ]);
+    mocks.evaluateAiFilterBackfillRules
+      .mockResolvedValueOnce(partialEvaluation)
+      .mockResolvedValueOnce(partialEvaluation);
+
+    await processMailAiFilterBackfills(ownerEmail);
+
+    const retry = JSON.parse(row.stateJson);
+    expect(row.status).toBe("queued");
+    expect(retry.candidateIndex).toBe(0);
+    expect(retry.retryCount).toBe(1);
+
+    retry.retryAfterAt = Date.now() - 1;
+    row.stateJson = JSON.stringify(retry);
+    await processMailAiFilterBackfills(ownerEmail);
+
+    expect(row.status).toBe("queued");
+    const retried = JSON.parse(row.stateJson);
+    expect(retried.candidateIndex).toBe(0);
+    expect(retried.retryCount).toBe(2);
+    expect(mocks.evaluateAiFilterBackfillRules).toHaveBeenCalledTimes(2);
+  });
+
   it("persists non-mutating progress once per backfill batch", async () => {
     const activeRule = rule("rule-a");
     mocks.rules = [activeRule];
