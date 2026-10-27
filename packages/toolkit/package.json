@@ -726,7 +726,7 @@
     "vitest": "catalog:"
   },
   "peerDependencies": {
-    "@agent-native/core": ">=0.220.1",
+    "@agent-native/core": ">=0.221.0",
     "@excalidraw/excalidraw": ">=0.18",
     "@excalidraw/mermaid-to-excalidraw": ">=2",
     "@tanstack/react-query": "^5.99.2",

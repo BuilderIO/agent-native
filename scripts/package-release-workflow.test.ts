@@ -4,6 +4,7 @@ import {
   chmodSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -64,9 +65,38 @@ const changesetsRequire = createRequire(
   createRequire(import.meta.url).resolve("@changesets/cli"),
 );
 const semver = changesetsRequire("semver") as {
-  inc: (version: string, release: "patch") => string | null;
+  inc: (version: string, release: ReleaseBump) => string | null;
   satisfies: (version: string, range: string) => boolean;
 };
+
+const parseChangeset = (
+  changesetsRequire("@changesets/parse") as {
+    default: (contents: string) => {
+      releases: { name: string; type: ReleaseBump | "none" }[];
+    };
+  }
+).default;
+
+const RELEASE_BUMPS = ["patch", "minor", "major"] as const;
+type ReleaseBump = (typeof RELEASE_BUMPS)[number];
+
+/** The largest bump pending changesets give any package in `group`. */
+function pendingFixedGroupBump(group: readonly string[]): ReleaseBump {
+  let largest: ReleaseBump = "patch";
+  for (const file of readdirSync(".changeset")) {
+    if (!file.endsWith(".md") || file === "README.md") continue;
+    const { releases } = parseChangeset(
+      readFileSync(path.join(".changeset", file), "utf8"),
+    );
+    for (const { name, type } of releases) {
+      if (type === "none" || !group.includes(name)) continue;
+      if (RELEASE_BUMPS.indexOf(type) > RELEASE_BUMPS.indexOf(largest)) {
+        largest = type;
+      }
+    }
+  }
+  return largest;
+}
 
 const workflow = parse(
   readFileSync(".github/workflows/auto-publish.yml", "utf8"),
@@ -1255,7 +1285,7 @@ esac
     }
   });
 
-  it("supports the next fixed-group Core patch without the incompatible gap release", () => {
+  it("supports the next fixed-group Core release without the incompatible gap release", () => {
     const corePackage = JSON.parse(
       readFileSync("packages/core/package.json", "utf8"),
     ) as { version: string; exports?: Record<string, unknown> };
@@ -1270,40 +1300,36 @@ esac
     ) as { fixed?: string[][] };
 
     assert.ok(corePackage.exports?.["./shared"]);
-    assert.ok(
-      changesetConfig.fixed?.some(
-        (group) =>
-          group.includes("@agent-native/core") &&
-          group.includes("@agent-native/toolkit"),
-      ),
-    );
+    const fixedGroup =
+      changesetConfig.fixed?.find((group) =>
+        group.includes("@agent-native/core"),
+      ) ?? [];
+    assert.ok(fixedGroup.includes("@agent-native/toolkit"));
     const corePeerRange =
       toolkitPackage.peerDependencies?.["@agent-native/core"];
     assert.ok(corePeerRange);
 
-    const acceptsNextCorePatch = (coreVersion: string) => {
-      const nextCorePatch = semver.inc(coreVersion, "patch");
-      return (
-        nextCorePatch !== null && semver.satisfies(nextCorePatch, corePeerRange)
-      );
-    };
+    // A fixed group releases every member at the largest bump any pending
+    // changeset gives one of them, so the next Core is not always a patch.
+    const nextCoreRelease = semver.inc(
+      corePackage.version,
+      pendingFixedGroupBump(fixedGroup),
+    );
+    assert.ok(nextCoreRelease);
+    assert.ok(
+      semver.satisfies(nextCoreRelease, corePeerRange),
+      `Toolkit must accept the next fixed-group Core release, ${nextCoreRelease}`,
+    );
 
-    for (const coreVersion of [corePackage.version, "0.220.0"]) {
-      assert.ok(
-        acceptsNextCorePatch(coreVersion),
-        `Toolkit must accept the next fixed-group Core patch after ${coreVersion}`,
-      );
-    }
-
-    for (const coreVersion of ["0.205.1", "0.220.0"]) {
+    for (const coreVersion of ["0.205.1", "0.220.0", "0.220.1"]) {
       assert.equal(
         semver.satisfies(coreVersion, corePeerRange),
         false,
-        `Toolkit must not accept published Core ${coreVersion} without the MCP approval client export`,
+        `Toolkit must not accept Core ${coreVersion} without the MCP approval client export`,
       );
     }
 
-    for (const coreVersion of ["0.220.1"]) {
+    for (const coreVersion of ["0.221.0", "0.221.1"]) {
       assert.ok(
         semver.satisfies(coreVersion, corePeerRange),
         `Toolkit must accept Core ${coreVersion} with the MCP approval client export`,
