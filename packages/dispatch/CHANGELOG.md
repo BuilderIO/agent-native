@@ -1,5 +1,53 @@
 # @agent-native/dispatch
 
+## 0.40.40
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [ddd3bd1]
+- Updated dependencies [4ea7d64]
+- Updated dependencies
+- Updated dependencies [0c211bc]
+- Updated dependencies [b73b8ef]
+  - @agent-native/toolkit@0.220.0
+
+## 0.40.39
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [838e1ae]
+- Updated dependencies
+- Updated dependencies [86429da]
+- Updated dependencies [7b293b2]
+  - @agent-native/toolkit@0.219.0
+
+## 0.40.38
+
+### Patch Changes
+
+- de3f844: Sign Dispatch's own workspace apps gateway read as the signed-in member with the deployment secret, so the receiver keeps the member's identity. Signing it with the organization secret made the registry refuse it, and a Dispatch with no deployment manifest to fall back on showed "Couldn't load data" (`workspace_gateway_rejected`).
+- Release all public npm packages with a patch version bump.
+- 84e4b2e: Show owned and shared chats in separate Dispatch history sections with independent paging and owner and access details.
+- Updated dependencies [84e4b2e]
+- Updated dependencies
+- Updated dependencies [84e4b2e]
+- Updated dependencies [fc038a0]
+  - @agent-native/toolkit@0.218.0
+
+## 0.40.37
+
+### Patch Changes
+
+- b07c13b: `describe-workspace-apps` now shows each app's authored "when to use" guidance, so the agent sees the same text the ranking matched on. Workspace usage tools now say plainly that they have no customer data and point to the app's own customer or billing actions or the owning app, instead of leading with the owner/admin permission rule.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [6c3f3cb]
+- Updated dependencies [4c43f86]
+- Updated dependencies
+- Updated dependencies [9e4119f]
+  - @agent-native/toolkit@0.217.0
+
 ## 0.40.36
 
 ### Patch Changes
@@ -1302,31 +1350,5 @@
 
 - Updated dependencies [fc85cb2]
   - @agent-native/toolkit@0.16.7
-
-## 0.30.3
-
-### Patch Changes
-
-- c58cd6e: Preserve verified mutation receipts and exact member identity across Dispatch and A2A delegation.
-
-## 0.30.2
-
-### Patch Changes
-
-- 330cf77: Keep impersonal HTML redirects eligible for the shared SSR edge cache.
-
-## 0.30.1
-
-### Patch Changes
-
-- a2f21dc: Keep workspace apps inline outside Builder.io embeds.
-- Updated dependencies [a2f21dc]
-  - @agent-native/toolkit@0.16.6
-
-## 0.30.0
-
-### Minor Changes
-
-- a688849: Add organization groups and privacy controls for workspace apps. New apps use the organization default (organization-wide by default), while creators and organization admins can manage individual, group, and organization access from the shared popover.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

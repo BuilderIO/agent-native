@@ -101,7 +101,7 @@ export function failClip(
 
 async function documentState(documentId: string) {
   // guard:allow-unscoped — reads only whether a page is public or in Trash, and its org for the rollout flag; signed-in access is decided by resolveDocumentAccess, signed-out access only by visibility "public".
-  const [row] = await getDb()
+  const [row = null] = await getDb()
     .select({
       visibility: schema.documents.visibility,
       trashedAt: schema.documents.trashedAt,
@@ -110,7 +110,7 @@ async function documentState(documentId: string) {
     .from(schema.documents)
     .where(eq(schema.documents.id, documentId))
     .limit(1);
-  return row ?? null;
+  return row;
 }
 
 /**
@@ -122,9 +122,9 @@ export async function authorizeClipReader(
   documentId: string,
 ): Promise<ClipReader> {
   const email = getRequestUserEmail();
-  const signedIn = Boolean(email) && !isPublicViewerOwner(email);
+  const readerEmail = email && !isPublicViewerOwner(email) ? email : null;
 
-  if (signedIn) {
+  if (readerEmail) {
     const access = await resolveDocumentAccess(documentId, {
       skipResourceBody: true,
     });
@@ -134,20 +134,25 @@ export async function authorizeClipReader(
   if (!state || state.trashedAt) {
     failClip(CLIP_PLAYBACK_ERRORS.documentNotFound);
   }
-  if (!signedIn && state.visibility !== "public") {
+  if (!readerEmail && state.visibility !== "public") {
     failClip(CLIP_PLAYBACK_ERRORS.documentNotFound);
   }
 
   // A signed-out reader has no org of their own, so an org's rollout reaches
   // its public pages only through the page's org.
+  const flagOrgId = readerEmail ? getRequestOrgId() : state.orgId;
   const enabled = await isFeatureFlagEnabled(CLIP_EMBED_FLAG, {
-    userEmail: signedIn ? email : undefined,
-    orgId: signedIn ? getRequestOrgId() : state.orgId,
+    ...(readerEmail ? { userEmail: readerEmail } : {}),
+    ...(flagOrgId !== undefined ? { orgId: flagOrgId } : {}),
   });
   if (!enabled) failClip(CLIP_PLAYBACK_ERRORS.disabled);
 
-  return signedIn
-    ? { kind: "signed-in", email: email!, name: getRequestUserName() ?? null }
+  return readerEmail
+    ? {
+        kind: "signed-in",
+        email: readerEmail,
+        name: getRequestUserName() ?? null,
+      }
     : { kind: "public" };
 }
 

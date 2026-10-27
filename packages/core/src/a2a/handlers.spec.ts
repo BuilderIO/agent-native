@@ -6,11 +6,13 @@ import {
   getRequestUserEmail,
   runWithRequestContext,
 } from "../server/request-context.js";
+import { renderMachineTrace } from "../state-machine/index.js";
 import {
   registerTrackingProvider,
   unregisterTrackingProvider,
 } from "../tracking/registry.js";
 import { handleJsonRpcH3 as handleJsonRpc } from "./handlers.js";
+import { a2aTaskMachine } from "./task-lifecycle.js";
 import type { A2AConfig, Message } from "./types.js";
 
 const resolveOrgByDomainMock = vi.hoisted(() => vi.fn());
@@ -83,7 +85,16 @@ vi.mock("./task-store.js", () => {
     tasks[id] = task;
     return task;
   };
+  class A2ATaskCanceledError extends Error {
+    readonly task: unknown;
+    constructor(task: unknown) {
+      super("A2A task was canceled");
+      this.name = "A2ATaskCanceledError";
+      this.task = task;
+    }
+  }
   return {
+    A2ATaskCanceledError,
     A2A_TASK_CLAIM_LOST_ERROR_CODE: "a2a_task_claim_lost",
     A2A_PERSONAL_OWNER_SCOPE: "__personal__",
     A2A_ORG_ID_OWNER_SCOPE_PREFIX: "__a2a_org_id__:",
@@ -153,6 +164,9 @@ vi.mock("./task-store.js", () => {
               (accessScope.ownerScope ?? "").toLowerCase()))
       )
         return null;
+      if (task.status.state === "canceled") {
+        throw new A2ATaskCanceledError(task);
+      }
       if (update.state) {
         task.status = {
           state: update.state,
@@ -179,14 +193,16 @@ vi.mock("./task-store.js", () => {
             (task.ownerScope ?? "").toLowerCase() !==
               (accessScope.ownerScope ?? "").toLowerCase()))
       )
-        return null;
+        return { status: "not_found" };
+      if (["completed", "failed", "canceled"].includes(task.status.state))
+        return { status: "not_cancelable", state: task.status.state };
       task.status = {
         state: "canceled",
         message: task.status.message,
         timestamp: new Date().toISOString(),
       };
       task.updatedAt = Date.now();
-      return task;
+      return { status: "canceled", task };
     },
     async settleProcessingA2ATask(id: string, update: any) {
       const task = tasks[id];
@@ -1390,6 +1406,158 @@ describe("handleJsonRpc", () => {
         metadata: { agentNativeErrorCode: "missing_credentials" },
       },
     });
+  });
+
+  it("answers a synchronous send with the canceled task when the cancel lands first", async () => {
+    const ownerEvent = mockEvent();
+    ownerEvent.context = {
+      __a2aVerifiedEmail: "alice@example.org",
+      __a2aOrgDomain: "shared.test",
+      __a2aVerifiedOrgId: "org-acme",
+    };
+    let markHandlerStarted!: (taskId: string) => void;
+    const handlerStarted = new Promise<string>((resolve) => {
+      markHandlerStarted = resolve;
+    });
+    let finishHandler!: () => void;
+    const handlerFinished = new Promise<void>((resolve) => {
+      finishHandler = resolve;
+    });
+    const slowConfig: A2AConfig = {
+      ...customHandler,
+      handler: async (_message, context) => {
+        markHandlerStarted(context.taskId);
+        await handlerFinished;
+        return {
+          message: {
+            role: "agent",
+            parts: [{ type: "text", text: "late result" }],
+          },
+        };
+      },
+    };
+
+    const send = handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 80,
+        method: "message/send",
+        params: {
+          message: { role: "user", parts: [{ type: "text", text: "slow" }] },
+        },
+      },
+      ownerEvent,
+      slowConfig,
+    );
+    const taskId = await handlerStarted;
+
+    const canceled = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 81,
+        method: "tasks/cancel",
+        params: { id: taskId },
+      },
+      ownerEvent,
+      slowConfig,
+    );
+    expect(canceled.result.status.state).toBe("canceled");
+
+    finishHandler();
+    const sent = await send;
+    expect(sent.error).toBeUndefined();
+    expect(sent.result).toMatchObject({
+      id: taskId,
+      status: { state: "canceled" },
+    });
+
+    const read = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 82,
+        method: "tasks/get",
+        params: { id: taskId },
+      },
+      ownerEvent,
+      slowConfig,
+    );
+    expect(read.result.status.state).toBe("canceled");
+  });
+
+  it("maps tasks/cancel on a final task to -32002 and leaves it completed", async () => {
+    const ownerEvent = mockEvent();
+    ownerEvent.context = {
+      __a2aVerifiedEmail: "alice@example.org",
+      __a2aOrgDomain: "shared.test",
+      __a2aVerifiedOrgId: "org-acme",
+    };
+    const created = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 70,
+        method: "message/send",
+        params: {
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "finish first" }],
+          },
+        },
+      },
+      ownerEvent,
+      customHandler,
+    );
+    expect(created.result.status.state).toBe("completed");
+
+    const canceled = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 71,
+        method: "tasks/cancel",
+        params: { id: created.result.id },
+      },
+      ownerEvent,
+      customHandler,
+    );
+    expect({
+      trace: renderMachineTrace(a2aTaskMachine, ["cancel"], "completed"),
+      errorCode: canceled.error?.code,
+    }).toMatchInlineSnapshot(`
+      {
+        "errorCode": -32002,
+        "trace": "cancel -> completed (rejected) [guard: 'submitted', 'working', 'processing', 'input-required']",
+      }
+    `);
+    expect(canceled.error).toMatchObject({
+      code: -32002,
+      message: 'Task cannot be canceled from state "completed"',
+    });
+
+    const missing = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 73,
+        method: "tasks/cancel",
+        params: { id: "no-such-task" },
+      },
+      ownerEvent,
+      customHandler,
+    );
+    expect(missing.error).toMatchObject({
+      code: -32001,
+      message: "Task not found",
+    });
+
+    const read = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 72,
+        method: "tasks/get",
+        params: { id: created.result.id },
+      },
+      ownerEvent,
+      customHandler,
+    );
+    expect(read.result.status.state).toBe("completed");
   });
 
   it("does not expose a task to the same user in another org scope", async () => {
@@ -2899,22 +3067,26 @@ describe("handleJsonRpc", () => {
 
   it("passes the processor H3 event through async handler context", async () => {
     let processorEvent: any;
+    let processingAttemptId: string | undefined;
     const eventAwareConfig: A2AConfig = {
       ...customHandler,
-      handler: async (_message, context) => ({
-        message: {
-          role: "agent",
-          parts: [
-            {
-              type: "text",
-              text:
-                context.event === processorEvent
-                  ? "event-present"
-                  : "event-missing",
-            },
-          ],
-        },
-      }),
+      handler: async (_message, context) => {
+        processingAttemptId = context.processingAttemptId;
+        return {
+          message: {
+            role: "agent",
+            parts: [
+              {
+                type: "text",
+                text:
+                  context.event === processorEvent
+                    ? "event-present"
+                    : "event-missing",
+              },
+            ],
+          },
+        };
+      },
     };
     const event = mockEvent();
     const result = await handleJsonRpc(
@@ -2939,6 +3111,7 @@ describe("handleJsonRpc", () => {
     processorEvent = mockEvent();
     const { processA2ATaskFromQueue } = await import("./handlers.js");
     await processA2ATaskFromQueue(taskId, eventAwareConfig, processorEvent);
+    expect(processingAttemptId).toBe("1");
 
     const followup = await handleJsonRpc(
       {

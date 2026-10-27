@@ -12,6 +12,7 @@ import {
   withConfiguredAppBasePath,
 } from "@agent-native/core/server";
 import { ForbiddenError, resolveAccess } from "@agent-native/core/sharing";
+import { isEmailDerivedName } from "@agent-native/core/user-profile";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { getQuery, getRequestHeader, getRouterParam, type H3Event } from "h3";
 import { z } from "zod";
@@ -111,6 +112,12 @@ type RateBucket = { count: number; reset: number };
 const rateBuckets = new Map<string, RateBucket>();
 /** One per reader, page and Clip that didn't open. */
 const missBuckets = new Map<string, RateBucket>();
+/**
+ * Requests that passed the check and haven't been counted yet. Each counts
+ * against both buckets until it is, so a burst can't all pass the check
+ * before the first one finishes opening its Clip.
+ */
+const pendingRequests = new Map<string, number>();
 
 function json(body: unknown, status = 200): Response {
   return Response.json(body, { status, headers: PRIVATE_HEADERS });
@@ -177,12 +184,14 @@ export async function verifyContentPeerToken(
   if (peerSecret.refused) {
     return json(peerSecret.refused.body, peerSecret.refused.status);
   }
-  const match = BEARER.exec(getRequestHeader(event, "authorization") ?? "");
-  if (!match) return unauthorized();
+  const token = BEARER.exec(
+    getRequestHeader(event, "authorization") ?? "",
+  )?.[1];
+  if (!token) return unauthorized();
 
   let verified: Awaited<ReturnType<typeof verifyA2AToken>>;
   try {
-    verified = await verifyA2AToken(match[1]!, event, {
+    verified = await verifyA2AToken(token, event, {
       routePrefix: CONTENT_CLIP_AUDIENCE_PATH,
       verificationSecret: peerSecret.secret,
       includeClaims: true,
@@ -279,8 +288,8 @@ function clipKey(peer: ContentClipPeer, kind: RateKind): string {
   ].join("\n");
 }
 
-function isFull(bucket: RateBucket | undefined, limit: number, now: number) {
-  return Boolean(bucket && bucket.reset >= now && bucket.count >= limit);
+function used(bucket: RateBucket | undefined, now: number): number {
+  return bucket && bucket.reset >= now ? bucket.count : 0;
 }
 
 function missLimit(kind: RateKind): number {
@@ -298,10 +307,17 @@ function tooManyRequests(): Response {
 function overRateLimit(peer: ContentClipPeer, kind: RateKind) {
   const key = clipKey(peer, kind);
   const now = Date.now();
-  return isFull(rateBuckets.get(key), RATE_LIMITS[kind], now) ||
-    isFull(missBuckets.get(key), missLimit(kind), now)
+  const pending = pendingRequests.get(key) ?? 0;
+  return used(rateBuckets.get(key), now) + pending >= RATE_LIMITS[kind] ||
+    used(missBuckets.get(key), now) + pending >= missLimit(kind)
     ? tooManyRequests()
     : null;
+}
+
+function settlePending(key: string): void {
+  const pending = (pendingRequests.get(key) ?? 0) - 1;
+  if (pending > 0) pendingRequests.set(key, pending);
+  else pendingRequests.delete(key);
 }
 
 /**
@@ -362,6 +378,7 @@ export function __resetContentClipRateLimitsForTests(
 ): void {
   rateBuckets.clear();
   missBuckets.clear();
+  pendingRequests.clear();
   rateBucketLimit = limits.buckets ?? RATE_LIMIT_MAX_BUCKETS;
   missLimitForTests = limits.misses ?? null;
 }
@@ -387,13 +404,23 @@ async function withOpenedClip(
   kind: RateKind,
   fn: (opened: OpenedClip) => Promise<Response>,
 ): Promise<Response> {
-  let opened = false;
-  const response = await openClip(peer, async (clip) => {
-    opened = true;
-    return rateLimited(peer, kind) ?? fn(clip);
-  });
-  if (!opened) countMiss(peer, kind);
-  return response;
+  const refused = overRateLimit(peer, kind);
+  if (refused) return refused;
+  const key = clipKey(peer, kind);
+  pendingRequests.set(key, (pendingRequests.get(key) ?? 0) + 1);
+  const outcome = { opened: false };
+  try {
+    return await openClip(peer, async (clip) => {
+      outcome.opened = true;
+      settlePending(key);
+      return rateLimited(peer, kind) ?? fn(clip);
+    });
+  } finally {
+    if (!outcome.opened) {
+      settlePending(key);
+      countMiss(peer, kind);
+    }
+  }
 }
 
 /**
@@ -414,9 +441,9 @@ async function openClip(
   const open = () =>
     runWithRequestContext(
       {
-        userEmail: peer.viewerEmail ?? undefined,
-        userName: peer.viewerName ?? undefined,
-        orgId,
+        ...(peer.viewerEmail !== null ? { userEmail: peer.viewerEmail } : {}),
+        ...(peer.viewerName !== null ? { userName: peer.viewerName } : {}),
+        ...(orgId !== undefined ? { orgId } : {}),
       },
       async () => {
         const access = await resolveAccess("recording", peer.recordingId);
@@ -496,8 +523,7 @@ export async function handleContentClipPlayback(
     return json({
       recording: {
         id: recording.id,
-        title:
-          recording.title?.slice(0, CONTENT_CLIP_RECORDING_TITLE_CHARS) ?? null,
+        title: recording.title.slice(0, CONTENT_CLIP_RECORDING_TITLE_CHARS),
         kind: recording.kind,
         status: recording.status,
         durationMs: recording.durationMs,
@@ -535,9 +561,12 @@ const commentListQuerySchema = z.object({
 /**
  * The first `limit` thread starts by video time, as `list-comments` orders
  * them, reading one more to tell a full page from the whole list. Text and
- * names are cut to the contract's lengths.
+ * names are cut to the contract's lengths. A signed-out reader's list carries
+ * no commenter's email, nor a name made from one.
  */
-async function listCommentThreads(recordingId: string, limit: number) {
+async function listCommentThreads(peer: ContentClipPeer, limit: number) {
+  const { recordingId } = peer;
+  const signedOut = peer.viewerEmail === null;
   await assertCommentAccess(recordingId, "read");
   const comments = schema.recordingComments;
   const rows = await getDb()
@@ -556,15 +585,20 @@ async function listCommentThreads(recordingId: string, limit: number) {
     .limit(limit + 1);
   const threads = await hydrateCommentAuthorNames(rows.slice(0, limit));
   return {
-    comments: threads.map((thread) => ({
-      ...thread,
-      authorEmail: thread.authorEmail.slice(
-        0,
-        CONTENT_CLIP_COMMENT_AUTHOR_CHARS,
-      ),
-      authorName:
-        thread.authorName?.slice(0, CONTENT_CLIP_COMMENT_AUTHOR_CHARS) ?? null,
-    })),
+    comments: threads.map((thread) => {
+      const authorName =
+        signedOut && isEmailDerivedName(thread.authorName, thread.authorEmail)
+          ? null
+          : thread.authorName;
+      return {
+        ...thread,
+        authorEmail: signedOut
+          ? null
+          : thread.authorEmail.slice(0, CONTENT_CLIP_COMMENT_AUTHOR_CHARS),
+        authorName:
+          authorName?.slice(0, CONTENT_CLIP_COMMENT_AUTHOR_CHARS) ?? null,
+      };
+    }),
     truncated: rows.length > limit,
   };
 }
@@ -595,7 +629,7 @@ export async function handleContentClipComments(
       );
     }
     try {
-      return json(await listCommentThreads(peer.recordingId, query.data.limit));
+      return json(await listCommentThreads(peer, query.data.limit));
     } catch (error) {
       return forbiddenResponse(error);
     }
@@ -708,7 +742,8 @@ export async function handleContentClipCommentWrite(
   try {
     body = await readBodyWithSizeLimit(event, MAX_BODY_BYTES);
   } catch (error) {
-    const tooLarge = (error as { statusCode?: number })?.statusCode === 413;
+    const tooLarge =
+      (error as { statusCode?: number } | null)?.statusCode === 413;
     return errorResponse(
       tooLarge ? 413 : 400,
       tooLarge ? "Request body too large" : "Invalid request body",

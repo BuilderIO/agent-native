@@ -6,8 +6,9 @@ import { resolve } from "node:path";
 import { canonicalizeNfm } from "@shared/nfm";
 import { markdownSuggestionOperation } from "@shared/suggestion-diff";
 import { Schema, type Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { EditorState } from "@tiptap/pm/state";
+import { EditorState, type Transaction } from "@tiptap/pm/state";
 import { EditorView } from "@tiptap/pm/view";
+import { ySyncPluginKey } from "@tiptap/y-tiptap";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -34,6 +35,8 @@ vi.mock("@shared/nfm", async (importOriginal) => {
 
 import {
   createSuggestionHighlightPlugin,
+  isProvisionalDraftSpec,
+  suggestionDecisionHoldsHistory,
   suggestionHighlightKey,
   type SuggestionHighlightSpec,
 } from "./SuggestionHighlight";
@@ -76,6 +79,11 @@ function state(text = "Before after"): EditorState {
     doc: doc(text),
     plugins: [createSuggestionHighlightPlugin()],
   });
+}
+
+// The server's accepted change reaches the editor over live sync.
+function fromLiveSync(transaction: Transaction): Transaction {
+  return transaction.setMeta(ySyncPluginKey, { isChangeOrigin: true });
 }
 
 function setSpecs(
@@ -609,7 +617,7 @@ describe("SuggestionHighlight", () => {
           view.dom.querySelector(".suggestion-settling-text"),
         ).not.toBeNull();
 
-        view.dispatch(view.state.tr.addMark(1, 5, mark()));
+        view.dispatch(fromLiveSync(view.state.tr.addMark(1, 5, mark())));
 
         expect(view.state.doc.textContent).toBe("Echo sample. peer");
         expect(view.dom.querySelector(".suggestion-settling-text")).toBeNull();
@@ -653,7 +661,7 @@ describe("SuggestionHighlight", () => {
       ).not.toBeNull();
 
       view.dispatch(
-        view.state.tr
+        fromLiveSync(view.state.tr)
           .replaceWith(1, 9, schema.text("New", [strong]))
           .setMeta(suggestionHighlightKey, {
             specs: [{ ...spec, from: 1, to: 4 }],
@@ -691,7 +699,7 @@ describe("SuggestionHighlight", () => {
       ).not.toBeNull();
 
       view.dispatch(
-        view.state.tr
+        fromLiveSync(view.state.tr)
           .replaceWith(1, 4, schema.text("New York"))
           .setMeta(suggestionHighlightKey, {
             specs: [{ ...spec, from: 1, to: 9 }],
@@ -747,6 +755,529 @@ describe("SuggestionHighlight", () => {
       "New paragraph↵↵",
     );
     view.destroy();
+  });
+
+  describe("whole suggested lines", () => {
+    const listSchema = new Schema({
+      nodes: {
+        doc: { content: "block+" },
+        paragraph: { group: "block", content: "text*", toDOM: () => ["p", 0] },
+        bulletList: {
+          group: "block",
+          content: "listItem+",
+          toDOM: () => ["ul", 0],
+        },
+        orderedList: {
+          group: "block",
+          content: "listItem+",
+          toDOM: () => ["ol", 0],
+        },
+        listItem: { content: "paragraph block*", toDOM: () => ["li", 0] },
+        text: {},
+      },
+    });
+    const listItem = (text: string, ...children: ProseMirrorNode[]) =>
+      listSchema.node("listItem", null, [
+        listSchema.node("paragraph", null, listSchema.text(text)),
+        ...children,
+      ]);
+    const list = (type: string, ...items: ProseMirrorNode[]) =>
+      listSchema.node(type, null, items);
+
+    // A saved suggestion adding `line` right after the text `anchor`.
+    function lineAfter(
+      blocks: ProseMirrorNode[],
+      anchor: string,
+      source: string,
+      line: string,
+    ): SuggestionHighlightSpec {
+      let point = -1;
+      listSchema.node("doc", null, blocks).descendants((node, offset) => {
+        if (node.text === anchor) point = offset + anchor.length;
+      });
+      const from = source.indexOf(line);
+      return {
+        suggestionId: "line",
+        kind: "add_block",
+        from: point,
+        to: point,
+        insertedText: line,
+        insertedPresentation: { source, from, to: from + line.length },
+      };
+    }
+
+    function mounted(
+      blocks: ProseMirrorNode[],
+      specs: SuggestionHighlightSpec[],
+    ) {
+      const editorState = EditorState.create({
+        doc: blocks[0]!.type.schema.node("doc", null, blocks),
+        plugins: [createSuggestionHighlightPlugin()],
+      });
+      const mount = document.createElement("div");
+      const view = new EditorView(mount, {
+        state: setSpecs(editorState, specs),
+      });
+      return { view, mount };
+    }
+
+    const paragraph = (text: string) =>
+      schema.node("paragraph", null, schema.text(text));
+
+    // The DOM between paragraphs: each block's tag, classes, and text.
+    function blocks(mount: HTMLElement) {
+      return Array.from(
+        mount.querySelector(".ProseMirror")!.children,
+        (child) =>
+          `${child.tagName.toLowerCase()}${
+            child.classList.contains("suggestion-block-widget") ? ".widget" : ""
+          } ${child.textContent}`,
+      );
+    }
+
+    it("draws a saved new paragraph after the one it continues", () => {
+      const source = "Alpha one. More.\nAlpha two.\nBravo two.";
+      const from = "Alpha one.".length;
+      const to = source.indexOf("\nBravo");
+      const { view, mount } = mounted(
+        [paragraph("Alpha one."), paragraph("Bravo two.")],
+        [
+          {
+            suggestionId: "continued",
+            kind: "add_block",
+            from: 1 + from,
+            to: 1 + from,
+            insertedText: source.slice(from, to),
+            insertedPresentation: { source, from, to },
+          },
+        ],
+      );
+      try {
+        expect(blocks(mount)).toEqual([
+          "p Alpha one. More.",
+          "div.widget Alpha two.",
+          "p Bravo two.",
+        ]);
+        expect(mount.textContent).not.toContain("↵");
+        const widgets = mount.querySelectorAll(
+          '[data-suggestion-id="continued"]',
+        );
+        expect(widgets).toHaveLength(2);
+        expect(widgets[1]!.querySelector("p")?.textContent).toBe("Alpha two.");
+      } finally {
+        view.destroy();
+      }
+    });
+
+    it("draws a saved paragraph before the block it precedes", () => {
+      const source = "Alpha one.\nInserted words\nBravo two.";
+      const from = "Alpha one.\n".length;
+      const to = source.indexOf("Bravo");
+      const { view, mount } = mounted(
+        [paragraph("Alpha one."), paragraph("Bravo two.")],
+        [
+          {
+            suggestionId: "before",
+            kind: "add_block",
+            from: 13,
+            to: 13,
+            insertedText: source.slice(from, to),
+            insertedPresentation: { source, from, to },
+          },
+        ],
+      );
+      try {
+        expect(blocks(mount)).toEqual([
+          "p Alpha one.",
+          "div.widget Inserted words",
+          "p Bravo two.",
+        ]);
+      } finally {
+        view.destroy();
+      }
+    });
+
+    it("keeps text that splits a line inline with a real line break", () => {
+      const source = "Alpha X\nY one.";
+      const { view, mount } = mounted(
+        [paragraph("Alpha one.")],
+        [
+          {
+            suggestionId: "split",
+            kind: "add_block",
+            from: 7,
+            to: 7,
+            insertedText: "X\nY ",
+            insertedPresentation: { source, from: 6, to: 10 },
+          },
+        ],
+      );
+      try {
+        const widget = mount.querySelector('[data-suggestion-id="split"]')!;
+        expect(widget.tagName).toBe("SPAN");
+        expect(widget.innerHTML).toBe("X<br>Y ");
+      } finally {
+        view.destroy();
+      }
+    });
+
+    describe("code", () => {
+      const codeSchema = new Schema({
+        nodes: {
+          doc: { content: "block+" },
+          paragraph: {
+            group: "block",
+            content: "text*",
+            toDOM: () => ["p", 0],
+          },
+          codeBlock: {
+            group: "block",
+            content: "text*",
+            code: true,
+            marks: "",
+            toDOM: () => ["pre", ["code", 0]],
+          },
+          text: {},
+        },
+      });
+      const code = (text: string) =>
+        codeSchema.node("codeBlock", null, codeSchema.text(text));
+      const prose = (text: string) =>
+        codeSchema.node("paragraph", null, codeSchema.text(text));
+
+      it("keeps a line added to a code block inside it", () => {
+        const source = "```\nx = 1\n# note\n```\n\nAfter.";
+        const from = source.indexOf("\n# note");
+        const { view, mount } = mounted(
+          [code("x = 1"), prose("After.")],
+          [
+            {
+              suggestionId: "code-line",
+              kind: "add_block",
+              from: 6,
+              to: 6,
+              insertedText: "\n# note",
+              insertedPresentation: { source, from, to: from + 7 },
+            },
+          ],
+        );
+        try {
+          expect(mount.querySelector("h1")).toBeNull();
+          expect(blocks(mount)).toEqual(["pre x = 1↵# note", "p After."]);
+          expect(
+            mount.querySelector('pre [data-suggestion-id="code-line"]'),
+          ).not.toBeNull();
+        } finally {
+          view.destroy();
+        }
+      });
+
+      it.each(["```", "~~~", "$$"])(
+        "keeps the lines of a new %s block out of block widgets",
+        (fence) => {
+          const source = `Alpha.\n\n${fence}\n# note\n${fence}\n\nBravo.`;
+          const from = "Alpha.".length;
+          const to = source.indexOf("\n\nBravo");
+          const { view, mount } = mounted(
+            [prose("Alpha."), prose("Bravo.")],
+            [
+              {
+                suggestionId: "code-block",
+                kind: "add_block",
+                from: 7,
+                to: 7,
+                insertedText: source.slice(from, to),
+                insertedPresentation: { source, from, to },
+              },
+            ],
+          );
+          try {
+            expect(mount.querySelector("h1")).toBeNull();
+            expect(mount.querySelector(".suggestion-block-widget")).toBeNull();
+          } finally {
+            view.destroy();
+          }
+        },
+      );
+    });
+
+    it("draws a new list item among the items", () => {
+      const source = "- One\n- New\n- Two";
+      const item = (text: string) =>
+        listSchema.node("listItem", null, [
+          listSchema.node("paragraph", null, listSchema.text(text)),
+        ]);
+      const { view, mount } = mounted(
+        [listSchema.node("bulletList", null, [item("One"), item("Two")])],
+        [
+          {
+            suggestionId: "item",
+            kind: "add_block",
+            from: 6,
+            to: 6,
+            insertedText: "\n- New",
+            insertedPresentation: { source, from: 5, to: 11 },
+          },
+        ],
+      );
+      try {
+        const list = mount.querySelector("ul")!;
+        expect(Array.from(list.children, (child) => child.textContent)).toEqual(
+          ["One", "New", "Two"],
+        );
+        expect(list.children[1]!.tagName).toBe("LI");
+        expect(list.children[1]!.classList).toContain(
+          "suggestion-block-widget",
+        );
+        expect(list.textContent).not.toContain("- ");
+        // It stays a list item; its content is the button.
+        expect(list.children[1]!.hasAttribute("role")).toBe(false);
+        expect(list.children[1]!.firstElementChild?.getAttribute("role")).toBe(
+          "button",
+        );
+      } finally {
+        view.destroy();
+      }
+    });
+
+    it("draws a suggested bullet beside a numbered list, never inside it", () => {
+      const numbered = [list("orderedList", listItem("One"), listItem("Two"))];
+      const inside = mounted(numbered, [
+        lineAfter(numbered, "One", "1. One\n- New\n2. Two", "\n- New"),
+      ]);
+      const after = mounted(numbered, [
+        lineAfter(numbered, "Two", "1. One\n2. Two\n- New", "\n- New"),
+      ]);
+      try {
+        // Between two numbered items it can't be drawn as one of them.
+        expect(
+          inside.mount.querySelector(".suggestion-block-widget"),
+        ).toBeNull();
+        expect(inside.mount.querySelector("ol")!.children).toHaveLength(2);
+        // After the last one it starts a bulleted list of its own.
+        expect(blocks(after.mount)).toEqual(["ol OneTwo", "div.widget New"]);
+        expect(
+          after.mount.querySelector(".suggestion-block-widget ul")?.textContent,
+        ).toBe("New");
+      } finally {
+        inside.view.destroy();
+        after.view.destroy();
+      }
+    });
+
+    it("draws a suggested list item at its own depth", () => {
+      const flat = [list("bulletList", listItem("One"), listItem("Two"))];
+      const child = mounted(flat, [
+        lineAfter(flat, "One", "- One\n\t- Child\n- Two", "\n\t- Child"),
+      ]);
+      const nested = [
+        list(
+          "bulletList",
+          listItem("One", list("bulletList", listItem("Child"))),
+          listItem("Two"),
+        ),
+      ];
+      const back = mounted(nested, [
+        lineAfter(nested, "Child", "- One\n\t- Child\n- New\n- Two", "\n- New"),
+      ]);
+      try {
+        // A first child item nests under the item it follows.
+        const outer = child.mount.querySelector(".ProseMirror > ul")!;
+        expect(Array.from(outer.children, (item) => item.textContent)).toEqual([
+          "OneChild",
+          "Two",
+        ]);
+        expect(
+          outer.children[0]!.querySelector(".suggestion-block-widget ul")
+            ?.textContent,
+        ).toBe("Child");
+        expect(child.mount.textContent).not.toContain("⇥");
+        // An item after a nested one goes back out to the outer list.
+        const items = back.mount.querySelector(".ProseMirror > ul")!.children;
+        expect(Array.from(items, (item) => item.textContent)).toEqual([
+          "OneChild",
+          "New",
+          "Two",
+        ]);
+        expect(items[1]!.classList).toContain("suggestion-block-widget");
+      } finally {
+        child.view.destroy();
+        back.view.destroy();
+      }
+    });
+
+    it("keeps each line's number in a suggested new numbered list", () => {
+      const source = "Alpha one.\n1. One\n2. Two\nBravo two.";
+      const from = "Alpha one.".length;
+      const to = source.indexOf("\nBravo");
+      const { view, mount } = mounted(
+        [paragraph("Alpha one."), paragraph("Bravo two.")],
+        [
+          {
+            suggestionId: "numbered",
+            kind: "add_block",
+            from: 1 + from,
+            to: 1 + from,
+            insertedText: source.slice(from, to),
+            insertedPresentation: { source, from, to },
+          },
+        ],
+      );
+      try {
+        expect(
+          Array.from(
+            mount.querySelectorAll(".suggestion-block-widget ol"),
+            (list) => `${list.getAttribute("start")} ${list.textContent}`,
+          ),
+        ).toEqual(["1 One", "2 Two"]);
+      } finally {
+        view.destroy();
+      }
+    });
+
+    it("shows a suggested empty paragraph as a pilcrow block", () => {
+      const source = "Alpha one.\n<empty-block/>\nBravo two.";
+      const from = "Alpha one.".length;
+      const to = source.indexOf("\nBravo");
+      const { view, mount } = mounted(
+        [paragraph("Alpha one."), paragraph("Bravo two.")],
+        [
+          {
+            suggestionId: "empty",
+            kind: "add_block",
+            from: 11,
+            to: 11,
+            insertedText: source.slice(from, to),
+            insertedPresentation: { source, from, to },
+          },
+        ],
+      );
+      try {
+        expect(blocks(mount)).toEqual([
+          "p Alpha one.",
+          "div.widget ¶",
+          "p Bravo two.",
+        ]);
+      } finally {
+        view.destroy();
+      }
+    });
+
+    it("draws a drafted paragraph deletion as its own block, not glued to the next", () => {
+      const source = "Alpha one.\nBravo two.\nCharlie three.";
+      const from = "Alpha one.\n".length;
+      const to = source.indexOf("Charlie");
+      const { view, mount } = mounted(
+        [paragraph("Alpha one."), paragraph("Charlie three.")],
+        [
+          {
+            suggestionId: "draft-delete",
+            kind: "delete",
+            from: 13,
+            to: 13,
+            deletedText: source.slice(from, to),
+            deletedPresentation: { source, from, to },
+            editableBoundary: true,
+          },
+        ],
+      );
+      try {
+        expect(blocks(mount)).toEqual([
+          "p Alpha one.",
+          "div.widget Bravo two.",
+          "p Charlie three.",
+        ]);
+        const widget = mount.querySelector(".suggestion-block-widget")!;
+        expect(widget.classList).toContain("suggestion-delete-widget");
+        expect(widget.getAttribute("data-suggestion-edit-boundary")).toBe(
+          "true",
+        );
+        expect(widget.getAttribute("data-suggestion-position")).toBe("13");
+        expect(widget.hasAttribute("tabindex")).toBe(false);
+      } finally {
+        view.destroy();
+      }
+    });
+
+    it("marks every whole paragraph a saved deletion removes", () => {
+      const { view, mount } = mounted(
+        [
+          paragraph("Alpha one."),
+          paragraph("Bravo two."),
+          paragraph("Charlie three."),
+        ],
+        [
+          {
+            suggestionId: "saved-delete",
+            kind: "delete",
+            from: 13,
+            to: 25,
+          },
+        ],
+      );
+      try {
+        expect(
+          Array.from(mount.querySelectorAll("p"), (element) =>
+            element.classList.contains("suggestion-delete-block"),
+          ),
+        ).toEqual([false, true, false]);
+      } finally {
+        view.destroy();
+      }
+    });
+
+    it("lets the caret land beside a saved insertion while suggesting", () => {
+      const { view, mount } = mounted(
+        [paragraph("Alpha one.")],
+        [
+          {
+            suggestionId: "saved",
+            kind: "insert",
+            from: 6,
+            to: 6,
+            insertedText: " new",
+            editableBoundary: true,
+          },
+        ],
+      );
+      try {
+        const widget = mount.querySelector('[data-suggestion-id="saved"]')!;
+        expect(widget.hasAttribute("tabindex")).toBe(false);
+        expect(widget.hasAttribute("role")).toBe(false);
+        expect(widget.getAttribute("data-suggestion-edit-boundary")).toBe(
+          "true",
+        );
+        expect(widget.getAttribute("data-suggestion-position")).toBe("6");
+      } finally {
+        view.destroy();
+      }
+    });
+
+    it("moves a drafted deletion's caret spot with text typed before it", () => {
+      const { view, mount } = mounted(
+        [paragraph("Alpha one.")],
+        [
+          {
+            suggestionId: "gone",
+            kind: "delete",
+            from: 6,
+            to: 6,
+            deletedText: " gone",
+            editableBoundary: true,
+          },
+        ],
+      );
+      try {
+        view.dispatch(view.state.tr.insertText("XY", 1));
+        expect(
+          mount
+            .querySelector('[data-suggestion-id="gone"]')!
+            .getAttribute("data-suggestion-position"),
+        ).toBe("8");
+      } finally {
+        view.destroy();
+      }
+    });
   });
 
   it("preserves boundary whitespace in insertion and deletion widgets", () => {
@@ -1201,6 +1732,41 @@ describe("SuggestionHighlight", () => {
     expect(dom.className).toContain("suggestion-inline-widget");
   });
 
+  it("redraws a saved replacement's widget when suggesting starts, stops, or it becomes active", () => {
+    const replacement = (editableBoundary: boolean) => [
+      {
+        suggestionId: "saved-replace",
+        kind: "replace" as const,
+        from: 1,
+        to: 6,
+        insertedText: "Omega",
+        editableBoundary,
+      },
+    ];
+    const mount = document.createElement("div");
+    const view = new EditorView(mount, {
+      state: setSpecs(state("Alpha one."), replacement(false)),
+    });
+    const widget = () =>
+      mount.querySelector<HTMLElement>(
+        '[data-suggestion-id="saved-replace"][data-suggestion-widget]',
+      )!;
+    expect(widget().getAttribute("tabindex")).toBe("0");
+
+    view.updateState(setSpecs(view.state, replacement(true)));
+    expect(widget().hasAttribute("tabindex")).toBe(false);
+    expect(widget().getAttribute("data-suggestion-edit-boundary")).toBe("true");
+    // The new text sits after the text it replaces, and so does the caret.
+    expect(widget().getAttribute("data-suggestion-position")).toBe("6");
+
+    view.updateState(setSpecs(view.state, replacement(false), "saved-replace"));
+    expect(widget().hasAttribute("data-suggestion-edit-boundary")).toBe(false);
+    expect(widget().getAttribute("role")).toBe("button");
+    expect(widget().className).toContain("suggestion-highlight--active");
+
+    view.destroy();
+  });
+
   it("marks saved and draft deletions active without changing their text", () => {
     const savedState = setSpecs(
       state("Keep this"),
@@ -1292,5 +1858,250 @@ describe("SuggestionHighlight", () => {
     } finally {
       view.destroy();
     }
+  });
+});
+
+describe("settling suggestions", () => {
+  const settling: SuggestionHighlightSpec = {
+    suggestionId: "accepted",
+    kind: "replace",
+    from: 1,
+    to: 7,
+    insertedText: "Later",
+    settling: true,
+  };
+
+  it("keeps local edits out of the words an accepted suggestion is replacing", () => {
+    const base = setSpecs(state(), [settling]);
+    const type = (at: number, text: string) =>
+      base.applyTransaction(base.tr.insertText(text, at)).state.doc.textContent;
+    expect(type(3, "x")).toBe("Before after");
+    expect(type(13, "!")).toBe("Before after!");
+    const erase = (from: number, to: number) =>
+      base.applyTransaction(base.tr.delete(from, to)).state.doc.textContent;
+    expect(erase(6, 8)).toBe("Before after");
+  });
+
+  it("holds a letter that would join the words an accepted suggestion is replacing", () => {
+    const base = setSpecs(state(), [settling]);
+    const type = (at: number, text: string) =>
+      base.applyTransaction(base.tr.insertText(text, at)).state.doc.textContent;
+    expect(type(1, "x")).toBe("Before after");
+    expect(type(7, "x")).toBe("Before after");
+    expect(
+      base.applyTransaction(base.tr.delete(7, 8)).state.doc.textContent,
+    ).toBe("Before after");
+    expect(type(7, ",")).toBe("Before, after");
+  });
+
+  it("keeps typing right beside the words an accepted suggestion is replacing", () => {
+    const base = setSpecs(state(), [settling]);
+    const type = (at: number, text: string) =>
+      base.applyTransaction(base.tr.insertText(text, at)).state.doc.textContent;
+    expect(type(7, " really")).toBe("Before really after");
+    expect(type(1, "So ")).toBe("So Before after");
+    const typed = base.applyTransaction(base.tr.insertText(" really", 7));
+    expect(
+      typed.state.applyTransaction(typed.state.tr.insertText("!", 8)).state.doc
+        .textContent,
+    ).toBe("Before !really after");
+  });
+
+  it("lets live sync replace those words, and leaves pending suggestions editable", () => {
+    const base = setSpecs(state(), [settling]);
+    expect(
+      base.applyTransaction(fromLiveSync(base.tr.insertText("Later", 1, 7)))
+        .state.doc.textContent,
+    ).toBe("Later after");
+    const pending = setSpecs(state(), [{ ...settling, settling: false }]);
+    expect(
+      pending.applyTransaction(pending.tr.insertText("x", 3)).state.doc
+        .textContent,
+    ).toBe("Bexfore after");
+  });
+
+  it("holds the words of an accepted suggestion still drawn as a suggestion", () => {
+    const frozen = setSpecs(state(), [
+      { ...settling, settling: false, frozen: true },
+    ]);
+    expect(
+      frozen.applyTransaction(frozen.tr.insertText("x", 3)).state.doc
+        .textContent,
+    ).toBe("Before after");
+  });
+
+  it("holds undo and redo while a decision saves", () => {
+    expect(suggestionDecisionHoldsHistory(state())).toBe(false);
+    expect(
+      suggestionDecisionHoldsHistory(
+        setSpecs(state(), [{ ...settling, settling: false }]),
+      ),
+    ).toBe(false);
+    expect(suggestionDecisionHoldsHistory(setSpecs(state(), [settling]))).toBe(
+      true,
+    );
+    expect(
+      suggestionDecisionHoldsHistory(
+        setSpecs(state(), [{ ...settling, settling: false, frozen: true }]),
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("drafts while the author types", () => {
+  // "The lazy dog." with "lazy" replaced by a draft "s": the Page has drawn
+  // the draft, and the author keeps typing before it redraws.
+  const replacement: SuggestionHighlightSpec = {
+    suggestionId: "draft-1",
+    kind: "mark",
+    from: 5,
+    to: 6,
+    deletedText: "lazy",
+    editableBoundary: true,
+    editableText: true,
+    draft: true,
+  };
+
+  function drafting(
+    text: string,
+    specs: SuggestionHighlightSpec[],
+  ): EditorState {
+    const editorState = state(text);
+    return editorState.apply(
+      editorState.tr.setMeta(suggestionHighlightKey, {
+        specs,
+        activeId: null,
+        drafting: true,
+      }),
+    );
+  }
+
+  function specsOf(editorState: EditorState): SuggestionHighlightSpec[] {
+    return suggestionHighlightKey.getState(editorState)!.specs;
+  }
+
+  function struckText(editorState: EditorState): string[] {
+    const view = new EditorView(document.createElement("div"), {
+      state: editorState,
+    });
+    try {
+      return Array.from(
+        view.dom.querySelectorAll(".suggestion-delete-widget"),
+        (widget) => widget.textContent ?? "",
+      );
+    } finally {
+      view.destroy();
+    }
+  }
+
+  it("keeps the struck-out word and grows the draft over each letter typed", () => {
+    let editorState = drafting("The s dog.", [replacement]);
+    for (const letter of "leepy") {
+      editorState = editorState.apply(
+        editorState.tr.insertText(letter, editorState.doc.content.size - 6),
+      );
+      expect(struckText(editorState)).toEqual(["lazy"]);
+    }
+    expect(editorState.doc.textContent).toBe("The sleepy dog.");
+    expect(specsOf(editorState)).toMatchObject([
+      { suggestionId: "draft-1", from: 5, to: 11, deletedText: "lazy" },
+    ]);
+  });
+
+  it("keeps the struck-out word when every typed letter is removed", () => {
+    const editorState = drafting("The s dog.", [replacement]);
+    const next = editorState.apply(editorState.tr.delete(5, 6));
+    expect(next.doc.textContent).toBe("The  dog.");
+    expect(struckText(next)).toEqual(["lazy"]);
+  });
+
+  it("strikes out a word typed over at once, before the Page draws the draft", () => {
+    const editorState = drafting("The lazy dog.", []);
+    const next = editorState.apply(editorState.tr.insertText("s", 5, 9));
+    expect(next.doc.textContent).toBe("The s dog.");
+    expect(struckText(next)).toEqual(["lazy"]);
+    const [typed] = specsOf(next);
+    expect(isProvisionalDraftSpec(typed!)).toBe(true);
+    expect(typed).toMatchObject({ kind: "mark", from: 5, to: 6 });
+  });
+
+  it("joins letters deleted beside a draft to its struck-out text", () => {
+    const deletion: SuggestionHighlightSpec = {
+      suggestionId: "draft-2",
+      kind: "delete",
+      from: 4,
+      to: 4,
+      deletedText: "dy",
+      editableBoundary: true,
+      draft: true,
+    };
+    let editorState = drafting("lazog.", [deletion]);
+    editorState = editorState.apply(editorState.tr.delete(3, 4));
+    editorState = editorState.apply(editorState.tr.delete(2, 3));
+    expect(editorState.doc.textContent).toBe("log.");
+    expect(struckText(editorState)).toEqual(["azdy"]);
+    expect(specsOf(editorState)).toHaveLength(1);
+  });
+
+  it("turns a draft deletion into a replacement when the author types there", () => {
+    const deletion: SuggestionHighlightSpec = {
+      suggestionId: "draft-3",
+      kind: "delete",
+      from: 5,
+      to: 5,
+      deletedText: "lazy",
+      editableBoundary: true,
+      draft: true,
+    };
+    const editorState = drafting("The  dog.", [deletion]);
+    const next = editorState.apply(editorState.tr.insertText("s", 5));
+    expect(specsOf(next)).toMatchObject([
+      { kind: "mark", from: 5, to: 6, deletedText: "lazy", editableText: true },
+    ]);
+    expect(struckText(next)).toEqual(["lazy"]);
+  });
+
+  it("leaves undo, live sync and loads to the Page's next redraw", () => {
+    const editorState = drafting("The lazy dog.", []);
+    const undo = editorState.tr.insertText("s", 5, 9).setMeta("history$", {});
+    const sync = fromLiveSync(editorState.tr.insertText("s", 5, 9));
+    const load = editorState.tr
+      .insertText("s", 5, 9)
+      .setMeta("addToHistory", false);
+    for (const transaction of [undo, sync, load])
+      expect(specsOf(editorState.apply(transaction))).toEqual([]);
+  });
+
+  it("leaves a draft to the Page's redraw when live sync redraws the whole Page", () => {
+    const editorState = drafting("The s dog.", [replacement]);
+    // Live sync replaces the whole Page, as y-tiptap does for a peer's edit.
+    const next = editorState.apply(
+      fromLiveSync(
+        editorState.tr.replaceWith(
+          0,
+          editorState.doc.content.size,
+          doc("The s dog!").content,
+        ),
+      ),
+    );
+    expect(specsOf(next)).toEqual([]);
+    expect(struckText(next)).toEqual([]);
+  });
+
+  it("keeps the struck-out word in place when undo removes the typed letters", () => {
+    const editorState = drafting("The s dog.", [replacement]);
+    const next = editorState.apply(
+      editorState.tr.delete(5, 6).setMeta("history$", {}),
+    );
+    expect(specsOf(next)).toMatchObject([
+      { suggestionId: "draft-1", from: 5, to: 5, deletedText: "lazy" },
+    ]);
+    expect(struckText(next)).toEqual(["lazy"]);
+  });
+
+  it("draws nothing new for typing when the author isn't suggesting", () => {
+    const editorState = state("The lazy dog.");
+    const next = editorState.apply(editorState.tr.insertText("s", 5, 9));
+    expect(specsOf(next)).toEqual([]);
   });
 });

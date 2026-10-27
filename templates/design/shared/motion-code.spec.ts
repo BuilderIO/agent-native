@@ -12,7 +12,7 @@ import {
   reconcileMotionCodeDocument,
   withMotionCodeMetadata,
 } from "./motion-code";
-import { motionEaseVariableToken } from "./motion-easing";
+import { motionEaseVariableToken, springToCssLinear } from "./motion-easing";
 import { createMotionNativeStyleInstance } from "./motion-native-style-runtime";
 import type { MotionTimeline } from "./motion-timeline";
 
@@ -66,6 +66,109 @@ describe("Motion source document CSS codec", () => {
       document: motionCodeDocumentFromTimeline(timeline),
     });
     expect(compiled.css).toContain("@keyframes an-motion-");
+  });
+
+  it("preserves spring authoring values while reconciling their CSS approximation", () => {
+    const springTimeline: MotionTimeline = {
+      ...timeline,
+      tracks: [{ ...timeline.tracks[0]!, targetNodeId: "hero" }],
+    };
+    const compiled = compileMotionCode(springTimeline);
+    const stored = motionCodeDocumentFromTimeline(springTimeline);
+    const reconciled = reconcileMotionCodeDocument(compiled.css, stored);
+
+    expect(reconciled.tracks[0]?.keyframes[1]?.ease).toBe("spring(0.25)");
+    const metadataComment = `/* ${MOTION_SOURCE_MARKER_NAME}:`;
+    const roundTripCss = compileMotionCode({
+      ...springTimeline,
+      tracks: reconciled.tracks,
+    }).css.split(metadataComment, 1)[0];
+    expect(roundTripCss).toBe(compiled.css.split(metadataComment, 1)[0]);
+
+    const springCss = springToCssLinear({ bounce: 0.25, settle: 1 });
+    const editedCss = compiled.css.replace(
+      `animation-timing-function: ${springCss};`,
+      "animation-timing-function: ease-in;",
+    );
+    const edited = reconcileMotionCodeDocument(editedCss, stored);
+
+    expect(edited.tracks[0]?.keyframes[1]?.ease).toBe("ease-in");
+  });
+
+  it("keeps inherited keyframes unset when reconciling a spring timeline default", () => {
+    const springTimeline: MotionTimeline = {
+      ...timeline,
+      defaultEase: "spring(0.25)",
+      tracks: [
+        {
+          ...timeline.tracks[0]!,
+          targetNodeId: "hero",
+          property: "opacity",
+          keyframes: [
+            { t: 0, value: "0" },
+            { t: 0.5, value: "0.5" },
+            { t: 1, value: "1" },
+          ],
+        },
+      ],
+    };
+    const compiled = compileMotionCode(springTimeline);
+    const stored = motionCodeDocumentFromTimeline(springTimeline);
+    const reconciled = reconcileMotionCodeDocument(compiled.css, stored);
+
+    expect(
+      reconciled.tracks[0]?.keyframes.every(
+        (keyframe) => !Object.prototype.hasOwnProperty.call(keyframe, "ease"),
+      ),
+    ).toBe(true);
+    expect(reconciled.defaultEase).toBe("spring(0.25)");
+    expect(
+      compileMotionCode({ ...springTimeline, tracks: reconciled.tracks }).css,
+    ).toBe(compiled.css);
+  });
+
+  it("reconciles spring easing at compiler-quantized keyframe offsets", () => {
+    const roundedOffset = 1000 / 3601;
+    const nearbyOffset = roundedOffset + 0.000001;
+    const springTimeline: MotionTimeline = {
+      ...timeline,
+      tracks: [
+        {
+          ...timeline.tracks[0]!,
+          targetNodeId: "hero",
+          property: "opacity",
+          keyframes: [
+            { t: 0, value: "0" },
+            { t: roundedOffset, value: "0.5", ease: "spring(0.25)" },
+            { t: nearbyOffset, value: "0.75", ease: "spring(0.69)" },
+            { t: 1, value: "1" },
+          ],
+        },
+      ],
+    };
+    const compiled = compileMotionCode(springTimeline);
+    const reconciled = reconcileMotionCodeDocument(
+      compiled.css,
+      motionCodeDocumentFromTimeline(springTimeline),
+    );
+
+    expect(compiled.css.match(/27\.77% \{/g)).toHaveLength(2);
+    expect(reconciled.tracks[0]?.keyframes[1]?.ease).toBe("spring(0.25)");
+    expect(reconciled.tracks[0]?.keyframes[2]?.ease).toBe("spring(0.69)");
+
+    const editedCss = compiled.css.replace(
+      `animation-timing-function: ${springToCssLinear({ bounce: 0.25, settle: 1 })};`,
+      `animation-timing-function: ${springToCssLinear({ bounce: 0.69, settle: 1 })};`,
+    );
+    const edited = reconcileMotionCodeDocument(
+      editedCss,
+      motionCodeDocumentFromTimeline(springTimeline),
+    );
+
+    expect(edited.tracks[0]?.keyframes[1]?.ease).toBe(
+      springToCssLinear({ bounce: 0.69, settle: 1 }),
+    );
+    expect(edited.tracks[0]?.keyframes[2]?.ease).toBe("spring(0.69)");
   });
 
   it("keeps an authored track and a native style on the same node and property apart through a round trip", () => {
@@ -515,6 +618,53 @@ describe("Motion source document CSS codec", () => {
     ]);
   });
 
+  it.each(["Scale", "Size"] as const)(
+    "keeps %s native styles when shared CSS declares default replace composition",
+    (styleKey) => {
+      const style = createMotionNativeStyleInstance({
+        styleKey,
+        targetNodeId: "hero-title",
+      });
+      const sourceTimeline: MotionTimeline = {
+        ...timeline,
+        tracks: [
+          {
+            id: "position-x",
+            targetNodeId: "hero-title",
+            property: "translate",
+            keyframes: [
+              { t: 0, value: "0px 0px" },
+              { t: 1, value: "100px 0px" },
+            ],
+          },
+          {
+            id: "position-y",
+            targetNodeId: "hero-title",
+            property: "translate",
+            keyframes: [
+              { t: 0, value: "0px 0px" },
+              { t: 1, value: "0px 60px" },
+            ],
+          },
+        ],
+        nativeStyles: [style],
+      };
+      const compiled = compileMotionCode(sourceTimeline);
+
+      expect(compiled.css).toContain(
+        styleKey === "Scale"
+          ? "animation-composition: replace, add, add"
+          : "animation-composition: replace, add, add, replace",
+      );
+      expect(
+        reconcileMotionCodeDocument(
+          compiled.css,
+          motionCodeDocumentFromTimeline(sourceTimeline),
+        ).nativeStyles,
+      ).toEqual([style]);
+    },
+  );
+
   it("keeps an unsuffixed duplicate from reusing a matched track id", () => {
     const existingTracks: MotionTimeline["tracks"] = [
       {
@@ -682,6 +832,255 @@ describe("Motion source document CSS codec", () => {
     });
   });
 
+  it("keeps Position presets and reconciles edited CSS timing", () => {
+    const baseStyle = createMotionNativeStyleInstance({
+      styleKey: "Position",
+      targetNodeId: "hero",
+    });
+    const sourceStyle = {
+      ...baseStyle,
+      sourceStyleId: "position-style-timing",
+      sourceInstanceId: "position-instance-timing",
+      duration: 0.75,
+      timelineOffset: 0.2,
+      props: {
+        ...baseStyle.props,
+        delay: 0.1,
+        futureProperty: { preserve: true },
+      },
+    };
+    const sourceTimeline: MotionTimeline = {
+      ...timeline,
+      durationMs: 2000,
+      defaultEase: "ease",
+      tracks: [],
+      nativeStyles: [sourceStyle],
+    };
+    const stored = motionCodeDocumentFromTimeline(sourceTimeline);
+    const root = postcss.parse(compileMotionCode(sourceTimeline).css);
+    let delayDeclarations = 0;
+    let durationDeclarations = 0;
+    let positionDeclarations = 0;
+    let easingDeclarations = 0;
+    root.walkDecls("animation-delay", (declaration) => {
+      declaration.value = "0.4s";
+      delayDeclarations += 1;
+    });
+    root.walkDecls("animation-duration", (declaration) => {
+      declaration.value = "1.2s";
+      durationDeclarations += 1;
+    });
+    root.walkAtRules("keyframes", (keyframes) => {
+      keyframes.walkRules("0%", (stop) => {
+        stop.walkDecls("translate", (declaration) => {
+          declaration.value = "0px 320px";
+          positionDeclarations += 1;
+        });
+      });
+    });
+    root.walkAtRules("keyframes", (keyframes) => {
+      keyframes.walkRules("0%", (stop) => {
+        stop.walkDecls("animation-timing-function", (declaration) => {
+          declaration.value = "linear";
+          easingDeclarations += 1;
+        });
+      });
+    });
+
+    expect(delayDeclarations).toBe(1);
+    expect(durationDeclarations).toBe(1);
+    expect(positionDeclarations).toBe(1);
+    expect(easingDeclarations).toBe(1);
+    const reconciled = reconcileMotionCodeDocument(root.toString(), stored);
+
+    expect(reconciled.nativeStyles?.[0]).toMatchObject({
+      sourceStyleId: "position-style-timing",
+      sourceInstanceId: "position-instance-timing",
+      duration: 1.2,
+      timelineOffset: 0.2,
+      props: {
+        type: "slide_in",
+        direction: "bottom",
+        distance: 320,
+        delay: 0.2,
+        easing: "linear",
+        futureProperty: { preserve: true },
+      },
+    });
+
+    const recompiled = compileMotionCode({
+      ...sourceTimeline,
+      nativeStyles: reconciled.nativeStyles,
+    });
+    expect(decodeMotionCodeMetadata(recompiled.css)).toMatchObject({
+      status: "valid",
+      document: { nativeStyles: reconciled.nativeStyles },
+    });
+  });
+
+  it("rejects native Position composition edits the metadata cannot retain", () => {
+    const style = createMotionNativeStyleInstance({
+      styleKey: "Position",
+      targetNodeId: "hero",
+    });
+    const sourceTimeline: MotionTimeline = {
+      ...timeline,
+      tracks: [],
+      nativeStyles: [style],
+    };
+    const stored = motionCodeDocumentFromTimeline(sourceTimeline);
+    const root = postcss.parse(compileMotionCode(sourceTimeline).css);
+    let changedRules = 0;
+    root.walkRules((rule) => {
+      if (
+        !rule.nodes?.some(
+          (node) =>
+            node.type === "decl" &&
+            node.prop.toLowerCase() === "animation-name" &&
+            node.value.startsWith("an-motion-"),
+        )
+      ) {
+        return;
+      }
+      rule.append({ prop: "animation-composition", value: "add" });
+      changedRules += 1;
+    });
+
+    expect(changedRules).toBe(1);
+    expect(() => reconcileMotionCodeDocument(root.toString(), stored)).toThrow(
+      /composition the native style metadata cannot represent/,
+    );
+  });
+
+  it("maps edited Scale CSS values back to native metadata", () => {
+    const baseStyle = createMotionNativeStyleInstance({
+      styleKey: "Scale",
+      targetNodeId: "hero",
+    });
+    const sourceStyle = {
+      ...baseStyle,
+      sourceStyleId: "scale-style-1",
+      sourceInstanceId: "scale-instance-1",
+      props: {
+        ...baseStyle.props,
+        futureProperty: { preserve: true },
+      },
+    };
+    const sourceTimeline: MotionTimeline = {
+      ...timeline,
+      tracks: [],
+      nativeStyles: [sourceStyle],
+    };
+    const stored = motionCodeDocumentFromTimeline(sourceTimeline);
+    const compiled = compileMotionCode(sourceTimeline);
+    const directEdit = compiled.css.replace("scale: 1.2 1.2;", "scale: 2 1.5;");
+
+    expect(directEdit).not.toBe(compiled.css);
+    const reconciled = reconcileMotionCodeDocument(directEdit, stored);
+
+    expect(reconciled.tracks).toEqual([]);
+    expect(reconciled.nativeStyles?.[0]).toMatchObject({
+      sourceStyleId: "scale-style-1",
+      sourceInstanceId: "scale-instance-1",
+      props: {
+        type: "custom",
+        axis: "whCombined",
+        wStartWithDivider: 200,
+        wEndWithoutDivider: 100,
+        hStartWithDivider: 150,
+        hEndWithoutDivider: 100,
+        futureProperty: { preserve: true },
+      },
+    });
+
+    const recompiled = compileMotionCode({
+      ...sourceTimeline,
+      nativeStyles: reconciled.nativeStyles,
+    });
+    expect(decodeMotionCodeMetadata(recompiled.css)).toMatchObject({
+      status: "valid",
+      document: { nativeStyles: reconciled.nativeStyles },
+    });
+  });
+
+  it("keeps Scale preset metadata for a uniform source edit", () => {
+    const scaleStyle = createMotionNativeStyleInstance({
+      styleKey: "Scale",
+      targetNodeId: "hero",
+    });
+    const sourceTimeline: MotionTimeline = {
+      ...timeline,
+      tracks: [],
+      nativeStyles: [scaleStyle],
+    };
+    const stored = motionCodeDocumentFromTimeline(sourceTimeline);
+    const directEdit = compileMotionCode(sourceTimeline).css.replace(
+      "scale: 1.2 1.2;",
+      "scale: 1.5;",
+    );
+
+    expect(directEdit).not.toBe(compileMotionCode(sourceTimeline).css);
+    const reconciled = reconcileMotionCodeDocument(directEdit, stored);
+
+    expect(reconciled.nativeStyles?.[0]?.props).toMatchObject({
+      type: "scaleIn",
+      amount: 150,
+    });
+    expect(
+      compileMotionCode({
+        ...sourceTimeline,
+        nativeStyles: reconciled.nativeStyles,
+      }).css,
+    ).toContain("scale: 1.5 1.5;");
+  });
+
+  it("rejects CSS Scale edits outside the native unitless two-axis subset", () => {
+    const scaleStyle = createMotionNativeStyleInstance({
+      styleKey: "Scale",
+      targetNodeId: "hero",
+    });
+    const sourceTimeline: MotionTimeline = {
+      ...timeline,
+      tracks: [],
+      nativeStyles: [scaleStyle],
+    };
+    const stored = motionCodeDocumentFromTimeline(sourceTimeline);
+    const directEdit = compileMotionCode(sourceTimeline).css.replace(
+      "scale: 1.2 1.2;",
+      "scale: 2px 1.5;",
+    );
+
+    expect(() => reconcileMotionCodeDocument(directEdit, stored)).toThrow(
+      /finite unitless values/,
+    );
+  });
+
+  it("rejects a native style delay that would fall before its timeline offset", () => {
+    const baseStyle = createMotionNativeStyleInstance({
+      styleKey: "Position",
+      targetNodeId: "hero",
+    });
+    const sourceStyle = {
+      ...baseStyle,
+      timelineOffset: 0.2,
+      props: { ...baseStyle.props, delay: 0.1 },
+    };
+    const sourceTimeline: MotionTimeline = {
+      ...timeline,
+      tracks: [],
+      nativeStyles: [sourceStyle],
+    };
+    const stored = motionCodeDocumentFromTimeline(sourceTimeline);
+    const root = postcss.parse(compileMotionCode(sourceTimeline).css);
+    root.walkDecls("animation-delay", (declaration) => {
+      declaration.value = "0.1s";
+    });
+
+    expect(() => reconcileMotionCodeDocument(root.toString(), stored)).toThrow(
+      /native delay is non-negative/,
+    );
+  });
+
   it("maps edited Position path geometry back without restoring stale metadata", () => {
     const baseStyle = createMotionNativeStyleInstance({
       styleKey: "Position",
@@ -741,25 +1140,49 @@ describe("Motion source document CSS codec", () => {
     });
   });
 
-  it("fails closed when a native style edit cannot map back to its source props", () => {
-    const scaleStyle = createMotionNativeStyleInstance({
-      styleKey: "Scale",
+  it("reconciles Path easing inherited from the target animation rule", () => {
+    const pathStyle = createMotionNativeStyleInstance({
+      styleKey: "Path",
       targetNodeId: "hero",
     });
     const sourceTimeline: MotionTimeline = {
       ...timeline,
       tracks: [],
-      nativeStyles: [scaleStyle],
+      durationMs: 1000,
+      nativeStyles: [pathStyle],
     };
     const stored = motionCodeDocumentFromTimeline(sourceTimeline);
-    const compiled = compileMotionCode(sourceTimeline);
-    const directEdit = compiled.css.replace("scale: 1.2 1.2;", "scale: 2 2;");
+    const root = postcss.parse(compileMotionCode(sourceTimeline).css);
+    root.walkAtRules("keyframes", (keyframes) => {
+      keyframes.walkDecls("animation-timing-function", (declaration) => {
+        declaration.remove();
+      });
+    });
 
-    expect(directEdit).not.toBe(compiled.css);
-    expect(() => reconcileMotionCodeDocument(directEdit, stored)).toThrow(
-      /Source edits to Scale are not yet representable/,
+    const targetSelector = '[data-agent-native-node-id="hero"]';
+    const setTargetEase = (ease: string) => {
+      root.walkRules(targetSelector, (rule) => {
+        rule.walkDecls("animation-timing-function", (declaration) => {
+          declaration.value = ease;
+        });
+      });
+    };
+
+    setTargetEase("ease-out");
+    const inherited = reconcileMotionCodeDocument(root.toString(), stored);
+    expect(inherited.nativeStyles?.[0]?.props.easing).toEqual(
+      pathStyle.props.easing,
     );
-    expect(compiled.css).toContain("scale: 1.2 1.2;");
+
+    setTargetEase("ease-in");
+    const updated = reconcileMotionCodeDocument(root.toString(), stored);
+    expect(updated.nativeStyles?.[0]?.props.easing).toBe("ease-in");
+    expect(
+      compileMotionCode({
+        ...sourceTimeline,
+        nativeStyles: updated.nativeStyles,
+      }).css,
+    ).toContain("animation-timing-function: ease-in;");
   });
 
   it("reconciles duplicate native styles by their generated track identities", () => {
@@ -873,11 +1296,9 @@ describe("Motion source document CSS codec", () => {
     expect(reconciled.nativeStyles?.[0]).toEqual(nativeStyles[0]);
     expect(reconciled.nativeStyles?.[1]).toMatchObject({
       props: {
-        type: "custom",
-        startX: -300,
-        startY: 0,
-        endX: 0,
-        endY: 0,
+        type: "slide_in",
+        direction: "left",
+        distance: 300,
       },
     });
     expect(reconciled.tracks).toEqual([]);
@@ -1151,6 +1572,7 @@ describe("Motion source document CSS codec", () => {
       tracks: [
         {
           ...timeline.tracks[0]!,
+          targetNodeId: "hero",
           keyframes: [
             { t: 0, value: "translateX(0px)", ease },
             { t: 1, value: "translateX(22px)" },
@@ -1159,6 +1581,9 @@ describe("Motion source document CSS codec", () => {
       ],
     };
     const compiled = compileMotionCode(variableTimeline, { easingVariables });
+    const stored = motionCodeDocumentFromTimeline(variableTimeline, {
+      easingVariables,
+    });
     const result = decodeMotionCodeMetadata(compiled.css);
 
     expect(compiled.css).toMatch(
@@ -1167,10 +1592,20 @@ describe("Motion source document CSS codec", () => {
     expect(compiled.css).toContain(`animation-timing-function: ${ease};`);
     expect(result).toEqual({
       status: "valid",
-      document: motionCodeDocumentFromTimeline(variableTimeline, {
-        easingVariables,
-      }),
+      document: stored,
     });
+    const reconciled = reconcileMotionCodeDocument(compiled.css, stored);
+    expect(reconciled.easingVariables).toEqual(easingVariables);
+    expect(reconciled.tracks[0]?.keyframes[0]?.ease).toBe(ease);
+
+    const springCss = springToCssLinear({ bounce: 0.3, settle: 0.8 });
+    const editedCss = compiled.css.replace(
+      `--an-motion-ease-ease-out: ${springCss};`,
+      "--an-motion-ease-ease-out: ease-in;",
+    );
+    const edited = reconcileMotionCodeDocument(editedCss, stored);
+    expect(edited.easingVariables?.[0]?.value).toBe("ease-in");
+    expect(edited.tracks[0]?.keyframes[0]?.ease).toBe(ease);
     expect(compiled.css).toContain(
       encodeMotionCodeMetadata(
         motionCodeDocumentFromTimeline(variableTimeline, { easingVariables }),

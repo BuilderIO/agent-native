@@ -35,8 +35,8 @@ describe("CRM MCP connector catalog", () => {
       join(root, "server", "plugins", "agent-chat.ts"),
       "utf8",
     );
-    expect(plugin).toContain(
-      "mcp: { connectorCatalog: [...CRM_CONNECTOR_CATALOG] }",
+    expect(plugin).toMatch(
+      /\bmcp: \{ connectorCatalog: \[\.\.\.CRM_CONNECTOR_CATALOG\][,\s}]/,
     );
     for (const actionName of CRM_CONNECTOR_CATALOG) {
       const action = readFileSync(

@@ -791,12 +791,18 @@ export function trackOnboardingEvent(
   if (typeof window === "undefined") return;
   const identityKey = getAnalyticsIdentityKey() ?? "anonymous";
   const sessionId = getAnalyticsSessionId() ?? "unknown-session";
+  const experiment =
+    properties.flow === "first_run"
+      ? (onboardingExperiment ?? readStoredOnboardingExperiment())
+      : null;
   const key = [
     sessionId,
     identityKey,
     name,
     properties.flow,
     properties.step_id,
+    properties.experiment_id ?? experiment?.experiment_id,
+    properties.experiment_variant ?? experiment?.experiment_variant,
     properties.extension_id,
     properties.integration_id,
     properties.role,
@@ -840,11 +846,7 @@ export function trackOnboardingEvent(
     if (seenOnboardingEvents.has(key)) return;
     seenOnboardingEvents.add(key);
   }
-  const experiment =
-    properties.flow === "first_run"
-      ? (onboardingExperiment ?? readStoredOnboardingExperiment())
-      : null;
-  trackEvent(name, experiment ? { ...properties, ...experiment } : properties);
+  trackEvent(name, experiment ? { ...experiment, ...properties } : properties);
 }
 
 export interface UseOnboardingResult {
@@ -891,10 +893,30 @@ export function useOnboarding(
   const stepsRef = useRef<OnboardingStepStatus[]>([]);
   const mountedRef = useRef(true);
   const fetchGenerationRef = useRef(0);
+  const firstRunCompletedRef = useRef(false);
 
   useEffect(() => {
     setFirstRun(preview || initialFirstRun);
   }, [initialFirstRun, preview]);
+
+  // First run completed by another instance (the startup gate's, or a second
+  // copy of this module) must close this one too, including a status read
+  // that was still in flight when it completed.
+  useEffect(() => {
+    const handleFirstRunCompleted = () => {
+      firstRunCompletedRef.current = true;
+      setFirstRun(false);
+    };
+    window.addEventListener(
+      "agent-native:first-run-completed",
+      handleFirstRunCompleted,
+    );
+    return () =>
+      window.removeEventListener(
+        "agent-native:first-run-completed",
+        handleFirstRunCompleted,
+      );
+  }, []);
 
   const fetchAll = useCallback(
     async (reuseSharedRead?: boolean) => {
@@ -964,7 +986,9 @@ export function useOnboarding(
         if (preview) {
           setFirstRun(true);
         } else if (!initialFirstRun) {
-          setFirstRun(firstRunResult.value === true);
+          setFirstRun(
+            firstRunResult.value === true && !firstRunCompletedRef.current,
+          );
         }
 
         setError(null);

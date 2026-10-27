@@ -199,6 +199,7 @@ import {
   type CliStatusCache,
 } from "./cli-status-cache.js";
 import { guardCodeAgentPersistence } from "./code-agent-persistence-guard.js";
+import { normalizeCodeAgentPromptAttachments } from "./code-agent-prompt-attachments.js";
 import {
   isCodeAgentRunnerInFlight,
   resolveExecutable,
@@ -4941,30 +4942,6 @@ function readCodeAgentPermissionMode(
   return getCodeAgentPermissionMode(
     firstStringValue(metadata?.permissionMode, record?.permissionMode),
   );
-}
-
-function normalizeCodeAgentPromptAttachments(
-  value: unknown,
-): CodeAgentPromptAttachment[] | undefined {
-  if (!Array.isArray(value)) return undefined;
-  const attachments = value
-    .map((item) => {
-      if (!isObject(item)) return null;
-      const name = firstStringValue(item.name);
-      if (!name) return null;
-      const size = Number(item.size);
-      const attachment: CodeAgentPromptAttachment = { name };
-      const type = firstStringValue(item.type);
-      const text = firstStringValue(item.text);
-      const dataUrl = firstStringValue(item.dataUrl);
-      if (type) attachment.type = type;
-      if (Number.isFinite(size) && size >= 0) attachment.size = size;
-      if (text) attachment.text = text;
-      if (dataUrl) attachment.dataUrl = dataUrl;
-      return attachment;
-    })
-    .filter((item): item is CodeAgentPromptAttachment => item !== null);
-  return attachments.length > 0 ? attachments : undefined;
 }
 
 function readCodeAgentAttempt(

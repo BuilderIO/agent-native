@@ -17,12 +17,18 @@ import {
   timelineMarkerMs,
 } from "./scrubber-position";
 
+interface CommentMarkerGroup {
+  ms: number;
+  first: ClipCommentMarker;
+  comments: ClipCommentMarker[];
+}
+
 export interface ScrubberProps {
   hoverPreviews?: boolean;
   currentMs: number;
   durationMs: number;
   onSeek: (ms: number) => void;
-  comments?: ClipCommentMarker[];
+  comments?: ClipCommentMarker[] | undefined;
   onMarkerLanesChange?: (lanes: Map<number, number>) => void;
 }
 
@@ -76,7 +82,9 @@ export function Scrubber(props: ScrubberProps) {
     activePointerIdRef.current = e.pointerId;
     setDragging(true);
     // Older test/browser environments may not implement pointer capture.
-    e.currentTarget.setPointerCapture?.(e.pointerId);
+    if ("setPointerCapture" in e.currentTarget) {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    }
     seekFromClientX(e.clientX);
   }
 
@@ -99,25 +107,28 @@ export function Scrubber(props: ScrubberProps) {
     activePointerIdRef.current = null;
     setDragging(false);
     if (e.pointerType !== "mouse") setHoverMs(null);
-    if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
+    if (
+      "hasPointerCapture" in e.currentTarget &&
+      e.currentTarget.hasPointerCapture(e.pointerId)
+    ) {
       e.currentTarget.releasePointerCapture(e.pointerId);
     }
   }
 
-  const commentsByMs = useMemo(() => {
-    const map = new Map<number, ClipCommentMarker[]>();
-    (comments ?? []).forEach((c) => {
-      const key = timelineMarkerMs(c.videoTimestampMs);
-      const list = map.get(key) ?? [];
-      list.push(c);
-      map.set(key, list);
-    });
-    return map;
+  const markers = useMemo(() => {
+    const byMs = new Map<number, CommentMarkerGroup>();
+    for (const comment of comments ?? []) {
+      const ms = timelineMarkerMs(comment.videoTimestampMs);
+      const group = byMs.get(ms);
+      if (group) group.comments.push(comment);
+      else byMs.set(ms, { ms, first: comment, comments: [comment] });
+    }
+    return Array.from(byMs.values()).sort((a, b) => a.ms - b.ms);
   }, [comments]);
 
   const markerTimes = useMemo(
-    () => Array.from(commentsByMs.keys()).sort((a, b) => a - b),
-    [commentsByMs],
+    () => markers.map((marker) => marker.ms),
+    [markers],
   );
 
   const markerWidths = useMemo(
@@ -132,9 +143,10 @@ export function Scrubber(props: ScrubberProps) {
   useEffect(() => {
     const bar = barRef.current;
     if (!bar || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(([entry]) => {
-      const width = entry?.contentRect.width ?? bar.clientWidth;
-      setBarWidth(Math.max(1, width));
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setBarWidth(Math.max(1, entry.contentRect.width));
+      }
     });
     observer.observe(bar);
     setBarWidth(
@@ -232,8 +244,7 @@ export function Scrubber(props: ScrubberProps) {
           style={{ width: pct + "%" }}
         />
 
-        {markerTimes.map((ms) => {
-          const commentList = commentsByMs.get(ms)!;
+        {markers.map(({ ms, first, comments: commentList }) => {
           const markerLane = markerLanes.get(ms) ?? 0;
           const markerAlignment = timelineMarkerAlignment(
             ms,
@@ -269,7 +280,7 @@ export function Scrubber(props: ScrubberProps) {
                 onPointerDown={(event) => event.stopPropagation()}
                 onMouseEnter={() =>
                   setTooltip({
-                    comment: commentList[0]!,
+                    comment: first,
                     ms,
                     lane: markerLane,
                   })
@@ -277,7 +288,7 @@ export function Scrubber(props: ScrubberProps) {
                 onMouseLeave={() => setTooltip(null)}
                 onFocus={() =>
                   setTooltip({
-                    comment: commentList[0]!,
+                    comment: first,
                     ms,
                     lane: markerLane,
                   })

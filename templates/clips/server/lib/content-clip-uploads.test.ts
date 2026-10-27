@@ -2,8 +2,8 @@ import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 
 import { getTableConfig, type PgTable } from "drizzle-orm/pg-core";
-import { drizzle } from "drizzle-orm/pglite";
-import { mockEvent } from "h3";
+import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
+import { mockEvent, type H3Event } from "h3";
 import {
   afterAll,
   afterEach,
@@ -18,6 +18,23 @@ const CLIPS_URL = "https://clips.example.test";
 const CONTENT_APP = "https://content.example.test";
 const PEER_SECRET = "content-clips-peer-secret-0123456789abcdef";
 
+type CreateRecordingRun =
+  (typeof import("../../actions/create-recording.js"))["default"]["run"];
+type ChunkOwner = Parameters<
+  (typeof import("../routes/api/uploads/[recordingId]/chunk.post.js"))["handleRecordingChunk"]
+>[1];
+type AbortOverride = Parameters<
+  (typeof import("../routes/api/uploads/[recordingId]/abort.post.js"))["handleAbortRecordingUpload"]
+>[1];
+// oxlint-disable-next-line typescript/no-explicit-any -- each case reads the fields of the route, row or list it called
+type RouteBody = any;
+
+function required<T>(value: T | null | undefined, what: string): T {
+  if (value === null || value === undefined)
+    throw new Error(`Expected ${what}`);
+  return value;
+}
+
 const state = vi.hoisted(() => {
   vi.stubEnv("APP_URL", "https://clips.example.test");
   vi.stubEnv("A2A_SECRET", "content-clips-test-secret-0123456789abcdef");
@@ -30,11 +47,17 @@ const state = vi.hoisted(() => {
     "content-clips-grant-secret-0123456789abcdef",
   );
   return {
-    db: null as any,
+    db: null as unknown as PgliteDatabase,
     storageStatus: {} as Record<string, unknown>,
-    created: [] as Array<{ args: any; context: any; caller: any }>,
+    created: [] as Array<{
+      args: Parameters<CreateRecordingRun>[0];
+      context: ReturnType<
+        (typeof import("@agent-native/core/server"))["getRequestContext"]
+      >;
+      caller: Parameters<CreateRecordingRun>[1];
+    }>,
     chunks: [] as Array<{ owner: unknown }>,
-    aborts: [] as Array<Record<string, any>>,
+    aborts: [] as AbortOverride[],
     // Finalization winning the race: the abort finds the file complete.
     finalizedFirst: null as null | {
       status: "processing" | "ready";
@@ -110,7 +133,7 @@ vi.mock("./final-chunk-claim.js", async (importOriginal) => {
 // contract, tested with it; here it makes the row as the caller it ran as.
 vi.mock("../../actions/create-recording.js", () => ({
   default: {
-    run: async (args: any, caller: any) => {
+    run: async (...[args, caller]: Parameters<CreateRecordingRun>) => {
       const { getRequestContext } = await import("@agent-native/core/server");
       const { schema } = await import("../db/index.js");
       const context = getRequestContext();
@@ -119,9 +142,9 @@ vi.mock("../../actions/create-recording.js", () => ({
       state.duringCreate = null;
       await during?.();
       await state.db.insert(schema.recordings).values({
-        id: args.id,
-        organizationId: context?.orgId,
-        ownerEmail: context?.userEmail,
+        id: required(args.id, "a recording id"),
+        organizationId: required(context?.orgId, "an org"),
+        ownerEmail: required(context?.userEmail, "an owner"),
         visibility: args.visibility,
         title: args.title,
         storageMode: state.rowStorageMode,
@@ -134,7 +157,7 @@ vi.mock("../../actions/create-recording.js", () => ({
   },
 }));
 vi.mock("../routes/api/uploads/[recordingId]/chunk.post.js", () => ({
-  handleRecordingChunk: async (event: any, owner: any) => {
+  handleRecordingChunk: async (event: H3Event, owner: ChunkOwner) => {
     state.chunks.push({ owner });
     if (event.url.searchParams.get("isFinal") !== "1") return { ok: true };
     const during = state.duringFinalChunk;
@@ -148,7 +171,7 @@ vi.mock("../routes/api/uploads/[recordingId]/chunk.post.js", () => ({
     if (state.finalChunkOutcome === "park") {
       await client.query(
         "UPDATE recordings SET failure_reason = 'Connect storage to finish this upload.' WHERE id = $1",
-        [owner.recordingId],
+        [owner?.recordingId],
       );
       const { setResponseStatus } = await import("h3");
       setResponseStatus(event, 202);
@@ -162,7 +185,7 @@ vi.mock("../routes/api/uploads/[recordingId]/chunk.post.js", () => ({
     if (state.finalChunkOutcome === "finish") {
       await client.query(
         "UPDATE recordings SET status = 'ready' WHERE id = $1 AND status = 'uploading'",
-        [owner.recordingId],
+        [owner?.recordingId],
       );
       return { ok: true, finalized: true, status: "ready" };
     }
@@ -179,17 +202,22 @@ vi.mock(
         typeof import("../routes/api/uploads/[recordingId]/abort.post.js")
       >();
     return {
-      handleAbortRecordingUpload: async (_event: unknown, override: any) => {
+      handleAbortRecordingUpload: async (
+        _event: H3Event,
+        override: AbortOverride,
+      ) => {
         if (state.realAbort) {
           state.aborts.push(override);
-          return real.handleAbortRecordingUpload(_event as never, override);
+          return real.handleAbortRecordingUpload(_event, override);
         }
         return fakeAbort(_event, override);
       },
     };
   },
 );
-async function fakeAbort(_event: unknown, override: any) {
+async function fakeAbort(_event: H3Event, override: AbortOverride) {
+  const recordingId = required(override?.recordingId, "the aborted recording");
+  const failureCode = override?.body?.["failureCode"];
   const { schema } = await import("../db/index.js");
   const { eq } = await import("drizzle-orm");
   state.aborts.push(override);
@@ -197,18 +225,21 @@ async function fakeAbort(_event: unknown, override: any) {
     await state.db
       .update(schema.recordings)
       .set({ status: state.finalizedFirst.status })
-      .where(eq(schema.recordings.id, override.recordingId));
+      .where(eq(schema.recordings.id, recordingId));
     if (state.finalizedFirst.httpStatus) {
       const { setResponseStatus } = await import("h3");
-      setResponseStatus(_event as any, state.finalizedFirst.httpStatus);
+      setResponseStatus(_event, state.finalizedFirst.httpStatus);
     }
     return state.finalizedFirst.answer;
   }
   await state.db
     .update(schema.recordings)
-    .set({ status: "failed", failureCode: override.body?.failureCode })
-    .where(eq(schema.recordings.id, override.recordingId));
-  return { ok: true, recordingId: override.recordingId, chunksCleared: 0 };
+    .set({
+      status: "failed",
+      failureCode: typeof failureCode === "string" ? failureCode : null,
+    })
+    .where(eq(schema.recordings.id, recordingId));
+  return { ok: true, recordingId, chunksCleared: 0 };
 }
 vi.mock("./video-storage.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./video-storage.js")>()),
@@ -239,6 +270,19 @@ const { withDbExec } = await import("@agent-native/core/db");
 const { schema } = await import("../db/index.js");
 const { CONTENT_CLIP_SCOPES: SCOPES, CONTENT_CLIP_PUBLIC_READER } =
   await import("../../shared/content-clip-contract.js");
+function pairedOrigin(): string {
+  return required(pairedContentOrigin(), "a paired Content origin");
+}
+function firstCreated() {
+  return required(state.created[0], "a create-recording call");
+}
+function createdOrgId(): string {
+  return required(
+    firstCreated().caller?.orgId,
+    "the org create-recording ran in",
+  );
+}
+
 const { contentClipStorageFor, pairedContentOrigin } =
   await import("./content-clip-uploads.js");
 const { contentPageUrls, refuseContentUploadChunk } =
@@ -380,7 +424,7 @@ async function token(input: TokenInput = {}): Promise<string> {
     .sign(new TextEncoder().encode(input.secret ?? PEER_SECRET));
 }
 
-async function respond(handler: (event: any) => unknown, event: any) {
+async function respond(handler: (event: H3Event) => unknown, event: H3Event) {
   const result = await withDbExec(coreDb(), () => handler(event));
   if (result instanceof Response) {
     return {
@@ -391,7 +435,7 @@ async function respond(handler: (event: any) => unknown, event: any) {
   }
   return {
     status: event.res.status ?? 200,
-    body: result as any,
+    body: result as RouteBody,
     headers: event.res.headers as Headers,
   };
 }
@@ -470,7 +514,7 @@ function postCancel(url: string, origin?: string) {
 }
 
 async function rows(table: string) {
-  return (await client.query(`SELECT * FROM ${table}`)).rows as any[];
+  return (await client.query(`SELECT * FROM ${table}`)).rows as RouteBody[];
 }
 
 /** Application state as the editor's own requests read and write it. */
@@ -571,12 +615,12 @@ describe("an editor's upload from a Content page", () => {
         }),
         context: expect.objectContaining({
           userEmail: editor,
-          orgId: state.created[0]?.caller.orgId,
+          orgId: createdOrgId(),
           authUserId: expect.stringMatching(/^user-/),
         }),
       }),
     ]);
-    expect(state.created[0]?.caller.orgId).toMatch(/^org-/);
+    expect(createdOrgId()).toMatch(/^org-/);
     expect(await rows("recording_shares")).toEqual([]);
     expect(await rows("recording_content_bindings")).toEqual([
       expect.objectContaining({
@@ -816,7 +860,7 @@ describe("a start Content repeats for one picked file", () => {
       }),
     ]);
     // The earlier answer still uploads: a page may be acting on either.
-    const paired = pairedContentOrigin()!;
+    const paired = pairedOrigin();
     const chunk = (url: string) =>
       postChunk(`${url}&index=0&isFinal=0`, { origin: paired });
     expect((await chunk(repeat.body.chunkUrl)).status).toBe(200);
@@ -832,7 +876,7 @@ describe("a start Content repeats for one picked file", () => {
       startUpload(bearer, { ...START, uploadKey: KEY }),
     ]);
 
-    const paired = pairedContentOrigin()!;
+    const paired = pairedOrigin();
     for (const repeat of repeats) {
       expect(repeat.status).toBe(200);
       expect(repeat.body.recordingId).toBe(first.body.recordingId);
@@ -858,7 +902,7 @@ describe("a start Content repeats for one picked file", () => {
       answers.push(await startUpload(bearer, { ...START, uploadKey: KEY }));
     }
 
-    const paired = pairedContentOrigin()!;
+    const paired = pairedOrigin();
     const statuses: number[] = [];
     for (const answer of answers) {
       const chunk = await postChunk(
@@ -870,7 +914,7 @@ describe("a start Content repeats for one picked file", () => {
     expect(statuses).toEqual([401, 200, 200, 200, 200]);
     const [ticketRow] = await rows("settings");
     expect(Object.keys(JSON.parse(ticketRow.value).tickets)).toEqual([
-      answers[0].body.recordingId,
+      required(answers[0], "a first answer").body.recordingId,
     ]);
   });
 
@@ -901,7 +945,7 @@ describe("a start Content repeats for one picked file", () => {
       }).toEqual(before);
       const chunk = await postChunk(
         `${first.body.chunkUrl}&index=0&isFinal=0`,
-        { origin: pairedContentOrigin()! },
+        { origin: pairedOrigin() },
       );
       expect(chunk.status).toBe(200);
     },
@@ -994,7 +1038,7 @@ describe("a start Content repeats for one picked file", () => {
 
     const next = await startUpload(bearer, { ...START, uploadKey: KEY });
     expect(next.status).toBe(200);
-    expect(next.body.recordingId).not.toBe(state.created[0].args.id);
+    expect(next.body.recordingId).not.toBe(firstCreated().args.id);
   });
 
   it("refuses the key of a start that failed after making its recording, and makes nothing more", async () => {
@@ -1002,10 +1046,13 @@ describe("a start Content repeats for one picked file", () => {
     const bearer = await token({ sub: editor });
     // create-recording made the row and failed it, then couldn't say so.
     state.duringCreate = async () => {
-      const { args, context } = state.created[state.created.length - 1];
+      const { args, context } = required(
+        state.created[state.created.length - 1],
+        "a create-recording call",
+      );
       await state.db.insert(schema.recordings).values({
-        id: args.id,
-        organizationId: context?.orgId,
+        id: required(args.id, "a recording id"),
+        organizationId: required(context?.orgId, "an org"),
         ownerEmail: editor,
         visibility: args.visibility,
         title: args.title,
@@ -1113,7 +1160,7 @@ describe("a start Content repeats for one picked file", () => {
       expect(retake?.status).toBe(200);
       const chunk = await postChunk(
         `${retake?.body.chunkUrl}&index=0&isFinal=0`,
-        { origin: pairedContentOrigin()! },
+        { origin: pairedOrigin() },
       );
       expect(chunk.status).toBe(200);
       expect(await rows("recording_content_bindings")).toEqual([
@@ -1262,12 +1309,12 @@ describe("a page's final chunk and its cancel", () => {
 
   function finalChunk(upload: { chunkUrl: string }) {
     return postChunk(`${upload.chunkUrl}&index=0&isFinal=1`, {
-      origin: pairedContentOrigin()!,
+      origin: pairedOrigin(),
     });
   }
 
   function cancel(upload: { cancelUrl: string }) {
-    return postCancel(upload.cancelUrl, pairedContentOrigin()!);
+    return postCancel(upload.cancelUrl, pairedOrigin());
   }
 
   /** What a final chunk in flight holds, without the chunk itself. */
@@ -1711,9 +1758,12 @@ describe("the storage state Content shows", () => {
       { state: "none", reason: "unverified" },
     ],
   ])("maps %s to its own state", (_label, status, expected) => {
-    expect(contentClipStorageFor({ ...base, ...status } as any)).toEqual(
-      expected,
-    );
+    expect(
+      contentClipStorageFor({
+        ...base,
+        ...status,
+      } as Parameters<typeof contentClipStorageFor>[0]),
+    ).toEqual(expected);
   });
 });
 
@@ -1725,12 +1775,12 @@ describe("chunks posted from the editor's browser", () => {
   }
 
   it("takes a chunk from the paired Content, allowing that origin alone and no credentials", async () => {
-    const paired = pairedContentOrigin();
+    const paired = pairedOrigin();
     expect(paired).toMatch(/^https?:\/\//);
     const result = await postChunk(await upload(), {
-      origin: paired!,
+      origin: paired,
       guardHeaders: {
-        "access-control-allow-origin": paired!,
+        "access-control-allow-origin": paired,
         "access-control-allow-credentials": "true",
       },
     });
@@ -1777,7 +1827,7 @@ describe("chunks posted from the editor's browser", () => {
       );
       return (await authMiddleware(event)) as Response;
     }
-    const paired = pairedContentOrigin()!;
+    const paired = pairedOrigin();
     const allowed = await preflight(paired);
     expect(allowed.status).toBe(204);
     expect(allowed.headers.get("access-control-allow-origin")).toBe(paired);
@@ -1801,7 +1851,7 @@ describe("chunks posted from the editor's browser", () => {
   });
 
   it("answers a bad ticket so the paired page can read why", async () => {
-    const paired = pairedContentOrigin()!;
+    const paired = pairedOrigin();
     const url = new URL(await upload());
     url.searchParams.set("ticket", "clipsup_bm90LWEtdGlja2V0.forged");
     const result = await postChunk(url.href, { origin: paired });
@@ -1816,7 +1866,7 @@ describe("chunks posted from the editor's browser", () => {
     const { body } = await startUpload(await token({ sub: editor }));
     await client.query("DELETE FROM recording_content_bindings");
     const result = await postChunk(`${body.chunkUrl}&index=0&isFinal=0`, {
-      origin: pairedContentOrigin()!,
+      origin: pairedOrigin(),
     });
     expect(result.status).toBe(401);
   });
@@ -1826,7 +1876,7 @@ describe("chunks posted from the editor's browser", () => {
     await client.query(
       "UPDATE recording_content_bindings SET state = 'trashed'",
     );
-    const result = await postChunk(url, { origin: pairedContentOrigin()! });
+    const result = await postChunk(url, { origin: pairedOrigin() });
 
     expect(result.status).toBe(409);
     expect(result.body).toEqual({ error: "This upload's page is in Trash" });
@@ -1838,7 +1888,7 @@ describe("chunks posted from the editor's browser", () => {
     const { body } = await startUpload(await token({ sub: editor }));
     await state.db.insert(schema.recordings).values({
       id: "rec-agent",
-      organizationId: state.created[0]?.caller.orgId,
+      organizationId: createdOrgId(),
       ownerEmail: editor,
       title: "An agent's upload",
       status: "uploading",
@@ -1849,9 +1899,9 @@ describe("chunks posted from the editor's browser", () => {
     const url = new URL(`${body.chunkUrl}&index=0&isFinal=0`);
     url.pathname = "/api/uploads/rec-agent/content-chunk";
     url.searchParams.set("ticket", agentTicket.token);
-    expect(
-      (await postChunk(url.href, { origin: pairedContentOrigin()! })).status,
-    ).toBe(401);
+    expect((await postChunk(url.href, { origin: pairedOrigin() })).status).toBe(
+      401,
+    );
   });
 
   it("refuses a chunk off Content's own route for an upload from a page, and not for a Clip made in Clips", async () => {
@@ -1883,7 +1933,7 @@ describe("an upload the editor's page gives up", () => {
 
   it("fails the upload through Clips' own abort, with its ticket alone", async () => {
     const upload = await started();
-    const paired = pairedContentOrigin()!;
+    const paired = pairedOrigin();
     const result = await postCancel(upload.cancelUrl, paired);
 
     expect(result.status).toBe(200);
@@ -1908,7 +1958,7 @@ describe("an upload the editor's page gives up", () => {
 
   it("answers a repeated cancel the same way, without aborting again", async () => {
     const upload = await started();
-    const paired = pairedContentOrigin()!;
+    const paired = pairedOrigin();
     const first = await postCancel(upload.cancelUrl, paired);
     const again = await postCancel(upload.cancelUrl, paired);
 
@@ -1945,7 +1995,7 @@ describe("an upload the editor's page gives up", () => {
     async (_how, finalizedFirst) => {
       const upload = await started();
       state.finalizedFirst = finalizedFirst;
-      const result = await postCancel(upload.cancelUrl, pairedContentOrigin()!);
+      const result = await postCancel(upload.cancelUrl, pairedOrigin());
 
       expect(result.status).toBe(409);
       expect(result.body).toEqual({
@@ -1970,7 +2020,7 @@ describe("an upload the editor's page gives up", () => {
         claimedAt,
       }),
     );
-    const result = await postCancel(upload.cancelUrl, pairedContentOrigin()!);
+    const result = await postCancel(upload.cancelUrl, pairedOrigin());
 
     expect(result.status).toBe(409);
     expect(result.body).toEqual({
@@ -1992,12 +2042,12 @@ describe("an upload the editor's page gives up", () => {
         blockId: "block-video-2",
       })
     ).body as { recordingId: string; cancelUrl: string };
-    const paired = pairedContentOrigin()!;
+    const paired = pairedOrigin();
 
     const swapped = new URL(other.cancelUrl);
     swapped.searchParams.set(
       "ticket",
-      new URL(one.cancelUrl).searchParams.get("ticket")!,
+      required(new URL(one.cancelUrl).searchParams.get("ticket"), "a ticket"),
     );
     expect((await postCancel(swapped.href, paired)).status).toBe(401);
 
@@ -2030,7 +2080,7 @@ describe("an upload the editor's page gives up", () => {
   it("leaves a Clip alone once Clips has its whole file", async () => {
     const upload = await started();
     await client.query("UPDATE recordings SET status = 'processing'");
-    const result = await postCancel(upload.cancelUrl, pairedContentOrigin()!);
+    const result = await postCancel(upload.cancelUrl, pairedOrigin());
 
     expect(result.status).toBe(409);
     expect(result.body).toMatchObject({
@@ -2046,7 +2096,7 @@ describe("an upload the editor's page gives up", () => {
     await client.query(
       "UPDATE recording_content_bindings SET state = 'trashed'",
     );
-    const result = await postCancel(upload.cancelUrl, pairedContentOrigin()!);
+    const result = await postCancel(upload.cancelUrl, pairedOrigin());
 
     expect(result.status).toBe(200);
     expect(result.body).toMatchObject({ outcome: "cancelled" });
@@ -2077,7 +2127,7 @@ describe("From Content and Library in Clips", () => {
           { caller: "frontend", userEmail: editor },
         ),
       ),
-    ) as Promise<any>;
+    ) as Promise<RouteBody>;
   }
 
   it("lists a page's upload under From Content with its page link, and keeps it out of Library", async () => {
@@ -2085,7 +2135,7 @@ describe("From Content and Library in Clips", () => {
     const { body } = await startUpload(
       await token({ sub: editor, documentId: "doc/1" }),
     );
-    const orgId = state.created[0]!.caller.orgId as string;
+    const orgId = createdOrgId();
     for (const id of ["rec-made-in-clips", "rec-linked-into-a-page"]) {
       await state.db.insert(schema.recordings).values({
         id,
@@ -2106,11 +2156,11 @@ describe("From Content and Library in Clips", () => {
 
     const fromContent = await list(editor, orgId, "from-content");
     expect(
-      fromContent.recordings.map((r: any) => [r.id, r.contentPageUrl]),
+      fromContent.recordings.map((r: RouteBody) => [r.id, r.contentPageUrl]),
     ).toEqual([[body.recordingId, `${CONTENT_APP}/page/doc%2F1`]]);
 
     const library = await list(editor, orgId, "library");
-    expect(library.recordings.map((r: any) => r.id).sort()).toEqual([
+    expect(library.recordings.map((r: RouteBody) => r.id).sort()).toEqual([
       "rec-linked-into-a-page",
       "rec-made-in-clips",
     ]);
@@ -2127,7 +2177,7 @@ describe("From Content and Library in Clips", () => {
     const kept = (
       await startUpload(bearer, { ...START, blockId: "block-video-2" })
     ).body.recordingId;
-    const orgId = state.created[0]!.caller.orgId as string;
+    const orgId = createdOrgId();
     await client.query(
       "UPDATE recordings SET folder_id = 'folder-1' WHERE id = $1",
       [moved],
@@ -2136,14 +2186,14 @@ describe("From Content and Library in Clips", () => {
     const folder = await list(editor, orgId, "library", false, {
       folderId: "folder-1",
     });
-    expect(folder.recordings.map((r: any) => r.id)).toEqual([moved]);
+    expect(folder.recordings.map((r: RouteBody) => r.id)).toEqual([moved]);
     expect(
       (await list(editor, orgId, "library", true, { folderId: "folder-1" }))
         .total,
     ).toBe(1);
     expect((await list(editor, orgId, "library")).recordings).toEqual([]);
     const fromContent = await list(editor, orgId, "from-content");
-    expect(fromContent.recordings.map((r: any) => r.id).sort()).toEqual(
+    expect(fromContent.recordings.map((r: RouteBody) => r.id).sort()).toEqual(
       [moved, kept].sort(),
     );
   });
@@ -2155,14 +2205,14 @@ describe("From Content and Library in Clips", () => {
     const kept = (
       await startUpload(bearer, { ...START, blockId: "block-video-2" })
     ).body.recordingId;
-    const orgId = state.created[0]!.caller.orgId as string;
+    const orgId = createdOrgId();
     await client.query(
       "UPDATE recording_content_bindings SET state = 'trashed' WHERE recording_id = $1",
       [trashed],
     );
 
     const fromContent = await list(editor, orgId, "from-content");
-    expect(fromContent.recordings.map((r: any) => r.id)).toEqual([kept]);
+    expect(fromContent.recordings.map((r: RouteBody) => r.id)).toEqual([kept]);
     expect((await list(editor, orgId, "from-content", true)).total).toBe(1);
     expect([...(await contentPageUrls([trashed, kept])).keys()]).toEqual([
       kept,
@@ -2178,7 +2228,7 @@ describe("From Content and Library in Clips", () => {
     const kept = (
       await startUpload(bearer, { ...START, blockId: "block-video-2" })
     ).body.recordingId;
-    const orgId = state.created[0]!.caller.orgId as string;
+    const orgId = createdOrgId();
     await state.db.insert(schema.recordings).values({
       id: "rec-made-in-clips",
       organizationId: orgId,
@@ -2226,7 +2276,7 @@ describe("From Content and Library in Clips", () => {
   it("lists only the signed-in person's own uploads", async () => {
     const editor = await clipsEditor();
     expect((await startUpload(await token({ sub: editor }))).status).toBe(200);
-    const orgId = state.created[0]!.caller.orgId as string;
+    const orgId = createdOrgId();
     const someoneElse = await clipsEditor();
 
     expect((await list(someoneElse, orgId, "from-content")).recordings).toEqual(

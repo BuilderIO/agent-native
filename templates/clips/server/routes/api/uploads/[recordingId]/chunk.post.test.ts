@@ -1,4 +1,5 @@
 import { MAX_UPLOAD_BYTES } from "@shared/upload-limits.js";
+import type { H3Event } from "h3";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const RECORDING_TOO_LARGE_REASON = `Recording exceeds the ${Math.round(MAX_UPLOAD_BYTES / (1024 * 1024))} MB size limit. Please record a shorter clip.`;
@@ -375,7 +376,7 @@ describe("/api/uploads/:recordingId/chunk route", () => {
       body: new Uint8Array([1, 2, 3]),
     });
 
-    await expect(handler({} as any)).rejects.toMatchObject({
+    await expect(handler({} as H3Event)).rejects.toMatchObject({
       statusCode: 409,
     });
     expect(mockRefuseContentUploadChunk).toHaveBeenCalledWith("rec-1");
@@ -389,7 +390,7 @@ describe("/api/uploads/:recordingId/chunk route", () => {
       body: new Uint8Array([1, 2, 3]),
     });
 
-    await handleRecordingChunk({} as any, {
+    await handleRecordingChunk({} as H3Event, {
       recordingId: "rec-1",
       ownerEmail: "owner@example.com",
       orgId: "org-1",

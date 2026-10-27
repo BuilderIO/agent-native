@@ -125,7 +125,7 @@ describe("direct automation actions", () => {
       ctx,
     );
     expect(mocks.defineAutomation).toHaveBeenCalledWith(
-      { userEmail: "alice@example.com", orgId: "org-1" },
+      { userEmail: "alice@example.com", orgId: "org-1", caller: "frontend" },
       expect.objectContaining({
         sharing,
         acknowledgeExternalCollaborators: true,

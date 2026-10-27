@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockDb, schema, stored, written } = vi.hoisted(() => ({
+const { mockDb, schema, stored, written, access } = vi.hoisted(() => ({
+  access: { role: "editor", resource: { expiresAt: null as string | null } },
   mockDb: { select: vi.fn(), update: vi.fn() },
   schema: {
     recordings: {
@@ -36,9 +37,13 @@ vi.mock("@agent-native/core/action", () => ({
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: vi.fn(),
 }));
-vi.mock("@agent-native/core/sharing", () => ({ assertAccess: vi.fn() }));
+vi.mock("@agent-native/core/sharing", async (original) => ({
+  ...(await original<typeof import("@agent-native/core/sharing")>()),
+  assertAccess: vi.fn(async () => access),
+}));
 vi.mock("../server/db/index.js", () => ({ getDb: () => mockDb, schema }));
-vi.mock("drizzle-orm", () => ({
+vi.mock("drizzle-orm", async (original) => ({
+  ...(await original<typeof import("drizzle-orm")>()),
   eq: (column: string, value: unknown) => ({ column, value }),
   and: (...conditions: unknown[]) => ({ and: conditions.filter(Boolean) }),
 }));
@@ -51,6 +56,8 @@ const demo = { startMs: 48_000, title: "Demo" };
 
 beforeEach(() => {
   vi.clearAllMocks();
+  access.role = "editor";
+  access.resource.expiresAt = null;
   written.length = 0;
   stored.chaptersJson = JSON.stringify([intro]);
   stored.editsJson = "{}";
@@ -565,3 +572,34 @@ describe("set-chapters expected cuts", () => {
     expect(written).toHaveLength(1);
   });
 });
+
+it.each(["2000-01-01T00:00:00Z", "not-a-date"])(
+  "refuses late chapter content after availability ends (%s)",
+  async (expiresAt) => {
+    access.resource.expiresAt = expiresAt;
+    await expect(
+      save({
+        recordingId: "rec_1",
+        chapters: [demo],
+        expectedChapters: [intro],
+      }),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(written).toEqual([]);
+    expect(stored.chaptersJson).toBe(JSON.stringify([intro]));
+  },
+);
+it.each(["2000-01-01T00:00:00Z", "not-a-date"])(
+  "preserves owner chapter completion (%s)",
+  async (expiresAt) => {
+    access.role = "owner";
+    access.resource.expiresAt = expiresAt;
+    await expect(
+      save({
+        recordingId: "rec_1",
+        chapters: [demo],
+        expectedChapters: [intro],
+      }),
+    ).resolves.toMatchObject({ chapters: [demo] });
+    expect(written).toHaveLength(1);
+  },
+);

@@ -475,7 +475,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
     label: string;
     icon: React.ComponentType<{ className?: string }>;
     match: (path: string) => boolean;
-    count?: number;
+    count?: number | undefined;
   }[] = [
     {
       to: "/library",

@@ -1,7 +1,6 @@
 import {
   useActionQuery,
   useActionMutation,
-  actionErrorMessage,
   callAction,
   tryCallActionKeepalive,
   readClientAppState,
@@ -36,12 +35,11 @@ import { toast } from "sonner";
 
 import { trace } from "@/components/design/design-trace";
 import type { DesignMigrationResult } from "@/components/design/editor/MakeRealDialog";
-import { type LocalhostWriteConsentPayload } from "@/components/design/LocalhostWriteConsentDialog";
+import { useLocalhostWriteConsent } from "@/components/design/LocalhostWriteConsentDialog";
 import { deviceViewportFloorForWidth } from "@/components/design/multi-screen/frame-geometry";
 import { resolveScreenHeightMode } from "@/components/design/multi-screen/screen-height";
 import type { KScaleStyleChangesByFrameId } from "@/components/design/multi-screen/types";
 import type { DeviceFrameType } from "@/components/design/types";
-import { DEVICE_FRAME_VIEWPORTS } from "@/components/design/types";
 import { type DesignEditorCommand } from "@/hooks/use-navigation-state";
 import {
   createDesignSaveOutboxEntry,
@@ -98,7 +96,6 @@ import {
   warnIfPoisonedBoardCoordsNormalized,
 } from "../html-layer-positioning";
 import { applyKScaleStyleChanges } from "../k-scale";
-import { localhostConsentRequestDisposition } from "../localhost-consent-request";
 import { type MotionTimelineQueryResult } from "../motion-state";
 import {
   clampOverviewDisplayZoom,
@@ -107,9 +104,8 @@ import {
   getNextZoomStepDown,
   getNextZoomStepUp,
   getOverviewCanvasZoom,
-  getOverviewCanvasZoomForFrame,
   getOverviewDisplayZoom,
-  getOverviewZoomScale,
+  getOverviewScreenZoomScale,
   resolveOverviewZoomBasisScreenId,
   resolveZoomUpdate,
   shouldResetExplicitOverviewZoomOnBasisChange,
@@ -356,10 +352,6 @@ export function useEditorActiveScreenAndGeometry({
     activeBreakpointStateVersion,
     designAccessRole,
     canEditDesign,
-    failedLocalhostConsentClear,
-    setFailedLocalhostConsentClear,
-    localhostConsentRequestQuery,
-    clearLocalhostConsentRequestMutation,
     creativeContextLab,
     canEditDesignRef,
     updateDesignMutation,
@@ -462,13 +454,10 @@ export function useEditorActiveScreenAndGeometry({
   const frameGeometryMutationChainRef = useRef<Promise<void>>(
     Promise.resolve(),
   );
-  const [localhostWriteConsentOpen, setLocalhostWriteConsentOpen] =
-    useState(false);
-  const [localhostWriteConsentPayload, setLocalhostWriteConsentPayload] =
-    useState<LocalhostWriteConsentPayload | null>(null);
-  const [localhostConsentConnectionId, setLocalhostConsentConnectionId] =
-    useState<string>("");
-  const lastLocalhostConsentRequestRef = useRef<string | null>(null);
+  const localhostWriteConsent = useLocalhostWriteConsent({
+    designId: id,
+    canEditDesign,
+  });
   const saveDesignDataAsync = useActionMutation("update-design", {
     skipActionQueryInvalidation: true,
   }).mutateAsync;
@@ -1509,64 +1498,6 @@ export function useEditorActiveScreenAndGeometry({
     };
   }, [activeBreakpointStateVersion, designBreakpoints, id, isSignedIn]);
 
-  // Agent requests run in a design-scoped capability session, separate from
-  // the browser's app-state session, so retrieve the handoff through an editor
-  // action instead of reading it from client app state.
-  useEffect(() => {
-    const request = localhostConsentRequestQuery.data?.request;
-    if (
-      !id ||
-      !canEditDesign ||
-      !request ||
-      request.designId !== id ||
-      !request.connectionId
-    ) {
-      return;
-    }
-    const requestKey = `${id}:${request.requestedAt}`;
-    const disposition = localhostConsentRequestDisposition({
-      requestKey,
-      lastHandledKey: lastLocalhostConsentRequestRef.current,
-      failedClearKey: failedLocalhostConsentClear,
-    });
-    if (disposition === "ignore") return;
-    const retryingClear = disposition === "retry-clear";
-    if (!retryingClear) {
-      lastLocalhostConsentRequestRef.current = requestKey;
-      setLocalhostConsentConnectionId(request.connectionId);
-      setLocalhostWriteConsentPayload({
-        rootPath: request.rootPath,
-        files: request.files,
-        onGranted: () => {
-          toast.success("File writes allowed for 8 hours." /* i18n-ignore */);
-        },
-        onCancel: () => {},
-      });
-      setLocalhostWriteConsentOpen(true);
-    }
-    void clearLocalhostConsentRequestMutation
-      .mutateAsync({ designId: id, requestedAt: request.requestedAt })
-      .then(async () => {
-        setFailedLocalhostConsentClear(null);
-        await localhostConsentRequestQuery.refetch();
-      })
-      .catch((error) => {
-        setFailedLocalhostConsentClear(requestKey);
-        if (!retryingClear) {
-          toast.error(actionErrorMessage(error) ?? t("common.genericError"));
-        }
-      });
-  }, [
-    canEditDesign,
-    clearLocalhostConsentRequestMutation.mutateAsync,
-    failedLocalhostConsentClear,
-    id,
-    localhostConsentRequestQuery.dataUpdatedAt,
-    localhostConsentRequestQuery.refetch,
-    localhostConsentRequestQuery.data?.request,
-    t,
-  ]);
-
   const activeScreenBaseWidthPx = useMemo<number | null>(() => {
     if (!activeFile?.id) return null;
     const metadataByFileId = getDesignDataRecord(
@@ -1737,20 +1668,16 @@ export function useEditorActiveScreenAndGeometry({
         : undefined,
     [overviewZoomBasisScreenId, overviewScreens],
   );
-  const activeOverviewSourceWidth =
-    deviceFrame === "none"
-      ? overviewZoomBasisScreen?.width
-      : DEVICE_FRAME_VIEWPORTS[deviceFrame].width;
-  const activeOverviewFrameWidth = overviewZoomBasisScreenId
-    ? displayedCanvasFrameGeometryById[overviewZoomBasisScreenId]?.width
-    : undefined;
   // With no screen to measure, the board's own pixels are the displayed zoom.
-  const overviewZoomScale = overviewZoomBasisScreenId
-    ? getOverviewZoomScale({
-        frameWidth: activeOverviewFrameWidth,
-        sourceWidth: activeOverviewSourceWidth,
-      })
-    : 1;
+  const overviewZoomScale =
+    (overviewZoomBasisScreen
+      ? getOverviewScreenZoomScale({
+          screen: overviewZoomBasisScreen,
+          frameGeometry:
+            displayedCanvasFrameGeometryById[overviewZoomBasisScreen.id],
+          deviceFrame,
+        })
+      : null) ?? 1;
   const overviewZoomScaleRef = useRef(overviewZoomScale);
 
   useEffect(() => {
@@ -1867,18 +1794,20 @@ export function useEditorActiveScreenAndGeometry({
                       (screen) => screen.id === zoomRequest.screenId,
                     )
                   : undefined;
+                const targetScale = targetScreen
+                  ? getOverviewScreenZoomScale({
+                      screen: targetScreen,
+                      frameGeometry:
+                        displayedCanvasFrameGeometryById[targetScreen.id],
+                      deviceFrame,
+                    })
+                  : null;
                 const canvasZoom =
-                  zoomRequest && targetScreen
-                    ? getOverviewCanvasZoomForFrame({
-                        displayZoom: zoomRequest.displayZoom,
-                        frameWidth:
-                          displayedCanvasFrameGeometryById[targetScreen.id]
-                            ?.width,
-                        sourceWidth:
-                          deviceFrame === "none"
-                            ? targetScreen.width
-                            : DEVICE_FRAME_VIEWPORTS[deviceFrame].width,
-                      })
+                  zoomRequest && targetScale !== null
+                    ? getOverviewCanvasZoom(
+                        zoomRequest.displayZoom,
+                        targetScale,
+                      )
                     : undefined;
                 setCameraCommand({
                   ...camera,
@@ -2075,12 +2004,7 @@ export function useEditorActiveScreenAndGeometry({
     reviewAuditedAt,
     reviewAuditError,
     applyGeometryHistoryContentChangesRef,
-    localhostWriteConsentOpen,
-    setLocalhostWriteConsentOpen,
-    localhostWriteConsentPayload,
-    setLocalhostWriteConsentPayload,
-    localhostConsentConnectionId,
-    setLocalhostConsentConnectionId,
+    localhostWriteConsent,
     persistActiveBreakpoint,
     makeRealDialogOpen,
     setMakeRealDialogOpen,

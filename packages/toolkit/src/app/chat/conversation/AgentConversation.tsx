@@ -3,7 +3,6 @@ import { toolLabel } from "@agent-native/core/client/tool-display";
 import { cn } from "@agent-native/toolkit/utils";
 import {
   IconAlertTriangle,
-  IconArrowDown,
   IconCheck,
   IconChevronDown,
   IconCircleX,
@@ -16,8 +15,12 @@ import React from "react";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+import { Skeleton } from "../../../ui/skeleton.js";
 import { ActionChatUiSurface } from "../chat/action-chat-ui-surface.js";
-import { resolveToolRenderer } from "../chat/tool-render-registry.js";
+import {
+  resolveToolRenderer,
+  type ToolRendererContext,
+} from "../chat/tool-render-registry.js";
 import {
   isBuiltinConnectRequiredResult,
   resolveBuiltinActionChatRenderer,
@@ -65,10 +68,11 @@ export function AgentConversation({
   error,
   className,
   timelineClassName,
-  emptyTitle = "No messages yet",
+  emptyTitle,
   emptyDescription,
   composer,
 }: AgentConversationProps) {
+  const t = useT();
   return (
     <section className={cn("agent-conversation", className)}>
       {error && (
@@ -85,21 +89,15 @@ export function AgentConversation({
             <MessageScrollerContent>
               {loading && messages.length === 0 ? (
                 <MessageScrollerItem>
-                  <ConversationEmpty
-                    icon={
-                      <IconLoader2
-                        size={17}
-                        className="agent-conversation-spin"
-                      />
-                    }
-                    title="Loading session..."
+                  <ConversationLoading
+                    label={t("agentChat.conversation.loading")}
                   />
                 </MessageScrollerItem>
               ) : messages.length === 0 ? (
                 <MessageScrollerItem>
                   <ConversationEmpty
                     icon={<IconClock size={18} />}
-                    title={emptyTitle}
+                    title={emptyTitle ?? t("agentChat.conversation.empty")}
                     description={emptyDescription}
                   />
                 </MessageScrollerItem>
@@ -116,25 +114,30 @@ export function AgentConversation({
               )}
             </MessageScrollerContent>
           </MessageScrollerViewport>
-          <MessageScrollerButton
-            render={(buttonProps) => (
-              <button
-                {...buttonProps}
-                className={cn(
-                  "agent-conversation__scroll-bottom",
-                  "data-[active=false]:hidden",
-                  buttonProps.className as string | undefined,
-                )}
-                aria-label="Scroll to bottom"
-              >
-                <IconArrowDown size={15} strokeWidth={1.9} />
-              </button>
-            )}
-          />
+          <MessageScrollerButton />
         </MessageScroller>
       </MessageScrollerProvider>
       {composer}
     </section>
+  );
+}
+
+function ConversationLoading({ label }: { label: string }) {
+  return (
+    <div className="flex flex-col gap-4 py-4" role="status">
+      <span className="sr-only">{label}</span>
+      <div className="flex justify-end">
+        <Skeleton className="h-9 w-2/5 rounded-2xl" />
+      </div>
+      <div className="flex flex-col gap-2">
+        <Skeleton className="h-4 w-11/12" />
+        <Skeleton className="h-4 w-4/5" />
+        <Skeleton className="h-4 w-3/5" />
+      </div>
+      <div className="flex justify-end">
+        <Skeleton className="h-9 w-1/3 rounded-2xl" />
+      </div>
+    </div>
   );
 }
 
@@ -407,11 +410,17 @@ function parseJsonObject(value: string | undefined): Record<string, unknown> {
 function ConversationToolCall({ tool }: { tool: AgentConversationToolCall }) {
   const t = useT();
   const resultJson = parseJsonText(tool.result);
-  const nativeToolContext = {
+  const nativeToolContext: ToolRendererContext = {
     toolName: tool.name,
     args: tool.args ?? parseJsonObject(tool.input),
     resultText: tool.result,
     resultJson: tool.resultJson ?? resultJson,
+    status:
+      tool.state === "errored"
+        ? undefined
+        : tool.state === "activity"
+          ? "running"
+          : tool.state,
     isRunning: tool.state === "running" || tool.state === "activity",
     chatUI: tool.chatUI,
   };
@@ -489,13 +498,13 @@ function ConversationToolCall({ tool }: { tool: AgentConversationToolCall }) {
         )}
         {tool.input && (
           <pre>
-            <strong>input</strong>
+            <strong>{t("agentChat.conversation.toolInput")}</strong>
             {tool.input}
           </pre>
         )}
         {tool.result && (
           <pre>
-            <strong>result</strong>
+            <strong>{t("agentChat.conversation.toolResult")}</strong>
             <span
               {...(tool.state === "errored" ? SESSION_REPLAY_MASK_PROPS : {})}
             >
@@ -533,6 +542,7 @@ function ConversationArtifact({
 }: {
   artifact: AgentConversationArtifact;
 }) {
+  const t = useT();
   return (
     <div className="agent-conversation-artifact">
       <IconTool size={14} />
@@ -544,7 +554,7 @@ function ConversationArtifact({
       {artifact.url && (
         <a href={artifact.url} target="_blank" rel="noreferrer">
           <IconExternalLink size={13} />
-          Open
+          {t("agentChat.conversation.open")}
         </a>
       )}
     </div>

@@ -1279,6 +1279,16 @@ export function shouldRedirectToStorageSetupHome({
   );
 }
 
+export function storageSetupReason(
+  status: Pick<VideoStorageStatus, "denyReason"> | undefined,
+): string {
+  if (!status) return "status_unavailable";
+  // "disabled" means free hosted clips are off, not that a hosted clip was denied.
+  return status.denyReason && status.denyReason !== "disabled"
+    ? `hosted_${status.denyReason}`
+    : "storage_required";
+}
+
 export function shouldShowFirstRunStorageSetup({
   storageConfigured,
   storageStatusUnavailable,
@@ -4187,6 +4197,7 @@ export default function RecordRoute() {
                     showBuilderStorageOffer={!hostedAllowanceExhausted}
                     connectSource="clips_record_storage_setup_card"
                     connectFlow="record"
+                    setupReason={storageSetupReason(storageQuery.data)}
                   />
                 </div>
               ) : showStorageStatusUnavailable ? (

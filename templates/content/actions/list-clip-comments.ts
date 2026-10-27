@@ -31,10 +31,25 @@ const commentsSchema = z.object({
   truncated: z.boolean(),
 });
 
+const markersSchema = z.object({
+  markers: z
+    .array(
+      z.object({
+        id: z.string(),
+        videoTimestampMs: z.number(),
+        content: z.string().max(CONTENT_CLIP_COMMENT_PREVIEW_CHARS),
+        authorName: z.string().nullable(),
+      }),
+    )
+    .max(CONTENT_CLIP_MAX_COMMENT_THREADS),
+  truncated: z.boolean(),
+});
+
 export default defineAction({
   description:
     "List where a Clip placed in a page has comment threads, for the markers on its player's scrubber: the first 500 by video time, with truncated true when there are more. Checks the caller can read the page first. Fails with clip_comments_disabled, not an empty list, when the Clip's comments are off.",
   schema: clipEmbedArgsSchema,
+  outputSchema: markersSchema,
   http: { method: "GET" },
   readOnly: true,
   requiresAuth: false,

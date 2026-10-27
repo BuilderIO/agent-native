@@ -7,6 +7,7 @@ import {
 import { isNonPublicWebhookUrl } from "@agent-native/core/client/integrations/webhook-url";
 import { mcpIntegrationLogo } from "@agent-native/core/client/resources/mcp-integration-logos";
 import {
+  actionErrorCode,
   actionErrorMessage,
   useActionMutation,
   useActionQuery,
@@ -17,6 +18,8 @@ import type {
 } from "@agent-native/core/integrations/catalog";
 import type {
   ChannelChangeResult,
+  ChannelCredentialRemovalCandidate,
+  ChannelCredentialRemovalConfirmation,
   ChannelCredentialStatus,
   ChannelState,
   MessagingChannelsStatus,
@@ -61,7 +64,7 @@ import {
   IconMessages,
 } from "@tabler/icons-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useId, useMemo, useState, type MouseEvent } from "react";
+import { useEffect, useId, useMemo, useState, type MouseEvent } from "react";
 
 import { McpIntegrationLogo } from "../resources/McpIntegrationLogo.js";
 import { SettingsGroup, SettingsRow } from "../settings/SettingsRow.js";
@@ -88,12 +91,15 @@ const K = "agentChat.settingsShell.channels";
 const PAGE_ID = "channels";
 const LIST_ACTION = "list-messaging-channels";
 const MANAGE_ACTION = "manage-messaging-channel";
+const PREPARE_REMOVAL_ACTION = "prepare-messaging-channel-credential-removal";
+const CONFIRM_REMOVAL_ACTION = "confirm-messaging-channel-credential-removal";
 const LIST_QUERY_KEY = ["action", LIST_ACTION] as const;
 
 const STATE_KEYS: Record<ChannelState, string> = {
   on: `${K}.state.on`,
   off: `${K}.state.off`,
   "not-set-up": `${K}.state.notSetUp`,
+  unavailable: `${K}.state.unavailable`,
 };
 
 const ABOUT_KEYS: Record<BuiltInChannelId, string> = {
@@ -129,11 +135,15 @@ type ManageChannelArgs =
       values: Record<string, string>;
     }
   | {
-      operation:
-        | "enable"
-        | "disable"
-        | "remove-credentials"
-        | "register-webhook";
+      operation: "remove-credentials";
+      platform: string;
+      confirmedCredentials: Array<{
+        key: string;
+        removalConfirmation: string;
+      }>;
+    }
+  | {
+      operation: "enable" | "disable" | "register-webhook";
       platform: string;
     };
 
@@ -157,6 +167,25 @@ function useManageChannel() {
   return useActionMutation<ChannelChangeResult, ManageChannelArgs>(
     MANAGE_ACTION as never,
   );
+}
+
+function usePrepareChannelCredentialRemoval() {
+  return useActionMutation<
+    { credentials: ChannelCredentialRemovalCandidate[] },
+    { platform: string; keys: string[] }
+  >(PREPARE_REMOVAL_ACTION as never, { uiOnly: true });
+}
+
+function useConfirmChannelCredentialRemoval() {
+  return useActionMutation<
+    { credentials: ChannelCredentialRemovalConfirmation[] },
+    {
+      platform: string;
+      candidates: Array<
+        Pick<ChannelCredentialRemovalCandidate, "key" | "candidate">
+      >;
+    }
+  >(CONFIRM_REMOVAL_ACTION as never, { uiOnly: true });
 }
 
 function RowSkeleton({ link = false }: { link?: boolean }) {
@@ -422,6 +451,24 @@ function CredentialValue({
   onReplace: () => void;
 }) {
   const t = useT();
+  if (credential.unreadableScope && !credential.repairScope) {
+    const statusLabel =
+      credential.source === "environment"
+        ? t(`${K}.setup.setInEnvironment`)
+        : credential.source === "elsewhere"
+          ? t(`${K}.setup.savedElsewhere`)
+          : credential.source === "saved"
+            ? t(`${K}.setup.saved`)
+            : t(`${K}.setup.unreadable`);
+    return (
+      <div className="min-w-0">
+        <p className="text-xs text-muted-foreground">{statusLabel}</p>
+        <p className="text-xs text-muted-foreground">
+          {t(`${K}.setup.repairInOwnerSettings`)}
+        </p>
+      </div>
+    );
+  }
   if (editing) {
     return (
       <Input
@@ -432,6 +479,44 @@ function CredentialValue({
         value={value}
         onChange={(event) => onChange(event.target.value)}
       />
+    );
+  }
+  if (credential.unreadableScope) {
+    const statusLabel =
+      credential.source === "environment"
+        ? t(`${K}.setup.setInEnvironment`)
+        : credential.source === "elsewhere"
+          ? t(`${K}.setup.savedElsewhere`)
+          : credential.source === "saved"
+            ? t(`${K}.setup.saved`)
+            : t(`${K}.setup.unreadable`);
+    if (!credential.repairScope) {
+      return (
+        <div className="grid gap-1">
+          <p className="text-xs text-muted-foreground">{statusLabel}</p>
+          <p className="text-xs text-muted-foreground">
+            {t(`${K}.setup.repairUnavailable`)}
+          </p>
+        </div>
+      );
+    }
+    return (
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-xs text-muted-foreground">{statusLabel}</p>
+        </div>
+        {credential.repairScope ? (
+          <Button
+            type="button"
+            variant="secondary"
+            size="xs"
+            aria-label={t(`${K}.setup.replaceAria`, { key: credential.key })}
+            onClick={onReplace}
+          >
+            {t(`${K}.setup.replace`)}
+          </Button>
+        ) : null}
+      </div>
     );
   }
   if (credential.source === "saved") {
@@ -448,6 +533,13 @@ function CredentialValue({
           {t(`${K}.setup.replace`)}
         </Button>
       </div>
+    );
+  }
+  if (credential.source === "unreadable") {
+    return (
+      <p className="text-xs text-muted-foreground">
+        {t(`${K}.setup.repairUnavailable`)}
+      </p>
     );
   }
   return (
@@ -485,7 +577,11 @@ function ChannelSetupDialog({
   const isEditing = (item: ChannelCredentialStatus) =>
     item.saveable &&
     (item.source === null ||
-      (item.source === "saved" && replacing.has(item.key)));
+      (item.source === "saved" && replacing.has(item.key)) ||
+      (item.source === "unreadable" && item.repairScope !== undefined) ||
+      (item.unreadableScope !== undefined &&
+        item.repairScope !== undefined &&
+        replacing.has(item.key)));
   const filled = credentials
     .filter(isEditing)
     .map((item) => [item.key, values[item.key]?.trim() ?? ""] as const)
@@ -493,16 +589,25 @@ function ChannelSetupDialog({
   const stillMissing = hasMissingRequiredCredentials(
     credentials,
     (key) =>
-      credentials.some((item) => item.key === key && item.source !== null) ||
-      filled.some(([filledKey]) => filledKey === key),
+      credentials.some(
+        (item) =>
+          item.key === key &&
+          item.source !== null &&
+          item.source !== "unreadable",
+      ) || filled.some(([filledKey]) => filledKey === key),
   );
   const canSaveHere = credentials.some(
     (item) =>
-      item.saveable && (item.source === null || item.source === "saved"),
+      item.saveable &&
+      (item.source === null ||
+        item.source === "saved" ||
+        ((item.source === "unreadable" || item.unreadableScope !== undefined) &&
+          item.repairScope !== undefined)),
   );
   const readOnly = !canSaveHere && state !== "off";
   const nothingToDo =
-    filled.length === 0 && (state === "on" || state === "not-set-up");
+    filled.length === 0 &&
+    (status.enabled || state === "not-set-up" || state === "unavailable");
 
   const reset = () => {
     setValues({});
@@ -521,8 +626,8 @@ function ChannelSetupDialog({
         });
         next = saved.channel;
       }
-      if (state === "on") return "done";
       if (!next.configured) return "missing";
+      if (status.enabled) return "done";
       await manage.mutateAsync({ operation: "enable", platform: channel.id });
       return "done";
     },
@@ -537,7 +642,11 @@ function ChannelSetupDialog({
       onOpenChange(false);
     },
     onError: (err) =>
-      setError(actionErrorMessage(err) ?? t(`${K}.setup.failed`)),
+      setError(
+        actionErrorCode(err) === "credential_repair_unavailable"
+          ? t(`${K}.setup.repairUnavailable`)
+          : (actionErrorMessage(err) ?? t(`${K}.setup.failed`)),
+      ),
     onSettled: () =>
       queryClient.invalidateQueries({ queryKey: LIST_QUERY_KEY }),
   });
@@ -564,6 +673,14 @@ function ChannelSetupDialog({
           </DialogTitle>
           <DialogDescription>{t(`${K}.setup.body`)}</DialogDescription>
         </DialogHeader>
+        {status.configurationUnavailable ? (
+          <Alert>
+            <IconAlertCircle aria-hidden="true" />
+            <AlertDescription>
+              {t(`${K}.setup.configurationUnavailable`)}
+            </AlertDescription>
+          </Alert>
+        ) : null}
         <form
           id={formId}
           className="flex flex-col gap-4"
@@ -593,6 +710,14 @@ function ChannelSetupDialog({
                     </span>
                   )}
                 </Label>
+                {item.repairScope === "user" ? (
+                  <p
+                    className="text-xs text-muted-foreground"
+                    data-channel-repair-scope="user"
+                  >
+                    {t(`${K}.setup.personalCredentialOnly`)}
+                  </p>
+                ) : null}
                 <CredentialValue
                   credential={item}
                   inputId={inputId}
@@ -662,7 +787,7 @@ function ChannelSetupDialog({
                 {save.isPending ? <Spinner aria-hidden="true" /> : null}
                 {save.isPending
                   ? t(`${K}.setup.saving`)
-                  : state === "on"
+                  : status.enabled
                     ? t(`${K}.setup.save`)
                     : t(`${K}.setup.saveAndTurnOn`)}
               </Button>
@@ -678,21 +803,89 @@ function RemoveCredentialsDialog({
   open,
   onOpenChange,
   channel,
-  keys,
+  credentials,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   channel: IntegrationCatalogEntry;
-  keys: readonly string[];
+  credentials: readonly {
+    key: string;
+    removalScope?: ChannelCredentialStatus["removalScope"];
+  }[];
 }) {
   const t = useT();
   const remove = useManageChannel();
+  const prepare = usePrepareChannelCredentialRemoval();
+  const confirm = useConfirmChannelCredentialRemoval();
+  const [actionError, setActionError] = useState<string | null>(null);
+  const isPending = remove.isPending || prepare.isPending || confirm.isPending;
+  const selectionKey = credentials.map(({ key }) => key).join("\u0000");
+  const selectedKeys = selectionKey ? selectionKey.split("\u0000") : [];
+  useEffect(() => {
+    if (open) {
+      prepare.reset();
+      confirm.reset();
+      remove.reset();
+      setActionError(null);
+      prepare.mutate({
+        platform: channel.id,
+        keys: selectionKey ? selectionKey.split("\u0000") : [],
+      });
+    } else {
+      prepare.reset();
+      confirm.reset();
+      remove.reset();
+      setActionError(null);
+    }
+  }, [
+    channel.id,
+    confirm.reset,
+    open,
+    prepare.mutate,
+    prepare.reset,
+    remove.reset,
+    selectionKey,
+  ]);
+
+  const handleConfirm = async () => {
+    const candidates = prepare.data?.credentials;
+    if (!candidates || candidates.length !== selectedKeys.length) return;
+    try {
+      const issued = await confirm.mutateAsync({
+        platform: channel.id,
+        candidates: candidates.map(({ key, candidate }) => ({
+          key,
+          candidate,
+        })),
+      });
+      await remove.mutateAsync({
+        operation: "remove-credentials",
+        platform: channel.id,
+        confirmedCredentials: issued.credentials,
+      });
+      onOpenChange(false);
+    } catch (error) {
+      setActionError(
+        actionErrorMessage(error) ?? t(`${K}.removeCredentials.failed`),
+      );
+    }
+  };
+  const personalOnly =
+    credentials.length > 0 &&
+    credentials.every(({ removalScope }) => removalScope === "user");
+  const workspaceOnly =
+    credentials.length > 0 &&
+    credentials.every(({ removalScope }) => removalScope === "workspace");
+  const bodyKey = personalOnly
+    ? "personalBody"
+    : workspaceOnly
+      ? "body"
+      : "mixedBody";
   return (
     <AlertDialog
       open={open}
       onOpenChange={(next) => {
-        if (remove.isPending) return;
-        if (!next) remove.reset();
+        if (isPending) return;
         onOpenChange(next);
       }}
     >
@@ -702,25 +895,46 @@ function RemoveCredentialsDialog({
             {t(`${K}.removeCredentials.title`, { platform: channel.name })}
           </AlertDialogTitle>
           <AlertDialogDescription>
-            {t(`${K}.removeCredentials.body`, { platform: channel.name })}
+            {t(`${K}.removeCredentials.${bodyKey}`, {
+              platform: channel.name,
+            })}
           </AlertDialogDescription>
         </AlertDialogHeader>
-        <ul className="flex flex-col gap-1 font-mono text-xs text-foreground">
-          {keys.map((key) => (
-            <li key={key}>{key}</li>
+        <ul className="flex flex-col gap-1 text-xs text-foreground">
+          {credentials.map(({ key, removalScope }) => (
+            <li
+              key={key}
+              className="flex min-w-0 items-baseline justify-between gap-4"
+            >
+              <code className="min-w-0 break-all font-mono">{key}</code>
+              {removalScope ? (
+                <span className="shrink-0 text-muted-foreground">
+                  {t(
+                    removalScope === "user"
+                      ? "agentPanel.personalKeyScope"
+                      : removalScope === "org"
+                        ? "agentPanel.organizationKeyScope"
+                        : "secrets.sourceWorkspace",
+                  )}
+                </span>
+              ) : null}
+            </li>
           ))}
         </ul>
-        {remove.isError ? (
+        {actionError || prepare.isError || confirm.isError || remove.isError ? (
           <Alert variant="destructive">
             <IconAlertCircle aria-hidden="true" />
             <AlertDescription>
-              {actionErrorMessage(remove.error) ??
+              {actionError ??
+                actionErrorMessage(
+                  prepare.error ?? confirm.error ?? remove.error,
+                ) ??
                 t(`${K}.removeCredentials.failed`)}
             </AlertDescription>
           </Alert>
         ) : null}
         <AlertDialogFooter>
-          <AlertDialogCancel asChild disabled={remove.isPending}>
+          <AlertDialogCancel asChild disabled={isPending}>
             <Button type="button" variant="secondary">
               {t("common.cancel")}
             </Button>
@@ -728,17 +942,17 @@ function RemoveCredentialsDialog({
           <Button
             type="button"
             variant="destructive"
-            disabled={remove.isPending}
-            aria-busy={remove.isPending}
-            onClick={() =>
-              remove.mutate(
-                { operation: "remove-credentials", platform: channel.id },
-                { onSuccess: () => onOpenChange(false) },
-              )
+            disabled={
+              isPending ||
+              selectedKeys.length === 0 ||
+              prepare.isError ||
+              prepare.data?.credentials.length !== selectedKeys.length
             }
+            aria-busy={isPending}
+            onClick={() => void handleConfirm()}
           >
-            {remove.isPending ? <Spinner aria-hidden="true" /> : null}
-            {remove.isPending
+            {isPending ? <Spinner aria-hidden="true" /> : null}
+            {isPending
               ? t(`${K}.removeCredentials.removing`)
               : t(`${K}.removeCredentials.confirm`)}
           </Button>
@@ -845,11 +1059,10 @@ function ChannelDetail({
     typeof status?.details?.serviceAccountEmail === "string"
       ? status.details.serviceAccountEmail
       : null;
-  const removableKeys = canManage
-    ? (status?.credentials ?? [])
-        .filter((item) => item.removable)
-        .map((item) => item.key)
+  const removableCredentials = canManage
+    ? (status?.credentials ?? []).filter((item) => item.removable)
     : [];
+  const removableKeys = removableCredentials.map((item) => item.key);
   const setUp = state !== null && state !== "not-set-up";
 
   const mentionRow =
@@ -956,7 +1169,10 @@ function ChannelDetail({
                       canManage && setUp ? (
                         <Switch
                           checked={status.enabled}
-                          disabled={toggle.isPending}
+                          disabled={
+                            toggle.isPending ||
+                            (status.configurationUnavailable && !status.enabled)
+                          }
                           aria-label={t(`${K}.turnOnAria`, {
                             platform: channel.name,
                           })}
@@ -1111,7 +1327,7 @@ function ChannelDetail({
             open={removeOpen}
             onOpenChange={setRemoveOpen}
             channel={channel}
-            keys={removableKeys}
+            credentials={removableCredentials}
           />
         </>
       ) : null}
@@ -1155,8 +1371,7 @@ export interface ChannelsPageProps {
  * {App} › Channels (spec §5.19): everywhere people can message this app's
  * agent, from the channel catalog, with each adapter's own required
  * variables. Reads and changes go through `list-messaging-channels` and
- * `manage-messaging-channel`, the actions the agent calls too; the second
- * allows owners and admins only.
+ * `manage-messaging-channel`, a signed-in UI action for owners and admins.
  */
 export function ChannelsPage({ sub, context, appName }: ChannelsPageProps) {
   if (!sub) return <ChannelList appName={appName} />;

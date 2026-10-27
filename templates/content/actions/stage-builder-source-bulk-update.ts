@@ -21,6 +21,7 @@ import {
   type DocumentPropertyType,
 } from "../shared/properties.js";
 import { BUILDER_CMS_FIXTURE_ROW_PROVENANCE } from "./_builder-cms-source-adapter.js";
+import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import {
   DATABASE_ROW_BATCH_LIMIT,
   resolveDatabaseRowsForBatch,
@@ -237,48 +238,54 @@ async function propertyDefinition(args: {
 
 async function upsertPropertyValues(args: {
   ownerEmail: string;
+  databaseId: string;
   documentIds: string[];
   propertyId: string;
   valueJson: string;
   now: string;
 }) {
-  const db = getDb();
-  const existing = await db
-    .select({
-      id: schema.documentPropertyValues.id,
-      documentId: schema.documentPropertyValues.documentId,
-    })
-    .from(schema.documentPropertyValues)
-    .where(
-      and(
-        eq(schema.documentPropertyValues.propertyId, args.propertyId),
-        inArray(schema.documentPropertyValues.documentId, args.documentIds),
-      ),
+  // Under the collection's mutation lock, like every other value write, so a
+  // guarded write can't check an empty property while this inserts one.
+  await getDb().transaction(async (transaction) => {
+    const db = transaction as unknown as ReturnType<typeof getDb>;
+    await lockContentDatabaseMutation(db, args.databaseId);
+    const existing = await db
+      .select({
+        id: schema.documentPropertyValues.id,
+        documentId: schema.documentPropertyValues.documentId,
+      })
+      .from(schema.documentPropertyValues)
+      .where(
+        and(
+          eq(schema.documentPropertyValues.propertyId, args.propertyId),
+          inArray(schema.documentPropertyValues.documentId, args.documentIds),
+        ),
+      );
+    const existingByDocumentId = new Map(
+      existing.map((row) => [row.documentId, row.id]),
     );
-  const existingByDocumentId = new Map(
-    existing.map((row) => [row.documentId, row.id]),
-  );
-  const existingIds = existing.map((row) => row.id);
-  if (existingIds.length > 0) {
-    await db
-      .update(schema.documentPropertyValues)
-      .set({ valueJson: args.valueJson, updatedAt: args.now })
-      .where(inArray(schema.documentPropertyValues.id, existingIds));
-  }
-  const inserts = args.documentIds
-    .filter((documentId) => !existingByDocumentId.has(documentId))
-    .map((documentId) => ({
-      id: nanoid(),
-      ownerEmail: args.ownerEmail,
-      documentId,
-      propertyId: args.propertyId,
-      valueJson: args.valueJson,
-      createdAt: args.now,
-      updatedAt: args.now,
-    }));
-  if (inserts.length > 0) {
-    await db.insert(schema.documentPropertyValues).values(inserts);
-  }
+    const existingIds = existing.map((row) => row.id);
+    if (existingIds.length > 0) {
+      await db
+        .update(schema.documentPropertyValues)
+        .set({ valueJson: args.valueJson, updatedAt: args.now })
+        .where(inArray(schema.documentPropertyValues.id, existingIds));
+    }
+    const inserts = args.documentIds
+      .filter((documentId) => !existingByDocumentId.has(documentId))
+      .map((documentId) => ({
+        id: nanoid(),
+        ownerEmail: args.ownerEmail,
+        documentId,
+        propertyId: args.propertyId,
+        valueJson: args.valueJson,
+        createdAt: args.now,
+        updatedAt: args.now,
+      }));
+    if (inserts.length > 0) {
+      await db.insert(schema.documentPropertyValues).values(inserts);
+    }
+  });
 }
 
 async function updateOpenChangeSetsForStagedRows(args: {
@@ -461,6 +468,7 @@ async function stageBuilderSourceBulkUpdateWithDeps(
     }
     await upsertPropertyValues({
       ownerEmail: database.ownerEmail,
+      databaseId: database.id,
       documentIds: results
         .filter((row) => row.status === "staged")
         .map((row) => row.documentId),

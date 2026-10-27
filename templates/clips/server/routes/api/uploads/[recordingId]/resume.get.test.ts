@@ -1,3 +1,4 @@
+import type { H3Event } from "h3";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockRenewUploadLease = vi.hoisted(() => vi.fn());
@@ -333,7 +334,7 @@ describe("/api/uploads/:recordingId/resume route", () => {
       finalChunkOutcome: "finished",
     });
 
-    await expect(handler({} as any)).resolves.toEqual(
+    await expect(handler({} as H3Event)).resolves.toEqual(
       expect.objectContaining({ resumable: true, status: "uploading" }),
     );
     expect(mockCompareAndSetAppState.mock.calls[0]?.[2]).toMatchObject({

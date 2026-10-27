@@ -1,2175 +1,2804 @@
-:where(.agentkit-chat) {
-  --agentkit-canvas: var(
-    --agentkit-chat-background,
-    var(--agent-kit-recessed-surface, Canvas)
-  );
-  --agentkit-surface: var(
-    --agentkit-composer-background,
-    var(
-      --agent-kit-raised-surface,
-      color-mix(in srgb, Canvas 96%, CanvasText 4%)
-    )
-  );
-  --agentkit-subtle: var(
-    --agent-kit-subtle-surface,
-    color-mix(in srgb, Canvas 92%, CanvasText 8%)
-  );
-  --agentkit-border: var(
-    --agent-kit-border,
-    color-mix(in srgb, CanvasText 16%, transparent)
-  );
-  --agentkit-text: var(--agent-kit-text, CanvasText);
-  --agentkit-text-muted: var(
-    --agent-kit-muted-text,
-    color-mix(in srgb, CanvasText 62%, transparent)
-  );
-  --agentkit-accent: var(--agent-kit-accent, CanvasText);
-  --agentkit-accent-text: var(--agent-kit-accent-text, Canvas);
-  --agentkit-danger: var(--agent-kit-danger, CanvasText);
-  --agentkit-success: var(--agent-kit-success, CanvasText);
-  --agentkit-focus: var(--agent-kit-focus, Highlight);
-  --agentkit-radius: var(--radius-xl, calc(var(--radius, 0.75rem) + 0.5rem));
-  --agentkit-radius-inner: var(--radius-lg, var(--radius, 0.75rem));
-  --agentkit-elevation: var(--agent-kit-composer-elevation, none);
-  --agentkit-composer-border: var(
-    --agent-kit-composer-border-color,
-    transparent
-  );
-  --agentkit-composer-focus-border: var(
-    --agent-kit-composer-focus-border-color,
-    transparent
-  );
-  --agentkit-composer-toolbar-control-size: var(
-    --agent-kit-composer-toolbar-control-size,
-    1.75rem
-  );
-  --agentkit-composer-toolbar-control-gap: var(
-    --agent-kit-composer-toolbar-control-gap,
-    0.25rem
-  );
-  --agentkit-composer-toolbar-control-padding-inline: var(
-    --agent-kit-composer-toolbar-control-padding-inline,
-    0.375rem
-  );
-  --agentkit-composer-toolbar-control-font-size: var(
-    --agent-kit-composer-toolbar-control-font-size,
-    0.75rem
-  );
-  --agentkit-composer-toolbar-control-line-height: var(
-    --agent-kit-composer-toolbar-control-line-height,
-    1rem
-  );
-  --agentkit-composer-toolbar-control-font-weight: var(
-    --agent-kit-composer-toolbar-control-font-weight,
-    500
-  );
-
-  position: relative;
-  display: grid;
-  inline-size: 100%;
-  block-size: 100%;
-  min-inline-size: 0;
-  min-block-size: 0;
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  overflow: hidden;
-  color: var(--agentkit-text);
-  background: var(--agentkit-canvas);
-  font: inherit;
-}
-
-.agentkit-composer-stack [data-agent-composer-slot="area"] {
-  position: relative;
-  z-index: 1;
-  padding-block: 0.5rem;
-}
-
-.agentkit-composer-stack [data-agent-composer-slot="workflow"] {
-  position: relative;
-  display: flex;
-  inline-size: 100%;
-  flex-direction: column;
-}
-
-.agentkit-composer[data-agent-composer-slot="root"] {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  border: 1px solid var(--agentkit-composer-border);
-  border-color: var(--agentkit-composer-border) !important;
-  border-radius: var(--agentkit-radius);
-  color: var(--agentkit-text);
-  background: var(
-    --agentkit-composer-background,
-    var(--agent-kit-composer-surface, var(--agentkit-surface))
-  );
-  box-shadow: var(--agentkit-elevation);
-}
-
-.agentkit-composer[data-agent-composer-slot="root"]:focus-within {
-  border-color: var(--agentkit-composer-focus-border) !important;
-}
-
-.agentkit-composer [data-agent-composer-slot="editor-wrap"] {
-  padding: 0.75rem 0.875rem 0.25rem;
-}
-
-.agentkit-composer [data-agent-composer-slot="editor"] {
-  min-inline-size: 0;
-}
-
-.agentkit-composer [data-agent-composer-slot="editor-input"] {
-  min-block-size: 3.25rem;
-  max-block-size: 10rem;
-  overflow-y: auto;
-  outline: none;
-  color: var(--agentkit-text);
-  background: transparent;
-  font-size: 0.875rem;
-  line-height: 1.5;
-}
-
-.agentkit-composer [data-agent-composer-slot="editor-input"] p {
-  margin: 0;
-}
-
-.agentkit-composer [data-agent-composer-slot="mode-row"],
-.agentkit-composer [data-agent-composer-slot="context-row"] {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.375rem;
-  padding: 0.5rem 0.625rem 0;
-}
-
-.agentkit-composer
-  [data-agent-composer-slot="editor-input"]
-  p.is-editor-empty:first-child::before,
-.agentkit-composer
-  [data-agent-composer-slot="editor-input"]
-  p.is-empty:first-child:last-child::before {
-  color: var(--agentkit-text-muted);
-}
-
-.agentkit-composer [data-agent-composer-slot="toolbar"] {
-  display: flex;
-  align-items: center;
-  gap: var(--agentkit-composer-toolbar-control-gap);
-  padding: 0.375rem 0.5rem 0.5rem;
-}
-
-.agentkit-composer [data-agent-composer-slot="toolbar-spacer"] {
-  flex: 1;
-}
-
-.agentkit-composer [data-agent-composer-slot="model-button"] {
-  flex: none;
-  max-inline-size: 11rem;
-}
-
-.agentkit-composer [data-agent-composer-slot="mode-button"] {
-  min-inline-size: 3.5rem;
-}
-
-.agentkit-composer input[type="file"] {
-  display: none;
-}
-
-.agentkit-composer button {
-  display: inline-flex;
-  min-inline-size: var(--agentkit-composer-toolbar-control-size);
-  block-size: var(--agentkit-composer-toolbar-control-size);
-  align-items: center;
-  justify-content: center;
-  gap: var(--agentkit-composer-toolbar-control-gap);
-  padding-inline: var(--agentkit-composer-toolbar-control-padding-inline);
-  border: 0;
-  border-radius: var(--agentkit-radius-inner);
-  color: var(--agentkit-text-muted);
-  background: transparent;
-  font-family: inherit;
-  font-size: var(--agentkit-composer-toolbar-control-font-size);
-  font-weight: var(--agentkit-composer-toolbar-control-font-weight);
-  line-height: var(--agentkit-composer-toolbar-control-line-height);
-  cursor: pointer;
-}
-
-.agentkit-composer
-  button:has(> svg:only-child):not([data-agent-composer-slot="send-button"]),
-.agentkit-composer:not(.agent-composer-root--hero)
-  [data-agent-composer-slot="send-button"] {
-  inline-size: var(--agentkit-composer-toolbar-control-size);
-  padding-inline: 0;
-}
-
-.agentkit-composer button:hover:not(:disabled) {
-  color: var(--agentkit-text);
-  background: var(--agentkit-subtle);
-}
-
-.agentkit-composer button:disabled {
-  opacity: 0.35;
-  cursor: default;
-}
-
-.agentkit-composer [data-agent-composer-slot="send-button"] {
-  border-radius: 999px;
-  color: var(--agentkit-accent-text);
-  background: var(--agentkit-accent);
-}
-
-.agentkit-composer button svg {
-  inline-size: 1rem;
-  block-size: 1rem;
-  flex: none;
-}
-
-.agentkit-composer-stack
-  [data-agent-message-queue="true"][data-agent-message-queue-variant="recessed"] {
-  position: relative;
-  z-index: 0;
-  inline-size: calc(100% - 4rem);
-  block-size: var(--agent-message-queue-height, 0);
-  margin: 0 auto;
-  padding-block-end: 0.625rem;
-  overflow: hidden;
-  border: 0;
-  border-radius: var(--agentkit-radius-inner) var(--agentkit-radius-inner) 0 0;
-  background: color-mix(
-    in srgb,
-    var(--agentkit-subtle) 78%,
-    var(--agentkit-surface)
-  );
-  opacity: 1;
-  transform: translateY(0);
-  transition:
-    block-size 200ms var(--ease-collapse, ease-out),
-    margin 200ms var(--ease-collapse, ease-out),
-    opacity 160ms ease-out,
-    transform 200ms var(--ease-collapse, ease-out);
-}
-
-.agentkit-composer-stack [data-agent-message-queue="true"][data-empty="true"] {
-  margin-block-end: 0;
-  padding-block-end: 0;
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(0.5rem);
-}
-
-.agentkit-composer-stack [data-agent-message-queue="true"] ul {
-  display: flex;
-  block-size: 100%;
-  max-block-size: 10rem;
-  flex-direction: column;
-  gap: 0.125rem;
-  margin: 0;
-  padding: 0.25rem 0;
-  overflow-y: auto;
-  list-style: none;
-}
-
-.agentkit-composer-stack [data-agent-message-queue-variant="recessed"] ul {
-  max-block-size: none;
-  gap: 0;
-  padding: 0;
-  overflow-y: hidden;
-}
-
-.agentkit-composer-stack [data-agent-message-queue="true"] li {
-  display: flex;
-  min-block-size: 2.25rem;
-  min-inline-size: 0;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.375rem 1rem;
-  color: var(--agentkit-text);
-  font-size: 0.8125rem;
-  line-height: 1rem;
-}
-
-.agentkit-composer-stack [data-agent-message-queue-variant="recessed"] li {
-  padding-block: 0.125rem;
-}
-
-.agentkit-composer-stack [data-agent-message-queue="true"] li > svg {
-  inline-size: 0.875rem;
-  block-size: 0.875rem;
-  flex: none;
-  color: var(--agentkit-text-muted);
-}
-
-.agentkit-composer-stack
-  [data-agent-message-queue="true"]
-  li
-  > div:first-of-type {
-  min-inline-size: 0;
-  flex: 1;
-}
-
-.agentkit-composer-stack
-  [data-agent-message-queue="true"]
-  li
-  > div:first-of-type
-  > div:first-child {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.agentkit-composer-stack [data-agent-message-queue="true"] li > div:last-child {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 0.125rem;
-  color: var(--agentkit-text-muted);
-}
-
-.agentkit-composer-stack [data-agent-message-queue="true"] button {
-  display: inline-flex;
-  min-inline-size: 1.75rem;
-  block-size: 1.75rem;
-  align-items: center;
-  justify-content: center;
-  gap: 0.25rem;
-  padding-inline: 0.375rem;
-  border: 0;
-  border-radius: var(--radius-md, var(--radius));
-  color: inherit;
-  background: transparent;
-  font: inherit;
-  font-size: 0.75rem;
-  cursor: pointer;
-}
-
-.agentkit-composer-stack
-  [data-agent-message-queue="true"]
-  button:has(> svg:only-child) {
-  inline-size: 1.75rem;
-  padding-inline: 0;
-}
-
-.agentkit-composer-stack
-  [data-agent-message-queue="true"]
-  button:hover:not(:disabled) {
-  color: var(--agentkit-text);
-  background: var(--agentkit-subtle);
-}
-
-.agentkit-composer-stack [data-agent-message-queue="true"] button svg {
-  inline-size: 0.875rem;
-  block-size: 0.875rem;
-  flex: none;
-}
-
-.agentkit-composer-stack [data-agent-message-queue="true"] img {
-  inline-size: 2rem;
-  block-size: 2rem;
-  border: 1px solid var(--agentkit-border);
-  border-radius: var(--radius-md, var(--radius));
-  object-fit: cover;
-}
-
-.agentkit-suggestions[data-agent-suggestion-bar="true"] {
-  inline-size: 100%;
-  overflow: hidden;
-  padding: 0.5rem 0;
-}
-
-.agentkit-suggestions [data-agent-suggestion-scroller="true"] {
-  inline-size: 100%;
-  overflow-x: auto;
-  overscroll-behavior-inline: contain;
-  scroll-padding-inline: 1.5rem;
-  scrollbar-width: none;
-}
-
-.agentkit-suggestions
-  [data-agent-suggestion-scroller="true"]::-webkit-scrollbar {
-  display: none;
-}
-
-.agentkit-suggestions [data-agent-suggestion-track="true"] {
-  display: flex;
-  flex-wrap: wrap;
-  inline-size: var(--agent-suggestion-track-width);
-  min-inline-size: 100%;
-  gap: 0.375rem;
-}
-
-[data-agent-suggestion-scroller="true"]:is(
-  [data-overflow-start],
-  [data-overflow-end]
-) {
-  -webkit-mask-image: linear-gradient(
-    var(--agent-suggestion-fade-direction, to right),
-    transparent 0,
-    black var(--agent-suggestion-fade-start, 0px),
-    black calc(100% - var(--agent-suggestion-fade-end, 0px)),
-    transparent 100%
-  );
-  mask-image: linear-gradient(
-    var(--agent-suggestion-fade-direction, to right),
-    transparent 0,
-    black var(--agent-suggestion-fade-start, 0px),
-    black calc(100% - var(--agent-suggestion-fade-end, 0px)),
-    transparent 100%
-  );
-}
-
-[data-agent-suggestion-scroller="true"]:dir(rtl) {
-  --agent-suggestion-fade-direction: to left;
-}
-
-[data-agent-suggestion-scroller="true"][data-overflow-start] {
-  --agent-suggestion-fade-start: 1.5rem;
-}
-
-[data-agent-suggestion-scroller="true"][data-overflow-end] {
-  --agent-suggestion-fade-end: 1.5rem;
-}
-
-.agentkit-suggestions button {
-  flex: none;
-  padding: 0.375rem 0.625rem;
-  border: 1px solid transparent;
-  border-radius: 999px;
-  color: var(--agentkit-text-muted);
-  background: var(--agentkit-subtle);
-  font: inherit;
-  font-size: 0.75rem;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.agentkit-suggestions button:hover {
-  border-color: var(--agentkit-border);
-  color: var(--agentkit-text);
-}
-
-[data-agent-native-composer-popover="true"] {
-  --agentkit-palette-surface: var(
-    --agent-kit-popover-surface,
-    var(--agent-kit-raised-surface, Canvas)
-  );
-  --agentkit-palette-text: var(
-    --agent-kit-popover-text,
-    var(--agent-kit-text, CanvasText)
-  );
-  --agentkit-palette-muted: var(
-    --agent-kit-muted-text,
-    color-mix(in srgb, CanvasText 62%, transparent)
-  );
-  --agentkit-palette-hover: var(
-    --agent-kit-subtle-surface,
-    color-mix(in srgb, Canvas 92%, CanvasText 8%)
-  );
-  --agentkit-palette-border: var(
-    --agent-kit-border,
-    color-mix(in srgb, CanvasText 16%, transparent)
-  );
-
-  z-index: 9999;
-  max-block-size: min(27.5rem, calc(100vh - 2rem));
-  overflow-y: auto;
-  padding: 0.25rem;
-  border: 1px solid
-    color-mix(in srgb, var(--agentkit-palette-border) 80%, transparent);
-  border-radius: var(--radius-lg, var(--radius, 0.75rem));
-  color: var(--agentkit-palette-text);
-  background: var(--agentkit-palette-surface);
-  box-shadow: var(--agent-kit-overlay-elevation, none);
-  font: inherit;
-}
-
-body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
-  position: fixed;
-  z-index: 9998;
-  inset: 0;
-}
-
-[data-agent-native-composer-popover="true"] [data-mention-index] {
-  display: flex;
-  inline-size: 100%;
-  min-block-size: 2rem;
-  min-inline-size: 0;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.25rem 0.5rem;
-  border: 0;
-  border-radius: var(--radius-md, var(--radius, 0.75rem));
-  color: var(--agentkit-palette-text);
-  background: transparent;
-  font: inherit;
-  text-align: start;
-  cursor: pointer;
-}
-
-[data-agent-native-composer-popover="true"] [data-mention-index]:hover,
-[data-agent-native-composer-popover="true"] [data-mention-index]:focus-visible {
-  background: var(--agentkit-palette-hover);
-}
-
-[data-agent-native-composer-popover="true"] [data-mention-index] > svg {
-  inline-size: 1rem;
-  block-size: 1rem;
-  flex: none;
-  color: var(--agentkit-palette-muted);
-}
-
-[data-agent-native-composer-popover="true"] [data-mention-index] > span {
-  min-inline-size: 0;
-  overflow: hidden;
-  font-size: 0.8125rem;
-  line-height: 1rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-[data-agent-native-composer-popover="true"]
-  [data-mention-index]
-  > [data-mention-description] {
-  max-inline-size: 60%;
-  flex: none;
-  margin-inline-start: auto;
-  color: var(--agentkit-palette-muted);
-}
-
-[data-agent-native-mention-popover="true"]
-  > div
-  > div
-  > div:not(:has([data-mention-index])) {
-  color: var(--agentkit-palette-muted);
-}
-
-.agentkit-chat {
-  position: relative;
-}
-
-.agentkit-file-drop-overlay {
-  position: absolute;
-  z-index: 8;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  padding: 1rem;
-  border: 2px dashed var(--agentkit-accent);
-  border-radius: var(--agentkit-radius);
-  color: var(--agentkit-text);
-  background: color-mix(in srgb, var(--agentkit-canvas) 88%, transparent);
-  font-size: 0.875rem;
-  font-weight: 600;
-  pointer-events: none;
-}
-
-.agentkit-chat[data-empty="true"] {
-  grid-template-rows: minmax(0, 1fr) auto;
-}
-
-.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"] {
-  grid-template-rows: minmax(0, 1fr) auto 1rem auto minmax(0, 1fr);
-}
-
-.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]:has(
-    .agentkit-transcript-content:empty
-  ) {
-  grid-template-rows: minmax(0, 1fr) 0 0 auto minmax(0, 1fr);
-}
-
-.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
-  .agentkit-transcript {
-  grid-row: 2;
-  overflow: visible;
-}
-
-.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
-  .agentkit-transcript-content {
-  padding-block: 0;
-}
-
-.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
-  .agentkit-chat-footer {
-  grid-row: 4;
-  padding-block-end: 0;
-}
-
-.agentkit-chat-header {
-  z-index: 2;
-  display: flex;
-  min-block-size: 3rem;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding-inline: 1rem;
-  border-block-end: 1px solid var(--agentkit-border);
-  background: var(--agentkit-canvas);
-}
-
-.agentkit-chat-title {
-  min-inline-size: 0;
-  overflow: hidden;
-  font-size: 0.8125rem;
-  font-weight: 560;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.agentkit-chat-toolbar {
-  display: flex;
-  min-inline-size: 0;
-  align-items: center;
-  gap: 0.25rem;
-}
-
-.agentkit-chat-toolbar > * {
-  flex: none;
-}
-
-.agentkit-transcript {
-  grid-column: 1;
-  grid-row: 2;
-  inline-size: 100%;
-  min-block-size: 0;
-  overflow-y: auto;
-  overflow-anchor: none;
-  overscroll-behavior-block: contain;
-  scrollbar-color: transparent transparent;
-  scrollbar-gutter: stable;
-  scrollbar-width: thin;
-}
-
-.agentkit-transcript::-webkit-scrollbar {
-  inline-size: 0.3125rem;
-  block-size: 0.3125rem;
-}
-
-.agentkit-transcript::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.agentkit-transcript::-webkit-scrollbar-thumb {
-  border-radius: 999px;
-  background: transparent;
-}
-
-.agentkit-transcript[data-scrollbar-visible="true"] {
-  scrollbar-color: color-mix(
+/* One cascade layer, the one Tailwind declares for components: utilities on
+   the same element win over these defaults, and so does any unlayered host
+   rule. Keep every rule inside it; an unlayered rule here would beat every
+   utility again. */
+@layer components {
+  :where(.agentkit-chat, .agentkit-tokens) {
+    --agentkit-canvas: var(
+      --agentkit-chat-background,
+      var(--agent-kit-recessed-surface, Canvas)
+    );
+    --agentkit-surface: var(
+      --agentkit-composer-background,
+      var(
+        --agent-kit-raised-surface,
+        color-mix(in srgb, Canvas 96%, CanvasText 4%)
+      )
+    );
+    --agentkit-subtle: var(
+      --agent-kit-subtle-surface,
+      color-mix(in srgb, Canvas 92%, CanvasText 8%)
+    );
+    --agentkit-border: var(
+      --agent-kit-border,
+      color-mix(in srgb, CanvasText 16%, transparent)
+    );
+    --agentkit-text: var(--agent-kit-text, CanvasText);
+    --agentkit-text-muted: var(
+      --agent-kit-muted-text,
+      color-mix(in srgb, CanvasText 62%, transparent)
+    );
+    --agentkit-accent: var(--agent-kit-accent, CanvasText);
+    --agentkit-accent-text: var(--agent-kit-accent-text, Canvas);
+    --agentkit-danger: var(--agent-kit-danger, CanvasText);
+    --agentkit-danger-text: color-mix(
       in srgb,
-      var(--agentkit-text-muted) 42%,
+      var(--agentkit-danger) 60%,
+      var(--agentkit-text)
+    );
+    --agentkit-warning: var(--agent-kit-warning-color, CanvasText);
+    --agentkit-text-muted-strong: color-mix(
+      in srgb,
+      var(--agentkit-text-muted) 80%,
+      var(--agentkit-text)
+    );
+    --agentkit-success: var(--agent-kit-success, CanvasText);
+    --agentkit-focus: var(--agent-kit-focus, Highlight);
+    --agentkit-radius: var(--radius-xl, calc(var(--radius, 0.75rem) + 0.5rem));
+    --agentkit-radius-inner: var(--radius-lg, var(--radius, 0.75rem));
+    --agentkit-elevation: var(--agent-kit-composer-elevation, none);
+    --agentkit-composer-border: var(
+      --agent-kit-composer-border-color,
       transparent
-    )
-    transparent;
-}
-
-.agentkit-transcript[data-scrollbar-visible="true"]::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--agentkit-text-muted) 42%, transparent);
-}
-
-.agentkit-transcript[data-scrollbar-visible="true"]::-webkit-scrollbar-thumb:hover {
-  background: color-mix(in srgb, var(--agentkit-text-muted) 62%, transparent);
-}
-
-.agentkit-transcript-content {
-  position: relative;
-  box-sizing: border-box;
-  inline-size: min(100%, var(--agentkit-transcript-lane-width, 47rem));
-  min-inline-size: 0;
-  margin-inline: auto;
-  inset-inline-start: clamp(
-    calc((100% - min(100%, var(--agentkit-transcript-lane-width, 47rem))) / -2),
-    var(--agentkit-transcript-lane-offset-inline, 0px),
-    calc((100% - min(100%, var(--agentkit-transcript-lane-width, 47rem))) / 2)
-  );
-  padding: 1.5rem 1rem;
-  padding-block-start: var(--agentkit-transcript-top-inset, 1.5rem);
-}
-
-.agentkit-scroll-to-bottom-control {
-  position: sticky;
-  z-index: 2;
-  inset-block-end: 0.75rem;
-  display: flex;
-  block-size: 0;
-  justify-content: center;
-  margin-block-start: -2.25rem;
-  pointer-events: none;
-}
-
-.agentkit-scroll-to-bottom-control > * {
-  pointer-events: auto;
-  border: 1px solid var(--agentkit-border);
-  border-radius: 999px;
-  color: var(--agentkit-text);
-  background: var(--agentkit-surface);
-  box-shadow: 0 2px 8px
-    color-mix(in srgb, var(--agentkit-text) 14%, transparent);
-}
-
-.agentkit-visually-hidden {
-  position: absolute;
-  inline-size: 1px;
-  block-size: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
-
-.agentkit-message {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  margin-block: 0 var(--agentkit-transcript-message-gap, 1.25rem);
-  font-size: 0.875rem;
-  font-family: var(
-    --agentkit-transcript-font-family,
-    var(--font-sans, inherit)
-  );
-  line-height: var(--agentkit-transcript-message-line-height, 1.52);
-}
-
-.agentkit-message[data-role="user"] {
-  align-items: flex-end;
-  line-height: var(
-    --agentkit-user-bubble-line-height,
-    var(--agentkit-transcript-message-line-height, 1.52)
-  );
-}
-
-.agentkit-message-content {
-  min-inline-size: 0;
-  max-inline-size: 100%;
-  overflow-wrap: anywhere;
-}
-
-.agentkit-message[data-role="user"] .agentkit-message-content {
-  position: relative;
-  inset-inline-start: var(--agentkit-user-bubble-offset-inline, 0px);
-  max-inline-size: min(88%, var(--agentkit-user-bubble-max-width, 38rem));
-  padding: var(--agentkit-user-bubble-padding-block, 0.625rem)
-    var(--agentkit-user-bubble-padding-inline, 0.8125rem);
-  border-radius: var(--agentkit-radius-inner);
-  background: var(--agentkit-subtle);
-}
-
-.agentkit-message-content > :first-child {
-  margin-block-start: 0;
-}
-
-.agentkit-message-content > :last-child {
-  margin-block-end: 0;
-}
-
-.agentkit-message-content p {
-  margin-block: 0 0.625rem;
-  white-space: pre-wrap;
-}
-
-.agentkit-message-content p[data-format="plain"] {
-  font-weight: inherit;
-  font-style: normal;
-}
-
-.agentkit-user-message-text-content {
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
-}
-
-.agentkit-user-message-text-clip[data-clamped="true"] {
-  position: relative;
-  max-block-size: 200px;
-  overflow: hidden;
-}
-
-.agentkit-user-message-text-clip[data-clamped="true"]::after {
-  position: absolute;
-  inset-inline: 0;
-  inset-block-end: 0;
-  block-size: 3rem;
-  background: linear-gradient(to bottom, transparent, var(--agentkit-subtle));
-  content: "";
-  pointer-events: none;
-}
-
-.agentkit-mention {
-  display: inline-flex;
-  max-inline-size: 200px;
-  align-items: center;
-  gap: 0.25rem;
-  margin-inline: 0.125rem;
-  padding: 0.125rem 0.375rem;
-  border: 1px solid var(--agentkit-border);
-  border-radius: var(--agentkit-radius-inner);
-  color: var(--agentkit-text);
-  background: color-mix(in srgb, var(--agentkit-subtle) 75%, transparent);
-  font-size: 0.75rem;
-  font-weight: 550;
-  vertical-align: middle;
-  user-select: text;
-}
-
-.agentkit-mention-icon {
-  flex: none;
-  color: var(--agentkit-text-muted);
-}
-
-.agentkit-mention-label {
-  min-inline-size: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.agentkit-message-expand {
-  position: relative;
-  z-index: 1;
-  margin-block-start: 0.25rem;
-  padding: 0.125rem 0.25rem;
-  border: 0;
-  border-radius: var(--agentkit-radius-inner);
-  color: var(--agentkit-text-muted);
-  background: transparent;
-  font: inherit;
-  font-size: 0.6875rem;
-  cursor: pointer;
-}
-
-.agentkit-message-expand:hover {
-  color: var(--agentkit-text);
-}
-
-.agentkit-image-attachment-trigger {
-  display: block;
-  inline-size: 4rem;
-  block-size: 4rem;
-  overflow: hidden;
-  padding: 0;
-  border: 1px solid var(--agentkit-border);
-  border-radius: var(--agentkit-radius-inner);
-  background: var(--agentkit-canvas);
-  cursor: zoom-in;
-}
-
-.agentkit-image-attachment-trigger img {
-  inline-size: 100%;
-  block-size: 100%;
-  object-fit: cover;
-}
-
-.agentkit-image-preview {
-  display: flex;
-  min-block-size: min(70vh, 35rem);
-  align-items: center;
-  justify-content: center;
-  padding: 1.5rem;
-  background: var(--agentkit-canvas);
-}
-
-.agentkit-message-content [data-post-widget-text="true"] {
-  display: contents;
-  color: var(--agentkit-transcript-post-widget-text-color, inherit);
-}
-
-.agentkit-message-content [data-post-widget-text="true"] > p,
-.agentkit-message-content [data-post-widget-text="true"] .agentkit-markdown p {
-  padding-block: var(
-    --agentkit-transcript-post-widget-paragraph-padding-block,
-    0px
-  );
-}
-
-.agentkit-message-content
-  > [data-post-widget-text="true"]:last-child
-  > :last-child {
-  margin-block-end: 0;
-}
-
-.agentkit-image-preview img {
-  max-inline-size: 92vw;
-  max-block-size: 90vh;
-  border-radius: var(--agentkit-radius);
-  object-fit: contain;
-}
-
-.agentkit-markdown {
-  min-inline-size: 0;
-  overflow-wrap: anywhere;
-}
-
-.agentkit-markdown table {
-  display: block;
-  max-inline-size: 100%;
-  overflow-x: auto;
-}
-
-.agentkit-markdown img {
-  max-inline-size: 100%;
-  block-size: auto;
-}
-
-.agentkit-markdown > :first-child {
-  margin-block-start: 0;
-}
-
-.agentkit-markdown > :last-child {
-  margin-block-end: 0;
-}
-
-.agentkit-markdown p {
-  white-space: normal;
-}
-
-.agentkit-markdown h1,
-.agentkit-markdown h2,
-.agentkit-markdown h3 {
-  font-weight: 600;
-}
-
-.agentkit-markdown h1 {
-  margin-block: 0.75em 0.25em;
-  font-size: 1.25em;
-}
-
-.agentkit-markdown h2 {
-  margin-block: 0.75em 0.25em;
-  font-size: 1.125em;
-}
-
-.agentkit-markdown h3 {
-  margin-block: 0.75em 0.25em;
-  font-size: 1em;
-}
-
-.agentkit-markdown :where(ul, ol) {
-  margin-block: 0 0.625rem;
-  padding-inline-start: 1.25rem;
-}
-
-.agentkit-markdown ul {
-  list-style-type: disc;
-}
-
-.agentkit-markdown ol {
-  list-style-type: decimal;
-}
-
-.agentkit-markdown li::marker {
-  color: var(--agentkit-text-muted);
-}
-
-.agentkit-markdown ul ul {
-  list-style-type: circle;
-}
-
-.agentkit-markdown ol ol {
-  list-style-type: lower-alpha;
-}
-
-.agentkit-markdown li + li {
-  margin-block-start: 0.25rem;
-}
-
-.agentkit-markdown :where(code, pre) {
-  font-family: var(--font-mono, ui-monospace, monospace);
-}
-
-.agentkit-markdown :not(pre) > code {
-  padding: 0.125rem 0.25rem;
-  border-radius: var(--radius-sm, calc(var(--radius, 0.75rem) / 2));
-  background: var(--agentkit-subtle);
-  font-size: 0.875em;
-}
-
-.agentkit-markdown pre {
-  box-sizing: border-box;
-  max-inline-size: 100%;
-  margin-block: 0 0.625rem;
-  padding: 0.75rem;
-  overflow-x: auto;
-  border: 1px solid var(--agentkit-border);
-  border-radius: var(--agentkit-radius-inner);
-  background: var(--agentkit-subtle);
-}
-
-.agentkit-markdown pre code {
-  font-size: 0.8125rem;
-}
-
-.agentkit-markdown a {
-  color: inherit;
-  text-decoration-color: var(--agentkit-text-muted);
-  text-underline-offset: 0.15em;
-}
-
-.agentkit-markdown blockquote {
-  margin: 0 0 0.625rem;
-  padding-inline-start: 0.75rem;
-  border-inline-start: 2px solid var(--agentkit-border);
-  color: var(--agentkit-text-muted);
-}
-
-.agentkit-message-actions {
-  display: flex;
-  inline-size: 100%;
-  min-block-size: 1.5rem;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.25rem;
-  flex-wrap: wrap;
-  margin-block-start: 0.25rem;
-  color: var(--agentkit-text-muted);
-  opacity: 0;
-  transition: opacity 140ms ease;
-}
-
-.agentkit-message-actions-leading,
-.agentkit-message-actions-trailing {
-  display: flex;
-  min-inline-size: 0;
-  align-items: center;
-  gap: 0.125rem;
-}
-
-.agentkit-message-actions-trailing {
-  margin-inline-start: auto;
-}
-
-.agentkit-message-actions[data-role="user"] {
-  min-inline-size: 0;
-  justify-content: flex-end;
-}
-
-.agentkit-message-actions[data-role="user"] .agentkit-message-actions-leading {
-  flex-shrink: 0;
-}
-
-.agentkit-message-actions[data-role="user"] .agentkit-message-actions-trailing {
-  max-inline-size: 100%;
-  margin-inline-start: 0;
-}
-
-.agentkit-message-actions[data-role="user"] time {
-  min-inline-size: 0;
-  overflow-wrap: anywhere;
-  text-align: end;
-}
-
-.agentkit-message-actions[data-role="user"] .agentkit-command-error {
-  flex-basis: 100%;
-  min-inline-size: 0;
-  max-inline-size: 100%;
-  overflow-wrap: anywhere;
-  text-align: end;
-}
-
-.agentkit-message:hover .agentkit-message-actions,
-.agentkit-message:focus-within .agentkit-message-actions {
-  opacity: 1;
-}
-
-.agentkit-message .agentkit-message-actions[data-streaming="true"],
-.agentkit-message:hover .agentkit-message-actions[data-streaming="true"],
-.agentkit-message:focus-within
-  .agentkit-message-actions[data-streaming="true"] {
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-}
-
-@media (hover: none), (any-pointer: coarse) {
-  .agentkit-message-actions[data-role="user"] {
-    opacity: 1;
-  }
-}
-
-.agentkit-message-actions button {
-  display: inline-grid;
-  inline-size: 1.75rem;
-  block-size: 1.75rem;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius-md, var(--radius));
-  color: inherit;
-  background: transparent;
-  cursor: pointer;
-}
-
-.agentkit-chat-toolbar :where(button, [role="button"]) {
-  display: inline-flex;
-  min-inline-size: 1.75rem;
-  block-size: 1.75rem;
-  align-items: center;
-  justify-content: center;
-  gap: 0.25rem;
-  padding-inline: 0.5rem;
-  border: 0;
-  border-radius: var(--radius-md, var(--radius));
-  color: inherit;
-  background: transparent;
-  font: inherit;
-  font-size: 0.75rem;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.agentkit-chat-toolbar :where(button, [role="button"]):has(> svg:only-child) {
-  inline-size: 1.75rem;
-  padding-inline: 0;
-}
-
-.agentkit-message-actions button:hover,
-.agentkit-chat-toolbar :where(button, [role="button"]):hover {
-  color: var(--agentkit-text);
-  background: var(--agentkit-subtle);
-}
-
-.agentkit-message-actions button[aria-pressed="true"] {
-  color: var(--agentkit-text);
-  background: var(--agentkit-subtle);
-}
-
-.agentkit-message-actions button[aria-pressed="true"] svg {
-  stroke-width: 2.2;
-}
-
-.agentkit-message-actions svg {
-  inline-size: 0.875rem;
-  block-size: 0.875rem;
-}
-
-.agentkit-message-actions time {
-  margin-inline-start: 0.25rem;
-  font-size: 0.6875rem;
-}
-
-.agentkit-branch-navigation {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  margin-inline-start: 0.375rem;
-  font-size: 0.6875rem;
-}
-
-.agentkit-feedback-popover {
-  z-index: 20;
-  width: min(20rem, calc(100vw - 2rem));
-  padding: 0.75rem;
-  border: 1px solid var(--agentkit-border);
-  border-radius: var(--agentkit-radius-inner);
-  color: var(--agent-kit-popover-text, var(--agent-kit-text, CanvasText));
-  background: var(
-    --agent-kit-popover-surface,
-    var(--agent-kit-raised-surface, Canvas)
-  );
-  box-shadow: 0 8px 24px
-    color-mix(in srgb, var(--agentkit-text) 16%, transparent);
-}
-
-.agentkit-feedback-form {
-  display: grid;
-  gap: 0.625rem;
-}
-
-.agentkit-feedback-textarea {
-  inline-size: 100%;
-}
-
-.agentkit-feedback-reasons {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.375rem;
-}
-
-.agentkit-feedback-reasons button {
-  block-size: 1.5rem;
-  padding-inline: 0.5rem;
-  font-size: 0.6875rem;
-}
-
-.agentkit-feedback-footer {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem 0.75rem;
-  color: var(--agentkit-text-muted);
-  font-size: 0.6875rem;
-}
-
-.agentkit-feedback-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  margin-inline-start: auto;
-}
-
-.agentkit-icon {
-  inline-size: 1rem;
-  block-size: 1rem;
-  flex: none;
-  stroke-width: 1.7;
-}
-
-.agentkit-agent-feed,
-.agentkit-activities,
-.agentkit-tasks {
-  margin-block: 0.375rem 1.25rem;
-  color: var(--agentkit-text-muted);
-  font-size: 0.8125rem;
-}
-
-.agentkit-agent-feed {
-  display: grid;
-  /* minmax(0, …): an auto track grows to its widest row's unwrapped text,
-     which pushes rows past the chat column instead of ellipsizing them. */
-  grid-template-columns: minmax(0, 1fr);
-  gap: 0.125rem;
-}
-
-.agentkit-activities-summary,
-.agentkit-activity-row,
-.agentkit-agent-interaction,
-.agentkit-tasks-summary,
-.agentkit-task-row {
-  display: flex;
-  inline-size: 100%;
-  min-inline-size: 0;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.25rem 0;
-  border: 0;
-  color: inherit;
-  background: transparent;
-  text-align: start;
-  list-style: none;
-}
-
-.agentkit-activities-summary,
-.agentkit-tasks-summary {
-  cursor: pointer;
-}
-
-.agentkit-activities-summary {
-  display: flex;
-  inline-size: fit-content;
-  max-inline-size: 100%;
-  align-items: center;
-  gap: 1rem;
-}
-
-.agentkit-activities {
-  margin-block: 0.375rem 0.5rem;
-}
-
-.agentkit-message:has(+ .agentkit-activities) {
-  margin-block-end: 0.5rem;
-}
-
-.agentkit-activities-summary::-webkit-details-marker,
-.agentkit-activity-cluster > summary::-webkit-details-marker,
-.agentkit-tasks-summary::-webkit-details-marker {
-  display: none;
-}
-
-.agentkit-activities-summary:hover,
-.agentkit-activity-row:hover,
-.agentkit-agent-interaction:hover,
-.agentkit-tasks-summary:hover,
-.agentkit-task-row:hover {
-  color: var(--agentkit-text);
-}
-
-.agentkit-activities-summary:focus-visible {
-  outline: 2px solid var(--agentkit-focus);
-  outline-offset: 2px;
-}
-
-.agentkit-agent {
-  display: inline-flex;
-  min-inline-size: 0;
-  max-inline-size: 12rem;
-  flex: none;
-  align-items: center;
-  padding: 0.125rem 0.5rem;
-  border: 1px solid var(--agentkit-border);
-  border-radius: 999px;
-  color: var(--agentkit-text);
-  overflow: hidden;
-  background: var(--agentkit-subtle);
-  font-size: 0.75rem;
-  font-weight: 500;
-  line-height: 1.25rem;
-}
-
-.agentkit-agent-name,
-.agentkit-agent-interaction-label {
-  min-inline-size: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.agentkit-agent[data-status="working"] .agentkit-agent-name {
-  color: transparent;
-  background: linear-gradient(
-    90deg,
-    var(--agentkit-text),
-    color-mix(in srgb, var(--agentkit-text) 34%, transparent),
-    var(--agentkit-text)
-  );
-  background-size: 200% 100%;
-  background-clip: text;
-  animation: agentkit-shimmer 1.8s linear infinite;
-}
-
-.agentkit-agent[data-status="failed"] {
-  border-color: color-mix(
-    in srgb,
-    var(--agentkit-danger) 32%,
-    var(--agentkit-border)
-  );
-  color: var(--agentkit-danger);
-}
-
-.agentkit-agent-interaction-detail {
-  min-inline-size: 0;
-  max-inline-size: 45%;
-  margin-inline-start: auto;
-  overflow: hidden;
-  color: var(--agentkit-text-muted);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Two agent chips plus a label can be wider than a narrow chat column: the
-   chips shrink and ellipsize instead of overflowing, and a detail that does
-   not fit beside the head drops to its own line. */
-.agentkit-agent-interaction {
-  flex-wrap: wrap;
-  row-gap: 0.125rem;
-}
-
-.agentkit-agent-interaction-head {
-  display: flex;
-  flex: 0 1 auto;
-  min-inline-size: 0;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.agentkit-agent-interaction-head > .agentkit-agent {
-  flex: 0 1 auto;
-}
-
-.agentkit-agent-interaction-head > .agentkit-agent-interaction-label {
-  flex: none;
-}
-
-.agentkit-agent-interaction > .agentkit-agent-interaction-detail {
-  flex: 1 1 6rem;
-  max-inline-size: 100%;
-  text-align: end;
-}
-
-/* A message is prose: give it its own line under the chips. */
-.agentkit-agent-interaction[data-kind="messaged"]
-  > .agentkit-agent-interaction-detail {
-  display: -webkit-box;
-  flex-basis: 100%;
-  text-align: start;
-  max-inline-size: 100%;
-  margin-inline-start: 0;
-  padding-inline-start: 1.5rem;
-  white-space: normal;
-  overflow-wrap: anywhere;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-.agentkit-activity-cluster-count,
-.agentkit-tasks-count,
-.agentkit-task-progress {
-  color: color-mix(in srgb, var(--agentkit-text-muted) 75%, transparent);
-  font-variant-numeric: tabular-nums;
-}
-
-.agentkit-activity-cluster-count {
-  flex: none;
-  margin-inline-start: auto;
-}
-
-.agentkit-activity-cluster > summary {
-  cursor: pointer;
-}
-
-.agentkit-activity-cluster-items {
-  display: grid;
-  gap: 0.125rem;
-  margin-inline-start: 0.5rem;
-  padding-inline-start: 1rem;
-  border-inline-start: 1px solid var(--agentkit-border);
-}
-
-.agentkit-activities-label {
-  min-inline-size: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.agentkit-activities-heading {
-  display: inline-flex;
-  align-items: center;
-  min-inline-size: 0;
-  max-inline-size: 100%;
-  gap: 0.375rem;
-}
-
-.agentkit-activities-summary-content {
-  display: grid;
-  min-inline-size: 0;
-  gap: 0.125rem;
-}
-
-.agentkit-activities-current {
-  display: flex;
-  align-items: center;
-  gap: 0.375rem;
-  min-inline-size: 0;
-}
-
-.agentkit-activities-current-label {
-  min-inline-size: 0;
-  overflow: hidden;
-  color: var(--agentkit-text);
-  font-size: 0.875rem;
-  font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.agentkit-summary-chevron,
-.agentkit-disclosure-icon {
-  transition:
-    opacity 160ms ease,
-    transform 160ms ease;
-}
-
-.agentkit-activities-summary > .agentkit-summary-chevron {
-  opacity: 1;
-}
-
-.agentkit-activities[data-expandable="true"]
-  .agentkit-activities-summary:hover
-  > .agentkit-summary-chevron,
-.agentkit-activities[data-expandable="true"]
-  .agentkit-activities-summary:focus-visible
-  > .agentkit-summary-chevron,
-.agentkit-activities[data-expandable="true"][open] .agentkit-summary-chevron {
-  opacity: 1;
-}
-
-.agentkit-activities[data-expandable="false"] .agentkit-activities-summary {
-  cursor: default;
-}
-
-.agentkit-activities-static {
-  display: grid;
-  min-inline-size: 0;
-  gap: 0.125rem;
-  padding: 0.25rem 0;
-}
-
-.agentkit-active-run-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  justify-content: flex-end;
-}
-
-.agentkit-active-run-actions-feedback {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  padding-inline: 0.25rem;
-  color: var(--agentkit-text-muted);
-  font-size: 0.75rem;
-}
-
-.agentkit-active-run-actions-feedback-error {
-  color: var(--agentkit-danger);
-}
-
-.agentkit-active-run-actions-trigger {
-  opacity: 0;
-  transition: opacity 120ms ease;
-}
-
-.agentkit-active-run-actions:hover .agentkit-active-run-actions-trigger,
-.agentkit-active-run-actions:focus-within .agentkit-active-run-actions-trigger,
-.agentkit-active-run-actions-trigger[data-state="open"] {
-  opacity: 1;
-}
-
-@media (hover: none), (any-pointer: coarse) {
-  .agentkit-active-run-actions-trigger {
-    opacity: 1;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .agentkit-active-run-actions-trigger {
-    transition: none;
-  }
-}
-
-.agentkit-activity-disclosure {
-  display: inline-grid;
-  inline-size: 1.5rem;
-  block-size: 1.5rem;
-  flex: none;
-  place-items: center;
-  margin-inline-start: 0.125rem;
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius-md, var(--radius));
-  color: inherit;
-  background: transparent;
-  cursor: pointer;
-}
-
-.agentkit-activity-disclosure:hover {
-  color: var(--agentkit-text);
-  background: var(--agentkit-subtle);
-}
-
-.agentkit-activities[open] .agentkit-summary-chevron,
-.agentkit-tasks[open] .agentkit-summary-chevron,
-.agentkit-disclosure-icon[data-open="true"] {
-  transform: rotate(90deg);
-}
-
-.agentkit-activities-list {
-  display: grid;
-  max-block-size: 15.625rem;
-  gap: 0.125rem;
-  overflow: auto;
-  overscroll-behavior: contain;
-  list-style: none;
-  margin: 0;
-  padding-block-start: 0.25rem;
-  padding-inline: 0;
-}
-
-.agentkit-tasks-list {
-  display: grid;
-  gap: 0.125rem;
-  padding-block-start: 0.25rem;
-}
-
-.agentkit-activities-list .agentkit-reasoning {
-  margin-block: 0;
-}
-
-@media (hover: none) {
-  .agentkit-message-actions[data-role="user"],
-  .agentkit-activities[data-expandable="true"]
-    .agentkit-activities-summary
-    .agentkit-summary-chevron {
-    opacity: 1;
-  }
-}
-
-.agentkit-task-title {
-  min-inline-size: 0;
-  overflow: hidden;
-  color: var(--agentkit-text);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.agentkit-task-detail,
-.agentkit-task-progress {
-  margin-inline-start: auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.agentkit-task-row[data-status="running"] .agentkit-task-title {
-  color: transparent;
-  background: linear-gradient(
-    90deg,
-    var(--agentkit-text-muted),
-    color-mix(in srgb, var(--agentkit-text-muted) 28%, transparent),
-    var(--agentkit-text-muted)
-  );
-  background-size: 200% 100%;
-  background-clip: text;
-  animation: agentkit-shimmer 1.8s linear infinite;
-}
-
-.agentkit-activity-label {
-  min-inline-size: 0;
-  overflow: hidden;
-  color: var(--agentkit-text);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.agentkit-activity-item[data-status="running"] .agentkit-activity-label {
-  color: transparent;
-  background: linear-gradient(
-    90deg,
-    var(--agentkit-text-muted),
-    color-mix(in srgb, var(--agentkit-text-muted) 28%, transparent),
-    var(--agentkit-text-muted)
-  );
-  background-size: 200% 100%;
-  background-clip: text;
-  animation: agentkit-shimmer 1.8s linear infinite;
-}
-
-.agentkit-activity-detail,
-.agentkit-object {
-  display: flex;
-  min-inline-size: 0;
-  max-inline-size: 55%;
-  align-items: center;
-  gap: 0.375rem;
-  margin-inline-start: auto;
-  padding: 0;
-  border: 0;
-  overflow: hidden;
-  color: var(--agentkit-text-muted);
-  background: transparent;
-  font: inherit;
-  text-align: end;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* The detail is bare text: a flex container cannot ellipsize it, so it
-   would be clipped mid-word instead. */
-.agentkit-activity-detail {
-  display: block;
-}
-
-/* A detail that does not fit beside the agent and label drops to its own
-   line rather than squeezing the label. */
-.agentkit-activity-row {
-  flex-wrap: wrap;
-  row-gap: 0.125rem;
-}
-
-.agentkit-activity-row > .agentkit-activity-label {
-  flex: none;
-  max-inline-size: 100%;
-}
-
-.agentkit-activity-row > .agentkit-activity-detail {
-  flex: 1 1 8rem;
-  max-inline-size: 100%;
-}
-
-button.agentkit-object {
-  cursor: pointer;
-}
-
-.agentkit-object-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.agentkit-diff-added {
-  color: var(--agentkit-success);
-}
-
-.agentkit-diff-removed {
-  color: var(--agentkit-danger);
-}
-
-.agentkit-activity-summary {
-  margin-inline-start: 1.5rem;
-  padding: 0.25rem 0 0.5rem;
-  color: var(--agentkit-text);
-}
-
-.agentkit-activity-summary-section {
-  display: grid;
-  gap: 0.25rem;
-  margin-block-start: 0.5rem;
-}
-
-.agentkit-activity-summary-label {
-  color: var(--agentkit-text-muted);
-  font-size: 0.6875rem;
-  font-weight: 500;
-}
-
-.agentkit-activity-summary-value {
-  max-block-size: 12rem;
-  overflow: auto;
-  border: 1px solid var(--agentkit-border);
-  border-radius: var(--radius-md, var(--radius));
-  padding: 0.5rem 0.625rem;
-  background: var(--agentkit-subtle);
-  color: var(--agentkit-text);
-  font: inherit;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.75rem;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.agentkit-activity-summary-value:focus-visible {
-  outline: 2px solid var(--agentkit-focus);
-  outline-offset: 2px;
-}
-
-.agentkit-approval,
-.agentkit-connection-request,
-.agentkit-widget {
-  overflow: hidden;
-  margin-block: 0.75rem 1.25rem;
-  border: 1px solid var(--agentkit-border);
-  border-radius: var(--agentkit-radius-inner);
-  background: var(--agentkit-surface);
-  box-shadow: var(--agent-kit-control-elevation, none);
-}
-
-.agentkit-approval-copy,
-.agentkit-connection-request-copy,
-.agentkit-widget {
-  padding: 0.875rem;
-}
-
-.agentkit-approval h3,
-.agentkit-connection-request h3,
-.agentkit-widget h3 {
-  margin: 0;
-  font-size: 0.875rem;
-  font-weight: 600;
-}
-
-.agentkit-approval p,
-.agentkit-connection-request p,
-.agentkit-widget p {
-  margin: 0.25rem 0 0;
-  color: var(--agentkit-text-muted);
-  font-size: 0.75rem;
-}
-
-.agentkit-connection-request-copy {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.625rem;
-}
-
-.agentkit-connection-request-copy > .agentkit-icon {
-  flex: 0 0 auto;
-  margin-block-start: 0.125rem;
-  color: var(--agentkit-text-muted);
-}
-
-.agentkit-connection-request[data-status="connected"]
-  .agentkit-connection-request-copy
-  > .agentkit-icon {
-  color: var(--agentkit-success);
-}
-
-.agentkit-connection-request-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.375rem;
-  padding: 0.625rem 0.875rem;
-  border-block-start: 1px solid var(--agentkit-border);
-}
-
-.agentkit-connection-request > .agentkit-command-error {
-  display: flex;
-  align-items: center;
-  gap: 0.375rem;
-  margin: 0;
-  padding: 0 0.875rem 0.75rem;
-}
-
-.agentkit-approval-options {
-  display: grid;
-  gap: 0.375rem;
-  padding: 0 0.875rem 0.875rem;
-}
-
-.agentkit-approval-options button {
-  display: grid;
-  gap: 0.125rem;
-  padding: 0.625rem 0.75rem;
-  border: 1px solid var(--agentkit-border);
-  border-radius: var(--radius-md, var(--radius));
-  color: var(--agentkit-text);
-  background: transparent;
-  text-align: start;
-  cursor: pointer;
-}
-
-.agentkit-approval-options button[aria-pressed="true"] {
-  border-color: var(--agentkit-accent);
-  background: color-mix(in srgb, var(--agentkit-accent) 8%, transparent);
-}
-
-.agentkit-approval-options small {
-  color: var(--agentkit-text-muted);
-}
-
-.agentkit-approval-input {
-  display: grid;
-  gap: 0.25rem;
-  padding: 0 0.875rem 0.875rem;
-  color: var(--agentkit-text-muted);
-  font-size: 0.75rem;
-}
-
-.agentkit-approval-input input {
-  min-block-size: 2.25rem;
-  padding-inline: 0.625rem;
-  border: 1px solid var(--agentkit-border);
-  border-radius: var(--radius-md, var(--radius));
-  color: var(--agentkit-text);
-  background: var(--agentkit-canvas);
-  font: inherit;
-}
-
-.agentkit-approval-footer,
-.agentkit-widget-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.375rem;
-  padding: 0.625rem 0.875rem;
-  border-block-start: 1px solid var(--agentkit-border);
-}
-
-.agentkit-approval-footer button,
-.agentkit-widget-actions button {
-  min-block-size: 2rem;
-  padding-inline: 0.75rem;
-  border: 1px solid var(--agentkit-border);
-  border-radius: var(--radius-md, var(--radius));
-  color: var(--agentkit-text);
-  background: transparent;
-  font: inherit;
-  font-size: 0.75rem;
-  cursor: pointer;
-}
-
-.agentkit-primary-button,
-.agentkit-widget-actions button[data-kind="primary"] {
-  border-color: var(--agentkit-accent);
-  color: var(--agentkit-accent-text);
-  background: var(--agentkit-accent);
-}
-
-.agentkit-widget-action {
-  display: grid;
-  justify-items: end;
-  gap: 0.25rem;
-}
-
-.agentkit-command-error,
-.agentkit-composer-error {
-  color: var(--agentkit-danger);
-  font-size: 0.75rem;
-  line-height: 1.35;
-}
-
-.agentkit-approval > .agentkit-command-error {
-  display: block;
-  margin: 0;
-  padding: 0 0.875rem 0.75rem;
-}
-
-.agentkit-composer-error {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.375rem;
-  padding: 0.375rem 0.625rem 0;
-}
-
-.agentkit-composer-error > span {
-  min-inline-size: 0;
-  overflow-wrap: anywhere;
-}
-
-.agentkit-file {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.375rem;
-  color: var(--agentkit-text-muted);
-  text-decoration: none;
-}
-
-.agentkit-file--pasted-text {
-  border: 1px solid var(--agentkit-border);
-  border-radius: 999px;
-  padding: 0.125rem 0.5rem;
-  font-size: 0.75rem;
-}
-
-.agentkit-annotations {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.375rem;
-  margin-block-start: 0.5rem;
-  font-size: 0.75rem;
-}
-
-.agentkit-annotations a,
-.agentkit-annotations span {
-  color: var(--agentkit-text-muted);
-  text-decoration-color: color-mix(
-    in srgb,
-    var(--agentkit-text-muted) 45%,
-    transparent
-  );
-  text-underline-offset: 0.2em;
-}
-
-.agentkit-reasoning {
-  margin-block: 0.375rem 0.75rem;
-  color: var(--agentkit-text-muted);
-  font-size: 0.8125rem;
-}
-
-.agentkit-reasoning-summary {
-  display: flex;
-  inline-size: max-content;
-  max-inline-size: 100%;
-  align-items: center;
-  gap: 0.5rem;
-  padding-block: 0.25rem;
-  color: var(--agentkit-text-muted);
-  cursor: pointer;
-  list-style: none;
-}
-
-.agentkit-reasoning-summary::-webkit-details-marker {
-  display: none;
-}
-
-.agentkit-reasoning-label {
-  min-inline-size: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.agentkit-reasoning[data-active="true"] .agentkit-reasoning-label {
-  color: transparent;
-  background: linear-gradient(
-    90deg,
-    var(--agentkit-text-muted),
-    color-mix(in srgb, var(--agentkit-text-muted) 28%, transparent),
-    var(--agentkit-text-muted)
-  );
-  background-size: 200% 100%;
-  background-clip: text;
-  animation: agentkit-shimmer 1.8s linear infinite;
-}
-
-.agentkit-reasoning-chevron {
-  transition: transform 160ms ease-out;
-}
-
-.agentkit-reasoning[open] .agentkit-reasoning-chevron {
-  transform: rotate(90deg);
-}
-
-.agentkit-reasoning-content {
-  min-inline-size: 0;
-  overflow-wrap: anywhere;
-  margin-inline-start: 1.5rem;
-  padding: 0.25rem 0 0.5rem;
-  color: var(--agentkit-text);
-}
-
-.agentkit-reasoning-content p {
-  margin: 0;
-}
-
-.agentkit-error {
-  display: grid;
-  gap: 0.125rem;
-  margin-block: 0.75rem 1.25rem;
-  padding: 0.75rem 0.875rem;
-  border: 1px solid
-    color-mix(in srgb, var(--agentkit-danger) 32%, var(--agentkit-border));
-  border-radius: var(--agentkit-radius-inner);
-  background: color-mix(in srgb, var(--agentkit-danger) 6%, transparent);
-  font-size: 0.75rem;
-}
-
-.agentkit-error span {
-  color: var(--agentkit-text-muted);
-}
-
-.agentkit-error-actions {
-  display: flex;
-  justify-content: flex-start;
-  margin-block-start: 0.5rem;
-}
-
-.agentkit-run-failure {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.5rem;
-  margin-block: 0.375rem 1.25rem;
-  padding-block: 0.25rem;
-  color: var(--agentkit-danger);
-  font-size: 0.75rem;
-  line-height: 1.4;
-}
-
-.agentkit-run-failure > .agentkit-icon {
-  margin-block-start: 0.0625rem;
-}
-
-.agentkit-run-failure-copy {
-  display: flex;
-  min-inline-size: 0;
-  overflow-wrap: anywhere;
-  flex-wrap: wrap;
-  gap: 0.125rem 0.375rem;
-}
-
-.agentkit-run-failure-copy strong {
-  color: var(--agentkit-danger);
-  font-weight: 600;
-}
-
-.agentkit-run-failure-copy span {
-  color: var(--agentkit-text-muted);
-}
-
-.agentkit-run-failure-copy > .agentkit-error-actions {
-  flex-basis: 100%;
-  margin-block-start: 0.25rem;
-}
-
-.agentkit-run-failure-copy > .agentkit-command-error {
-  flex-basis: 100%;
-  color: var(--agentkit-danger);
-}
-
-:where(.agentkit-chat) :where(button, a, input, summary):focus-visible {
-  outline: 2px solid var(--agentkit-focus);
-  outline-offset: 2px;
-}
-
-.agentkit-chat-footer {
-  position: relative;
-  grid-column: 1;
-  grid-row: 3;
-  z-index: 3;
-  min-inline-size: 0;
-  padding: 0 1rem 1rem;
-  pointer-events: none;
-}
-
-.agentkit-composer-stack {
-  inline-size: min(100%, 47rem);
-  min-inline-size: 0;
-  margin-inline: auto;
-  pointer-events: auto;
-}
-
-.agentkit-host-suggestions-slot {
-  block-size: 2.5rem;
-  min-inline-size: 0;
-}
-
-.agentkit-host-suggestions-slot
-  .agentkit-host-suggestions[data-agent-suggestion-bar="true"] {
-  block-size: 100%;
-  padding-block: 0;
-}
-
-.agentkit-host-suggestions-slot [data-agent-suggestion-scroller="true"] {
-  display: flex;
-  block-size: 100%;
-  align-items: center;
-  padding-block: 0;
-}
-
-.agentkit-composer-stack [data-agent-composer-slot="area"],
-.agentkit-composer-stack [data-agent-composer-slot="workflow"],
-.agentkit-composer-stack [data-agent-composer-slot="root"],
-.agentkit-composer-stack [data-agent-composer-slot="toolbar"] {
-  min-inline-size: 0;
-}
-
-.agentkit-composer {
-  border-radius: var(--agentkit-radius);
-  background: var(--agentkit-surface);
-  box-shadow: var(--agentkit-elevation);
-}
-
-.agentkit-suggestions {
-  padding-block: 0.5rem 0;
-}
-
-@keyframes agentkit-shimmer {
-  to {
-    background-position: -200% 0;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .agentkit-activity-item[data-status="running"] .agentkit-activity-label,
-  .agentkit-agent[data-status="working"] .agentkit-agent-name,
-  .agentkit-reasoning[data-active="true"] .agentkit-reasoning-label {
-    animation: none;
+    );
+    --agentkit-composer-focus-border: var(
+      --agent-kit-composer-focus-border-color,
+      transparent
+    );
+    --agentkit-composer-toolbar-control-size: var(
+      --agent-kit-composer-toolbar-control-size,
+      1.5rem
+    );
+    /* The composer reads these through utility fallbacks, so composers
+       outside an AgentKit scope keep their own metrics. */
+    --agentkit-chat-header-height: var(--agent-kit-chat-header-height, 3rem);
+    --agentkit-composer-inset: 0.75rem;
+    /* Concentric with the 32px Send circle, which sits about 8px inside the
+       edge: 16 + 8. */
+    --agentkit-composer-radius: 1.5rem;
+    --agentkit-composer-control-radius: var(--agentkit-radius-inner);
+    --agentkit-composer-primary-control-size: var(
+      --agent-kit-composer-control-size,
+      2rem
+    );
+    --agentkit-composer-primary-icon-size: 1rem;
+    --agentkit-composer-font-size: var(
+      --agent-kit-composer-font-size,
+      0.875rem
+    );
+    --agentkit-composer-line-height: var(
+      --agent-kit-composer-line-height,
+      1.25rem
+    );
+    --agentkit-composer-editor-min-height: var(
+      --agent-kit-composer-editor-min-height,
+      1lh
+    );
+    --agentkit-composer-editor-max-height: var(
+      --agent-kit-composer-editor-max-height,
+      12rem
+    );
+    --agentkit-composer-editor-padding-top: 0.75rem;
+    --agentkit-composer-toolbar-padding-top: 0.25rem;
+    --agentkit-composer-toolbar-padding-bottom: 0.5rem;
+    --agentkit-composer-model-min-width: var(
+      --agentkit-composer-toolbar-control-size
+    );
+    --agentkit-composer-model-max-width: 11rem;
+    --agentkit-composer-area-padding-end: 0.5rem;
+    --agentkit-composer-toolbar-control-gap: var(
+      --agent-kit-composer-toolbar-control-gap,
+      0.25rem
+    );
+    --agentkit-composer-toolbar-control-padding-inline: var(
+      --agent-kit-composer-toolbar-control-padding-inline,
+      0.5rem
+    );
+    --agentkit-composer-toolbar-control-font-size: var(
+      --agent-kit-composer-toolbar-control-font-size,
+      0.75rem
+    );
+    --agentkit-composer-toolbar-control-line-height: var(
+      --agent-kit-composer-toolbar-control-line-height,
+      1rem
+    );
+    --agentkit-composer-toolbar-control-font-weight: var(
+      --agent-kit-composer-toolbar-control-font-weight,
+      500
+    );
   }
 
-  .agentkit-message-actions,
-  .agentkit-summary-chevron,
-  .agentkit-disclosure-icon,
-  .agentkit-reasoning-chevron,
-  .agentkit-composer-stack [data-agent-message-queue="true"] {
-    transition: none;
-  }
-}
-
-@media (max-width: 40rem) {
-  .agentkit-transcript-content {
-    padding-inline: 0.75rem;
-  }
-
-  .agentkit-chat-footer {
-    padding-inline: 0.75rem;
+  :where(.agentkit-chat) {
+    position: relative;
+    display: grid;
+    inline-size: 100%;
+    block-size: 100%;
+    min-inline-size: 0;
+    min-block-size: 0;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    overflow: hidden;
+    color: var(--agentkit-text);
+    background: var(--agentkit-canvas);
+    font: inherit;
+    container-name: agentkit-chat;
+    container-type: inline-size;
   }
 
   .agentkit-composer-stack [data-agent-composer-slot="area"] {
-    padding-inline: 0;
+    position: relative;
+    z-index: 1;
   }
 
-  .agentkit-composer [data-agent-composer-slot="toolbar"] {
-    gap: 0.125rem;
-    padding-inline: 0.5rem;
+  .agentkit-composer-stack [data-agent-composer-slot="workflow"] {
+    position: relative;
+    display: flex;
+    inline-size: 100%;
+    flex-direction: column;
   }
 
-  .agentkit-composer [data-agent-composer-slot="model-button"] {
-    max-inline-size: 7.5rem;
-    padding-inline: 0.375rem;
+  .agentkit-composer[data-agent-composer-slot="root"] {
+    overflow: hidden;
+    border-color: var(--agentkit-composer-border);
+    border-radius: var(--agentkit-composer-radius);
+    color: var(--agentkit-text);
+    background: var(
+      --agentkit-composer-background,
+      var(--agent-kit-composer-surface, var(--agentkit-surface))
+    );
+    box-shadow: var(--agentkit-elevation);
   }
 
-  .agentkit-composer [data-agent-composer-slot="mode-button"] {
-    padding-inline: 0.375rem;
+  .agentkit-composer[data-agent-composer-slot="root"]:focus-within {
+    border-color: var(--agentkit-composer-focus-border);
   }
 
-  .agentkit-composer .agent-composer-model-effort {
+  .agentkit-composer input[type="file"] {
     display: none;
   }
 
+  .agentkit-composer [data-agent-composer-slot="mode-row"] {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .agentkit-composer
+    [data-agent-composer-slot="editor-input"]
+    p.is-empty:first-child:last-child::before {
+    content: attr(data-placeholder);
+    float: inline-start;
+    block-size: 0;
+    color: var(--agentkit-text-muted);
+    pointer-events: none;
+  }
+
+  .agentkit-composer [data-agent-composer-slot="model-button"] {
+    block-size: var(--agentkit-composer-toolbar-control-size);
+  }
+
+  /* Host toolbar slots: their utilities win over these defaults. */
+  .agentkit-composer
+    [data-agent-composer-slot="toolbar"]
+    > :where(button:not([data-agent-composer-slot])) {
+    display: inline-flex;
+    min-inline-size: var(--agentkit-composer-toolbar-control-size);
+    block-size: var(--agentkit-composer-toolbar-control-size);
+    align-items: center;
+    justify-content: center;
+    gap: var(--agentkit-composer-toolbar-control-gap);
+    padding-inline: var(--agentkit-composer-toolbar-control-padding-inline);
+    border-radius: var(--agentkit-composer-control-radius);
+    color: var(--agentkit-text-muted);
+    font-size: var(--agentkit-composer-toolbar-control-font-size);
+    font-weight: var(--agentkit-composer-toolbar-control-font-weight);
+    line-height: var(--agentkit-composer-toolbar-control-line-height);
+  }
+
+  .agentkit-composer
+    [data-agent-composer-slot="toolbar"]
+    > :where(button:not([data-agent-composer-slot])):hover:not(:disabled) {
+    color: var(--agentkit-text);
+    background: var(--agentkit-subtle);
+  }
+
+  .agentkit-composer
+    [data-agent-composer-slot="toolbar"]
+    > :where(button:not([data-agent-composer-slot]))
+    svg {
+    inline-size: 1rem;
+    block-size: 1rem;
+    flex: none;
+  }
+
+  .agentkit-composer-stack
+    [data-agent-message-queue="true"][data-agent-message-queue-variant="recessed"] {
+    position: relative;
+    z-index: 0;
+    inline-size: calc(100% - 4rem);
+    block-size: var(--agent-message-queue-height, 0);
+    margin: 0 auto;
+    padding-block-end: 0.75rem;
+    overflow: hidden;
+    border: 0;
+    border-radius: var(--agentkit-radius-inner) var(--agentkit-radius-inner) 0 0;
+    background: color-mix(
+      in srgb,
+      var(--agentkit-subtle) 78%,
+      var(--agentkit-surface)
+    );
+    opacity: 1;
+    transform: translateY(0);
+    transition:
+      block-size 200ms var(--ease-collapse, ease-out),
+      margin 200ms var(--ease-collapse, ease-out),
+      opacity 160ms ease-out,
+      transform 200ms var(--ease-collapse, ease-out);
+  }
+
+  .agentkit-composer-stack
+    [data-agent-message-queue="true"][data-empty="true"] {
+    margin-block-end: 0;
+    padding-block-end: 0;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(0.5rem);
+  }
+
+  .agentkit-composer-stack [data-agent-message-queue="true"] ul {
+    display: flex;
+    block-size: 100%;
+    max-block-size: 10rem;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin: 0;
+    padding: 0.25rem 0;
+    overflow-y: auto;
+    list-style: none;
+  }
+
+  .agentkit-composer-stack [data-agent-message-queue-variant="recessed"] ul {
+    max-block-size: 10rem;
+    gap: 0;
+    padding: 0;
+    overflow-y: auto;
+  }
+
+  .agentkit-composer-stack [data-agent-message-queue="true"] li {
+    display: flex;
+    min-block-size: 2.25rem;
+    min-inline-size: 0;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    color: var(--agentkit-text);
+    font-size: 0.8125rem;
+    line-height: 1rem;
+  }
+
+  .agentkit-composer-stack [data-agent-message-queue-variant="recessed"] li {
+    padding-block: 0.25rem;
+  }
+
+  .agentkit-composer-stack [data-agent-message-queue="true"] li > svg {
+    inline-size: 0.875rem;
+    block-size: 0.875rem;
+    flex: none;
+    color: var(--agentkit-text-muted);
+  }
+
+  .agentkit-composer-stack
+    [data-agent-message-queue="true"]
+    li
+    > div:first-of-type {
+    min-inline-size: 0;
+    flex: 1;
+  }
+
+  .agentkit-composer-stack
+    [data-agent-message-queue="true"]
+    li
+    > div:first-of-type
+    > div:first-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .agentkit-composer-stack
+    [data-agent-message-queue="true"]
+    li
+    > div:last-child {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 0.25rem;
+    color: var(--agentkit-text-muted-strong);
+  }
+
+  .agentkit-composer-stack [data-agent-message-queue="true"] img {
+    inline-size: 2rem;
+    block-size: 2rem;
+    border: 1px solid var(--agentkit-border);
+    border-radius: var(--radius-md, var(--radius));
+    object-fit: cover;
+  }
+
+  .agentkit-suggestions {
+    --agent-suggestion-gap: 0.5rem;
+  }
+
+  /* The row grows to fit its caption rather than overflowing into the
+     transcript above. */
+  .agentkit-suggestions-row {
+    display: flex;
+    min-block-size: 2.5rem;
+    min-inline-size: 0;
+    align-items: center;
+  }
+
+  .agentkit-suggestions-row > .agentkit-suggestions,
+  .agentkit-empty-state [data-agent-suggestion-bar="true"] {
+    animation: agentkit-suggestions-in 160ms ease-out both;
+  }
+
+  @keyframes agentkit-suggestions-in {
+    from {
+      opacity: 0;
+    }
+  }
+
+  .agentkit-empty-state {
+    display: grid;
+    justify-items: center;
+    gap: 1rem;
+    min-inline-size: 0;
+    text-align: center;
+  }
+
+  .agentkit-empty-state-greeting {
+    margin: 0;
+    color: var(--agentkit-text);
+    font-size: 1.25rem;
+    font-weight: 560;
+    line-height: 1.75rem;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+  }
+
+  .agentkit-empty-state [data-agent-suggestion-track="true"] {
+    justify-content: center;
+    margin-inline: auto;
+  }
+
+  [data-agent-suggestion-scroller="true"]:is(
+    [data-overflow-start],
+    [data-overflow-end]
+  ) {
+    -webkit-mask-image: linear-gradient(
+      var(--agent-suggestion-fade-direction, to right),
+      transparent 0,
+      black var(--agent-suggestion-fade-start, 0px),
+      black calc(100% - var(--agent-suggestion-fade-end, 0px)),
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      var(--agent-suggestion-fade-direction, to right),
+      transparent 0,
+      black var(--agent-suggestion-fade-start, 0px),
+      black calc(100% - var(--agent-suggestion-fade-end, 0px)),
+      transparent 100%
+    );
+  }
+
+  [data-agent-suggestion-scroller="true"]:dir(rtl) {
+    --agent-suggestion-fade-direction: to left;
+  }
+
+  [data-agent-suggestion-scroller="true"][data-overflow-start] {
+    --agent-suggestion-fade-start: 1.5rem;
+  }
+
+  [data-agent-suggestion-scroller="true"][data-overflow-end] {
+    --agent-suggestion-fade-end: 1.5rem;
+  }
+
+  [data-agent-native-composer-popover="true"] {
+    --agentkit-palette-surface: var(
+      --agent-kit-popover-surface,
+      var(--agent-kit-raised-surface, Canvas)
+    );
+    --agentkit-palette-text: var(
+      --agent-kit-popover-text,
+      var(--agent-kit-text, CanvasText)
+    );
+    --agentkit-palette-muted: var(
+      --agent-kit-muted-text,
+      color-mix(in srgb, CanvasText 62%, transparent)
+    );
+    --agentkit-palette-hover: var(
+      --agent-kit-subtle-surface,
+      color-mix(in srgb, Canvas 92%, CanvasText 8%)
+    );
+    --agentkit-palette-border: var(
+      --agent-kit-border,
+      color-mix(in srgb, CanvasText 16%, transparent)
+    );
+  }
+
+  [data-agent-native-composer-popover="true"] [data-mention-index] > svg {
+    inline-size: 1rem;
+    block-size: 1rem;
+    flex: none;
+    color: var(--agentkit-palette-muted);
+  }
+
+  [data-agent-native-mention-popover="true"]
+    > div
+    > div
+    > div:not(:has([data-mention-index])) {
+    color: var(--agentkit-palette-muted);
+  }
+
+  .agentkit-file-drop-overlay {
+    position: absolute;
+    z-index: 8;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 1rem;
+    border: 2px dashed var(--agentkit-accent);
+    border-radius: var(--agentkit-radius);
+    color: var(--agentkit-text);
+    background: color-mix(in srgb, var(--agentkit-canvas) 88%, transparent);
+    font-size: 0.875rem;
+    font-weight: 600;
+    pointer-events: none;
+  }
+
+  /* The empty layouts keep the header in their first, flexible row, which
+     must stay at least as tall as the header. */
+  .agentkit-chat[data-has-header="true"] {
+    --agentkit-chat-header-reserve: var(--agentkit-chat-header-height);
+  }
+
+  .agentkit-chat[data-empty="true"] {
+    grid-template-rows:
+      minmax(var(--agentkit-chat-header-reserve, 0px), 1fr)
+      auto;
+  }
+
+  .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"] {
+    grid-template-rows:
+      minmax(var(--agentkit-chat-header-reserve, 0px), 1fr) auto 1rem auto
+      minmax(0, 1fr);
+  }
+
+  .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]:has(
+      .agentkit-transcript-content:empty
+    ) {
+    grid-template-rows:
+      minmax(var(--agentkit-chat-header-reserve, 0px), 1fr) 0 0 auto
+      minmax(0, 1fr);
+  }
+
+  .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
+    .agentkit-transcript {
+    grid-row: 2;
+    overflow: visible;
+  }
+
+  .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
+    .agentkit-transcript-content {
+    padding-block: 0;
+  }
+
+  .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
+    .agentkit-chat-footer {
+    grid-row: 4;
+    padding-block-end: 0;
+  }
+
+  .agentkit-chat-header {
+    --agentkit-lane-width: var(
+      --agentkit-transcript-lane-width,
+      var(--agent-kit-conversation-max-width, 47rem)
+    );
+    --agentkit-header-lane-gutter: calc(
+      (100% - min(100%, var(--agentkit-lane-width))) / 2
+    );
+
+    z-index: 2;
+    display: flex;
+    grid-column: 1;
+    grid-row: 1;
+    align-self: start;
+    box-sizing: border-box;
+    block-size: var(--agentkit-chat-header-height);
+    min-inline-size: 0;
+    align-items: center;
+    gap: 1rem;
+    /* The title starts on the transcript's text edge, offset like the lane. */
+    padding-inline-start: calc(
+      var(--agentkit-header-lane-gutter) + 1rem +
+        clamp(
+          calc(var(--agentkit-header-lane-gutter) * -1),
+          var(--agentkit-transcript-lane-offset-inline, 0px),
+          var(--agentkit-header-lane-gutter)
+        )
+    );
+    padding-inline-end: 1rem;
+  }
+
+  .agentkit-chat-title {
+    flex: 0 1 auto;
+    min-inline-size: 0;
+    max-inline-size: calc(min(100cqi, var(--agentkit-lane-width)) - 2rem);
+    overflow: hidden;
+    font-size: 0.8125rem;
+    font-weight: 560;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .agentkit-chat-toolbar {
+    display: flex;
+    min-inline-size: 0;
+    align-items: center;
+    gap: 0.25rem;
+    margin-inline-start: auto;
+  }
+
+  .agentkit-chat-toolbar > * {
+    flex: none;
+  }
+
+  .agentkit-transcript {
+    grid-column: 1;
+    grid-row: 2;
+    container-name: agentkit-transcript;
+    container-type: inline-size;
+    inline-size: 100%;
+    min-block-size: 0;
+    overflow-y: auto;
+    overflow-anchor: none;
+    overscroll-behavior-block: contain;
+    scrollbar-color: transparent transparent;
+    scrollbar-gutter: stable both-edges;
+    scrollbar-width: thin;
+  }
+
+  .agentkit-transcript[data-follow="false"] {
+    overflow-anchor: auto;
+  }
+
+  .agentkit-transcript::-webkit-scrollbar {
+    inline-size: 0.25rem;
+    block-size: 0.25rem;
+  }
+
+  .agentkit-transcript::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .agentkit-transcript::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: transparent;
+  }
+
+  .agentkit-transcript[data-scrollbar-visible="true"] {
+    scrollbar-color: color-mix(
+        in srgb,
+        var(--agentkit-text-muted) 42%,
+        transparent
+      )
+      transparent;
+  }
+
+  .agentkit-transcript[data-scrollbar-visible="true"]::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--agentkit-text-muted) 42%, transparent);
+  }
+
+  .agentkit-transcript[data-scrollbar-visible="true"]::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--agentkit-text-muted) 62%, transparent);
+  }
+
+  .agentkit-transcript-content {
+    --agentkit-lane-width: var(
+      --agentkit-transcript-lane-width,
+      var(--agent-kit-conversation-max-width, 47rem)
+    );
+
+    position: relative;
+    box-sizing: border-box;
+    inline-size: min(100%, var(--agentkit-lane-width));
+    min-inline-size: 0;
+    margin-inline: auto;
+    inset-inline-start: clamp(
+      calc((100% - min(100%, var(--agentkit-lane-width))) / -2),
+      var(--agentkit-transcript-lane-offset-inline, 0px),
+      calc((100% - min(100%, var(--agentkit-lane-width))) / 2)
+    );
+    padding: 1.5rem 1rem;
+    padding-block-start: var(--agentkit-transcript-top-inset, 1.5rem);
+  }
+
+  .agentkit-transcript-content[data-lane-offset-mode="responsive"] {
+    inset-inline-start: var(--agentkit-transcript-lane-offset-inline, 0px);
+  }
+
+  @container agentkit-transcript (max-width: 74.999rem) {
+    .agentkit-transcript-content[data-lane-offset-mode="responsive"] {
+      inset-inline-start: clamp(
+        calc((100% - min(100%, var(--agentkit-lane-width))) / -2),
+        var(--agentkit-transcript-lane-offset-inline, 0px),
+        calc((100% - min(100%, var(--agentkit-lane-width))) / 2)
+      );
+    }
+  }
+
+  /* Overlaid on the transcript's grid cell rather than inside the scroller:
+     in flow it would take height from the viewport and toggle itself, and
+     inside the scroller its shadow would be clipped at the edge. It stacks
+     above the footer and its scrim. */
+  .agentkit-scroll-to-bottom-control {
+    position: absolute;
+    z-index: 4;
+    /* An absolute grid child's auto end line is the container edge. */
+    grid-column: 1 / 2;
+    grid-row: 2 / 3;
+    inset-inline: 0;
+    inset-block-end: 0.75rem;
+    display: flex;
+    block-size: 2rem;
+    align-items: flex-end;
+    justify-content: center;
+    pointer-events: none;
+    transition: opacity 150ms ease;
+  }
+
+  .agentkit-scroll-to-bottom-control > * {
+    pointer-events: auto;
+  }
+
+  .agentkit-scroll-to-bottom-control[data-visible="false"] {
+    opacity: 0;
+  }
+
+  .agentkit-scroll-to-bottom-control[data-visible="false"] > * {
+    pointer-events: none;
+  }
+
+  .agentkit-visually-hidden {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  /* Every message ends with the turn gap: an older message's footer overlays
+   into it on hover instead of reserving its own height. */
+  .agentkit-message {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    margin-block: 0 var(--agentkit-transcript-message-gap, 1.5rem);
+    font-size: 0.875rem;
+    font-family: var(
+      --agentkit-transcript-font-family,
+      var(--font-sans, inherit)
+    );
+    /* 14px text on a 20px line, so text-driven heights land on the 4px grid. */
+    line-height: var(--agentkit-transcript-message-line-height, 1.25rem);
+  }
+
+  /* A user message's footer overlays the 28px zone under its bubble on hover
+   or focus (its 4px drop plus the 24px row), so the agent turn starts a full
+   turn gap below that zone and its summary row never sits against the user's
+   toolbar. */
+  .agentkit-message[data-role="user"] {
+    align-items: flex-end;
+    margin-block: var(--agentkit-transcript-message-gap, 1.5rem)
+      calc(1.75rem + var(--agentkit-transcript-message-gap, 1.5rem));
+    line-height: var(
+      --agentkit-user-bubble-line-height,
+      var(--agentkit-transcript-message-line-height, 1.25rem)
+    );
+  }
+
+  /* A footer error stays in the flow, so it is already the zone. */
+  .agentkit-message[data-role="user"]:has(
+      > .agentkit-message-actions[data-has-error="true"]
+    ) {
+    margin-block-end: var(--agentkit-transcript-message-gap, 1.5rem);
+  }
+
+  .agentkit-transcript-content > .agentkit-message:first-child {
+    margin-block-start: 0;
+  }
+
+  .agentkit-message-content {
+    min-inline-size: 0;
+    max-inline-size: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  /* Full lane, not shrink-to-fit, so widgets, tables and short code blocks
+   span the column instead of the width of the text beside them. */
+  .agentkit-message[data-role="assistant"] .agentkit-message-content {
+    align-self: stretch;
+  }
+
+  /* Finished replies skip style, layout and paint while off screen; `auto`
+   keeps each reply's last rendered height as its placeholder. The newest rows
+   stay out of it: a placeholder resolving to its real height beside the
+   bottom moves a following transcript for a frame when a thread opens. The
+   content box, not the message, is contained, so the actions row that hangs
+   below an older message is not clipped. */
+  .agentkit-transcript-content
+    > .agentkit-message[data-role="assistant"]:not(
+      [aria-busy="true"]
+    ):nth-last-child(n + 21)
+    > .agentkit-message-content {
+    content-visibility: auto;
+    contain-intrinsic-block-size: auto 320px;
+  }
+
   .agentkit-message[data-role="user"] .agentkit-message-content {
-    max-inline-size: min(94%, var(--agentkit-user-bubble-max-width, 38rem));
+    position: relative;
+    inset-inline-start: var(--agentkit-user-bubble-offset-inline, 0px);
+    max-inline-size: min(88%, var(--agentkit-user-bubble-max-width, 38rem));
+    padding: var(--agentkit-user-bubble-padding-block, 0.75rem)
+      var(--agentkit-user-bubble-padding-inline, 1rem);
+    border-radius: var(--agentkit-radius-inner);
+    background: var(--agentkit-subtle);
+  }
+
+  .agentkit-message[data-editing="true"] .agentkit-message-content {
+    background: color-mix(
+      in srgb,
+      var(--agentkit-focus) 8%,
+      var(--agentkit-subtle)
+    );
+    box-shadow: 0 0 0 1px
+      color-mix(in srgb, var(--agentkit-focus) 45%, transparent);
+  }
+
+  .agentkit-message-content > :first-child {
+    margin-block-start: 0;
+  }
+
+  .agentkit-message-content > :last-child {
+    margin-block-end: 0;
+  }
+
+  .agentkit-message-content p {
+    margin-block: 0 0.75rem;
+    white-space: pre-wrap;
+  }
+
+  .agentkit-message-content a {
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .agentkit-message-content p[data-format="plain"] {
+    font-weight: inherit;
+    font-style: normal;
+  }
+
+  .agentkit-user-message-text-content {
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
+
+  .agentkit-user-message-text-clip[data-clamped="true"] {
+    position: relative;
+    max-block-size: 12.5rem;
+    overflow: hidden;
+  }
+
+  .agentkit-user-message-text-clip[data-clamped="true"]::after {
+    position: absolute;
+    inset-inline: 0;
+    inset-block-end: 0;
+    block-size: 3rem;
+    background: linear-gradient(to bottom, transparent, var(--agentkit-subtle));
+    content: "";
+    pointer-events: none;
+  }
+
+  .agentkit-mention {
+    display: inline-flex;
+    max-inline-size: 12.5rem;
+    align-items: center;
+    gap: 0.25rem;
+    margin-inline: 0.25rem;
+    min-block-size: 1.25rem;
+    padding: 0 0.5rem;
+    border: 1px solid var(--agentkit-border);
+    border-radius: var(--agentkit-radius-inner);
+    color: var(--agentkit-text);
+    background: color-mix(in srgb, var(--agentkit-subtle) 75%, transparent);
+    font-size: 0.75rem;
+    font-weight: 550;
+    vertical-align: middle;
+    user-select: text;
+  }
+
+  .agentkit-mention-icon {
+    flex: none;
+    color: var(--agentkit-text-muted);
+  }
+
+  .agentkit-mention-label {
+    min-inline-size: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .agentkit-message-expand {
+    position: relative;
+    z-index: 1;
+    min-block-size: 1.5rem;
+    margin-block-start: 0.25rem;
+    padding-block: 0;
+    padding-inline: 0.5rem;
+    border: 0;
+    border-radius: var(--agentkit-radius-inner);
+    color: var(--agentkit-text-muted-strong);
+    background: transparent;
+    font: inherit;
+    font-size: 0.75rem;
+    cursor: pointer;
+  }
+
+  .agentkit-message-expand:hover {
+    color: var(--agentkit-text);
+  }
+
+  .agentkit-image-attachment-trigger {
+    display: block;
+    inline-size: 4rem;
+    block-size: 4rem;
+    overflow: hidden;
+    padding: 0;
+    border: 1px solid var(--agentkit-border);
+    border-radius: var(--agentkit-radius-inner);
+    background: var(--agentkit-canvas);
+    cursor: zoom-in;
+  }
+
+  .agentkit-image-attachment-trigger img {
+    inline-size: 100%;
+    block-size: 100%;
+    object-fit: cover;
+  }
+
+  .agentkit-image-preview {
+    display: flex;
+    min-block-size: min(70vh, 35rem);
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+    background: var(--agentkit-canvas);
+  }
+
+  .agentkit-message-content [data-post-widget-text="true"] {
+    display: contents;
+    color: var(--agentkit-transcript-post-widget-text-color, inherit);
+  }
+
+  .agentkit-message-content [data-post-widget-text="true"] > p,
+  .agentkit-message-content
+    [data-post-widget-text="true"]
+    .agentkit-markdown
+    p {
+    padding-block: var(
+      --agentkit-transcript-post-widget-paragraph-padding-block,
+      0px
+    );
+  }
+
+  .agentkit-message-content
+    > [data-post-widget-text="true"]:last-child
+    > :last-child {
+    margin-block-end: 0;
+  }
+
+  .agentkit-image-preview img {
+    max-inline-size: 92vw;
+    max-block-size: 90vh;
+    border-radius: var(--agentkit-radius);
+    object-fit: contain;
+  }
+
+  .agentkit-markdown {
+    min-inline-size: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .agentkit-markdown + .agentkit-markdown {
+    margin-block-start: 0.75rem;
+  }
+
+  /* Streamed text fades in as it is revealed. The animation runs once when the
+   element mounts, so words already on screen never replay it, and a transform
+   leaves layout and scroll anchoring alone. Shared by the in-app chat. */
+  @keyframes agentkit-stream-word-in {
+    from {
+      opacity: 0;
+    }
+  }
+
+  @keyframes agentkit-stream-block-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+  }
+
+  .agentkit-stream-word {
+    animation: agentkit-stream-word-in 180ms ease-out both;
+  }
+
+  .agentkit-stream-block {
+    animation: agentkit-stream-block-in 180ms ease-out both;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .agentkit-stream-word,
+    .agentkit-stream-block {
+      animation: none;
+    }
+  }
+
+  .agentkit-markdown-table {
+    max-inline-size: 100%;
+    margin-block: 0 0.75rem;
+    overflow-x: auto;
+  }
+
+  .agentkit-markdown table {
+    display: table;
+    max-inline-size: 100%;
+    margin-block: 0 0.75rem;
+    border-collapse: collapse;
+  }
+
+  /* Auto width, not max-content: prose cells wrap at words and the wrapper
+   scrolls only when the columns' longest words no longer fit. */
+  .agentkit-markdown-table > table {
+    min-inline-size: 100%;
+    max-inline-size: none;
+    margin-block: 0;
+  }
+
+  .agentkit-markdown :where(th, td) {
+    padding: 0.5rem 0.75rem;
+    border-block-end: 1px solid var(--agentkit-border);
+    text-align: start;
+  }
+
+  /* Breaking anywhere would shrink every column to one character before the
+   wrapper scrolls. An unwrapped table has no scroller, so it keeps breaking.
+   Short cells stay on one line; prose cells (`data-prose`, set by the table
+   renderer) wrap, but not below a readable width, so the wrapper scrolls
+   only when the lane cannot hold that. */
+  .agentkit-markdown-table :where(th, td) {
+    overflow-wrap: normal;
+    word-break: normal;
+    white-space: nowrap;
+  }
+
+  .agentkit-markdown-table :where(th, td)[data-prose] {
+    min-inline-size: 12em;
+    white-space: normal;
+  }
+
+  .agentkit-markdown th {
+    font-weight: 500;
+  }
+
+  .agentkit-markdown-image {
+    display: block;
+    min-block-size: 6rem;
+    border-radius: var(--agentkit-radius-inner);
+    background: var(--agentkit-subtle);
+  }
+
+  .agentkit-markdown-image[data-loaded="true"] {
+    min-block-size: 0;
+    background: none;
+  }
+
+  .agentkit-markdown img {
+    max-inline-size: 100%;
+    block-size: auto;
+  }
+
+  .agentkit-markdown > :first-child {
+    margin-block-start: 0;
+  }
+
+  .agentkit-markdown > :last-child {
+    margin-block-end: 0;
+  }
+
+  .agentkit-markdown p {
+    white-space: normal;
+  }
+
+  .agentkit-markdown h1,
+  .agentkit-markdown h2,
+  .agentkit-markdown h3 {
+    font-weight: 600;
+  }
+
+  .agentkit-markdown h1 {
+    margin-block: 0.75em 0.25em;
+    font-size: 1.25em;
+  }
+
+  .agentkit-markdown h2 {
+    margin-block: 0.75em 0.25em;
+    font-size: 1.125em;
+  }
+
+  .agentkit-markdown h3 {
+    margin-block: 0.75em 0.25em;
+    font-size: 1em;
+  }
+
+  .agentkit-markdown :where(ul, ol) {
+    margin-block: 0 0.75rem;
+    padding-inline-start: 1.25rem;
+  }
+
+  .agentkit-markdown li > :where(ul, ol) {
+    margin-block: 0;
+  }
+
+  .agentkit-markdown .contains-task-list {
+    padding-inline-start: 0;
+    list-style: none;
+  }
+
+  .agentkit-markdown .task-list-item > input {
+    margin-inline-end: 0.5rem;
+    vertical-align: middle;
+  }
+
+  .agentkit-markdown ul {
+    list-style-type: disc;
+  }
+
+  .agentkit-markdown ol {
+    list-style-type: decimal;
+  }
+
+  .agentkit-markdown li::marker {
+    color: var(--agentkit-text-muted);
+  }
+
+  .agentkit-markdown ul ul {
+    list-style-type: circle;
+  }
+
+  .agentkit-markdown ol ol {
+    list-style-type: lower-alpha;
+  }
+
+  .agentkit-markdown li + li {
+    margin-block-start: 0.25rem;
+  }
+
+  .agentkit-markdown :where(code, pre) {
+    font-family: var(--font-mono, ui-monospace, monospace);
+  }
+
+  /* A code span's own line, on a different font's baseline, would stretch
+   its line past the 20px grid. */
+  .agentkit-markdown :not(pre) > code {
+    padding: 0.125rem 0.25rem;
+    line-height: 1;
+    border-radius: var(--radius-sm, calc(var(--radius, 0.75rem) / 2));
+    background: var(--agentkit-subtle);
+    font-size: 0.875em;
+  }
+
+  .agentkit-markdown pre {
+    box-sizing: border-box;
+    max-inline-size: 100%;
+    margin-block: 0 0.75rem;
+    padding: 0.75rem;
+    overflow-x: auto;
+    border: 1px solid var(--agentkit-border);
+    border-radius: var(--agentkit-radius-inner);
+    background: var(--agentkit-subtle);
+  }
+
+  .agentkit-markdown pre code {
+    font-size: 0.8125rem;
+  }
+
+  .agentkit-code-block {
+    margin: 0 0 0.75rem;
+    overflow: hidden;
+    border: 1px solid var(--agentkit-border);
+    border-radius: var(--agentkit-radius-inner);
+  }
+
+  .agentkit-code-block-header {
+    display: flex;
+    block-size: 2rem;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding-inline: 0.75rem 0.25rem;
+    background: var(--agentkit-subtle);
+  }
+
+  .agentkit-code-block-language {
+    min-inline-size: 0;
+    overflow: hidden;
+    color: var(--agentkit-text-muted-strong);
+    font-size: 0.75rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .agentkit-markdown .agentkit-code-block > pre {
+    margin: 0;
+    overflow-x: auto;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .agentkit-markdown a {
+    color: inherit;
+    text-decoration-color: var(--agentkit-text-muted);
+    text-underline-offset: 0.15em;
+  }
+
+  .agentkit-markdown blockquote {
+    margin: 0 0 0.75rem;
+    padding-inline-start: 0.75rem;
+    border-inline-start: 2px solid var(--agentkit-border);
+    color: var(--agentkit-text-muted);
+  }
+
+  .agentkit-message-actions {
+    display: flex;
+    inline-size: 100%;
+    min-block-size: 1.5rem;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.25rem;
+    flex-wrap: wrap;
+    margin-block-start: 0.25rem;
+    color: var(--agentkit-text-muted);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 140ms ease;
+  }
+
+  .agentkit-message-actions:not([data-latest="true"], [data-has-error="true"]) {
+    position: absolute;
+    z-index: 1;
+    inset-block-start: 100%;
+    inset-inline: 0;
+    margin-block-start: 0;
+  }
+
+  /* Reply text ends on its last line's leading, the bubble on a hard edge, so
+   the user row drops 4px to put its icons 8px below the bubble. The user
+   message's bottom zone includes the drop. */
+  .agentkit-message-actions[data-role="user"]:not([data-has-error="true"]) {
+    margin-block-start: 0.25rem;
+  }
+
+  /* The hover-revealed row drops by padding, not margin: a margin gap belongs
+     to no element, so crossing it ends the message's hover and the row hides
+     before the pointer reaches it. */
+  .agentkit-message-actions[data-role="user"]:not(
+      [data-latest="true"],
+      [data-has-error="true"]
+    ) {
+    box-sizing: border-box;
+    min-block-size: 1.75rem;
+    margin-block-start: 0;
+    padding-block-start: 0.25rem;
+  }
+
+  /* One line under the reply: the finished work row, then the controls. The
+   work row's own box dissolves so its steps open full width beneath. */
+  .agentkit-message-actions[data-role="assistant"] {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: 0.5rem;
+  }
+
+  .agentkit-message-work-host,
+  .agentkit-message-work-host > .agentkit-activities {
+    display: contents;
+  }
+
+  .agentkit-message-work-host .agentkit-activities-row {
+    grid-column: 1;
+    grid-row: 1;
+    min-inline-size: 0;
+  }
+
+  .agentkit-message-work-host .agentkit-disclosure-content {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  /* A live finish: the row's old place above the reply closes while the row
+   fades in on the footer line. At rest the placeholder takes no space, so a
+   host that drops the animation never keeps a gap. 180ms matches
+   AGENT_WORK_HANDOFF_MS. */
+  .agentkit-work-handoff {
+    block-size: 0;
+    margin-block: 0;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
+    animation: agentkit-work-handoff-leave 180ms ease-out both;
+  }
+
+  .agentkit-message-work-host
+    .agentkit-activities[data-handoff="enter"]
+    .agentkit-activities-row {
+    animation: agentkit-work-handoff-enter 180ms ease-out both;
+  }
+
+  @keyframes agentkit-work-handoff-leave {
+    from {
+      block-size: var(--agentkit-work-handoff-size);
+      margin-block: var(--agentkit-run-segment-gap, 0.75rem);
+      opacity: 1;
+    }
+  }
+
+  @keyframes agentkit-work-handoff-enter {
+    from {
+      opacity: 0;
+      translate: 0 -0.25rem;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .agentkit-work-handoff,
+    .agentkit-message-work-host
+      .agentkit-activities[data-handoff="enter"]
+      .agentkit-activities-row {
+      animation: none;
+    }
+  }
+
+  /* The last icon's glyph, not its 24px hit area, ends on the text edge. */
+  .agentkit-message-actions[data-role="assistant"] .agentkit-message-toolbar {
+    grid-column: 2;
+    grid-row: 1;
+    margin-inline-end: -0.25rem;
+  }
+
+  .agentkit-message-actions[data-role="assistant"] > .agentkit-command-error {
+    grid-column: 1 / -1;
+  }
+
+  .agentkit-message-toolbar {
+    display: flex;
+    min-inline-size: 0;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.25rem;
+    margin-inline-start: auto;
+    color: var(--agentkit-text-muted);
+  }
+
+  /* Both sets share one grid cell, so the cell is as wide as the wider set
+   and the toggle beside it never moves when they swap. */
+  .agentkit-message-actions-swap {
+    display: grid;
+    align-items: center;
+  }
+
+  .agentkit-message-actions-set {
+    display: flex;
+    grid-area: 1 / 1;
+    justify-self: end;
+    align-items: center;
+    gap: 0.25rem;
+    transition:
+      opacity 140ms ease,
+      translate 160ms ease;
+  }
+
+  .agentkit-message-actions-set[data-active="false"] {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition:
+      opacity 140ms ease,
+      translate 160ms ease,
+      visibility 0s linear 160ms;
+  }
+
+  .agentkit-message-actions-set[data-set="primary"][data-active="false"] {
+    translate: 0 0.375rem;
+  }
+
+  .agentkit-message-actions-set[data-set="secondary"][data-active="false"] {
+    translate: 0 -0.375rem;
+  }
+
+  /* Footer button rules skip the work row a finished reply portals in: its
+   disclosure styles its own toggle and steps. */
+  .agentkit-message-actions
+    button[aria-expanded="true"]:not(.agentkit-message-work-host *),
+  .agentkit-message-toolbar button[aria-expanded="true"] {
+    color: var(--agentkit-text);
+    background: var(--agentkit-subtle);
+  }
+
+  .agentkit-activities-row {
+    display: flex;
+    min-inline-size: 0;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  /* Outranks the shared row rule that keeps triggers at content width: this
+   one shrinks, so its meta truncates before the toolbar is pushed out. */
+  .agentkit-disclosure-row.agentkit-activities-row
+    > .agentkit-activities-summary {
+    min-inline-size: 0;
+    flex: 0 1 auto;
+    padding-block: 0.25rem;
+  }
+
+  .agentkit-run-details {
+    display: grid;
+    gap: 0.25rem;
+    margin: 0.25rem 0 0.5rem 0.5rem;
+    padding-inline-start: 1rem;
+    border-inline-start: 1px solid var(--agentkit-border);
+    font-size: 0.875rem;
+  }
+
+  .agentkit-run-details-row {
+    display: flex;
+    min-inline-size: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  .agentkit-run-details-row > dt {
+    flex: none;
+    color: var(--agentkit-text);
+  }
+
+  .agentkit-run-details-row > dd {
+    min-inline-size: 0;
+    margin: 0;
+    overflow: hidden;
+    color: var(--agentkit-text-muted);
+    text-align: end;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .agentkit-message-actions-leading,
+  .agentkit-message-actions-trailing {
+    display: flex;
+    min-inline-size: 0;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  .agentkit-message-actions-trailing {
+    margin-inline-start: auto;
+  }
+
+  .agentkit-message-actions[data-role="user"] {
+    min-inline-size: 0;
+    justify-content: flex-end;
+  }
+
+  .agentkit-message-actions[data-role="user"]
+    .agentkit-message-actions-leading {
+    flex-shrink: 0;
+  }
+
+  .agentkit-message-actions[data-role="user"]
+    .agentkit-message-actions-trailing {
+    max-inline-size: 100%;
+    margin-inline-start: 0;
+  }
+
+  .agentkit-message-actions[data-role="user"] time {
+    min-inline-size: 0;
+    overflow-wrap: anywhere;
+    text-align: end;
+  }
+
+  .agentkit-message-actions[data-role="user"] .agentkit-command-error {
+    flex-basis: 100%;
+    min-inline-size: 0;
+    max-inline-size: 100%;
+    overflow-wrap: anywhere;
+    text-align: end;
+  }
+
+  .agentkit-message:hover .agentkit-message-actions,
+  .agentkit-message:focus-within .agentkit-message-actions,
+  .agentkit-message-actions[data-latest="true"],
+  .agentkit-message-actions[data-expanded="true"] {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .agentkit-message .agentkit-message-actions[data-streaming="true"],
+  .agentkit-message:hover .agentkit-message-actions[data-streaming="true"],
+  .agentkit-message:focus-within
+    .agentkit-message-actions[data-streaming="true"] {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+  }
+
+  /* A footer carrying finished work always shows and takes its space; only an
+   older reply's controls wait for hover or focus. */
+  .agentkit-message-actions[data-role="assistant"]:has(.agentkit-activities) {
+    position: static;
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+  }
+
+  .agentkit-message-actions[data-role="assistant"]:has(
+      .agentkit-activities
+    ):not([data-latest="true"], [data-expanded="true"])
+    .agentkit-message-toolbar {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 140ms ease;
+  }
+
+  .agentkit-message:is(:hover, :focus-within)
+    .agentkit-message-actions[data-role="assistant"]
+    .agentkit-message-toolbar {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  @media (hover: none), (any-pointer: coarse) {
+    .agentkit-message-actions:is([data-role="user"], [data-role="assistant"]),
+    .agentkit-message-actions .agentkit-message-toolbar {
+      opacity: 1;
+      pointer-events: auto;
+    }
+  }
+
+  .agentkit-message-actions button:not(.agentkit-message-work-host *) {
+    color: inherit;
+  }
+
+  .agentkit-chat-toolbar :where(button, [role="button"]) {
+    display: inline-flex;
+    min-inline-size: 1.5rem;
+    block-size: 1.5rem;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+    padding-inline: 0.5rem;
+    border: 0;
+    border-radius: var(--radius-md, var(--radius));
+    color: inherit;
+    background: transparent;
+    font: inherit;
+    font-size: 0.75rem;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+
+  .agentkit-chat-toolbar :where(button, [role="button"]):has(> svg:only-child) {
+    inline-size: 1.5rem;
+    padding-inline: 0;
+  }
+
+  .agentkit-message-actions button:not(.agentkit-message-work-host *):hover,
+  .agentkit-chat-toolbar :where(button, [role="button"]):hover {
+    color: var(--agentkit-text);
+    background: var(--agentkit-subtle);
+  }
+
+  .agentkit-message-toolbar button {
+    color: inherit;
+  }
+
+  .agentkit-message-toolbar button:hover {
+    color: var(--agentkit-text);
+    background: var(--agentkit-subtle);
+  }
+
+  .agentkit-message-actions[data-role="user"] button[aria-pressed="true"] {
+    color: var(--agentkit-text);
+    background: var(--agentkit-subtle);
+  }
+
+  .agentkit-message-actions[data-role="user"] button[aria-pressed="true"] svg {
+    stroke-width: 2.2;
+  }
+
+  .agentkit-message-toolbar button[aria-pressed="true"] {
+    color: var(--agentkit-text);
+  }
+
+  .agentkit-message-actions svg,
+  .agentkit-message-toolbar svg,
+  .agentkit-chat-toolbar :where(button, [role="button"]) svg {
+    inline-size: 1rem;
+    block-size: 1rem;
+  }
+
+  .agentkit-message-actions time {
+    margin-inline-start: 0.25rem;
+    font-size: 0.6875rem;
+  }
+
+  .agentkit-branch-navigation {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin-inline-start: 0.25rem;
+    font-size: 0.6875rem;
+  }
+
+  .agentkit-icon {
+    inline-size: 1rem;
+    block-size: 1rem;
+    flex: none;
+    stroke-width: 1.7;
+  }
+
+  /* Run segments share one gap. Messages keep the turn gap below them for
+   their footer, and a user message opens a turn with it above. */
+  .agentkit-agent-feed,
+  .agentkit-activities,
+  .agentkit-tasks {
+    margin-block: var(--agentkit-run-segment-gap, 0.75rem);
+    color: var(--agentkit-text-muted);
+    font-size: 0.8125rem;
+  }
+
+  .agentkit-agent-feed {
+    display: grid;
+    /* minmax(0, …): an auto track grows to its widest row's unwrapped text,
+     which pushes rows past the chat column instead of ellipsizing them. */
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.25rem;
+  }
+
+  .agentkit-activity-row,
+  .agentkit-agent-interaction,
+  .agentkit-task-row {
+    display: flex;
+    inline-size: 100%;
+    min-inline-size: 0;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.25rem 0;
+    border: 0;
+    color: inherit;
+    background: transparent;
+    text-align: start;
+    list-style: none;
+  }
+
+  /* One summary row for work, tool, task, activity and reasoning
+   disclosures: a fixed icon column, the label, then the chevron. The
+   whole row is the trigger. */
+  .agentkit-disclosure-summary {
+    display: flex;
+    inline-size: 100%;
+    min-inline-size: 0;
+    max-inline-size: 100%;
+    align-items: center;
+    gap: var(--agentkit-disclosure-gap, 0.5rem);
+    margin: 0;
+    padding: 0.25rem 0;
+    border: 0;
+    border-radius: var(--agentkit-radius-inner, 0.375rem);
+    color: inherit;
+    background: transparent;
+    font: inherit;
+    text-align: start;
+    cursor: pointer;
+  }
+
+  .agentkit-disclosure-summary:is([aria-disabled="true"], span) {
+    cursor: default;
+  }
+
+  .agentkit-disclosure-row[data-expandable="true"] {
+    cursor: pointer;
+  }
+
+  /* Inside a row the trigger keeps its content width, so a detail that
+   does not fit drops to its own line instead of squeezing the label. */
+  .agentkit-disclosure-row > .agentkit-disclosure-summary {
+    inline-size: auto;
+    flex: none;
+    padding-block: 0;
+  }
+
+  .agentkit-disclosure-icon-slot {
+    display: inline-grid;
+    inline-size: 1rem;
+    block-size: 1rem;
+    flex: none;
+    place-items: center;
+  }
+
+  .agentkit-disclosure-label {
+    display: inline-flex;
+    min-inline-size: 0;
+    align-items: center;
+    gap: 0.5rem;
+    overflow: hidden;
+  }
+
+  .agentkit-disclosure-chevron {
+    color: var(--agentkit-text-muted);
+    transition: transform 160ms ease;
+  }
+
+  .agentkit-disclosure-summary[aria-expanded="true"]
+    > .agentkit-disclosure-chevron {
+    transform: rotate(90deg);
+  }
+
+  :dir(rtl) .agentkit-disclosure-chevron {
+    scale: -1 1;
+  }
+
+  .agentkit-disclosure-content[hidden]:not([hidden="until-found"]) {
+    display: none;
+  }
+
+  .agentkit-disclosure-summary:not([aria-disabled="true"], span):hover,
+  .agentkit-disclosure-row[data-expandable="true"]:hover,
+  .agentkit-agent-interaction:hover,
+  .agentkit-task-row:hover {
+    color: var(--agentkit-text);
+  }
+
+  .agentkit-agent {
+    display: inline-flex;
+    min-inline-size: 0;
+    max-inline-size: 12rem;
+    flex: none;
+    align-items: center;
+    min-block-size: 1.5rem;
+    padding: 0 0.5rem;
+    border: 1px solid var(--agentkit-border);
+    border-radius: 999px;
+    color: var(--agentkit-text);
+    overflow: hidden;
+    background: var(--agentkit-subtle);
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1.25rem;
+  }
+
+  .agentkit-agent-name,
+  .agentkit-agent-interaction-label {
+    min-inline-size: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .agentkit-agent[data-status="working"] .agentkit-agent-name {
+    color: transparent;
+    background: linear-gradient(
+      90deg,
+      var(--agentkit-text),
+      color-mix(in srgb, var(--agentkit-text) 34%, transparent),
+      var(--agentkit-text)
+    );
+    background-size: 200% 100%;
+    background-clip: text;
+    animation: agentkit-shimmer 1.8s linear infinite;
+  }
+
+  .agentkit-agent[data-status="failed"] {
+    border-color: color-mix(
+      in srgb,
+      var(--agentkit-danger) 32%,
+      var(--agentkit-border)
+    );
+    color: var(--agentkit-danger);
+  }
+
+  .agentkit-agent-interaction-detail {
+    min-inline-size: 0;
+    max-inline-size: 45%;
+    margin-inline-start: auto;
+    overflow: hidden;
+    color: var(--agentkit-text-muted);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Two agent chips plus a label can be wider than a narrow chat column: the
+   chips shrink and ellipsize instead of overflowing, and a detail that does
+   not fit beside the head drops to its own line. */
+  .agentkit-agent-interaction {
+    flex-wrap: wrap;
+    row-gap: 0.25rem;
+  }
+
+  .agentkit-agent-interaction-head {
+    display: flex;
+    flex: 0 1 auto;
+    min-inline-size: 0;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .agentkit-agent-interaction-head > .agentkit-agent {
+    flex: 0 1 auto;
+  }
+
+  .agentkit-agent-interaction-head > .agentkit-agent-interaction-label {
+    flex: none;
+  }
+
+  .agentkit-agent-interaction > .agentkit-agent-interaction-detail {
+    flex: 1 1 6rem;
+    max-inline-size: 100%;
+    text-align: end;
+  }
+
+  /* A message is prose: give it its own line under the chips. */
+  .agentkit-agent-interaction[data-kind="messaged"]
+    > .agentkit-agent-interaction-detail {
+    display: -webkit-box;
+    flex-basis: 100%;
+    text-align: start;
+    max-inline-size: 100%;
+    margin-inline-start: 0;
+    padding-inline-start: 1.5rem;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .agentkit-activity-cluster-count,
+  .agentkit-tasks-count,
+  .agentkit-task-progress {
+    color: color-mix(in srgb, var(--agentkit-text-muted) 75%, transparent);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .agentkit-activity-cluster-count {
+    flex: none;
+  }
+
+  .agentkit-activity-cluster-items {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.25rem;
+    margin-inline-start: 0.5rem;
+    padding-inline-start: 1rem;
+    border-inline-start: 1px solid var(--agentkit-border);
+  }
+
+  .agentkit-activities-label {
+    min-inline-size: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .agentkit-activities-summary-content {
+    display: grid;
+    min-inline-size: 0;
+    gap: 0.25rem;
+  }
+
+  .agentkit-activities-current {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-inline-size: 0;
+  }
+
+  .agentkit-activities-current-label {
+    min-inline-size: 0;
+    overflow: hidden;
+    color: var(--agentkit-text);
+    font-size: 0.875rem;
+    font-weight: 500;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .agentkit-activities-static {
+    display: grid;
+    min-inline-size: 0;
+  }
+
+  .agentkit-active-run-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    justify-content: flex-end;
+  }
+
+  .agentkit-active-run-actions-feedback {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding-inline: 0.25rem;
+    color: var(--agentkit-text-muted);
+    font-size: 0.75rem;
+  }
+
+  .agentkit-active-run-actions-feedback-error {
+    color: var(--agentkit-danger);
+  }
+
+  .agentkit-active-run-actions-trigger {
+    opacity: 0;
+    transition: opacity 120ms ease;
+  }
+
+  .agentkit-active-run-actions:hover .agentkit-active-run-actions-trigger,
+  .agentkit-active-run-actions:focus-within
+    .agentkit-active-run-actions-trigger,
+  .agentkit-active-run-actions-trigger[data-state="open"] {
+    opacity: 1;
+  }
+
+  @media (hover: none), (any-pointer: coarse) {
+    .agentkit-active-run-actions-trigger {
+      opacity: 1;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .agentkit-active-run-actions-trigger {
+      transition: none;
+    }
+  }
+
+  .agentkit-activities-failed {
+    color: var(--agentkit-warning);
+  }
+
+  /* Expanded work reads as narrated steps on a rail: each marker is a step
+   the agent named, and the calls it made sit under its title. */
+  .agentkit-work-steps {
+    --agentkit-work-row: calc(1lh + 0.5rem);
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    margin: 0;
+    padding: 0.25rem 0 0;
+    list-style: none;
+  }
+
+  .agentkit-work-step {
+    position: relative;
+    display: grid;
+    grid-template-columns: 1rem minmax(0, 1fr);
+    column-gap: 0.5rem;
+    align-items: start;
+  }
+
+  .agentkit-work-steps[data-plain="true"] > .agentkit-work-step {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .agentkit-work-step-marker {
+    position: relative;
+    z-index: 1;
+    display: inline-grid;
+    block-size: var(--agentkit-work-row);
+    place-items: center;
+    color: color-mix(in srgb, var(--agentkit-text-muted) 70%, transparent);
+  }
+
+  .agentkit-work-step[data-running="true"] > .agentkit-work-step-marker {
+    color: var(--agentkit-text);
+  }
+
+  /* The rail runs from this step's marker to the next one's. */
+  .agentkit-work-step:not(:last-child)::before {
+    position: absolute;
+    inset-block: calc(var(--agentkit-work-row) / 2)
+      calc(var(--agentkit-work-row) / -2);
+    inset-inline-start: calc(0.5rem - 0.5px);
+    border-inline-start: 1px solid var(--agentkit-border);
+    content: "";
+  }
+
+  .agentkit-work-step-content {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    min-inline-size: 0;
+    padding-block-end: 0.25rem;
+  }
+
+  .agentkit-work-step-title {
+    min-block-size: var(--agentkit-work-row);
+    color: var(--agentkit-text);
+  }
+
+  .agentkit-work-step-label {
+    min-inline-size: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .agentkit-work-step[data-untitled="true"] .agentkit-work-step-label {
+    color: var(--agentkit-text-muted);
+  }
+
+  .agentkit-work-step-label[data-active="true"] {
+    color: transparent;
+    background: linear-gradient(
+      90deg,
+      var(--agentkit-text),
+      color-mix(in srgb, var(--agentkit-text) 28%, transparent),
+      var(--agentkit-text)
+    );
+    background-size: 200% 100%;
+    background-clip: text;
+    animation: agentkit-shimmer 1.8s linear infinite;
+  }
+
+  .agentkit-work-step-body {
+    margin-inline-start: 0;
+    padding-block: 0 0.5rem;
+  }
+
+  .agentkit-work-groups {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .agentkit-disclosure-row.agentkit-work-group-row {
+    flex-wrap: nowrap;
+  }
+
+  .agentkit-work-group-row .agentkit-work-group-label {
+    flex: none;
+    color: var(--agentkit-text-muted-strong, var(--agentkit-text-muted));
+  }
+
+  .agentkit-work-group-meta {
+    display: flex;
+    min-inline-size: 0;
+    flex: 0 1 auto;
+    align-items: center;
+    gap: 0.5rem;
+    overflow: hidden;
+    color: var(--agentkit-text-muted);
+    white-space: nowrap;
+  }
+
+  .agentkit-work-objects {
+    display: inline-flex;
+    min-inline-size: 0;
+    align-items: center;
+    gap: 0.5rem;
+    overflow: hidden;
+  }
+
+  .agentkit-work-object {
+    min-inline-size: 0;
+    max-inline-size: 18rem;
+    flex: 0 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .agentkit-work-object[data-kind="url"] {
+    padding: 0 0.5rem;
+    border: 1px solid var(--agentkit-border);
+    border-radius: 999px;
+    font-size: 0.75rem;
+    line-height: 1.125rem;
+  }
+
+  .agentkit-work-object:is([data-kind="file"], [data-kind="command"]) {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 0.75rem;
+  }
+
+  .agentkit-work-objects-more {
+    flex: none;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .agentkit-work-group[data-failed="true"]
+    > .agentkit-work-group-row
+    .agentkit-disclosure-icon-slot
+    > .agentkit-icon,
+  .agentkit-work-group[data-failed="true"] .agentkit-work-group-label,
+  .agentkit-work-failure-reason {
+    color: var(--agentkit-warning);
+  }
+
+  .agentkit-work-failure-reason {
+    min-inline-size: 0;
+    flex: 0 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .agentkit-work-group[data-running="true"] .agentkit-work-group-label {
+    color: transparent;
+    background: linear-gradient(
+      90deg,
+      var(--agentkit-text-muted),
+      color-mix(in srgb, var(--agentkit-text-muted) 28%, transparent),
+      var(--agentkit-text-muted)
+    );
+    background-size: 200% 100%;
+    background-clip: text;
+    animation: agentkit-shimmer 1.8s linear infinite;
+  }
+
+  .agentkit-work-more {
+    color: var(--agentkit-text-muted);
+  }
+
+  .agentkit-tasks-list {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.25rem;
+    padding-block-start: 0.25rem;
+  }
+
+  .agentkit-task-title {
+    min-inline-size: 0;
+    overflow: hidden;
+    color: var(--agentkit-text);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .agentkit-task-detail,
+  .agentkit-task-progress {
+    margin-inline-start: auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .agentkit-task-row[data-status="running"] .agentkit-task-title {
+    color: transparent;
+    background: linear-gradient(
+      90deg,
+      var(--agentkit-text-muted),
+      color-mix(in srgb, var(--agentkit-text-muted) 28%, transparent),
+      var(--agentkit-text-muted)
+    );
+    background-size: 200% 100%;
+    background-clip: text;
+    animation: agentkit-shimmer 1.8s linear infinite;
+  }
+
+  .agentkit-activity-label {
+    min-inline-size: 0;
+    overflow: hidden;
+    color: var(--agentkit-text);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .agentkit-activity-item[data-status="failed"]
+    > .agentkit-activity-row
+    .agentkit-disclosure-icon-slot
+    > .agentkit-icon {
+    color: var(--agentkit-warning);
+  }
+
+  .agentkit-activity-error {
+    display: block;
+    min-inline-size: 0;
+    padding-inline-start: 1.5rem;
+    overflow: hidden;
+    color: var(--agentkit-text-muted);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .agentkit-task-row[data-status="completed"] .agentkit-task-title {
+    color: var(--agentkit-text-muted);
+  }
+
+  .agentkit-task-row[data-status="failed"] .agentkit-task-status-icon {
+    color: var(--agentkit-warning);
+  }
+
+  .agentkit-task-status-icon {
+    flex: none;
+  }
+
+  .agentkit-activity-item[data-status="running"] .agentkit-activity-label {
+    color: transparent;
+    background: linear-gradient(
+      90deg,
+      var(--agentkit-text-muted),
+      color-mix(in srgb, var(--agentkit-text-muted) 28%, transparent),
+      var(--agentkit-text-muted)
+    );
+    background-size: 200% 100%;
+    background-clip: text;
+    animation: agentkit-shimmer 1.8s linear infinite;
+  }
+
+  .agentkit-activity-detail,
+  .agentkit-object {
+    display: flex;
+    min-inline-size: 0;
+    max-inline-size: 55%;
+    align-items: center;
+    gap: 0.5rem;
+    margin-inline-start: auto;
+    padding: 0;
+    border: 0;
+    overflow: hidden;
+    color: var(--agentkit-text-muted);
+    background: transparent;
+    font: inherit;
+    text-align: end;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* The detail is bare text: a flex container cannot ellipsize it, so it
+   would be clipped mid-word instead. */
+  .agentkit-activity-detail {
+    display: block;
+  }
+
+  /* A detail that does not fit beside the agent and label drops to its own
+   line rather than squeezing the label. */
+  .agentkit-activity-row {
+    flex-wrap: wrap;
+    row-gap: 0.25rem;
+  }
+
+  .agentkit-activity-row > .agentkit-activity-detail {
+    flex: 1 1 8rem;
+    max-inline-size: 100%;
+  }
+
+  button.agentkit-object {
+    cursor: pointer;
+  }
+
+  .agentkit-object-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .agentkit-diff-added {
+    color: var(--agentkit-success);
+  }
+
+  .agentkit-diff-removed {
+    color: var(--agentkit-danger);
+  }
+
+  .agentkit-activity-summary {
+    margin-inline-start: 1.5rem;
+    padding: 0.25rem 0 0.5rem;
+    color: var(--agentkit-text);
+  }
+
+  .agentkit-activity-summary-section {
+    display: grid;
+    gap: 0.25rem;
+    margin-block-start: 0.5rem;
+  }
+
+  .agentkit-activity-summary-label {
+    color: var(--agentkit-text-muted);
+    font-size: 0.6875rem;
+    font-weight: 500;
+  }
+
+  .agentkit-activity-summary-value {
+    max-block-size: 12rem;
+    overflow: auto;
+    border: 1px solid var(--agentkit-border);
+    border-radius: var(--radius-md, var(--radius));
+    padding: 0.5rem 0.75rem;
+    background: var(--agentkit-subtle);
+    color: var(--agentkit-text);
+    font: inherit;
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 0.75rem;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .agentkit-activity-summary-value:focus-visible {
+    outline: 2px solid var(--agentkit-focus);
+    outline-offset: 2px;
+  }
+
+  /* The approval card draws its own chrome; it only takes the spacing. */
+  .agentkit-approval {
+    margin-block: var(--agentkit-run-segment-gap, 0.75rem);
+  }
+
+  .agentkit-connection-request,
+  .agentkit-widget {
+    overflow: hidden;
+    margin-block: 0.75rem 1.25rem;
+    border: 1px solid var(--agentkit-border);
+    border-radius: var(--agentkit-radius-inner);
+    background: var(--agentkit-surface);
+  }
+
+  .agentkit-connection-request-copy,
+  .agentkit-widget {
+    padding: 1rem;
+  }
+
+  .agentkit-widget {
+    inline-size: 100%;
+  }
+
+  .agentkit-connection-request h3,
+  .agentkit-widget h3 {
+    margin: 0;
+    font-size: 0.875rem;
+    font-weight: 600;
+  }
+
+  .agentkit-connection-request p,
+  .agentkit-widget p {
+    margin: 0.25rem 0 0;
+    color: var(--agentkit-text-muted);
+    font-size: 0.75rem;
+  }
+
+  .agentkit-connection-request-copy {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .agentkit-connection-request-copy > .agentkit-icon {
+    flex: 0 0 auto;
+    margin-block-start: 0.125rem;
+    color: var(--agentkit-text-muted);
+  }
+
+  .agentkit-connection-request[data-status="connected"]
+    .agentkit-connection-request-copy
+    > .agentkit-icon {
+    color: var(--agentkit-success);
+  }
+
+  .agentkit-connection-request-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    border-block-start: 1px solid var(--agentkit-border);
+  }
+
+  .agentkit-connection-request > .agentkit-command-error {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0;
+    padding: 0 1rem 0.75rem;
+  }
+
+  .agentkit-approval-options {
+    display: grid;
+    gap: 0.5rem;
+  }
+
+  .agentkit-approval-options button {
+    display: grid;
+    gap: 0.25rem;
+    padding: 0.75rem;
+    border: 1px solid var(--agentkit-border);
+    border-radius: var(--radius-md, var(--radius));
+    color: var(--agentkit-text);
+    background: transparent;
+    font: inherit;
+    font-size: 0.875rem;
+    text-align: start;
+    cursor: pointer;
+  }
+
+  .agentkit-approval-options button[data-kind="danger"] {
+    border-color: color-mix(
+      in srgb,
+      var(--agentkit-danger) 40%,
+      var(--agentkit-border)
+    );
+    color: var(--agentkit-danger-text);
+  }
+
+  .agentkit-approval-options button[aria-pressed="true"],
+  .agentkit-approval-options button[aria-checked="true"] {
+    border-color: var(--agentkit-accent);
+    background: color-mix(in srgb, var(--agentkit-accent) 8%, transparent);
+  }
+
+  .agentkit-approval-options small {
+    color: var(--agentkit-text-muted);
+    font-size: 0.75rem;
+  }
+
+  .agentkit-approval-input input {
+    color: var(--agentkit-text);
+  }
+
+  .agentkit-approval-input {
+    display: grid;
+    color: var(--agentkit-text-muted);
+    font-size: 0.75rem;
+  }
+
+  .agentkit-widget-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    border-block-start: 1px solid var(--agentkit-border);
+  }
+
+  /* Full-bleed divider inside the padded widget card. */
+  .agentkit-widget-actions {
+    margin-inline: -1rem;
+    margin-block-end: -1rem;
+  }
+
+  /* Plain buttons only: a design-system Button would also pick up the
+     properties its own variant leaves unset, such as this border. */
+  :where(.agentkit-widget-actions) :where(button:not([data-slot="button"])) {
+    min-block-size: 2rem;
+    padding-inline: 0.75rem;
+    border: 1px solid var(--agentkit-border);
+    border-radius: var(--radius-md, var(--radius));
+    color: var(--agentkit-text);
+    background: transparent;
+    font: inherit;
+    font-size: 0.75rem;
+    cursor: pointer;
+  }
+
+  .agentkit-primary-button {
+    border-color: var(--agentkit-accent);
+    color: var(--agentkit-accent-text);
+    background: var(--agentkit-accent);
+  }
+
+  .agentkit-widget-action {
+    display: grid;
+    justify-items: end;
+    gap: 0.25rem;
+  }
+
+  .agentkit-command-error {
+    color: var(--agentkit-danger-text);
+    font-size: 0.75rem;
+    line-height: 1.35;
+  }
+
+  .agentkit-file {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--agentkit-text-muted-strong);
+    text-decoration: none;
+  }
+
+  .agentkit-file--pasted-text {
+    border: 1px solid var(--agentkit-border);
+    border-radius: 999px;
+    min-block-size: 1.5rem;
+    padding: 0 0.5rem;
+    font-size: 0.75rem;
+  }
+
+  .agentkit-annotations,
+  .agentkit-citations {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-block-start: 0.5rem;
+    font-size: 0.75rem;
+  }
+
+  .agentkit-annotations a,
+  .agentkit-annotations span,
+  .agentkit-citations a {
+    color: var(--agentkit-text-muted-strong);
+    text-decoration-color: color-mix(
+      in srgb,
+      var(--agentkit-text-muted) 45%,
+      transparent
+    );
+    text-underline-offset: 0.2em;
+  }
+
+  .agentkit-reasoning {
+    margin-block: 0.5rem 0.75rem;
+    color: var(--agentkit-text-muted);
+    font-size: 0.8125rem;
+  }
+
+  .agentkit-reasoning-summary {
+    color: var(--agentkit-text-muted);
+  }
+
+  .agentkit-reasoning-label {
+    min-inline-size: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .agentkit-reasoning[data-active="true"] .agentkit-reasoning-label {
+    color: transparent;
+    background: linear-gradient(
+      90deg,
+      var(--agentkit-text-muted),
+      color-mix(in srgb, var(--agentkit-text-muted) 28%, transparent),
+      var(--agentkit-text-muted)
+    );
+    background-size: 200% 100%;
+    background-clip: text;
+    animation: agentkit-shimmer 1.8s linear infinite;
+  }
+
+  .agentkit-reasoning-content {
+    min-inline-size: 0;
+    overflow-wrap: anywhere;
+    margin-inline-start: 1.5rem;
+    padding: 0.25rem 0 0.5rem;
+    color: var(--agentkit-text-muted);
+    font-size: 0.8125rem;
+  }
+
+  .agentkit-reasoning-content p {
+    margin: 0;
+  }
+
+  .agentkit-reasoning-content .agentkit-markdown p + p {
+    margin-block-start: 0.5rem;
+  }
+
+  .agentkit-error {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+    gap: 0.25rem 0.5rem;
+    margin-block: var(--agentkit-run-segment-gap, 0.75rem);
+    padding: 0.75rem 1rem;
+    border: 1px solid
+      color-mix(in srgb, var(--agentkit-danger) 32%, var(--agentkit-border));
+    border-radius: var(--agentkit-radius-inner);
+    background: color-mix(in srgb, var(--agentkit-danger) 6%, transparent);
+    font-size: 0.75rem;
+  }
+
+  .agentkit-error > :not(.agentkit-icon) {
+    grid-column: 2;
+  }
+
+  .agentkit-error > .agentkit-icon {
+    margin-block-start: 0.0625rem;
+    color: var(--agentkit-danger-text);
+  }
+
+  .agentkit-error > span:not(.agentkit-command-error) {
+    color: var(--agentkit-text-muted-strong);
+  }
+
+  .agentkit-error-actions {
+    display: flex;
+    justify-content: flex-start;
+    margin-block-start: 0.5rem;
+  }
+
+  .agentkit-run-failure {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    margin-block: var(--agentkit-run-segment-gap, 0.75rem);
+    padding-block: 0.25rem;
+    color: var(--agentkit-danger);
+    font-size: 0.75rem;
+    line-height: 1.4;
+  }
+
+  .agentkit-run-failure > .agentkit-icon {
+    margin-block-start: 0.0625rem;
+  }
+
+  .agentkit-run-failure-copy {
+    display: flex;
+    min-inline-size: 0;
+    overflow-wrap: anywhere;
+    flex-wrap: wrap;
+    gap: 0.25rem 0.5rem;
+  }
+
+  .agentkit-run-failure-copy strong {
+    color: var(--agentkit-danger-text);
+    font-weight: 600;
+  }
+
+  .agentkit-run-failure-copy span {
+    color: var(--agentkit-text-muted);
+  }
+
+  .agentkit-run-failure-copy > .agentkit-error-actions {
+    flex-basis: 100%;
+    margin-block-start: 0.25rem;
+  }
+
+  .agentkit-run-failure-copy > .agentkit-command-error {
+    flex-basis: 100%;
+    color: var(--agentkit-danger-text);
+  }
+
+  .agentkit-run-failure[data-tone="warning"] {
+    color: var(--agentkit-warning);
+  }
+
+  .agentkit-run-failure[data-tone="warning"] .agentkit-run-failure-copy strong {
+    color: var(--agentkit-text);
+  }
+
+  .agentkit-run-failure[data-tone="warning"]
+    .agentkit-run-failure-copy
+    > .agentkit-command-error {
+    color: var(--agentkit-text-muted-strong);
+  }
+
+  :where(.agentkit-chat)
+    :where(button, a, input, summary):not([data-slot="button"]):focus-visible {
+    outline: 2px solid var(--agentkit-focus);
+    outline-offset: 2px;
+  }
+
+  .agentkit-chat-footer {
+    position: relative;
+    grid-column: 1;
+    grid-row: 3;
+    z-index: 3;
+    min-inline-size: 0;
+    padding-block: 0 max(1rem, env(safe-area-inset-bottom));
+    /* Safe-area insets are physical, so these stay physical in RTL too. */
+    padding-left: max(1rem, env(safe-area-inset-left));
+    padding-right: max(1rem, env(safe-area-inset-right));
+    pointer-events: none;
+  }
+
+  /* Transcript text fades into the canvas above the footer instead of being
+     cut at the scroller's edge. The transcript's bottom padding is at least
+     this tall, so the latest line clears it when scrolled to the end. */
+  .agentkit-chat:not([data-empty="true"]) .agentkit-chat-footer::before {
+    position: absolute;
+    inset-inline: 0;
+    inset-block-end: 100%;
+    block-size: 1.5rem;
+    background: linear-gradient(to bottom, transparent, var(--agentkit-canvas));
+    content: "";
+    pointer-events: none;
+  }
+
+  .agentkit-composer-stack {
+    /* The lane minus the transcript's 1rem inline padding, offset like the
+     transcript content, so the composer edges match the message edges. */
+    --agentkit-lane-width: var(
+      --agentkit-transcript-lane-width,
+      var(--agent-kit-conversation-max-width, 47rem)
+    );
+    --agentkit-composer-stack-width: min(
+      100%,
+      calc(var(--agentkit-lane-width) - 2rem)
+    );
+    /* The composer area has no inline padding here, so cards attached above
+     the composer must not inset for it. */
+    --agent-kit-composer-adjacent-inline-inset: 0px;
+
+    position: relative;
+    inline-size: var(--agentkit-composer-stack-width);
+    min-inline-size: 0;
+    margin-inline: auto;
+    inset-inline-start: clamp(
+      calc((100% - var(--agentkit-composer-stack-width)) / -2),
+      var(--agentkit-transcript-lane-offset-inline, 0px),
+      calc((100% - var(--agentkit-composer-stack-width)) / 2)
+    );
+    pointer-events: auto;
+  }
+
+  /* A fixed height holds the caption and one chip row, so the transcript
+     does not move as suggestions come and go. */
+  .agentkit-host-suggestions-slot {
+    block-size: 3.5rem;
+    min-inline-size: 0;
+  }
+
+  .agentkit-host-suggestions-slot
+    .agentkit-host-suggestions[data-agent-suggestion-bar="true"] {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    block-size: 100%;
+    padding-block: 0 0.5rem;
+  }
+
+  .agentkit-host-suggestions-slot [data-agent-suggestion-scroller="true"] {
+    display: flex;
+    flex: none;
+    block-size: 1.5rem;
+    align-items: center;
+    padding-block: 0;
+  }
+
+  .agentkit-composer-stack [data-agent-composer-slot="area"],
+  .agentkit-composer-stack [data-agent-composer-slot="workflow"],
+  .agentkit-composer-stack [data-agent-composer-slot="root"],
+  .agentkit-composer-stack [data-agent-composer-slot="toolbar"] {
+    min-inline-size: 0;
+  }
+
+  .agentkit-run-stopped {
+    margin-block-start: 0.25rem;
+    color: var(--agentkit-text-muted);
+    font-size: 0.8125rem;
+  }
+
+  .agentkit-transcript-skeleton {
+    --agentkit-lane-width: var(
+      --agentkit-transcript-lane-width,
+      var(--agent-kit-conversation-max-width, 47rem)
+    );
+
+    box-sizing: border-box;
+    inline-size: min(100%, var(--agentkit-lane-width));
+    margin-inline: auto;
+    padding: 1.5rem 1rem;
+    padding-block-start: var(--agentkit-transcript-top-inset, 1.5rem);
+  }
+
+  .agentkit-thread-unavailable {
+    display: grid;
+    justify-items: center;
+    gap: 0.75rem;
+    padding-block: 1.5rem;
+    color: var(--agentkit-text-muted);
+    font-size: 0.875rem;
+    text-align: center;
+  }
+
+  @keyframes agentkit-shimmer {
+    to {
+      background-position: -200% 0;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .agentkit-activity-item[data-status="running"] .agentkit-activity-label,
+    .agentkit-agent[data-status="working"] .agentkit-agent-name,
+    .agentkit-reasoning[data-active="true"] .agentkit-reasoning-label,
+    .agentkit-work-step-label[data-active="true"],
+    .agentkit-work-group[data-running="true"] .agentkit-work-group-label,
+    .agentkit-task-row[data-status="running"] .agentkit-task-title {
+      animation: none;
+    }
+
+    .agentkit-message-actions,
+    .agentkit-message-toolbar,
+    .agentkit-scroll-to-bottom-control,
+    .agentkit-disclosure-chevron,
+    .agentkit-composer-stack [data-agent-message-queue="true"] {
+      transition: none;
+    }
+
+    .agentkit-suggestions-row > .agentkit-suggestions,
+    .agentkit-empty-state [data-agent-suggestion-bar="true"] {
+      animation: none;
+    }
+
+    .agentkit-message-actions-set,
+    .agentkit-message-actions-set[data-active="false"] {
+      translate: none;
+      transition: none;
+    }
+  }
+
+  /* iOS zooms the page when a focused field's text is under 16px. */
+  @media (max-width: 47.999rem) {
+    :where(.agentkit-chat, .agentkit-tokens) {
+      --agentkit-composer-font-size: var(
+        --agent-kit-composer-mobile-font-size,
+        1rem
+      );
+      --agentkit-composer-line-height: var(
+        --agent-kit-composer-mobile-line-height,
+        1.5rem
+      );
+    }
+  }
+
+  /* The large composer: the only thing on an empty chat or a home page. Its
+   controls keep the docked sizes; the text, the box and the gaps grow, and
+   the corner stays concentric with Send at the wider 12px gap: 16 + 12. */
+  .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"],
+  [data-agentkit-composer-size="large"],
+  [data-agentkit-composer-size="large"]
+    :where(.agentkit-chat, .agentkit-tokens) {
+    --agentkit-composer-font-size: 1rem;
+    --agentkit-composer-line-height: 1.5rem;
+    --agentkit-composer-editor-min-height: 2lh;
+    --agentkit-composer-inset: 1rem;
+    --agentkit-composer-editor-padding-top: 1rem;
+    --agentkit-composer-toolbar-padding-bottom: 0.75rem;
+    --agentkit-composer-radius: 1.75rem;
+  }
+
+  @container agentkit-chat (max-width: 40rem) {
+    .agentkit-message[data-role="user"] .agentkit-message-content {
+      max-inline-size: min(94%, var(--agentkit-user-bubble-max-width, 38rem));
+    }
+  }
+
+  /* Composer width, not viewport: desktop side panels are as narrow as phones.
+     The model chip keeps its natural width and shrinks only when the toolbar
+     runs out of room; then the name truncates and its effort stays. */
+  @container (max-width: 24rem) {
+    .agentkit-composer [data-agent-composer-slot="toolbar"] {
+      --agentkit-composer-toolbar-control-gap: 0;
+    }
   }
 }

@@ -51,6 +51,7 @@ const INITIAL_TOOL_NAMES = [
 
 const options = {
   appId: "factory",
+  mcp: { appApprovalPage: true },
   backgroundMcpTools: "all",
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   leanPrompt: true,

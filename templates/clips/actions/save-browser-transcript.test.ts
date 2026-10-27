@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  access: {
+    role: "editor",
+    resource: { id: "rec-1", expiresAt: null as string | null },
+  },
   rows: [] as Array<Array<Record<string, unknown>>>,
   lockRows: [] as Array<Record<string, unknown>>,
   update: vi.fn(),
@@ -38,11 +42,13 @@ vi.mock("@agent-native/core/tracking", () => ({
   track: (...args: unknown[]) => mocks.track(...args),
 }));
 
-vi.mock("@agent-native/core/sharing", () => ({
-  assertAccess: vi.fn(async () => ({ resource: { id: "rec-1" } })),
+vi.mock("@agent-native/core/sharing", async (original) => ({
+  ...(await original<typeof import("@agent-native/core/sharing")>()),
+  assertAccess: vi.fn(async () => mocks.access),
 }));
 
-vi.mock("drizzle-orm", () => ({
+vi.mock("drizzle-orm", async (original) => ({
+  ...(await original<typeof import("drizzle-orm")>()),
   and: vi.fn((...args: unknown[]) => args),
   eq: vi.fn((column: unknown, value: unknown) => ({ column, value })),
   isNull: vi.fn((column: unknown) => ({ isNull: column })),
@@ -107,14 +113,15 @@ function recordingRow(extra: Record<string, unknown> = {}) {
   };
 }
 
-describe("save-browser-transcript", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mocks.rows = [];
-    mocks.lockRows = [{ id: "rec-1" }];
-    mocks.listEndedMeetingsForRecording.mockResolvedValue([]);
-  });
+beforeEach(() => {
+  vi.clearAllMocks();
+  mocks.access = { role: "editor", resource: { id: "rec-1", expiresAt: null } };
+  mocks.rows = [];
+  mocks.lockRows = [{ id: "rec-1" }];
+  mocks.listEndedMeetingsForRecording.mockResolvedValue([]);
+});
 
+describe("save-browser-transcript", () => {
   it("asserts editor access on the recording before mutating", async () => {
     const { assertAccess } = await import("@agent-native/core/sharing");
     const values = insertValues();
@@ -527,3 +534,67 @@ describe("save-browser-transcript", () => {
     expect(mocks.update).not.toHaveBeenCalled();
   });
 });
+
+it.each(["2000-01-01T00:00:00Z", "not-a-date"])(
+  "refuses a delayed native transcript after availability ends (%s)",
+  async (expiresAt) => {
+    mocks.access = { role: "editor", resource: { id: "rec-1", expiresAt } };
+    mocks.rows = [[recordingRow()], []];
+    mocks.insert.mockReturnValue({ values: insertValues() });
+    await expect(
+      saveBrowserTranscript.run({
+        recordingId: "rec-1",
+        fullText: "Fake late transcript",
+        source: "web-speech",
+      }),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(mocks.insert).not.toHaveBeenCalled();
+    expect(mocks.update).not.toHaveBeenCalled();
+    expect(dispatchPostFinalizeJob).not.toHaveBeenCalled();
+  },
+);
+it.each(["2000-01-01T00:00:00Z", "not-a-date"])(
+  "preserves owner native transcript completion (%s)",
+  async (expiresAt) => {
+    mocks.access = { role: "owner", resource: { id: "rec-1", expiresAt } };
+    mocks.rows = [[recordingRow()], []];
+    mocks.insert.mockReturnValue({ values: insertValues() });
+    await expect(
+      saveBrowserTranscript.run({
+        recordingId: "rec-1",
+        fullText: "Fake owner transcript",
+        source: "web-speech",
+      }),
+    ).resolves.toMatchObject({ status: "ready" });
+    expect(mocks.insert).toHaveBeenCalledOnce();
+  },
+);
+
+it.each([false, true])(
+  "rechecks the locked native recording's expiry (owner=%s)",
+  async (owner) => {
+    mocks.access.role = owner ? "owner" : "editor";
+    mocks.rows = [[recordingRow()], []];
+    mocks.lockRows = [
+      {
+        id: "rec-1",
+        ownerEmail: owner ? "owner@example.com" : "other-owner@example.test",
+        expiresAt: "2000-01-01T00:00:00Z",
+      },
+    ];
+    mocks.insert.mockReturnValue({ values: insertValues() });
+    const pending = saveBrowserTranscript.run({
+      recordingId: "rec-1",
+      fullText: "Fake locked transcript",
+      source: "web-speech",
+    });
+    if (owner)
+      await expect(pending).resolves.toMatchObject({ status: "ready" });
+    else {
+      await expect(pending).rejects.toMatchObject({ statusCode: 403 });
+      expect(mocks.insert).not.toHaveBeenCalled();
+      expect(mocks.update).not.toHaveBeenCalled();
+      expect(dispatchPostFinalizeJob).not.toHaveBeenCalled();
+    }
+  },
+);

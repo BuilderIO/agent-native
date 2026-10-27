@@ -285,6 +285,8 @@ const messages = {
     fillerCompleted: "Filler-word removal complete",
     workflowReady: "Workflow ready",
     workflowFailed: "Workflow generation failed",
+    workflowCancelled: "Workflow generation cancelled",
+    workflowTimedOut: "Workflow generation timed out",
     transcriptionCompleted: "Transcription complete",
     transcriptNotReady: "Transcript is not ready yet",
     tryAfterTranscription: "Try again after transcription finishes.",
@@ -303,6 +305,8 @@ const messages = {
     silenceEditsUnreadable:
       "Saved edits couldn't be read, so silence removal wasn't applied.",
     workflowQueued: "Generating workflow…",
+    workflowStillGenerating: "Still generating workflow…",
+    workflowTakingLonger: "This is taking longer than usual…",
     pageTitle: "Clip recording · Clips",
     loomMissingUrl: "This Loom recording is missing its source URL.",
     finalizeFailed: "Finalize failed ({{status}})",
@@ -680,7 +684,7 @@ const messages = {
     openInCodex: "Open in Codex",
     copyAgentPrompt: "Copy agent prompt",
     agentPrompt:
-      "Read this Clips agent context URL: {{agentContextUrl}}. Read the complete transcript from apis.transcript and fetch recommendedFrames[].url (or apis.frame.urlTemplate with atMs) as images. Keep id and agent_access exactly as provided. For any error, inspect the JSON failureKind, error, and nextStep. If failureKind=access, explain that the link does not grant access; for a private clip, ask the owner to choose {{shareWithAgents}} in the Clips Share menu and send the generated link. If failureKind=media while the transcript works, explain that the stored media could not be retrieved; another link will not fix it. If failureKind=processing, follow nextStep; this does not mean the clip is missing or the link is invalid. If failureKind=expired, ask the owner to extend or remove the clip expiry in the Clips Share menu, save, then choose {{shareWithAgents}} and send the new link. Also use browserDiagnostics when present for a bug report.",
+      "Read this Clips agent context URL: {{agentContextUrl}}. Read the complete transcript from apis.transcript and fetch recommendedFrames[].url (or apis.frame.urlTemplate with atMs) as images. Keep id and agent_access exactly as provided. For any error, inspect the JSON failureKind, error, and nextStep. If failureKind=access, explain that the link does not grant access; for a private clip, ask the owner to choose {{shareWithAgents}} in the Clips Share menu and send the generated link. If failureKind=media while the transcript works, explain that the stored media could not be retrieved; another link will not fix it. If failureKind=processing, follow nextStep; this does not mean the clip is missing or the link is invalid. If failureKind=expired, ask the owner to extend or remove the clip expiry in the Clips Share menu, save, then choose {{shareWithAgents}} and send the new link. Also use browserDiagnostics when present for a bug report. If your tool cannot return images or open these links, say that your tool has this limit; it is not a Clips error.",
     agentTokenDescription:
       "Temporary read-only link for agents, since this clip is not public. Expires in 2 hours.",
     agentPublicDescription:
@@ -695,12 +699,16 @@ const messages = {
     chooseFile: "Choose file",
     remove: "Remove",
     downloadMp4: "Download MP4",
-    embedsNeedPublic: "Embeds need a public clip",
-    embedPublicDescription:
-      "This clip is currently {{visibility}}. Embedded iframes load anonymously, so the clip must be public for viewers to watch.",
-    makingPublic: "Making public…",
-    makePublic: "Make public",
     askOwnerPublic: "Ask the owner to make it public.",
+    advanced: "Advanced",
+    passwordSet: "Password set",
+    noPassword: "No password",
+    linkExpires: "Link expires",
+    expiresOn: "Expires {{date}}",
+    neverExpires: "Never expires",
+    embedNeedsLinkAccess:
+      "Embedded players load without sign-in, so they only play when anyone with the link can view.",
+    changeGeneralAccess: "Change general access",
     responsive: "Responsive (16:9)",
     fixedSize: "Fixed size",
     embedIframeTitle: "Clips video",
@@ -1266,12 +1274,13 @@ const messages = {
     actionItems: "Action items",
     sharedContent: "Shared content",
     summaryIncluded: "Summary, key points, and action items",
-    includeTranscript: "Include full transcript",
-    includeTranscriptDescription:
-      "Anyone with access to this meeting can read the complete transcript.",
     transcriptUnavailable: "The transcript isn't ready yet.",
-    agentLinkDescription:
-      "This temporary link lets agents read these meeting notes without making them public. It expires after two hours.",
+    transcriptOnShareLink: "Transcript on the share link",
+    transcriptOnShareLinkDescription:
+      "People you invite always see the transcript in Clips.",
+    linkShowsTranscript: "Link includes the transcript",
+    linkShowsNotesOnly: "Link shows notes only",
+    copyAgentLink: "Copy agent link",
     transcript: "Transcript",
     copyTranscript: "Copy transcript",
     transcriptCopied: "Transcript copied",

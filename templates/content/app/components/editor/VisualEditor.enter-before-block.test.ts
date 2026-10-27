@@ -193,6 +193,133 @@ describe("Enter at the end of a paragraph before another block", () => {
     },
   );
 
+  describe("after typing at the end of a paragraph", () => {
+    const fixture = [
+      "Alpha one has a few words.",
+      "Bravo two sits in the middle.",
+      "- First item",
+      "Delta four closes it out.",
+    ].join("\n");
+
+    function typeAtEnd(editor: Editor, paragraph: string, text: string) {
+      let end = -1;
+      editor.state.doc.descendants((node, pos) => {
+        if (end < 0 && node.isTextblock && node.textContent === paragraph)
+          end = pos + node.nodeSize - 1;
+        return end < 0;
+      });
+      expect(end).toBeGreaterThan(0);
+      editor.commands.setTextSelection(end);
+      if (text) editor.view.dispatch(editor.state.tr.insertText(text));
+    }
+
+    function draftSuggestions(draft: string) {
+      const preview = previewSuggestionDraft(
+        createSuggestionDraftSession({
+          id: "typed-then-enter",
+          baseContent: fixture,
+          baseRevision: "one",
+          startedAt: "2026-10-20T00:00:00.000Z",
+        }),
+        draft,
+        null,
+      );
+      if (preview.status !== "ready")
+        throw new Error(`Expected a ready draft, got ${preview.status}`);
+      expect(preview.suggestions).toHaveLength(1);
+      return preview.suggestions;
+    }
+
+    function draftSpec(editor: Editor) {
+      const draft = docToNfm(editor.getJSON());
+      const presentations = documentEditorSuggestionPresentations({
+        savedSuggestions: [],
+        drafts: draftSuggestions(draft),
+        currentMarkdown: draft,
+        editingSuggestionId: null,
+        pendingSuggestionId: null,
+        transitions: new Map(),
+      });
+      expect(presentations).toHaveLength(1);
+      return {
+        id: presentations[0]!.id,
+        spec: suggestionHighlightSpec(editor.state.doc, presentations[0]!),
+      };
+    }
+
+    it.each([1, 2])(
+      "keeps highlighting the typed text after %s Enter press(es)",
+      (enters) => {
+        const { editor, dispose } = mountedEditor(fixture);
+        try {
+          typeAtEnd(editor, "Alpha one has a few words.", " More alpha.");
+          for (let index = 0; index < enters; index += 1)
+            expect(editor.commands.splitBlock()).toBe(true);
+          const { id, spec } = draftSpec(editor);
+          expect(spec).not.toBeNull();
+          setSuggestionHighlights(editor.view, { specs: [spec!] });
+          expect(highlightedText(editor, id)).toBe(" More alpha.");
+        } finally {
+          dispose();
+        }
+      },
+    );
+
+    it("highlights a list item added after another", () => {
+      const { editor, dispose } = mountedEditor(fixture);
+      try {
+        typeAtEnd(editor, "First item", "");
+        expect(editor.commands.splitListItem("listItem")).toBe(true);
+        editor.view.dispatch(editor.state.tr.insertText("Inserted item"));
+        const { id, spec } = draftSpec(editor);
+        expect(spec).not.toBeNull();
+        setSuggestionHighlights(editor.view, { specs: [spec!] });
+        expect(highlightedText(editor, id)).toBe("Inserted item");
+      } finally {
+        dispose();
+      }
+    });
+
+    it("shows a saved paragraph typed after a paragraph as its own block", () => {
+      const source = mountedEditor(fixture);
+      let presentation: VisualEditorSuggestion | null = null;
+      try {
+        typeAtEnd(source.editor, "Alpha one has a few words.", " More alpha.");
+        source.editor.commands.splitBlock();
+        source.editor.view.dispatch(
+          source.editor.state.tr.insertText("Alpha follow-up paragraph."),
+        );
+        const [draft] = draftSuggestions(docToNfm(source.editor.getJSON()));
+        presentation = suggestionPresentation(
+          { id: "saved", status: "pending", operations: draft!.operations },
+          fixture,
+        );
+      } finally {
+        source.dispose();
+      }
+      expect(presentation).not.toBeNull();
+      const { editor, dispose } = mountedEditor(fixture);
+      try {
+        const spec = suggestionHighlightSpec(editor.state.doc, presentation!);
+        expect(spec).not.toBeNull();
+        setSuggestionHighlights(editor.view, { specs: [spec!] });
+        expect(
+          Array.from(editor.view.dom.children, (child) => child.textContent),
+        ).toEqual([
+          "Alpha one has a few words. More alpha.",
+          "Alpha follow-up paragraph.",
+          "Bravo two sits in the middle.",
+          "First item",
+          "Delta four closes it out.",
+        ]);
+        expect(editor.view.dom.textContent).not.toContain("↵");
+        expect(docToNfm(editor.getJSON())).toBe(fixture);
+      } finally {
+        dispose();
+      }
+    });
+  });
+
   it("leaves a suggestion it cannot place out of the anchored ids", async () => {
     const saved = savedInsertion("Before heading.");
     const stale: VisualEditorSuggestion = {

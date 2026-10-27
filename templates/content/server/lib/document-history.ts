@@ -1,6 +1,10 @@
 import type { ActionRunContext } from "@agent-native/core/action";
 import { and, desc, eq, sql } from "drizzle-orm";
 
+import {
+  bulkChunkSizeForColumnCount,
+  chunks,
+} from "../../actions/_batch-utils.js";
 import type {
   DocumentHistoryActorKind,
   DocumentHistoryGroupKind,
@@ -119,6 +123,46 @@ export function resolveDocumentHistoryCause(
     origin: cause.origin ?? ctx?.caller ?? "internal",
     operation: cause.operation,
   };
+}
+
+/**
+ * Records the first checkpoint of documents just created, many in one
+ * statement. A new document has no history yet, so it gets only the "after"
+ * checkpoint recordDocumentHistoryTransition writes for it.
+ */
+export async function recordCreatedDocumentsHistory(args: {
+  db: ContentDb;
+  ownerEmail: string;
+  documents: Array<{
+    documentId: string;
+    title: string;
+    content: string;
+    cause: DocumentHistoryCause;
+  }>;
+  now: string;
+}): Promise<void> {
+  const checkpoints = args.documents.map((document) => ({
+    id: crypto.randomUUID(),
+    ownerEmail: args.ownerEmail,
+    documentId: document.documentId,
+    title: document.title,
+    content: document.content,
+    bodyRevision: null,
+    chatContext: serializeDocumentVersionChatContext(
+      document.cause.chatContext ??
+        documentVersionChatContextFromAction(document.cause.ctx),
+    ),
+    ...resolveDocumentHistoryCause(document.cause),
+    checkpointKind: "after",
+    createdAt: args.now,
+    updatedAt: args.now,
+  }));
+  if (checkpoints.length === 0) return;
+  // A few statements, each small enough for SQLite's cap on its values.
+  const size = bulkChunkSizeForColumnCount(Object.keys(checkpoints[0]!).length);
+  for (const chunk of chunks(checkpoints, size)) {
+    await args.db.insert(schema.documentVersions).values(chunk);
+  }
 }
 
 export async function recordDocumentHistoryTransition(args: {

@@ -3,13 +3,21 @@
 import type { MotionEasingVariable } from "@shared/motion-easing";
 import type { MotionNativeStyleInstance } from "@shared/motion-native-style";
 import { createMotionNativeStyleInstance } from "@shared/motion-native-style-runtime";
-import { act } from "react";
+import { act, useEffect, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  createMotionNativeStyleIdentity,
+  removeMotionNativeStyleAndReconcileSelection,
+  resolveMotionNativeStyleIdentity,
+  type MotionNativeStyleIdentity,
+} from "./motion-native-style-identity";
+import {
   MotionEasingPicker,
+  MotionBezierCurveEditor,
   MotionNativeStyleEditor,
+  easingPreviewPath,
   type MotionEasingPickerProps,
 } from "./MotionNativeStyleEditor";
 
@@ -35,6 +43,251 @@ const positionStyle: MotionNativeStyleInstance = {
 };
 
 describe("MotionNativeStyleEditor", () => {
+  it.each([
+    ["ease", "M 0 100 C 25 90, 25 0, 100 0"],
+    ["ease-in", "M 0 100 C 42 100, 100 0, 100 0"],
+    ["ease-out", "M 0 100 C 0 100, 58 0, 100 0"],
+    ["ease-in-out", "M 0 100 C 42 100, 58 0, 100 0"],
+  ])(
+    "renders the CSS %s curve without rewriting its source value",
+    async (ease, path) => {
+      const onChange = vi.fn();
+      await act(async () => {
+        root.render(
+          <MotionBezierCurveEditor
+            value={ease}
+            disabled={false}
+            onChange={onChange}
+            t={(key) => key}
+          />,
+        );
+      });
+
+      const preview = container.querySelector<SVGSVGElement>(
+        "svg[data-easing-curve]",
+      );
+      expect(preview?.dataset.easingCurve).toBe(ease);
+      expect(
+        preview?.querySelector("path[data-curve-path]")?.getAttribute("d"),
+      ).toBe(path);
+      expect(onChange).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ["step-start", "M 0 100 V 0 H 100"],
+    ["step-end", "M 0 100 H 100 V 0"],
+    ["steps(2, end)", "M 0 100 H 50 V 50 H 100 V 0"],
+    ["steps(2, start)", "M 0 50 H 50 V 0 H 100"],
+    ["steps(2, jump-none)", "M 0 100 H 50 V 0 H 100"],
+  ])(
+    "renders the CSS %s timing function as a step graph",
+    async (ease, path) => {
+      await act(async () => {
+        root.render(
+          <MotionBezierCurveEditor
+            value={ease}
+            disabled={false}
+            onChange={vi.fn()}
+            t={(key) => key}
+          />,
+        );
+      });
+
+      const preview = container.querySelector<SVGSVGElement>(
+        "svg[data-easing-curve]",
+      );
+      expect(preview?.dataset.easingCurve).toBe(ease);
+      expect(
+        preview?.querySelector("path[data-curve-path]")?.getAttribute("d"),
+      ).toBe(path);
+    },
+  );
+
+  it.each([
+    ["step-end", "M1 14 H15 V2"],
+    ["steps(2, end)", "M1 14 H8 V8 H15 V2"],
+    ["steps(2, start)", "M1 8 H8 V2 H15"],
+  ])(
+    "maps the CSS %s step graph into compact preview coordinates",
+    (ease, path) => {
+      expect(easingPreviewPath(ease)).toBe(path);
+    },
+  );
+
+  it("renders a piecewise CSS linear() curve without replacing the authored timing function", async () => {
+    const ease = "linear(0, 0.25 25%, 1 100%)";
+    await act(async () => {
+      root.render(
+        <MotionBezierCurveEditor
+          value={ease}
+          disabled={false}
+          onChange={vi.fn()}
+          t={(key) => key}
+        />,
+      );
+    });
+
+    const preview = container.querySelector<SVGSVGElement>(
+      "svg[data-easing-curve]",
+    );
+    expect(preview?.dataset.easingCurve).toBe(ease);
+    expect(
+      preview?.querySelector("path[data-curve-path]")?.getAttribute("d"),
+    ).toBe("M 0 100 L 25 75 L 100 0");
+  });
+
+  // oracle-change: CSS Easing Functions Level 2 §2.1.4 continues the nearest
+  // segment outside the provided stop range: https://www.w3.org/TR/css-easing-2/#output-of-a-linear-easing-function
+  it("extends CSS linear() stop previews along their nearest segments", async () => {
+    await act(async () => {
+      root.render(
+        <MotionBezierCurveEditor
+          value="linear(0 20%, 1 80%)"
+          disabled={false}
+          onChange={vi.fn()}
+          t={(key) => key}
+        />,
+      );
+    });
+
+    expect(
+      container
+        .querySelector("svg[data-easing-curve] path[data-curve-path]")
+        ?.getAttribute("d"),
+    ).toBe("M 0 133.33 L 20 100 L 80 0 L 100 -33.33");
+  });
+
+  // oracle-change: CSS Easing Functions Level 2 uses the first output for
+  // left extrapolation when the initial stop inputs are equal:
+  // https://drafts.csswg.org/css-easing-2/#output-of-a-linear-easing-function
+  it("clamps descending CSS linear() stop positions to the preceding stop", async () => {
+    await act(async () => {
+      root.render(
+        <MotionBezierCurveEditor
+          value="linear(0 80%, 1 20%)"
+          disabled={false}
+          onChange={vi.fn()}
+          t={(key) => key}
+        />,
+      );
+    });
+
+    expect(
+      container
+        .querySelector("svg[data-easing-curve] path[data-curve-path]")
+        ?.getAttribute("d"),
+    ).toBe("M 0 100 L 80 100 L 80 0 L 100 0");
+  });
+
+  // oracle-change: CSS Easing Functions Level 2 §2.1.4 selects the last point
+  // at an equal input, so intermediate points in a run are not outputs:
+  // https://www.w3.org/TR/css-easing-2/#output-of-a-linear-easing-function
+  it("draws only the output limits for CSS linear() stops at equal positions", async () => {
+    await act(async () => {
+      root.render(
+        <MotionBezierCurveEditor
+          value="linear(0, 0.4 50%, 0.9 50%, 0.6 50%, 1)"
+          disabled={false}
+          onChange={vi.fn()}
+          t={(key) => key}
+        />,
+      );
+    });
+
+    expect(
+      container
+        .querySelector("svg[data-easing-curve] path[data-curve-path]")
+        ?.getAttribute("d"),
+    ).toBe("M 0 100 L 50 60 L 50 40 L 100 0");
+  });
+
+  // oracle-change: CSS Easing Functions Level 2 uses the first output before
+  // the first duplicated input, then jumps to the last stop at that input:
+  // https://drafts.csswg.org/css-easing-2/#output-of-a-linear-easing-function
+  it("preserves the first output before duplicate initial CSS linear() stops", async () => {
+    await act(async () => {
+      root.render(
+        <MotionBezierCurveEditor
+          value="linear(0 20%, 0.4 20%, 1)"
+          disabled={false}
+          onChange={vi.fn()}
+          t={(key) => key}
+        />,
+      );
+    });
+
+    expect(
+      container
+        .querySelector("svg[data-easing-curve] path[data-curve-path]")
+        ?.getAttribute("d"),
+    ).toBe("M 0 100 L 20 100 L 20 60 L 100 0");
+  });
+
+  it.each(["steps(1, jump-none)", "steps(129, end)"])(
+    "does not draw invalid or unsupported CSS step counts: %s",
+    async (ease) => {
+      await act(async () => {
+        root.render(
+          <MotionBezierCurveEditor
+            value={ease}
+            disabled={false}
+            onChange={vi.fn()}
+            t={(key) => key}
+          />,
+        );
+      });
+
+      expect(container.querySelector("svg[data-easing-curve]")).toBeNull();
+    },
+  );
+
+  it("resolves source-identified styles after the list shifts", () => {
+    const styles = [
+      { ...positionStyle, sourceInstanceId: "first" },
+      { ...positionStyle, sourceInstanceId: "selected" },
+      { ...positionStyle, sourceInstanceId: "last" },
+    ];
+    const selection = createMotionNativeStyleIdentity(styles[1]!, 1);
+    const currentStyles = [styles[1]!, styles[2]!];
+
+    expect(
+      resolveMotionNativeStyleIdentity(currentStyles, "target-1", selection),
+    ).toEqual(createMotionNativeStyleIdentity(styles[1]!, 0));
+  });
+
+  it("keeps a stale selection on its original target when the canvas target changes", () => {
+    const staleSelection = {
+      ...createMotionNativeStyleIdentity(
+        { ...positionStyle, sourceInstanceId: undefined },
+        0,
+      ),
+      index: 0,
+    };
+    const currentStyles = [
+      {
+        ...positionStyle,
+        sourceInstanceId: undefined,
+        targetNodeId: "target-2",
+      },
+      {
+        ...positionStyle,
+        sourceInstanceId: undefined,
+        styleKey: "Rotation" as const,
+        targetNodeId: "target-1",
+      },
+      { ...positionStyle, sourceInstanceId: undefined },
+    ];
+
+    expect(
+      resolveMotionNativeStyleIdentity(
+        currentStyles,
+        "target-2",
+        staleSelection,
+      ),
+    ).toEqual(createMotionNativeStyleIdentity(currentStyles[2]!, 2));
+  });
+
   let container: HTMLDivElement;
   let root: Root;
 
@@ -233,12 +486,15 @@ describe("MotionNativeStyleEditor", () => {
   }
 
   async function setInputValue(input: HTMLInputElement, value: string) {
-    const valueSetter = Object.getOwnPropertyDescriptor(
-      HTMLInputElement.prototype,
-      "value",
-    )?.set;
     await act(async () => {
-      valueSetter?.call(input, value);
+      const valueDescriptor = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      );
+      if (typeof valueDescriptor?.set !== "function") {
+        throw new Error("Missing native input value setter");
+      }
+      valueDescriptor.set.call(input, value);
       input.dispatchEvent(new Event("input", { bubbles: true }));
       input.dispatchEvent(new Event("change", { bubbles: true }));
     });
@@ -281,9 +537,11 @@ describe("MotionNativeStyleEditor", () => {
     });
   }
 
-  async function openEasingPicker() {
+  async function openEasingPicker(
+    label = "designEditor.motion.animationStyles.easingPresets.easeOut",
+  ) {
     const trigger = document.body.querySelector<HTMLButtonElement>(
-      'button[aria-label="designEditor.motion.animationStyles.easingPresets.easeOut"]',
+      `button[aria-label="${label}"]`,
     );
     if (!trigger) throw new Error("Missing easing picker trigger");
     await act(async () => trigger.click());
@@ -291,6 +549,42 @@ describe("MotionNativeStyleEditor", () => {
       expect(trigger.getAttribute("aria-expanded")).toBe("true");
     });
   }
+
+  // oracle-change: CSS Easing Functions Level 2 §2.1.4 continues the nearest
+  // segment outside the provided stop range: https://www.w3.org/TR/css-easing-2/#output-of-a-linear-easing-function
+  it("renders a valid compact path for a selected CSS linear() easing", async () => {
+    await renderPicker({ value: "linear(0 20%, 1 80%)" });
+    await openEasingPicker("designEditor.motion.customBezier");
+
+    const preview = document.body.querySelector<SVGSVGElement>(
+      'svg[data-motion-easing-preview="custom-bezier"]',
+    );
+    expect(preview?.querySelector("path")?.getAttribute("d")).toBe(
+      "M1 18 L3.8 14 L12.2 2 L15 -2",
+    );
+    expect(preview?.querySelector("path")?.getAttribute("d")).not.toMatch(
+      /\bL\s+L\b/,
+    );
+  });
+
+  it("preserves a selected CSS linear() easing when activating its custom preset", async () => {
+    const value = "linear(0 20%, 1 80%)";
+    const onChange = vi.fn();
+    await renderPicker({ value, onChange });
+    await openEasingPicker("designEditor.motion.customBezier");
+
+    const customOption = Array.from(
+      document.body.querySelectorAll<HTMLButtonElement>(
+        'button[aria-label="designEditor.motion.customBezier"]',
+      ),
+    ).find((button) =>
+      button.querySelector('svg[data-motion-easing-preview="custom-bezier"]'),
+    );
+    if (!customOption) throw new Error("Missing custom easing option");
+    await act(async () => customOption.click());
+
+    expect(onChange).toHaveBeenCalledWith(value);
+  });
 
   it("orders easing presets with Hold first", async () => {
     await renderPicker();
@@ -331,6 +625,47 @@ describe("MotionNativeStyleEditor", () => {
       "designEditor.motion.animationStyles.easingPresets.slow",
       "designEditor.motion.customSpring",
     ]);
+  });
+
+  it("shows miniature curves and the selected state for each curve preset", async () => {
+    await renderPicker({
+      mode: "curve",
+      value: "cubic-bezier(0.42, 0, 1, 1)",
+    });
+    await openEasingPicker(
+      "designEditor.motion.animationStyles.easingPresets.easeIn",
+    );
+
+    const previews = Array.from(
+      document.body.querySelectorAll<SVGSVGElement>(
+        "[data-motion-easing-preview]",
+      ),
+    );
+    expect(previews).toHaveLength(9);
+    expect(
+      previews.every((preview) =>
+        /^M/.test(preview.querySelector("path")?.getAttribute("d") ?? ""),
+      ),
+    ).toBe(true);
+    expect(
+      document.body.querySelector<HTMLButtonElement>(
+        'button[aria-label="designEditor.motion.animationStyles.easingPresets.easeIn"][aria-pressed]',
+      )?.className,
+    ).toContain("bg-[var(--design-editor-selection-color)]");
+  });
+
+  it("renders spring preset curves in the spring-only picker", async () => {
+    await renderPicker({ mode: "spring", value: "spring(0.4)" });
+    await openEasingPicker("designEditor.motion.customSpring");
+
+    expect(
+      document.body.querySelectorAll("[data-motion-easing-preview]"),
+    ).toHaveLength(5);
+    expect(
+      document.body.querySelector<HTMLButtonElement>(
+        'button[aria-label="designEditor.motion.customSpring"][aria-pressed]',
+      )?.className,
+    ).toContain("bg-[var(--design-editor-selection-color)]");
   });
 
   it("renders a selected style row and localized source-backed controls", async () => {
@@ -446,6 +781,436 @@ describe("MotionNativeStyleEditor", () => {
     expect(
       curveGroup?.querySelectorAll('[data-curve-handle][role="button"]'),
     ).toHaveLength(2);
+  });
+
+  it("edits custom Size axes without discarding hidden dimensions", async () => {
+    const sizeStyle = createMotionNativeStyleInstance({
+      styleKey: "Size",
+      targetNodeId: "target-1",
+    });
+    const values = {
+      type: "custom",
+      axis: "xy",
+      startWidth: 61,
+      endWidth: 117,
+      startHeight: 72,
+      endHeight: 128,
+    } as const;
+    const onChange = vi.fn();
+    await render({
+      styles: [{ ...sizeStyle, props: { ...sizeStyle.props, ...values } }],
+      onChange,
+    });
+
+    async function ensureStyleDetails() {
+      if (
+        !document.body.querySelector(
+          '[data-motion-native-style-settings="Size"]',
+        )
+      ) {
+        await openStyleDetails();
+      }
+    }
+
+    async function chooseAxis(axis: "Both" | "X" | "Y") {
+      const trigger = document.body.querySelector<HTMLButtonElement>(
+        'button[aria-label="designEditor.motion.animationStyles.axis"]',
+      );
+      if (!trigger) throw new Error("Missing Size axis selector");
+      await act(async () => trigger.click());
+      const option = Array.from(
+        document.body.querySelectorAll<HTMLElement>('[role="option"]'),
+      ).find(
+        (candidate) =>
+          String(candidate.textContent).trim() ===
+          `designEditor.motion.animationStyles.axis${axis}`,
+      );
+      if (!option) throw new Error(`Missing Size axis option ${axis}`);
+      await act(async () => option.click());
+    }
+
+    function updatedStyle() {
+      const latest = onChange.mock.lastCall?.[0];
+      if (!latest) throw new Error("Size axis change was not saved");
+      return latest as MotionNativeStyleInstance;
+    }
+
+    function dimensionInput(label: string) {
+      return document.body.querySelector<HTMLInputElement>(
+        `input[aria-label="designEditor.motion.animationStyles.${label}"]`,
+      );
+    }
+
+    await ensureStyleDetails();
+    expect(dimensionInput("startWidth")?.value).toBe("61");
+    expect(dimensionInput("endWidth")?.value).toBe("117");
+    expect(dimensionInput("startHeight")?.value).toBe("72");
+    expect(dimensionInput("endHeight")?.value).toBe("128");
+
+    await chooseAxis("X");
+    const xStyle = updatedStyle();
+    expect(xStyle.props).toMatchObject({ ...values, axis: "x" });
+    await render({ styles: [xStyle], onChange });
+    await ensureStyleDetails();
+    expect(dimensionInput("startWidth")?.value).toBe("61");
+    expect(dimensionInput("endWidth")?.value).toBe("117");
+    expect(dimensionInput("startHeight")).toBeNull();
+    expect(dimensionInput("endHeight")).toBeNull();
+
+    await chooseAxis("Y");
+    const yStyle = updatedStyle();
+    expect(yStyle.props).toMatchObject({ ...values, axis: "y" });
+    await render({ styles: [yStyle], onChange });
+    await ensureStyleDetails();
+    expect(dimensionInput("startWidth")).toBeNull();
+    expect(dimensionInput("endWidth")).toBeNull();
+    expect(dimensionInput("startHeight")?.value).toBe("72");
+    expect(dimensionInput("endHeight")?.value).toBe("128");
+
+    await chooseAxis("Both");
+    expect(updatedStyle().props).toMatchObject(values);
+  });
+
+  it("syncs selection from either pane and keeps a closed style popover closed", async () => {
+    const scaleStyle = createMotionNativeStyleInstance({
+      styleKey: "Scale",
+      targetNodeId: "target-1",
+    });
+    const scaleIdentity = createMotionNativeStyleIdentity(scaleStyle, 1);
+    const styles = [positionStyle, scaleStyle];
+
+    function SelectionHarness() {
+      const [selectedStyle, setSelectedStyle] =
+        useState<MotionNativeStyleIdentity | null>(null);
+      const [, setRevision] = useState(0);
+
+      return (
+        <>
+          <button
+            type="button"
+            data-motion-select-native-style
+            data-test-select-scale
+            onClick={() => setSelectedStyle(scaleIdentity)}
+          >
+            Select Scale from timeline
+          </button>
+          <button
+            type="button"
+            data-test-rerender
+            onClick={() => setRevision((revision) => revision + 1)}
+          >
+            Rerender
+          </button>
+          <MotionNativeStyleEditor
+            styles={styles}
+            targetNodeId="target-1"
+            selectedStyle={selectedStyle ? { ...selectedStyle } : null}
+            onSelectedStyleChange={setSelectedStyle}
+            onChange={vi.fn()}
+            onRemove={vi.fn()}
+            t={(key) => key}
+          />
+        </>
+      );
+    }
+
+    await act(async () => root.render(<SelectionHarness />));
+
+    const styleRow = (label: string) =>
+      Array.from(
+        container.querySelectorAll<HTMLButtonElement>("li > button"),
+      ).find((button) => button.textContent?.trim() === label);
+    const selectScaleFromTimeline = container.querySelector<HTMLButtonElement>(
+      "[data-test-select-scale]",
+    )!;
+    const positionRow = styleRow(
+      "designEditor.motion.animationStyles.position",
+    )!;
+    const scaleRow = styleRow("designEditor.motion.animationStyles.scale")!;
+    await act(async () => positionRow.click());
+    expect(positionRow.getAttribute("aria-pressed")).toBe("true");
+    expect(scaleRow.getAttribute("aria-pressed")).toBe("false");
+    expect(
+      document.body.querySelector(
+        'button[aria-label="designEditor.motion.type"]',
+      ),
+    ).not.toBeNull();
+
+    await act(async () => scaleRow.click());
+    expect(scaleRow.getAttribute("aria-pressed")).toBe("true");
+    expect(positionRow.getAttribute("aria-pressed")).toBe("false");
+    expect(
+      document.body.querySelector(
+        '[data-motion-native-style-settings="Scale"][data-state="open"]',
+      ),
+    ).not.toBeNull();
+
+    await act(async () => positionRow.click());
+    expect(positionRow.getAttribute("aria-pressed")).toBe("true");
+    expect(
+      document.body.querySelector(
+        '[data-motion-native-style-settings="Position"][data-state="open"]',
+      ),
+    ).not.toBeNull();
+
+    await act(async () => {
+      selectScaleFromTimeline.focus();
+      selectScaleFromTimeline.click();
+    });
+    expect(scaleRow.getAttribute("aria-pressed")).toBe("true");
+    expect(
+      styleRow("designEditor.motion.animationStyles.position")?.getAttribute(
+        "aria-pressed",
+      ),
+    ).toBe("false");
+    expect(
+      document.body.querySelector(
+        'button[aria-label="designEditor.motion.type"]',
+      ),
+    ).toBeNull();
+
+    await act(async () =>
+      styleRow("designEditor.motion.animationStyles.scale")!.click(),
+    );
+    expect(
+      document.body.querySelector(
+        'button[aria-label="designEditor.motion.type"]',
+      ),
+    ).not.toBeNull();
+    await act(async () =>
+      styleRow("designEditor.motion.animationStyles.scale")!.click(),
+    );
+    expect(
+      document.body.querySelector(
+        'button[aria-label="designEditor.motion.type"]',
+      ),
+    ).toBeNull();
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>("[data-test-rerender]")!
+        .click(),
+    );
+    expect(
+      document.body.querySelector(
+        'button[aria-label="designEditor.motion.type"]',
+      ),
+    ).toBeNull();
+  });
+
+  it("reconciles a removed or previous-target selection to the current styles", async () => {
+    const styles = [
+      createMotionNativeStyleInstance({
+        styleKey: "Position",
+        targetNodeId: "target-1",
+      }),
+      createMotionNativeStyleInstance({
+        styleKey: "Scale",
+        targetNodeId: "target-1",
+      }),
+      createMotionNativeStyleInstance({
+        styleKey: "Rotation",
+        targetNodeId: "target-2",
+      }),
+      createMotionNativeStyleInstance({
+        styleKey: "Opacity",
+        targetNodeId: "target-2",
+      }),
+    ];
+    const initialSelection = createMotionNativeStyleIdentity(styles[0]!, 0);
+
+    function ReconciliationHarness() {
+      const [currentStyles, setStyles] = useState(styles);
+      const [targetNodeId, setTargetNodeId] = useState("target-1");
+      const [selectedStyle, setSelectedStyle] =
+        useState<MotionNativeStyleIdentity | null>(initialSelection);
+      const previousTargetNodeIdRef = useRef(targetNodeId);
+      useEffect(() => {
+        const targetChanged = previousTargetNodeIdRef.current !== targetNodeId;
+        previousTargetNodeIdRef.current = targetNodeId;
+        const resolvedSelection = resolveMotionNativeStyleIdentity(
+          currentStyles,
+          targetNodeId,
+          targetChanged ? null : selectedStyle,
+        );
+        if (
+          resolvedSelection?.key === selectedStyle?.key &&
+          resolvedSelection?.sourceInstanceId ===
+            selectedStyle?.sourceInstanceId
+        ) {
+          return;
+        }
+        setSelectedStyle(resolvedSelection);
+      }, [currentStyles, selectedStyle, targetNodeId]);
+
+      return (
+        <>
+          <button
+            type="button"
+            data-test-switch-target
+            onClick={() => setTargetNodeId("target-2")}
+          >
+            Switch target
+          </button>
+          <button
+            type="button"
+            data-test-remove-selected-style
+            onClick={() => {
+              if (!selectedStyle) return;
+              setStyles((current) =>
+                current.filter((_, index) => index !== selectedStyle.index),
+              );
+            }}
+          >
+            Remove selected style
+          </button>
+          <output data-test-selected-style>
+            {selectedStyle
+              ? `${selectedStyle.targetNodeId}:${selectedStyle.styleKey}`
+              : "none"}
+          </output>
+          <MotionNativeStyleEditor
+            styles={currentStyles}
+            targetNodeId={targetNodeId}
+            selectedStyle={selectedStyle}
+            onSelectedStyleChange={setSelectedStyle}
+            onChange={vi.fn()}
+            onRemove={vi.fn()}
+            t={(key) => key}
+          />
+        </>
+      );
+    }
+
+    await act(async () => root.render(<ReconciliationHarness />));
+    const selection = () =>
+      container.querySelector("[data-test-selected-style]")?.textContent;
+    const styleRow = (label: string) =>
+      Array.from(
+        container.querySelectorAll<HTMLButtonElement>("li > button"),
+      ).find((button) => button.textContent?.trim() === label);
+
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>("[data-test-switch-target]")!
+        .click(),
+    );
+    expect(selection()).toBe("target-2:Opacity");
+    expect(
+      styleRow("designEditor.motion.animationStyles.opacity")?.getAttribute(
+        "aria-pressed",
+      ),
+    ).toBe("true");
+    expect(
+      document.body.querySelector(
+        '[data-motion-native-style-settings="Opacity"]',
+      ),
+    ).toBeNull();
+
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>("[data-test-remove-selected-style]")!
+        .click(),
+    );
+    expect(selection()).toBe("target-2:Rotation");
+    expect(
+      styleRow("designEditor.motion.animationStyles.rotation")?.getAttribute(
+        "aria-pressed",
+      ),
+    ).toBe("true");
+
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>("[data-test-remove-selected-style]")!
+        .click(),
+    );
+    expect(selection()).toBe("none");
+    expect(
+      document.body.querySelector(
+        '[data-motion-native-style-settings="Rotation"]',
+      ),
+    ).toBeNull();
+  });
+
+  it("keeps the selected inspector style when an earlier same-type row is removed", async () => {
+    const styles = [
+      {
+        ...positionStyle,
+        sourceInstanceId: undefined,
+        props: { ...positionStyle.props, distance: 10 },
+      },
+      {
+        ...positionStyle,
+        sourceInstanceId: undefined,
+        props: { ...positionStyle.props, distance: 20 },
+      },
+      {
+        ...positionStyle,
+        sourceInstanceId: undefined,
+        props: { ...positionStyle.props, distance: 30 },
+      },
+    ];
+
+    function RemovalHarness() {
+      const [currentStyles, setStyles] =
+        useState<MotionNativeStyleInstance[]>(styles);
+      const [selectedStyle, setSelectedStyle] =
+        useState<MotionNativeStyleIdentity | null>(
+          createMotionNativeStyleIdentity(styles[1]!, 1),
+        );
+      const selectedDistance =
+        currentStyles[selectedStyle?.index ?? -1]?.props.distance ?? "none";
+      const renderedDistance =
+        typeof selectedDistance === "object"
+          ? JSON.stringify(selectedDistance)
+          : String(selectedDistance);
+
+      return (
+        <>
+          <output data-test-selected-distance>{renderedDistance}</output>
+          <MotionNativeStyleEditor
+            styles={currentStyles}
+            targetNodeId="target-1"
+            selectedStyle={selectedStyle}
+            onSelectedStyleChange={setSelectedStyle}
+            onChange={vi.fn()}
+            onRemove={(identity) => {
+              const result = removeMotionNativeStyleAndReconcileSelection(
+                currentStyles,
+                selectedStyle,
+                identity,
+                "target-1",
+              );
+              setStyles(result.styles);
+              setSelectedStyle(result.selection);
+            }}
+            t={(key) => key}
+          />
+        </>
+      );
+    }
+
+    await act(async () => root.render(<RemovalHarness />));
+    const positionRows = Array.from(
+      container.querySelectorAll<HTMLElement>("li"),
+    );
+    await act(async () => {
+      positionRows[0]!
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label^="designEditor.motion.animationStyles.removeAnimation"]',
+        )!
+        .click();
+    });
+
+    expect(
+      container.querySelector("[data-test-selected-distance]")?.textContent,
+    ).toBe("20");
+    expect(
+      Array.from(
+        container.querySelectorAll<HTMLButtonElement>(
+          "button[data-motion-native-style-trigger]",
+        ),
+      ).map((button) => button.getAttribute("aria-pressed")),
+    ).toEqual(["true", "false"]);
   });
 
   it("edits native TextStagger controls without discarding source props", async () => {
@@ -1332,11 +2097,13 @@ describe("MotionNativeStyleEditor", () => {
     const bounceLabel = Array.from(
       document.body.querySelectorAll<HTMLLabelElement>("label"),
     ).find((label) =>
-      label.textContent?.includes("designEditor.motion.bounce"),
+      String(label.textContent).includes("designEditor.motion.bounce"),
     );
     const bounceInput = bounceLabel?.querySelector<HTMLInputElement>("input");
     if (!bounceInput) throw new Error("Missing spring Bounce input");
+    await act(async () => bounceInput.focus());
     await setInputValue(bounceInput, "0.42");
+    await act(async () => bounceInput.blur());
     await clickButtonWithText(
       "designEditor.motion.animationStyles.easingVariable.create",
     );
@@ -1602,7 +2369,88 @@ describe("MotionNativeStyleEditor", () => {
     );
   });
 
-  it("shows the selected spring curve with one Bounce control and preserves settle", async () => {
+  it("does not rewrite an untouched spring Bounce value when focus leaves it", async () => {
+    const styleWithSpring = {
+      ...positionStyle,
+      props: { ...positionStyle.props, easing: "spring(0.125)" },
+    };
+    const onChange = vi.fn();
+    await render({ styles: [styleWithSpring], onChange });
+    await openStyleDetails();
+    await openCurveEditor();
+
+    const bounceLabel = Array.from(
+      document.body.querySelectorAll<HTMLLabelElement>("label"),
+    ).find((label) =>
+      String(label.textContent).includes("designEditor.motion.bounce"),
+    );
+    const bounceInput = bounceLabel?.querySelector<HTMLInputElement>("input");
+    if (!bounceInput) throw new Error("Missing spring Bounce input");
+
+    onChange.mockClear();
+    await act(async () => bounceInput.focus());
+    await act(async () => bounceInput.blur());
+
+    expect(onChange).not.toHaveBeenCalled();
+    expect(bounceInput.value).toBe("0.125");
+  });
+
+  it("resets a clamped Bounce draft when it normalizes to the stored value", async () => {
+    const styleWithSpring = {
+      ...positionStyle,
+      props: { ...positionStyle.props, easing: "spring(1)" },
+    };
+    const onChange = vi.fn();
+    await render({ styles: [styleWithSpring], onChange });
+    await openStyleDetails();
+    await openCurveEditor();
+
+    const bounceLabel = Array.from(
+      document.body.querySelectorAll<HTMLLabelElement>("label"),
+    ).find((label) =>
+      String(label.textContent).includes("designEditor.motion.bounce"),
+    );
+    const bounceInput = bounceLabel?.querySelector<HTMLInputElement>("input");
+    if (!bounceInput) throw new Error("Missing spring Bounce input");
+
+    onChange.mockClear();
+    await act(async () => bounceInput.focus());
+    await setInputValue(bounceInput, "2");
+    await act(async () => bounceInput.blur());
+
+    expect(onChange).not.toHaveBeenCalled();
+    expect(bounceInput.value).toBe("1");
+  });
+
+  it("restores an invalid Bounce draft when it blurs", async () => {
+    const styleWithSpring = {
+      ...positionStyle,
+      props: { ...positionStyle.props, easing: "spring(0.69, 0.5)" },
+    };
+    const onChange = vi.fn();
+    await render({ styles: [styleWithSpring], onChange });
+    await openStyleDetails();
+    await openCurveEditor();
+
+    const bounceLabel = Array.from(
+      document.body.querySelectorAll<HTMLLabelElement>("label"),
+    ).find((label) =>
+      String(label.textContent).includes("designEditor.motion.bounce"),
+    );
+    const bounceInput = bounceLabel?.querySelector<HTMLInputElement>("input");
+    if (!bounceInput) throw new Error("Missing spring Bounce input");
+
+    onChange.mockClear();
+    await act(async () => bounceInput.focus());
+    await setInputValue(bounceInput, "invalid");
+    expect(bounceInput.value).toBe("invalid");
+    await act(async () => bounceInput.blur());
+
+    expect(onChange).not.toHaveBeenCalled();
+    expect(bounceInput.value).toBe("0.69");
+  });
+
+  it("preserves an intermediate decimal in Bounce until blur, then commits it", async () => {
     const styleWithSpring = {
       ...positionStyle,
       props: { ...positionStyle.props, easing: "spring(0.69, 0.5)" },
@@ -1643,26 +2491,163 @@ describe("MotionNativeStyleEditor", () => {
     const bounceLabel = Array.from(
       document.body.querySelectorAll<HTMLLabelElement>("label"),
     ).find((label) =>
-      label.textContent?.includes("designEditor.motion.bounce"),
+      String(label.textContent).includes("designEditor.motion.bounce"),
     );
     const bounceInput = bounceLabel?.querySelector<HTMLInputElement>("input");
-    expect(bounceInput).not.toBeNull();
+    if (!bounceInput) throw new Error("Missing spring Bounce input");
     expect(
       Array.from(document.body.querySelectorAll("label")).some((label) =>
-        label.textContent?.includes(
+        String(label.textContent).includes(
           "designEditor.motion.animationStyles.settle",
         ),
       ),
     ).toBe(false);
 
-    const valueSetter = Object.getOwnPropertyDescriptor(
-      HTMLInputElement.prototype,
-      "value",
-    )?.set;
-    await act(async () => {
-      valueSetter?.call(bounceInput, "0.45");
-      bounceInput?.dispatchEvent(new Event("input", { bubbles: true }));
-    });
+    onChange.mockClear();
+    await act(async () => bounceInput.focus());
+    expect(onChange).not.toHaveBeenCalled();
+    await setInputValue(bounceInput, "0.");
+    expect(bounceInput.value).toBe("0.");
+    expect(onChange).not.toHaveBeenCalled();
+    await setInputValue(bounceInput, "0.45");
+    expect(bounceInput.value).toBe("0.45");
+    expect(onChange).not.toHaveBeenCalled();
+    await act(async () => bounceInput.blur());
+    expect(onChange).toHaveBeenLastCalledWith(
+      {
+        ...styleWithSpring,
+        props: { ...styleWithSpring.props, easing: "spring(0.45, 0.5)" },
+      },
+      expect.objectContaining({ index: 0, styleKey: "Position" }),
+    );
+  });
+
+  it("preserves settle precision when editing only Bounce", async () => {
+    const styleWithSpring = {
+      ...positionStyle,
+      props: { ...positionStyle.props, easing: "spring(0.69, 0.123456)" },
+    };
+    const onChange = vi.fn();
+    await render({ styles: [styleWithSpring], onChange });
+    await openStyleDetails();
+    await openCurveEditor();
+
+    const bounceLabel = Array.from(
+      document.body.querySelectorAll<HTMLLabelElement>("label"),
+    ).find((label) =>
+      String(label.textContent).includes("designEditor.motion.bounce"),
+    );
+    const bounceInput = bounceLabel?.querySelector<HTMLInputElement>("input");
+    if (!bounceInput) throw new Error("Missing spring Bounce input");
+
+    await act(async () => bounceInput.focus());
+    await setInputValue(bounceInput, "0.45");
+    await act(async () => bounceInput.blur());
+
+    expect(onChange).toHaveBeenLastCalledWith(
+      {
+        ...styleWithSpring,
+        props: {
+          ...styleWithSpring.props,
+          easing: "spring(0.45, 0.123456)",
+        },
+      },
+      expect.objectContaining({ index: 0, styleKey: "Position" }),
+    );
+  });
+
+  it("keeps a dirty Bounce draft when switching away from and back to Spring", async () => {
+    const styleWithSpring = {
+      ...positionStyle,
+      props: { ...positionStyle.props, easing: "spring(0.69, 0.5)" },
+    };
+    const onChange = vi.fn();
+    await render({ styles: [styleWithSpring], onChange });
+    await openStyleDetails();
+    await openCurveEditor();
+
+    const bounceInput = Array.from(
+      document.body.querySelectorAll<HTMLLabelElement>("label"),
+    )
+      .find((label) =>
+        String(label.textContent).includes("designEditor.motion.bounce"),
+      )
+      ?.querySelector<HTMLInputElement>("input");
+    if (!bounceInput) throw new Error("Missing spring Bounce input");
+    await setInputValue(bounceInput, "0.45");
+
+    const curveTab = Array.from(
+      document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
+    ).find((tab) => tab.textContent === "designEditor.motion.curveTab");
+    if (!curveTab) throw new Error("Missing curve tab");
+    await act(async () =>
+      curveTab.dispatchEvent(
+        new MouseEvent("mousedown", {
+          bubbles: true,
+          button: 0,
+          ctrlKey: false,
+        }),
+      ),
+    );
+
+    const curveStyle = onChange.mock.lastCall?.[0] as
+      | MotionNativeStyleInstance
+      | undefined;
+    expect(curveStyle?.props.easing).toBe("cubic-bezier(0, 0, 0.58, 1)");
+    if (!curveStyle) throw new Error("Curve tab did not update the easing");
+
+    await render({ styles: [curveStyle], onChange });
+    onChange.mockClear();
+    const springTab = Array.from(
+      document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
+    ).find((tab) => tab.textContent === "designEditor.motion.springTab");
+    if (!springTab) throw new Error("Missing spring tab");
+    await act(async () =>
+      springTab.dispatchEvent(
+        new MouseEvent("mousedown", {
+          bubbles: true,
+          button: 0,
+          ctrlKey: false,
+        }),
+      ),
+    );
+
+    expect(onChange).toHaveBeenLastCalledWith(
+      {
+        ...curveStyle,
+        props: { ...curveStyle.props, easing: "spring(0.45, 0.5)" },
+      },
+      expect.objectContaining({ index: 0, styleKey: "Position" }),
+    );
+  });
+
+  it("commits a dirty Bounce draft when the style editor closes before blur", async () => {
+    const styleWithSpring = {
+      ...positionStyle,
+      props: { ...positionStyle.props, easing: "spring(0.69, 0.5)" },
+    };
+    const onChange = vi.fn();
+    await render({ styles: [styleWithSpring], onChange });
+    await openStyleDetails();
+    await openCurveEditor();
+
+    const bounceInput = Array.from(
+      document.body.querySelectorAll<HTMLLabelElement>("label"),
+    )
+      .find((label) =>
+        String(label.textContent).includes("designEditor.motion.bounce"),
+      )
+      ?.querySelector<HTMLInputElement>("input");
+    if (!bounceInput) throw new Error("Missing spring Bounce input");
+    await setInputValue(bounceInput, "0.45");
+    onChange.mockClear();
+
+    const closeButton = document.body.querySelector<HTMLButtonElement>(
+      'button[aria-label="designEditor.motion.animationStyles.close"]',
+    );
+    if (!closeButton) throw new Error("Missing style editor close button");
+    await act(async () => closeButton.click());
+
     expect(onChange).toHaveBeenLastCalledWith(
       {
         ...styleWithSpring,
@@ -1727,6 +2712,56 @@ describe("MotionNativeStyleEditor", () => {
           easing: positionStyle.props.easing,
           futureProperty: positionStyle.props.futureProperty,
         }),
+      }),
+      expect.objectContaining({ styleKey: "Position", index: 0 }),
+    );
+  });
+
+  it("keeps sequential Text, Position, and Scale style changes selectable", async () => {
+    const textStyle = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "target-1",
+    });
+    const onTextChange = vi.fn();
+    await render({ styles: [textStyle], onChange: onTextChange });
+    await openStyleDetails();
+    await selectOption(
+      document.body.querySelector<HTMLButtonElement>(
+        'button[aria-label="designEditor.motion.animationStyles.text"]',
+      )!,
+      "designEditor.motion.animationStyles.position",
+    );
+
+    const position = onTextChange.mock.lastCall?.[0];
+    expect(position).toMatchObject({
+      styleKey: "Position",
+      props: {
+        type: "slide_in",
+        direction: "left",
+        distance: 200,
+      },
+    });
+    if (!position) throw new Error("Text style did not switch to Position");
+    const onPositionChange = vi.fn();
+    await render({ styles: [position], onChange: onPositionChange });
+    if (
+      !document.body.querySelector(
+        'button[aria-label="designEditor.motion.animationStyles.position"]',
+      )
+    ) {
+      await openStyleDetails();
+    }
+    await selectOption(
+      document.body.querySelector<HTMLButtonElement>(
+        'button[aria-label="designEditor.motion.animationStyles.position"]',
+      )!,
+      "designEditor.motion.animationStyles.scale",
+    );
+
+    expect(onPositionChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        styleKey: "Scale",
+        props: expect.objectContaining({ type: "scaleIn", amount: 120 }),
       }),
       expect.objectContaining({ styleKey: "Position", index: 0 }),
     );

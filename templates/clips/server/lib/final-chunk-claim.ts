@@ -114,7 +114,7 @@ function phaseOf(
 }
 
 async function readRow(recordingId: string, ownerEmail: string) {
-  const [row] = await getDb()
+  const [row = null] = await getDb()
     .select({ status: schema.recordings.status })
     .from(schema.recordings)
     .where(
@@ -123,7 +123,7 @@ async function readRow(recordingId: string, ownerEmail: string) {
         ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
       ),
     );
-  return row ?? null;
+  return row;
 }
 
 /**

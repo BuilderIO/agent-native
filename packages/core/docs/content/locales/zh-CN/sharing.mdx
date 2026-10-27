@@ -173,6 +173,8 @@ const shared = useChatThreadList({ ownership: "shared", pageSize: 50 });
 
 请求失败会设置 `error`，并保留已加载的行。它不会看起来像空列表。`<ShareButton>` 和 `<ShareDialog>` 会在保存后刷新已挂载的聊天列表。如果你以其他方式更改了聊天的共享，请调用 `notifyChatThreadsUpdated()`，以便已挂载的列表重新获取。
 
+置顶状态按用户分别保存：共享聊天的 `pinnedAt` 也代表调用者自己的置顶，一览和搜索按此值排序。`useChatThreads().pinThread(id, pinned)` 保持不变。两个钩子均提供共享聊天的 `hideThread(id, hidden)`。隐藏聊天默认不出现在列表或搜索中，设置 `includeHidden: true` 可返回它们；列表与单条读取包含调用者的 `hiddenAt`。仍可通过 ID 或链接打开。所有者不能隐藏自己的聊天，应使用归档；重命名和归档仍仅限所有者。隐藏被拒时抛出 `ChatThreadMutationError`（`status`：所有者为403，无权限为404），成功返回 `true`。HTTP：`POST /_agent-native/agent-chat/threads/:id/hide`，请求体为 `{ hidden: boolean }`；列表和搜索用 `includeHidden=1`。`chat-history` 支持 `pin`、`unpin`、`hide`、`unhide` 和带 `includeHidden: true` 的搜索。权限撤销后，保留的个人状态不会显示；删除聊天会删除该状态。
+
 ## 与UI相同型号、代理商 {#agent-and-ui}
 
 框架在每个模板中自动安装这些 actions - 代理将它们称为工具，UI 通过 `useActionQuery` / `useActionMutation` 调用它们：
@@ -361,3 +363,9 @@ For resources that execute code or carry elevated trust (like extensions), set `
 - [**身份验证**](/docs/authentication) — 会话、组织以及身份如何流入请求上下文
 - [**Extensions**](/docs/extensions#sharing) — 沙盒化迷你应用表面中的共享
 - [**创建模板**](/docs/creating-templates) — 将 `ownableColumns` 接入新模板的架构
+
+## 共享聊天记录
+
+`@agent-native/toolkit/app/chat/ownership-history` 提供 `useOwnershipChatHistory()` 和 `OwnershipChatHistoryRail`，用于分别显示自己的聊天和共享聊天的侧边栏。共享行会显示所有者和访问依据。每个分区独立分页，刷新失败时仍保留已加载的行和本地更改。
+
+活动的空草稿在等待首次保存期间仍可选择和运行。确认已保存之前，应隐藏置顶、重命名和归档操作，适配器也会拒绝强行调用这些回调。`ownDraftRows` 会提供自有草稿的持久化来源信息，服务器列表中已确认归属的行仍保留常规操作。对于自定义 `OwnDraftRow` 值，仅当确认服务器已保存该行且当前用户拥有该行时，才将可选字段 `persisted?: boolean` 设为 `true`。不要根据消息数量或活动 ID 推断是否已保存。角色、隐私以及活动草稿是否为空是彼此独立的信息。

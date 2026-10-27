@@ -27,6 +27,11 @@ import {
 } from "./extensions/NotionExtensions";
 import { isLocalEditorEdit } from "./VisualEditor";
 
+function defined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) throw new Error("Missing value");
+  return value;
+}
+
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
@@ -376,6 +381,42 @@ describe("BubbleToolbar", () => {
     expect(onComment).toHaveBeenCalledOnce();
     expect(onComment.mock.calls[0]?.[0]).toBe("Comment");
     expect(onComment.mock.calls[0]?.[3]).toEqual({ from: 1, to: 8 });
+  });
+
+  it("quotes a selection across paragraphs as its anchor text", () => {
+    editorElement = document.createElement("div");
+    toolbarElement = document.createElement("div");
+    document.body.append(editorElement, toolbarElement);
+    editor = new Editor({
+      element: editorElement,
+      extensions: [StarterKit],
+      content: "<p>Alpha ends here.</p><p>Bravo starts</p>",
+    });
+    editor.commands.setTextSelection({ from: 12, to: 24 });
+    const onComment = vi.fn();
+
+    root = createRoot(toolbarElement);
+    act(() =>
+      root!.render(<BubbleToolbar editor={editor!} onComment={onComment} />),
+    );
+    act(() => {
+      editor!.view.dom.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "m",
+          metaKey: true,
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+    expect(onComment).toHaveBeenCalledOnce();
+    const [quotedText, , anchor, range] = onComment.mock.calls[0]!;
+    // The highlight's text, which the comment card checks the quote against.
+    expect(quotedText).toBe("here.Bravo");
+    expect(anchor.quotedText).toBe(quotedText);
+    expect(range).toEqual({ from: 12, to: 24 });
   });
 
   it("offers only Comment for text selected on a read-only page", () => {
@@ -1014,9 +1055,9 @@ describe("BubbleToolbar", () => {
     toolbarButton.focus();
     const shows = (from: number, to: number) =>
       shouldShowBubbleToolbar({
-        editor: editor!,
-        element: toolbarElement!,
-        state: editor!.state,
+        editor: defined(editor),
+        element: defined(toolbarElement),
+        state: defined(editor).state,
         from,
         to,
       });

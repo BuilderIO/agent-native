@@ -77,8 +77,8 @@ test("image border and outline remain separate inside and outside strokes", asyn
   await expect(positions.nth(0)).toHaveText("Inside");
   await expect(positions.nth(1)).toHaveText("Outside");
   await expect(weights).toHaveCount(2);
-  await expect(weights.nth(0)).toHaveValue("9px");
-  await expect(weights.nth(1)).toHaveValue("9px");
+  await expect(weights.nth(0)).toHaveValue("9");
+  await expect(weights.nth(1)).toHaveValue("9");
 
   await stroke.getByRole("button", { name: "Remove layer" }).first().click();
   const image = designFrame(page, screenId).locator(
@@ -108,7 +108,7 @@ test("image border and outline remain separate inside and outside strokes", asyn
   await expect(reloadedStroke.getByRole("combobox")).toHaveText("Outside");
   await expect(
     reloadedStroke.locator('input[aria-label="Weight"]'),
-  ).toHaveValue("9px");
+  ).toHaveValue("9");
 });
 
 async function createSecondScreen(page: Page, designId: string) {
@@ -706,10 +706,10 @@ test("pasting a 17 by 9 SVG keeps the selected layer at its copied size", async 
   await expect(selectedLayer).toHaveAttribute("aria-selected", "true");
   await expect(
     page.getByRole("textbox", { name: "W size in pixels" }),
-  ).toHaveValue("17px");
+  ).toHaveValue("17");
   await expect(
     page.getByRole("textbox", { name: "H size in pixels" }),
-  ).toHaveValue("9px");
+  ).toHaveValue("9");
 });
 
 test("Figma frame paste uses the live Design scene and updates the selected frame inspector", async ({
@@ -800,10 +800,10 @@ test("Figma frame paste uses the live Design scene and updates the selected fram
   await expect(pastedRow).toHaveAttribute("aria-selected", "true");
   await expect(
     page.getByRole("textbox", { name: "W size in pixels" }),
-  ).toHaveValue("104px");
+  ).toHaveValue("104");
   await expect(
     page.getByRole("textbox", { name: "H size in pixels" }),
-  ).toHaveValue("72px");
+  ).toHaveValue("72");
   await fillHexInspector(page, "4A70C8");
 
   await expect
@@ -819,10 +819,10 @@ test("Figma frame paste uses the live Design scene and updates the selected fram
   await expect(reloadedRow).toHaveAttribute("aria-selected", "true");
   await expect(
     page.getByRole("textbox", { name: "W size in pixels" }),
-  ).toHaveValue("104px");
+  ).toHaveValue("104");
   await expect(
     page.getByRole("textbox", { name: "H size in pixels" }),
-  ).toHaveValue("72px");
+  ).toHaveValue("72");
   await fillHexInspector(page, "4A70C8");
   await expect
     .poll(() =>

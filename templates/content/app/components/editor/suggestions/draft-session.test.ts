@@ -7,12 +7,14 @@ import {
   createSuggestionDraftSession,
   draftSuggestionsForSession,
   editableSuggestionDraft,
+  forgetSuggestionProposalCreationIdempotencyKey,
   freshestSavedSuggestions,
   planSuggestionDraftPersistence,
   previewSuggestionDraft,
   recordSuggestionReplacementIntent,
   saveUnlessSuggestionChanged,
   suggestionAmendmentIdempotencyKey,
+  suggestionProposalCreationIdempotencyKey,
   suggestionDraftOperations,
   suggestionOperationKey,
   suggestionSessionVisuals,
@@ -1145,6 +1147,64 @@ describe("suggestion draft session", () => {
 
     expect(new Set([firstA, b, secondA]).size).toBe(3);
     expect(suggestionAmendmentIdempotencyKey(keys, at(3), "A")).toBe(secondA);
+  });
+
+  it("gives a proposal creation a new key unless it retries the same request", () => {
+    const keys = new Map<string, string>();
+    const request = (proposalId: string | undefined, text: string) => ({
+      resourceType: "document",
+      resourceId: "page",
+      adapterKind: "content.document-markdown",
+      baseRevision: "body:1",
+      summary: "Suggest edits",
+      proposalId,
+      suggestions: [
+        {
+          summary: "Suggest edits",
+          operations: [{ kind: "insert_text", after: { changedText: text } }],
+        },
+      ],
+    });
+    const first = suggestionProposalCreationIdempotencyKey(
+      keys,
+      request(undefined, "A"),
+    );
+
+    expect(
+      suggestionProposalCreationIdempotencyKey(keys, request(undefined, "A")),
+    ).toBe(first);
+    // Undo withdrew A after its proposal was recorded, so redoing A appends to
+    // that proposal; the server would refuse the request under A's first key.
+    const redoneA = suggestionProposalCreationIdempotencyKey(
+      keys,
+      request("proposal", "A"),
+    );
+    const b = suggestionProposalCreationIdempotencyKey(
+      keys,
+      request("proposal", "B"),
+    );
+    expect(new Set([first, redoneA, b]).size).toBe(3);
+    expect(
+      suggestionProposalCreationIdempotencyKey(keys, {
+        ...request("proposal", "A"),
+        idempotencyKey: redoneA,
+      }),
+    ).toBe(redoneA);
+
+    // Once recorded or refused, the same request is a new creation, not a
+    // replay of the suggestion an undo has since withdrawn.
+    forgetSuggestionProposalCreationIdempotencyKey(keys, {
+      ...request("proposal", "A"),
+      idempotencyKey: redoneA,
+    });
+    const againA = suggestionProposalCreationIdempotencyKey(
+      keys,
+      request("proposal", "A"),
+    );
+    expect(againA).not.toBe(redoneA);
+    expect(
+      suggestionProposalCreationIdempotencyKey(keys, request("proposal", "B")),
+    ).toBe(b);
   });
 });
 

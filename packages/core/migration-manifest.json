@@ -364,18 +364,6 @@
         "RealtimeVoiceModeCopy": {
           "to": "@agent-native/toolkit/app/chat"
         },
-        "RealtimeVoiceModeDock": {
-          "to": "@agent-native/toolkit/app/chat"
-        },
-        "RealtimeVoiceModeDockProps": {
-          "to": "@agent-native/toolkit/app/chat"
-        },
-        "RealtimeVoiceModeEntry": {
-          "to": "@agent-native/toolkit/app/chat"
-        },
-        "RealtimeVoiceModeEntryProps": {
-          "to": "@agent-native/toolkit/app/chat"
-        },
         "RealtimeVoiceModeInlineSettings": {
           "to": "@agent-native/toolkit/app/chat"
         },
@@ -2057,18 +2045,6 @@
         "RealtimeVoiceModeCopy": {
           "to": "@agent-native/toolkit/app/chat"
         },
-        "RealtimeVoiceModeDock": {
-          "to": "@agent-native/toolkit/app/chat"
-        },
-        "RealtimeVoiceModeDockProps": {
-          "to": "@agent-native/toolkit/app/chat"
-        },
-        "RealtimeVoiceModeEntry": {
-          "to": "@agent-native/toolkit/app/chat"
-        },
-        "RealtimeVoiceModeEntryProps": {
-          "to": "@agent-native/toolkit/app/chat"
-        },
         "RealtimeVoiceModeInlineSettings": {
           "to": "@agent-native/toolkit/app/chat"
         },
@@ -3330,7 +3306,7 @@
       "to": "@agent-native/core/client/sharing",
       "symbols": {
         "VisibilityBadge": {
-          "to": "@agent-native/toolkit/sharing"
+          "to": "@agent-native/toolkit/app/sharing"
         },
         "ShareButton": {
           "to": "@agent-native/toolkit/app/sharing"
@@ -6063,6 +6039,10 @@
         "CreateCodeAgentChatAdapterOptions",
         "FormattedMessageTimestamp",
         "HistoryTimeline",
+        "RealtimeVoiceModeDock",
+        "RealtimeVoiceModeDockProps",
+        "RealtimeVoiceModeEntry",
+        "RealtimeVoiceModeEntryProps",
         "VersionHistoryPanel",
         "VersionHistoryPanelProps",
         "codeAgentTranscriptEventsToContent",
@@ -6098,6 +6078,10 @@
         "CreateAgentChatRuntimeAdapterOptions",
         "CreateCodeAgentChatAdapterOptions",
         "FormattedMessageTimestamp",
+        "RealtimeVoiceModeDock",
+        "RealtimeVoiceModeDockProps",
+        "RealtimeVoiceModeEntry",
+        "RealtimeVoiceModeEntryProps",
         "codeAgentTranscriptEventsToContent",
         "codeAgentTranscriptHasPendingApproval",
         "createAgentChatAdapter",

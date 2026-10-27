@@ -438,7 +438,7 @@ describe("recording upload tickets", () => {
     expect(await opens(replaced.token)).toBe(false);
     expect(await opens(agent.token)).toBe(true);
     expect(await opens(repeat.token)).toBe(true);
-    const stored = JSON.parse(settings.get(storageKey)!);
+    const stored = JSON.parse(settings.get(storageKey) ?? "");
     expect(Object.keys(stored.tickets)).toEqual(["rec-1"]);
     expect(stored.tickets["rec-1"]).toMatchObject({
       reservedAt: agent.reservedAt,

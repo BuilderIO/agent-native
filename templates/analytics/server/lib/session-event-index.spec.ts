@@ -1017,6 +1017,72 @@ describe("session event index on Postgres", () => {
       eventCount: 2,
       volume: 2,
       onlyAutomaticEvents: false,
+      makesOutputs: false,
+      usedItEvents: [],
+    });
+  });
+
+  it("flags an app that makes outputs with no “used it” event as a gap", async () => {
+    await index(
+      [
+        event({
+          eventName: "generation_completed",
+          sessionId: "s-design",
+          timestamp: "2026-09-20T10:00:00.000Z",
+          app: "design",
+        }),
+        event({
+          eventName: "generation_completed",
+          sessionId: "s-slides",
+          timestamp: "2026-09-20T10:00:00.000Z",
+          app: "slides",
+        }),
+        event({
+          eventName: "presentation_ended",
+          sessionId: "s-slides",
+          timestamp: "2026-09-20T10:05:00.000Z",
+          app: "slides",
+        }),
+        event({
+          eventName: "deal_won",
+          sessionId: "s-crm",
+          timestamp: "2026-09-20T10:00:00.000Z",
+          app: "crm",
+        }),
+      ],
+      "2026-09-20T10:05:00.000Z",
+    );
+
+    const catalog = await listEventCatalog(
+      { userEmail: OWNER, orgId: ORG },
+      { now: new Date("2026-09-21T12:00:00.000Z") },
+    );
+
+    const apps = Object.fromEntries(
+      catalog.apps.map((app) => [
+        app.app,
+        { makesOutputs: app.makesOutputs, usedItEvents: app.usedItEvents },
+      ]),
+    );
+    expect(apps).toEqual({
+      design: { makesOutputs: true, usedItEvents: [] },
+      slides: {
+        makesOutputs: true,
+        usedItEvents: ["presentation_ended", "deck_exported"],
+      },
+      crm: { makesOutputs: false, usedItEvents: [] },
+    });
+    const roles = Object.fromEntries(
+      catalog.entries.map((entry) => [
+        `${entry.app}:${entry.eventName}`,
+        entry.outputRole,
+      ]),
+    );
+    expect(roles).toEqual({
+      "design:generation_completed": null,
+      "slides:generation_completed": "made",
+      "slides:presentation_ended": "used",
+      "crm:deal_won": null,
     });
   });
 

@@ -477,7 +477,12 @@ export default defineEventHandler(async (event: H3Event) => {
     ? (contentGrant.viewerEmail ?? undefined)
     : session?.email;
 
-  return runWithRequestContext({ userEmail: viewerEmail, orgId }, () =>
+  const requestContext = {
+    ...(viewerEmail !== undefined ? { userEmail: viewerEmail } : {}),
+    ...(orgId !== undefined ? { orgId } : {}),
+  };
+
+  return runWithRequestContext(requestContext, () =>
     runWithContentPlayback(contentGrant, async () => {
       const loaded = await loadRecording(recordingId, viewerEmail);
       if ("error" in loaded) {

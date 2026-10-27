@@ -39,6 +39,7 @@ import type {
   PortableStyleSnapshot,
 } from "@/components/design/types";
 import {
+  type DesignClipboardRefreshStatus,
   getDesignClipboardLayerEntries,
   readDesignClipboardPayloadFromSystem,
   readSystemClipboard,
@@ -65,7 +66,11 @@ import { runCopySelection } from "../commands/copy-selection";
 import { runCutSelection } from "../commands/cut-selection";
 import { runDeleteSelection } from "../commands/delete-selection";
 import { runDuplicateSelection } from "../commands/duplicate-selection";
-import { runEditorPaste } from "../commands/editor-paste";
+import {
+  adoptDesignClipboardPayloadIntoRefs,
+  runCanvasClipboardRelayPaste,
+  runEditorPaste,
+} from "../commands/editor-paste";
 import { runGetSelectedLayerSnapshots } from "../commands/get-selected-layer-snapshots";
 import { runGroupSelection } from "../commands/group-selection";
 import {
@@ -506,34 +511,39 @@ export function useEditorClipboard({
       markerText: string,
       plainText?: string,
     ) => {
-      copiedLayerEntriesRef.current = payload.entries;
-      copiedLayerHtmlRef.current = markerText;
-      copiedScreenEntriesRef.current = payload.screens ?? [];
-      lastWrittenClipboardMarkerRef.current = markerText;
-      if (plainText !== undefined) {
-        lastWrittenClipboardPlainTextRef.current = plainText;
-      }
       setHasCanvasClipboard(
-        payload.entries.length > 0 || (payload.screens?.length ?? 0) > 0,
+        adoptDesignClipboardPayloadIntoRefs(
+          {
+            copiedLayerEntriesRef,
+            copiedLayerHtmlRef,
+            copiedScreenEntriesRef,
+            lastWrittenClipboardMarkerRef,
+            lastWrittenClipboardPlainTextRef,
+            pasteCascadeRef,
+          },
+          payload,
+          markerText,
+          plainText,
+        ),
       );
     },
     [],
   );
 
-  const refreshClipboardFromSystemClipboard = useCallback(async () => {
-    const result = await readDesignClipboardPayloadFromSystem();
-    if (
-      result.status !== "found" ||
-      result.value.markerText === lastWrittenClipboardMarkerRef.current
-    ) {
-      return;
-    }
-    adoptDesignClipboardPayload(
-      result.value.payload,
-      result.value.markerText,
-      result.value.plainText,
-    );
-  }, [adoptDesignClipboardPayload]);
+  const refreshClipboardFromSystemClipboard =
+    useCallback(async (): Promise<DesignClipboardRefreshStatus> => {
+      const result = await readDesignClipboardPayloadFromSystem();
+      if (result.status !== "found") return result.status;
+      if (result.value.markerText === lastWrittenClipboardMarkerRef.current) {
+        return "unchanged";
+      }
+      adoptDesignClipboardPayload(
+        result.value.payload,
+        result.value.markerText,
+        result.value.plainText,
+      );
+      return "adopted";
+    }, [adoptDesignClipboardPayload]);
 
   const selectInsertedLayers = useCallback(
     (screenId: string, content: string, rootNodeIds: string[]) => {
@@ -585,6 +595,7 @@ export function useEditorClipboard({
   const handleCopySelection = useCallback(
     async () =>
       runCopySelection({
+        boardFileId,
         canvasFrameGeometryById,
         copiedLayerEntriesRef,
         copiedLayerHtmlRef,
@@ -671,7 +682,10 @@ export function useEditorClipboard({
   );
 
   const handlePasteSelection = useCallback(
-    async (position?: { x: number; y: number }) =>
+    async (
+      position?: { x: number; y: number; fileId?: string },
+      options?: { payloadFromPasteEvent?: boolean },
+    ) =>
       runPasteSelection(
         {
           activeFile,
@@ -717,6 +731,7 @@ export function useEditorClipboard({
           zoom,
         },
         position,
+        options,
       ),
     [
       applyLinkedComponentEdit,
@@ -956,6 +971,20 @@ export function useEditorClipboard({
         void importFigmaClipboardIntoDesign(content);
         return;
       }
+      if (
+        runCanvasClipboardRelayPaste(
+          {
+            adoptDesignClipboardPayload,
+            canEditDesign,
+            handlePasteSelection,
+            lastWrittenClipboardMarkerRef,
+            t,
+          },
+          { html, text },
+        )
+      ) {
+        return;
+      }
       if (svg) {
         handlePastedSvg(svg, sourceScreenId);
         return;
@@ -973,7 +1002,14 @@ export function useEditorClipboard({
         description: t("designEditor.import.figmaPasteUnreadable"),
       });
     },
-    [canEditDesign, handlePastedSvg, importFigmaClipboardIntoDesign, t],
+    [
+      adoptDesignClipboardPayload,
+      canEditDesign,
+      handlePastedSvg,
+      handlePasteSelection,
+      importFigmaClipboardIntoDesign,
+      t,
+    ],
   );
 
   const readFileAsDataUrl = useCallback((file: File) => {
@@ -1296,6 +1332,7 @@ export function useEditorClipboard({
         getCanvasClipboardEntries,
         getFreshActiveContent,
         handlePasteSelection,
+        refreshClipboardFromSystemClipboard,
         selectedElement,
         selectInsertedLayers,
         t,
@@ -1306,6 +1343,7 @@ export function useEditorClipboard({
       getCanvasClipboardEntries,
       getFreshActiveContent,
       handlePasteSelection,
+      refreshClipboardFromSystemClipboard,
       selectInsertedLayers,
       selectedElement,
       t,
@@ -1316,6 +1354,7 @@ export function useEditorClipboard({
     (point?: CanvasContextMenuPoint) =>
       runContextMenuPaste(
         {
+          boardFileId,
           canEditDesign,
           clipboardFiles: menuClipboardFilesRef.current,
           handlePasteSelection,
@@ -1329,6 +1368,7 @@ export function useEditorClipboard({
         point,
       ),
     [
+      boardFileId,
       canEditDesign,
       handlePasteSelection,
       handlePastedImageFiles,

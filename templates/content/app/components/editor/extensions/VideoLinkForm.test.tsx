@@ -41,6 +41,11 @@ vi.mock("./video-link-probe", () => ({
 
 import { VideoLinkForm } from "./VideoLinkForm";
 
+function defined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) throw new Error("Missing value");
+  return value;
+}
+
 let root: Root | null = null;
 let container: HTMLDivElement;
 const onVideo = vi.fn();
@@ -48,26 +53,25 @@ const onClip = vi.fn();
 
 function render() {
   act(() =>
-    root!.render(
+    defined(root).render(
       <VideoLinkForm replace={false} onVideo={onVideo} onClip={onClip} />,
     ),
   );
 }
 
 async function submit(link: string) {
-  const input = container.querySelector("input")!;
+  const input = defined(container.querySelector("input"));
   act(() => {
-    const setValue = Object.getOwnPropertyDescriptor(
-      HTMLInputElement.prototype,
-      "value",
-    )!.set!;
+    const setValue = defined(
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set,
+    );
     setValue.call(input, link);
     input.dispatchEvent(new Event("input", { bubbles: true }));
   });
   await act(async () => {
-    container
-      .querySelector("form")!
-      .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    defined(container.querySelector("form")).dispatchEvent(
+      new Event("submit", { bubbles: true, cancelable: true }),
+    );
   });
 }
 

@@ -10,6 +10,11 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import type { ClipUpload } from "./clip-uploads";
 import { ClipEmbed, ClipEmbedRead } from "./ClipEmbedBlock";
 
+function defined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) throw new Error("Missing value");
+  return value;
+}
+
 type FakeQuery = {
   data: unknown;
   isError: boolean;
@@ -122,7 +127,7 @@ let container: HTMLDivElement;
 
 function render() {
   act(() =>
-    root!.render(
+    defined(root).render(
       <TooltipProvider>
         <ClipEmbed documentId="doc_1" recordingId="rec_1" />
       </TooltipProvider>,
@@ -187,10 +192,12 @@ describe("ClipEmbed", () => {
 
   it("seeks to a comment when its marker is clicked", () => {
     render();
-    const video = container.querySelector("video")!;
-    const marker = container.querySelector<HTMLButtonElement>(
-      '[data-player-comment-marker][aria-label^="clipEmbed.commentsAtOne"]',
-    )!;
+    const video = defined(container.querySelector("video"));
+    const marker = defined(
+      container.querySelector<HTMLButtonElement>(
+        '[data-player-comment-marker][aria-label^="clipEmbed.commentsAtOne"]',
+      ),
+    );
     act(() => marker.click());
     expect(video.currentTime).toBe(4);
   });
@@ -285,25 +292,27 @@ describe("ClipEmbed", () => {
     const retry = [...container.querySelectorAll("button")].find(
       (button) => button.textContent === "clipEmbed.retry",
     );
-    act(() => retry!.click());
-    expect(queries.byName["get-clip-playback"]!.refetch).toHaveBeenCalled();
+    act(() => defined(retry).click());
+    expect(
+      defined(queries.byName["get-clip-playback"]).refetch,
+    ).toHaveBeenCalled();
   });
 
   it("asks for a fresh grant when the video fails", async () => {
     render();
-    const video = container.querySelector("video")!;
+    const video = defined(container.querySelector("video"));
     await act(async () => {
       video.dispatchEvent(new Event("error"));
     });
-    expect(queries.byName["get-clip-playback"]!.refetch).toHaveBeenCalledTimes(
-      1,
-    );
+    expect(
+      defined(queries.byName["get-clip-playback"]).refetch,
+    ).toHaveBeenCalledTimes(1);
   });
 
   it("picks up where the reader was once Clips answers after an outage", async () => {
-    const refetch = queries.byName["get-clip-playback"]!.refetch;
+    const refetch = defined(queries.byName["get-clip-playback"]).refetch;
     render();
-    const before = container.querySelector("video")!;
+    const before = defined(container.querySelector("video"));
     await act(async () => {
       before.currentTime = 42;
       await before.play();
@@ -327,7 +336,7 @@ describe("ClipEmbed", () => {
     await act(async () => {
       window.dispatchEvent(new Event("focus"));
     });
-    const after = container.querySelector("video")!;
+    const after = defined(container.querySelector("video"));
     expect(after.src).toBe(fresh.playback.videoUrl);
     await act(async () => {
       after.dispatchEvent(new Event("loadedmetadata"));
@@ -354,7 +363,7 @@ describe("ClipEmbed", () => {
   it("drops one page's grant when the same Clip's block moves to another page", () => {
     const renderOn = (documentId: string) =>
       act(() =>
-        root!.render(
+        defined(root).render(
           <TooltipProvider>
             <ClipEmbedRead
               data={{ recordingId: "rec_1", origin: "link" }}

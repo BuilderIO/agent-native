@@ -12,6 +12,7 @@ export {
   __clearConditionCache,
 } from "./condition-evaluator.js";
 export { createAutomationToolEntries } from "./actions.js";
+export { isOutsideAutomationOrigin } from "../automations/outside-origin.js";
 
 export {
   defineAutomation,

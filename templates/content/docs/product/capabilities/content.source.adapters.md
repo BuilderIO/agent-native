@@ -134,6 +134,49 @@ adapters that are valuable substrate. Existing provider-specific behavior does
 not yet certify the common declaration model, every operation, or cross-source
 authorization and fidelity behavior. This Capability remains `in_progress`.
 
+The bounded Builder OAuth consumer requests general content read/write scopes,
+uses the existing models, query-data, and Write API routes, and binds
+subsequent mutation calls to the Builder space observed during source refresh.
+Focused client tests cover general OAuth precedence, legacy and Publish grant
+separation, raw draft-inclusive enumeration, exact-entry reads, cross-space
+rejection, and ambiguous writes without replay. This is adapter substrate, not
+certification: Builder model discovery remains developer/admin-only, indexed
+reads do not expose the editable autosave head, and the Write API has no
+conditional write.
+
+Existing-entry Builder writes are guarded on the Content side. Review records
+the entry's Builder `lastUpdated` from the last refresh, and a later refresh
+that moves it makes the review stale. Immediately before each existing-entry
+write, Content reads the live entry through the bound OAuth content API and
+blocks without writing when either `lastUpdated` is missing. When the live
+`lastUpdated` differs from the reviewed value, publish and unpublish block; a
+save blocks only when a field it writes no longer holds the value it was
+reviewed against, or when the body changed. This narrows the overwrite window
+but does not close it: a Builder save that lands after that read and before
+Content's write reaches Builder is still overwritten. Closing that window would
+need a conditional write in Builder's API, which is out of scope. Unsaved
+Builder editor state is not visible to the check. Focused execution tests cover
+it; it has not been exercised against a live Builder space. New-entry creation
+keeps its existing intent-reconciliation path.
+
+A save that should not change what is live is chosen from the publication
+state that live read reports. A draft entry gets a plain save, which Builder's
+reads return. A published entry gets an autosave, which Builder keeps out of
+its reads until someone publishes it there, so Content records the live value
+each saved field replaced and keeps its saved value through refreshes while
+Builder still reports that live value. Once Builder publishes, discards, or
+changes that field, unpublishes the entry, or reports no unpublished changes,
+Builder's value wins. A draft published between the live read and the write
+takes the change live, and the execution summary says so. Unpublished changes
+someone else made in Builder are not visible to the reads, so a conflict with
+them is not detected.
+
+Prepared requests and receipts use identity-bound private blobs with verified
+readback; SQL stores compact opaque references. Exact replacement and deletion
+cleanup runs after confirmed database success; ambiguous outcomes retain
+evidence. A crash before pointer persistence can leave an unreachable blob; no
+general garbage collector is added.
+
 ## Proof plan
 
 1. Validate adapter declarations and Action routing for a read-only provider,

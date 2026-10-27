@@ -608,17 +608,17 @@ const messages = {
     reviewDuplicates: "Duplikate prüfen",
     duplicateReviewTitle: "Mögliche doppelte Datensätze",
     duplicateReviewDescription:
-      "Vergleicht diesen Datensatz mit zugänglichen Kandidaten. Jev sendet Namen, Datensatztypen und Treffermerkmale von höchstens fünf Kandidaten an TypeSafe. Die Wahrscheinlichkeit ist ein Hinweis; eine Zusammenführung erfordert eine gesonderte Prüfung.",
+      "Vergleicht diesen Datensatz mit zugänglichen Kandidaten. Eine semantische Prüfung sendet Namen, Datensatztypen und Treffermerkmale von höchstens fünf Kandidaten an den konfigurierten KI-Entscheidungsanbieter. Die Wahrscheinlichkeit ist ein Hinweis; eine Zusammenführung erfordert eine gesonderte Prüfung.",
     duplicateReviewRun: "Duplikate suchen",
     duplicateReviewLoading: "Prüfung läuft…",
     duplicateReviewFailed:
       "Die Duplikatprüfung konnte nicht abgeschlossen werden.",
     duplicateReviewUnavailable:
-      "Jev konnte diese Datensätze nicht prüfen. Regelbasierte Kandidaten bleiben sichtbar.",
+      "Der KI-Entscheidungsanbieter konnte diese Datensätze nicht prüfen. Regelbasierte Kandidaten bleiben sichtbar.",
     duplicateReviewEmpty: "Keine wahrscheinlichen Duplikate gefunden.",
     duplicateRuleConfidence: "Regelbasierte Übereinstimmung: {{percent}} %",
-    duplicateJevProbability:
-      "Jev-Wahrscheinlichkeit für dieselbe Entität: {{percent}} %",
+    duplicateDecisionProbability:
+      "Wahrscheinlichkeit für dieselbe Entität: {{percent}} %",
     duplicateMatchedOn: "Treffermerkmale: {{values}}",
     evidenceAttached: "Anrufbeleg angehängt.",
     evidenceAttachFailed: "Beleg konnte nicht angehängt werden.",
@@ -634,11 +634,10 @@ const messages = {
     automate: "Automatisieren",
     reviewNewClipsCalls: "Neue Clips-Anrufe prüfen",
     reviewDescription:
-      "Bereite eine Prüfungsregel für diesen CRM-Datensatz vor, ohne Clips-Medien oder Transkripte zu kopieren.",
-    disabledAutomationDescription:
-      "Dies startet deaktiviert und bleibt an {{name}} gebunden. Nach ausdrücklicher Aktivierung darf jeder neue Clip diesem Datensatz nur seine zugriffsgeprüfte Aufzeichnungsseiten-Referenz anhängen.",
+      "Das Einrichten von Anrufautomatisierungen von CRM zu Clips ist noch nicht verfügbar.",
+    disabledAutomationDescription: "Ausgewählter CRM-Datensatz: {{name}}.",
     handoffDescription:
-      "Die Übergabe bewahrt nur eine undurchsichtige Clip-ID, eine dauerhafte {{path}}-Seiten-URL und den Aufnahmezeitpunkt. Sie lehnt Ereignis-URLs, Medien, Zugriffstoken, Transkripte, abgeleitete Datensätze und Provider-Schreibvorgänge ab.",
+      "Das automatische Anhängen von {{path}}-Seitenlinks ist nicht verfügbar.",
     manageAutomations: "Automatisierungen verwalten",
     configureWithAgent: "Mit Agent konfigurieren",
     editField: "Feld bearbeiten",

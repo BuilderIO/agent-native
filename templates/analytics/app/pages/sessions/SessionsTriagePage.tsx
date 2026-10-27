@@ -6,6 +6,7 @@ import {
   IconChevronLeft,
   IconChevronRight,
   IconGauge,
+  IconPackageOff,
   IconPhoto,
   IconRefresh,
   IconX,
@@ -44,6 +45,14 @@ import { useReplayStorageStatus } from "@/hooks/use-replay-storage-status";
 import { cn } from "@/lib/utils";
 
 import { ANALYTICS_SESSIONS_TRIAGE_LAB } from "../../../shared/labs";
+import {
+  isOutputUseApp,
+  OUTPUT_USE_APPS,
+  OUTPUT_USE_WINDOW_DAYS,
+  type OutputUseApp,
+  type SessionOutput,
+  UNUSED_OUTPUT_PARAM,
+} from "../../../shared/output-use";
 import {
   sessionDateBound,
   sessionDateForDisplay,
@@ -86,6 +95,11 @@ import {
   SessionFrictionFilter,
   SessionFrictionStrip,
 } from "./SessionFriction";
+import {
+  UnusedOutputLink,
+  unusedFilterLabel,
+  unusedRuleText,
+} from "./SessionOutputs";
 import { SessionReplayStoryboardExportDialog } from "./SessionReplayStoryboardExportDialog";
 import {
   EmptySessionsState,
@@ -128,6 +142,10 @@ type Page = {
   frictionCoverageStartedAt?: string | null;
   /** Present when a speed filter applied; null: nothing measured yet. */
   performanceCoverageStartedAt?: string | null;
+  /** Present when the unused filter applied, by recording id. */
+  outputs?: Record<string, SessionOutput[] | null>;
+  /** Present when the unused filter applied; null: nothing tracked yet. */
+  outputCoverageStartedAt?: string | null;
 };
 
 const RANGES: Range[] = ["24h", "7d", "30d", "90d", "all"];
@@ -303,11 +321,18 @@ export function SessionsTriagePage() {
   const slow: SlowSessionFilter | undefined =
     eventsLabEnabled && isSlowSessionFilter(urlSlow) ? urlSlow : undefined;
   const urlHasSlowFilter = isSlowSessionFilter(urlSlow);
-  // A shared link with event, friction, or slow conditions waits briefly for
-  // the Lab state instead of listing unfiltered sessions. Nothing else waits,
-  // and a hung read stops holding the list and reads as failed.
+  const urlUnused = params.get(UNUSED_OUTPUT_PARAM);
+  const unused: OutputUseApp | undefined =
+    eventsLabEnabled && isOutputUseApp(urlUnused) ? urlUnused : undefined;
+  const urlHasUnusedFilter = isOutputUseApp(urlUnused);
+  // A shared link with event, friction, slow, or unused conditions waits
+  // briefly for the Lab state instead of listing unfiltered sessions. Nothing
+  // else waits, and a hung read stops holding the list and reads as failed.
   const urlHasLabFilters =
-    urlHasEventConditions || urlHasFrictionParams || urlHasSlowFilter;
+    urlHasEventConditions ||
+    urlHasFrictionParams ||
+    urlHasSlowFilter ||
+    urlHasUnusedFilter;
   const [labWaitExpired, setLabWaitExpired] = useState(false);
   const waitsForLab = urlHasLabFilters && eventsLab.isLoading;
   useEffect(() => {
@@ -445,6 +470,7 @@ export function SessionsTriagePage() {
         frictionSignals: frictionSignals.length ? frictionSignals : undefined,
         includeFriction: frictionApplied || undefined,
         slow,
+        unused,
         sort,
         offset: (page - 1) * SESSION_PAGE_SIZE,
         limit: SESSION_PAGE_SIZE,
@@ -490,6 +516,18 @@ export function SessionsTriagePage() {
         ? t("sessions.speedCoverageStarting")
         : t("sessions.speedCoverageSince", {
             date: new Date(speedCoverageStartedAt).toLocaleDateString(),
+          });
+  const outputCoverageStartedAt = data?.outputCoverageStartedAt;
+  const outputCoverageNote =
+    outputCoverageStartedAt === undefined
+      ? null
+      : outputCoverageStartedAt === null
+        ? t("sessions.outputCoverageStarting", {
+            days: String(OUTPUT_USE_WINDOW_DAYS),
+          })
+        : t("sessions.outputCoverageSince", {
+            date: new Date(outputCoverageStartedAt).toLocaleDateString(),
+            days: String(OUTPUT_USE_WINDOW_DAYS),
           });
   const total = data?.total ?? 0;
   // Speed hints load beside the list, keyed on its rows, so turning the Lab
@@ -539,6 +577,7 @@ export function SessionsTriagePage() {
         : undefined,
       frictionSignals: frictionSignals.length ? frictionSignals : undefined,
       slow,
+      unused,
       sort,
       limit: 1,
     },
@@ -909,6 +948,54 @@ export function SessionsTriagePage() {
             </PopoverContent>
           </Popover>
         ) : null}
+        {eventsLabEnabled ? (
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant={unused ? "secondary" : "outline"}
+                size="sm"
+                className={cn(
+                  "h-8 border border-input font-normal",
+                  !unused && "bg-transparent hover:bg-accent",
+                )}
+              >
+                <IconPackageOff />
+                {unused
+                  ? unusedFilterLabel(unused, t)
+                  : t("sessions.unusedOutputs")}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-72">
+              <div className="space-y-3">
+                <Select
+                  value={unused ?? "all"}
+                  onValueChange={(value) =>
+                    setFilter(UNUSED_OUTPUT_PARAM, value === "all" ? "" : value)
+                  }
+                >
+                  <SelectTrigger aria-label={t("sessions.unusedOutputs")}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">
+                      {t("sessions.anyOutcome")}
+                    </SelectItem>
+                    {OUTPUT_USE_APPS.map((value) => (
+                      <SelectItem key={value} value={value}>
+                        {unusedFilterLabel(value, t)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {OUTPUT_USE_APPS.map((value) => (
+                  <p key={value} className="text-xs text-muted-foreground">
+                    {unusedRuleText(value, t)}
+                  </p>
+                ))}
+              </div>
+            </PopoverContent>
+          </Popover>
+        ) : null}
         {hasActiveFilters ? (
           <Button
             variant="ghost"
@@ -957,6 +1044,14 @@ export function SessionsTriagePage() {
       !eventsLab.isError ? (
         <p className="text-xs text-muted-foreground" role="status">
           {t("sessions.speedFilterNeedsLab")}
+        </p>
+      ) : null}
+      {urlHasUnusedFilter &&
+      !eventsLabEnabled &&
+      !eventsLab.isLoading &&
+      !eventsLab.isError ? (
+        <p className="text-xs text-muted-foreground" role="status">
+          {t("sessions.unusedFilterNeedsLab")}
         </p>
       ) : null}
       {eventsLabEnabled &&
@@ -1010,6 +1105,13 @@ export function SessionsTriagePage() {
       rangePredatesCoverage(dateBounds.from, speedCoverageStartedAt) ? (
         <p className="text-xs text-muted-foreground" role="status">
           {speedCoverageNote}
+        </p>
+      ) : null}
+      {outputCoverageStartedAt !== undefined &&
+      recordings.length > 0 &&
+      rangePredatesCoverage(dateBounds.from, outputCoverageStartedAt) ? (
+        <p className="text-xs text-muted-foreground" role="status">
+          {outputCoverageNote}
         </p>
       ) : null}
       <Card>
@@ -1098,6 +1200,9 @@ export function SessionsTriagePage() {
                   ) : null}
                   {speedCoverageNote ? (
                     <p className="mt-1 text-xs">{speedCoverageNote}</p>
+                  ) : null}
+                  {outputCoverageNote ? (
+                    <p className="mt-1 text-xs">{outputCoverageNote}</p>
                   ) : null}
                   {showEmptySessionRecovery ? (
                     <Button
@@ -1273,6 +1378,11 @@ export function SessionsTriagePage() {
                               />
                             </span>
                           </Link>
+                          {unused ? (
+                            <UnusedOutputLink
+                              outputs={data?.outputs?.[recording.id]}
+                            />
+                          ) : null}
                         </div>
                       </SessionRow>
                     ))}

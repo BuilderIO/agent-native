@@ -45,6 +45,7 @@ export default defineAction({
   description:
     "Play a Clip placed in a page. Checks the caller can read the page, then asks Clips for playback URLs that stop working within minutes; the Clip block's player calls it again when they do.",
   schema: clipEmbedArgsSchema,
+  outputSchema: playbackSchema,
   http: { method: "GET" },
   readOnly: true,
   requiresAuth: false,

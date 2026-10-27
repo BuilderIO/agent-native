@@ -159,7 +159,7 @@ async function runAsUploader<T>(
   return await runWithRequestContext(
     {
       userEmail: uploader.email,
-      userName: uploader.name ?? undefined,
+      ...(uploader.name === null ? {} : { userName: uploader.name }),
       orgId: account.orgId,
       authUserId: account.userId,
     },
@@ -388,7 +388,7 @@ async function repeatedStart(
   start: UploadStart,
 ): Promise<Response | StalledStart | null> {
   const bindings = schema.recordingContentBindings;
-  const [binding] = await getDb()
+  const [binding = null] = await getDb()
     .select({
       id: bindings.id,
       recordingId: bindings.recordingId,
@@ -581,7 +581,7 @@ async function takeOverStart(
 ): Promise<BoundStart | Response> {
   const bindings = schema.recordingContentBindings;
   const updatedAt = new Date().toISOString();
-  const [taken] = await getDb()
+  const [taken = null] = await getDb()
     .update(bindings)
     .set({ uploadStartFailedAt: null, updatedAt })
     .where(
@@ -631,14 +631,14 @@ async function uploadBinding(
   recordingId: string,
 ): Promise<{ origin: string; state: string } | null> {
   const bindings = schema.recordingContentBindings;
-  const [binding] = await getDb()
+  const [binding = null] = await getDb()
     .select({ origin: bindings.origin, state: bindings.state })
     .from(bindings)
     .where(
       and(eq(bindings.recordingId, recordingId), eq(bindings.origin, "upload")),
     )
     .limit(1);
-  return binding ?? null;
+  return binding;
 }
 
 function firstQueryValue(value: unknown): string | null {
@@ -773,7 +773,9 @@ async function takeFinalChunk(
       {
         userEmail: owner.ownerEmail,
         orgId: owner.orgId,
-        authUserId: owner.authUserId,
+        ...(owner.authUserId === undefined
+          ? {}
+          : { authUserId: owner.authUserId }),
       },
       run,
     );
@@ -886,7 +888,7 @@ async function giveUp(
   authUserId: string | undefined,
   cors: Record<string, string>,
 ): Promise<Response> {
-  const [recording] = await getDb()
+  const [recording = null] = await getDb()
     .select({
       organizationId: schema.recordings.organizationId,
       uploadAttemptId: schema.recordings.uploadAttemptId,
@@ -904,8 +906,8 @@ async function giveUp(
     runWithRequestContext(
       {
         userEmail: ownerEmail,
-        orgId: recording.organizationId ?? undefined,
-        authUserId,
+        orgId: recording.organizationId,
+        ...(authUserId === undefined ? {} : { authUserId }),
       },
       () => readUploadPhase(recordingId, ownerEmail),
     );
@@ -916,7 +918,7 @@ async function giveUp(
     recordingId,
     ownerEmail,
     orgId: recording.organizationId,
-    authUserId,
+    ...(authUserId === undefined ? {} : { authUserId }),
     onlyWhileUploading: true,
     body: {
       failureCode: "upload_aborted",

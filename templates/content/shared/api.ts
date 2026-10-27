@@ -161,9 +161,23 @@ export interface DocumentUpdateRequest {
   loadedContentWasEmpty?: boolean;
 }
 
+/**
+ * The body part of a browser save on a page whose body is its live copy. The
+ * body was not written: the editor's updates reach the live copy over collab.
+ * `matchesLiveCopy` says whether every submitted, authored and snapshot body
+ * equals the body derived from the live copy at `collabVersion`.
+ */
+export interface LiveCopyBodySave {
+  status: "live_copy";
+  matchesLiveCopy: boolean;
+  bodyRevision: number;
+  collabVersion: number;
+}
+
 export interface DocumentUpdateResponse extends Document {
   urlPath: string;
   softDeletedDatabaseIds: string[];
+  bodySave?: LiveCopyBodySave;
 }
 
 export interface DocumentMoveRequest {
@@ -278,7 +292,8 @@ export interface DocumentPropertyDefinition {
 export type DocumentPropertySystemRole =
   | "files_kind"
   | "files_parent"
-  | "files_source";
+  | "files_source"
+  | "builder_status";
 
 /** A linked row of a relation property, resolved for the current viewer. */
 export interface DocumentPropertyRelationTarget {
@@ -309,6 +324,11 @@ export interface DocumentPropertiesResponse {
   canEditValues?: boolean;
   canManageSchema?: boolean;
   properties: DocumentProperty[];
+}
+
+export interface ConfigureDocumentPropertyResponse extends DocumentPropertiesResponse {
+  /** The property the request created or updated. */
+  propertyId: string;
 }
 
 export interface ConfigureDocumentPropertyRequest {
@@ -380,6 +400,9 @@ export interface ContentDatabaseSort {
 
 export const CONTENT_DATABASE_FILTER_OPERATORS = [
   "contains",
+  "does_not_contain",
+  "starts_with",
+  "ends_with",
   "equals",
   "does_not_equal",
   "greater_than",
@@ -388,7 +411,10 @@ export const CONTENT_DATABASE_FILTER_OPERATORS = [
   "less_than_or_equal",
   "before",
   "after",
+  "on_or_before",
+  "on_or_after",
   "between",
+  "is_within",
   "is_checked",
   "is_unchecked",
   "is_empty",
@@ -461,12 +487,19 @@ export type ContentDatabaseItemLeadingKind =
   | "checkbox"
   | "status";
 export type ContentDatabaseItemTitleWeight = "regular" | "medium" | "bold";
+/** What line 2 shows: a property, or the first lines of each row's page. */
+export type ContentDatabaseItemLine2Source = "property" | "page";
 
 /** Which property fills each part of a list row. */
 export interface ContentDatabaseItemLayout {
   leading: { kind: ContentDatabaseItemLeadingKind; propertyId: string | null };
   titleWeight: ContentDatabaseItemTitleWeight;
-  line2: { propertyId: string | null; lines: 1 | 2 | 3 };
+  /** A saved layout leaves `source` out when line 2 shows a property. */
+  line2: {
+    source?: ContentDatabaseItemLine2Source;
+    propertyId: string | null;
+    lines: 1 | 2 | 3;
+  };
   line3: string[];
   trailing: string[];
 }
@@ -612,13 +645,57 @@ export interface ContentDatabaseItem {
   properties: DocumentProperty[];
   workspaceFilesDatabaseId?: string | null;
   bodyHydration?: ContentDatabaseBodyHydration;
+  /**
+   * The first lines of the row's page as plain text. List reads include it
+   * only when a List view of the collection shows page text in line 2.
+   */
+  excerpt?: string;
   sourceRecord?: ContentDatabaseSourceRow;
   canonicalKey?: string | null;
   sourceOverlays?: ContentDatabaseSourceOverlay[];
   rowRevision?: string;
+  /**
+   * Generation of each property, by property ID. It goes up on every change,
+   * A to B to A included; compare for equality only. Pass it back as
+   * expectedPropertyGenerations to write only while the value is unchanged.
+   */
+  propertyGenerations?: Record<string, number>;
+  /**
+   * Change ID of each property's current value, by property ID: it changes
+   * only when that value is written anew, so it identifies one change. Null
+   * when the property has no stored value. Not for guarding writes; use
+   * propertyGenerations for that.
+   */
+  propertyChangeIds?: Record<string, number | null>;
   /** Open Comment threads on this row, when it has any the viewer can read. */
   comments?: ContentDatabaseItemComments;
 }
+
+/**
+ * One row's value for one Property in a compact Collection read. The
+ * Property's definition is the read's top-level `properties` entry with this
+ * `propertyId`: a select's options can run to hundreds of kilobytes, so they
+ * go once per read, not once per row.
+ */
+export type ContentDatabaseItemPropertyValue = Omit<
+  DocumentProperty,
+  "definition"
+> & { propertyId: string };
+
+/** A row in a compact Collection read; see `ContentDatabaseItemPropertyValue`. */
+export type ContentDatabaseCompactItem = Omit<
+  ContentDatabaseItem,
+  "properties"
+> & { properties: ContentDatabaseItemPropertyValue[] };
+
+/**
+ * A row as a Collection read sends it. Content's own frontend, and callers
+ * that pass `compactRows`, get compact rows; every other caller gets rows that
+ * carry their definitions.
+ */
+export type ContentDatabaseItemPayload =
+  | ContentDatabaseItem
+  | ContentDatabaseCompactItem;
 
 export interface ContentDatabaseItemComments {
   /** Open threads on the row's Page, whatever each one targets. */
@@ -653,6 +730,8 @@ export interface ContentDatabaseMutationContract {
     type: DocumentPropertyType;
     writable: boolean;
     sourceManaged: boolean;
+    /** Set on properties Content maintains itself, such as the Builder status. */
+    systemRole: string | null;
     acceptedShape: string | null;
     options: DocumentPropertyOptions;
   }>;
@@ -681,6 +760,10 @@ export interface ContentDatabaseRowMutationReceipt {
     verified: true;
     title: string;
     propertyValues: Record<string, DocumentPropertyValue>;
+    /** Absent on receipts stored before property generations existed. */
+    propertyGenerations?: Record<string, number>;
+    /** Absent on receipts stored before change IDs existed. */
+    propertyChangeIds?: Record<string, number | null>;
   };
 }
 
@@ -699,6 +782,10 @@ export interface ContentDatabaseRowPatchReceipt {
     verified: true;
     title?: string;
     propertyValues: Record<string, DocumentPropertyValue>;
+    /** Absent on receipts stored before property generations existed. */
+    propertyGenerations?: Record<string, number>;
+    /** Absent on receipts stored before change IDs existed. */
+    propertyChangeIds?: Record<string, number | null>;
   };
 }
 
@@ -891,6 +978,7 @@ export interface ContentDatabaseSourceExecution {
   idempotencyKey: string;
   summary: string;
   payload: Record<string, unknown>;
+  payloadUnavailable?: true;
   lastError: string | null;
   createdAt: string;
   updatedAt: string;
@@ -977,6 +1065,7 @@ export interface ContentDatabaseSource {
     readMode?: "fixture" | "builder-api" | (string & {}) | null;
     connectionId?: string | null;
     connectionLabel?: string | null;
+    builderSpacePublicKey?: string | null;
     truthPolicy?: ContentDatabaseSourceTruthPolicy;
     syncPolicy?: "manual" | "keep_in_sync";
     liveBridgeEnabled?: boolean;
@@ -986,6 +1075,7 @@ export interface ContentDatabaseSource {
     lastReadMatchedRowCount?: number;
     lastReadLimit?: number;
     lastReadFetchedEntryCount?: number;
+    lastReadCollectionCount?: number;
     lastReadPartial?: boolean;
     lastReadHasMore?: boolean;
     lastReadNextOffset?: number;
@@ -1029,8 +1119,12 @@ export interface ContentGitHubSourceStatus {
   skipped: Array<{ path: string; reason: GitHubSourceSkipReason }>;
   /** How many files were skipped in all. */
   skippedCount: number;
-  /** Images not shown yet because file storage isn't set up. */
+  /** Images not shown yet because file storage isn't set up or failed. */
   imagesWaiting: number;
+  /** Whether file storage is set up but couldn't save some of those images. */
+  imagesFailed: boolean;
+  /** Whether the last sync found file storage set up while images waited. */
+  storageReady: boolean;
   problem: {
     code: GitHubSourceProblemCode;
     message: string;
@@ -1126,10 +1220,39 @@ export interface ContentDatabaseResponse {
   };
 }
 
+/**
+ * A Collection read as sent, with rows in either shape (see
+ * `ContentDatabaseItemPayload`). `hydrateContentDatabaseResponse` attaches
+ * the definitions from `properties` to compact rows.
+ */
+export type ContentDatabaseResponsePayload = Omit<
+  ContentDatabaseResponse,
+  "items" | "createdItem" | "duplicatedItems"
+> & {
+  items: ContentDatabaseItemPayload[];
+  createdItem?: ContentDatabaseItemPayload;
+  duplicatedItems?: ContentDatabaseItemPayload[];
+};
+
 export type ContentDatabaseItemsPageResponse = Pick<
   ContentDatabaseResponse,
-  "items" | "source" | "sources" | "pagination" | "tableQueryMode"
+  | "items"
+  | "properties"
+  | "source"
+  | "sources"
+  | "pagination"
+  | "tableQueryMode"
 >;
+
+/**
+ * One page of rows as sent. A compact page carries the definitions its rows
+ * name in `properties`; a page whose rows carry their own has none.
+ */
+export type ContentDatabaseItemsPagePayload = Pick<
+  ContentDatabaseResponsePayload,
+  "items" | "source" | "sources" | "pagination" | "tableQueryMode"
+> &
+  Partial<Pick<ContentDatabaseResponsePayload, "properties">>;
 
 export type ContentDatabaseNavigationSort =
   | "custom"
@@ -1350,14 +1473,14 @@ export interface ContentDatabaseSourceAttachmentAck {
 }
 
 export type ContentDatabaseSourceAttachmentResult =
-  | ContentDatabaseResponse
+  | ContentDatabaseResponsePayload
   | ContentDatabaseSourceAttachmentAck;
 
 export interface BuilderCmsAttachPreviewResponse {
   databaseId: string;
   documentId: string;
   sourceTable: string;
-  base: ContentDatabaseResponse;
+  base: ContentDatabaseResponsePayload;
   items: ContentDatabaseItem[];
   fetchedAt: string;
   hasMore: boolean;
@@ -1542,7 +1665,7 @@ export interface CancelPreparedBuilderSourceUpdateRequest {
   note?: string;
 }
 
-export interface CancelPreparedBuilderSourceUpdateResponse extends ContentDatabaseResponse {
+export interface CancelPreparedBuilderSourceUpdateResponse extends ContentDatabaseResponsePayload {
   cancellation: {
     sourceId: string;
     changeSetId: string;
@@ -1692,12 +1815,26 @@ export interface StageBuilderSourceBulkUpdateResponse {
   review: ContentDatabaseSourceReviewPayload | null;
 }
 
-export type BuilderCmsWriteEffect =
-  | "autosave"
-  | "update_in_place"
-  | "create_draft"
-  | "publish"
-  | "unpublish";
+export const BUILDER_CMS_WRITE_EFFECTS = [
+  "autosave",
+  "save_draft",
+  "update_in_place",
+  "create_draft",
+  "publish",
+  "unpublish",
+] as const;
+
+/**
+ * `autosave` saves unpublished changes to a published entry; `save_draft`
+ * saves a draft entry. Neither changes what is live.
+ */
+export type BuilderCmsWriteEffect = (typeof BUILDER_CMS_WRITE_EFFECTS)[number];
+
+export function isBuilderCmsWriteEffect(
+  value: unknown,
+): value is BuilderCmsWriteEffect {
+  return (BUILDER_CMS_WRITE_EFFECTS as readonly unknown[]).includes(value);
+}
 
 export interface ContentDatabaseSourceReviewRowSummary {
   changeSetId: string;

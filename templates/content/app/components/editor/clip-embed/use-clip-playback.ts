@@ -160,7 +160,10 @@ export function useClipPlayback(
     }
     // Tries stop when the grant runs out, which is when its source fails.
     const left = Date.parse(expiresAt) - now;
-    const wait = GRANT_REFRESH_RETRY_DELAYS_MS[stalled.tries - 1];
+    const wait =
+      stalled.tries <= GRANT_REFRESH_RETRY_DELAYS_MS.length
+        ? GRANT_REFRESH_RETRY_DELAYS_MS[stalled.tries - 1]
+        : undefined;
     const retryTimer =
       wait !== undefined && wait < left
         ? setTimeout(() => void refresh("expiring"), wait)

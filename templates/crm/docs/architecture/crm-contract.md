@@ -117,13 +117,9 @@ the run, record, tracker, and evidence scopes agree and every quote/timestamp
 is grounded to the stored evidence excerpt. Clips retains recording,
 transcript, consent, recovery, and media ownership.
 
-The default-off Clips review recipe is scoped to one explicitly selected CRM
-record, and its trigger is installed in Clips because that is where
-`clip.created` is registered. The contract's requirement is only that CRM
-receives an opaque id and a durable page reference — never media, a transcript,
-a temporary grant, an inferred record, or a provider write — so both CRM record
-ACLs and Clips page access hold without duplicating source media. The exact
-activation sequence is in the `crm` skill.
+Setting up CRM-to-Clips call automations isn't available yet. The recipe
+reports this availability for the selected CRM record. It does not provide an
+activation sequence.
 
 ## Field storage policy
 

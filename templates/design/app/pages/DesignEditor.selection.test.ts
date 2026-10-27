@@ -250,6 +250,7 @@ describe("DesignEditor selected screen inspector geometry", () => {
       y: 48,
       width: 360,
       height: 225,
+      rotation: 0,
       heightMode: undefined,
       sizeConstraints: {
         width: { min: null, max: null },

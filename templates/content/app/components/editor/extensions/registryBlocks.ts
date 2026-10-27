@@ -31,8 +31,10 @@ export function createContentBlockId(blockType: string): string {
 export function readPastedContentBlock(
   pasted: PastedRegistryBlock,
 ): PastedRegistryBlockSource | null {
-  const [block, ...rest] = nfmToDoc(pasted.source).content;
-  if (rest.length > 0 || block?.type !== "registryBlock") return null;
+  const { content } = nfmToDoc(pasted.source);
+  if (content.length !== 1) return null;
+  const block = content.find((node) => node.type === "registryBlock");
+  if (!block) return null;
   const { blockType, blockId, title, summary, __raw } = block.attrs ?? {};
   const tag = registryBlockSpecByType(pasted.blockType)?.mdx.tag;
   if (!tag || blockType !== pasted.blockType) return null;

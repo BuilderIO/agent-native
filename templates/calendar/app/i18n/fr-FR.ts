@@ -249,15 +249,15 @@ export default {
     eventRulesAutomationLink:
       "Pour d’autres actions, créez une automatisation.",
     eventRulesConnectJev:
-      "Connectez Jev pour appliquer les règles d’invitation",
+      "Connectez un fournisseur IA pour appliquer les règles d’invitation",
     eventRulesFreeBuilderOrApiKey:
-      "Gratuit avec Builder.io, ou ajoutez une clé API.",
+      "Utilisez Builder.io ou connectez un autre fournisseur IA dans les paramètres.",
     eventRulesConnectBuilder: "Utiliser Builder.io",
-    eventRulesAddJevApiKey: "Ajouter une clé API",
+    eventRulesAddJevApiKey: "Ajouter une clé API Jev",
     eventRulesTabRules: "Règles",
     eventRulesHelpLabel: "À propos des consignes d’invitation",
     eventRulesHelp:
-      "Écrivez des consignes pour indiquer à Jev quelles invitations accepter, refuser ou masquer.",
+      "Écrivez des consignes pour que le fournisseur IA configuré accepte, refuse ou masque les invitations.",
     eventRuleAccept: "Accepter automatiquement",
     eventRuleDecline: "Refuser automatiquement",
     eventRuleHide: "Masquer automatiquement",
