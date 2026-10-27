@@ -281,6 +281,7 @@ function Harness({
   showPrioritySort,
   jevConfigured = showPrioritySort,
   jevAvailabilityError,
+  priorityProviderIdentity,
   onJevRetry,
   sortMode,
 }: {
@@ -298,6 +299,7 @@ function Harness({
   showPrioritySort?: boolean;
   jevConfigured?: boolean;
   jevAvailabilityError?: boolean;
+  priorityProviderIdentity?: string;
   onJevRetry?: React.ComponentProps<typeof EmailList>["onJevRetry"];
   sortMode?: "newest" | "priority";
 }) {
@@ -326,6 +328,7 @@ function Harness({
         showPrioritySort={showPrioritySort}
         jevConfigured={jevConfigured}
         jevAvailabilityError={jevAvailabilityError}
+        priorityProviderIdentity={priorityProviderIdentity}
         onJevRetry={onJevRetry}
         sortMode={sortMode}
       />
@@ -1110,12 +1113,10 @@ describe("EmailList keyboard navigation interactions", () => {
 
   it("reuses priority scores on the first render after the list remounts", async () => {
     mocks.view = "inbox";
-    const inboxEmails = [messages[0], messages[1], messages[2]].map(
-      (email) => ({
-        ...email,
-        labelIds: ["inbox"],
-      }),
-    );
+    const inboxEmails = messages.slice(0, 3).map((email) => ({
+      ...email,
+      labelIds: ["inbox"],
+    }));
     let resolvePriority!: (result: {
       failures: [];
       scores: Array<{
@@ -1165,6 +1166,60 @@ describe("EmailList keyboard navigation interactions", () => {
 
     expect(rows()[0].textContent).toContain("Subject middle");
     expect(mocks.priorityRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it("recomputes cached priority scores when the decision provider changes", async () => {
+    mocks.view = "inbox";
+    const inboxEmails = messages.slice(0, 3).map((email) => ({
+      ...email,
+      labelIds: ["inbox"],
+    }));
+    mocks.priorityRequest.mockImplementation(async () => {
+      const isJev = mocks.priorityRequest.mock.calls.length === 1;
+      return {
+        failures: [],
+        model: isJev
+          ? { provider: "jev", model: "jev-latest" }
+          : { provider: "openai", model: "gpt-6-luna" },
+        scores: inboxEmails.map((email) => ({
+          emailId: email.id,
+          accountEmail: email.accountEmail,
+          score: isJev
+            ? email.id === "middle"
+              ? 0.9
+              : 0.1
+            : email.id === "last"
+              ? 0.95
+              : 0.1,
+        })),
+      };
+    });
+
+    const { rerender } = render(
+      <Harness
+        emails={inboxEmails}
+        priorityProviderIdentity="jev-ready"
+        showPrioritySort
+        sortMode="priority"
+      />,
+    );
+    await waitFor(() =>
+      expect(rows()[0]?.textContent).toContain("Subject middle"),
+    );
+
+    rerender(
+      <Harness
+        emails={inboxEmails}
+        priorityProviderIdentity="openai-ready"
+        showPrioritySort
+        sortMode="priority"
+      />,
+    );
+
+    await waitFor(() =>
+      expect(rows()[0]?.textContent).toContain("Subject last"),
+    );
+    expect(mocks.priorityRequest).toHaveBeenCalledTimes(2);
   });
 
   it("keeps duplicate message IDs separate across accounts", async () => {

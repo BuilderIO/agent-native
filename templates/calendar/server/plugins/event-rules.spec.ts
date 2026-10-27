@@ -656,6 +656,105 @@ describe("calendar event rules sweep", () => {
     expect(mocks.calendarListEvents.mock.calls[1][2].timeMin).toBe(watermark);
   });
 
+  it("applies successful sibling rules and retries an incomplete invitation", async () => {
+    const accountKey = "one@example.com:primary";
+    const identity = "google:one@example.com:primary:event-1";
+    const event = {
+      id: "event-1",
+      created: new Date(Date.now() + 60_000).toISOString(),
+      updated: "2026-09-25T12:00:00.000Z",
+      status: "confirmed",
+      summary: "Planning review",
+      description: "",
+      end: { dateTime: new Date(Date.now() + 3_600_000).toISOString() },
+      attendees: [{ email: "one@example.com", responseStatus: "needsAction" }],
+    };
+    const updatedEvent = {
+      ...event,
+      updated: new Date().toISOString(),
+      attendees: [{ email: "one@example.com", responseStatus: "accepted" }],
+    };
+    const { owner, settingsByOwner } = configureOwnerSweep({
+      rules: {
+        accept: "Accept planning meetings",
+        hide: "Hide planning meetings",
+      },
+      runtime: { cursors: { [accountKey]: "old-sync-token" } },
+      event,
+    });
+    mocks.decide
+      .mockResolvedValueOnce({
+        status: "ok",
+        provider: "openai",
+        model: "gpt-6-luna",
+        answers: {
+          event_0_1: {
+            type: "predicate",
+            name: "event_0_1",
+            probability: 1,
+          },
+        },
+        questionFailures: { event_0_0: "invalid_response" },
+      })
+      .mockResolvedValueOnce({
+        status: "ok",
+        provider: "openai",
+        model: "gpt-6-luna",
+        answers: {
+          event_0_0: {
+            type: "predicate",
+            name: "event_0_0",
+            probability: 1,
+          },
+          event_0_1: {
+            type: "predicate",
+            name: "event_0_1",
+            probability: 1,
+          },
+        },
+      });
+    mocks.calendarListEvents
+      .mockResolvedValueOnce({ items: [event], nextSyncToken: "first-token" })
+      .mockResolvedValueOnce({
+        items: [updatedEvent],
+        nextSyncToken: "second-token",
+      });
+    mocks.getEvent.mockResolvedValueOnce({ responseStatus: "needsAction" });
+
+    const savedState = () => {
+      const ownerSettings = settingsByOwner[owner];
+      const calendarSettings = ownerSettings?.["calendar-settings"];
+      const runtime = ownerSettings?.["calendar-event-rules-runtime"];
+      if (!calendarSettings || !runtime) {
+        throw new Error("Calendar sweep state was not persisted.");
+      }
+      return { calendarSettings, runtime };
+    };
+
+    await expect(runCalendarEventRulesOnce()).rejects.toMatchObject({
+      name: "AggregateError",
+    });
+
+    expect(savedState().calendarSettings.hiddenEventKeys).toContain(identity);
+    expect(savedState().runtime).toMatchObject({
+      cursors: { [accountKey]: "old-sync-token" },
+      processed: {},
+      pendingEvaluations: { [identity]: { inputKey: expect.any(String) } },
+    });
+
+    await runCalendarEventRulesOnce();
+
+    expect(mocks.rsvpEvent).toHaveBeenCalledTimes(1);
+    expect(savedState().calendarSettings.hiddenEventKeys).toContain(identity);
+    expect(savedState().runtime).toMatchObject({
+      cursors: { [accountKey]: "second-token" },
+      pendingEvaluations: {},
+      processed: {
+        [identity]: `${updatedEvent.updated}:${updatedEvent.status}`,
+      },
+    });
+  });
+
   it("reconciles a durable pending RSVP when activity persistence fails", async () => {
     const owner = "owner@example.com";
     const account = "one@example.com";

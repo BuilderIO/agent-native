@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import {
   decide,
@@ -37,9 +37,20 @@ type PendingRsvp = Pick<
 > & { action: "accepted" | "declined" };
 type RsvpClaim = { token: string; expiresAt: number };
 type UndoRsvpSuppression = { token: string };
+type DecisionInputEvent = {
+  id: string;
+  summary?: string;
+  description?: string;
+  location?: string;
+  start?: { dateTime?: string; date?: string };
+  organizer?: { email?: string; self?: boolean };
+  end?: { dateTime?: string; date?: string };
+  status?: string;
+};
 type Runtime = {
   cursors?: Record<string, string>;
   processed?: Record<string, string>;
+  pendingEvaluations?: Partial<Record<string, { inputKey: string }>>;
   initialSyncAt?: Record<string, string>;
   pendingRsvps?: Record<string, PendingRsvp>;
   rsvpClaims?: Record<string, RsvpClaim>;
@@ -118,6 +129,37 @@ export function isEligibleInvitation(
   return attendee?.responseStatus === "needsAction";
 }
 
+function decisionInput(event: DecisionInputEvent) {
+  return {
+    id: event.id,
+    title: event.summary ?? "",
+    description:
+      typeof event.description === "string"
+        ? event.description.slice(0, MAX_EVENT_DESCRIPTION_CHARS)
+        : "",
+    location: event.location ?? "",
+    start: event.start?.dateTime ?? event.start?.date ?? "",
+    organizer: event.organizer?.email ?? "",
+  };
+}
+
+function decisionInputKey(event: DecisionInputEvent) {
+  return createHash("sha256")
+    .update(JSON.stringify(decisionInput(event)))
+    .digest("hex");
+}
+
+function isRetryableInvitation(event: DecisionInputEvent, now = Date.now()) {
+  const end = event.end?.dateTime ?? event.end?.date;
+  const endAt = Date.parse(end ?? "");
+  return (
+    event.status !== "cancelled" &&
+    event.organizer?.self !== true &&
+    Number.isFinite(endAt) &&
+    endAt > now
+  );
+}
+
 async function evaluate(
   owner: string,
   events: any[],
@@ -167,17 +209,7 @@ async function evaluate(
           {
             type: "json",
             value: {
-              events: batch.map((event) => ({
-                id: event.id,
-                title: event.summary ?? "",
-                description:
-                  typeof event.description === "string"
-                    ? event.description.slice(0, MAX_EVENT_DESCRIPTION_CHARS)
-                    : "",
-                location: event.location ?? "",
-                start: event.start?.dateTime ?? event.start?.date ?? "",
-                organizer: event.organizer?.email ?? "",
-              })),
+              events: batch.map(decisionInput),
             },
           },
         ],
@@ -251,6 +283,7 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
   const runtime = (savedRuntime ?? {}) as Runtime;
   const cursors = { ...(runtime.cursors ?? {}) };
   const processed = { ...(runtime.processed ?? {}) };
+  const pendingEvaluations = { ...(runtime.pendingEvaluations ?? {}) };
   const initialSyncAt = { ...(runtime.initialSyncAt ?? {}) };
   const pendingRsvps = { ...(runtime.pendingRsvps ?? {}) };
   const resolvedPendingRsvps = new Set<string>();
@@ -289,6 +322,9 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
         cursors,
         processed: Object.fromEntries(
           Object.entries(processed).slice(-PROCESSED_LIMIT),
+        ),
+        pendingEvaluations: Object.fromEntries(
+          Object.entries(pendingEvaluations).slice(-PROCESSED_LIMIT),
         ),
         initialSyncAt,
         pendingRsvps: latestPendingRsvps,
@@ -498,6 +534,13 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
     const pending = events.filter((event) => {
       const identity = eventKey(account.email, calendarId, event.id);
       const version = `${event.updated ?? ""}:${event.status ?? ""}`;
+      const pendingEvaluation = pendingEvaluations[identity];
+      const canRetryEvaluation =
+        pendingEvaluation?.inputKey === decisionInputKey(event) &&
+        isRetryableInvitation(event);
+      if (pendingEvaluation && !canRetryEvaluation) {
+        delete pendingEvaluations[identity];
+      }
       const createdAfterSetup =
         !fullSyncStartedAt ||
         Date.parse(event.created ?? "") >= Date.parse(fullSyncStartedAt) ||
@@ -505,7 +548,7 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
           Date.parse(event.updated ?? "") >= Date.parse(fullSyncStartedAt));
       return (
         createdAfterSetup &&
-        isEligibleInvitation(event, account.email) &&
+        (isEligibleInvitation(event, account.email) || canRetryEvaluation) &&
         !runtime.undoRsvpSuppressions?.[identity] &&
         processed[identity] !== version
       );
@@ -521,13 +564,21 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
       cursors[accountCalendarKey] = cursor;
     }
     signal?.throwIfAborted();
+    if (evaluation.failedEventIds.size) {
+      for (const event of pending) {
+        if (!evaluation.failedEventIds.has(event.id)) continue;
+        pendingEvaluations[eventKey(account.email, calendarId, event.id)] = {
+          inputKey: decisionInputKey(event),
+        };
+      }
+      await persistProgress();
+    }
     const currentRules = (await getFreshCalendarSettings(owner)).eventRules;
     signal?.throwIfAborted();
     const addedHiddenKeys = new Set<string>();
     const activity: CalendarEventRuleActivity[] = [];
     for (const event of pending) {
       signal?.throwIfAborted();
-      if (evaluation.failedEventIds.has(event.id)) continue;
       const identity = eventKey(account.email, calendarId, event.id);
       const version = `${event.updated ?? ""}:${event.status ?? ""}`;
       const actions = new Set(
@@ -540,7 +591,8 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
           );
         }),
       );
-      let markProcessed = true;
+      const failedEvaluation = evaluation.failedEventIds.has(event.id);
+      let markProcessed = !failedEvaluation;
       if (actions.has("accept") && actions.has("decline")) {
         conflictCount += 1;
         console.warn(
@@ -658,8 +710,11 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
         });
       }
       if (markProcessed) {
+        delete pendingEvaluations[identity];
         delete processed[identity];
         processed[identity] = version;
+      } else {
+        pendingEvaluations[identity] ??= { inputKey: decisionInputKey(event) };
       }
     }
     if (activity.length || addedHiddenKeys.size) {

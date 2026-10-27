@@ -70,7 +70,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useAccountFilter } from "@/hooks/use-account-filter";
-import { useAiPriority } from "@/hooks/use-ai-priority";
+import { useAiPriority, type AiPriorityResult } from "@/hooks/use-ai-priority";
 import {
   askAgentToDraftImportanceRules,
   useAiPriorityFeedback,
@@ -149,10 +149,12 @@ function toPriorityEmail(email: EmailMessage): AiPriorityEmail {
 function priorityEmailCacheKey(
   email: EmailMessage,
   ruleRevision: string,
+  providerIdentity = "",
 ): string {
   const priorityEmail = toPriorityEmail(email);
   return JSON.stringify([
     ruleRevision,
+    providerIdentity,
     priorityEmail.accountEmail,
     priorityEmail.id,
     priorityEmail.date,
@@ -163,9 +165,15 @@ function priorityEmailCacheKey(
   ]);
 }
 
-type CachedPriorityScore = { inputKey: string; score: number };
+type CachedPriorityScore = {
+  inputKey: string;
+  score: number;
+  model?: AiPriorityResult["model"];
+  providerIdentity?: string;
+};
 type FrozenPriorityOrder = {
   ruleRevision: string;
+  providerIdentity: string;
   keys: string[];
   priorityKeys: string[];
   scores: Record<string, number>;
@@ -228,6 +236,7 @@ interface EmailListProps {
   onNavigateThread?: (threadId: string, accountEmail?: string) => void;
   showPrioritySort?: boolean;
   jevConfigured?: boolean;
+  priorityProviderIdentity?: string;
   jevAvailabilityLoading?: boolean;
   jevAvailabilityError?: boolean;
   onJevConnected?: () => void;
@@ -536,6 +545,7 @@ export function EmailList({
   onNavigateThread,
   showPrioritySort = false,
   jevConfigured = false,
+  priorityProviderIdentity = "",
   jevAvailabilityLoading = false,
   jevAvailabilityError = false,
   onJevConnected,
@@ -707,7 +717,7 @@ export function EmailList({
   );
   const priorityInputKey = useMemo(
     () =>
-      [priorityRuleRevision]
+      [priorityRuleRevision, priorityProviderIdentity]
         .concat(
           priorityWindowEmails.map(
             (email) =>
@@ -715,7 +725,7 @@ export function EmailList({
           ),
         )
         .join("\u001f"),
-    [priorityRuleRevision, priorityWindowEmails],
+    [priorityRuleRevision, priorityProviderIdentity, priorityWindowEmails],
   );
   const [priorityScores, setPriorityScores] = useState(
     () => new Map(priorityScoreCache(queryClient)),
@@ -731,6 +741,7 @@ export function EmailList({
       const optimisticScore = {
         inputKey: priorityEmailCacheKey(email, priorityRuleRevision),
         score,
+        model: null,
       };
       setPriorityOrder(null);
       rememberPriorityScore(cache, key, optimisticScore);
@@ -803,13 +814,25 @@ export function EmailList({
       const key = aiPriorityEmailKey(email.accountEmail, email.id);
       const score = priorityScores.get(key);
       if (
-        score?.inputKey === priorityEmailCacheKey(email, priorityRuleRevision)
+        (score?.providerIdentity === undefined ||
+          score.providerIdentity === priorityProviderIdentity) &&
+        score?.inputKey ===
+          priorityEmailCacheKey(
+            email,
+            priorityRuleRevision,
+            score?.providerIdentity,
+          )
       ) {
         cached.set(key, score.score);
       }
     }
     return cached;
-  }, [priorityRuleRevision, priorityScores, priorityWindowEmails]);
+  }, [
+    priorityProviderIdentity,
+    priorityRuleRevision,
+    priorityScores,
+    priorityWindowEmails,
+  ]);
   const priorityRequestKeyRef = useRef("");
   const priorityRequestGenerationRef = useRef(0);
   const previousSortModeRef = useRef(currentSortMode);
@@ -851,7 +874,11 @@ export function EmailList({
     const pendingInputKeys = new Map(
       uncachedPriorityEmails.map((email) => [
         aiPriorityEmailKey(email.accountEmail, email.id),
-        priorityEmailCacheKey(email, priorityRuleRevision),
+        priorityEmailCacheKey(
+          email,
+          priorityRuleRevision,
+          priorityProviderIdentity,
+        ),
       ]),
     );
     try {
@@ -894,7 +921,12 @@ export function EmailList({
         scoredKeys.add(key);
         const inputKey = pendingInputKeys.get(key);
         if (inputKey) {
-          const cachedScore = { inputKey, score: score.score };
+          const cachedScore = {
+            inputKey,
+            score: score.score,
+            model: result.model,
+            providerIdentity: priorityProviderIdentity,
+          };
           rememberPriorityScore(cache, key, cachedScore);
           rememberPriorityScore(next, key, cachedScore);
         }
@@ -932,6 +964,7 @@ export function EmailList({
     areAutomationRulesFetching,
     isPriorityPending,
     priorityInputKey,
+    priorityProviderIdentity,
     priorityRuleRevision,
     cachedPriorityScores,
     priorityWindowEmails,
@@ -1017,12 +1050,14 @@ export function EmailList({
     }
     if (
       priorityOrder?.ruleRevision === priorityRuleRevision &&
+      priorityOrder.providerIdentity === priorityProviderIdentity &&
       priorityOrder.keys.length > 0
     ) {
       return;
     }
     setPriorityOrder({
       ruleRevision: priorityRuleRevision,
+      providerIdentity: priorityProviderIdentity,
       keys: rankedPriorityThreads
         .filter((thread) =>
           priorityWindowIds.has(
@@ -1046,6 +1081,7 @@ export function EmailList({
     currentSortMode,
     priorityOrder,
     priorityWindowIds,
+    priorityProviderIdentity,
     priorityRuleRevision,
     priorityWindowEmails,
     rankedPriorityThreads,
@@ -1054,7 +1090,8 @@ export function EmailList({
     if (
       currentSortMode !== "priority" ||
       !priorityOrder ||
-      priorityOrder.ruleRevision !== priorityRuleRevision
+      priorityOrder.ruleRevision !== priorityRuleRevision ||
+      priorityOrder.providerIdentity !== priorityProviderIdentity
     ) {
       return;
     }
@@ -1079,11 +1116,15 @@ export function EmailList({
     cachedPriorityScores,
     currentSortMode,
     priorityOrder,
+    priorityProviderIdentity,
     priorityRuleRevision,
     priorityWindowEmails,
   ]);
   const activePriorityOrder =
-    priorityOrder?.ruleRevision === priorityRuleRevision ? priorityOrder : null;
+    priorityOrder?.ruleRevision === priorityRuleRevision &&
+    priorityOrder.providerIdentity === priorityProviderIdentity
+      ? priorityOrder
+      : null;
   const threads = useMemo(() => {
     if (currentSortMode !== "priority") return chronologicalThreads;
     if (!activePriorityOrder) return rankedPriorityThreads;
