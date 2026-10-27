@@ -59,6 +59,74 @@ function parseProbabilities<Value extends string | number>(
   return entries;
 }
 
+function parseJevScoreProbabilities(
+  question: Extract<DecisionQuestion, { type: "score" }>,
+  legendValue: unknown,
+  probabilitiesValue: unknown,
+): { score: number; probabilities: DecisionProbability<number>[] } {
+  if (!isRecord(legendValue) || !isRecord(probabilitiesValue)) {
+    throw new DecisionResponseError("invalid_response");
+  }
+
+  const keys = Object.keys(probabilitiesValue);
+  if (
+    keys.length !== question.levels.length ||
+    Object.keys(legendValue).length !== question.levels.length ||
+    keys.some((key) => !Object.hasOwn(legendValue, key))
+  ) {
+    throw new DecisionResponseError("invalid_response");
+  }
+
+  const probabilitiesByLevel = new Map<number, number>();
+  for (const key of keys) {
+    const legend = legendValue[key];
+    const p = probability(probabilitiesValue[key]);
+    if (typeof legend !== "string" || p === undefined) {
+      throw new DecisionResponseError("invalid_response");
+    }
+
+    const matchingLevels = new Set<number>();
+    const addMatchingLevel = (value: string): void => {
+      const index = question.levels.findIndex(
+        ({ label, description }) =>
+          value === label || value === `${label}: ${description}`,
+      );
+      if (index >= 0) matchingLevels.add(index);
+    };
+    addMatchingLevel(legend);
+
+    if (matchingLevels.size !== 1) {
+      throw new DecisionResponseError("invalid_response");
+    }
+    const matchingLevel = matchingLevels.values().next();
+    if (matchingLevel.done) {
+      throw new DecisionResponseError("invalid_response");
+    }
+    const { value: index } = matchingLevel;
+    if (probabilitiesByLevel.has(index)) {
+      throw new DecisionResponseError("invalid_response");
+    }
+    probabilitiesByLevel.set(index, p);
+  }
+
+  const probabilities = question.levels.map((_, index) => {
+    const p = probabilitiesByLevel.get(index);
+    if (p === undefined) throw new DecisionResponseError("invalid_response");
+    return { value: index, probability: p };
+  });
+  if (probabilities.every(({ probability: p }) => p === 0)) {
+    throw new DecisionResponseError("invalid_response");
+  }
+
+  return {
+    score: probabilities.reduce(
+      (expectedIndex, { value, probability: p }) => expectedIndex + value * p,
+      0,
+    ),
+    probabilities,
+  };
+}
+
 function answerForQuestion(
   provider: DecisionProvider,
   question: DecisionQuestion,
@@ -112,12 +180,7 @@ function answerForQuestion(
   }
 
   const score = value.score;
-  if (
-    typeof score !== "number" ||
-    !Number.isFinite(score) ||
-    score < 0 ||
-    score > question.levels.length - 1
-  ) {
+  if (typeof score !== "number" || !Number.isFinite(score)) {
     throw new DecisionResponseError("invalid_response");
   }
   const levels = question.levels.map((level, index) => ({
@@ -125,6 +188,28 @@ function answerForQuestion(
     label: level.label,
     description: level.description,
   }));
+  if (provider === "jev") {
+    if (confidence === undefined) {
+      throw new DecisionResponseError("invalid_response");
+    }
+    const normalized = parseJevScoreProbabilities(
+      question,
+      value.legend,
+      value.probabilities,
+    );
+    return {
+      type: "score",
+      name: question.name,
+      score: normalized.score,
+      levels,
+      probabilities: normalized.probabilities,
+      confidence,
+    };
+  }
+
+  if (score < 0 || score > question.levels.length - 1) {
+    throw new DecisionResponseError("invalid_response");
+  }
   const probabilities = parseProbabilities(
     value.probabilities,
     levels.map(({ value: levelValue }) => levelValue),

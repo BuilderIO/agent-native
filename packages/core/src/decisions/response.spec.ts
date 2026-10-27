@@ -23,6 +23,37 @@ const scoreQuestion: DecisionQuestion = {
   ],
 };
 
+const jevScoreQuestion: DecisionQuestion = {
+  type: "score",
+  name: "urgency",
+  instructions: "How soon does this need attention?",
+  levels: [
+    { label: "none", description: "No action is needed." },
+    { label: "this_week", description: "It can wait a few days." },
+    { label: "today", description: "It needs attention today." },
+  ],
+};
+
+// Schema-derived from the Builder proxy's SystemOneResponseSchema. No Jev
+// credential was available, so this fixture is not an observed live response.
+const schemaDerivedJevScoreResponseFixture = {
+  model: "jev-latest",
+  answers: {
+    urgency: {
+      type: "score",
+      score: 2,
+      legend: {
+        "answer-a": "none: No action is needed.",
+        "answer-b": "this_week: It can wait a few days.",
+        "answer-c": "today: It needs attention today.",
+      },
+      probabilities: { "answer-a": 0.2, "answer-b": 0.5, "answer-c": 0.3 },
+      confidence: 0.82,
+    },
+  },
+  usage: { input_tokens: 42, output_tokens: 8 },
+};
+
 function parse(question: DecisionQuestion, answer: Record<string, unknown>) {
   return parseDecisionAnswers("openai", [question], {
     answers: [{ name: question.name, ...answer }],
@@ -30,6 +61,44 @@ function parse(question: DecisionQuestion, answer: Record<string, unknown>) {
 }
 
 describe("parseDecisionAnswers", () => {
+  it("uses the probability-weighted expected index instead of Jev's raw score, with opaque record keys", () => {
+    const result = parseDecisionAnswers(
+      "jev",
+      [jevScoreQuestion],
+      schemaDerivedJevScoreResponseFixture,
+    );
+
+    expect(result).toEqual({
+      answers: {
+        urgency: {
+          type: "score",
+          name: "urgency",
+          score: 1.1,
+          levels: [
+            { value: 0, label: "none", description: "No action is needed." },
+            {
+              value: 1,
+              label: "this_week",
+              description: "It can wait a few days.",
+            },
+            {
+              value: 2,
+              label: "today",
+              description: "It needs attention today.",
+            },
+          ],
+          probabilities: [
+            { value: 0, probability: 0.2 },
+            { value: 1, probability: 0.5 },
+            { value: 2, probability: 0.3 },
+          ],
+          confidence: 0.82,
+        },
+      },
+      usage: { inputTokens: 42, outputTokens: 8 },
+    });
+  });
+
   it("rejects duplicate choice probability values", () => {
     expect(() =>
       parse(choiceQuestion, {
