@@ -284,6 +284,63 @@ describe("assistant reply toolbar", () => {
     expect(labelsOf(set(older, "secondary"))).toEqual(["Fork from here"]);
   });
 
+  it("names each icon-only action in a tooltip on hover", async () => {
+    const { container, toolbar } = await renderChat();
+    const latest = toolbar("assistant-latest");
+    const user = container.querySelector<HTMLElement>(
+      '[data-message-id="user-2"] .agentkit-message-actions',
+    )!;
+    const hoverName = async (button: HTMLButtonElement) => {
+      vi.useFakeTimers();
+      try {
+        await act(async () => {
+          button.dispatchEvent(
+            new PointerEvent("pointermove", {
+              bubbles: true,
+              pointerType: "mouse",
+            }),
+          );
+          vi.advanceTimersByTime(1000);
+        });
+        const name = document.querySelector('[role="tooltip"]')?.textContent;
+        await act(async () => {
+          button.dispatchEvent(
+            new PointerEvent("pointerleave", {
+              bubbles: true,
+              pointerType: "mouse",
+            }),
+          );
+          vi.advanceTimersByTime(1000);
+        });
+        return name;
+      } finally {
+        vi.useRealTimers();
+      }
+    };
+
+    const names: Array<string | null | undefined> = [];
+    const hoverAll = async (scope: HTMLElement) => {
+      for (const button of Array.from(scope.querySelectorAll("button"))) {
+        // The idle set is inert, so only the open set's actions can be hovered.
+        if (!button.closest("[inert]")) names.push(await hoverName(button));
+      }
+    };
+    await hoverAll(latest);
+    await press(toggle(latest));
+    await hoverAll(set(latest, "secondary")!);
+    await hoverAll(user);
+    expect(names).toEqual([
+      "Copy message",
+      "Good response",
+      "Bad response",
+      "More actions",
+      "Retry",
+      "Fork from here",
+      "Copy request ID",
+      "Copy message",
+    ]);
+  });
+
   it("shows More as pressed while its actions are open, past its hover fill", async () => {
     const { toolbar } = await renderChat();
     const more = toggle(toolbar("assistant-latest"));

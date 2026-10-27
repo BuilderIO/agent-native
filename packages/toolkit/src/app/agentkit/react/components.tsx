@@ -5221,6 +5221,22 @@ function AgentMessageTimestamp({
   );
 }
 
+/**
+ * Names an icon-only message action on hover and keyboard focus. Below the
+ * button, so it never covers the message it acts on.
+ */
+function MessageActionButton(
+  props: ComponentPropsWithoutRef<typeof IconButton>,
+) {
+  return (
+    <Tooltip
+      content={props.label}
+      placement="bottom"
+      trigger={<IconButton {...props} />}
+    />
+  );
+}
+
 export const AgentMessageActions = memo(function AgentMessageActions({
   value: message,
   threadId,
@@ -5434,7 +5450,7 @@ export const AgentMessageActions = memo(function AgentMessageActions({
     regenerateAction.error;
   const placement = isAssistant ? "inline" : undefined;
   const copyButton = (
-    <IconButton
+    <MessageActionButton
       label={copied ? labels.copied : labels.copy}
       icon={
         copied ? (
@@ -5458,7 +5474,7 @@ export const AgentMessageActions = memo(function AgentMessageActions({
           .replace("{{index}}", String(branchNavigation.index))
           .replace("{{count}}", String(branchNavigation.count))}
       >
-        <IconButton
+        <MessageActionButton
           label={labels.previousBranch}
           icon={<IconChevronLeft aria-hidden="true" />}
           size="compact"
@@ -5483,7 +5499,7 @@ export const AgentMessageActions = memo(function AgentMessageActions({
             .replace("{{index}}", String(branchNavigation.index))
             .replace("{{count}}", String(branchNavigation.count))}
         </span>
-        <IconButton
+        <MessageActionButton
           label={labels.nextBranch}
           icon={<IconChevronRight aria-hidden="true" />}
           size="compact"
@@ -5543,7 +5559,7 @@ export const AgentMessageActions = memo(function AgentMessageActions({
             ? (["positive", "negative"] as const).map((value) => {
                 const chosen = feedback === value;
                 return (
-                  <IconButton
+                  <MessageActionButton
                     key={value}
                     label={
                       value === "positive"
@@ -5589,7 +5605,7 @@ export const AgentMessageActions = memo(function AgentMessageActions({
             inert={!moreActionsOpen}
           >
             {showRetry ? (
-              <IconButton
+              <MessageActionButton
                 label={labels.regenerateResponse}
                 icon={<IconRefresh aria-hidden="true" />}
                 size="compact"
@@ -5608,7 +5624,7 @@ export const AgentMessageActions = memo(function AgentMessageActions({
               />
             ) : null}
             {showFork ? (
-              <IconButton
+              <MessageActionButton
                 label={labels.forkFromHere}
                 icon={<IconArrowFork aria-hidden="true" />}
                 size="compact"
@@ -5623,7 +5639,7 @@ export const AgentMessageActions = memo(function AgentMessageActions({
               />
             ) : null}
             {requestId ? (
-              <IconButton
+              <MessageActionButton
                 label={requestIdCopied ? labels.copied : labels.copyRequestId}
                 icon={
                   requestIdCopied ? (
@@ -5645,7 +5661,7 @@ export const AgentMessageActions = memo(function AgentMessageActions({
         ) : null}
       </div>
       {hasSecondaryActions ? (
-        <IconButton
+        <MessageActionButton
           elementRef={moreToggleRef}
           label={labels.moreMessageActions}
           icon={<IconDots aria-hidden="true" />}
@@ -5696,7 +5712,7 @@ export const AgentMessageActions = memo(function AgentMessageActions({
             message.metadata?.pendingSubmission !== true &&
             forkingCapability.visible &&
             text.trim() ? (
-              <IconButton
+              <MessageActionButton
                 label={labels.editMessage}
                 icon={<IconPencil aria-hidden="true" />}
                 size="compact"
