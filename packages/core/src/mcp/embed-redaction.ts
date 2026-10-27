@@ -16,6 +16,7 @@ export const CIRCULAR_RESULT = "[circular result]";
 
 /** Keys removed from every result object, whatever their value. */
 export const EMBED_RESULT_SENSITIVE_KEYS: ReadonlySet<string> = new Set([
+  "agent-native/embedStart",
   "embedTargetPath",
   "embedExpiresAt",
   "embedTicket",
@@ -43,8 +44,8 @@ export function isEmbedStartUrl(value: string): boolean {
   }
 }
 
-/** The framework's embed start route, letters only. */
-const EMBED_START_LETTERS = "agentnativeembedstart";
+/** The embed start route's last two segments, retaining their separator. */
+const EMBED_START_PATH = "embed/start";
 export const MAX_DECODE_ROUNDS = 8;
 
 const PERCENT_ESCAPE = /%([0-9a-f]{2})/gi;
@@ -96,7 +97,7 @@ function decodeOnce(text: string): string {
 // backslash escape that no decoder above reads.
 const UNREAD_ESCAPE =
   /&[a-z0-9#]+;|\\(?:u\{[0-9a-f]*\}|u[0-9a-f]{4}|x[0-9a-f]{2}|[0-7]{1,3}|[\s\S])/g;
-const NOT_LETTER_OR_DIGIT = /[^\p{L}\p{N}]+/gu;
+const NOT_ROUTE_CHARACTER = /[^\p{L}\p{N}/]+/gu;
 const DOT_SEGMENT = /^(?:\.|%2e)$/i;
 const DOUBLE_DOT_SEGMENT = /^(?:\.|%2e){2}$/i;
 
@@ -116,8 +117,8 @@ function resolvedPaths(text: string): string {
 }
 
 /**
- * The letters and digits of `text`, as written and with its paths resolved,
- * each read two ways. The exact reading only folds case, so its paths resolve
+ * The letters, digits and path separators of `text`, as written and with its
+ * paths resolved, each read two ways. The exact reading only folds case, so its paths resolve
  * as a browser's do. The loose reading also folds compatibility forms such as
  * full-width letters and drops every escape still in the text, so an escape
  * nothing here decodes cannot keep the letters on either side of it apart.
@@ -130,7 +131,9 @@ function readings(text: string): string[] {
       // Resolving changes a path's letters only through `..` or `%2e`.
       /\.\.|%2e/.test(variant) ? [variant, resolvedPaths(variant)] : [variant],
     )
-    .map((reading) => reading.replace(NOT_LETTER_OR_DIGIT, ""));
+    .map((reading) =>
+      reading.replace(/\\/g, "/").replace(NOT_ROUTE_CHARACTER, ""),
+    );
 }
 
 /** One string as every check below reads it. */
@@ -149,9 +152,9 @@ export interface StringReading {
    */
   complete: boolean;
   /**
-   * Whether `/_agent-native/embed/start` can be read in any layer. The route
-   * namespace distinguishes a sign-in URL from ordinary prose about starting
-   * an embed, which must survive document and message reads.
+   * Whether the `embed/start` path segments can be read in any layer. Their
+   * separator distinguishes a sign-in URL, including a relative one, from
+   * ordinary prose about starting an embed, which must survive document reads.
    */
   mentionsRoute: boolean;
 }
@@ -175,7 +178,7 @@ export function readString(text: string): StringReading {
     layers,
     complete,
     mentionsRoute: layers.some((layer) =>
-      readings(layer).some((reading) => reading.includes(EMBED_START_LETTERS)),
+      readings(layer).some((reading) => reading.includes(EMBED_START_PATH)),
     ),
   };
 }

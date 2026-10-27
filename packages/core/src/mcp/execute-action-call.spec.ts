@@ -681,9 +681,11 @@ describe("executeMcpActionCall sanitizing", () => {
     `https://redirect.example/?next=${EMBED_START.replaceAll("/", "\\u002f")}`,
   ];
 
-  // The embed start URL spelled with escapes a decoder resolves, with
+  // The embed start URL spelled relatively or with escapes a decoder resolves, with
   // characters a URL parser drops, or with forms a reader folds back into it.
   const disguisedEmbedStarts = [
+    "embed/start?ticket=secret-ticket",
+    "./embed/start?ticket=secret-ticket",
     EMBED_START.replace("_", "&UnderBar;"),
     EMBED_START.replace("_agent", "_ag&Tab;ent"),
     EMBED_START.replace("_agent", "_ag&NewLine;ent"),
@@ -759,12 +761,14 @@ describe("executeMcpActionCall sanitizing", () => {
 
   it("keeps ordinary nested URLs and ticket fields with no embed route beside them", async () => {
     const value = {
-      content: "# Synthetic task\n\nCheck the embed start behavior.",
+      content:
+        "# Synthetic task\n\nCheck the embed start behavior. Read the Agent Native embed start guide.",
       next: `https://redirect.example/?next=${encodeURIComponent("https://mail.agent-native.com/inbox")}`,
       support: {
         ticket: "SUP-12",
         url: "https://support.example/_agent-native/embed?step=1#started-guide",
         note: "Embedded charts &amp; start-up tips",
+        fragmentGuide: "https://support.example/_agent-native/embed#start",
       },
     };
     await expect(
@@ -777,8 +781,8 @@ describe("executeMcpActionCall sanitizing", () => {
 
   it("redacts the framework route even when its separators are disguised", async () => {
     for (const mention of [
-      "https://support.example/_agent-native/embed#start",
-      "https://support.example/_agent-native/embed start",
+      "https://support.example/_agent-native\\embed\\start",
+      "https://support.example/_agent-native/embed&#x2f;start",
     ]) {
       await expect(
         execute(
@@ -930,10 +934,10 @@ describe("executeMcpActionCall sanitizing", () => {
     };
 
     it("learns nothing from image bytes, but reads the rest of an image", () => {
-      // Base64 whose letters run "agentnativeembedstart", which the loose route match
+      // Base64 that contains the normalized route, which the loose route match
       // reads as naming the route, so reading it would put the call in embed
       // context.
-      const bytes = `${"QUJD".repeat(500_000)}agentnativeembedstart`;
+      const bytes = `${"QUJD".repeat(500_000)}/agentnative/embed/start`;
       const image = (fields: Record<string, unknown>) => ({
         _agentImages: [{ mediaType: "image/png", ...fields }],
       });
@@ -947,7 +951,7 @@ describe("executeMcpActionCall sanitizing", () => {
       ).toBe(false);
       expect(
         embedCredentialGuard(
-          image({ data: "aGVsbG8=", label: "agentnativeembedstart" }),
+          image({ data: "aGVsbG8=", label: "/_agent-native/embed/start" }),
         ).embedContext,
       ).toBe(true);
       expect(embedCredentialGuard(image({ url: start })).credentials).toEqual([
