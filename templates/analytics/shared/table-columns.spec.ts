@@ -66,6 +66,18 @@ describe("numberTableColumns", () => {
     expect([...numberTableColumns([{ key: "wait" }], rows)]).toEqual([]);
   });
 
+  it("keeps a column left when its values don't share a unit", () => {
+    const columns = numberTableColumns(
+      [{ key: "prs" }, { key: "day" }, { key: "size" }, { key: "time" }],
+      [
+        { prs: "3 PRs", day: "12 Jan", size: "512 B", time: "5m" },
+        { prs: "12 PRs", day: "3 Feb", size: "5 MB", time: "5M" },
+        { prs: 0, day: "28 Feb", size: "2 GB", time: "5" },
+      ],
+    );
+    expect([...columns]).toEqual(["prs"]);
+  });
+
   it("reads a dash as a missing value", () => {
     expect([
       ...numberTableColumns(

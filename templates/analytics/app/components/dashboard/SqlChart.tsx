@@ -2489,6 +2489,19 @@ export function sortTableRows(
   const isEmpty = (key: string, value: unknown) =>
     formats.get(key) === "duration" ? isEmptyDuration(value) : value == null;
 
+  // Text that reads as a number sorts by it, and a duration such as
+  // "4.8 days" by how long it is, in a column that lines up as numbers.
+  const numberColumns = numberTableColumns(
+    sorts.map(
+      (sort) =>
+        columns.find((col) => col.key === sort.key) ?? { key: sort.key },
+    ),
+    rows,
+  );
+  const quantity = (key: string, value: unknown) =>
+    numericTableValue(value) ??
+    (numberColumns.has(key) ? tableQuantity(value) : null);
+
   return rows
     .map((row, index) => ({ row, index }))
     .sort((a, b) => {
@@ -2501,10 +2514,8 @@ export function sortTableRows(
         if (aEmpty) return 1;
         if (bEmpty) return -1;
 
-        // Text that reads as a number sorts by it, and a duration such as
-        // "4.8 days" by how long it is.
-        const an = numericTableValue(av) ?? tableQuantity(av);
-        const bn = numericTableValue(bv) ?? tableQuantity(bv);
+        const an = quantity(sort.key, av);
+        const bn = quantity(sort.key, bv);
 
         if (an !== null && bn === null) return -1;
         if (an === null && bn !== null) return 1;

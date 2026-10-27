@@ -60,14 +60,19 @@ function magnitude(unit: string, money: boolean): number | undefined {
   return MAGNITUDES.get(money && unit === "m" ? "M" : unit);
 }
 
-/**
- * The number a table value stands for, so tables can line it up and sort by
- * it: a finite number as it is, or text that reads as one, such as "1,200",
- * "$12.50", "12%", "3 PRs" or "1.2K". Durations ("4.8 days", "1m 42s") come
- * back in seconds, so "75 days" sorts above "9.9 days". Anything else is null.
- */
-export function tableQuantity(value: unknown): number | null {
-  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+// What a value's unit lets it sort against: "" for no unit ("12", "$5",
+// "12%"), "seconds" for a duration, "K/M/B" for a magnitude, or the word
+// itself, lowercased, such as "prs". A word never equals the first two:
+// "seconds" reads as a duration, and words have no slash.
+interface Reading {
+  amount: number;
+  unit: string;
+}
+
+function readQuantity(value: unknown): Reading | null {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? { amount: value, unit: "" } : null;
+  }
   if (typeof value !== "string") return null;
   const text = value.trim();
 
@@ -78,7 +83,7 @@ export function tableQuantity(value: unknown): number | null {
       if (size === undefined) return null;
       seconds += Number(amount) * size;
     }
-    return seconds;
+    return { amount: seconds, unit: "seconds" };
   }
 
   const match = QUANTITY.exec(text);
@@ -87,7 +92,40 @@ export function tableQuantity(value: unknown): number | null {
   const amount = Number(digits.replace(/,/g, "")) * (sign === "-" ? -1 : 1);
   const unit = rawUnit.replace(/\.$/, "");
   const money = currency !== "";
-  return amount * (durationSeconds(unit, money) ?? magnitude(unit, money) ?? 1);
+  if (unit === "" || unit === "%") return { amount, unit: "" };
+  const seconds = durationSeconds(unit, money);
+  if (seconds !== undefined) {
+    return { amount: amount * seconds, unit: "seconds" };
+  }
+  const scale = magnitude(unit, money);
+  if (scale !== undefined) return { amount: amount * scale, unit: "K/M/B" };
+  return { amount, unit: unit.toLowerCase() };
+}
+
+/**
+ * The number a table value stands for: a finite number as it is, or text
+ * that reads as one, such as "1,200", "$12.50", "12%", "3 PRs" or "1.2K".
+ * Durations ("4.8 days", "1m 42s") come back in seconds, so "75 days" sorts
+ * above "9.9 days". Anything else is null. Whether a column lines up and
+ * sorts by these numbers is up to `numberTableColumns`.
+ */
+export function tableQuantity(value: unknown): number | null {
+  return readQuantity(value)?.amount ?? null;
+}
+
+// Values that read as numbers in one unit: plain numbers plus all durations,
+// all K, M and B magnitudes, or all one word. "3 PRs" and "12 PRs" compare,
+// but "12 Jan" and "3 Feb", or "512 B" and "5 MB", don't.
+function inOneUnit(values: unknown[]): boolean {
+  let unit = "";
+  for (const value of values) {
+    const reading = readQuantity(value);
+    if (!reading) return false;
+    if (reading.unit === "") continue;
+    if (unit !== "" && reading.unit !== unit) return false;
+    unit = reading.unit;
+  }
+  return true;
 }
 
 // Blank text, or a lone dash such as "–", stands in for a missing value.
@@ -98,9 +136,10 @@ export function isNumericColumnFormat(format: ColumnFormat | undefined) {
 }
 
 /**
- * Columns a table right-aligns in tabular figures: number formats, plus
- * unformatted columns whose every value is a number or reads as one (see
- * `tableQuantity`). A column set to text stays left, whatever it holds.
+ * Columns a table right-aligns in tabular figures and sorts by number:
+ * number formats, plus unformatted columns whose every value is a number or
+ * reads as one in a single unit (see `tableQuantity`). A column set to text
+ * stays left, whatever it holds.
  */
 export function numberTableColumns(
   columns: TableColumnConfig[],
@@ -118,10 +157,7 @@ export function numberTableColumns(
               value != null &&
               !(typeof value === "string" && MISSING.test(value)),
           );
-        return (
-          values.length > 0 &&
-          values.every((value) => tableQuantity(value) !== null)
-        );
+        return values.length > 0 && inOneUnit(values);
       })
       .map((col) => col.key),
   );

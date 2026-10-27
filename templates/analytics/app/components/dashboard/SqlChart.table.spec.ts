@@ -146,6 +146,22 @@ describe("SqlChart table helpers", () => {
     ).toEqual(["980", "1.2K", "15K", "3.4M"]);
   });
 
+  it("sorts counts by number, but text whose units differ as text", () => {
+    const prs = ["12 PRs", "3 PRs", "40 PRs"].map((open) => ({ open }));
+    expect(
+      sortTableRows(prs, [{ key: "open", direction: "asc" }]).map(
+        (row) => row.open,
+      ),
+    ).toEqual(["3 PRs", "12 PRs", "40 PRs"]);
+
+    const days = ["3 Feb", "12 Jan", "28 Feb"].map((day) => ({ day }));
+    expect(
+      sortTableRows(days, [{ key: "day", direction: "asc" }]).map(
+        (row) => row.day,
+      ),
+    ).toEqual(["12 Jan", "28 Feb", "3 Feb"]);
+  });
+
   it("sorts unparseable values after numeric ones in a mixed column, regardless of direction", () => {
     const rows = [
       { revenue: "10" },
