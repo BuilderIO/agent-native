@@ -173,6 +173,15 @@ async function acceptOnLegacyWriter<T>(
   return result;
 }
 
+/** The edits a Content suggestion can make, on the body or on a tab. */
+export const CONTENT_SUGGESTION_OPERATION_KINDS: readonly string[] = [
+  "insert_text",
+  "delete_text",
+  "replace_text",
+  "add_text_block",
+  "set_inline_mark",
+];
+
 function validateOperations(
   operations: SuggestionOperation[],
 ): SuggestionOperation[] {
@@ -182,15 +191,7 @@ function validateOperations(
     );
   }
   const operation = operations[0]!;
-  if (
-    ![
-      "insert_text",
-      "delete_text",
-      "replace_text",
-      "add_text_block",
-      "set_inline_mark",
-    ].includes(operation.kind)
-  ) {
+  if (!CONTENT_SUGGESTION_OPERATION_KINDS.includes(operation.kind)) {
     throw new Error(
       `Unsupported Content suggestion operation: ${operation.kind}`,
     );
@@ -284,7 +285,7 @@ export function acceptedSuggestionRequestSource(
   return requestSource === "agent" ? "agent" : undefined;
 }
 
-function validateSuggestionStructure(
+export function validateSuggestionStructure(
   beforeMarkdown: string,
   afterMarkdown: string,
   refusal: string,
@@ -299,7 +300,7 @@ function validateSuggestionStructure(
   return after;
 }
 
-function drizzleTransactionForExec(transaction: DbExec) {
+export function drizzleTransactionForExec(transaction: DbExec) {
   return drizzle(
     async (sql, args, method) => {
       const result = await transaction.execute({ sql, args });
@@ -398,7 +399,7 @@ const INLINE_DATABASE_ACCEPT_MESSAGE =
   "Pages containing inline databases cannot accept suggestions yet.";
 
 /** Core turns this into a 409 `suggestion_stale` and keeps it pending. */
-function suggestionStaleError(message: string) {
+export function suggestionStaleError(message: string) {
   const error = new Error(message);
   error.name = "SuggestionStaleError";
   return error;

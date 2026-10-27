@@ -92,6 +92,8 @@ export async function acceptedRangesOnSameText(
   tx: DbExec,
   suggestion: Pick<ResourceSuggestion, "id" | "resourceId" | "adapterKind">,
   beforeMarkdown: string,
+  /** The Blocks field tab both edit, when it isn't the page body. */
+  targetId?: string,
 ): Promise<MarkdownRange[]> {
   const rows = (
     await tx.execute({
@@ -99,12 +101,15 @@ export async function acceptedRangesOnSameText(
             INNER JOIN agent_review_suggestion_operations o ON o.suggestion_id = s.id
             WHERE s.resource_type = 'document' AND s.resource_id = ? AND s.adapter_kind = ?
               AND s.status = 'accepted' AND s.id <> ?
-              AND (o.before_json::jsonb ->> 'markdown') = ?`,
+              AND (o.before_json::jsonb ->> 'markdown') = ?${
+                targetId === undefined ? "" : " AND o.target_id = ?"
+              }`,
       args: [
         suggestion.resourceId,
         suggestion.adapterKind,
         suggestion.id,
         beforeMarkdown,
+        ...(targetId === undefined ? [] : [targetId]),
       ],
     })
   ).rows;
