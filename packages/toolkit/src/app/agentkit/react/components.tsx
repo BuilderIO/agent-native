@@ -6463,7 +6463,7 @@ export function AgentKitComposer({
     <div
       role="group"
       aria-labelledby={editingLabelId}
-      className="agentkit-editing-row flex h-6 min-w-0 items-center gap-1.5 text-xs text-muted-foreground"
+      className="agentkit-editing-row flex h-6 min-w-0 items-center gap-2 text-xs text-muted-foreground"
       data-agentkit-editing-row="true"
     >
       <Tooltip
@@ -6472,7 +6472,7 @@ export function AgentKitComposer({
         trigger={
           <span
             tabIndex={0}
-            className="inline-flex min-w-0 items-center gap-1.5 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="inline-flex min-w-0 items-center gap-2 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <IconPencil aria-hidden="true" className="size-4 shrink-0" />
             <span id={editingLabelId} className="truncate">
