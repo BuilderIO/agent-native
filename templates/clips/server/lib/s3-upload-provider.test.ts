@@ -124,14 +124,14 @@ describe("s3FileUploadProvider", () => {
   });
 
   it("never mixes a workspace's saved storage with the deployment's", async () => {
-    const deployment: Record<string, string> = {
+    const deployment: Record<string, string | undefined> = {
       S3_BUCKET: "deploy-bucket",
       S3_ACCESS_KEY_ID: "deploy-access",
       S3_SECRET_ACCESS_KEY: "deploy-secret",
       S3_ENDPOINT: "https://deploy-s3.example.com",
     };
     Object.assign(process.env, deployment);
-    let saved: Record<string, string> = {};
+    let saved: Record<string, string | undefined> = {};
     mockResolveSecret.mockImplementation(
       async (key: string) => saved[key] ?? deployment[key] ?? null,
     );
@@ -244,7 +244,8 @@ describe("s3FileUploadProvider", () => {
   });
 
   it("claims only organization logo uploads", () => {
-    const handles = clipsOrganizationLogoPrivateBlobProvider.handles!;
+    const { handles } = clipsOrganizationLogoPrivateBlobProvider;
+    if (!handles) throw new Error("The logo provider should filter puts");
 
     expect(
       handles({
@@ -301,14 +302,24 @@ describe("s3FileUploadProvider", () => {
       S3_SECRET_ACCESS_KEY: "deploy-secret",
       S3_ENDPOINT: "https://deploy-s3.example.com",
     });
-    let saved: Record<string, string> = {
+    let saved: Record<string, string | undefined> = {
       S3_ENDPOINT: "https://workspace-s3.example.com",
     };
     mockReadAppSecret.mockImplementation(
-      async ({ key, scope, scopeId }: Record<string, string>) =>
-        scope === "workspace" && scopeId === "org-1" && saved[key]
-          ? { value: saved[key] }
-          : null,
+      async ({
+        key,
+        scope,
+        scopeId,
+      }: {
+        key: string;
+        scope: string;
+        scopeId: string;
+      }) => {
+        const value = saved[key];
+        return scope === "workspace" && scopeId === "org-1" && value
+          ? { value }
+          : null;
+      },
     );
     const logo = () =>
       clipsOrganizationLogoPrivateBlobProvider.put({

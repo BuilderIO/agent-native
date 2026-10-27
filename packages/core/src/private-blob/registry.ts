@@ -415,10 +415,7 @@ export function setPrivateBlobPublicUploadFallbackEnabled(
 export async function putPrivateBlob(
   input: PrivateBlobPutInput,
 ): Promise<PrivateBlobHandle | null> {
-  const provider = await getPrivateBlobProviderForPut({
-    mimeType: input.mimeType,
-    metadata: input.metadata,
-  });
+  const provider = await getPrivateBlobProviderForPut(input);
   if (provider) return provider.put(input);
   if (!publicUploadFallbackRef.enabled) return null;
   if (!getAppConfig().privateBlob.publicUploadFallback) return null;

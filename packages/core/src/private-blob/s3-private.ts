@@ -205,10 +205,12 @@ async function resolveSetting(field: StorageField) {
   const saved = found.filter(
     (detail) => detail.source && detail.source !== "env",
   );
+  const first = saved.at(0);
+  const second = saved.at(1);
   if (
-    saved.length === 2 &&
-    (saved[0].source !== saved[1].source ||
-      saved[0].scopeId !== saved[1].scopeId)
+    first &&
+    second &&
+    (first.source !== second.source || first.scopeId !== second.scopeId)
   ) {
     const [primary, legacy] = STORAGE_KEYS[field];
     throw new PrivateBlobError(
@@ -216,7 +218,7 @@ async function resolveSetting(field: StorageField) {
       "not_configured",
     );
   }
-  return saved[0] ?? found[0] ?? null;
+  return first ?? found.at(0) ?? null;
 }
 
 /**
@@ -375,6 +377,20 @@ function encodeDescriptor(descriptor: S3BlobDescriptor): string {
   return `${HANDLE_PREFIX}${encryptSecretValue(JSON.stringify(descriptor))}`;
 }
 
+function isS3BlobDescriptor(value: unknown): value is S3BlobDescriptor {
+  if (typeof value !== "object" || value === null) return false;
+  const descriptor = value as Partial<Record<keyof S3BlobDescriptor, unknown>>;
+  return (
+    descriptor.kind === "agent-native.private-blob.s3" &&
+    descriptor.version === 1 &&
+    typeof descriptor.key === "string" &&
+    typeof descriptor.bucket === "string" &&
+    typeof descriptor.endpoint === "string" &&
+    typeof descriptor.region === "string" &&
+    descriptor.key.startsWith(`${OBJECT_KEY_PREFIX}/`)
+  );
+}
+
 function decodeDescriptor(handle: PrivateBlobHandle): S3BlobDescriptor {
   if (!handle.id.startsWith(HANDLE_PREFIX)) {
     throw new PrivateBlobError(
@@ -382,11 +398,11 @@ function decodeDescriptor(handle: PrivateBlobHandle): S3BlobDescriptor {
       "corrupt",
     );
   }
-  let descriptor: S3BlobDescriptor;
+  let descriptor: unknown;
   try {
     descriptor = JSON.parse(
       decryptSecretValue(handle.id.slice(HANDLE_PREFIX.length)),
-    ) as S3BlobDescriptor;
+    );
   } catch (error) {
     throw new PrivateBlobError(
       "Private blob handle descriptor could not be decrypted",
@@ -394,15 +410,7 @@ function decodeDescriptor(handle: PrivateBlobHandle): S3BlobDescriptor {
       { cause: error },
     );
   }
-  if (
-    descriptor?.kind !== "agent-native.private-blob.s3" ||
-    descriptor.version !== 1 ||
-    typeof descriptor.key !== "string" ||
-    typeof descriptor.bucket !== "string" ||
-    typeof descriptor.endpoint !== "string" ||
-    typeof descriptor.region !== "string" ||
-    !descriptor.key.startsWith(`${OBJECT_KEY_PREFIX}/`)
-  ) {
+  if (!isS3BlobDescriptor(descriptor)) {
     throw new PrivateBlobError(
       "Private blob handle descriptor is invalid",
       "corrupt",
@@ -520,10 +528,19 @@ async function putBlob(
     provider: providerId,
     opaque: true,
     encrypted: Boolean(encrypted),
-    mimeType: input.mimeType,
     size: bytes.byteLength,
     createdAt: new Date().toISOString(),
-    metadata: input.metadata,
+    ...blobDetails(input),
+  };
+}
+
+/** A blob's type and metadata, leaving out whichever it doesn't have. */
+function blobDetails(
+  from: Pick<PrivateBlobHandle, "mimeType" | "metadata">,
+): Pick<PrivateBlobHandle, "mimeType" | "metadata"> {
+  return {
+    ...(from.mimeType === undefined ? {} : { mimeType: from.mimeType }),
+    ...(from.metadata === undefined ? {} : { metadata: from.metadata }),
   };
 }
 
@@ -546,8 +563,7 @@ async function readBlob(
     data: descriptor.encryption
       ? decryptBlobBytes(descriptor.encryption, stored)
       : stored,
-    mimeType: handle.mimeType,
-    metadata: handle.metadata,
+    ...blobDetails(handle),
     handle,
   };
 }
@@ -557,7 +573,9 @@ function parseContentRange(
 ): { start: number; end: number; size: number } | null {
   const match = value?.match(/^bytes (\d+)-(\d+)\/(\d+)$/);
   if (!match) return null;
-  const [start, end, size] = match.slice(1).map(Number);
+  const start = Number(match[1]);
+  const end = Number(match[2]);
+  const size = Number(match[3]);
   if (
     ![start, end, size].every(Number.isSafeInteger) ||
     start > end ||
@@ -620,11 +638,7 @@ async function readBlobRange(
   }
   if (!response.ok) throw await readFailure(response, "GetObject");
   const data = new Uint8Array(await response.arrayBuffer());
-  const base = {
-    mimeType: handle.mimeType,
-    metadata: handle.metadata,
-    handle,
-  };
+  const base = { ...blobDetails(handle), handle };
   if (response.status === 206) {
     const returned = parseContentRange(response.headers.get("content-range"));
     // The bytes must be exactly the ones asked for: the requested start,

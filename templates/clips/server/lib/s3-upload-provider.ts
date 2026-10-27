@@ -135,7 +135,9 @@ async function readS3Config(): Promise<S3Config | null> {
       const detail = await resolveSecretDetailed(key);
       if (cleanValue(detail.value)) found.set(key, detail);
       else if (detail.lookupFailed) {
-        throw detail.cause ?? new Error(`Unable to read configured ${key}`);
+        throw detail.cause instanceof Error
+          ? detail.cause
+          : new Error(`Unable to read configured ${key}`);
       }
     }),
   );
@@ -217,7 +219,7 @@ async function readOrganizationLogoS3Config(
   organizationId: string,
 ): Promise<S3Config | null> {
   const saved = new Map<string, string>();
-  let unreadable = false;
+  const unreadable: string[] = [];
   await Promise.all(
     S3_SECRET_KEYS.map(async (key) => {
       try {
@@ -230,11 +232,11 @@ async function readOrganizationLogoS3Config(
         if (value) saved.set(key, value);
       } catch (error) {
         if (!isUnreadableSecretError(error)) throw error;
-        unreadable = true;
+        unreadable.push(key);
       }
     }),
   );
-  if (unreadable) return null;
+  if (unreadable.length > 0) return null;
   if (saved.size === 0) return readS3EnvConfig();
   const read = (primary: string, fallback: string) =>
     saved.get(primary) ?? saved.get(fallback);

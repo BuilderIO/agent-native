@@ -26,12 +26,12 @@ function cleanValue(value: string | null | undefined): string | undefined {
 }
 
 function buildConfig(values: {
-  bucket?: string;
-  accessKeyId?: string;
-  secretAccessKey?: string;
-  endpoint?: string;
-  region?: string;
-  publicBaseUrl?: string;
+  bucket?: string | undefined;
+  accessKeyId?: string | undefined;
+  secretAccessKey?: string | undefined;
+  endpoint?: string | undefined;
+  region?: string | undefined;
+  publicBaseUrl?: string | undefined;
 }): S3Config | null {
   const bucket = cleanValue(values.bucket);
   const accessKeyId = cleanValue(values.accessKeyId);

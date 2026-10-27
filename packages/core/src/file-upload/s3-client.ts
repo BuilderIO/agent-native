@@ -29,7 +29,7 @@ export interface SignedS3RequestOptions {
   body?: Uint8Array;
   contentType?: string;
   /** An HTTP Range header value, such as `bytes=0-1023`. */
-  range?: string;
+  range?: string | undefined;
   timeoutMs: number;
   /**
    * The deployment configured this endpoint and its keys (not a workspace),
@@ -44,11 +44,11 @@ export interface PresignS3GetOptions {
   /** Seconds until the link stops working: 1 to 604800 (seven days). */
   expiresInSeconds: number;
   /** Overrides the Content-Type the bucket sends with the object. */
-  responseContentType?: string;
+  responseContentType?: string | undefined;
   /** Overrides the Content-Disposition the bucket sends with the object. */
-  responseContentDisposition?: string;
+  responseContentDisposition?: string | undefined;
   /** Overrides the Cache-Control the bucket sends with the object. */
-  responseCacheControl?: string;
+  responseCacheControl?: string | undefined;
   /** Signing time; tests pin it. Defaults to now. */
   now?: Date;
 }
@@ -131,6 +131,18 @@ function uploadAllowanceMs(body: RequestInit["body"]): number {
     Math.ceil((bytes / MIN_UPLOAD_BYTES_PER_SECOND) * 1000),
     MAX_UPLOAD_ALLOWANCE_MS,
   );
+}
+
+/** Lets the process exit while `timer` waits, where timers support it. */
+function unrefTimer(timer: unknown): void {
+  if (
+    typeof timer === "object" &&
+    timer !== null &&
+    "unref" in timer &&
+    typeof timer.unref === "function"
+  ) {
+    timer.unref();
+  }
 }
 
 /**
@@ -225,7 +237,7 @@ export async function fetchS3WithTimeout(
     const resetIdleTimeout = () => {
       clearIdleTimeout();
       idleTimeout = setTimeout(timeOutBody, timeoutMs);
-      if (idleTimeout.unref) idleTimeout.unref();
+      unrefTimer(idleTimeout);
     };
     const body = new ReadableStream<Uint8Array>(
       {
@@ -235,10 +247,10 @@ export async function fetchS3WithTimeout(
         },
         async pull(streamController) {
           try {
-            if (controller.signal.aborted) throw controller.signal.reason;
+            controller.signal.throwIfAborted();
             const { done, value } = await reader.read();
             if (bodySettled) return;
-            if (controller.signal.aborted) throw controller.signal.reason;
+            controller.signal.throwIfAborted();
             if (done) {
               bodySettled = true;
               clearIdleTimeout();
