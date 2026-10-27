@@ -11,7 +11,6 @@ import { parseChangelog } from "../changelog/parse.js";
 import { DEV_SERVER_RECOVERY_EXIT_CODE } from "../cli/process.js";
 import { signEmbedSessionToken } from "../server/embed-session.js";
 import { getMissingCoreOptionalPeers } from "../shared/optional-peer-ssr.js";
-import { AGENT_NATIVE_TYPEGEN_ENV } from "../shared/runtime-config.js";
 import { readAgentNativeBuildConfigMarker } from "./agent-native-config-loader.js";
 import {
   _debounceNitroFullReloadHotUpdate,
@@ -2232,9 +2231,13 @@ describe("agent-native app config", () => {
     }
   });
 
-  it("skips build diagnostics only for React Router typegen", async () => {
+  // oracle-change: the AGENT_NATIVE_TYPEGEN skip is gone because typecheck's
+  // typegen no longer loads this plugin; the production warning still fires.
+  it("warns about production configuration errors during a production build", async () => {
     const previousCwd = process.cwd();
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-typegen-config-"));
+    const tmpDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-production-config-"),
+    );
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     fs.writeFileSync(
       path.join(tmpDir, "agent-native.json"),
@@ -2248,11 +2251,6 @@ describe("agent-native app config", () => {
       const configPlugin = flatPlugins(agentNative()).find(
         (plugin) => plugin?.name === "agent-native-config",
       );
-      vi.stubEnv(AGENT_NATIVE_TYPEGEN_ENV, "1");
-      await configPlugin.config({}, { command: "build", mode: "production" });
-      expect(warn).not.toHaveBeenCalled();
-
-      vi.stubEnv(AGENT_NATIVE_TYPEGEN_ENV, undefined);
       await configPlugin.config({}, { command: "build", mode: "production" });
       expect(warn).toHaveBeenCalledOnce();
       expect(warn.mock.calls[0][0]).toContain(
@@ -2260,7 +2258,6 @@ describe("agent-native app config", () => {
       );
     } finally {
       warn.mockRestore();
-      vi.unstubAllEnvs();
       process.chdir(previousCwd);
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }

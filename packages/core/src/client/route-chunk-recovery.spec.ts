@@ -686,6 +686,57 @@ describe("route chunk recovery", () => {
     expect(fakeLocation.assign).toHaveBeenCalledOnce();
   });
 
+  it("ignores module scripts and preloads that failed on another origin", () => {
+    const { fakeWindow, fakeLocation, dispatchDocument } = createFakeWindow(
+      "https://example.com/docs/guide",
+    );
+
+    installRouteChunkRecovery(fakeWindow);
+
+    dispatchDocument("error", {
+      target: {
+        tagName: "SCRIPT",
+        type: "module",
+        src: "https://static.cloudflareinsights.com/beacon.min.js",
+      },
+    } as unknown as Event);
+    dispatchDocument("error", {
+      target: {
+        tagName: "LINK",
+        rel: "modulepreload",
+        href: "https://example.com.cdn.example/docs/assets/guide-1a2b.js",
+        getAttribute: (name: string) =>
+          name === "rel" ? "modulepreload" : null,
+      },
+    } as unknown as Event);
+    expect(fakeLocation.assign).not.toHaveBeenCalled();
+
+    dispatchDocument("error", {
+      target: {
+        tagName: "SCRIPT",
+        type: "module",
+        src: "https://example.com/docs/assets/guide-1a2b.js",
+      },
+    } as unknown as Event);
+
+    expectRecoveryNavigation(fakeLocation, "https://example.com/docs/guide");
+    expect(fakeLocation.assign).toHaveBeenCalledOnce();
+  });
+
+  it("recovers a failed inline module script, which has no src", () => {
+    const { fakeWindow, fakeLocation, dispatchDocument } = createFakeWindow(
+      "https://example.com/docs/guide",
+    );
+
+    installRouteChunkRecovery(fakeWindow);
+
+    dispatchDocument("error", {
+      target: { tagName: "SCRIPT", type: "module", src: "" },
+    } as unknown as Event);
+
+    expectRecoveryNavigation(fakeLocation, "https://example.com/docs/guide");
+  });
+
   it("removes the browser cache buster after the fresh app shell loads", () => {
     const startUrl = new URL(
       "https://example.com/dispatch/apps?tab=activity#latest",
@@ -1059,6 +1110,42 @@ describe("route chunk recovery", () => {
         reason: "external-embed",
       });
       expect(dispatchEvent).toHaveBeenCalledTimes(1);
+    });
+
+    it("in an MCP App embed, reports the app's own failed files but not another site's", () => {
+      const { fakeWindow, fakeLocation, dispatchDocument } = createFakeWindow(
+        "https://abc123.claudemcpcontent.com/crm/records/1?embedded=1",
+      );
+      (fakeWindow as unknown as Record<string, unknown>)[
+        EXTERNAL_EMBED_WINDOW_KEY
+      ] = { origin: "https://app.example.test" };
+      installRouteChunkRecovery(fakeWindow);
+
+      dispatchDocument("error", {
+        target: {
+          tagName: "SCRIPT",
+          type: "module",
+          src: "https://static.cloudflareinsights.com/beacon.min.js",
+        },
+      } as unknown as Event);
+      expect(readStaleChunkRecoveryExhausted(fakeWindow)).toBeUndefined();
+
+      // The transplant points the app's root-relative links at its own origin.
+      dispatchDocument("error", {
+        target: {
+          tagName: "LINK",
+          rel: "modulepreload",
+          href: "https://app.example.test/assets/records-1a2b.js",
+          getAttribute: (name: string) =>
+            name === "rel" ? "modulepreload" : null,
+          hasAttribute: () => false,
+        },
+      } as unknown as Event);
+
+      expect(fakeLocation.assign).not.toHaveBeenCalled();
+      expect(readStaleChunkRecoveryExhausted(fakeWindow)).toEqual({
+        reason: "external-embed",
+      });
     });
   });
 });
