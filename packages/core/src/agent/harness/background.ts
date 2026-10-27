@@ -10,6 +10,7 @@ import type {
   BackgroundAgentTranscriptEvent,
   ListBackgroundAgentRunsOptions,
 } from "../../code-agents/background-run.js";
+import type { ActiveRun } from "../run-manager.js";
 import { abortRunDurably } from "../run-manager.js";
 import { getRunEventsSince } from "../run-store.js";
 import type { AgentChatEvent, RunEvent } from "../types.js";
@@ -31,6 +32,10 @@ import {
 
 export function createAgentHarnessBackgroundAgentController(
   scope: AgentHarnessOwnerScope = { ownerEmail: null },
+  options: {
+    /** Hosts use this to project child output and drain queued thread work. */
+    onRunComplete?: (run: ActiveRun) => void | Promise<void>;
+  } = {},
 ): BackgroundAgentController {
   return {
     list: (options) =>
@@ -42,7 +47,8 @@ export function createAgentHarnessBackgroundAgentController(
     get: (runId) => getAgentHarnessBackgroundRun(runId, scope),
     transcript: (runId) =>
       listAgentHarnessBackgroundTranscriptEvents(runId, scope),
-    sendFollowUp: (input) => sendAgentHarnessBackgroundFollowUp(input, scope),
+    sendFollowUp: (input) =>
+      sendAgentHarnessBackgroundFollowUp(input, scope, options.onRunComplete),
     control: (input) => controlAgentHarnessBackgroundRun(input, scope),
   };
 }
@@ -466,12 +472,14 @@ function backgroundStatus(
 async function sendAgentHarnessBackgroundFollowUp(
   input: BackgroundAgentFollowUpInput,
   scope: AgentHarnessOwnerScope,
+  onRunComplete?: (run: ActiveRun) => void | Promise<void>,
 ): Promise<BackgroundAgentControlResult> {
   const result = await sendAgentHarnessFollowUp({
     runId: input.runId,
     prompt: input.prompt,
     metadata: input.metadata,
     scope,
+    onRunComplete,
   });
   const run = await getAgentHarnessBackgroundRun(input.runId, scope);
   return {

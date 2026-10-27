@@ -1466,6 +1466,7 @@ export async function insertRun(
     afterInsert?: (tx: DbExec) => Promise<void>;
   },
 ): Promise<void> {
+  const executionFence = currentExecutionFence();
   if (options?.dispatchPayload) {
     assertNoInlineImageBytes(options.dispatchPayload, "dispatch_payload");
   }
@@ -1507,7 +1508,7 @@ export async function insertRun(
     }
   };
   if (!client.transaction) {
-    if (currentExecutionFence()) {
+    if (executionFence) {
       throw new Error("Fenced run insertion requires transaction support");
     }
     if (options?.afterInsert)
@@ -1768,11 +1769,15 @@ export async function readRunDispatchPayload(
 
 export async function clearRunDispatchPayload(runId: string): Promise<void> {
   await ensureRunTables();
-  const client = getDbExec();
-  await client.execute({
-    sql: `UPDATE agent_runs SET dispatch_payload = NULL WHERE id = ?`,
-    args: [runId],
-  });
+  await withFencedExecutionWrite(
+    async (tx) => {
+      await tx.execute({
+        sql: `UPDATE agent_runs SET dispatch_payload = NULL WHERE id = ?`,
+        args: [runId],
+      });
+    },
+    { runId },
+  );
 }
 
 export async function listUnclaimedBackgroundRunIds(): Promise<string[]> {
@@ -2106,6 +2111,7 @@ export async function tryClaimRunSlot(
   turnAborted?: boolean;
   continueRefused?: ContinueRefusalCode;
 }> {
+  currentExecutionFence();
   if (options?.dispatchPayload) {
     assertNoInlineImageBytes(options.dispatchPayload, "dispatch_payload");
   }
@@ -2136,6 +2142,7 @@ export async function tryClaimRunSlot(
       if (denied) return { refused: denied } as const;
     }
     await lockThreadRunSlot(tx, threadId);
+    await lockAndAssertCurrentExecutionFences(tx);
     await lockContinuationOrder(tx, threadId, turnId);
     const abortMarker = await tx.execute({
       sql: `SELECT id FROM agent_runs WHERE thread_id = ? AND turn_id = ? AND dispatch_mode = 'turn-abort' AND status = 'aborted' LIMIT 1`,
