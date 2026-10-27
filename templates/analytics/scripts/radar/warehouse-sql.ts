@@ -184,9 +184,32 @@ export function bigQueryFirstTouchEventsCte(
 
 export function buildBigQueryEventStatsSql(
   eventsTableRange: string,
-  bucket: "DAY" | "HOUR",
+  bucket: "DAY" | "HOUR" | "BOTH",
   eventNames?: readonly string[],
 ): string {
+  const eventBucketSql =
+    bucket === "BOTH"
+      ? `event_buckets AS (
+  SELECT base_events.*,
+    timestamp_trunc(happened_at, DAY, 'UTC') AS day_bucket,
+    timestamp_trunc(happened_at, HOUR, 'UTC') AS hour_bucket
+  FROM base_events
+),`
+      : `event_buckets AS (
+  SELECT base_events.*,
+    timestamp_trunc(happened_at, ${bucket}, 'UTC') AS period_start
+  FROM base_events
+),`;
+  const eventStatsPeriodSql =
+    bucket === "BOTH"
+      ? `CASE WHEN GROUPING(hour_bucket) = 1 THEN day_bucket ELSE hour_bucket END AS period_start,
+    IF(GROUPING(hour_bucket) = 1, 'daily', 'hourly') AS period_grain,`
+      : "period_start,";
+  const eventStatsGroupSql =
+    bucket === "BOTH"
+      ? "GROUP BY GROUPING SETS ((day_bucket, hour_bucket, app, event_name), (day_bucket, app, event_name))"
+      : "GROUP BY period_start, app, event_name";
+
   return `${bigQueryFirstTouchEventsCte(eventsTableRange, {
     ...(eventNames ? { eventNames } : {}),
     columns: {
@@ -206,27 +229,28 @@ new_signups AS (
   WHERE event_name = 'signup' AND person_key IS NOT NULL
   GROUP BY person_key
 ),
+${eventBucketSql}
 event_stats AS (
-  SELECT timestamp_trunc(happened_at, ${bucket}, 'UTC') AS period_start,
+  SELECT ${eventStatsPeriodSql}
     app, event_name,
     count(*) AS events,
     count(DISTINCT person_key) AS users,
     count(DISTINCT session_id) AS sessions,
     countif(event_name IN ('generation_started', 'design_prompt_submitted')
-      AND EXISTS (SELECT 1 FROM new_signups n WHERE n.person_key = base_events.person_key
+      AND EXISTS (SELECT 1 FROM new_signups n WHERE n.person_key = event_buckets.person_key
         AND happened_at >= n.signup_at AND happened_at < timestamp_add(n.signup_at, INTERVAL 7 DAY))) AS new_user_run_events,
     countif(event_name IN ('generation_started', 'design_prompt_submitted')
-      AND EXISTS (SELECT 1 FROM new_signups n WHERE n.person_key = base_events.person_key
+      AND EXISTS (SELECT 1 FROM new_signups n WHERE n.person_key = event_buckets.person_key
         AND happened_at >= n.signup_at AND happened_at < timestamp_add(n.signup_at, INTERVAL 7 DAY))
       AND (lower(coalesce(json_value(properties, '$.llm_connection_source'), '')) = 'env'
         OR nullif(json_value(properties, '$.llm_connection_env_var'), '') IS NOT NULL)) AS new_user_env_events,
     countif(event_name IN ('generation_started', 'design_prompt_submitted')
-      AND EXISTS (SELECT 1 FROM new_signups n WHERE n.person_key = base_events.person_key
+      AND EXISTS (SELECT 1 FROM new_signups n WHERE n.person_key = event_buckets.person_key
         AND happened_at >= n.signup_at AND happened_at < timestamp_add(n.signup_at, INTERVAL 7 DAY))
       AND (json_value(properties, '$.llm_connection_source') IS NOT NULL
         OR json_value(properties, '$.llm_connection_env_var') IS NOT NULL)) AS new_user_source_events,
     countif(event_name IN ('generation_started', 'design_prompt_submitted')
-      AND EXISTS (SELECT 1 FROM new_signups n WHERE n.person_key = base_events.person_key
+      AND EXISTS (SELECT 1 FROM new_signups n WHERE n.person_key = event_buckets.person_key
         AND happened_at >= n.signup_at AND happened_at < timestamp_add(n.signup_at, INTERVAL 7 DAY))
       AND lower(coalesce(json_value(properties, '$.llm_connection'), '')) = 'none') AS new_user_no_connection_events,
     countif(event_name IN ('generation_started', 'generation_failed', 'design_prompt_submitted')
@@ -268,8 +292,8 @@ event_stats AS (
           AND json_value(properties, '$.framework_ready_wait_ms') IS NULL
           AND json_value(properties, '$.startup_db_operation_wall_ms') IS NULL,
           10, 1)), 0)) AS action_success_weight
-  FROM base_events
-  GROUP BY period_start, app, event_name
+  FROM event_buckets
+  ${eventStatsGroupSql}
 )
 SELECT * FROM event_stats ORDER BY period_start, app, event_name`;
 }

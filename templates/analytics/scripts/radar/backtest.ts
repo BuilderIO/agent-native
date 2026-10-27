@@ -58,15 +58,6 @@ const TRACKED_CHECKS = new Set([
   "ai-connection-none",
   "replay-upload-rejection",
 ]);
-const DAILY_SUM_FIELDS = [
-  "events",
-  "users",
-  "sessions",
-  "new_user_run_events",
-  "new_user_env_events",
-  "new_user_source_events",
-  "new_user_no_connection_events",
-] as const;
 const BACKTEST_EVENT_NAMES = [
   "signup",
   "builder_connect_succeeded",
@@ -135,43 +126,6 @@ export function parseRadarBacktestArgs(args: readonly string[]): {
   return { maxTotalGb };
 }
 
-function aggregateDailyRows(
-  hourlyRows: Record<string, unknown>[],
-): Record<string, unknown>[] {
-  const aggregate = new Map<string, Record<string, unknown>>();
-  for (const row of hourlyRows) {
-    const date = dateOf(row.period_start);
-    const app = String(row.app ?? "unknown");
-    const eventName = String(row.event_name ?? "unknown");
-    const key = `${date}|${app}|${eventName}`;
-    const current = aggregate.get(key) ?? {
-      period_start: date,
-      app,
-      event_name: eventName,
-      ...Object.fromEntries(DAILY_SUM_FIELDS.map((field) => [field, 0])),
-      signup_campaigns: [],
-    };
-    for (const field of DAILY_SUM_FIELDS) {
-      current[field] = Number(current[field] ?? 0) + Number(row[field] ?? 0);
-    }
-    const campaigns = new Set([
-      ...(Array.isArray(current.signup_campaigns)
-        ? current.signup_campaigns.filter(
-            (value): value is string => typeof value === "string",
-          )
-        : []),
-      ...(Array.isArray(row.signup_campaigns)
-        ? row.signup_campaigns.filter(
-            (value): value is string => typeof value === "string",
-          )
-        : []),
-    ]);
-    current.signup_campaigns = [...campaigns];
-    aggregate.set(key, current);
-  }
-  return [...aggregate.values()];
-}
-
 function datesBetween(window: BacktestWindow): string[] {
   const dates: string[] = [];
   for (let date = window.start; date <= window.end; date = addDays(date, 1)) {
@@ -234,17 +188,21 @@ export async function runRadarBacktest(
       { name: "end_date", type: "DATE" as const, value: INCIDENT.end },
       { name: "org_id", type: "STRING" as const, value: orgId },
     ];
-    const hourly = await runBigQuery(
-      buildBigQueryEventStatsSql(table, "HOUR", BACKTEST_EVENT_NAMES),
+    const eventStats = await runBigQuery(
+      buildBigQueryEventStatsSql(table, "BOTH", BACKTEST_EVENT_NAMES),
       {
-        maxGb: 100,
+        maxGb: maxTotalGb,
         fresh: true,
         cache: false,
         params,
       },
     );
-    const hourlyRows = hourly.rows;
-    const dailyRows = aggregateDailyRows(hourlyRows);
+    const hourlyRows = eventStats.rows.filter(
+      (row) => row.period_grain === "hourly",
+    );
+    const dailyRows = eventStats.rows.filter(
+      (row) => row.period_grain === "daily",
+    );
     const observations: Observation[] = [];
 
     for (const [label, window] of [
@@ -315,7 +273,7 @@ export async function runRadarBacktest(
     const rejectionResult = await runBigQuery(
       buildBigQueryUploadRejectionSql(table),
       {
-        maxGb: 100,
+        maxGb: maxTotalGb,
         fresh: true,
         cache: false,
         params: [

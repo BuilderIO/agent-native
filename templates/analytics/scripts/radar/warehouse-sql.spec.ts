@@ -109,6 +109,16 @@ describe("first-party BigQuery radar SQL", () => {
     expect(sql).toContain("e.event_name IN ('signup', 'generation_started')");
   });
 
+  it("computes hourly and daily distincts from one event scan", () => {
+    const sql = buildBigQueryEventStatsSql(range, "BOTH", ["signup"]);
+    expect(sql).toContain("GROUP BY GROUPING SETS");
+    expect(sql).toContain("GROUPING(hour_bucket)");
+    expect(sql).toContain("'daily', 'hourly') AS period_grain");
+    expect(sql).toContain("count(DISTINCT person_key) AS users");
+    expect(sql).toContain("count(DISTINCT session_id) AS sessions");
+    expect(sql).toContain("e.event_name IN ('signup')");
+  });
+
   it("splits Design web and MCP signups and measures Clips 24-hour activation", () => {
     const funnel = buildBigQueryFunnelDailySql(range);
     expect(funnel).toContain("first_touch_path NOT LIKE '/mcp/oauth%'");

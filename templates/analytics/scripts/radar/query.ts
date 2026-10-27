@@ -1554,10 +1554,11 @@ export async function runBigQuery(
   recordRadarBigQueryDryRunBytes(bytesProcessed);
 
   const startedAt = Date.now();
-  let submitted = false;
+  let submissionAttempted = false;
   let actualBytesProcessed: number | null = null;
   let jobComplete = false;
   try {
+    submissionAttempted = true;
     const first = await bqRequest(
       postUrl,
       token,
@@ -1578,7 +1579,6 @@ export async function runBigQuery(
     jobComplete =
       first.jobComplete === true || Boolean(first.status?.errorResult);
     if (first.status?.errorResult) {
-      submitted = true;
       throw new RadarQueryError(
         "BigQuery query job completed with an error.",
         1,
@@ -1587,8 +1587,6 @@ export async function runBigQuery(
     if (!jobId) {
       throw new RadarQueryError("BigQuery did not return a query job id.", 1);
     }
-    submitted = true;
-
     const fields = first.schema?.fields ?? [];
     const accumulator: BigQueryRowsAccumulator = { rows: [], bytes: 0 };
     appendBigQueryPayloadRows(accumulator, fields, first.rows ?? []);
@@ -1665,7 +1663,7 @@ export async function runBigQuery(
     if (cacheEnabled) writeCache(key, result);
     return result;
   } finally {
-    if (submitted || actualBytesProcessed !== null) {
+    if (submissionAttempted) {
       recordRadarBigQueryJobUsage(actualBytesProcessed, jobComplete);
     }
   }

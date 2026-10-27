@@ -79,10 +79,10 @@ export const RADAR_CHECKS: RadarCheckDefinition[] = [
     window: "hourly",
     baselineDays: 7,
     minN: 10,
-    threshold: 0.4,
+    threshold: 0.6,
     operator: "lt",
     severity: "critical",
-    message: "Builder connection success fell below 40%.",
+    message: "Builder connection success fell below 60%.",
     query: "events",
   },
   {

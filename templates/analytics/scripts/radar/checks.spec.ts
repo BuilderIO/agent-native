@@ -26,6 +26,32 @@ function result(status: RadarCheckResult["status"]): RadarCheckResult {
 }
 
 describe("radar check evaluation", () => {
+  it("keeps the Builder Connect alert boundary at 60%", () => {
+    const definition = RADAR_CHECKS.find(
+      (check) => check.id === "builder-connect-success",
+    );
+    expect(definition?.threshold).toBe(0.6);
+    expect(definition?.message).toContain("60%");
+    expect(
+      evaluateThreshold({
+        n: 10,
+        minN: definition?.minN ?? 0,
+        value: 0.59,
+        operator: definition?.operator === "lt" ? "lt" : "gt",
+        threshold: definition?.threshold ?? 0,
+      }),
+    ).toBe("fired");
+    expect(
+      evaluateThreshold({
+        n: 10,
+        minN: definition?.minN ?? 0,
+        value: 0.6,
+        operator: definition?.operator === "lt" ? "lt" : "gt",
+        threshold: definition?.threshold ?? 0,
+      }),
+    ).toBe("clear");
+  });
+
   it("detects the historical environment-key incident at its observed sample size", () => {
     const definition = RADAR_CHECKS.find(
       (check) => check.id === "env-key-share",
