@@ -555,6 +555,36 @@ describe("home-picked .fig handoff", () => {
     expect(mocks.importSourceMutate).toHaveBeenCalledTimes(1);
   });
 
+  it("does not import a selected HTML file after the panel unmounts", async () => {
+    await render();
+    const htmlToggle = container.querySelector<HTMLButtonElement>(
+      'button[aria-controls="html-import"]',
+    );
+    if (!htmlToggle) throw new Error("Missing HTML import toggle");
+    await act(async () => htmlToggle.click());
+
+    let resolveRead!: (content: string) => void;
+    const read = new Promise<string>((resolve) => {
+      resolveRead = resolve;
+    });
+    const pendingFile = new File([], "pending.html", { type: "text/html" });
+    Object.defineProperty(pendingFile, "text", {
+      configurable: true,
+      value: () => read,
+    });
+    await chooseHtmlFile(pendingFile);
+
+    await act(async () => root.unmount());
+    await act(async () => {
+      resolveRead("<!doctype html><html><body>selected file</body></html>");
+      await read;
+    });
+
+    expect(mocks.importSourceMutate).not.toHaveBeenCalled();
+    expect(mocks.error).not.toHaveBeenCalled();
+    root = createRoot(container);
+  });
+
   it("keeps an HTML draft typed while a selected file is still reading", async () => {
     await render();
     const htmlToggle = container.querySelector<HTMLButtonElement>(

@@ -218,6 +218,7 @@ export const DesignImportPanel = forwardRef<
     unmountedRef.current = false;
     return () => {
       unmountedRef.current = true;
+      htmlFileReadRef.current += 1;
       const pending = pendingFigImportRef.current;
       pendingFigImportRef.current = null;
       if (pending) parkPreparedFigImport(designIdRef.current, pending);
