@@ -58,6 +58,7 @@ import {
   documentQueryKey,
   type DocumentQueryContext,
 } from "../lib/document-query";
+import { trackDocumentReadFailures } from "../lib/document-read-failures";
 import {
   documentScopedReadRetryOptions,
   isWithinCreateSettlingWindow,
@@ -883,6 +884,7 @@ export function startPageOpenDocumentReads(
   context: DocumentQueryContext = {},
   { beforeSession = false }: { beforeSession?: boolean } = {},
 ) {
+  trackDocumentReadFailures(queryClient);
   const queryKey = documentQueryKey(documentId, context);
   const cached = queryClient.getQueryData<Document>(queryKey);
   if (cached && isDocumentCreationPending(queryClient, cached)) return;

@@ -117,7 +117,7 @@ test("Go to my pages opens a Page the account can open", async ({ page }) => {
   ).toHaveCount(0, { timeout: 60_000 });
 });
 
-test("a Page that isn't shared with the reader says so without an error first", async ({
+test("a Page that isn't shared with the reader says so without an error first, also on the way back", async ({
   page,
   browser,
   baseURL,
@@ -169,14 +169,30 @@ test("a Page that isn't shared with the reader says so without an error first", 
     await expect(readerPage.getByLabel("Document title")).toBeVisible({
       timeout: 60_000,
     });
+    const ownPath = openedPath(readerPage);
+    const noAccess = readerPage.getByRole("heading", {
+      name: "You don't have access to this page",
+    });
     errorFrames = 0;
     await readerPage.goto(`/page/${documentId}`, { waitUntil: "commit" });
 
-    await expect(
-      readerPage.getByRole("heading", {
-        name: "You don't have access to this page",
-      }),
-    ).toBeVisible({ timeout: 60_000 });
+    await expect(noAccess).toBeVisible({ timeout: 60_000 });
+    expect(openedPath(readerPage)).toBe(`/page/${documentId}`);
+    expect(errorFrames).toBe(0);
+
+    // Coming back mounts a new editor while the refused page is read again.
+    await readerPage.locator(`a[href="${ownPath}"]`).first().click();
+    await expect(readerPage.getByLabel("Document title")).toBeVisible({
+      timeout: 60_000,
+    });
+    errorFrames = 0;
+    const reread = readerPage.waitForResponse((response) =>
+      response.url().includes("/_agent-native/actions/get-document"),
+    );
+    await readerPage.goBack({ waitUntil: "commit" });
+
+    await reread;
+    await expect(noAccess).toBeVisible({ timeout: 60_000 });
     expect(openedPath(readerPage)).toBe(`/page/${documentId}`);
     expect(errorFrames).toBe(0);
   } finally {

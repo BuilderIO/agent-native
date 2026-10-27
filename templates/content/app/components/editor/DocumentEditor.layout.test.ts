@@ -5,6 +5,11 @@ import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
+import { documentQueryKey } from "@/lib/document-query";
+import {
+  lastDocumentReadFailure,
+  trackDocumentReadFailures,
+} from "@/lib/document-read-failures";
 import { cn } from "@/lib/utils";
 
 import {
@@ -1715,7 +1720,6 @@ describe("document editor layout", () => {
       errorUpdateCount: 0,
       errorUpdatedAt: 0,
       isError: false,
-      error: null,
       authoritativeSuccess: {
         queryIdentity: "new-document",
         generation: 0,
@@ -1731,7 +1735,6 @@ describe("document editor layout", () => {
       errorUpdateCount: 1,
       errorUpdatedAt: 2,
       isError: true,
-      error: new Error("read failed"),
       authoritativeSuccess: {
         queryIdentity: "new-document",
         generation: 0,
@@ -1767,7 +1770,6 @@ describe("document editor layout", () => {
       errorUpdateCount: 0,
       errorUpdatedAt: 0,
       isError: false,
-      error: null,
       authoritativeSuccess: {
         queryIdentity: "new-document",
         generation: 0,
@@ -1796,7 +1798,6 @@ describe("document editor layout", () => {
       errorUpdateCount: 0,
       errorUpdatedAt: 0,
       isError: false,
-      error: null,
       authoritativeSuccess: {
         queryIdentity: "new-document",
         generation: 1,
@@ -1812,7 +1813,6 @@ describe("document editor layout", () => {
       errorUpdateCount: 1,
       errorUpdatedAt: 3,
       isError: true,
-      error: new Error("read failed"),
       authoritativeSuccess: {
         queryIdentity: "new-document",
         generation: 1,
@@ -1862,7 +1862,6 @@ describe("document editor layout", () => {
       errorUpdateCount: initial.errorUpdateCount,
       errorUpdatedAt: initial.errorUpdatedAt,
       isError: initial.isError,
-      error: initial.error,
       authoritativeSuccess: {
         queryIdentity: "document-a",
         generation: 0,
@@ -1893,7 +1892,6 @@ describe("document editor layout", () => {
       errorUpdateCount: replacement.errorUpdateCount,
       errorUpdatedAt: replacement.errorUpdatedAt,
       isError: replacement.isError,
-      error: replacement.error,
       authoritativeSuccess: {
         queryIdentity: "document-a",
         generation: 0,
@@ -1910,7 +1908,6 @@ describe("document editor layout", () => {
         errorUpdateCount: replacement.errorUpdateCount,
         errorUpdatedAt: replacement.errorUpdatedAt,
         isError: replacement.isError,
-        error: replacement.error,
         authoritativeSuccess: {
           queryIdentity: "document-a",
           generation: 0,
@@ -1930,14 +1927,16 @@ describe("document editor layout", () => {
     [404, "unavailable"],
     [500, "error"],
   ] as const)(
-    "keeps a first read's %i screen while the page is read again",
+    "keeps a failed read's %i screen while the page is read again, also after a remount",
     async (status, view) => {
       const queryClient = new QueryClient({
         defaultOptions: { queries: { retry: false } },
       });
+      trackDocumentReadFailures(queryClient);
+      const queryKey = documentQueryKey("document-a");
       let attempt = 0;
-      const observer = new QueryObserver(queryClient, {
-        queryKey: ["document", "document-a"],
+      const options = {
+        queryKey,
         queryFn: async () => {
           attempt += 1;
           if (attempt === 1) {
@@ -1945,65 +1944,74 @@ describe("document editor layout", () => {
           }
           return await new Promise<never>(() => {});
         },
-      });
-      const settle = (
-        previous: ReturnType<typeof updateDocumentLoadFailureState> | null,
-      ) => {
-        const result = observer.getCurrentResult();
-        const failure = updateDocumentLoadFailureState({
-          previous,
-          documentId: "document-a",
-          admitted: false,
-          dataUpdatedAt: result.dataUpdatedAt,
-          errorUpdateCount: result.errorUpdateCount,
-          errorUpdatedAt: result.errorUpdatedAt,
-          isError: result.isError,
-          error: result.error,
-          authoritativeSuccess: {
-            queryIdentity: "document-a",
-            generation: 0,
-            errorUpdateCount: 0,
-          },
-        });
-        const loadState = documentEditorLoadState({
-          documentId: "document-a",
-          admittedDocumentId: null,
-          hasDocument: false,
-          isDocumentCreationPending: false,
-          isFetchedAfterMount: result.isFetchedAfterMount,
-          isFetching: result.isFetching,
-          isError: result.isError,
-          hasLoadFailure: failure.failed,
-          isManualRetrying: false,
-          error: result.isError ? result.error : failure.error,
-        });
-        return { failure, view: loadState.view };
+        refetchOnMount: "always" as const,
       };
-      let state = settle(null);
-      const unsubscribe = observer.subscribe(() => {});
+      // One editor mount: its failure state persists across its renders.
+      const mount = (observer: QueryObserver<unknown, Error>) => {
+        let failure: ReturnType<typeof updateDocumentLoadFailureState> | null =
+          null;
+        return () => {
+          const result = observer.getCurrentResult();
+          failure = updateDocumentLoadFailureState({
+            previous: failure,
+            documentId: "document-a",
+            admitted: false,
+            dataUpdatedAt: result.dataUpdatedAt,
+            errorUpdateCount: result.errorUpdateCount,
+            errorUpdatedAt: result.errorUpdatedAt,
+            isError: result.isError,
+            authoritativeSuccess: {
+              queryIdentity: "document-a",
+              generation: 0,
+              errorUpdateCount: 0,
+            },
+          });
+          return documentEditorLoadState({
+            documentId: "document-a",
+            admittedDocumentId: null,
+            hasDocument: false,
+            isDocumentCreationPending: false,
+            isFetchedAfterMount: result.isFetchedAfterMount,
+            isFetching: result.isFetching,
+            isError: result.isError,
+            hasLoadFailure: failure.failed,
+            isManualRetrying: false,
+            error: result.isError
+              ? result.error
+              : lastDocumentReadFailure(queryClient, queryKey),
+          }).view;
+        };
+      };
+      const readAgain = async (observer: QueryObserver<unknown, Error>) => {
+        await vi.waitFor(() => {
+          const result = observer.getCurrentResult();
+          expect(result.isFetching).toBe(true);
+          expect(result.isError).toBe(false);
+        });
+      };
 
+      const first = new QueryObserver<unknown, Error>(queryClient, options);
+      const firstView = mount(first);
+      firstView();
+      const unsubscribeFirst = first.subscribe(() => {});
       await vi.waitFor(() =>
-        expect(observer.getCurrentResult().isError).toBe(true),
+        expect(first.getCurrentResult().isError).toBe(true),
       );
-      state = settle(state.failure);
-      expect(state.view).toBe(view);
+      expect(firstView()).toBe(view);
 
-      void queryClient.invalidateQueries({
-        queryKey: ["document", "document-a"],
-        exact: true,
-      });
-      await vi.waitFor(() => {
-        const result = observer.getCurrentResult();
-        expect(result.isFetching).toBe(true);
-        expect(result.isError).toBe(false);
-      });
-      expect(settle(state.failure).view).toBe(view);
+      void queryClient.invalidateQueries({ queryKey, exact: true });
+      await readAgain(first);
+      expect(firstView()).toBe(view);
 
-      unsubscribe();
-      await queryClient.cancelQueries({
-        queryKey: ["document", "document-a"],
-        exact: true,
-      });
+      // Leaving the page and coming back mounts a new editor while it reads.
+      unsubscribeFirst();
+      const second = new QueryObserver<unknown, Error>(queryClient, options);
+      const unsubscribeSecond = second.subscribe(() => {});
+      await readAgain(second);
+      expect(mount(second)()).toBe(view);
+
+      unsubscribeSecond();
+      await queryClient.cancelQueries({ queryKey, exact: true });
     },
   );
 
@@ -2014,7 +2022,6 @@ describe("document editor layout", () => {
       baselineErrorUpdateCount: 1,
       baselineAuthoritativeSuccessGeneration: 0,
       failed: true,
-      error: { status: 500 },
     };
     expect(
       updateDocumentLoadFailureState({
@@ -2025,7 +2032,6 @@ describe("document editor layout", () => {
         errorUpdateCount: 1,
         errorUpdatedAt: 100,
         isError: false,
-        error: null,
         authoritativeSuccess: {
           queryIdentity: "document-a",
           generation: 0,
@@ -2043,7 +2049,6 @@ describe("document editor layout", () => {
         errorUpdateCount: 1,
         errorUpdatedAt: 100,
         isError: false,
-        error: null,
         authoritativeSuccess: {
           queryIdentity: "document-a",
           generation: 1,
@@ -2054,7 +2059,6 @@ describe("document editor layout", () => {
       ...failed,
       baselineAuthoritativeSuccessGeneration: 1,
       failed: false,
-      error: null,
     });
   });
 
@@ -2067,7 +2071,6 @@ describe("document editor layout", () => {
           baselineErrorUpdateCount: 2,
           baselineAuthoritativeSuccessGeneration: 3,
           failed: true,
-          error: { status: 500 },
         },
         documentId: "document-a",
         admitted: false,
@@ -2075,7 +2078,6 @@ describe("document editor layout", () => {
         errorUpdateCount: 0,
         errorUpdatedAt: 0,
         isError: false,
-        error: null,
         authoritativeSuccess: {
           queryIdentity: "context-b",
           generation: 0,
@@ -2088,7 +2090,6 @@ describe("document editor layout", () => {
       baselineErrorUpdateCount: 0,
       baselineAuthoritativeSuccessGeneration: 0,
       failed: false,
-      error: null,
     });
   });
 
