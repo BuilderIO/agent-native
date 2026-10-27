@@ -113,6 +113,11 @@ describe("server/auth", () => {
     vi.doUnmock("../org/auth-policy.js");
     vi.doUnmock("../org/workspace-app-access.js");
     vi.doUnmock("./embed-session.js");
+    vi.doUnmock("./framework-request-handler.js");
+    vi.doUnmock("@agent-native/core/action");
+    vi.doUnmock("@agent-native/core/server");
+    vi.doUnmock("@agent-native/core/labs/server");
+    vi.doUnmock("@agent-native/core/sharing");
     vi.doUnmock("./email.js");
     vi.doUnmock("./request-origin.js");
     vi.doUnmock("./sentry.js");
@@ -2072,7 +2077,7 @@ describe("server/auth", () => {
       const embedToken = signEmbedSessionToken({
         ownerEmail: "owner@example.com",
         targetPath: "/inbox",
-        audienceHost: "localhost",
+        audienceHost: "http://localhost",
       });
       const event = createJsonPostEvent(
         "/_agent-native/auth/logout",
@@ -2246,18 +2251,18 @@ describe("server/auth", () => {
         signEmbedSessionToken({
           ownerEmail: "embed-owner@example.com",
           targetPath: "/inbox",
-          audienceHost: "localhost",
+          audienceHost: "http://localhost",
         }),
         signEmbedSessionToken({
           ownerEmail: "second-embed-owner@example.com",
           targetPath: "/inbox",
-          audienceHost: "localhost",
+          audienceHost: "http://localhost",
         }),
         signEmbedSessionToken({
           ownerEmail: "capability-owner@example.com",
           targetPath: "/inbox",
           scope: "capability:calendar.read",
-          audienceHost: "localhost",
+          audienceHost: "http://localhost",
         }),
       );
       const mixedCookieHeaders = {
@@ -7283,6 +7288,76 @@ describe("server/auth", () => {
       expect(isSessionResolutionUnavailable(event)).toBe(true);
     });
 
+    it("answers an action 503 and reports the real cause once when no session could be resolved", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      delete process.env.AUTH_DISABLED;
+
+      const sessionLookupFailure = new Error("session database unavailable");
+      const captureError = vi.fn(() => "capture-1");
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      vi.doMock("./capture-error.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        captureError,
+      }));
+      vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        getBetterAuth: vi.fn(async () => {
+          throw sessionLookupFailure;
+        }),
+        getBetterAuthSync: () => undefined,
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({
+          execute: vi.fn(async (query: any) => {
+            const sql = typeof query === "string" ? query : query.sql;
+            if (sql?.includes("SELECT email, created_at FROM sessions")) {
+              throw new Error("legacy sessions unavailable");
+            }
+            return { rows: [] };
+          }),
+        }),
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await expect(autoMountAuth(app)).resolves.toBe(true);
+      const sessionHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/session",
+      )?.[1];
+
+      const event = createMockEvent({
+        path: "/_agent-native/auth/session",
+        headers: { cookie: "an_session=legacy-session-token" },
+      });
+      await sessionHandler(event);
+
+      // The same request, resolved for an action: a typed retryable 503, never
+      // the 401 a signed-out visitor gets.
+      const { resolveAgentRunOwnerContext } =
+        await import("./agent-run-context.js");
+      await expect(resolveAgentRunOwnerContext(event)).rejects.toMatchObject({
+        statusCode: 503,
+        errorCode: "session_unavailable",
+      });
+
+      expect(captureError).toHaveBeenCalledTimes(1);
+      expect(captureError).toHaveBeenCalledWith(
+        sessionLookupFailure,
+        expect.objectContaining({
+          route: "auth.session-resolution",
+          tags: { auth: "session-resolution", source: "better-auth" },
+        }),
+      );
+      consoleError.mockRestore();
+    });
+
     it("desktop exchange establishes the session cookie when redeeming a token", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
@@ -9336,7 +9411,475 @@ describe("server/auth", () => {
     });
   });
 
+  describe("getBrowserCookieSession", () => {
+    const cookieOwner = "cookie-owner@example.com";
+    const credentialOwner = "credential-owner@example.com";
+    let getSessionApi: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.AUTH_DISABLED;
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      getSessionApi = vi.fn(async ({ headers }: { headers: Headers }) =>
+        headers.get("authorization") === "Bearer bearer-login"
+          ? {
+              user: { id: "bearer-user", email: credentialOwner },
+              session: { token: "bearer-login" },
+            }
+          : null,
+      );
+      const betterAuth = { api: { getSession: getSessionApi } };
+      vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        getBetterAuth: vi.fn(async () => betterAuth),
+        getBetterAuthSync: vi.fn(() => betterAuth),
+        resumeIdentityRekeysForEmail: vi.fn(async () => {}),
+      }));
+      const execute = vi.fn(
+        async (query: string | { sql: string; args?: unknown[] }) => {
+          const sql = typeof query === "string" ? query : query.sql;
+          const args = typeof query === "string" ? undefined : query.args;
+          const ledger = storeLedgerResult(sql);
+          if (ledger) return ledger;
+          if (
+            sql.includes("SELECT email, created_at FROM sessions") &&
+            ["legacy-login", "bearer-login", "query-login"].includes(
+              String(args?.[0]),
+            )
+          ) {
+            return {
+              rows: [
+                {
+                  email:
+                    args?.[0] === "legacy-login"
+                      ? cookieOwner
+                      : credentialOwner,
+                  created_at: Date.now(),
+                },
+              ],
+            };
+          }
+          return { rows: [] };
+        },
+      );
+      const db = { execute };
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => db,
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
+      vi.doMock("./legacy-auth-migration.js", () => ({
+        resolveCanonicalUserForLegacySession: vi.fn(async () => null),
+      }));
+      vi.doMock("../org/context.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        resolveOrgIdForEmailViaEvent: vi.fn(async () => "org-cookie"),
+      }));
+      vi.doMock("./embed-session.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        resolveEmbedSessionFromRequest: vi.fn(async (event: any) =>
+          event.req.headers
+            .get("cookie")
+            ?.includes("an_embed_session=embed-login")
+            ? { email: credentialOwner, token: "embed-login", scope: "app" }
+            : null,
+        ),
+      }));
+    });
+
+    it.each([
+      {
+        name: "bearer",
+        headers: { authorization: "Bearer bearer-login" },
+        query: {},
+      },
+      {
+        name: "bearer with an unrelated cookie",
+        headers: { authorization: "Bearer bearer-login", cookie: "theme=dark" },
+        query: {},
+      },
+      {
+        name: "embed",
+        headers: { cookie: "an_embed_session=embed-login" },
+        query: {},
+      },
+      { name: "query", headers: {}, query: { _session: "query-login" } },
+    ])(
+      "does not reuse a general $name identity as a browser cookie session",
+      async ({ headers, query }) => {
+        const { getSession, getBrowserCookieSession } =
+          await import("./auth.js");
+        const event = createMockEvent({
+          headers: { ...headers, "sec-fetch-site": "same-origin" },
+          query,
+        });
+
+        await expect(getSession(event)).resolves.toMatchObject({
+          email: credentialOwner,
+        });
+        await expect(getBrowserCookieSession(event)).resolves.toBeNull();
+      },
+    );
+
+    it("does not resolve an identity from fetch metadata alone", async () => {
+      const { getBrowserCookieSession } = await import("./auth.js");
+      await expect(
+        getBrowserCookieSession(
+          createMockEvent({
+            headers: { "sec-fetch-site": "same-origin" },
+          }),
+        ),
+      ).resolves.toBeNull();
+    });
+
+    it("reads only the Better Auth cookie even when a bearer and embed identity are present", async () => {
+      getSessionApi.mockImplementation(
+        async ({ headers }: { headers: Headers }) => {
+          if (headers.get("authorization")) {
+            return {
+              user: { id: "bearer-user", email: credentialOwner },
+              session: { token: "bearer-login" },
+            };
+          }
+          return headers
+            .get("cookie")
+            ?.includes("__Secure-an.session_token=cookie/login")
+            ? {
+                user: {
+                  id: "cookie-user",
+                  email: cookieOwner,
+                  emailVerified: true,
+                },
+                session: { token: "cookie/login" },
+              }
+            : null;
+        },
+      );
+      const { getSession, getBrowserCookieSession } = await import("./auth.js");
+      const event = createMockEvent({
+        headers: {
+          cookie:
+            "__Secure-an.session_token=cookie%2Flogin; an_embed_session=embed-login",
+          authorization: "Bearer bearer-login",
+          "sec-fetch-site": "same-origin",
+        },
+      });
+      event.headers = new Headers();
+
+      await expect(getSession(event)).resolves.toMatchObject({
+        email: credentialOwner,
+      });
+      await expect(getBrowserCookieSession(event)).resolves.toMatchObject({
+        email: cookieOwner,
+        authUserId: "cookie-user",
+        token: "cookie/login",
+        emailVerified: true,
+        orgId: "org-cookie",
+      });
+    });
+
+    it("resolves a framework login cookie without using a bearer identity", async () => {
+      const { COOKIE_NAME, getBrowserCookieSession } =
+        await import("./auth.js");
+      await expect(
+        getBrowserCookieSession(
+          createMockEvent({
+            headers: {
+              cookie: `${COOKIE_NAME}=legacy-login`,
+              authorization: "Bearer bearer-login",
+            },
+          }),
+        ),
+      ).resolves.toMatchObject({
+        email: cookieOwner,
+        token: "legacy-login",
+        orgId: "org-cookie",
+      });
+    });
+
+    it.each([false, true])(
+      "does not trust a custom session resolver (AUTH_DISABLED=%s)",
+      async (authDisabled) => {
+        if (authDisabled) vi.stubEnv("AUTH_DISABLED", "1");
+        const {
+          autoMountAuth,
+          COOKIE_NAME,
+          getSession,
+          getBrowserCookieSession,
+        } = await import("./auth.js");
+        await autoMountAuth(createMockApp(), {
+          getSession: async () => ({ email: credentialOwner }),
+        });
+        const event = createMockEvent({
+          headers: { cookie: `${COOKIE_NAME}=legacy-login` },
+        });
+
+        await expect(getSession(event)).resolves.toMatchObject({
+          email: credentialOwner,
+        });
+        await expect(getBrowserCookieSession(event)).resolves.toBeNull();
+      },
+    );
+
+    it("names the missing custom browser hook and warns only once", async () => {
+      vi.doMock("./framework-request-handler.js", () => ({
+        getH3App: (app: any) => app,
+      }));
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const { autoMountAuth } = await import("./auth.js");
+        await autoMountAuth(createMockApp(), {
+          getSession: async () => ({ email: credentialOwner }),
+        });
+        const { mountUiActionCapabilityRoute } =
+          await import("./ui-action-capability.js");
+        const mounted = createMockApp();
+        mountUiActionCapabilityRoute(mounted);
+        const handler = mounted.use.mock.calls[0][1];
+        for (let i = 0; i < 2; i++) {
+          const event = createMockEvent({
+            headers: {
+              cookie: "custom-login=browser",
+              "sec-fetch-site": "same-origin",
+            },
+          });
+          await expect(handler(event)).resolves.toEqual({
+            error: expect.stringContaining("AuthOptions.getBrowserSession"),
+          });
+          expect(event.res.status).toBe(401);
+        }
+        expect(
+          warn.mock.calls.filter(([message]) =>
+            String(message).includes("AuthOptions.getBrowserSession"),
+          ),
+        ).toHaveLength(1);
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it.each([false, true])(
+      "refuses bearer capability minting with an explicit browser hook (cookie=%s)",
+      async (cookie) => {
+        vi.doMock("./framework-request-handler.js", () => ({
+          getH3App: (app: any) => app,
+        }));
+        const { autoMountAuth } = await import("./auth.js");
+        const getBrowserSession = vi.fn(async () => ({ email: cookieOwner }));
+        await autoMountAuth(createMockApp(), {
+          getSession: async () => ({ email: credentialOwner }),
+          getBrowserSession,
+        });
+        const { mountUiActionCapabilityRoute } =
+          await import("./ui-action-capability.js");
+        const mounted = createMockApp();
+        mountUiActionCapabilityRoute(mounted);
+        const event = createMockEvent({
+          headers: {
+            authorization: "Bearer bearer-login",
+            "sec-fetch-site": "same-origin",
+            ...(cookie ? { cookie: "custom-login=browser" } : {}),
+          },
+        });
+        await expect(mounted.use.mock.calls[0][1](event)).resolves.toEqual({
+          error: "Authentication required",
+        });
+        expect(event.res.status).toBe(401);
+        expect(event.res.headers.get("set-cookie")).toBeNull();
+        expect(getBrowserSession).not.toHaveBeenCalled();
+      },
+    );
+
+    it("uses Design's signed Builder cookie to mint a capability and run a UI-only action", async () => {
+      vi.stubEnv("BUILDER_IDENTITY", "1");
+      vi.stubEnv("OAUTH_STATE_SECRET", "test-builder-ui-capability-secret");
+      vi.doMock("@agent-native/core/action", () => import("../action.js"));
+      vi.doMock("@agent-native/core/server", () => ({
+        registerDelegatedBuilderCredentials: vi.fn(),
+      }));
+      vi.doMock("@agent-native/core/labs/server", () => ({
+        registerHostLabOverrides: vi.fn(),
+      }));
+      vi.doMock("@agent-native/core/sharing", () => ({
+        registerHostAccessResolver: vi.fn(),
+      }));
+      vi.doMock("./framework-request-handler.js", () => ({
+        getH3App: (app: any) => app,
+      }));
+      const {
+        BUILDER_IDENTITY_COOKIE,
+        encodeIdentityCookie,
+        getBuilderIdentitySession,
+      } =
+        await import("../../../../templates/design/server/lib/builder-identity.js");
+      const { autoMountAuth, getSession } = await import("./auth.js");
+      await autoMountAuth(createMockApp(), {
+        getSession: getBuilderIdentitySession,
+        getBrowserSession: getBuilderIdentitySession,
+        trustCustomEmailVerification: true,
+      });
+      const { mountUiActionCapabilityRoute } =
+        await import("./ui-action-capability.js");
+      const mounted = createMockApp();
+      mountUiActionCapabilityRoute(mounted);
+      const cookie = `${BUILDER_IDENTITY_COOKIE}=${encodeIdentityCookie({ uid: "builder-user", email: cookieOwner })}`;
+      const event = createMockEvent({
+        path: "/_agent-native/ui-capability",
+        headers: { cookie, "sec-fetch-site": "same-origin" },
+      });
+      await expect(mounted.use.mock.calls[0][1](event)).resolves.toEqual({
+        ok: true,
+      });
+      expect(event.res.status).toBe(200);
+      const capabilityCookie = event.res.headers
+        .get("set-cookie")!
+        .split(";")[0];
+      expect(capabilityCookie).toMatch(/^agent-native-ui-capability=/);
+
+      const { mountActionRoutes } = await import("./action-routes.js");
+      const run = vi.fn(async () => ({ exported: true }));
+      const actions = createMockApp();
+      mountActionRoutes(
+        actions,
+        { "render-export-png": { uiOnly: true, run } as any },
+        {
+          getOwnerFromEvent: async (request) =>
+            (await getSession(request))?.email,
+          resolveOrgId: async () => "org-cookie",
+        },
+      );
+      const request = createJsonPostEvent(
+        "/_agent-native/actions/render-export-png",
+        {},
+        {
+          cookie: `${cookie}; ${capabilityCookie}`,
+          "x-agent-native-frontend": "1",
+          "sec-fetch-site": "same-origin",
+        },
+      );
+      await expect(actions.use.mock.calls[0][1](request)).resolves.toEqual({
+        exported: true,
+      });
+      expect(run).toHaveBeenCalledOnce();
+    }, 30_000);
+
+    it("does not use the desktop SSO fallback as a browser cookie session", async () => {
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("AGENT_NATIVE_DISABLE_DESKTOP_SSO_FALLBACK", "0");
+      vi.doMock("./desktop-sso.js", () => ({
+        readDesktopSso: vi.fn(async () => ({
+          email: credentialOwner,
+          token: "desktop-login",
+        })),
+        writeDesktopSso: vi.fn(),
+        clearDesktopSso: vi.fn(),
+      }));
+      try {
+        const { getSession, getBrowserCookieSession } =
+          await import("./auth.js");
+        const event = createMockEvent({
+          headers: {
+            "user-agent":
+              "Mozilla/5.0 Electron/41.2.2 AgentNativeDesktop/0.1.215",
+          },
+        });
+        event.req.context = { clientAddress: "127.0.0.1" };
+        event.req.ip = "127.0.0.1";
+        event.node.req.socket = { remoteAddress: "127.0.0.1" };
+        event.node.req.connection = event.node.req.socket;
+
+        await expect(getSession(event)).resolves.toMatchObject({
+          email: credentialOwner,
+          token: "desktop-login",
+        });
+        await expect(getBrowserCookieSession(event)).resolves.toBeNull();
+      } finally {
+        vi.doUnmock("./desktop-sso.js");
+      }
+    });
+
+    it.each(["1", "true"])(
+      "preserves AUTH_DISABLED=%s and its browser logout opt-out",
+      async (value) => {
+        vi.stubEnv("AUTH_DISABLED", value);
+        const { COOKIE_NAME, getBrowserCookieSession } =
+          await import("./auth.js");
+
+        await expect(
+          getBrowserCookieSession(createMockEvent()),
+        ).resolves.toMatchObject({ email: "dev@local.test" });
+        await expect(
+          getBrowserCookieSession(
+            createMockEvent({
+              headers: { cookie: `${COOKIE_NAME}_auth_disabled_opt_out=1` },
+            }),
+          ),
+        ).resolves.toBeNull();
+        await expect(
+          getBrowserCookieSession(
+            createMockEvent({
+              headers: {
+                cookie: `${COOKIE_NAME}_auth_disabled_opt_out=1; ${COOKIE_NAME}=legacy-login`,
+              },
+            }),
+          ),
+        ).resolves.toMatchObject({ email: cookieOwner, token: "legacy-login" });
+      },
+    );
+  });
+
   describe("getSession", () => {
+    it.each([
+      { "x-forwarded-host": "" },
+      { "x-forwarded-host": "localhost/path" },
+      { "x-forwarded-proto": "" },
+      { "x-forwarded-proto": "javascript" },
+    ])(
+      "preserves browser cookie sessions with unrelated malformed forwarding: %j",
+      async (forwardedHeaders) => {
+        vi.stubEnv("NODE_ENV", "production");
+        delete process.env.ACCESS_TOKEN;
+        delete process.env.ACCESS_TOKENS;
+        delete process.env.AUTH_DISABLED;
+        const auth = {
+          api: {
+            getSession: vi.fn(async ({ headers }: { headers: Headers }) =>
+              headers.get("cookie") ===
+              "better-auth.session_token=browser-login"
+                ? {
+                    user: { id: "browser-user", email: "owner@example.com" },
+                    session: { token: "browser-login" },
+                  }
+                : null,
+            ),
+          },
+        };
+        vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+          ...(await importOriginal<object>()),
+          getBetterAuth: vi.fn(async () => auth),
+          getBetterAuthSync: vi.fn(() => auth),
+          resumeIdentityRekeysForEmail: vi.fn(async () => {}),
+        }));
+        vi.doMock("../org/context.js", () => ({
+          resolveOrgIdForEmailViaEvent: vi.fn(async () => null),
+        }));
+        const { getSession } = await import("./auth.js");
+        const event = createMockEvent({
+          headers: {
+            cookie: "better-auth.session_token=browser-login",
+            ...forwardedHeaders,
+          },
+        });
+
+        await expect(getSession(event)).resolves.toMatchObject({
+          email: "owner@example.com",
+          token: "browser-login",
+        });
+      },
+    );
+
     it("rechecks the database after a legacy session is revoked", async () => {
       vi.stubEnv("NODE_ENV", "production");
       let sessionPresent = true;

@@ -3,6 +3,14 @@ import type { JobFrontmatter } from "@agent-native/core/jobs/frontmatter";
 /** The `runner` a job names to be executed by the workflow engine, not an agent. */
 export const WORKFLOW_RUNNER = "workflow";
 
+/**
+ * The `appId` a workflow job file carries. A scheduler built before this value
+ * existed runs only `factory` jobs and skips this one untouched, so it cannot
+ * start a workflow as a chat-agent job. It is a label on the file only: the
+ * scheduler lease, run history and health rows stay under `factory`.
+ */
+export const WORKFLOW_JOB_APP_ID = "factory-workflows";
+
 export function isWorkflowJob(meta: Pick<JobFrontmatter, "runner">): boolean {
   return meta.runner === WORKFLOW_RUNNER;
 }

@@ -276,8 +276,8 @@ const messages = {
       openWorkflow: "{{name}} 열기",
       turnOn: "{{name}} 켜기",
       turnOff: "{{name}} 끄기",
-      dryRunRequired: "켜기 전에 테스트를 실행하세요.",
-      runTest: "테스트 실행",
+      dryRunRequired: "켜기 전에 모의 실행을 하세요.",
+      runTest: "모의 실행",
       neverRun: "아직 실행 없음",
       olderRun: "최근 실행 없음",
       runsFailed: "실행을 불러오지 못함",
@@ -369,9 +369,9 @@ const messages = {
       connectionsNeeded: "{{count}}개 연결 필요",
       connectionsListName: "연결 필요",
       jumpToProblem: "캔버스에서 보기",
-      testRun: "테스트 실행",
+      testRun: "모의 실행",
       testing: "시작 중",
-      saveAndTest: "저장 후 테스트",
+      saveAndTest: "저장 후 모의 실행",
       moreActions: "작업 더보기",
       runNow: "지금 실행",
       runNowSaveFirst: "라이브로 실행하기 전에 변경 사항을 저장하세요.",
@@ -411,7 +411,8 @@ const messages = {
       confirmTitle: "버전 {{version}}을(를) 복원할까요?",
       confirmBody: "새 버전으로 저장되므로 어떤 버전도 사라지지 않습니다.",
       confirmDiscards: "저장하지 않은 변경 사항은 버려집니다.",
-      confirmSwitchesOff: "다시 테스트할 때까지 워크플로가 꺼집니다.",
+      confirmSwitchesOff:
+        "오류 없이 모의 실행이 다시 끝날 때까지 워크플로가 꺼집니다.",
       restored: "버전 {{version}}(으)로 복원했습니다.",
       restoreFailed: "해당 버전을 복원하지 못했습니다.",
       restoreInvalid_other:
@@ -420,7 +421,7 @@ const messages = {
     save: {
       invalid_other: "저장되지 않음: 해결할 문제 {{count}}개.",
       switchedOff:
-        "저장했습니다. 워크플로가 꺼졌습니다. 테스트한 후 다시 켜세요.",
+        "저장했습니다. 워크플로가 꺼졌습니다. 모의 실행을 한 후 다시 켜세요.",
       jobSyncFailed:
         "저장했지만 일정을 업데이트하지 못했습니다. 다시 저장해 재시도하세요.",
       notFound: "이 워크플로가 더 이상 존재하지 않습니다.",
@@ -448,9 +449,9 @@ const messages = {
       cancel: "취소",
     },
     run: {
-      started: "테스트 실행을 시작했습니다.",
-      unavailable: "테스트 실행을 아직 사용할 수 없습니다.",
-      failed: "테스트 실행을 시작하지 못했습니다. {{reason}}",
+      started: "모의 실행을 시작했습니다.",
+      unavailable: "모의 실행은 아직 사용할 수 없습니다.",
+      failed: "모의 실행을 시작하지 못했습니다. {{reason}}",
       liveStarted: "실행을 시작했습니다.",
       liveFailed: "실행을 시작하지 못했습니다. {{reason}}",
       enableFailed: "워크플로를 변경하지 못했습니다. {{reason}}",
@@ -488,8 +489,8 @@ const messages = {
       ofTotal: "항목 {{total}}개 중 {{shown}}개 표시",
       noInputConnected: "연결된 입력이 없습니다",
       noInputData: "입력 데이터가 없습니다",
-      testWorkflowHint: "워크플로를 테스트하면 여기에 항목이 표시됩니다",
-      testWorkflow: "워크플로 테스트",
+      testWorkflowHint: "워크플로를 모의 실행하면 여기에 항목이 표시됩니다",
+      testWorkflow: "모의 실행",
       noOutputData: "출력 데이터가 없습니다",
       previewHint: "워크플로를 실행하면 실제 값을 볼 수 있습니다",
       noMatchingItems: "일치하는 항목이 없습니다",
@@ -503,7 +504,7 @@ const messages = {
       copyPath: "경로 복사",
       pathCopied: "경로를 복사했습니다",
       pathCopyFailed: "경로를 복사하지 못했습니다",
-      dragHint: "필드에 드래그해서 매핑하세요",
+      dragHint: "이 핸들을 필드에 드래그해서 매핑하세요",
       mappedFirstField: "방금 필드를 매핑했습니다.",
     },
     diagnostics: {
@@ -892,8 +893,8 @@ const messages = {
     },
     canvasActions: {
       addFirstStep: "첫 단계 추가",
-      testWorkflow: "워크플로 테스트",
-      saveAndTestWorkflow: "저장 후 워크플로 테스트",
+      testWorkflow: "모의 실행",
+      saveAndTestWorkflow: "저장 후 모의 실행",
       describeFirstPrefill: "다음 동작을 하는 워크플로를 만들어 ",
       describeTile: "에이전트에게 설명하기",
       or: "또는",
@@ -1310,6 +1311,37 @@ const messages = {
       deleteMany: "단계 {{count}}개 삭제",
       selectAll: "모두 선택",
       clearSelection: "선택 해제",
+    },
+  },
+  providerPicker: {
+    choose: {
+      channels: "채널 선택",
+      repositories: "리포지토리 선택",
+      organizations: "조직 선택",
+      projects: "프로젝트 선택",
+    },
+    search: "검색하거나 값을 입력하세요",
+    useTyped: "“{{value}}” 사용",
+    noMatches: "일치하는 항목이 없습니다",
+    loadMore: "더 불러오기",
+    retry: "다시 시도",
+    changeOrganization: "조직 변경",
+    tag: {
+      private: "비공개",
+      botNotMember: "봇이 채널에 없음",
+      archived: "보관됨",
+    },
+    error: {
+      notConnected:
+        "{{provider}} 연결이 없어 목록을 불러올 수 없습니다. 그래도 값을 입력할 수 있습니다.",
+      refused:
+        "{{provider}} 연결의 자격 증명이 거부되었습니다. 그래도 값을 입력할 수 있습니다.",
+      missingScope:
+        "{{provider}} 연결에 {{scope}} 권한이 없습니다. 그래도 값을 입력할 수 있습니다.",
+      rateLimited:
+        "{{provider}} 요청이 제한되고 있습니다. 잠시 후 다시 시도하거나 값을 입력하세요.",
+      unreadable:
+        "{{provider}}의 목록을 읽을 수 없습니다. 다시 시도하거나 값을 입력하세요.",
     },
   },
 };

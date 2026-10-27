@@ -29,10 +29,10 @@ describe("AppShellSkeleton home layout", () => {
       "[data-agent-native-app-skeleton-home-hero]",
     );
     expect(hero?.style.justifyContent).toBe("center");
-    // Mark, title, two lead lines, composer and hint.
+    // Mark, title and composer.
     expect(
       hero?.querySelectorAll("[data-agent-native-skeleton-block]"),
-    ).toHaveLength(6);
+    ).toHaveLength(3);
 
     const footer = shell.querySelector<HTMLElement>(
       "[data-agent-native-app-skeleton-home-footer]",

@@ -193,13 +193,13 @@ vi.mock("./credential-membership.js", async (importOriginal) => {
   };
 });
 
-vi.mock("h3", () => ({
+vi.mock("h3", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("h3")>()),
   defineEventHandler: (fn: any) => fn,
   getMethod: (event: any) => event.method ?? "GET",
   getHeader: (event: any, name: string) => event._headers?.[name.toLowerCase()],
   getRequestHeader: (event: any, name: string) =>
     event._headers?.[name.toLowerCase()],
-  getRequestIP: () => undefined,
   getQuery: () => ({}),
   setResponseStatus: (event: any, code: number) => {
     event._status = code;
@@ -522,7 +522,7 @@ function makeEvent(
   const path = "/";
   return {
     method,
-    url: { pathname: path },
+    url: new URL(`${ORIGIN}${path}`),
     path,
     req: new Request(`${ORIGIN}${path}`, { method, headers: allHeaders }),
     _headers: allHeaders,
@@ -1396,7 +1396,40 @@ describe("direct tools/call embed credential redaction", () => {
   };
   const leakConfig = {
     ...config,
-    actions: { ...leakActions, ...contextActions, ...unreadableActions },
+    actions: {
+      ...leakActions,
+      ...contextActions,
+      ...unreadableActions,
+      "fixture-widget-read": act({
+        description: "Read the scoped widget fixture.",
+        readOnly: true,
+        requiresAuth: true,
+        http: { method: "GET" },
+        parameters: {
+          type: "object",
+          properties: { id: { type: "string" } },
+          required: ["id"],
+        },
+        run: async (args: Record<string, unknown>) => ({ id: args.id }),
+      }),
+    },
+    directoryProfile: {
+      connectorCatalog: [
+        "leak-in-widget",
+        "over-cap-widget-write",
+        "fixture-widget-read",
+      ],
+      widgetTargets: Object.fromEntries(
+        ["leak-in-widget", "over-cap-widget-write"].map((name) => [
+          name,
+          () => ({
+            targetPath: "/inbox/thread-1",
+            resourceIds: { threadId: "thread-1" },
+          }),
+        ]),
+      ),
+      widgetReadActionArguments: { "fixture-widget-read": { id: "threadId" } },
+    },
   };
 
   async function call(name: string) {

@@ -80,6 +80,12 @@ const review = {
   result: { status: "validated", message: "Ready" },
 } satisfies ContentDatabaseSourceReviewPayload;
 
+function reviewRow(index: number) {
+  const row = review.rows.find((_, rowIndex) => rowIndex === index);
+  if (!row) throw new Error(`No review row ${index}`);
+  return row;
+}
+
 describe("BuilderSourceReviewDialog row selection", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -202,7 +208,9 @@ describe("BuilderSourceReviewDialog row selection", () => {
 
     const confirmationCta = Array.from(
       document.body.querySelectorAll<HTMLButtonElement>("button"),
-    ).find((button) => button.textContent?.includes("Create draft"));
+    ).find((button) =>
+      button.textContent.includes("database.builderPushVerbCreateOne"),
+    );
     expect(confirmationCta?.disabled).toBe(false);
     act(() => confirmationCta?.click());
     expect(onValidate).toHaveBeenCalledTimes(2);
@@ -275,6 +283,144 @@ describe("BuilderSourceReviewDialog row selection", () => {
       document.body.querySelectorAll<HTMLButtonElement>("button"),
     ).find((button) => button.textContent?.includes("Review details"));
     expect(cta?.disabled).toBe(false);
+  });
+
+  it("preselects a staged publish or unpublish once, so clearing it sticks", () => {
+    const transitionSource = {
+      ...source,
+      metadata: {
+        ...source.metadata,
+        writeMode: "publish_updates",
+        allowPublicationTransitions: true,
+      },
+    } as ContentDatabaseSource;
+    const stagedReview = {
+      ...review,
+      rows: [
+        {
+          ...reviewRow(0),
+          effect: "update_in_place",
+          stagedPublicationTransition: "publish",
+        },
+        {
+          ...reviewRow(1),
+          effect: "update_in_place",
+          stagedPublicationTransition: "unpublish",
+        },
+      ],
+      totalRowCount: 2,
+    } satisfies ContentDatabaseSourceReviewPayload;
+    const onValidate = vi.fn();
+    const render = (current: ContentDatabaseSourceReviewPayload) =>
+      act(() => {
+        root.render(
+          <BuilderSourceReviewDialog
+            open
+            review={current}
+            source={transitionSource}
+            canEdit
+            pending={false}
+            checkedAt={null}
+            autoSelectReviewRows
+            onClose={vi.fn()}
+            onValidate={onValidate}
+          />,
+        );
+      });
+    const pressed = (label: string) =>
+      Array.from(document.body.querySelectorAll<HTMLButtonElement>("button"))
+        .filter((button) => button.textContent === label)
+        .map((button) => button.getAttribute("aria-pressed"));
+
+    render(stagedReview);
+    expect(pressed("Publish")).toEqual(["true", "false"]);
+    expect(pressed("Unpublish")).toEqual(["false", "true"]);
+    const confirm = document.body.querySelector<HTMLButtonElement>(
+      '[aria-label="database.confirmUnpublish"]',
+    );
+    expect(confirm?.getAttribute("data-state")).toBe("unchecked");
+
+    const publish = Array.from(
+      document.body.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent === "Publish");
+    if (!publish) throw new Error("No Publish button.");
+    act(() => publish.click());
+    expect(pressed("Publish")).toEqual(["false", "false"]);
+
+    // A narrower or wider review reruns the preselect; the cleared row stays clear.
+    render({
+      ...stagedReview,
+      rows: [
+        ...stagedReview.rows,
+        { ...reviewRow(2), effect: "update_in_place" },
+      ],
+      totalRowCount: 3,
+    });
+    expect(pressed("Publish")).toEqual(["false", "false"]);
+    expect(pressed("Unpublish")).toEqual(["false", "true"]);
+  });
+
+  it("moves a preselection when its staged publish or unpublish changes", () => {
+    const transitionSource = {
+      ...source,
+      metadata: {
+        ...source.metadata,
+        writeMode: "publish_updates",
+        allowPublicationTransitions: true,
+      },
+    } as ContentDatabaseSource;
+    const staged = (
+      transitions: Array<"publish" | "unpublish" | null>,
+    ): ContentDatabaseSourceReviewPayload => ({
+      ...review,
+      rows: review.rows.map((row, index) => ({
+        ...row,
+        effect: "update_in_place",
+        ...(transitions[index]
+          ? { stagedPublicationTransition: transitions[index] }
+          : {}),
+      })),
+    });
+    const render = (current: ContentDatabaseSourceReviewPayload) =>
+      act(() => {
+        root.render(
+          <BuilderSourceReviewDialog
+            open
+            review={current}
+            source={transitionSource}
+            canEdit
+            pending={false}
+            checkedAt={null}
+            autoSelectReviewRows
+            onClose={vi.fn()}
+            onValidate={vi.fn()}
+          />,
+        );
+      });
+    const buttons = (label: string) =>
+      Array.from(
+        document.body.querySelectorAll<HTMLButtonElement>("button"),
+      ).filter((button) => button.textContent === label);
+    const pressed = (label: string) =>
+      buttons(label).map((button) => button.getAttribute("aria-pressed"));
+
+    render(staged(["publish", "publish", "publish"]));
+    expect(pressed("Publish")).toEqual(["true", "true", "true"]);
+    const secondUnpublish = buttons("Unpublish").find(
+      (_, index) => index === 1,
+    );
+    if (!secondUnpublish) throw new Error("No second Unpublish button.");
+    act(() => secondUnpublish.click());
+
+    // The first row's pick turns into an unpublish; the other two are
+    // cleared, and only the second row's selection was changed by hand.
+    render(staged(["unpublish", null, null]));
+    expect(pressed("Publish")).toEqual(["false", "false", "false"]);
+    expect(pressed("Unpublish")).toEqual(["true", "true", "false"]);
+    const confirm = document.body.querySelector<HTMLButtonElement>(
+      '[aria-label="database.confirmUnpublish"]',
+    );
+    expect(confirm?.getAttribute("data-state")).toBe("unchecked");
   });
 
   it("distinguishes loading and failed previews from a true empty diff", () => {
@@ -426,8 +572,12 @@ describe("BuilderSourceReviewDialog row selection", () => {
       );
     });
 
-    expect(document.body.textContent).toContain("1 draft to create");
-    expect(document.body.textContent).not.toContain("No changes");
+    expect(document.body.textContent).toContain(
+      'database.builderIntentNewOne:{"count":1}',
+    );
+    expect(document.body.textContent).not.toContain(
+      "database.builderIntentNone",
+    );
     expect(
       document.body
         .querySelector<HTMLButtonElement>('[role="checkbox"]')

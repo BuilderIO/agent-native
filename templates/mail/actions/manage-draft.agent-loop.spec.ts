@@ -10,6 +10,15 @@ vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: async (key: string, value: unknown) => {
     mocks.appState.set(key, value);
   },
+  compareAndSetAppState: async (
+    key: string,
+    expected: unknown,
+    next: unknown,
+  ) => {
+    if ((mocks.appState.get(key) ?? null) !== expected) return false;
+    mocks.appState.set(key, next);
+    return true;
+  },
   deleteAppState: vi.fn(),
   deleteAppStateByPrefix: vi.fn(),
   listAppState: vi.fn(),

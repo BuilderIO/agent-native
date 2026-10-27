@@ -85,12 +85,13 @@ import {
   type ActionFailure,
   type ServerIssue,
 } from "./workflow-errors";
-import { withRenamedWorkflow } from "./workflow-list-model";
+import { RECENT_RUNS, withRenamedWorkflow } from "./workflow-list-model";
 import { listProblems, type ProblemRow } from "./workflow-problems";
 import { runOverlay } from "./workflow-run-overlay";
 import { useWorkflowStrings } from "./workflow-strings";
 import type {
   GetWorkflowResult,
+  ListRunsResult,
   ListWorkflowsResult,
   RenameWorkflowResult,
   RestoreWorkflowResult,
@@ -104,6 +105,8 @@ import { WorkflowToolbar } from "./WorkflowToolbar";
 import { WorkflowVersionsPanel } from "./WorkflowVersionsPanel";
 
 const RUN_WATCH_INTERVAL_MS = 1_500;
+/** How long a queued run may go unstarted before the page stops holding the canvas for it: a cold scheduler can take a minute or more. */
+const QUEUED_RUN_WAIT_MS = 120_000;
 const STATE_WRITE_DELAY_MS = 400;
 const MINIMAP_NODE_COUNT = 16;
 
@@ -839,13 +842,43 @@ function WorkflowEditorSurface({
 
   // What the canvas shows from a run and from an item's path
 
+  // A run just queued is addressed by the scheduler's id and has no row until the scheduler starts it. The
+  // recent runs are watched for it, so no read goes out for a run that is not there yet.
+  const runPending = runParam !== null && runParam === queuedRunId;
+  const queuedRuns = useActionQuery<ListRunsResult>(
+    "list-factory-workflow-runs",
+    { factoryId, workflowId, limit: RECENT_RUNS },
+    {
+      enabled: runPending,
+      refetchInterval: runPending ? RUN_WATCH_INTERVAL_MS : false,
+    },
+  );
+  const startedRunId = runPending
+    ? queuedRuns.data?.runs.find((run) => run.historyRowId === queuedRunId)?.id
+    : undefined;
+  useEffect(() => {
+    if (!startedRunId) return;
+    setQueuedRunId(null);
+    setRunParam(startedRunId);
+  }, [startedRunId, setRunParam]);
+  useEffect(() => {
+    if (!runPending) return;
+    // The run has not failed, only not started: it still shows in the run picker once the scheduler starts it.
+    const timer = window.setTimeout(() => {
+      setQueuedRunId(null);
+      setRunParam(null);
+      refreshWorkflowQueries();
+    }, QUEUED_RUN_WAIT_MS);
+    return () => window.clearTimeout(timer);
+  }, [runPending, setRunParam, refreshWorkflowQueries]);
+
   const runQuery = useActionQuery<RunDetail>(
     "get-factory-workflow-run",
     { factoryId, runId: runParam ?? "" },
     {
-      enabled: Boolean(runParam),
-      // A run just queued is addressed by the scheduler's id and has no row
-      // until the scheduler starts it.
+      enabled: Boolean(runParam) && !runPending,
+      // A run opened by the scheduler's id from a link can still be a moment
+      // ahead of its row.
       retry: (failureCount, error) =>
         failureCount < 4 &&
         readActionFailure(error, "").errorCode === "workflow_run_not_found",
@@ -887,9 +920,6 @@ function WorkflowEditorSurface({
       }),
     [runParam, runQuery.data, runStatus],
   );
-  const runPending =
-    runParam !== null && runParam === queuedRunId && openedRunId !== runParam;
-
   // A node's audit and item data are read while its run is still going, so both are read again once the run settles.
   const lastRun = useRef<{ id: string; status: string } | null>(null);
   useEffect(() => {

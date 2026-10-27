@@ -1795,7 +1795,7 @@ describe("FirstRunOnboarding", () => {
 
   it("labels Clips setup as Builder, custom keys, or an optional skip", async () => {
     mocks.creditsV2FlagState = { status: "ready", enabled: true };
-    mocks.recordCreditsV2Exposure.mockResolvedValueOnce({
+    mocks.recordCreditsV2Exposure.mockResolvedValue({
       assignment: {
         experiment_id: "first_run_builder_credits_v2",
         experiment_variant: "control",
@@ -1850,7 +1850,11 @@ describe("FirstRunOnboarding", () => {
       "record-first-run-builder-credits-v2-exposure",
       { uiOnly: true, skipActionQueryInvalidation: true },
     );
-    expect(mocks.recordCreditsV2Exposure).toHaveBeenCalledOnce();
+    expect(mocks.recordCreditsV2Exposure).toHaveBeenCalledTimes(2);
+    expect(mocks.recordCreditsV2Exposure).toHaveBeenNthCalledWith(1, {});
+    expect(mocks.recordCreditsV2Exposure).toHaveBeenNthCalledWith(2, {
+      confirmedVariant: "control",
+    });
     expect(mocks.setOnboardingExperiment).toHaveBeenCalledWith({
       id: "first_run_builder_credits_v2",
       variant: "control",
@@ -1872,6 +1876,106 @@ describe("FirstRunOnboarding", () => {
       document.body.querySelector("[data-testid='first-run-credits-offer']"),
     ).toBeNull();
   });
+
+  it("does not hold another app's first-run screen while the v2 flag loads", async () => {
+    mocks.creditsV2FlagState = { status: "loading", enabled: false };
+    mocks.useOnboarding.mockReturnValue({
+      firstRun: true,
+      loading: false,
+      error: null,
+      profile: { appId: "forms", appName: "Forms", capabilities: [] },
+      completeFirstRun: mocks.completeFirstRun,
+      completeFirstRunError: null,
+    });
+
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    await act(async () => {
+      document.body
+        .querySelector<HTMLButtonElement>("[data-testid='first-run-role-skip']")
+        ?.click();
+    });
+
+    expect(
+      document.body.querySelector("[data-onboarding-loading='true']"),
+    ).toBeNull();
+    expect(
+      document.body.querySelector('[data-onboarding-screen="choice"]'),
+    ).not.toBeNull();
+    expect(mocks.recordCreditsV2Exposure).not.toHaveBeenCalled();
+  });
+
+  it.each(["design", "slides", "clips"])(
+    "shows the v2 credits actions in %s",
+    async (appId) => {
+      mocks.creditsV2FlagState = { status: "ready", enabled: true };
+      mocks.recordCreditsV2Exposure.mockResolvedValue({
+        assignment: {
+          experiment_id: "first_run_builder_credits_v2",
+          experiment_variant: "credits",
+        },
+      });
+      mocks.useOnboarding.mockReturnValue({
+        firstRun: true,
+        loading: false,
+        error: null,
+        profile: { appId, appName: appId, capabilities: [] },
+        completeFirstRun: mocks.completeFirstRun,
+        completeFirstRunError: null,
+      });
+
+      await act(async () => {
+        root.render(
+          <TooltipProvider>
+            <FirstRunOnboarding />
+          </TooltipProvider>,
+        );
+      });
+      await act(async () => {
+        document.body
+          .querySelector<HTMLButtonElement>(
+            "[data-testid='first-run-role-skip']",
+          )
+          ?.click();
+      });
+
+      const primary = document.body.querySelector<HTMLButtonElement>(
+        "[data-testid='first-run-credits-activate']",
+      );
+      const existingAccount = document.body.querySelector<HTMLButtonElement>(
+        "[data-testid='first-run-credits-connect-existing']",
+      );
+      const ownKeys = document.body.querySelector<HTMLButtonElement>(
+        "[data-testid='first-run-credits-own-api-keys']",
+      );
+      expect(primary?.textContent).toBe("Activate free credits");
+      expect(existingAccount?.textContent).toBe("I have a Builder.io account");
+      expect(ownKeys?.textContent).toBe("Use my own API keys");
+      expect(
+        document.body.querySelector(
+          "[data-testid='first-run-credits-skip-confirm']",
+        ),
+      ).toBeNull();
+      expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+        "onboarding_experiment_exposed",
+        expect.objectContaining({
+          experiment_id: "first_run_builder_credits_v2",
+          experiment_variant: "credits",
+        }),
+      );
+
+      await act(async () => {
+        ownKeys?.click();
+        await Promise.resolve();
+      });
+      expect(mocks.navigate).toHaveBeenCalled();
+    },
+  );
 
   it("opens the app directly after a configured Builder connection", () => {
     mocks.useBuilderConnectFlow.mockReturnValue({
@@ -3139,7 +3243,7 @@ describe("FirstRunOnboarding", () => {
       return start;
     };
 
-    it("does not expose the Clips credits v2 experiment when connection status is unavailable", () => {
+    it("does not expose the credits v2 experiment when connection status is unavailable", () => {
       mocks.creditsV2FlagState = { status: "ready", enabled: true };
       openClipsChoice(vi.fn(), { statusUnavailable: true });
 
@@ -3152,11 +3256,11 @@ describe("FirstRunOnboarding", () => {
       );
     });
 
-    it("retries the Clips credits v2 exposure after a transient mutation failure", async () => {
+    it("retries credits v2 exposure after a transient mutation failure", async () => {
       mocks.creditsV2FlagState = { status: "ready", enabled: true };
       mocks.recordCreditsV2Exposure
         .mockRejectedValueOnce(new Error("temporary failure"))
-        .mockResolvedValueOnce({
+        .mockResolvedValue({
           assignment: {
             experiment_id: "first_run_builder_credits_v2",
             experiment_variant: "credits",
@@ -3189,7 +3293,7 @@ describe("FirstRunOnboarding", () => {
         await Promise.resolve();
       });
 
-      expect(mocks.recordCreditsV2Exposure).toHaveBeenCalledTimes(2);
+      expect(mocks.recordCreditsV2Exposure).toHaveBeenCalledTimes(3);
       expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
         "onboarding_experiment_exposed",
         {
@@ -3199,6 +3303,114 @@ describe("FirstRunOnboarding", () => {
           experiment_variant: "credits",
         },
       );
+    });
+
+    it("retries exposure persistence after tracking the rendered v2 arm", async () => {
+      mocks.creditsV2FlagState = { status: "ready", enabled: true };
+      let confirmationAttempts = 0;
+      mocks.recordCreditsV2Exposure.mockImplementation((...args: unknown[]) => {
+        const input = args[0] as { confirmedVariant?: string } | undefined;
+        if (input?.confirmedVariant) {
+          confirmationAttempts += 1;
+          if (confirmationAttempts === 1) {
+            return Promise.reject(new Error("temporary confirmation failure"));
+          }
+        }
+        return Promise.resolve({
+          assignment: {
+            experiment_id: "first_run_builder_credits_v2",
+            experiment_variant: "credits",
+          },
+        });
+      });
+      mocks.trackOnboardingEvent.mockImplementation((name: string) => {
+        if (name === "onboarding_experiment_exposed") {
+          expect(q("first-run-credits-offer")).not.toBeNull();
+        }
+      });
+
+      openClipsChoice();
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(mocks.recordCreditsV2Exposure).toHaveBeenCalledTimes(3);
+      expect(mocks.recordCreditsV2Exposure).toHaveBeenNthCalledWith(1, {});
+      expect(mocks.recordCreditsV2Exposure).toHaveBeenNthCalledWith(2, {
+        confirmedVariant: "credits",
+      });
+      expect(mocks.recordCreditsV2Exposure).toHaveBeenNthCalledWith(3, {
+        confirmedVariant: "credits",
+      });
+      expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+        "onboarding_experiment_exposed",
+        {
+          flow: "first_run",
+          step_id: "choice",
+          experiment_id: "first_run_builder_credits_v2",
+          experiment_variant: "credits",
+        },
+      );
+    });
+
+    it("reconciles failed exposure persistence without blocking the rendered v2 arm", async () => {
+      vi.useFakeTimers();
+      try {
+        mocks.creditsV2FlagState = { status: "ready", enabled: true };
+        mocks.recordCreditsV2Exposure
+          .mockResolvedValueOnce({
+            assignment: {
+              experiment_id: "first_run_builder_credits_v2",
+              experiment_variant: "credits",
+            },
+          })
+          .mockRejectedValueOnce(new Error("first confirmation unavailable"))
+          .mockRejectedValueOnce(new Error("second confirmation unavailable"))
+          .mockResolvedValueOnce({
+            assignment: {
+              experiment_id: "first_run_builder_credits_v2",
+              experiment_variant: "credits",
+            },
+          });
+
+        openClipsChoice();
+        await act(async () => {
+          await Promise.resolve();
+          await Promise.resolve();
+          await Promise.resolve();
+        });
+
+        expect(mocks.recordCreditsV2Exposure).toHaveBeenCalledTimes(3);
+        expect(q("first-run-credits-offer")).not.toBeNull();
+        expect(q("first-run-credits-own-api-keys")).not.toBeNull();
+        expect(
+          document.body.querySelector("[data-onboarding-loading='true']"),
+        ).toBeNull();
+        expect(mocks.setOnboardingExperiment).toHaveBeenCalledWith({
+          id: "first_run_builder_credits_v2",
+          variant: "credits",
+        });
+        expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+          "onboarding_experiment_exposed",
+          expect.objectContaining({
+            experiment_id: "first_run_builder_credits_v2",
+          }),
+        );
+        expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+          "onboarding_step_viewed",
+          expect.objectContaining({ step_id: "choice" }),
+        );
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(1_000);
+        });
+
+        expect(mocks.recordCreditsV2Exposure).toHaveBeenCalledTimes(4);
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("shows one activate action instead of the two setup cards", () => {
@@ -3469,6 +3681,8 @@ describe("FirstRunOnboarding", () => {
             experiment_id: "first_run_builder_credits_v2",
           }),
         );
+        expect(mocks.recordCreditsV2Exposure).toHaveBeenCalledOnce();
+        expect(mocks.recordCreditsV2Exposure).toHaveBeenCalledWith({});
       } finally {
         vi.useRealTimers();
       }
@@ -3484,7 +3698,7 @@ describe("FirstRunOnboarding", () => {
       expect(q("first-run-credits-more-info")).toBeNull();
     });
 
-    it("waits for the durable arm and records exposure after its choice renders", async () => {
+    it("renders and attributes the v2 choice while exposure persistence is pending", async () => {
       mocks.creditsV2FlagState = { status: "ready", enabled: true };
       mocks.useBuilderConnectFlow.mockReturnValue(flow());
       mocks.useOnboarding.mockReturnValue({
@@ -3499,17 +3713,41 @@ describe("FirstRunOnboarding", () => {
             };
           }) => void)
         | undefined;
-      mocks.recordCreditsV2Exposure.mockImplementation(
-        () =>
-          new Promise((resolve) => {
-            resolveAssignment = resolve;
-          }),
-      );
-      mocks.trackOnboardingEvent.mockImplementation((name: string) => {
-        if (name === "onboarding_experiment_exposed") {
-          expect(q("first-run-credits-offer")).not.toBeNull();
+      let resolveConfirmation:
+        | ((result: {
+            assignment: {
+              experiment_id: string;
+              experiment_variant: string;
+            };
+          }) => void)
+        | undefined;
+      mocks.recordCreditsV2Exposure.mockImplementation((...args: unknown[]) => {
+        const input = args[0] as { confirmedVariant?: string } | undefined;
+        if (input?.confirmedVariant) {
+          return new Promise((resolve) => {
+            resolveConfirmation = resolve;
+          });
         }
+        return new Promise((resolve) => {
+          resolveAssignment = resolve;
+        });
       });
+      mocks.trackOnboardingEvent.mockImplementation(
+        (name: string, properties?: Record<string, unknown>) => {
+          if (name === "onboarding_experiment_exposed") {
+            expect(q("first-run-credits-offer")).not.toBeNull();
+          }
+          if (
+            name === "onboarding_step_viewed" &&
+            properties?.step_id === "choice"
+          ) {
+            expect(mocks.setOnboardingExperiment).toHaveBeenCalledWith({
+              id: "first_run_builder_credits_v2",
+              variant: "credits",
+            });
+          }
+        },
+      );
 
       await act(async () => {
         root.render(
@@ -3541,10 +3779,36 @@ describe("FirstRunOnboarding", () => {
         });
       });
 
+      expect(mocks.recordCreditsV2Exposure).toHaveBeenNthCalledWith(2, {
+        confirmedVariant: "credits",
+      });
+      expect(
+        document.body.querySelector("[data-onboarding-loading='true']"),
+      ).toBeNull();
+      expect(q("first-run-credits-offer")).not.toBeNull();
+      expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+        "onboarding_step_viewed",
+        expect.objectContaining({ step_id: "choice" }),
+      );
       expect(mocks.setOnboardingExperiment).toHaveBeenCalledWith({
         id: "first_run_builder_credits_v2",
         variant: "credits",
       });
+
+      await act(async () => {
+        resolveConfirmation?.({
+          assignment: {
+            experiment_id: "first_run_builder_credits_v2",
+            experiment_variant: "credits",
+          },
+        });
+      });
+
+      expect(mocks.setOnboardingExperiment).toHaveBeenCalledWith({
+        id: "first_run_builder_credits_v2",
+        variant: "credits",
+      });
+      expect(q("first-run-credits-offer")).not.toBeNull();
       expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
         "onboarding_experiment_exposed",
         {
@@ -3556,6 +3820,18 @@ describe("FirstRunOnboarding", () => {
       );
       expect(q("first-run-credits-skip")).not.toBeNull();
       expect(q("first-run-credits-skip-confirm")).toBeNull();
+      const exposureIndex = mocks.trackOnboardingEvent.mock.calls.findIndex(
+        ([name]) => name === "onboarding_experiment_exposed",
+      );
+      const choiceViewIndex = mocks.trackOnboardingEvent.mock.calls.findIndex(
+        ([name, properties]) =>
+          name === "onboarding_step_viewed" &&
+          (properties as Record<string, unknown> | undefined)?.step_id ===
+            "choice",
+      );
+      expect(exposureIndex).toBeGreaterThanOrEqual(0);
+      expect(choiceViewIndex).toBeGreaterThan(exposureIndex);
+      expect(mocks.recordCreditsV2Exposure).toHaveBeenCalledTimes(2);
       expect(document.body.textContent).not.toContain("Are you sure?");
 
       click("first-run-credits-skip");

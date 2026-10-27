@@ -25,6 +25,7 @@ import {
   appPath,
   enableLab,
   gotoEditor,
+  grantLocalhostWriteConsent,
   selectByText,
   waitForDesignPreviewReady,
 } from "./helpers";
@@ -284,7 +285,7 @@ test.describe.serial("React Motion source browser writeback", () => {
         .digest("hex"),
     );
 
-    await postAction(request, "grant-localhost-write-consent", {
+    await grantLocalhostWriteConsent(page, {
       designId,
       connectionId,
     });
@@ -910,7 +911,8 @@ test.describe.serial("React Motion source browser writeback", () => {
     if (!current.timelines?.length) {
       const source = fs.readFileSync(sourceFilePath, "utf8");
       const sourceHash = createHash("sha256").update(source).digest("hex");
-      await postAction(request, "grant-localhost-write-consent", {
+      await page.goto(appPath("/"), { waitUntil: "domcontentloaded" });
+      await grantLocalhostWriteConsent(page, {
         designId,
         connectionId,
       });
@@ -1223,7 +1225,8 @@ test.describe.serial("React Motion source browser writeback", () => {
     if (!screenId) throw new Error("React Motion screen is not registered");
 
     const nativeNodeId = "motion-native-target";
-    await postAction(request, "grant-localhost-write-consent", {
+    await page.goto(appPath("/"), { waitUntil: "domcontentloaded" });
+    await grantLocalhostWriteConsent(page, {
       designId,
       connectionId,
     });
@@ -1496,7 +1499,8 @@ test.describe.serial("React Motion source browser writeback", () => {
     }
     if (!screenId) throw new Error("React Motion screen is not registered");
 
-    await postAction(request, "grant-localhost-write-consent", {
+    await page.goto(appPath("/"), { waitUntil: "domcontentloaded" });
+    await grantLocalhostWriteConsent(page, {
       designId,
       connectionId,
     });
@@ -1804,7 +1808,8 @@ createRoot(document.getElementById("root")!).render(<App />);
     }
     if (!screenId) throw new Error("React Motion screen is not registered");
 
-    await postAction(request, "grant-localhost-write-consent", {
+    await page.goto(appPath("/"), { waitUntil: "domcontentloaded" });
+    await grantLocalhostWriteConsent(page, {
       designId,
       connectionId,
     });

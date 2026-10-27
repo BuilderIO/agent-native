@@ -93,6 +93,19 @@ describe("EmailListItem touch swipe interactions", () => {
     vi.useRealTimers();
   });
 
+  it("selects from the checkbox without opening the thread", () => {
+    const onSelect = vi.fn();
+    const onToggleMultiSelect = vi.fn();
+    renderRow({ onSelect, onToggleMultiSelect });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.selection.selectEmail" }),
+    );
+
+    expect(onToggleMultiSelect).toHaveBeenCalledOnce();
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
   it("shows trash for trashable rows and the importance menu when supplied", () => {
     renderRow({ canTrash: true, onTrash: vi.fn() });
     expect(screen.getByLabelText("mail.actions.moveToTrash")).toBeTruthy();

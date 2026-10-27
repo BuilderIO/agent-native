@@ -30,6 +30,8 @@ export interface RunAutomationNowInput {
   requestHeaders?: Headers;
   name?: string;
   path?: string;
+  /** Job `appId` values the caller's app runs besides `appId`; see `SchedulerDeps`. */
+  additionalJobAppIds?: readonly string[];
 }
 
 export interface QueuedAutomationRun {
@@ -177,6 +179,7 @@ export async function queueAutomationRunNow(
       input,
       access.resource,
       access.scope as AutomationScope,
+      input.additionalJobAppIds,
     ))
   ) {
     throw Object.assign(

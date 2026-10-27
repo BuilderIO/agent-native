@@ -1,0 +1,99 @@
+slug: ai-meeting-notes
+app: clips
+roles:
+  - everyone
+title: 无需机器人入会，也能拿到会议笔记
+seo_title: 无需机器人入会的 AI 会议笔记
+meta_description: 每场通话都能得到转录、摘要和行动项。Agent-Native Clips 在你自己的电脑上录制，之后任何一场会议你都可以搜索或提问。
+updated: 2026-10-26
+hero:
+  body: "Agent-Native Clips 把你的通话变成笔记：转录、摘要，以及按参会人整理的行动项。它在你的电脑上录下你的麦克风和通话音频，任何一场通话你都可以搜索或提问。"
+  button:
+    label: 记会议笔记
+    url: https://clips.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4b1f55d396c64beea49da96d9d02b38c
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F03741a45126c451e8458872aebd9f480
+    alt: Clips 中一场已结束的每周产品同步会。左侧笔记面板显示简短摘要、要点，以及按每位参会人分组的行动项；右侧是转录，列出每位发言人的发言。
+how_to:
+  heading: 如何用 AI 记会议笔记
+  steps:
+    - title: 连接你的日历
+      body: 安装 Clips Desktop，在 Clips 的设置中打开会议，并在会议页面连接 Google Calendar。你接下来的会议会显示在 Agenda 标签页。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F58ac771a7a8547ecbb770e5e560f8ecd
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d5d38e3c0124bbb8a51b2d0b89582c4
+        alt: 会议页面 Agenda 标签页的特写，列出来自 Google Calendar 的今日会议；2 分钟后开始的那场会议旁有“加入”和“打开笔记”按钮。
+    - title: 从提醒开始记笔记
+      body: Clips Desktop 会在每场日历会议开始前一分钟弹出提醒。点它的 Join 按钮会加入通话并立即开始记笔记，按钮菜单里的选项则只开始记笔记、不加入通话。随后 Clips 会采集你的麦克风和通话的音频。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff048f1dd0e18443d93fdeb4a4f03fada
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe58e7dd45fa3459fb1cdb3840fed0126
+        alt: "每周产品同步会的 Clips Desktop 提醒特写。Join Meet & open Clips 按钮的菜单已展开：Join only、Start notes only 和 Snooze 5 min。"
+    - title: 查看你的笔记和行动项
+      body: "通话结束后，会议页面会在转录旁边显示你的笔记和 AI 笔记：摘要、要点，以及按参会人整理的行动项。分享之前，请先对照转录[核对 AI 会议笔记](https://www.agent-native.com/articles/how-to-use-ai-to-take-meeting-notes/)。"
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F0ba0a151caef41e8904d6535671c47bc
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fbdf5e7b84ab64a288c0837959eedb85b
+        alt: "一场已结束会议的 AI 笔记面板特写：摘要、四条要点，以及按两位参会人分组的行动项。"
+features:
+  heading: 每场会议你需要的一切
+  items:
+    - title: 通话里没有机器人
+      body: Clips Desktop 在你自己的电脑上录下麦克风和通话的音频，所以对其他人来说，会议和平时没有两样。
+    - title: 按人分配的行动项
+      body: 每条行动项都会写明负责人，依据是通话中谁说了什么。分享之前，你可以添加、编辑或删除行动项。
+    - title: 通话中随时提问
+      body: "会议进行中就可以提问：你错过了什么、最近五分钟的回顾，或者接下来问什么好。"
+    - title: 按说过的话搜索
+      body: 用转录、笔记里的一个词或参会人的名字找到会议，也可以让 agent 找出聊到某件事的那场通话。
+    - title: 能跳回原话的笔记
+      body: 点击 AI 笔记里的任意一条要点，就会跳到转录中说这句话的那一刻。
+    - title: 可分享的会议笔记
+      body: 一个链接就能分享摘要、要点、行动项和完整转录，不包含录制的视频和评论。
+integrations:
+  heading: 把 Clips 连接到你已经在用的工具
+  cards:
+    - title: 你的日历和你的通话
+      logos:
+        - name: Google Calendar
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F65489ae9899a403081cb5ca4746ae335
+        - name: Google Meet
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa0e5adb3a2ab488eb415513ba971f315
+        - name: Microsoft Teams
+      body: Clips 会显示你在 Google Calendar 中的会议，并在 Google Meet、Microsoft Teams 和其他视频通话中记笔记。
+    - title: 在 Slack 里向 agent 提问
+      logos:
+        - name: Slack
+        - name: Microsoft Teams
+      body: 连接 Slack 或 Microsoft Teams 之后，就能在那里给 Clips agent 发消息，查找某场会议、它的笔记，或你要完成的行动项。
+    - title: 通过 MCP 连接任何工具
+      logos:
+        - name: Notion
+        - name: Linear
+        - name: monday.com
+        - name: Apollo
+      more: true
+      body: 通过 MCP 连接团队在用的工具，或通过 URL 添加任意 MCP 服务器。
+other_uses:
+  heading: 用 Agent-Native Clips 还能做的其他事
+  cards:
+    - title: 录下 bug，附带控制台和网络日志
+      url: https://www.agent-native.com/use-cases/ai-bug-reporting-tool/
+      body: 每段录屏都能直接交给你的编码 agent，让它看清哪里出了问题。
+    - title: 口述提示词，不用再打字
+      url: https://www.agent-native.com/use-cases/ai-dictation/
+      body: 按住一个键开口说话，Clips 就把整理好的文字输入到你正在使用的应用里。
+faqs:
+  heading: 有疑问？这里有答案
+  items:
+    - q: Agent-Native Clips 免费吗？
+      a: 是的，Agent-Native Clips 免费且开源。摘要、标题和转录整理默认使用 [Builder.io AI 额度](https://www.agent-native.com/docs/template-clips-features/)运行。额度用完后，这些功能会暂停，直到你充值或接入自己的 Gemini 密钥。Clips 目前处于 alpha 阶段，后续还会有变化。
+    - q: 会有机器人加入我的会议吗？
+      a: "不会。Clips 在你自己的电脑上记笔记：Clips Desktop 录下你的麦克风和通话的音频，所以不会有任何东西加入你的 Zoom、Google Meet 或 Microsoft Teams 通话。因为没有机器人加入，请告诉大家你在记笔记。"
+    - q: Clips 支持哪些日历和视频通话应用？
+      a: Clips 只连接 Google Calendar。笔记适用于 Zoom、Google Meet、Microsoft Teams、Webex，或任何由你的电脑播放音频的通话。在 Mac 上，即使这些通话不在你的日历里，Clips Desktop 也能发现它们，并提示你开始记笔记。其他参会人的声音只有在 Mac 上才能采集。
+    - q: Clips 能在 Windows 上记会议笔记吗？
+      a: Clips Desktop 可在 Mac、Windows 和 Linux 上运行，但采集其他参会人的声音只支持 Mac。在 Windows 和 Linux 上，Clips 只录你的麦克风，所以远程参会人不会出现在转录和行动项里。
+    - q: Clips 和 Zoom 或 Google Meet 自带的 AI 笔记有什么不同？
+      a: "通话应用自带的 AI 笔记只绑定那个应用的通话。Clips 则把来自任何通话应用的每场会议都放在同一个资料库里。你可以问 [Clips agent](https://www.agent-native.com/docs/template-clips-agent/)：“Daniel 上周二承诺了什么？”它会按说过的话搜索你的会议。这就是[智能体应用](https://www.agent-native.com/articles/what-is-an-agent-native-app/)：既有 agent 的智能，又有应用的直观易用。"

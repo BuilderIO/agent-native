@@ -985,6 +985,13 @@ function isReadmePath(path: string): boolean {
   return basename(normalizeChangedPath(path)) === "README.md";
 }
 
+function isMarkdownPath(path: string): boolean {
+  const normalized = normalizeChangedPath(path);
+  // Any change under the execution-lease model keeps running its verifier.
+  if (normalized.startsWith(EXECUTION_LEASE_MODEL_PREFIX)) return false;
+  return /\.mdx?$/iu.test(normalized);
+}
+
 export function isInstructionPath(path: string): boolean {
   const normalized = normalizeChangedPath(path);
   return !isDocsPath(normalized) && INSTRUCTION_MARKDOWN_RE.test(normalized);
@@ -2534,8 +2541,19 @@ export function classifyChangedPaths(
     sameDirectoryPureDesignSpecRenames.map(normalizeChangedPath),
   );
   const docsOnly = changedPaths.length > 0 && nonDocsPaths.length === 0;
-  const workspaceFilters = workspaceFiltersForPaths(changedPaths);
-  const testWorkspaceFilters = testWorkspaceFiltersForPaths(changedPaths);
+  // Markdown can't fail a build, typecheck, or test, so a change set that is
+  // all markdown (skills, agent instructions, their factory copies) runs lint,
+  // plus the guards that read instructions (doc budgets, skill sync, template
+  // layers, hook docs) when any of it is outside the docs tree.
+  const markdownOnly =
+    changedPaths.length > 0 &&
+    changedPaths.every((path) => isDocsPath(path) || isMarkdownPath(path));
+  const workspaceFilters = markdownOnly
+    ? []
+    : workspaceFiltersForPaths(changedPaths);
+  const testWorkspaceFilters = markdownOnly
+    ? []
+    : testWorkspaceFiltersForPaths(changedPaths);
   const allDesignCanvasE2eSpecs = designCanvasE2eSpecsForPaths(
     changedPaths,
     repositoryRoot,
@@ -2548,16 +2566,18 @@ export function classifyChangedPaths(
     (path) => path !== PRE_AUTH_SESSION_REPLAY_E2E_SPEC,
   );
   const full =
-    changedPaths.length === 0 ||
-    changedPaths.some(isFullPath) ||
-    (changedPaths.some(isWorkspacePath) && workspaceFilters.length === 0);
+    !markdownOnly &&
+    (changedPaths.length === 0 ||
+      changedPaths.some(isFullPath) ||
+      (changedPaths.some(isWorkspacePath) && workspaceFilters.length === 0));
 
-  const checks = docsOnly
+  const checks = markdownOnly
     ? (Object.fromEntries(
         CHECK_NAMES.map((name) => [
           name,
           name === "lint" ||
-            (name === "guards" && changedPaths.some(isReadmePath)) ||
+            (name === "guards" &&
+              (!docsOnly || changedPaths.some(isReadmePath))) ||
             (name === "deploy_paths" && changedPaths.some(isDeployGuidePath)) ||
             (name === "changeset" && changedPaths.some(isChangesetPath)),
         ]),

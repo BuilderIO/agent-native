@@ -1,0 +1,108 @@
+slug: ai-bug-reporting-tool
+app: clips
+roles:
+  - product
+  - engineering
+  - design
+title: Record bugs with their console and network logs
+seo_title: AI bug reporting tool with console logs
+meta_description: Show the bug in Chrome, and Agent-Native Clips turns your recording into one link with the page's errors and failed requests for your engineer or coding agent.
+updated: 2026-10-27
+hero:
+  body: Agent-Native Clips turns a recording of the bug into one link your engineer or coding agent can act on. You show the bug in Chrome, and the page's errors and failed requests come with it.
+  button:
+    label: Record a bug
+    url: https://clips.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe36fd7fdff9b49bca2c6787f302964c6
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff375e2d60b2048508c23ea90a9761e08
+    alt: A bug recording open in Clips, paused on a checkout page that shows an error message. The Debug tab beside the video lists a red console error and a failed request with a 500 status.
+how_to:
+  heading: How to report a bug with AI
+  steps:
+    - title: Start recording from Chrome
+      body: "Click the Clips Chrome extension in your toolbar and pick the source: a browser tab, a window or your full screen. Switch your camera and microphone on or off, then click Start recording."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6996593713c74108967e120111378c14
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff7991811f7a346e0a99cf9fe81496e34
+        alt: Close-up of the Clips extension popup over a web app, with Browser tab chosen as the source, the camera and microphone switched on, and the Start recording button.
+    - title: Show the bug and explain it
+      body: Click through the steps that break and say what you expected to happen. While you record, the extension saves the page's errors and the requests it sent, the details an engineer would otherwise dig out of Chrome's developer tools.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe01ffb73c62c427b8077f05657fdeb47
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff895d85667344971baec96eb0b2ec956
+        alt: The Clips recording controls and camera bubble over a web app's checkout page, where a "Something went wrong" message appears.
+    - title: Share one link
+      body: When you stop, Clips copies the recording's link for you. Paste it into a ticket, a chat or your coding agent. The Agents tab in the Share menu also opens it in Claude, Claude Code or Codex directly.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F10933b64225545e1b5ecd666f5803832
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2894036362f7409d8a4961536719b399
+        alt: Close-up of the Clips Share menu on its Agents tab, with Copy agent prompt and the Open in Claude, Open in Claude Code and Open in Codex buttons.
+features:
+  heading: Everything you need to report a bug
+  items:
+    - title: Made for your coding agent
+      body: Paste the link into Claude Code, Cursor or Codex. The agent reads the transcript, the frames and the logs, without downloading the video.
+    - title: Console and network logs
+      body: Clips saves console messages, errors and requests from up to five tabs, with each request's status, timing and whether it failed.
+    - title: The 30 seconds before
+      body: Clips reaches back up to 30 seconds before you pressed record, so an error from while the page loaded can still make the report.
+    - title: Secrets stay out
+      body: Clips never saves request bodies, headers, cookies or what you type, and blanks out values that look like tokens or passwords.
+    - title: Jump straight to the error
+      body: In the clip's Debug tab, click the time beside an error or failed request and the video jumps to that moment.
+    - title: Search every bug report
+      body: Find any bug report by what was said in it, or ask the Clips agent across every recording in your library.
+integrations:
+  heading: Connect Clips to the tools you already use
+  cards:
+    - title: Hand it to your AI agent
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+        - name: ChatGPT
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9dad7db0d3d24127aaf6d7eb1bfa2b09
+          mono: true
+      body: Open the clip in Claude Code or Codex, or paste its link into Cursor or ChatGPT, and the agent starts without asking what happened.
+    - title: Drop it where bugs get filed
+      logos:
+        - name: Slack
+        - name: GitHub
+        - name: Jira
+      body: With the Clips Slack app, public recordings play right in Slack. With the extension installed, their links also preview in GitHub issues and Jira tickets.
+    - title: Connect anything through MCP
+      logos:
+        - name: Sentry
+        - name: Linear
+        - name: FullStory
+      more: true
+      body: Connect the tools your team uses through MCP, or add any MCP server by its URL.
+other_uses:
+  heading: Other things you can do with Agent-Native Clips
+  cards:
+    - title: Get meeting notes without a bot in the call
+      url: https://www.agent-native.com/use-cases/ai-meeting-notes/
+      body: Get a summary, notes and action items from every meeting, with no bot in the call.
+    - title: Dictate your prompts instead of typing them
+      url: https://www.agent-native.com/use-cases/ai-dictation/
+      body: Talk instead of typing, and clean text lands in whatever app you are using.
+faqs:
+  heading: Questions? We have answers
+  items:
+    - q: Is Agent-Native Clips free?
+      a: Yes. Agent-Native Clips is free and open source, including the Chrome extension. Titles, summaries and transcript cleanup run on Builder.io AI credits by default, so AI use isn't unlimited, and recordings need a place to store the video. Clips is in alpha, so expect changes as it grows.
+    - q: What does Clips capture from my browser?
+      a: The Clips Chrome extension captures [console messages, JavaScript errors and network requests](https://www.agent-native.com/docs/template-clips-features/#chrome-extension-browser-logs) from up to five tabs, reaching back up to 30 seconds before you pressed record. Each request keeps its address, status, timing and whether it failed. Editors see it all in the clip's Debug tab, and agents get it through the link.
+    - q: Does Clips record passwords or private data?
+      a: Clips never saves request or response bodies, headers, cookies or the text you type, and it blanks out values that look like tokens, passwords or keys. You can turn developer logs off in the extension's settings. New recordings are public by link, so set a bug report to private or your organization when it shows internal data.
+    - q: How do I give a bug recording to Claude Code, Cursor or Codex?
+      a: Paste the clip's link into Claude Code, Cursor or Codex, and the agent [reads the transcript, frames and browser logs](https://www.agent-native.com/docs/template-clips-integrations/#agent-readable-clips) without downloading the video. For a private clip, click Copy agent prompt on the Share menu's Agents tab, which gives the agent a link that lasts two hours. That tab also opens the clip in Claude Code or Codex.
+    - q: Does Clips capture logs in other browsers or the desktop app?
+      a: No. Console and network logs come only from the Clips Chrome extension. Clips Desktop and the web app still record your screen, camera and voice, with a transcript and summary, but the recording won't include browser logs.
+    - q: Is Clips a bug tracker like Jira?
+      a: "No. Clips makes [a bug report an engineer can act on](https://www.agent-native.com/articles/how-to-write-a-bug-report/), and your tracker stores it: paste the link into Jira, GitHub, Linear or Slack. Your coding agent or the [Clips agent](https://www.agent-native.com/docs/template-clips-agent/) reads the recording itself and its logs. That's what makes Clips an [agentic app](https://www.agent-native.com/articles/what-is-an-agent-native-app/): the brains of an agent, the intuitiveness of an app."
