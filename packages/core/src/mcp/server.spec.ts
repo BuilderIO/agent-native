@@ -8015,7 +8015,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         method: "tools/list",
         params: {},
       },
-      { config: toolSearchConfig },
+      { headers: CARDS_OWNER, config: toolSearchConfig },
     );
 
     expect(toolsOut.error).toBeUndefined();
@@ -10157,58 +10157,63 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.result.structuredContent.openLink).toBeUndefined();
   });
 
-  it("keeps url-only embed start URLs hidden without exposing them as open links", async () => {
-    const embedConfig = {
-      ...config,
-      actions: {
-        "open-url-only-embed": {
-          tool: {
-            description: "Open an embed-only app through url",
-          },
-          run: async () => ({
-            app: "mail",
-            embed: true,
-            url: "/_agent-native/embed/start?ticket=url-only-ticket",
-          }),
-          readOnly: true,
-          mcpApp: {
-            resource: {
-              title: "Open url-only embed app",
-              description: "Open the full app inline.",
-              html: "<!doctype html><html><body>Open app</body></html>",
+  it.each(["url", "deepLinkUrl", "path", "startUrl"])(
+    "keeps %s-only embed start URLs hidden without exposing them as open links",
+    async (field) => {
+      const embedConfig = {
+        ...config,
+        actions: {
+          "open-url-only-embed": {
+            tool: {
+              description: "Open an embed-only app through url",
+            },
+            run: async () => ({
+              app: "mail",
+              embed: true,
+              [field]: "/_agent-native/embed/start?ticket=url-only-ticket",
+            }),
+            readOnly: true,
+            mcpApp: {
+              resource: {
+                title: "Open url-only embed app",
+                description: "Open the full app inline.",
+                html: "<!doctype html><html><body>Open app</body></html>",
+              },
             },
           },
         },
-      },
-    };
+      };
 
-    const out = await callWeb(
-      {
-        jsonrpc: "2.0",
-        id: 135,
-        method: "tools/call",
-        params: { name: "open-url-only-embed", arguments: {} },
-      },
-      {
-        headers: await mcpAppsFullCatalogHeaders(),
-        config: scopedWidgetConfig(embedConfig),
-      },
-    );
+      const out = await callWeb(
+        {
+          jsonrpc: "2.0",
+          id: 135,
+          method: "tools/call",
+          params: { name: "open-url-only-embed", arguments: {} },
+        },
+        {
+          headers: await mcpAppsFullCatalogHeaders(),
+          config: scopedWidgetConfig(embedConfig),
+        },
+      );
 
-    expect(out.error).toBeUndefined();
-    expect(out.result._meta["agent-native/openLink"]).toBeUndefined();
-    expect(out.result._meta["agent-native/embedStart"]).toMatchObject({
-      startUrl:
-        "https://mail.agent-native.com/_agent-native/embed/start?ticket=minted-picker-ticket&__an_mcp_chat_bridge=1",
-    });
-    expect(JSON.stringify(out.result.content)).not.toContain("url-only-ticket");
-    expect(JSON.stringify(out.result.structuredContent)).not.toContain(
-      "url-only-ticket",
-    );
-    expect(out.result.structuredContent.openLink).toBeUndefined();
-    // The widget's open-link picker skips the placeholder.
-    expect(out.result.structuredContent.url).toBe("[hidden embed URL]");
-  });
+      expect(out.error).toBeUndefined();
+      expect(out.result._meta["agent-native/openLink"]).toBeUndefined();
+      expect(out.result._meta["agent-native/embedStart"]).toMatchObject({
+        startUrl:
+          "https://mail.agent-native.com/_agent-native/embed/start?ticket=minted-picker-ticket&__an_mcp_chat_bridge=1",
+      });
+      expect(JSON.stringify(out.result.content)).not.toContain(
+        "url-only-ticket",
+      );
+      expect(JSON.stringify(out.result.structuredContent)).not.toContain(
+        "url-only-ticket",
+      );
+      expect(out.result.structuredContent.openLink).toBeUndefined();
+      // The widget's open-link picker skips the placeholder.
+      expect(out.result.structuredContent[field]).toBe("[hidden embed URL]");
+    },
+  );
 
   it("uses a durable root open link for root-path embed starts", async () => {
     const embedConfig = {
@@ -10684,7 +10689,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     ])(
       "refuses ordinary connect calls with visibility $visibility and inline header $inlineHeader",
       async ({ visibility, inlineHeader }) => {
-        process.env.AGENT_NATIVE_MCP_APPS_INLINE = "0";
+        appCardsLab.optedIn.clear();
         const run = vi.fn(async () => ({
           startUrl: "/_agent-native/embed/start?ticket=unused-session-ticket",
         }));
@@ -10741,7 +10746,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
 
     it("omits the builtin helper from an ordinary connect catalog", async () => {
-      process.env.AGENT_NATIVE_MCP_APPS_INLINE = "0";
+      appCardsLab.optedIn.clear();
       const headers = await mcpAppsAuthHeaders({ scope: "mcp:read mcp:write" });
       const serverConfig = { ...config, builtinCrossAppTools: true };
       const listed = await callWeb(
@@ -10830,7 +10835,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
 
     it("keeps tool search scoped to the inline-disabled request catalog", async () => {
-      process.env.AGENT_NATIVE_MCP_APPS_INLINE = "0";
+      appCardsLab.optedIn.clear();
       const actions = {
         ...config.actions,
         create_embed_session: {

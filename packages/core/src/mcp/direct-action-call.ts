@@ -61,6 +61,7 @@ import {
 import { mcpCallAttribution } from "./call-attribution.js";
 import {
   describeThrownForLog,
+  HIDDEN_EMBED_URL,
   isEmbedStartUrl,
   redactEmbedText,
 } from "./embed-redaction.js";
@@ -546,11 +547,17 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
                 args,
                 result: { ...record, embed: false },
               });
-              if (linked?.url && !isEmbedStartUrl(linked.url)) return linked;
+              if (
+                linked?.url &&
+                linked.url !== HIDDEN_EMBED_URL &&
+                !isEmbedStartUrl(linked.url)
+              )
+                return linked;
               const url = [record.deepLinkUrl, record.url, record.path].find(
                 (value): value is string =>
                   typeof value === "string" &&
                   value.trim().length > 0 &&
+                  value !== HIDDEN_EMBED_URL &&
                   !isEmbedStartUrl(value),
               );
               return {

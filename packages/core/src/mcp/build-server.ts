@@ -1122,7 +1122,9 @@ export function mcpAppEmbedOpenLinkMeta(
     meta?.origin,
   );
   const deepLinkUrl =
-    typeof out.deepLinkUrl === "string" ? out.deepLinkUrl : null;
+    typeof out.deepLinkUrl === "string" && out.deepLinkUrl !== HIDDEN_EMBED_URL
+      ? out.deepLinkUrl
+      : null;
   const fallbackLabel = resource.title ?? resource.name ?? "app";
   const label =
     typeof out.app === "string" && out.app.trim()
@@ -1142,7 +1144,9 @@ export function mcpAppEmbedOpenLinkMeta(
         : undefined;
   const explicitOpenUrl = deepLinkUrl
     ? deepLinkUrl
-    : typeof out.url === "string" && !isEmbedStartUrl(out.url)
+    : typeof out.url === "string" &&
+        out.url !== HIDDEN_EMBED_URL &&
+        !isEmbedStartUrl(out.url)
       ? out.url
       : pathFromRouteLike;
   const safeOpenUrl = explicitOpenUrl
@@ -1414,7 +1418,7 @@ export function withoutMcpAppEmbedTicket(result: unknown): unknown {
   delete output.embedExpiresAt;
   for (const key of ["startUrl", "url", "deepLinkUrl", "path"]) {
     if (typeof output[key] === "string" && isEmbedStartUrl(output[key])) {
-      delete output[key];
+      output[key] = HIDDEN_EMBED_URL;
     }
   }
   return output;
@@ -1820,7 +1824,7 @@ export function buildLinkArtifacts(
   if (typeof entry.link !== "function") return {};
   try {
     const lk = entry.link({ args: args ?? {}, result });
-    if (!lk?.url) return {};
+    if (!lk?.url || lk.url === HIDDEN_EMBED_URL) return {};
     const isNativeOpenUrl = isAgentNativeOpenUrl(
       lk.url,
       meta?.origin,
