@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import { runWithRequestContext } from "@agent-native/core/server";
 import {
+  deleteOrgSetting,
   deleteSetting,
   getSetting,
   putOrgSetting,
@@ -371,6 +372,28 @@ describe("an editor's open", () => {
       id,
       status: "current",
     });
+  });
+
+  it("sends the sweep's change event for a page it switched, so other tabs read it again, and none when it switches nothing", async () => {
+    const id = await insertPage(stored);
+    await addToCollection(id, "files");
+    changes.events.length = 0;
+
+    await expect(convertOnOpen(id)).resolves.toMatchObject({
+      status: "converted",
+    });
+    expect(
+      changes.events.map((event) => [event.key, event.resourceId]),
+    ).toEqual([
+      ["update-document", id],
+      ["update-document", `database-page-${id}`],
+    ]);
+
+    changes.events.length = 0;
+    await expect(convertOnOpen(id)).resolves.toMatchObject({
+      status: "current",
+    });
+    expect(changes.events).toEqual([]);
   });
 
   it("opens the page and reports a typed, logged failure when the switch throws", async () => {
@@ -1532,6 +1555,32 @@ describe("the backfill sweep", () => {
       attempts: 1,
     });
     expect((await page(fine)).liveBodySwitchedAt).not.toBeNull();
+  });
+
+  it("reads a scope's flags again after a read fails, so one failure doesn't fail its later pages", async () => {
+    const orgId = "backfill-flaky-org";
+    await putOrgSetting(orgId, `feature-flag:${BACKFILL}`, { version: 99 });
+    const first = await insertPage(stored, { orgId });
+    const between = await insertPage(stored);
+    const second = await insertPage(stored, { orgId });
+
+    const report = await backfill.runLiveBodyBackfillSweep({
+      deadlineAt: Date.now() + 90_000,
+      now: Date.now(),
+      convert: async (id, options) => {
+        // The org's flags read again once the first page's read has failed.
+        if (id === between) {
+          await deleteOrgSetting(orgId, `feature-flag:${BACKFILL}`);
+        }
+        return backfill.convertPageToLiveCopyIfDue(id, options);
+      },
+    });
+
+    expect(report).toMatchObject({
+      outcomes: { converted: 2 },
+      failed: [{ documentId: first }],
+    });
+    expect((await page(second)).liveBodySwitchedAt).not.toBeNull();
   });
 
   it("throws on sweep state it can't read rather than starting the pass over", async () => {

@@ -2,7 +2,12 @@ import { ActionContractError } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
-import { convertPageToLiveCopyIfDue } from "../server/live-copy/backfill.js";
+import {
+  announceConversion,
+  convertPageToLiveCopyIfDue,
+  switchedPage,
+  type LiveBodyBackfillOutcome,
+} from "../server/live-copy/backfill.js";
 import { LIVE_BODY_SWITCH_BLOCKERS } from "../server/live-copy/eligibility.js";
 import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
 
@@ -76,12 +81,10 @@ export default defineAction({
   }),
   outputSchema: outcome,
   run: async (args, ctx) => {
-    await assertDocumentMutationAccess(args.id, "editor", "id");
+    const access = await assertDocumentMutationAccess(args.id, "editor", "id");
+    let result: LiveBodyBackfillOutcome;
     try {
-      return {
-        id: args.id,
-        ...(await convertPageToLiveCopyIfDue(args.id, { ctx })),
-      };
+      result = await convertPageToLiveCopyIfDue(args.id, { ctx });
     } catch (error) {
       console.error(
         `[convert-page-to-live-copy-if-due] page ${args.id} failed:`,
@@ -96,5 +99,21 @@ export default defineAction({
         },
       );
     }
+    if (switchedPage(result)) {
+      try {
+        await announceConversion({
+          id: args.id,
+          ownerEmail: access.resource.ownerEmail as string,
+        });
+      } catch (error) {
+        // The switch committed, so the caller still gets its outcome; other
+        // tabs show the page as it was until they read it again.
+        console.error(
+          `[convert-page-to-live-copy-if-due] page ${args.id} switched, but its change event failed:`,
+          error,
+        );
+      }
+    }
+    return { id: args.id, ...result };
   },
 });

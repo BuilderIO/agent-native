@@ -419,14 +419,26 @@ type SweepStop = Extract<
   { status: "ran" }
 >["stoppedEarly"];
 
+/** Whether `outcome` switched the page; one whose gate then moved was switched first. */
+export function switchedPage(outcome: LiveBodyBackfillOutcome): boolean {
+  return (
+    outcome.status === "converted" ||
+    (outcome.status === "deferred" && outcome.reason === "gate_moved")
+  );
+}
+
 /**
  * Sends the change event a body save sends, for the page and each collection
  * that lists it, so open pages and collection views read it again. The sweep
- * runs outside any action, so nothing else sends one. Content's client picks
- * the queries to refresh by the event's action key, so the event carries a
- * save's key; a key of its own would reach the client and refresh nothing.
+ * runs outside any action, and the editor's conversion action sends its own
+ * key, so nothing else sends one. Content's client picks the queries to
+ * refresh by the event's action key, so the event carries a save's key; a key
+ * of its own would reach the client and refresh nothing.
  */
-async function announceConversion(page: { id: string; ownerEmail: string }) {
+export async function announceConversion(page: {
+  id: string;
+  ownerEmail: string;
+}) {
   // guard:allow-unscoped — lists the collections of a page the sweep just switched for its owner.
   const collections = await getDb()
     .select({ documentId: schema.contentDatabases.documentId })
@@ -563,7 +575,11 @@ export async function runLiveBodyBackfillSweep(context: {
     const scope = JSON.stringify([page.ownerEmail, page.orgId]);
     let on = flagsByScope.get(scope);
     if (!on) {
-      on = liveBodyBackfillFlagsOn(page);
+      // A failed read isn't kept, or it would fail the scope's later pages too.
+      on = liveBodyBackfillFlagsOn(page).catch((error: unknown) => {
+        flagsByScope.delete(scope);
+        throw error;
+      });
       flagsByScope.set(scope, on);
     }
     return on;
@@ -697,10 +713,7 @@ export async function runLiveBodyBackfillSweep(context: {
       const outcome = await convert(page.id, { flagsOn });
       count(outcomeKey(outcome));
       delete held[page.id];
-      // A page whose gate moved was switched first, which changed it too.
-      switched =
-        outcome.status === "converted" ||
-        (outcome.status === "deferred" && outcome.reason === "gate_moved");
+      switched = switchedPage(outcome);
     } catch (error) {
       recordFailure(page.id, error);
     }
