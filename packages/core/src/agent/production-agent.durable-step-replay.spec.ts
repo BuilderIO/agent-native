@@ -212,6 +212,7 @@ describe("durable execution step replay", () => {
         },
       },
       readOnly: false,
+      retrySafe: true,
       run: actionRun,
     };
     const runStore = await import("./run-store.js");
@@ -219,6 +220,10 @@ describe("durable execution step replay", () => {
     vi.mocked(runStore.resetAgentExecutionStepBeforeInvocation).mockClear();
     vi.mocked(runStore.markAgentExecutionStepUnknown).mockClear();
     vi.mocked(runStore.completeAgentExecutionStep).mockClear();
+    vi.mocked(runStore.beginAgentExecutionStep).mockResolvedValueOnce({
+      status: "execute",
+      wasDispatched: true,
+    });
     vi.mocked(runStore.markAgentExecutionStepDispatched).mockImplementationOnce(
       () =>
         new Promise<void>((resolve) => {
@@ -260,6 +265,11 @@ describe("durable execution step replay", () => {
     expect(
       runStore.resetAgentExecutionStepBeforeInvocation,
     ).toHaveBeenCalledOnce();
+    expect(
+      runStore.resetAgentExecutionStepBeforeInvocation,
+    ).toHaveBeenCalledWith(expect.anything(), {
+      preserveDispatchHistory: true,
+    });
     expect(runStore.markAgentExecutionStepUnknown).not.toHaveBeenCalled();
     expect(runStore.completeAgentExecutionStep).not.toHaveBeenCalled();
     expect(events).toContainEqual(

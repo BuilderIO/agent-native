@@ -331,6 +331,19 @@ pnpm action update-comment --id c123 --resolved false
 
 A new comment emails the document owner, earlier authors in the thread, and anyone mentioned, unless they turned those emails off. An edit that mentions someone new emails only that person. The current user's own switch is `get-content-notification-prefs` and `update-content-notification-prefs --emailNotifications=false`, the same one Settings shows on Notifications. Share invites always send.
 
+### Webhooks
+
+A webhook sends a signed POST to a public HTTPS URL, with no username or password in it, when something changes on a collection's rows (`--databaseId`) or on one page (`--documentId`). Events are `property.changed` (one per changed property, with old and new value; select options also carry `oldLabel`/`newLabel`), `comment.created`, and `comment.resolved`. `--propertyIds` limits `property.changed` to those properties. Managing webhooks takes admin access to the collection or page, and a person approves each registration, every time.
+
+```bash
+pnpm action create-content-webhook --databaseId db123 --url https://example.com/hook \
+  --events '["property.changed","comment.created"]' --propertyIds '["prop456"]'
+pnpm action list-content-webhooks --databaseId db123   # recent deliveries, never the secret
+pnpm action delete-content-webhook --id wh_abc
+```
+
+`create-content-webhook` returns the signing secret once. Requests follow Standard Webhooks: `webhook-id` is the event ID, `webhook-timestamp` is Unix seconds, and `webhook-signature` is `v1,` + base64 HMAC-SHA256 of `{id}.{timestamp}.{body}`, keyed with the base64-decoded secret after `whsec_`. The body is `{ id, type, occurredAt, webhookId, sequence, documentId, databaseId, actor: { kind: "human" | "agent", email }, data }`. Any 2xx acknowledges. Text values over 16,000 characters and comments over 2,000 are cut short, with `data.truncated: true`; read the page for the rest. Delivery is at least once: a failure is retried for about 28 hours with the same `webhook-id` and body, so receivers dedupe on it; for one property on one page, a larger `sequence` is the later change. Events can arrive out of order, for example when one is retried, so compare `sequence` rather than trusting arrival order. A URL whose host is or resolves to a private, internal, or Tailnet (100.64.0.0/10) address is refused, at registration and again before each send, and events stop if the webhook's creator loses admin access. While the page or collection a webhook watches, or the row an event came from, is in Trash, its events wait, and they go out if it's restored; its webhooks can still be listed and removed meanwhile, but a new one needs it out of Trash. Permanently deleting the page or collection a webhook watches removes the webhook and its secret within about a minute. After a webhook is removed, a request that was already on its way can still arrive. A collection's webhook sends nothing from a row whose page its creator can't open. `property.changed` comes from edits to a value, including clearing it. Changes that remove values without editing them send nothing: deleting a property, a type change that clears its values, and deleting rows or pages. Imports, source syncs, row creation, duplication, row migrations, Blocks fields, Notion comment sync, and reopening a thread don't send events yet either. A receiver that mirrors a collection should re-read it from time to time rather than rely on events alone.
+
 ### refresh-list
 
 Trigger the UI to refresh the document list.
