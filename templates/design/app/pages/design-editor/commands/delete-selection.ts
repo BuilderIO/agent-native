@@ -119,7 +119,7 @@ export interface DeleteSelectionArgs {
   getFreshActiveContent: () => string;
   getScreenContent: (screenId: string) => string;
   getSelectedLayerSnapshots: () => SelectedCanvasLayerSnapshot[];
-  liveScreenSnapshotsById: Record<string, LiveScreenSnapshot>;
+  liveScreenSnapshotsById: Partial<Record<string, LiveScreenSnapshot>>;
   previousMotionFileIdRef: RefObject<string | null>;
   pruneMotionTracksByNodeId: (nodeIdsToRemove: Set<string>) => void;
   recordPendingLiveStructureEdit: (
@@ -705,7 +705,7 @@ export function runDeleteSelection({
         publicationAccepted = publication.status === "accepted";
       }
       if (publicationAccepted) {
-        if (file.id === activeFile?.id && !liveSnapshot) {
+        if (file.id === activeFile.id && !liveSnapshot) {
           stampYjsUndoSelection(
             undoManagerRef.current,
             undoStackTopBeforeDelete,
