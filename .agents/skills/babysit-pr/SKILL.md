@@ -34,7 +34,9 @@ GitHub Actions and no new feedback, and merge only if the user asks.
    gh pr view $ARGUMENTS --json state,mergedAt,author,headRepository,headRefName,headRefOid,baseRefName,mergeable,mergeCommit
    ```
 
-   Closed without a merge ends the work; report it as unsuccessful. Merged
+   If `author.login` isn't your login, don't push, comment, or merge unless
+   the user named this PR and that action. Closed without a merge ends the
+   work; report it as unsuccessful. Merged
    under `/ship` continues with its post-merge step. If the query fails, retry
    on the next tick instead of acting on old data.
 
@@ -129,7 +131,7 @@ are no reason to sync. Use a normal merge, never a rebase, with the tree clean
 and HEAD equal to the live PR head:
 
 ```bash
-test -z "$(git status --porcelain -- . ':(exclude)learnings.md' ':(exclude)bridge/**' ':(exclude)data/**')" \
+test -z "$(git status --porcelain -- ':/' ':(exclude)learnings.md' ':(exclude)bridge/**' ':(exclude)data/**')" \
   && [ "$(git rev-parse HEAD)" = "$(gh pr view $ARGUMENTS --json headRefOid --jq .headRefOid)" ] \
   && git fetch origin main && git merge --no-edit origin/main
 ```
@@ -147,5 +149,7 @@ commit, no revert. Publish only the paths that belong to the fix.
 
 Under `/ship`, merge as soon as its gate holds, using its exact command. Just
 before merging, rerun the unreplied-comments query and the review-bodies call
-above so no new bot round slips in. Record `ship_merge_head_oid` as `ship`
+above so no new bot round slips in, and confirm
+`git rev-list --count <live headRefOid>..HEAD` is 0 (nothing local left
+unpushed). Record `ship_merge_head_oid` as `ship`
 describes, then follow its post-merge step.
