@@ -79,6 +79,12 @@ describe("MCP app widget embed boot storage", () => {
         workspaceAppMountPaths: ["/mail/inbox"],
       }),
     ).toBe("/mail");
+    expect(
+      resolveWorkspaceAppMountPath("/mail/threads", {
+        workspaceAppPath: "/",
+        workspaceAppMountPaths: ["/mail"],
+      }),
+    ).toBe("/mail");
   });
 
   it("leaves a non-workspace external target unresolved", () => {

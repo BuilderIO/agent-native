@@ -124,6 +124,25 @@ describe("MCP app widget embed boot script output", () => {
     expect(runBootScript(undefined, true)).toBe(true);
   });
 
+  it("uses a declared sibling mount before explicit root config", () => {
+    setParent({ postMessage() {} } as unknown as Window);
+    setTestUrl("http://localhost:3000/mail/inbox");
+    (
+      window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }
+    ).__AGENT_NATIVE_CONFIG__ = {
+      workspaceRuntime: true,
+      workspaceAppPath: "/",
+      workspaceAppMountPaths: ["/mail"],
+    };
+    sessionStorage.setItem(embedTokenStorageKey("/mail", true), "child-token");
+    sessionStorage.setItem(
+      mcpChatBridgeStorageKey("/mail", true),
+      "child-token",
+    );
+
+    expect(runBootScript(undefined, true)).toBe(true);
+  });
+
   it("uses a declared external target mount instead of an explicit root mount", () => {
     setParent({ postMessage() {} } as unknown as Window);
     setTestUrl("http://localhost:3000/event-finder/inbox");

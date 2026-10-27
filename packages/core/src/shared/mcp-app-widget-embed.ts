@@ -92,8 +92,6 @@ export function resolveMcpAppEmbedBasePath(
       }
       return fallbackPath;
     }
-    if (explicitRootPath && !options.preferDeclaredMounts) return "";
-
     if (matchingMount) return matchingMount;
     if (explicitRootPath) return "";
     if (
