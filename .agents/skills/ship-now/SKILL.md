@@ -82,10 +82,11 @@ Because this path merged before remote CI finished, watch the workflows on
 the merge commit:
 
 ```bash
-gh run list --commit <mergeCommit.oid> --json name,status,conclusion,url
+gh run list --commit <mergeCommit.oid> --limit 50 --json name,status,conclusion,url
 ```
 
-Keep checking until they finish. Fix any failure on the fresh branch and send
+No runs listed yet means unknown, not green. Keep checking until they appear
+and finish. Fix any failure on the fresh branch and send
 it through `/ship`. If the PR body has a `Reports` section, run
 `/review-latest-feedback` step 5 for those threads. Merging publishes beta
 automatically. Beyond the merge commit's own workflows, beta, docs, and

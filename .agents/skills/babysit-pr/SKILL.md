@@ -136,7 +136,8 @@ are no reason to sync. Use a normal merge, never a rebase, with the tree clean
 and HEAD equal to the live PR head:
 
 ```bash
-test -z "$(git status --porcelain -- ':/' ':(top,exclude)learnings.md' ':(top,exclude)bridge/**' ':(top,exclude)data/**')" \
+dirty=$(git status --porcelain -- ':/' ':(top,exclude)learnings.md' ':(top,exclude)bridge/**' ':(top,exclude)data/**') \
+  && test -z "$dirty" \
   && [ "$(git rev-parse HEAD)" = "$(gh pr view $ARGUMENTS --json headRefOid --jq .headRefOid)" ] \
   && git fetch origin main && git merge --no-edit origin/main
 ```

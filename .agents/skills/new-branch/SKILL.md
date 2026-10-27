@@ -60,7 +60,7 @@ Rotate only when the PR merged, the tree is clean, and nothing is unpushed.
 ```bash
 git fetch origin --quiet || { echo "fetch failed: keeping this branch" >&2; exit 1; }
 git merge-base --is-ancestor <mergeCommit.oid> origin/main
-git status --porcelain --untracked-files=all
+git status --porcelain --untracked-files=all -- ':/' ':(top,exclude)learnings.md' ':(top,exclude)bridge/**' ':(top,exclude)data/**'
 git log --oneline <ship_merge_head_oid>..HEAD
 ```
 
