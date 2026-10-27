@@ -39,13 +39,13 @@ features:
   heading: Tudo o que você precisa para criar sua página de lançamento
   items:
     - title: Do briefing à landing page
-      body: O agente parte das afirmações do seu briefing em vez de inventar novas. Quando o briefing deixa uma escolha em aberto, ele pergunta ou diz o que presumiu.
+      body: O agente parte das afirmações do seu briefing, sem inventar novas. Se o briefing deixa uma escolha em aberto, ele pergunta ou diz o que presumiu.
     - title: Edição com IA e visual
       body: Mude um título, uma cor ou o espaçamento você mesmo, ou peça ao agente para refazer uma seção. Vocês dois editam a mesma página.
     - title: Versões lado a lado
       body: Cada versão ganha um visual próprio e um layout para celular, para sua equipe comparar direções reais antes de qualquer coisa ir ao ar.
     - title: Todo lançamento com a sua marca
-      body: Crie uma vez um design system a partir do seu arquivo do Figma, do seu site ou do seu código. Toda nova página de lançamento usa suas cores, fontes e estilos.
+      body: Crie uma vez um design system a partir do seu Figma, site ou código. Toda nova página de lançamento usa suas cores, fontes e estilos.
     - title: Feedback fixado na página
       body: "Os revisores fixam comentários no título ou no botão exato. Envie um ao agente: ele faz a mudança ou pede que você decida."
     - title: Código pronto para seu desenvolvedor
