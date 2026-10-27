@@ -76,7 +76,9 @@ function render(
           busy={() => false}
           conflict={handlers.conflict ?? (() => false)}
           onDecide={handlers.onDecide ?? (() => {})}
-          onDecideRemaining={handlers.onDecideRemaining}
+          {...(handlers.onDecideRemaining
+            ? { onDecideRemaining: handlers.onDecideRemaining }
+            : {})}
         />
       </TooltipProvider>,
     ),
@@ -90,14 +92,13 @@ const button = (label: string, index = 0) =>
       entry.textContent === label || entry.getAttribute("aria-label") === label,
   )[index]!;
 
-const openGroup = () =>
-  act(() =>
-    host
-      .querySelector<HTMLButtonElement>(
-        "[data-suggestion-proposal] > button[aria-expanded]",
-      )!
-      .click(),
+const openGroup = () => {
+  const toggle = host.querySelector<HTMLButtonElement>(
+    "[data-suggestion-proposal] > button[aria-expanded]",
   );
+  if (!toggle) throw new Error("No suggestion group to open");
+  act(() => toggle.click());
+};
 
 describe("ThreadSuggestionBody", () => {
   it("shows a proposal's summary once and each edit as its own small change", () => {

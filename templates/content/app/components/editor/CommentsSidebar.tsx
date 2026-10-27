@@ -160,8 +160,8 @@ import {
   ReviewCommentMenu,
   ReviewReactionList,
 } from "./ReviewDiscussionTools";
-import type { DraftSuggestion } from "./suggestions/draft-session";
 import { ProposalGroup, SuggestionDecisionButtons } from "./SuggestionControls";
+import type { DraftSuggestion } from "./suggestions/draft-session";
 import { SuggestionText } from "./SuggestionText";
 import {
   proposalGroups,
