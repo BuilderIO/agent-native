@@ -425,7 +425,10 @@ describe("collab durable updates", () => {
         const result = await mountReady({ onUpdateAcknowledged: ack });
         // Returning to A may retry its retained update. Keep that new request
         // offline so this assertion measures only the earlier receipt.
-        updateResponses = [{ ok: true }, "offline"];
+        updateResponses = [
+          { ok: true, liveCopy: "not_derived", liveCopyReason: "flag_off" },
+          "offline",
+        ];
         const release = holdUpdateResponse();
         result().ydoc!.getText("t").insert(0, "account A");
         const flushing = result().flushUpdates();
@@ -443,7 +446,10 @@ describe("collab durable updates", () => {
           release();
           await flushing;
         });
-        expect(ack).not.toHaveBeenCalled();
+        expect(ack.mock.calls).not.toContainEqual([
+          { liveCopy: "not_derived", liveCopyReason: "flag_off" },
+        ]);
+        if (!returnToFirstAccount) expect(ack).not.toHaveBeenCalled();
       },
     })),
     ...[1, 2].map((value) => ({
@@ -455,7 +461,10 @@ describe("collab durable updates", () => {
         "Compatibility control: exact 008402 already passes this named behavior; it protects existing ACK, lifecycle, storage or refusal compatibility.",
       run: async () => {
         const updateCount = value;
-        const result = await mountReady({ durableUpdates: true });
+        const result = await mountReady({
+          durableUpdates: true,
+          requestSource: "account-a",
+        });
         updateResponses = ["too_large"];
         const release = holdUpdateResponse();
         for (let i = 0; i < updateCount; i++)
@@ -472,20 +481,27 @@ describe("collab durable updates", () => {
         expect(request?.[1]?.keepalive).toBe(true);
         expect(sentUpdates).toHaveLength(1);
 
-        await mountReady({
+        const current = await mountReady({
           durableUpdates: true,
+          requestSource: "account-b",
           user: { ...USER, email: "grace@example.com" },
         });
-        const requestsBeforeAccountB = sentUpdates.length;
         for (let i = 0; i < 3; i++)
-          result().ydoc!.getText("t").insert(0, "account B ");
+          current().ydoc!.getText("t").insert(0, "account B ");
         await act(async () => {
           release();
           await vi.advanceTimersByTimeAsync(0);
         });
-        expect(result().updatesRefused).toBe(false);
-        await expect(result().flushUpdates()).resolves.toBe(true);
-        expect(sentUpdates).toHaveLength(requestsBeforeAccountB + 1);
+        expect(current().updatesRefused).toBe(false);
+        await expect(current().flushUpdates()).resolves.toBe(true);
+        const currentRequests = vi
+          .mocked(fetch)
+          .mock.calls.filter(
+            ([input, init]) =>
+              /\/collab\/[^/]+\/update/.test(String(input)) &&
+              JSON.parse(String(init?.body)).requestSource === "account-b",
+          );
+        expect(currentRequests).toHaveLength(1);
       },
     })),
     ...[

@@ -403,7 +403,7 @@ class CollabDocConnection {
 
   private pendingUpdates: PendingCollabUpdate[] = [];
   private readonly deliveredUpdates = new WeakSet<PendingCollabUpdate>();
-  private deliveryVersion = 0;
+  private strictDeliveryVersion = 0;
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private updateInFlight = false;
   private keepaliveInFlight = false;
@@ -1100,13 +1100,12 @@ class CollabDocConnection {
         clearTimeout(this.flushTimer);
         this.flushTimer = null;
       }
-      const deliveryVersion = this.deliveryVersion;
+      const strictDeliveryVersion = this.strictDeliveryVersion;
       await this.flushPendingUpdates();
       if (this.snapshot.updatesRefused) return false;
       if (
         this.updateErrors > 0 &&
-        (deliveryVersion === this.deliveryVersion ||
-          !this.pendingUpdates.some((item) => item.requireLiveCopyOutcome) ||
+        (strictDeliveryVersion === this.strictDeliveryVersion ||
           !this.pendingUpdates.some((item) => !item.requireLiveCopyOutcome))
       )
         return false;
@@ -1225,6 +1224,9 @@ class CollabDocConnection {
       (item) => item.requireLiveCopyOutcome,
     );
     const acknowledgedOwners = new Set<CollabDocSubscription>();
+    const ordinaryReceiptOwners = Array.from(this.subscribers.values()).filter(
+      (sub) => !sub.requireLiveCopyOutcome(),
+    );
     let ack: CollabUpdateAck | null = null;
     try {
       const response = await fetch(`${this.baseUrl}/${this.docId}/update`, {
@@ -1253,7 +1255,7 @@ class CollabDocConnection {
       for (const item of toSend) {
         if (!this.deliveredUpdates.has(item)) {
           this.deliveredUpdates.add(item);
-          this.deliveryVersion++;
+          if (item.requireLiveCopyOutcome) this.strictDeliveryVersion++;
         }
       }
       const parsedAck =
@@ -1338,7 +1340,13 @@ class CollabDocConnection {
     // Ordinary receipts keep nullable-ACK compatibility. Strict owners have
     // already handled their outcome before its pending bytes were removed.
     if (ack && !this.disposed && userGeneration === this.userGeneration) {
-      for (const sub of this.subscribers.values()) {
+      const receiptOwners = [
+        ...ordinaryReceiptOwners.filter((sub) => !sub.requireLiveCopyOutcome()),
+        ...Array.from(this.subscribers.values()).filter((sub) =>
+          sub.requireLiveCopyOutcome(),
+        ),
+      ];
+      for (const sub of receiptOwners) {
         if (
           userGeneration === this.userGeneration &&
           !acknowledgedOwners.has(sub) &&
