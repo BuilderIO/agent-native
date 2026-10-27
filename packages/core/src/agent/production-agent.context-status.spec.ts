@@ -35,11 +35,21 @@ function createProductionAgentHandler(
 const mockReadAppState = vi.hoisted(() =>
   vi.fn(async (_key: string): Promise<unknown> => null),
 );
+const mockWasTurnScreenReleased = vi.hoisted(() =>
+  vi.fn(async (_snapshot: unknown): Promise<boolean> => false),
+);
+const mockCaptureTurnScreen = vi.hoisted(() =>
+  vi.fn(async (_browserTabId: string): Promise<unknown> => {
+    throw new Error("no capture expected");
+  }),
+);
 vi.mock("../application-state/script-helpers.js", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("../application-state/script-helpers.js")
   >()),
   readAppState: mockReadAppState,
+  captureTurnScreenSnapshot: mockCaptureTurnScreen,
+  wasTurnScreenReleased: mockWasTurnScreenReleased,
 }));
 
 const mockCallAgent = vi.hoisted(() =>
@@ -443,6 +453,105 @@ describe("screen context status", () => {
     expect(text).toContain("<current-screen>\nDashboard: Growth");
     expect(text).not.toContain("<context-note>");
     expect(runContext?.contextStatus?.screen).toBe("ok");
+  });
+});
+
+describe("the screen a turn was sent from", () => {
+  const sentFrom = (tab: string, slide: number) => ({
+    v: 1,
+    browserTabId: tab,
+    capturedAt: 1,
+    values: { navigation: { view: "editor", slide } },
+  });
+  // Reads through the real helper, so the pin is what answers, not the store.
+  const navigationScreen = viewScreen(async () => {
+    const { readAppStateForCurrentTab } =
+      await import("../application-state/script-helpers.js");
+    return JSON.stringify(await readAppStateForCurrentTab("navigation"));
+  });
+
+  beforeEach(() => {
+    mockReadAppState.mockReset();
+    mockReadAppState.mockResolvedValue(null);
+    mockCaptureTurnScreen.mockReset();
+    mockWasTurnScreenReleased.mockReset();
+    mockWasTurnScreenReleased.mockResolvedValue(false);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  it("shows the screen the message carried, not the one the tab has now", async () => {
+    const { text, runContext } = await firstPrompt(
+      { actions: { "view-screen": navigationScreen } },
+      {
+        browserTabId: "tab-a",
+        metadata: { agentNativeScreen: sentFrom("tab-a", 2) },
+      } as never,
+    );
+
+    expect(text).toContain('<current-screen>\n{"view":"editor","slide":2}');
+    expect(runContext?.turnScreen?.source).toBe("message");
+    expect(mockCaptureTurnScreen).not.toHaveBeenCalled();
+  });
+
+  it("stays live in a continuation once an earlier segment navigated", async () => {
+    mockWasTurnScreenReleased.mockResolvedValue(true);
+
+    const { runContext } = await firstPrompt({}, {
+      browserTabId: "tab-a",
+      metadata: { agentNativeScreen: sentFrom("tab-a", 2) },
+    } as never);
+
+    expect(runContext?.turnScreen?.snapshot.released).toBe(true);
+  });
+
+  it("takes its own snapshot when the message's belongs to another tab", async () => {
+    mockCaptureTurnScreen.mockResolvedValue(sentFrom("tab-a", 5));
+
+    const { text, runContext } = await firstPrompt(
+      { actions: { "view-screen": navigationScreen } },
+      {
+        browserTabId: "tab-a",
+        metadata: { agentNativeScreen: sentFrom("tab-b", 2) },
+      } as never,
+    );
+
+    expect(mockCaptureTurnScreen).toHaveBeenCalledWith("tab-a");
+    expect(text).toContain('<current-screen>\n{"view":"editor","slide":5}');
+    expect(runContext?.turnScreen?.source).toBe("turn-start");
+  });
+
+  it("pins the screen at turn start when the message carried none", async () => {
+    mockCaptureTurnScreen.mockResolvedValue(sentFrom("tab-a", 4));
+
+    const { runContext } = await firstPrompt({}, {
+      browserTabId: "tab-a",
+    } as never);
+
+    expect(runContext?.turnScreen).toEqual({
+      source: "turn-start",
+      snapshot: sentFrom("tab-a", 4),
+    });
+  });
+
+  it("leaves reads live, and says why, when no snapshot can be taken", async () => {
+    mockCaptureTurnScreen.mockRejectedValue(new Error("db not ready"));
+
+    const { runContext } = await firstPrompt({}, {
+      browserTabId: "tab-a",
+    } as never);
+
+    expect(runContext?.turnScreen).toBeUndefined();
+    expect(console.warn).toHaveBeenCalledWith(
+      expect.stringContaining("screen snapshot unavailable"),
+      "db not ready",
+    );
+  });
+
+  it("takes no snapshot for a caller without a browser tab", async () => {
+    const { runContext } = await firstPrompt();
+
+    expect(runContext?.turnScreen).toBeUndefined();
+    expect(mockCaptureTurnScreen).not.toHaveBeenCalled();
   });
 });
 

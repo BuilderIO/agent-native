@@ -1,4 +1,5 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
+import { setClientAppState } from "@agent-native/core/client/application-state";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
@@ -65,19 +66,24 @@ export function useNavigationState() {
           : "all";
     }
 
-    const write = (key: string) =>
-      fetch(agentNativePath(`/_agent-native/application-state/${key}`), {
-        method: "PUT",
+    // Tracked write: a message sent right after navigating waits for it before capturing its screen.
+    void setClientAppState(
+      appStateKeyForBrowserTab("navigation", TAB_ID),
+      state,
+      {
         keepalive: true,
-        headers: {
-          "Content-Type": "application/json",
-          "X-Request-Source": TAB_ID,
-        },
-        body: JSON.stringify(state),
-      }).catch(() => {});
-
-    void write(appStateKeyForBrowserTab("navigation", TAB_ID));
-    void write("navigation");
+        requestSource: TAB_ID,
+      },
+    ).catch(() => {});
+    fetch(agentNativePath("/_agent-native/application-state/navigation"), {
+      method: "PUT",
+      keepalive: true,
+      headers: {
+        "Content-Type": "application/json",
+        "X-Request-Source": TAB_ID,
+      },
+      body: JSON.stringify(state),
+    }).catch(() => {});
   }, [location.pathname, location.search]);
 
   const { data: navCommand } = useQuery<{
