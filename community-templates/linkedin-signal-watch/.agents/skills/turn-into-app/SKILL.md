@@ -21,12 +21,11 @@ shows progress and receives the result. Avoid form-under-stepper layouts.
 
 ### Classify the host
 
-- Local scaffolding needs Node.js 22.22.0 or newer (including npm/npx) and
-  pnpm.
+- Local scaffolding needs Node.js 22.22.0 or newer (with npm/npx) and pnpm.
 - **Local host**: a terminal, a filesystem, and a target checkout (Claude Code,
   Codex, Cursor, or an Agent-Native agent that can edit files). Build the app in
-  that checkout with steps 1-6. Never call `start-workspace-app-creation` or
-  `create_workspace_app` on this path.
+  that checkout with steps 1-6, unless the person picks Builder hosting (below).
+  Never call `create_workspace_app`.
 - **Browser host**: Claude or ChatGPT on the web, their web Projects, or any
   runtime that cannot edit files. Do steps 1-2, then make the Dispatch handoff
   in [the browser-host guide](references/fresh-project.md), with files per
@@ -36,6 +35,14 @@ shows progress and receives the result. Avoid form-under-stepper layouts.
 - Decide an ambiguous host by the environment: a real working directory,
   terminal, and workspace mean local host. A Builder or Dispatch connector being
   available does not make a host a browser host.
+
+### Ask where the app runs
+
+On an interactive local host, after showing the plan (step 2) and before
+installing anything, ask once: **On your machine** (some setup) or **Hosted
+with Builder** (just a free Builder account). Skip it on browser hosts, when
+the person already chose, when resuming, or headless (build here; say so).
+Details: [where the app runs](references/where-it-runs.md).
 
 ### Pick the source
 
@@ -84,7 +91,7 @@ Decide and proceed. Take the source's recommended option, otherwise the most
 conventional default, and record it as an assumption. Never ask about visuals,
 copy, layout, template, or integrations.
 
-Ask once, with your recommended interpretation, only when:
+Apart from where the app runs, ask once, with your recommendation, only when:
 
 1. no repeatable workflow can be identified, or Project context is not visible
    (ask for an export);
@@ -112,7 +119,7 @@ Copy and update this checklist. Aim for 45 minutes; note the start time
 ```text
 - [ ] 0 Host classified, source picked
 - [ ] 1 Source read, brief drafted
-- [ ] 2 Design decided; brief, App design, and time estimate shown
+- [ ] 2 Design decided; brief, App design, estimate shown; where it runs asked
 - [ ] 3 Real scaffold, onboarding config, local sign-in
 - [ ] 4 Actions, domain surface, sample data, agent moments, agent instructions
 - [ ] 5 Running; screenshots reviewed and refined (two passes by default)
@@ -122,12 +129,11 @@ Copy and update this checklist. Aim for 45 minutes; note the start time
 Resume an unfinished run instead of starting a second app. When the working
 directory holds an app this skill started for the same source (a completed
 scaffold or actions, but no review screenshots), verify the completed stages
-from its git status, brief, schema, and actions. Open your first message with
-what exists, the next stage, and the estimated active work, for example:
-"Found a half-built app in this folder from an earlier run that stopped
-partway. The data model and actions are done, so I'll pick up from there:
-screens next, then checks. About 10 more minutes." Resume at the first
-unverified stage without rerunning scaffolding or replacing completed work.
+from its git status, brief, schema, and actions. Open with what exists, the
+next stage, and the active work left ("Found a half-built app from an earlier
+run. The data model and actions are done; screens and checks are next, about
+10 more minutes."). Resume at the first unverified stage without rerunning
+scaffolding or replacing completed work.
 
 ### 1. Write the source brief
 
@@ -164,9 +170,9 @@ add them to the brief under App design:
 
 Source steps become states of objects (Draft, Checked, Approved), never a
 stepper, numbered tabs, or a wizard. Chrome stays quiet: no eyebrow, subtitle,
-repeated title, or stat strip over visible data. Before the first scaffold
-command, show the brief with its App design in your message (a saved file is
-not shown), then continue without waiting.
+repeated title, or stat strip over visible data. Show the brief with its App
+design in your message (a saved file is not shown), then ask where the app runs
+and wait, or continue without waiting when that is skipped.
 
 ### 3. Create the real scaffold
 
@@ -269,9 +275,8 @@ Start the dev server as the run and deploy guide says (detached, log and PID in
 - Fix every finding in one batch, reset what the click changed, and shoot
   again. Stop when the bar is met: two passes by default; a third only when the
   second still misses the bar and the pace budget allows.
-- Installed design skills are optional; the review loop limits them.
-
-Screenshots stay in the app's `.tmp/ui-review/out/`.
+- Screenshots stay in the app's `.tmp/ui-review/out/`. Installed design skills
+  are optional; the review loop limits them.
 
 ### 6. Verify, build, and deploy
 
@@ -288,9 +293,8 @@ pnpm's own command), then stop the dev server, remove `AUTH_DISABLED` from
 checklist, not a defect (run and deploy guide). Deploy only when the user
 asked or the provider is already configured. Leave the dev server running
 (start it again after the build) or stop it as that guide says, and report
-which. Label evidence separately:
-locally running, locally verified, build-ready, deployed, and live-verified
-are different states.
+which. Label evidence separately: locally running, locally verified,
+build-ready, deployed, and live-verified are different states.
 
 ## Final report
 
@@ -301,7 +305,8 @@ each control does (agent handoff or local action); absolute paths of the final
 screenshots, rubric scores, and open criteria; the verification, with evidence
 labels, and what the review click left behind; a deployment URL only if it is
 real, and one precise pending step if any; what changed from the brief
-(assumptions, gaps in the source, choices where it was silent).
+(assumptions, gaps in the source, choices where it was silent); how to change
+the app (ask this agent, in this folder).
 
 Report what exists, not what was intended. Never claim the app exists without
 a path and a verification result. If the scaffold never completed, a step was

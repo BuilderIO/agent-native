@@ -1,7 +1,9 @@
 # Browser hosts and Project sources
 
 Read this only on a browser host (Claude or ChatGPT on the web, their web
-Projects) or a runtime that cannot edit files. For a Project on a local host,
+Projects), a runtime that cannot edit files, or a local host where the person
+chose Hosted with Builder ([where-it-runs.md](where-it-runs.md) lists what
+differs there). For a Project built on a local host,
 [source-brief.md](source-brief.md) is enough: it follows the normal local
 build.
 
