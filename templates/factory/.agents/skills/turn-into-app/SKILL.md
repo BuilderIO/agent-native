@@ -130,10 +130,10 @@ Resume an unfinished run instead of starting a second app. When the working
 directory holds an app this skill started for the same source (a completed
 scaffold or actions, but no review screenshots), verify the completed stages
 from its git status, brief, schema, and actions. Open with what exists, the
-next stage, and the active work left ("Found a half-built app from an earlier
-run. The data model and actions are done; screens and checks are next, about
-10 more minutes."). Resume at the first unverified stage without rerunning
-scaffolding or replacing completed work.
+next stage, and the active work left ("Found a half-built app. The data model
+and actions are done; screens and checks are next, about 10 more minutes.").
+Resume at the first unverified stage without rerunning scaffolding or
+replacing completed work.
 
 ### 1. Write the source brief
 
@@ -298,13 +298,13 @@ build-ready, deployed, and live-verified are different states.
 
 ## Final report
 
-Keep it demo-short. The first line is the verdict ("Built X in `<dir>`;
-locally verified, not deployed"). Then: the app directory, local URL, and
-server state (PID and stop command); the archetype, the direction, and what
-each control does (agent handoff or local action); absolute paths of the final
-screenshots, rubric scores, and open criteria; the verification, with evidence
-labels, and what the review click left behind; a deployment URL only if it is
-real, and one precise pending step if any; what changed from the brief
+For a local build, keep it demo-short. The first line is the verdict ("Built X
+in `<dir>`; locally verified, not deployed"). Then: the app directory, local
+URL, and server state (PID and stop command); the archetype, the direction, and
+what each control does (agent handoff or local action); absolute paths of the
+final screenshots, rubric scores, and open criteria; the verification, with
+evidence labels, and what the review click left behind; a deployment URL only if
+it is real, and one precise pending step if any; what changed from the brief
 (assumptions, gaps in the source, choices where it was silent); how to change
 the app (ask this agent, in this folder).
 

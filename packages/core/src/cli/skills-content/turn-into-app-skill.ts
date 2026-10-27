@@ -130,10 +130,10 @@ Resume an unfinished run instead of starting a second app. When the working
 directory holds an app this skill started for the same source (a completed
 scaffold or actions, but no review screenshots), verify the completed stages
 from its git status, brief, schema, and actions. Open with what exists, the
-next stage, and the active work left ("Found a half-built app from an earlier
-run. The data model and actions are done; screens and checks are next, about
-10 more minutes."). Resume at the first unverified stage without rerunning
-scaffolding or replacing completed work.
+next stage, and the active work left ("Found a half-built app. The data model
+and actions are done; screens and checks are next, about 10 more minutes.").
+Resume at the first unverified stage without rerunning scaffolding or
+replacing completed work.
 
 ### 1. Write the source brief
 
@@ -298,13 +298,13 @@ build-ready, deployed, and live-verified are different states.
 
 ## Final report
 
-Keep it demo-short. The first line is the verdict ("Built X in \`<dir>\`;
-locally verified, not deployed"). Then: the app directory, local URL, and
-server state (PID and stop command); the archetype, the direction, and what
-each control does (agent handoff or local action); absolute paths of the final
-screenshots, rubric scores, and open criteria; the verification, with evidence
-labels, and what the review click left behind; a deployment URL only if it is
-real, and one precise pending step if any; what changed from the brief
+For a local build, keep it demo-short. The first line is the verdict ("Built X
+in \`<dir>\`; locally verified, not deployed"). Then: the app directory, local
+URL, and server state (PID and stop command); the archetype, the direction, and
+what each control does (agent handoff or local action); absolute paths of the
+final screenshots, rubric scores, and open criteria; the verification, with
+evidence labels, and what the review click left behind; a deployment URL only if
+it is real, and one precise pending step if any; what changed from the brief
 (assumptions, gaps in the source, choices where it was silent); how to change
 the app (ask this agent, in this folder).
 
@@ -2597,8 +2597,8 @@ person should choose between setting things up and making an account.
 - **Browser host.** Builder is the only route: make the Dispatch handoff in
   [the browser-host guide](fresh-project.md).
 - **The person already chose.** "Build it here", "run it locally", or "host it
-  on Builder" all count. A named route wins over every rule below except Local
-  File Mode.
+  on Builder" all count. A named route wins over the other skip rules except
+  Local File Mode. It picks where the app runs, not what data may be sent.
 - **The target is already an Agent-Native workspace** (a parent \`package.json\`
   has \`agent-native.workspaceCore\`) and no route was named. Build on this
   machine, inside that workspace.
@@ -2644,11 +2644,14 @@ local host:
 - Attach the source files the brief relies on from disk, verbatim, instead of
   from context. A workbook still goes as a bounded CSV rendering. Never attach
   \`.env\` files, keys, tokens, or other credentials, even when the source uses
-  them; name what the app will need instead. If a file holds customer data or
-  anything the source marks internal, confidential, or restricted to one role
+  them; name what the app will need instead. If a file holds customer or
+  personal data (contact details, financial or health records) or anything the
+  source marks internal, confidential, or restricted to one role
   ([source-brief.md](source-brief.md)), sending it to Builder needs the
-  person's authorization, so the ask-once rule in SKILL.md applies: ask before
-  the handoff and offer to leave it out. The report names what was left out.
+  person's authorization, even when they named Builder, so the ask-once rule
+  in SKILL.md applies: ask before the handoff and offer to leave it out. In a
+  headless run nobody can authorize it, so leave it out. The report names what
+  was left out.
 - Run nothing for the app: no \`npm\`, \`pnpm\`, scaffold, or dev server. The only
   commands allowed are the Dispatch connector setup below.
 
