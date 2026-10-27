@@ -3070,6 +3070,14 @@ it("matches only outgoing browser-session requests canceled by the slide reload"
     requestSessionId: sessionId,
     retiredSessionId: sessionId,
     outgoingAbortWarningAgeMs: 150,
+    outgoingAbortErrorText: "NS_BINDING_ABORTED",
+    sameOrigin: true,
+    requestResourceType: "fetch",
+    requestSourceIsMainFrame: true,
+    requestFrameUrl: "http://localhost/deck/slide-1",
+    outgoingDocumentUrl: "http://localhost/deck/slide-1",
+    requestStartedDuringNavigation: true,
+    requestStartedBeforeReloadCommit: true,
     competingSameTypeRequest: false,
   };
   const failedRegistration = {
@@ -3081,6 +3089,25 @@ it("matches only outgoing browser-session requests canceled by the slide reload"
       failedClaim,
     ]),
   ).toBe(true);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(pollWarning, "save/reload", [
+      {
+        ...failedClaim,
+        outgoingNavigationAbort: false,
+        pendingOutgoingAbort: true,
+      },
+    ]),
+  ).toBe(true);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(pollWarning, "save/reload", [
+      {
+        ...failedClaim,
+        outgoingNavigationAbort: false,
+        pendingOutgoingAbort: true,
+        competingSameTypeRequest: true,
+      },
+    ]),
+  ).toBe(false);
   expect(
     isExpectedSaveReloadBrowserSessionConsoleError(
       heartbeatWarning,
@@ -3104,6 +3131,52 @@ it("matches only outgoing browser-session requests canceled by the slide reload"
       failedClaim,
     ]),
   ).toBe(false);
+  const pendingFailedClaim = {
+    ...failedClaim,
+    pathname: `/_agent-native/browser-sessions/${sessionId}/requests/claim`,
+    outgoingNavigationAbort: false,
+    pendingOutgoingAbort: true,
+    outgoingAbortErrorText: "NS_BINDING_ABORTED",
+    requestStartedDuringNavigation: true,
+    requestStartedBeforeReloadCommit: true,
+    requestResourceType: "fetch",
+    sameOrigin: true,
+    requestSourceIsMainFrame: true,
+    requestFrameUrl: "http://localhost/deck/deck-1",
+    outgoingDocumentUrl: "http://localhost/deck/deck-1",
+    outgoingAbortWarningAgeMs: 260,
+    competingRegistrationStartedAfterNavigation: false,
+  };
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(
+      pollWarning,
+      "save/reload",
+      [pendingFailedClaim],
+      258,
+    ),
+  ).toBe(true);
+  for (const override of [
+    { outgoingAbortErrorText: "NS_ERROR_NET_TIMEOUT" },
+    { requestSessionId: "another-session-id" },
+    {
+      pathname:
+        "/_agent-native/browser-sessions/another-session-id/requests/claim",
+    },
+    { requestSourceIsMainFrame: false },
+    { requestFrameUrl: "http://localhost/deck/other" },
+    { competingSameTypeRequest: true },
+    { outgoingAbortWarningAgeMs: 509 },
+  ]) {
+    expect(
+      isExpectedSaveReloadBrowserSessionConsoleError(
+        pollWarning,
+        "save/reload",
+        [{ ...pendingFailedClaim, ...override }],
+        258,
+      ),
+      JSON.stringify(override),
+    ).toBe(false);
+  }
 });
 
 it("scopes cleanup competition to the page being navigated", () => {

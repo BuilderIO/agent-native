@@ -31,7 +31,6 @@ import {
 } from "@agent-native/toolkit/ui/sheet";
 import { cn } from "@agent-native/toolkit/utils";
 import {
-  IconArrowLeft,
   IconChevronRight,
   IconMenu2,
   IconSearch,
@@ -878,11 +877,11 @@ function SettingsShellContent({
         >
           <header className="sticky top-0 z-10 bg-background">
             {/* Header actions end on the content column's edge. The agent
-                toggle is pinned 14px from the scroll area's edge (46px with
-                its 32px button, plus an 8px gap), so the end padding only
-                grows past the column's 32px when the centered column is close
-                enough to reach it. */}
-            <div className="mx-auto flex h-[60px] w-full max-w-[824px] items-center gap-2 ps-4 pe-[max(2rem,calc(3.375rem_-_max(0px,(100%_-_824px)_/_2)))] min-[760px]:ps-8">
+                toggle is centered on the 60px row, 18px from the scroll
+                area's edge (42px with its 24px button, plus an 8px gap), so
+                the end padding only grows past the column's 32px when the
+                centered column is close enough to reach it. */}
+            <div className="mx-auto flex h-[60px] w-full max-w-[824px] items-center gap-2 ps-4 pe-[max(2rem,calc(3.125rem_-_max(0px,(100%_-_824px)_/_2)))] min-[760px]:ps-8">
               <button
                 type="button"
                 onClick={() => setNavOpen(true)}
@@ -940,7 +939,7 @@ function SettingsShellContent({
                   ) : null)}
               </div>
             </div>
-            <div className="absolute end-3.5 top-3.5">
+            <div className="absolute end-[18px] top-[18px]">
               {agentToggle === undefined ? (
                 <Suspense fallback={null}>
                   <AgentToggleButton showWhenOpen />
@@ -1209,9 +1208,9 @@ function SettingsNav({
             event.preventDefault();
             onReturn();
           }}
-          className="flex h-[30px] items-center gap-2 rounded-md px-2 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-foreground"
+          // ps-8 lines the label up with the nav labels after their 16px icon.
+          className="flex h-[30px] items-center rounded-md pe-2 ps-8 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-foreground"
         >
-          <IconArrowLeft className="size-4 shrink-0" aria-hidden="true" />
           <span className="truncate">
             {t("agentChat.settingsShell.backToApp", { app: appName })}
           </span>

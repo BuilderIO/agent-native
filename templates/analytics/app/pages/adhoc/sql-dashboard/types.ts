@@ -1,3 +1,4 @@
+import type { PanelDrilldown } from "@shared/panel-drilldown";
 import type { PanelBreakdown } from "@shared/row-breakdown";
 
 export type DataSourceType =
@@ -73,7 +74,20 @@ export type ColumnFormat =
   | "date"
   | "link"
   | "text"
-  | "delta";
+  | "delta"
+  /** A number of seconds, shown as "16 min" or "7.4 hours". */
+  | "duration";
+
+/** How chart values, axis ticks and metric tiles show a number. */
+export const CHART_VALUE_FORMATTERS = [
+  "number",
+  "currency",
+  "percent",
+  // A number of seconds, shown as "16 min" or "7.4 hours".
+  "duration",
+] as const;
+
+export type ChartValueFormatter = (typeof CHART_VALUE_FORMATTERS)[number];
 
 export interface TableColumnConfig {
   key: string;
@@ -130,9 +144,9 @@ export interface SqlPanelConfig {
   yKeys?: string[];
   color?: string;
   colors?: string[];
-  yFormatter?: "number" | "currency" | "percent";
+  yFormatter?: ChartValueFormatter;
   rightYKeys?: string[];
-  rightYFormatter?: "number" | "currency" | "percent";
+  rightYFormatter?: ChartValueFormatter;
   barKeys?: string[];
   seriesLabels?: Record<string, string>;
   description?: string;
@@ -145,6 +159,8 @@ export interface SqlPanelConfig {
   columns?: TableColumnConfig[];
   /** Table only: columns a clicked row can be split by in the side panel. */
   breakdowns?: PanelBreakdown[];
+  /** Record query for a clicked chart point; uses drillX and drillSeries variables. */
+  drilldown?: PanelDrilldown | null;
   limit?: number;
   extensionId?: string;
   extensionSlotId?: string;

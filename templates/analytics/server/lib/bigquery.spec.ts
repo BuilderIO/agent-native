@@ -595,6 +595,32 @@ describe("runQuery cancellation", () => {
     });
   });
 
+  it.each([
+    ["a next page token", { nextPageToken: "page-2" }],
+    ["no total row count", {}],
+  ])(
+    "marks BigQuery rows incomplete when the response has %s",
+    async (_case, extra) => {
+      const fetchMock = mockQueryJobs(
+        jsonResponse({
+          jobComplete: true,
+          schema: { fields: [{ name: "value", type: "STRING" }] },
+          rows: [{ f: [{ v: "first" }] }],
+          totalBytesProcessed: "8",
+          ...extra,
+        }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(
+        runQuery(`SELECT 'incomplete_${_case.replace(/ /g, "_")}' AS value`),
+      ).resolves.toMatchObject({
+        rows: [{ value: "first" }],
+        truncated: true,
+      });
+    },
+  );
+
   it("does not cache partial results so a retry can fetch complete rows", async () => {
     useCacheDatabase();
     const fetchMock = mockQueryJobs(

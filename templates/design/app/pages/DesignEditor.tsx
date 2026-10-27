@@ -7,6 +7,7 @@ import {
 import { useContainHorizontalOverscroll } from "@/hooks/use-contain-horizontal-overscroll";
 
 import { AgentChatContextBookkeeping } from "./design-editor/agent-chat-context-bookkeeping";
+import { useDesignAgentSelect } from "./design-editor/design-agent-select";
 import { renderDesignEditorView } from "./design-editor/design-editor-view";
 import { useEditorActiveScreenAndGeometry } from "./design-editor/domains/use-editor-active-screen-and-geometry";
 import { useEditorCanvasAndScreens } from "./design-editor/domains/use-editor-canvas-and-screens";
@@ -261,6 +262,11 @@ function DesignEditor() {
     editorLayerActions,
     editorSourceAndSync,
   });
+  useDesignAgentSelect(
+    editorCore.id,
+    editorGenerationAndAccess.design?.title,
+    editorFilesAndSaving.files,
+  );
   const view = renderDesignEditorView({
     editorCore,
     editorHistory,

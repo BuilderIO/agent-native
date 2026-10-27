@@ -13,8 +13,9 @@ metadata:
 
 # Voice Transcription
 
-The microphone inside the sidebar composer offers two distinct paths:
-editable dictation and an opt-in realtime speech-to-speech agent session.
+The sidebar composer offers two distinct paths: the mic always starts editable
+dictation, and the empty-draft primary button starts an opt-in realtime
+speech-to-speech agent session.
 Users configure dictation separately from AI cleanup. The source picker (Mac
 Native, Google Realtime, Batch) is the Voice transcription row on Settings ›
 Account › Preferences (`VoiceTranscriptionSection compact`, anchor `voice`);
@@ -25,22 +26,28 @@ the shared agent sidebar.
 
 ## UX rules
 
-- **Always show the mic alongside the send button.** Cursor replaces send
-  with mic when the composer is empty; their users complain. We keep both
-  visible — Lovable does the same.
-- **Ask before switching modes.** The mic opens a compact shadcn popover with
-  **Real-time voice** as the primary action and **Dictate** as the secondary;
-  never silently replace the established dictation behavior. Users can choose
-  **Remember my preference** to skip the chooser on later clicks.
+- **Always show the mic alongside the send button.** Replacing send with the
+  mic when the composer is empty confuses users, so keep both visible.
+- **The mic is dictation, with no chooser.** A click starts dictation at once;
+  the browser's permission prompt is the only step in between. A blocked,
+  missing, or busy microphone shows the amber composer notice with Try again,
+  and the mic stays clickable. Do not read `voice-input-preference` app
+  state.
+- **Voice chat lives in the primary slot.** With an empty draft, no run, no
+  dictation, and a ready realtime provider (Builder or OpenAI), Send shows a
+  voice-chat glyph and starts realtime voice. Any draft (text, attachment,
+  Plan chip) turns it back into Send; without a provider it is a dimmed Send.
 - **Dictation is click-to-toggle, not push-to-talk.** More forgiving in a sidebar, avoids
   host-app hotkey clashes. Keyboard shortcut is `Cmd/Ctrl+Shift+M` and
   `Escape` cancels mid-recording.
 - **Transcript lands in the composer, editable, never auto-sent.** Insert at
   the caret via `editor.chain().focus().insertContent(text).run()`.
-- **No CSS transitions for the recording state.** Framework rule; use static
-  brand color (`#625DF5`) instead of pulses.
-- **Icon:** Tabler `IconMicrophone` (idle) / `IconPlayerStopFilled` (recording).
-  Never use a sparkle or robot icon.
+- **Recording grows from the mic.** While dictating, the mic's slot becomes a
+  pill with a waveform driven by the analyser level (written from an animation
+  frame, never through React state) and a stop button. Stop inserts the
+  transcript; Escape cancels. Under reduced motion the bars stay still.
+- **Icons:** Tabler `IconMicrophone` (idle), `IconPlayerStopFilled` (stop),
+  `IconWaveSine` (voice chat). Never use a sparkle or robot icon.
 - **Errors via inline alert or toast, never `window.alert`.**
 
 ## Realtime speech mode
@@ -50,31 +57,29 @@ from the dictation providers below. It prefers the authenticated user's
 complete Builder connection and the Builder-managed metered gateway. A scoped
 `OPENAI_API_KEY` is the fallback when Builder is not connected. The server owns
 the `gpt-realtime-2.1` session configuration and keeps credentials out of
-browser code. If neither provider is configured, show **Use Builder.io** as
-the primary microphone-popover action and OpenAI key setup as the secondary
-action before requesting microphone permission.
+browser code. Voice chat is offered only once one of them is configured.
 
-- Starting voice mode collapses the chat into a persistent bottom-end speech
-  orb. The orb stays visible above the chat even when the chat opens
-  automatically. Clicking it shows or hides chat without ending the session;
-  opening chat slides the orb clear of the sidebar. The progressively disclosed
-  controls contain only settings and the separate end-session action.
-- The orb's compact waveform stays visible for the full session and reflects
-  actual microphone or assistant audio activity. At silence it rests at its
-  baseline instead of turning into a loading spinner. Once connected, a soft,
-  slowly rotating blue glow marks the live session; brighten and speed up the
-  glow while the agent is working, and keep it static under reduced motion.
-  While connecting, show a distinct compact spinner; when the session becomes
-  live, the assistant gives one brief spoken greeting so readiness is
-  unambiguous. Do not apply a text-sized `max_output_tokens` cap to that audio
-  greeting because audio tokens can truncate it mid-sentence.
-- The orb settings cog opens in place without ending voice mode or navigating
-  away. Nested pickers must not dismiss the settings popover. Language and
-  intelligence update the active Realtime session; the microphone picker swaps
-  the live WebRTC input track and remembers the browser-local device choice;
-  an output-voice change updates immediately only before the assistant has
-  emitted audio and otherwise applies to the next conversation, matching the
-  Realtime API's voice immutability rule.
+- Voice chat lives in the composer. While a session
+  is on, the mic's slot holds a status pill (live bars from the microphone
+  while you speak, muted bars from the assistant's audio while it speaks, and
+  the session status) and speaker and microphone mute toggles, nothing
+  else; the primary slot is an End voice chat X, never red, that spins
+  while connecting or ending. Muting the microphone disables the WebRTC input
+  track; muting the speaker mutes playback only. The editor locks behind a
+  "Listening…" placeholder: the realtime session takes no typed input, so a
+  typed draft would start a separate run the voice agent never hears. Errors
+  use the composer's amber notice with Try again.
+- At silence the bars rest at their baseline; under reduced motion they stay
+  still and fade with the level. When the session becomes live, the assistant
+  gives one brief spoken greeting so readiness is unambiguous. Do not apply a
+  text-sized `max_output_tokens` cap to that audio greeting because audio
+  tokens can truncate it mid-sentence.
+- Voice device, language, intelligence and voice style live only in Settings
+  › Account › Preferences › Voice chat (`VoiceChatSettings`), never in the
+  composer. Those rows write the same preferences a session reads:
+  `application_state["realtime-voice-prefs"]` and the browser-local
+  microphone choice. A session re-reads them every time it starts, so a
+  change applies to the next voice chat.
 - Semantic VAD keeps listening, starts responses automatically, and supports
   barge-in while the agent is speaking.
 - Function calls must cross the authenticated realtime tool bridge and enter
@@ -94,22 +99,22 @@ action before requesting microphone permission.
   preserve the pinned navigation/discovery tools, evict lower-priority entries
   within the manifest cap, and wait for `session.updated` before asking the
   model to continue with a newly discovered tool.
-- Do not persist audio or interim transcript deltas. Append completed user and
-  assistant utterances as ordinary text messages to the exact chat thread
-  captured when the session starts. Input transcription completes
-  asynchronously from assistant generation, so reserve provider conversation
-  item order and publish only the contiguous completed sequence; never use
-  completion arrival time as chat order. Ending voice mode opens that chat so
-  the user can continue over text. Store only compact lifecycle and latest
+- Do not persist audio. Transcript deltas stream into the chat thread that
+  was on screen when the session started, as ordinary user and assistant
+  messages that fill in under one id per turn; the shared `AgentKitChat`
+  consumes them, so every host shows them. A turn is saved with the thread
+  only once its transcript completes (a streaming turn is never saved), and
+  ending or failing the session finalizes what was heard. Input transcription
+  completes asynchronously from assistant generation, so reserve provider
+  conversation item order: a turn appears only after every earlier turn has
+  appeared, and completion arrival time never sets chat order. Ending voice
+  chat opens that chat so the user can continue over text. Store only compact lifecycle and latest
   context at `application_state["realtime-voice-session"]`; delete it when the
   session ends.
 - Store the user-controlled language, intelligence, and output-voice choices at
   `application_state["realtime-voice-prefs"]`. Keep this separate from
   `voice-transcription-prefs`, which configures editable dictation rather than
   the speech-to-speech session.
-- Store the optional remembered chooser selection at
-  `application_state["voice-input-preference"]`. Keep it separate from both
-  mode-specific preference objects.
 - Missing-key failures should open Settings focused on the user-scoped
   `OPENAI_API_KEY` field. Never send, log, or echo the key to the browser.
 
@@ -159,8 +164,8 @@ Default behavior:
 | File                                                                  | Purpose                                             |
 | --------------------------------------------------------------------- | --------------------------------------------------- |
 | `packages/toolkit/src/composer/useVoiceDictation.ts`                  | Provider-routing hook (MediaRecorder / Web Speech)  |
-| `packages/toolkit/src/composer/VoiceButton.tsx`                       | Mic button + live amplitude + cancel overlay        |
-| `packages/toolkit/src/composer/RealtimeVoiceMode.tsx`                | Opt-in popover + persistent speech orb              |
+| `packages/toolkit/src/composer/VoiceButton.tsx`                       | Mic, recording pill, voice-chat Send, error notice  |
+| `packages/toolkit/src/composer/RealtimeVoiceMode.tsx`                | Composer voice chat controls and settings           |
 | `packages/toolkit/src/composer/useRealtimeVoiceMode.tsx`             | WebRTC lifecycle, provider events, and tool bridge  |
 | `packages/toolkit/src/composer/TiptapComposer.tsx`                    | Wires the hook, insertion, and keyboard shortcut    |
 | `packages/core/src/client/settings/VoiceTranscriptionSection.tsx`     | Live source + cleanup controls in sidebar settings; `compact` is the Preferences row |
@@ -235,4 +240,4 @@ Templates can:
 - Don't auto-submit the transcript — users always edit before sending.
 - Don't route realtime tool calls around the central guarded agent executor.
 - Don't persist realtime audio or put provider keys in SDP/session payloads.
-- Don't copy Cursor's "hide send when empty" pattern — it confuses users.
+- Don't hide send when the composer is empty; it confuses users.

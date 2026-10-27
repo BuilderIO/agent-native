@@ -238,10 +238,11 @@ function pixels(value: string) {
 }
 
 describe("runPasteOverSelection", () => {
-  it("pastes at CSS coordinates instead of the canvas bounding box", () => {
+  it("pastes at CSS coordinates instead of the canvas bounding box", async () => {
     const writes: string[] = [];
     const selections: string[][] = [];
-    runPasteOverSelection({
+    await runPasteOverSelection({
+      refreshClipboardFromSystemClipboard: async () => "unchanged",
       activeFile: designFile(HOME_HTML),
       applyLocalContentUpdate: (nextContent) => {
         writes.push(nextContent);
@@ -267,9 +268,10 @@ describe("runPasteOverSelection", () => {
     expect(selections).toHaveLength(1);
   });
 
-  it("pastes a nested layer at document-root coords, not containing-block left/top", () => {
+  it("pastes a nested layer at document-root coords, not containing-block left/top", async () => {
     const writes: string[] = [];
-    runPasteOverSelection({
+    await runPasteOverSelection({
+      refreshClipboardFromSystemClipboard: async () => "unchanged",
       activeFile: designFile(NESTED_HTML),
       applyLocalContentUpdate: (nextContent) => {
         writes.push(nextContent);
@@ -300,9 +302,10 @@ describe("runPasteOverSelection", () => {
     expect(pixels(copies[0]!.style.top)).toBe(236);
   });
 
-  it("falls through to ordinary paste when no CSS position can be resolved", () => {
+  it("falls through to ordinary paste when no CSS position can be resolved", async () => {
     const handlePasteSelection = vi.fn(async () => {});
-    runPasteOverSelection({
+    await runPasteOverSelection({
+      refreshClipboardFromSystemClipboard: async () => "unchanged",
       activeFile: designFile(HOME_HTML),
       applyLocalContentUpdate: () => {
         throw new Error("should not write");
@@ -319,9 +322,10 @@ describe("runPasteOverSelection", () => {
     expect(handlePasteSelection).toHaveBeenCalledOnce();
   });
 
-  it("toasts when the insert fails", () => {
+  it("toasts when the insert fails", async () => {
     toastError.mockClear();
-    runPasteOverSelection({
+    await runPasteOverSelection({
+      refreshClipboardFromSystemClipboard: async () => "unchanged",
       activeFile: designFile(HOME_HTML),
       applyLocalContentUpdate: () => {
         throw new Error("should not write");
@@ -339,5 +343,31 @@ describe("runPasteOverSelection", () => {
       "designEditor.toasts.primitiveInsertFailed",
       { duration: 4000 },
     );
+  });
+
+  it("reads a copy made in another tab before pasting over the selection", async () => {
+    const writes: string[] = [];
+    let entries: CanvasLayerClipboardEntry[] = [];
+    await runPasteOverSelection({
+      refreshClipboardFromSystemClipboard: async () => {
+        entries = [
+          { html: RECT_HTML, rootNodeId: "rect-1", sourceFileId: "home" },
+        ];
+        return "adopted";
+      },
+      activeFile: designFile(HOME_HTML),
+      applyLocalContentUpdate: (nextContent) => {
+        writes.push(nextContent);
+      },
+      getCanvasClipboardEntries: () => entries,
+      getFreshActiveContent: () => HOME_HTML,
+      handlePasteSelection: async () => {
+        throw new Error("should not fall through to paste");
+      },
+      selectedElement: selected({ left: "40px", top: "120px" }),
+      selectInsertedLayers: () => {},
+      t: (key) => key,
+    });
+    expect(writes).toHaveLength(1);
   });
 });

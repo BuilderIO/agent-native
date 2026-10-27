@@ -985,6 +985,7 @@ interface BigQueryGetQueryResultsResponse {
   schema?: { fields?: BigQueryField[] };
   rows?: { f: { v: unknown }[] }[];
   totalRows?: string;
+  nextPageToken?: string;
   jobComplete?: boolean;
   totalBytesProcessed?: string;
   cacheHit?: boolean;
@@ -1579,10 +1580,12 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
     const rows = data.rows ? rowsToObjects(data.rows, fields) : [];
     const bytesProcessed = queryBytesProcessed(data.totalBytesProcessed);
 
-    const reportedTotal = Number.parseInt(data.totalRows || "", 10);
-    const totalRows = Number.isFinite(reportedTotal)
-      ? reportedTotal
-      : rows.length;
+    const reportedTotal = Number.parseInt(data.totalRows ?? "", 10);
+    const hasReportedTotal =
+      data.totalRows !== undefined &&
+      Number.isSafeInteger(reportedTotal) &&
+      reportedTotal >= 0;
+    const totalRows = hasReportedTotal ? reportedTotal : rows.length;
 
     const result: QueryResult = {
       rows,
@@ -1596,7 +1599,9 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
       ...(typeof data.cacheHit === "boolean"
         ? { providerCacheHit: data.cacheHit }
         : {}),
-      ...(totalRows > rows.length ? { truncated: true } : {}),
+      ...(data.nextPageToken || !hasReportedTotal || totalRows > rows.length
+        ? { truncated: true }
+        : {}),
       ...(data.errors?.length
         ? {
             partial: true,

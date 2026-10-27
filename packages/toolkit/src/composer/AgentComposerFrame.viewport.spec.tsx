@@ -125,6 +125,46 @@ describe("AgentComposerFrame visual viewport sizing", () => {
     );
   });
 
+  it.each([
+    ["the nearest chat", true],
+    ["the document", false],
+  ])(
+    "lifts the keyboard in a standalone host by sizing %s",
+    async (_target, insideChat) => {
+      const frame = (
+        <AgentComposerFrame>
+          <div contentEditable="true" aria-label="Message agent" />
+        </AgentComposerFrame>
+      );
+      await act(async () => {
+        root.render(
+          insideChat ? <div className="agentkit-chat">{frame}</div> : frame,
+        );
+      });
+
+      const target = insideChat
+        ? container.querySelector<HTMLElement>(".agentkit-chat")!
+        : document.documentElement;
+      const editor = container.querySelector<HTMLElement>(
+        '[contenteditable="true"]',
+      )!;
+      await act(async () => editor.focus());
+      await act(async () => {
+        viewportHeight = 360;
+        viewport.dispatchEvent(new Event("resize"));
+      });
+      expect(
+        target.style.getPropertyValue("--agent-native-viewport-height"),
+      ).toBe("360px");
+
+      await act(async () => root.unmount());
+      root = createRoot(container);
+      expect(
+        target.style.getPropertyValue("--agent-native-viewport-height"),
+      ).toBe("");
+    },
+  );
+
   it("does not resize the shell when focus stays outside the composer editor", async () => {
     await act(async () => {
       root.render(

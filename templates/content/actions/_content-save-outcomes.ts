@@ -118,22 +118,15 @@ export function recordContentSaveOutcome(
       ? { reason_code: boundedContentSaveReason(dimensions.reason_code) }
       : {}),
   };
-  // Providers must never run in the save's settlement or acknowledgement turn.
+  // Count inside the request: a serverless instance can freeze before a
+  // timer runs. countOutcome bumps an in-memory window and, for the first hit
+  // in a window, calls each analytics provider's track(), which the built-in
+  // providers only queue. The save never waits for delivery, and a throw
+  // cannot replace its result.
   try {
-    setTimeout(() => {
-      try {
-        const delivery: unknown = countOutcome(
-          "content_save_outcome_counts",
-          bounded,
-        );
-        // coercion-ok: telemetry delivery never changes the save's outcome.
-        void Promise.resolve(delivery).catch(() => {});
-      } catch {
-        // coercion-ok: a failed provider cannot invalidate a persisted save.
-      }
-    }, 0);
+    countOutcome("content_save_outcome_counts", bounded);
   } catch {
-    // coercion-ok: an unavailable telemetry scheduler cannot invalidate a save.
+    // coercion-ok: a failed provider cannot invalidate a persisted save.
   }
 }
 

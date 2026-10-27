@@ -355,6 +355,25 @@ describe("real data action classification", () => {
     );
   });
 
+  it("continues a dbt result page that has no rows but still has a cursor", () => {
+    const emptyPage = {
+      name: "query_dbt_semantic_metric",
+      content: JSON.stringify({
+        status: "success",
+        rows: [],
+        truncated: true,
+        nextPage: "metric-results-v5.cursor.signature",
+      }),
+    };
+
+    expect(hasDataQueryAttempt([emptyPage])).toBe(false);
+    const message = failedDataQueryAttemptMessage([emptyPage]);
+    expect(message).toContain(
+      "Continue with the same metricName, queryId, and nextPage",
+    );
+    expect(message).not.toContain("returned no metric rows");
+  });
+
   it("clears a recoverable dbt status only after the same query completes", () => {
     const querySpec = {
       groupBy: [{ name: "metric_time", grain: "WEEK" }],
@@ -385,6 +404,301 @@ describe("real data action classification", () => {
 
     expect(hasDataQueryAttempt([interrupted, completed])).toBe(true);
     expect(failedDataQueryAttemptMessage([interrupted, completed])).toBeNull();
+  });
+
+  it("clears a recoverable connection error once the same query completes", () => {
+    const querySpec = {
+      groupBy: [{ name: "metric_time", grain: "WEEK" }],
+      timeRange: { startDate: "2026-10-05", endDate: "2026-10-11" },
+    };
+    const cursor = `metric-results-v5.AA.${"A".repeat(43)}`;
+    const interrupted = {
+      name: "query-dbt-semantic-metric",
+      content: JSON.stringify({
+        status: "connection_error",
+        metricName: "activation_rate",
+        queryId: "synthetic-query-id",
+        nextPage: cursor,
+        querySpec,
+        message:
+          "The dbt Semantic Layer request timed out. Retry with the same metricName, queryId, and nextPage cursor to resume.",
+      }),
+    };
+    const completed = {
+      name: "query-dbt-semantic-metric",
+      content: JSON.stringify({
+        status: "success",
+        metricName: "activation_rate",
+        queryId: "synthetic-query-id",
+        querySpec,
+        rows: [{ metric_time: "2026-10-05", activation_rate: 42 }],
+        truncated: false,
+      }),
+    };
+
+    expect(hasDataQueryAttempt([interrupted, completed])).toBe(true);
+    expect(failedDataQueryAttemptMessage([interrupted, completed])).toBeNull();
+  });
+
+  it("keeps a not_found lookup when a later query answers a different metric", () => {
+    const notFound = {
+      name: "query-dbt-semantic-metric",
+      content: JSON.stringify({
+        status: "not_found",
+        metricName: "weekly_active_users",
+        searched: 3,
+        of: 3,
+      }),
+    };
+    const found = {
+      name: "query-dbt-semantic-metric",
+      content: JSON.stringify({
+        status: "success",
+        metricName: "active_accounts",
+        queryId: "synthetic-query-id",
+        querySpec: {
+          groupBy: [],
+          timeRange: { startDate: "2026-09-01", endDate: "2026-09-30" },
+        },
+        rows: [{ active_accounts: 10 }],
+        truncated: false,
+      }),
+    };
+
+    expect(hasDataQueryAttempt([notFound, found])).toBe(true);
+    expect(failedDataQueryAttemptMessage([notFound, found])).not.toBeNull();
+    expect(failedDataQueryAttemptMessage([notFound])).not.toBeNull();
+  });
+
+  it("does not clear a lookup failure with a successful query for an unrelated metric", () => {
+    const notFound = {
+      name: "query-dbt-semantic-metric",
+      content: JSON.stringify({
+        status: "not_found",
+        metricName: "weekly_active_users",
+        searched: 3,
+        of: 3,
+      }),
+    };
+    const unrelated = {
+      name: "query-dbt-semantic-metric",
+      content: JSON.stringify({
+        status: "success",
+        metricName: "signup_count",
+        queryId: "synthetic-query-id",
+        querySpec: {
+          groupBy: [],
+          timeRange: { startDate: "2026-09-01", endDate: "2026-09-30" },
+        },
+        rows: [{ signup_count: 4 }],
+        truncated: false,
+      }),
+    };
+
+    expect(failedDataQueryAttemptMessage([notFound, unrelated])).not.toBeNull();
+  });
+
+  it("does not clear a lookup for a longer name that only contains the replacement", () => {
+    const notFound = {
+      name: "query-dbt-semantic-metric",
+      content: JSON.stringify({
+        status: "not_found",
+        metricName: "weekly_active_users",
+        searched: 3,
+        of: 3,
+      }),
+    };
+    const search = {
+      name: "find-data",
+      content: JSON.stringify({
+        results: [{ name: "weekly_active_accounts" }],
+      }),
+    };
+    const replacement = {
+      name: "query-dbt-semantic-metric",
+      content: JSON.stringify({
+        status: "success",
+        metricName: "active_accounts",
+        queryId: "synthetic-query-id",
+        querySpec: {
+          groupBy: [],
+          timeRange: { startDate: "2026-09-01", endDate: "2026-09-30" },
+        },
+        rows: [{ active_accounts: 10 }],
+        truncated: false,
+      }),
+    };
+
+    expect(
+      failedDataQueryAttemptMessage([notFound, search, replacement]),
+    ).not.toBeNull();
+  });
+
+  it("keeps a lookup failure when find-data lists a replacement, so the answer discloses it", () => {
+    const notFound = {
+      name: "query-dbt-semantic-metric",
+      content: JSON.stringify({
+        status: "not_found",
+        metricName: "weekly_active_users",
+        searched: 3,
+        of: 3,
+      }),
+    };
+    const search = {
+      name: "find-data",
+      content: JSON.stringify({ results: [{ name: "active_accounts" }] }),
+    };
+    const replacement = {
+      name: "query-dbt-semantic-metric",
+      content: JSON.stringify({
+        status: "success",
+        metricName: "active_accounts",
+        queryId: "synthetic-query-id",
+        querySpec: {
+          groupBy: [],
+          timeRange: { startDate: "2026-09-01", endDate: "2026-09-30" },
+        },
+        rows: [{ active_accounts: 10 }],
+        truncated: false,
+      }),
+    };
+
+    expect(
+      failedDataQueryAttemptMessage([notFound, search, replacement]),
+    ).not.toBeNull();
+  });
+
+  it("clears a lookup failure once a later query under the same metric name returns rows", () => {
+    const notFound = {
+      name: "query-dbt-semantic-metric",
+      toolCallId: "dbt-lookup",
+      content: JSON.stringify({
+        status: "not_found",
+        metricName: "weekly_active_users",
+        searched: 3,
+        of: 3,
+      }),
+    };
+    const sameMetric = {
+      name: "query-dbt-semantic-metric",
+      toolCallId: "dbt-success",
+      content: JSON.stringify({
+        status: "success",
+        metricName: "weekly_active_users",
+        queryId: "synthetic-query-id",
+        querySpec: {
+          groupBy: [],
+          timeRange: { startDate: "2026-09-01", endDate: "2026-09-30" },
+        },
+        rows: [{ weekly_active_users: 7836 }],
+        truncated: false,
+      }),
+    };
+
+    expect(
+      failedDataQueryAttemptMessage(
+        [notFound, sameMetric],
+        [
+          {
+            name: "query-dbt-semantic-metric",
+            toolCallId: "dbt-lookup",
+            input: { metricName: "weekly_active_users" },
+          },
+          {
+            name: "query-dbt-semantic-metric",
+            toolCallId: "dbt-success",
+            input: {
+              metricName: "weekly_active_users",
+              timeRange: { startDate: "2026-09-01", endDate: "2026-09-30" },
+              groupBy: [],
+            },
+          },
+        ],
+      ),
+    ).toBeNull();
+  });
+
+  it("does not clear a metric failure with a same-name result at another scope", () => {
+    const results = [
+      {
+        name: "query-dbt-semantic-metric",
+        toolCallId: "dbt-september",
+        content: JSON.stringify({
+          status: "not_found",
+          metricName: "weekly_active_users",
+        }),
+      },
+      {
+        name: "query-dbt-semantic-metric",
+        toolCallId: "dbt-august",
+        content: JSON.stringify({
+          status: "success",
+          metricName: "weekly_active_users",
+          querySpec: {
+            groupBy: [],
+            timeRange: { startDate: "2026-08-01", endDate: "2026-08-31" },
+          },
+          rows: [{ weekly_active_users: 7836 }],
+          truncated: false,
+        }),
+      },
+    ];
+    const calls = [
+      {
+        name: "query-dbt-semantic-metric",
+        toolCallId: "dbt-september",
+        input: {
+          metricName: "weekly_active_users",
+          timeRange: { startDate: "2026-09-01", endDate: "2026-09-30" },
+          groupBy: [],
+        },
+      },
+      {
+        name: "query-dbt-semantic-metric",
+        toolCallId: "dbt-august",
+        input: {
+          metricName: "weekly_active_users",
+          timeRange: { startDate: "2026-08-01", endDate: "2026-08-31" },
+          groupBy: [],
+        },
+      },
+    ];
+
+    expect(failedDataQueryAttemptMessage(results, calls)).not.toBeNull();
+  });
+
+  it("clears an empty continued page once the same query returns rows", () => {
+    const querySpec = {
+      groupBy: [{ name: "metric_time", grain: "WEEK" }],
+      timeRange: { startDate: "2026-10-05", endDate: "2026-10-11" },
+    };
+    const cursor = `metric-results-v5.AA.${"A".repeat(43)}`;
+    const emptyPage = {
+      name: "query-dbt-semantic-metric",
+      content: JSON.stringify({
+        status: "success",
+        metricName: "activation_rate",
+        queryId: "synthetic-query-id",
+        nextPage: cursor,
+        querySpec,
+        rows: [],
+        truncated: true,
+      }),
+    };
+    const completed = {
+      name: "query-dbt-semantic-metric",
+      content: JSON.stringify({
+        status: "success",
+        metricName: "activation_rate",
+        queryId: "synthetic-query-id",
+        querySpec,
+        rows: [{ metric_time: "2026-10-05", activation_rate: 42 }],
+        truncated: false,
+      }),
+    };
+
+    expect(hasDataQueryAttempt([emptyPage, completed])).toBe(true);
+    expect(failedDataQueryAttemptMessage([emptyPage, completed])).toBeNull();
   });
 
   it("keeps a first-party query failure when a later unrelated query succeeds", () => {
@@ -1942,6 +2256,16 @@ describe("incomplete evidence detection", () => {
       looksLikeStrongCoverageClaim("I reviewed every call in the cohort."),
     ).toBe(true);
     expect(
+      looksLikeStrongCoverageClaim(
+        "The dbt metric query did not complete, so there is no owner-approved figure for active accounts yet.",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeStrongCoverageClaim(
+        "We checked the complete cohort of records.",
+      ),
+    ).toBe(true);
+    expect(
       hasExplicitPartialDisclosure(
         "This is partial: I only inspected the first 20 calls.",
       ),
@@ -1961,6 +2285,12 @@ describe("incomplete evidence detection", () => {
         "The coverage is limited to the first 20 calls.",
       ),
     ).toBe(true);
+    expect(
+      hasExplicitPartialDisclosure("The dataset is not yet complete."),
+    ).toBe(true);
+    expect(
+      hasExplicitPartialDisclosure("The review is not yet complete."),
+    ).toBe(false);
   });
 
   it("detects failed corpus workflows and overstated full-coverage confidence", () => {
@@ -2010,6 +2340,11 @@ describe("incomplete evidence detection", () => {
         "Partial coverage: I found 0 matches in the 200 calls inspected; this is a defensible interim read.",
       ),
     ).toBe(false);
+    expect(
+      hasOverstatedCoverageConfidenceClaim(
+        "I reviewed the complete cohort, but the review is not yet complete.",
+      ),
+    ).toBe(true);
   });
 
   it("treats a Company A template clone for Company B as dashboard construction", () => {

@@ -56,9 +56,9 @@ vi.mock("@/local-components", async () => {
   };
 });
 
+import { runPersistableHistoryCommand } from "./editor-transaction-meta";
 import {
   createVisualEditorExtensions,
-  runPersistableHistoryCommand,
   VisualEditor,
   type VisualEditorHistoryController,
 } from "./VisualEditor";

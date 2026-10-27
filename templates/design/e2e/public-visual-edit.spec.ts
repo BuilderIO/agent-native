@@ -432,6 +432,7 @@ test.describe("public visual edit", () => {
       }
       if (pathname === "/slow-image.svg") {
         response.writeHead(200, {
+          "access-control-allow-origin": "*",
           "cache-control": "no-store",
           "content-type": "image/svg+xml",
         });
@@ -1377,7 +1378,8 @@ test.describe("public visual edit", () => {
               "the camera frames the linked screen at the linked 60% zoom, not the first screen",
           },
         )
-        .toEqual({ linkedWidth: 768, linkedInView: true, homeInView: false });
+        // 60% of the screen's own 1440px: zoom is 1:1 with screen pixels.
+        .toEqual({ linkedWidth: 864, linkedInView: true, homeInView: false });
       expect(signedOut.mutationRequests).toEqual([]);
       await assertNoRuntimeErrors(signedOut);
     } finally {

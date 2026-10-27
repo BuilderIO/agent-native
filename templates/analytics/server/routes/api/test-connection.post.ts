@@ -1,6 +1,6 @@
 import { readBody } from "@agent-native/core/server";
 import { resolveWorkspaceConnectionForApp } from "@agent-native/core/workspace-connections";
-import { defineEventHandler } from "h3";
+import { defineEventHandler, setResponseStatus } from "h3";
 
 import {
   assertCredentialCanReachEndpoint,
@@ -360,8 +360,19 @@ export default defineEventHandler(async (event) => {
         default:
           return { ok: false, error: `Unknown source: ${source}` };
       }
-    } catch (err: any) {
-      return { ok: false, error: err.message || "Connection test failed" };
+    } catch (err) {
+      if (
+        typeof err === "object" &&
+        err !== null &&
+        "statusCode" in err &&
+        typeof err.statusCode === "number"
+      ) {
+        setResponseStatus(event, err.statusCode);
+      }
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : "Connection test failed",
+      };
     }
   });
 

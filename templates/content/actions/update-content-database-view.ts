@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { iconValueSchema } from "@agent-native/core/icons";
 import { buildDeepLink } from "@agent-native/core/server";
@@ -18,12 +18,16 @@ import {
   setupAuditSummary,
   setupGuardSchema,
 } from "./_database-setup-mutation.js";
-import { getContentDatabaseResponse } from "./_database-utils.js";
+import {
+  contentDatabaseResponseForCaller,
+  getContentDatabaseResponse,
+} from "./_database-utils.js";
 import {
   contentDatabaseItemLayoutSchema,
   runReplaceContentDatabaseViews,
   runUpdateContentDatabaseView,
   updateContentDatabaseViewAgentSchema,
+  viewConfigDateFilterError,
   withSavableItemLayout,
 } from "./_database-view-setup.js";
 import {
@@ -238,6 +242,14 @@ export default defineAction({
         ),
       };
       const nextViewConfigJson = serializeDatabaseViewConfig(nextViewConfig);
+      const dateError = viewConfigDateFilterError(
+        parseDatabaseViewConfig(nextViewConfigJson),
+        currentViewConfig,
+        definitions,
+      );
+      if (dateError) {
+        fail(dateError, { statusCode: 400, errorCode: "invalid_filter" });
+      }
 
       const userEmail = getRequestUserEmail();
       if (!userEmail) throw new Error("Authentication is required.");
@@ -265,7 +277,10 @@ export default defineAction({
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
-    return getContentDatabaseResponse(databaseId, { limit: 100, offset: 0 });
+    return contentDatabaseResponseForCaller(
+      await getContentDatabaseResponse(databaseId, { limit: 100, offset: 0 }),
+      context,
+    );
   },
   link: ({ result }) => {
     const receipt = (
