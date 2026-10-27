@@ -1,6 +1,8 @@
 template: v2
 slug: weekly-marketing-report
 app: analytics
+roles:
+  - marketing
 title: Make your weekly marketing report without spreadsheets
 seo_title: Weekly marketing report from GA4 and HubSpot
 meta_description: Build your weekly marketing report from Google Analytics and HubSpot with Agent-Native Analytics. Ask how the week went and share the answers as a dashboard.
