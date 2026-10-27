@@ -2581,6 +2581,185 @@ describe("private preview document drafts", () => {
     ).toBe("Local recovery");
   });
 
+  it.each(["renamed", "edited"] as const)(
+    "replays a resolved separate choice after its copy is %s",
+    async (change) => {
+      const documentId = await createDocument();
+      const before = found(await documentRowForDraftTest(documentId));
+      const draft = {
+        ...payload("Local recovery"),
+        editorSessionId: `resolved-copy-${documentId}`,
+        editGeneration: 5,
+      };
+      const sourceBase = await authoredSaveBase(documentId, draft.content);
+      await asUser(OWNER, () =>
+        updateDraft.run({
+          operation: "upsert",
+          documentId,
+          expectedVersion: null,
+          draft,
+        }),
+      );
+      const request = {
+        choice: "save_separately" as const,
+        documentId,
+        expectedDraftVersion: 1,
+        expectedDraftTitle: draft.title,
+        expectedDraftContent: draft.content,
+        expectedDocumentUpdatedAt: before.updatedAt,
+      };
+      const completed = await asUser(OWNER, () => resolveDraft.run(request));
+      const copyId = found(completed.createdDocumentId);
+      const copy = found(await documentRowForDraftTest(copyId));
+      const title = change === "renamed" ? "Renamed recovery copy" : copy.title;
+      const content =
+        change === "edited" ? "Edited recovery copy" : copy.content;
+      const copyBase = await authoredSaveBase(copyId, content);
+      await asUser(OWNER, () =>
+        updateDocument.run(
+          {
+            id: copyId,
+            title,
+            content,
+            ...copyBase,
+            baseTitle: copy.title,
+            editorSessionId: `copy-editor-${documentId}`,
+            editorEditGeneration: 1,
+            editorSnapshotTitle: title,
+            editorSnapshotContent: content,
+            browserSaveAttemptId: `copy-write-${documentId}`,
+            reuseLabels: [],
+          },
+          { caller: "frontend" } as Parameters<typeof updateDocument.run>[1],
+        ),
+      );
+      const changedCopy = found(await documentRowForDraftTest(copyId));
+      expect(changedCopy).toMatchObject({ title, content });
+      const claims = await getDb()
+        .select()
+        .from(schema.documentVersions)
+        .where(eq(schema.documentVersions.documentId, documentId));
+      expect(claims).toEqual([
+        expect.objectContaining({
+          chatContext: expect.stringContaining('"status":"resolved"'),
+        }),
+      ]);
+      // Model an older completed claim whose generation fence is missing.
+      await getDb()
+        .update(schema.documentPreviewDraftSettlements)
+        .set({ settledGeneration: -1, discardedGeneration: null })
+        .where(
+          eq(schema.documentPreviewDraftSettlements.documentId, documentId),
+        );
+      const rowsBefore = await getDb()
+        .select({ id: schema.documents.id })
+        .from(schema.documents);
+      await expect(
+        asUser(OWNER, () => resolveDraft.run(request)),
+      ).resolves.toMatchObject({
+        status: "resolved",
+        createdDocumentId: copyId,
+        urlPath: completed.urlPath,
+      });
+      expect(await documentRowForDraftTest(copyId)).toEqual(changedCopy);
+      expect(await documentRowForDraftTest(documentId)).toEqual(before);
+      expect(
+        await getDb()
+          .select()
+          .from(schema.documentVersions)
+          .where(eq(schema.documentVersions.documentId, documentId)),
+      ).toEqual(claims);
+      expect(
+        await getDb()
+          .select({ id: schema.documents.id })
+          .from(schema.documents),
+      ).toEqual(rowsBefore);
+      expect(
+        await editorSettlement(documentId, draft.editorSessionId),
+      ).toMatchObject({
+        settledGeneration: 5,
+        discardedGeneration: 5,
+      });
+      const delayed = await asUser(OWNER, () =>
+        updateDocument.run(
+          {
+            id: documentId,
+            content: draft.content,
+            ...sourceBase,
+            editorSessionId: draft.editorSessionId,
+            editorEditGeneration: draft.editGeneration,
+            editorSnapshotTitle: draft.title,
+            editorSnapshotContent: draft.content,
+            browserSaveAttemptId: `resolved-copy-delayed-${documentId}`,
+            reuseLabels: [],
+          },
+          { caller: "frontend" } as Parameters<typeof updateDocument.run>[1],
+        ),
+      );
+      expect(delayed).toMatchObject({
+        superseded: true,
+        discardedGeneration: 5,
+      });
+      expect(await documentRowForDraftTest(documentId)).toEqual(before);
+    },
+  );
+
+  it("does not complete an unfinished separate choice after its copy changes", async () => {
+    const documentId = await createDocument();
+    const draft = {
+      ...payload("Local recovery"),
+      editorSessionId: `unfinished-copy-${documentId}`,
+      editGeneration: 5,
+    };
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft,
+      }),
+    );
+    const create = createRecoveryDocument.run.bind(createRecoveryDocument);
+    const spy = vi
+      .spyOn(createRecoveryDocument, "run")
+      .mockImplementationOnce(async (...args) => {
+        const created = await create(...args);
+        // A concurrent copy edit lands before the first claim can settle.
+        await getDb()
+          .update(schema.documents)
+          .set({ title: "Changed before completion" })
+          .where(eq(schema.documents.id, created.id));
+        return created;
+      });
+    try {
+      await expect(
+        asUser(OWNER, () =>
+          resolveDraft.run({
+            choice: "save_separately",
+            documentId,
+            expectedDraftVersion: 1,
+            expectedDraftTitle: draft.title,
+            expectedDraftContent: draft.content,
+            expectedDocumentUpdatedAt: documentUpdatedAt(documentId),
+          }),
+        ),
+      ).rejects.toThrow("The recovered copy could not be found.");
+    } finally {
+      spy.mockRestore();
+    }
+    const claims = await getDb()
+      .select()
+      .from(schema.documentVersions)
+      .where(eq(schema.documentVersions.documentId, documentId));
+    expect(JSON.parse(found(claims[0]).chatContext)).not.toHaveProperty(
+      "status",
+      "resolved",
+    );
+    expect(
+      (await asUser(OWNER, () => getDraft.run({ documentId }))).draft,
+    ).toMatchObject({ content: draft.content });
+  });
+
   it("saves the exact local draft as one separate page without changing the original", async () => {
     const documentId = await createDocument();
     await asUser(OWNER, () =>

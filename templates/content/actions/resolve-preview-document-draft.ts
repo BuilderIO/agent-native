@@ -214,7 +214,7 @@ export default defineAction({
       eq(schema.documentPreviewDrafts.content, args.expectedDraftContent),
     );
     const destinationId = recoveryId;
-    const findExistingRecovery = async (
+    const findOwnedRecovery = async (
       executor: Pick<ClaimTransaction, "select"> = db,
     ) => {
       const existing = await executor
@@ -224,13 +224,20 @@ export default defineAction({
           and(
             eq(schema.documents.id, destinationId),
             eq(schema.documents.ownerEmail, userEmail),
-            eq(schema.documents.title, args.expectedDraftTitle),
-            eq(schema.documents.content, args.expectedDraftContent),
           ),
         )
         .limit(1)
         .then(firstRow);
       return existing ?? null;
+    };
+    const findExistingRecovery = async (
+      executor: Pick<ClaimTransaction, "select"> = db,
+    ) => {
+      const existing = await findOwnedRecovery(executor);
+      return existing?.title === args.expectedDraftTitle &&
+        existing.content === args.expectedDraftContent
+        ? existing
+        : null;
     };
     const claimGenerationInput = (
       tx: ClaimTransaction,
@@ -266,9 +273,12 @@ export default defineAction({
       payload: z.infer<typeof durableClaimPayload>,
       now = new Date().toISOString(),
     ) => {
+      // A resolved claim outlives later edits to its recovered copy.
       if (
         payload.choice === "save_separately" &&
-        !(await findExistingRecovery(tx))
+        !(await (payload.status === "resolved"
+          ? findOwnedRecovery(tx)
+          : findExistingRecovery(tx)))
       )
         conflict("The recovered copy could not be found.");
       const input = claimGenerationInput(tx, payload, now);
@@ -864,7 +874,7 @@ export default defineAction({
     const claimed = await claimExactDraft();
     if (claimed.status === "document_conflict") return claimed;
     if (claimed.status === "resolved") {
-      const existing = await findExistingRecovery();
+      const existing = await findOwnedRecovery();
       if (!existing) conflict("The recovered copy could not be found.");
       return {
         status: "resolved" as const,
@@ -875,7 +885,7 @@ export default defineAction({
       };
     }
     if (!claimed.acquired && !(await acquireClaim())) {
-      const existing = await findExistingRecovery();
+      const existing = await findOwnedRecovery();
       if (!existing) conflict("The recovered copy could not be found.");
       return {
         status: "resolved" as const,
