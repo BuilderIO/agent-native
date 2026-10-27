@@ -52,6 +52,7 @@ import { isTranscriptExistsError } from "@shared/transcript-import";
 import {
   isRecentWorkflowGeneration,
   matchesWorkflowRequest,
+  shouldScheduleWorkflowTimeoutFallback,
   shouldRetryWorkflowStop,
   type WorkflowKind,
   workflowGenerationProgressAt,
@@ -527,7 +528,7 @@ interface GeneratedWorkflowState {
   recordingId?: string;
   requestedAt?: string;
   requestId?: string;
-  failureReason?: "cancelled" | "timed_out";
+  failureReason?: "cancelled" | "timed_out" | "session-rejected";
   error?: string;
 }
 
@@ -1479,28 +1480,41 @@ export default function RecordingPage() {
     ) {
       return;
     }
+    if (workflowGenerationExpiry === null) return;
     if (
-      workflowStopAttempt &&
-      workflowStopAttempt.recordingId === generatedWorkflow.recordingId &&
-      matchesWorkflowRequest(generatedWorkflow, workflowStopAttempt)
+      !shouldScheduleWorkflowTimeoutFallback(
+        workflowGenerationExpiry,
+        workflowStopAttempt,
+        generatedWorkflow,
+      )
     ) {
       return;
     }
     const timer = window.setTimeout(
       () => {
-        setWorkflowStopAttempt({
-          recordingId,
-          requestedAt,
-          ...(generatedWorkflow.requestId
-            ? { requestId: generatedWorkflow.requestId }
-            : {}),
-          reason: "timed_out",
-          failedAttempts: 0,
-          exhausted: false,
-        });
+        setWorkflowStopAttempt((current) =>
+          current?.recordingId === recordingId &&
+          matchesWorkflowRequest(generatedWorkflow, current)
+            ? {
+                ...current,
+                reason: "timed_out",
+                failedAttempts: 0,
+                exhausted: false,
+              }
+            : {
+                recordingId,
+                requestedAt,
+                ...(generatedWorkflow.requestId
+                  ? { requestId: generatedWorkflow.requestId }
+                  : {}),
+                reason: "timed_out",
+                failedAttempts: 0,
+                exhausted: false,
+              },
+        );
         startWorkflowToast(t("recordingPage.workflowStillGenerating"));
       },
-      Math.max(0, (workflowGenerationExpiry ?? Date.now()) - Date.now()),
+      Math.max(0, workflowGenerationExpiry - Date.now()),
     );
     return () => window.clearTimeout(timer);
   }, [

@@ -4,6 +4,8 @@ const mocks = vi.hoisted(() => ({
   assertAccess: vi.fn(async () => undefined),
   abortTurnByRefDurably: vi.fn(async () => "aborted" as const),
   getActiveRunForThreadAsync: vi.fn(async () => null as unknown),
+  getRunStatus: vi.fn(async () => null as unknown),
+  getRunTurnRef: vi.fn(async () => null as unknown),
   readAppState: vi.fn(),
   compareAndSetAppState: vi.fn(async () => true),
   compareAndSetManyAppState: vi.fn(async () => true),
@@ -27,6 +29,8 @@ vi.mock("@agent-native/core/server", () => ({
     mocks.abortTurnByRefDurably(...args),
   getActiveRunForThreadAsync: (...args: unknown[]) =>
     mocks.getActiveRunForThreadAsync(...args),
+  getRunStatus: (...args: unknown[]) => mocks.getRunStatus(...args),
+  getRunTurnRef: (...args: unknown[]) => mocks.getRunTurnRef(...args),
 }));
 
 import { backgroundAgentTurnIdForReceipt } from "@agent-native/core/shared";
@@ -41,6 +45,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.abortTurnByRefDurably.mockResolvedValue("aborted");
   mocks.getActiveRunForThreadAsync.mockResolvedValue(null);
+  mocks.getRunStatus.mockResolvedValue(null);
+  mocks.getRunTurnRef.mockResolvedValue(null);
   mocks.compareAndSetAppState.mockResolvedValue(true);
   mocks.compareAndSetManyAppState.mockResolvedValue(true);
 });
@@ -443,6 +449,147 @@ describe("reconcile-workflow-generation", () => {
     expect(mocks.getActiveRunForThreadAsync).toHaveBeenCalledWith(tabId);
     expect(mocks.abortTurnByRefDurably).not.toHaveBeenCalled();
     expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
+  });
+
+  it("settles a terminal run from its durable record after the reconnect window", async () => {
+    mocks.readAppState.mockResolvedValue({
+      kind: "email",
+      status: "generating",
+      recordingId: "rec_123",
+      requestedAt,
+      tabId,
+    });
+    mocks.getRunTurnRef.mockResolvedValue({
+      threadId: tabId,
+      turnId: "turn-1",
+    });
+    mocks.getRunStatus.mockResolvedValue("errored");
+
+    await expect(
+      action.run({
+        operation: "settle-terminal",
+        recordingId: "rec_123",
+        requestedAt,
+        tabId,
+        terminalRunId: "run-1",
+      }),
+    ).resolves.toEqual({ reconciled: true });
+
+    expect(mocks.getRunTurnRef).toHaveBeenCalledWith("run-1");
+    expect(mocks.getRunStatus).toHaveBeenCalledWith("run-1");
+    expect(mocks.compareAndSetAppState).toHaveBeenCalledWith(
+      "clips-workflow-rec_123",
+      expect.objectContaining({ status: "generating", tabId }),
+      expect.objectContaining({ status: "failed" }),
+    );
+  });
+
+  it("does not settle terminal evidence from a different workflow thread", async () => {
+    mocks.readAppState.mockResolvedValue({
+      kind: "email",
+      status: "generating",
+      recordingId: "rec_123",
+      requestedAt,
+      tabId,
+    });
+    mocks.getRunTurnRef.mockResolvedValue({
+      threadId: "another-thread",
+      turnId: "turn-1",
+    });
+    mocks.getRunStatus.mockResolvedValue("errored");
+
+    await expect(
+      action.run({
+        operation: "settle-terminal",
+        recordingId: "rec_123",
+        requestedAt,
+        tabId,
+        terminalRunId: "run-1",
+      }),
+    ).resolves.toEqual({ reconciled: false, reason: "run-not-found" });
+    expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
+  });
+
+  it("fails and consumes a matching request after confirmed dispatch rejection", async () => {
+    const state = {
+      kind: "email",
+      status: "generating",
+      recordingId: "rec_123",
+      requestedAt,
+      tabId,
+    };
+    const request = {
+      kind: "generate-workflow",
+      recordingId: "rec_123",
+      requestedAt,
+    };
+    mocks.readAppState
+      .mockResolvedValueOnce(state)
+      .mockResolvedValueOnce(request);
+
+    await expect(
+      action.run({
+        operation: "reject",
+        recordingId: "rec_123",
+        requestedAt,
+        tabId,
+      }),
+    ).resolves.toEqual({ reconciled: true });
+
+    expect(mocks.assertAccess).toHaveBeenCalledWith(
+      "recording",
+      "rec_123",
+      "viewer",
+    );
+    expect(mocks.compareAndSetManyAppState).toHaveBeenCalledWith([
+      {
+        key: "clips-workflow-rec_123",
+        expectedValue: state,
+        nextValue: expect.objectContaining({
+          status: "failed",
+          failureReason: "session-rejected",
+        }),
+      },
+      {
+        key: "clips-ai-request-rec_123",
+        expectedValue: request,
+        nextValue: null,
+      },
+    ]);
+  });
+
+  it("keeps a rejected request while a matching run is still in progress", async () => {
+    const request = {
+      kind: "generate-workflow",
+      recordingId: "rec_123",
+      requestedAt,
+    };
+    mocks.readAppState
+      .mockResolvedValueOnce({
+        kind: "email",
+        status: "generating",
+        recordingId: "rec_123",
+        requestedAt,
+        tabId,
+      })
+      .mockResolvedValueOnce(request);
+    mocks.getActiveRunForThreadAsync.mockResolvedValue({
+      runId: "run-1",
+      status: "running",
+      inFlight: true,
+      awaitingRedispatch: false,
+      hasInFlightWork: false,
+    });
+
+    await expect(
+      action.run({
+        operation: "reject",
+        recordingId: "rec_123",
+        requestedAt,
+        tabId,
+      }),
+    ).resolves.toEqual({ reconciled: false, reason: "in-progress" });
+    expect(mocks.compareAndSetManyAppState).not.toHaveBeenCalled();
   });
 
   it("does not accept stop reasons on viewer settle operations", async () => {

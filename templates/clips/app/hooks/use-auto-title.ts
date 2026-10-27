@@ -796,11 +796,12 @@ async function dispatchWorkflowRequest(
   );
 
   if (outcome.type === "rejected") {
-    await retryWorkflowAction(
-      { operation: "settle", ...workflowRequest, tabId },
+    const reconciled = await retryWorkflowAction(
+      { operation: "reject", ...workflowRequest, tabId },
       "reconciled",
     );
-    return { handled: false, accepted: false };
+    if (reconciled) bumpAiRequestRefresh();
+    return { handled: reconciled, accepted: false };
   }
   if (outcome.type === "uncertain") {
     return { handled: false, accepted: false };
@@ -823,16 +824,23 @@ function isConfirmedBackgroundSessionRejection(error: unknown): boolean {
 
 async function settleWorkflowSession(
   session: ActiveAiRequestSession,
+  snapshot?: BackgroundAgentSessionSnapshot,
 ): Promise<boolean> {
+  const terminalRunId =
+    snapshot?.runId &&
+    ["completed", "truncated", "errored", "aborted"].includes(snapshot.status)
+      ? snapshot.runId
+      : undefined;
   try {
     const result = (await callAction(
       "reconcile-workflow-generation" as any,
       {
-        operation: "settle",
+        operation: terminalRunId ? "settle-terminal" : "settle",
         recordingId: session.recordingId,
         requestedAt: session.requestedAt,
         ...(session.requestId ? { requestId: session.requestId } : {}),
         tabId: session.operationId,
+        ...(terminalRunId ? { terminalRunId } : {}),
       } as any,
     )) as { reconciled?: boolean; reason?: string };
     return (
@@ -865,7 +873,7 @@ async function persistSessionOutcome(
       snapshot,
     );
   }
-  return status === "working" ? true : settleWorkflowSession(session);
+  return status === "working" ? true : settleWorkflowSession(session, snapshot);
 }
 
 async function monitorAiRequestSession(

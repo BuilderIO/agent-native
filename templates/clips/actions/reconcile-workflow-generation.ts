@@ -7,6 +7,8 @@ import {
 import {
   abortTurnByRefDurably,
   getActiveRunForThreadAsync,
+  getRunStatus,
+  getRunTurnRef,
 } from "@agent-native/core/server";
 import { backgroundAgentTurnIdForReceipt } from "@agent-native/core/shared";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -41,6 +43,12 @@ const WorkflowRequestSchema = z
   .passthrough();
 
 const CLAIM_LEASE_MS = 30_000;
+const TERMINAL_RUN_STATUSES = [
+  "completed",
+  "truncated",
+  "errored",
+  "aborted",
+] as const;
 
 export default defineAction({
   description:
@@ -53,6 +61,8 @@ export default defineAction({
       "mark-delivered",
       "consume",
       "settle",
+      "settle-terminal",
+      "reject",
       "stop",
     ]),
     recordingId: z.string().min(1),
@@ -60,6 +70,7 @@ export default defineAction({
     requestId: z.string().min(1).optional(),
     tabId: z.string().min(1),
     stopReason: z.enum(["cancelled", "timed_out"]).optional(),
+    terminalRunId: z.string().min(1).optional(),
   }),
   run: async ({
     operation,
@@ -68,6 +79,7 @@ export default defineAction({
     requestId,
     tabId,
     stopReason,
+    terminalRunId,
   }) => {
     if (stopReason !== undefined && operation !== "stop") {
       fail("A workflow stop reason is only valid when stopping a session", {
@@ -75,7 +87,12 @@ export default defineAction({
         statusCode: 400,
       });
     }
-
+    if (terminalRunId !== undefined && operation !== "settle-terminal") {
+      fail("A terminal run ID is only valid when settling a terminal session", {
+        errorCode: "invalid_workflow_generation_terminal_run",
+        statusCode: 400,
+      });
+    }
     await assertAccess(
       "recording",
       recordingId,
@@ -83,7 +100,9 @@ export default defineAction({
     );
 
     if (
-      ["track", "settle", "stop"].includes(operation) &&
+      ["track", "settle", "settle-terminal", "reject", "stop"].includes(
+        operation,
+      ) &&
       tabId !== workflowSessionTabId(recordingId, requestedAt, requestId)
     ) {
       fail("Invalid workflow generation session", {
@@ -319,6 +338,58 @@ export default defineAction({
           }
         : { reconciled: false, reason: "different-run" as const };
     }
+    if (operation === "reject") {
+      const rawRequest = await readAppState(requestKey);
+      if (rawRequest === null) {
+        return { reconciled: false, reason: "request-missing" as const };
+      }
+      const parsedRequest = WorkflowRequestSchema.safeParse(rawRequest);
+      if (!parsedRequest.success) {
+        // guard:allow-bare-error — invariant: only Clips workflow actions write this state.
+        throw new Error(`Invalid workflow request state for ${recordingId}`);
+      }
+      if (
+        !matchesWorkflowRequest(parsedRequest.data, { requestedAt, requestId })
+      ) {
+        return { reconciled: false, reason: "newer-request" as const };
+      }
+      if (parsedRequest.data.deliveredAt || parsedRequest.data.deliveredTabId) {
+        return { reconciled: false, reason: "delivered" as const };
+      }
+
+      const activeRun = await getActiveRunForThreadAsync(tabId);
+      if (
+        activeRun &&
+        (activeRun.status === "running" ||
+          activeRun.inFlight ||
+          activeRun.awaitingRedispatch ||
+          activeRun.hasInFlightWork)
+      ) {
+        return { reconciled: false, reason: "in-progress" as const };
+      }
+      if (
+        activeRun &&
+        !TERMINAL_RUN_STATUSES.includes(
+          activeRun.status as (typeof TERMINAL_RUN_STATUSES)[number],
+        )
+      ) {
+        return { reconciled: false, reason: "in-progress" as const };
+      }
+
+      const nextState = {
+        ...rawState,
+        status: "failed",
+        failedAt: new Date().toISOString(),
+        failureReason: "session-rejected",
+      };
+      const reconciled = await compareAndSetManyAppState([
+        { key: stateKey, expectedValue: rawState, nextValue: nextState },
+        { key: requestKey, expectedValue: rawRequest, nextValue: null },
+      ]);
+      return reconciled
+        ? { reconciled: true }
+        : { reconciled: false, reason: "stale" as const };
+    }
     if (operation === "stop") {
       // Persisted claims can be stale; the canonical ID above scopes this abort.
       await abortTurnByRefDurably(
@@ -327,25 +398,49 @@ export default defineAction({
         stopReason ?? "workflow-session-ended",
       );
     }
-    if (operation === "settle") {
+    if (operation === "settle" || operation === "settle-terminal") {
       const activeRun = await getActiveRunForThreadAsync(tabId);
-      if (!activeRun) {
+      if (!activeRun && operation === "settle") {
         return { reconciled: false, reason: "run-not-found" as const };
       }
       if (
-        activeRun.status === "running" ||
-        activeRun.inFlight ||
-        activeRun.awaitingRedispatch ||
-        activeRun.hasInFlightWork
+        activeRun &&
+        (activeRun.status === "running" ||
+          activeRun.inFlight ||
+          activeRun.awaitingRedispatch ||
+          activeRun.hasInFlightWork)
       ) {
         return { reconciled: false, reason: "in-progress" as const };
       }
       if (
-        !["completed", "truncated", "errored", "aborted"].includes(
-          activeRun.status,
+        activeRun &&
+        !TERMINAL_RUN_STATUSES.includes(
+          activeRun.status as (typeof TERMINAL_RUN_STATUSES)[number],
         )
       ) {
         return { reconciled: false, reason: "in-progress" as const };
+      }
+      if (operation === "settle-terminal") {
+        if (!terminalRunId) {
+          fail("A terminal run ID is required to settle a terminal session", {
+            errorCode: "missing_workflow_generation_terminal_run",
+            statusCode: 400,
+          });
+        }
+        const [runRef, runStatus] = await Promise.all([
+          getRunTurnRef(terminalRunId),
+          getRunStatus(terminalRunId),
+        ]);
+        if (!runRef || runRef.threadId !== tabId) {
+          return { reconciled: false, reason: "run-not-found" as const };
+        }
+        if (
+          !TERMINAL_RUN_STATUSES.includes(
+            runStatus as (typeof TERMINAL_RUN_STATUSES)[number],
+          )
+        ) {
+          return { reconciled: false, reason: "in-progress" as const };
+        }
       }
     }
     if (operation === "release") {

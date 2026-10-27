@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   isRecentWorkflowGeneration,
   matchesWorkflowRequest,
+  shouldScheduleWorkflowTimeoutFallback,
   shouldRetryWorkflowStop,
   WORKFLOW_STOP_MAX_ATTEMPTS,
   workflowGenerationProgressAt,
@@ -112,13 +113,16 @@ describe("isRecentWorkflowGeneration", () => {
     ).toBeNull();
   });
 
-  it("does not keep malformed generation timestamps active", () => {
+  it("keeps malformed generation timestamps active until their run is known to have ended", () => {
     expect(
       isRecentWorkflowGeneration(
         { status: "generating", requestedAt: "invalid" },
         now,
       ),
-    ).toBe(false);
+    ).toBe(true);
+    expect(isRecentWorkflowGeneration({ status: "generating" }, now)).toBe(
+      true,
+    );
   });
 
   it("does not treat terminal workflows as active", () => {
@@ -127,6 +131,63 @@ describe("isRecentWorkflowGeneration", () => {
         { status: "failed", requestedAt: "2026-10-18T19:59:00.000Z" },
         now,
       ),
+    ).toBe(false);
+  });
+});
+
+describe("shouldScheduleWorkflowTimeoutFallback", () => {
+  const workflow = {
+    recordingId: "rec_123",
+    requestedAt: "2026-10-18T19:51:00.000Z",
+    requestId: "workflow-request-123",
+  };
+
+  it("does not replace an active cancel attempt", () => {
+    expect(
+      shouldScheduleWorkflowTimeoutFallback(
+        Date.parse("2026-10-18T20:01:00.000Z"),
+        { ...workflow, reason: "cancelled", exhausted: false },
+        workflow,
+      ),
+    ).toBe(false);
+  });
+
+  it("allows a timeout fallback after cancel attempts are exhausted", () => {
+    expect(
+      shouldScheduleWorkflowTimeoutFallback(
+        Date.parse("2026-10-18T20:01:00.000Z"),
+        { ...workflow, reason: "cancelled", exhausted: true },
+        workflow,
+      ),
+    ).toBe(true);
+  });
+
+  it("does not repeat an exhausted timeout attempt", () => {
+    expect(
+      shouldScheduleWorkflowTimeoutFallback(
+        Date.parse("2026-10-18T20:01:00.000Z"),
+        { ...workflow, reason: "timed_out", exhausted: true },
+        workflow,
+      ),
+    ).toBe(false);
+  });
+
+  it("allows a timeout for a different workflow request", () => {
+    expect(
+      shouldScheduleWorkflowTimeoutFallback(
+        Date.parse("2026-10-18T20:01:00.000Z"),
+        { ...workflow, reason: "cancelled", exhausted: false },
+        { ...workflow, requestId: "workflow-request-new" },
+      ),
+    ).toBe(true);
+  });
+
+  it("does not stop a workflow whose timestamp cannot establish a timeout", () => {
+    expect(
+      shouldScheduleWorkflowTimeoutFallback(null, null, {
+        ...workflow,
+        requestedAt: "invalid",
+      }),
     ).toBe(false);
   });
 });

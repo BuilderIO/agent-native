@@ -224,7 +224,7 @@ describe("workflow generation background sessions", () => {
     });
     const snapshot = { requests: [workflowRequest] };
     configureActions(snapshot, {
-      settle: () => {
+      reject: () => {
         snapshot.requests = [];
         return { reconciled: true };
       },
@@ -232,8 +232,9 @@ describe("workflow generation background sessions", () => {
     await renderBridge();
 
     await vi.waitFor(() =>
-      expect(workflowOperations("settle")).toHaveLength(1),
+      expect(workflowOperations("reject")).toHaveLength(1),
     );
+    expect(workflowOperations("settle")).toHaveLength(0);
     expect(workflowOperations("release")).toHaveLength(0);
     expect(workflowOperations("mark-delivered")).toHaveLength(0);
     expect(workflowOperations("consume")).toHaveLength(0);
@@ -322,7 +323,7 @@ describe("workflow generation background sessions", () => {
       await renderBridge();
 
       await vi.waitFor(() =>
-        expect(workflowOperations("settle")).toHaveLength(1),
+        expect(workflowOperations("settle-terminal")).toHaveLength(1),
       );
       expect(mocks.getBackgroundAgentSessionStatus).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -334,11 +335,12 @@ describe("workflow generation background sessions", () => {
       expect(mocks.callAction).toHaveBeenCalledWith(
         "reconcile-workflow-generation",
         {
-          operation: "settle",
+          operation: "settle-terminal",
           recordingId: "rec_123",
           requestedAt,
           requestId,
           tabId: workflowTabId,
+          terminalRunId: "run-1",
         },
       );
     },
@@ -356,7 +358,7 @@ describe("workflow generation background sessions", () => {
     configureActions(
       { requests: [], activeSessions: [workflowSession] },
       {
-        settle: () => {
+        "settle-terminal": () => {
           if (attempts++ === 0) {
             return { reconciled: false, reason: "in-progress" };
           }
@@ -367,7 +369,7 @@ describe("workflow generation background sessions", () => {
     await renderBridge();
 
     await vi.waitFor(
-      () => expect(workflowOperations("settle")).toHaveLength(2),
+      () => expect(workflowOperations("settle-terminal")).toHaveLength(2),
       { timeout: 5000 },
     );
   });
@@ -384,7 +386,7 @@ describe("workflow generation background sessions", () => {
     configureActions(
       { requests: [], activeSessions: [workflowSession] },
       {
-        settle: () => {
+        "settle-terminal": () => {
           if (attempts++ === 0) throw new Error("connection dropped");
           return { reconciled: true };
         },
@@ -393,7 +395,7 @@ describe("workflow generation background sessions", () => {
     await renderBridge();
 
     await vi.waitFor(
-      () => expect(workflowOperations("settle")).toHaveLength(2),
+      () => expect(workflowOperations("settle-terminal")).toHaveLength(2),
       { timeout: 5000 },
     );
   });

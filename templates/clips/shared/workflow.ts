@@ -59,7 +59,7 @@ export function isRecentWorkflowGeneration(
 ): boolean {
   if (state?.status !== "generating") return false;
   const staleAt = workflowGenerationStaleAt(state);
-  return staleAt !== null && now < staleAt;
+  return staleAt === null || now < staleAt;
 }
 
 export function matchesWorkflowRequest(
@@ -72,6 +72,36 @@ export function matchesWorkflowRequest(
       ? current.requestId === expected.requestId
       : !current.requestId)
   );
+}
+
+export function shouldScheduleWorkflowTimeoutFallback(
+  staleAt: number | null,
+  attempt:
+    | {
+        recordingId: string;
+        requestedAt: string;
+        requestId?: string;
+        reason: "cancelled" | "timed_out";
+        exhausted: boolean;
+      }
+    | null
+    | undefined,
+  workflow:
+    | {
+        recordingId?: string;
+        requestedAt?: string;
+        requestId?: string;
+      }
+    | null
+    | undefined,
+): boolean {
+  if (staleAt === null) return false;
+  if (!attempt || !workflow) return true;
+  const sameRequest =
+    attempt.recordingId === workflow.recordingId &&
+    typeof workflow.requestedAt === "string" &&
+    matchesWorkflowRequest(workflow, attempt);
+  return !sameRequest || (attempt.reason === "cancelled" && attempt.exhausted);
 }
 
 export const WORKFLOW_STOP_MAX_ATTEMPTS = 5;
