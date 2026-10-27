@@ -36,15 +36,24 @@ import type {
   VectorEditOverlayState,
 } from "@/components/design/multi-screen/types";
 import { reviewThreadIdFromHash } from "@/components/design/review-link";
-import { type ReviewCommentsPanelProps } from "@/components/design/ReviewCommentsPanel";
+import {
+  type ReviewCommentsPanelProps,
+  type ReviewCommentsPanelScreen,
+} from "@/components/design/ReviewCommentsPanel";
 import type { ElementSelectionIntent } from "@/components/design/types";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { type DrawAnnotation } from "@/components/visual-editor/DrawOverlay";
+import { useReviewFocusRequest } from "@/hooks/use-review-focus-request";
 import {
   isDesignHotkeyEditableTarget,
   isNativeKeyboardActivationTarget,
 } from "@/hooks/useDesignHotkeys";
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
+import {
+  buildReviewThreadAgentContext,
+  buildReviewThreadAgentDispatch,
+  type ReviewThreadAgentAction,
+} from "@/lib/review-thread-agent-actions";
 
 import { uniqueLayerId } from "../canvas-primitive-insert";
 import { createPrimitiveInsertFromSpec } from "../canvas-primitives";
@@ -66,6 +75,7 @@ import {
   clearOverviewInteractTarget,
   getCreatedScreenNavigationPlan,
 } from "../created-screen-navigation";
+import { resolveUrlScreen } from "../derive/url-screen";
 import {
   EMPTY_TEXT_CLEANUP_MAX_ATTEMPTS,
   EMPTY_TEXT_CLEANUP_RETRY_MS,
@@ -81,6 +91,7 @@ import {
   stampContentHistorySelectionAfterEntry,
   type ContentUndoStackTop,
 } from "../history";
+import { resolveScreenTitle } from "../interact-routes";
 import { getScreenFrameOriginCanvas } from "../overview-camera";
 import { blurActiveDesignEditableTarget } from "../png-export-render";
 import {
@@ -267,13 +278,11 @@ export function useEditorToolsAndVectors({
     } | null;
   } | null>(null);
   const runtimeStructureInsertRevisionRef = useRef(0);
-  const [reviewFocusRequest, setReviewFocusRequest] = useState<{
-    nonce: number;
-    anchor: unknown;
-    targetId?: string | null;
-    threadId?: string;
-  } | null>(null);
-  const reviewFocusNonceRef = useRef(0);
+  const [reviewFocusRequest, issueReviewFocusRequest] = useReviewFocusRequest();
+  // Reported by the canvas comment overlays; null when no thread card is open.
+  const [openReviewThreadId, setOpenReviewThreadId] = useState<string | null>(
+    null,
+  );
   const openedReviewHashRef = useRef<string | null>(null);
   const layersRevealedForFirstCreateRef = useRef(false);
   const [activeCodeFile, setActiveCodeFile] =
@@ -312,20 +321,13 @@ export function useEditorToolsAndVectors({
   const dispatchReviewFeedbackToAgent = useCallback(
     (root: ReviewComment, replies: ReviewComment[] = []) => {
       if (!id) return;
-      const replyText = replies
-        .map((reply) => `${reply.authorName ?? "Reviewer"}: ${reply.body}`)
-        .join("\n");
       sendToDesignAgentChat({
         message: "Apply this selected design review thread only.", // i18n-ignore agent dispatch prompt
-        context: [
-          `Design id: ${id}`,
-          `Review thread id: ${root.threadId}`,
-          `Screen id: ${root.targetId ?? "unknown"}`,
-          `Feedback: ${root.body}`,
-          replyText ? `Replies:\n${replyText}` : "",
-        ]
-          .filter(Boolean)
-          .join("\n"),
+        context: buildReviewThreadAgentContext({
+          designId: id,
+          root,
+          replies,
+        }),
         submit: true,
         openSidebar: true,
         newTab: true,
@@ -343,13 +345,28 @@ export function useEditorToolsAndVectors({
   );
 
   const handleSendReviewThreadToAgent = useCallback(
-    (thread: ReviewThread) => {
+    (thread: ReviewThread, action: ReviewThreadAgentAction) => {
       if (
         !id ||
         !canEditDesign ||
         thread.root.status !== "open" ||
         reviewSendingThreadId
       ) {
+        return;
+      }
+      const { message, context, submit, routeToAgentQueue } =
+        buildReviewThreadAgentDispatch(action, { designId: id, thread });
+      const openChat = () =>
+        sendToDesignAgentChat({
+          message,
+          context,
+          contextLabel: t("review.threadTitle"),
+          submit,
+          openSidebar: true,
+          newTab: true,
+        });
+      if (!routeToAgentQueue) {
+        openChat();
         return;
       }
       setReviewSendingThreadId(thread.root.threadId);
@@ -360,9 +377,7 @@ export function useEditorToolsAndVectors({
           threadId: thread.root.threadId,
         },
         {
-          onSuccess: () => {
-            dispatchReviewFeedbackToAgent(thread.root, thread.replies);
-          },
+          onSuccess: openChat,
           onError: () => {
             setReviewSendingThreadId(null);
             toast.error(t("review.sendToAgentFailed"));
@@ -370,14 +385,7 @@ export function useEditorToolsAndVectors({
         },
       );
     },
-    [
-      canEditDesign,
-      dispatchReviewFeedbackToAgent,
-      id,
-      reviewSendingThreadId,
-      sendReviewThreadToAgent,
-      t,
-    ],
+    [canEditDesign, id, reviewSendingThreadId, sendReviewThreadToAgent, t],
   );
 
   const handleReviewThreadSelect = useCallback(
@@ -410,9 +418,7 @@ export function useEditorToolsAndVectors({
         setMode("edit");
       }
       setActiveLeftPanel("threads");
-      reviewFocusNonceRef.current += 1;
-      setReviewFocusRequest({
-        nonce: reviewFocusNonceRef.current,
+      issueReviewFocusRequest({
         anchor: thread.root.anchor,
         targetId,
         threadId: thread.root.threadId,
@@ -441,6 +447,17 @@ export function useEditorToolsAndVectors({
     reviewResult.isLoading,
   ]);
 
+  const reviewPanelScreens = useMemo<ReviewCommentsPanelScreen[]>(
+    () =>
+      overviewScreens.map((screen) => ({
+        id: screen.id,
+        name: resolveScreenTitle(screen),
+        // A markup screen has no route, so resolveUrlScreen returns null for it.
+        route: resolveUrlScreen({ screen, fallbackSourceType: "inline" })
+          ?.route,
+      })),
+    [overviewScreens],
+  );
   const reviewCommentsPanelProps = useMemo<
     ReviewCommentsPanelProps | undefined
   >(
@@ -452,28 +469,19 @@ export function useEditorToolsAndVectors({
             currentUserEmail: session?.email,
             currentTargetId:
               activeFile?.id === boardFileId ? null : activeFile?.id,
-            canResolve: canEditDesign,
-            canDeleteComment: (comment) =>
-              canEditDesign ||
-              ("canDelete" in comment && comment.canDelete === true) ||
-              comment.authorEmail === session?.email,
+            screens: reviewPanelScreens,
             signInHref: signInToCommentHref,
-            canDispatchToAgent: canEditDesign,
-            sendingThreadId: reviewSendingThreadId,
-            onSendThreadToAgent: canEditDesign
-              ? handleSendReviewThreadToAgent
-              : undefined,
             onSelectThread: handleReviewThreadSelect,
+            activeThreadId: openReviewThreadId,
           }
         : undefined,
     [
       canCommentDesign,
-      canEditDesign,
       activeFile?.id,
       handleReviewThreadSelect,
-      handleSendReviewThreadToAgent,
       id,
-      reviewSendingThreadId,
+      openReviewThreadId,
+      reviewPanelScreens,
       session?.email,
       signInToCommentHref,
     ],
@@ -1531,6 +1539,7 @@ export function useEditorToolsAndVectors({
         persistedSelectionStateRef,
         persistedSelectionWriteTimerRef,
         responsiveEditScope,
+        reviewThreadId: openReviewThreadId,
         selectedElement,
         selectedScreenIds,
         selectedStateId,
@@ -1564,6 +1573,7 @@ export function useEditorToolsAndVectors({
       designDataJson,
       layoutGrids,
       selectedStateId,
+      openReviewThreadId,
       isSignedIn,
       interactDeviceName,
       interactDeviceSize.width,
@@ -1744,6 +1754,7 @@ export function useEditorToolsAndVectors({
     setVectorEditingState,
     runtimeStructureInsertRevisionRef,
     reviewFocusRequest,
+    setOpenReviewThreadId,
     activeCodeFile,
     setActiveCodeFile,
     selectionRevisionRef,

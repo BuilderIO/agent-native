@@ -6,6 +6,7 @@ import {
 } from "@agent-native/core/application-state";
 import {
   getReviewStatus,
+  getReviewThreadRoot,
   queryReviewComments,
   redactPublicReviewCommentIdentity,
   redactPublicReviewStatusIdentity,
@@ -229,9 +230,71 @@ function buildReviewSummary(
   };
 }
 
+const OPEN_THREAD_PREVIEW_LENGTH = 200;
+const OPEN_THREAD_COMMENT_LIMIT = 500;
+const REVIEW_MENTION_MARKUP = /@\[([^\]]+)\]\(mailto:[^)]+\)/g;
+
+/**
+ * What the agent learns about the thread the user has open: `null` when none
+ * is open, the summary when it loads, `unavailable` when it is open but cannot
+ * be read (deleted, not this design's, or the lookup failed) so a failure never
+ * looks like "nothing open".
+ */
+async function loadOpenReviewThread(
+  threadId: string | null,
+  designId: string,
+  scope: { userEmail: string | null; orgId: string | null },
+) {
+  if (!threadId) return null;
+  try {
+    const root = await getReviewThreadRoot(
+      threadId,
+      { resourceType: "design", resourceId: designId },
+      scope,
+      { bypassScope: true },
+    );
+    if (!root || root.deletedAt || root.status === "deleted") {
+      return { threadId, unavailable: true as const };
+    }
+    // A thread's replies are only reachable through its target's comments.
+    const targetComments = await queryReviewComments({
+      resourceType: "design",
+      resourceId: designId,
+      scope,
+      bypassScope: true,
+      includeResolved: true,
+      includeDeleted: false,
+      targetId: root.targetId,
+      limit: OPEN_THREAD_COMMENT_LIMIT,
+    });
+    const commentCount = targetComments.filter(
+      (comment) => comment.threadId === threadId,
+    ).length;
+    return {
+      threadId,
+      screenId: root.targetId,
+      anchorNodeId: reviewAnchorNodeId(root.anchor),
+      status: root.status,
+      commentCount,
+      ...(targetComments.length >= OPEN_THREAD_COMMENT_LIMIT
+        ? { commentCountTruncated: true as const }
+        : {}),
+      preview: root.body
+        .replace(REVIEW_MENTION_MARKUP, "@$1")
+        .slice(0, OPEN_THREAD_PREVIEW_LENGTH),
+    };
+  } catch (error) {
+    console.error(
+      `[view-screen] could not load open thread ${threadId}`,
+      error,
+    );
+    return { threadId, unavailable: true as const };
+  }
+}
+
 export default defineAction({
   description:
-    "See what the user is currently looking at on screen. Returns the current navigation state including which design or template is open, which view they are on (list, templates, editor, design-systems, present, settings), active/focused design screen, selected element, the Interact preview's device and theme, light, dark or system (system, the default, shows the design as authored; designSelection.interact, null outside Interact), active left rail panel (file, agent, assets, import, tools, tokens, or code; file is the panel labeled Layers), active code file metadata, overview canvas state, live Motion timeline id, playhead/duration in milliseconds, playback mode, auto-keyframe and selected track/keyframe keys, live-collaboration opt-in, review status and feedback queue summary, plus any pending question overlay. Basic route context is included in <current-screen>; call this for a fresh or fuller snapshot when visible design details matter.",
+    "See what the user is currently looking at on screen. Returns the current navigation state including which design or template is open, which view they are on (list, templates, editor, design-systems, present, settings), active/focused design screen, selected element, the Interact preview's device and theme, light, dark or system (system, the default, shows the design as authored; designSelection.interact, null outside Interact), active left rail panel (file, agent, assets, import, tools, tokens, or code; file is the panel labeled Layers), active code file metadata, overview canvas state, live Motion timeline id, playhead/duration in milliseconds, playback mode, auto-keyframe and selected track/keyframe keys, live-collaboration opt-in, review status and feedback queue summary (design.review.openThread is the comment thread open on the canvas or in the Threads panel: null when none, a summary when it loads, or {threadId, unavailable: true} when it cannot be read), plus any pending question overlay. Basic route context is included in <current-screen>; call this for a fresh or fuller snapshot when visible design details matter.",
   schema: z.object({}),
   http: false,
   readOnly: true,
@@ -524,16 +587,23 @@ export default defineAction({
           role: access.role,
           visibility: access.resource.visibility,
         });
-        (screen.design as Record<string, unknown>).review = buildReviewSummary(
-          redactReviewIdentity
-            ? reviewComments.map(redactPublicReviewCommentIdentity)
-            : reviewComments,
-          redactReviewIdentity
-            ? redactPublicReviewStatusIdentity(reviewStatus)
-            : reviewStatus,
-          activeScreen?.id,
-          reviewSummary,
-        );
+        (screen.design as Record<string, unknown>).review = {
+          ...buildReviewSummary(
+            redactReviewIdentity
+              ? reviewComments.map(redactPublicReviewCommentIdentity)
+              : reviewComments,
+            redactReviewIdentity
+              ? redactPublicReviewStatusIdentity(reviewStatus)
+              : reviewStatus,
+            activeScreen?.id,
+            reviewSummary,
+          ),
+          openThread: await loadOpenReviewThread(
+            stringProp(designSelection, "reviewThreadId") || null,
+            designId,
+            reviewScope,
+          ),
+        };
       }
     }
     if (showQuestions) {

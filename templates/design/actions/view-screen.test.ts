@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => {
     resolveAccess: vi.fn(),
     getReviewStatus: vi.fn(),
     getReviewThreadSummary: vi.fn(),
+    getReviewThreadRoot: vi.fn(),
     queryReviewComments: vi.fn(),
     eq: vi.fn((left, right) => ({ left, right })),
     selectChain,
@@ -48,6 +49,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 vi.mock("@agent-native/core/review", () => ({
   getReviewStatus: mocks.getReviewStatus,
   getReviewThreadSummary: mocks.getReviewThreadSummary,
+  getReviewThreadRoot: mocks.getReviewThreadRoot,
   queryReviewComments: mocks.queryReviewComments,
   shouldRedactReviewIdentity: (
     ctx: { userEmail?: string | null } | undefined,
@@ -110,6 +112,7 @@ describe("view-screen", () => {
     mocks.getReviewStatus.mockReset();
     mocks.getReviewThreadSummary.mockReset();
     mocks.queryReviewComments.mockReset();
+    mocks.getReviewThreadRoot.mockReset();
     mocks.selectChain.where.mockReset();
     mocks.contentSelectChain.limit.mockResolvedValue([]);
     mocks.resolveAccess.mockResolvedValue({
@@ -127,6 +130,7 @@ describe("view-screen", () => {
       agentQueueCount: 0,
     });
     mocks.queryReviewComments.mockResolvedValue([]);
+    mocks.getReviewThreadRoot.mockResolvedValue(null);
   });
 
   it("reports the design's own linked design system, not just a template's", async () => {
@@ -802,6 +806,196 @@ describe("view-screen", () => {
     expect(result.design.review).toMatchObject({
       openCount: 1,
       agentQueueCount: 0,
+    });
+  });
+
+  describe("the open review thread", () => {
+    function openEditorWithThread(reviewThreadId: string | null | undefined) {
+      mocks.readAppStateForCurrentTab
+        .mockResolvedValueOnce({
+          view: "editor",
+          editorView: "single",
+          designId: "design_123",
+          fileId: "file_checkout",
+        })
+        .mockResolvedValueOnce(
+          reviewThreadId === undefined
+            ? { activeFileId: "file_checkout" }
+            : { activeFileId: "file_checkout", reviewThreadId },
+        );
+      mocks.selectChain.where.mockResolvedValue([
+        {
+          id: "file_checkout",
+          filename: "checkout.html",
+          fileType: "html",
+          updatedAt: "2026-06-29T00:00:00.000Z",
+        },
+      ]);
+    }
+
+    const rootComment = {
+      id: "comment_root",
+      threadId: "thread_open",
+      parentCommentId: null,
+      targetId: "file_checkout",
+      status: "open",
+      body: "Hey @[Sam Lee](mailto:sam@example.com) make the button bigger",
+      anchor: { nodeId: "node_button", point: { xPct: 50, yPct: 50 } },
+      deletedAt: null,
+    };
+
+    it("is null when no thread is open, and does not look anything up", async () => {
+      openEditorWithThread(null);
+
+      const result = JSON.parse(await action.run({}));
+
+      expect(result.design.review.openThread).toBeNull();
+      expect(mocks.getReviewThreadRoot).not.toHaveBeenCalled();
+    });
+
+    it("is null for a selection record that predates the field", async () => {
+      openEditorWithThread(undefined);
+
+      const result = JSON.parse(await action.run({}));
+
+      expect(result.design.review.openThread).toBeNull();
+    });
+
+    it("summarizes a readable thread, including a resolved one", async () => {
+      openEditorWithThread("thread_open");
+      mocks.getReviewThreadRoot.mockResolvedValue({
+        ...rootComment,
+        status: "resolved",
+      });
+      mocks.queryReviewComments.mockImplementation(
+        async (input: { includeResolved?: boolean }) =>
+          input.includeResolved
+            ? [
+                { ...rootComment, status: "resolved" },
+                {
+                  ...rootComment,
+                  id: "reply_1",
+                  parentCommentId: "comment_root",
+                  status: "resolved",
+                },
+                {
+                  ...rootComment,
+                  id: "other_root",
+                  threadId: "thread_other",
+                },
+              ]
+            : [],
+      );
+
+      const result = JSON.parse(await action.run({}));
+
+      expect(result.design.review.openThread).toEqual({
+        threadId: "thread_open",
+        screenId: "file_checkout",
+        anchorNodeId: "node_button",
+        status: "resolved",
+        commentCount: 2,
+        preview: "Hey @Sam Lee make the button bigger",
+      });
+      expect(mocks.getReviewThreadRoot).toHaveBeenCalledWith(
+        "thread_open",
+        { resourceType: "design", resourceId: "design_123" },
+        expect.anything(),
+        { bypassScope: true },
+      );
+      expect(mocks.queryReviewComments).toHaveBeenCalledWith(
+        expect.objectContaining({
+          includeResolved: true,
+          includeDeleted: false,
+          targetId: "file_checkout",
+        }),
+      );
+    });
+
+    it("bounds the preview and reports a board thread with a null screen", async () => {
+      openEditorWithThread("thread_open");
+      mocks.getReviewThreadRoot.mockResolvedValue({
+        ...rootComment,
+        targetId: null,
+        anchor: null,
+        body: "x".repeat(500),
+      });
+      mocks.queryReviewComments.mockResolvedValue([]);
+
+      const result = JSON.parse(await action.run({}));
+
+      expect(result.design.review.openThread).toMatchObject({
+        threadId: "thread_open",
+        screenId: null,
+        anchorNodeId: null,
+        preview: "x".repeat(200),
+      });
+    });
+
+    it("says the count is cut off when the lookup hit its cap", async () => {
+      openEditorWithThread("thread_open");
+      mocks.getReviewThreadRoot.mockResolvedValue(rootComment);
+      mocks.queryReviewComments.mockImplementation(async () =>
+        Array.from({ length: 500 }, (_, index) => ({
+          ...rootComment,
+          id: `comment_${index}`,
+        })),
+      );
+
+      const result = JSON.parse(await action.run({}));
+
+      expect(result.design.review.openThread).toMatchObject({
+        commentCount: 500,
+        commentCountTruncated: true,
+      });
+    });
+
+    it("is unavailable, not null, when the thread is not found", async () => {
+      openEditorWithThread("thread_gone");
+      mocks.getReviewThreadRoot.mockResolvedValue(null);
+
+      const result = JSON.parse(await action.run({}));
+
+      expect(result.design.review.openThread).toEqual({
+        threadId: "thread_gone",
+        unavailable: true,
+      });
+    });
+
+    it("is unavailable when the thread was deleted", async () => {
+      openEditorWithThread("thread_open");
+      mocks.getReviewThreadRoot.mockResolvedValue({
+        ...rootComment,
+        status: "deleted",
+        deletedAt: "2026-06-29T00:00:00.000Z",
+      });
+
+      const result = JSON.parse(await action.run({}));
+
+      expect(result.design.review.openThread).toEqual({
+        threadId: "thread_open",
+        unavailable: true,
+      });
+    });
+
+    it("is unavailable, and logs, when the lookup throws", async () => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      try {
+        openEditorWithThread("thread_open");
+        mocks.getReviewThreadRoot.mockRejectedValue(new Error("db down"));
+
+        const result = JSON.parse(await action.run({}));
+
+        expect(result.design.review.openThread).toEqual({
+          threadId: "thread_open",
+          unavailable: true,
+        });
+        expect(consoleError).toHaveBeenCalled();
+      } finally {
+        consoleError.mockRestore();
+      }
     });
   });
 

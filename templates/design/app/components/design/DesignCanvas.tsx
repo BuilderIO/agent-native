@@ -88,6 +88,7 @@ import {
   resolveDesktopDesignSnapshotLayer,
   useDesktopDesignNativePreview,
 } from "@/lib/desktop-design-preview";
+import type { ReviewThreadAgentAction } from "@/lib/review-thread-agent-actions";
 import {
   FRAME_BRIDGE_KEY_PARAM,
   isSameOriginRoutePath,
@@ -947,8 +948,12 @@ interface DesignCanvasProps {
   onReviewFocusBoardPoint?: (point: ReviewAnchorWorldPoint) => boolean | void;
   reviewCurrentUserEmail?: string | null;
   reviewFocusRequest?: ReviewFocusRequest | null;
+  onReviewActiveThreadChange?: (threadId: string | null) => void;
   onDispatchCommentToAgent?: (comment: ReviewComment) => void;
-  onSendThreadToAgent?: (thread: ReviewThread) => void;
+  onSendThreadToAgent?: (
+    thread: ReviewThread,
+    action: ReviewThreadAgentAction,
+  ) => void;
   reviewSendingThreadId?: string | null;
   designTitle?: string;
   commentContextId?: string;
@@ -1602,6 +1607,7 @@ export function DesignCanvas({
   onReviewFocusBoardPoint,
   reviewCurrentUserEmail,
   reviewFocusRequest,
+  onReviewActiveThreadChange,
   onDispatchCommentToAgent,
   onSendThreadToAgent,
   reviewSendingThreadId,
@@ -8936,6 +8942,7 @@ export function DesignCanvas({
         canResolve={reviewCanResolve}
         currentUserEmail={reviewCurrentUserEmail}
         focusRequest={reviewFocusRequest}
+        onActiveThreadChange={onReviewActiveThreadChange}
         onDispatchCommentToAgent={onDispatchCommentToAgent}
         onSendThreadToAgent={onSendThreadToAgent}
         sendingThreadId={reviewSendingThreadId}

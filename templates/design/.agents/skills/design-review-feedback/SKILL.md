@@ -10,10 +10,13 @@ description: >-
 Use the shared review actions for design feedback:
 
 1. Call `view-screen` first so the active design, screen, and review queue are
-   current.
-2. Call `get-review-feedback` for the open queue and work on one root thread at
-   a time. Keep the thread id, target screen id, anchor node id, and nearby
-   context together while editing.
+   current. It reports `design.review.openThread`: the thread the user has
+   open, `null` when none is, or `{ threadId, unavailable: true }` when it is
+   open but cannot be read.
+2. When the user says "this comment" or "this thread", work on
+   `design.review.openThread`. Otherwise call `get-review-feedback` for the open
+   queue and work on one root thread at a time. Keep the thread id, target
+   screen id, anchor node id, and nearby context together while editing.
 3. For element-anchored feedback, prefer the stable
    `data-agent-native-node-id` from the anchor. Use the stored percentage point
    only as a visual fallback when the node cannot be resolved.
@@ -34,7 +37,10 @@ Reviewers can leave a human-only comment or choose **Send to agent** when
 composing. Editors can selectively route an existing open thread with
 `send-review-thread-to-agent`; that action only changes the selected thread.
 When a thread is sent from the Design UI, the agent chat handoff includes its
-thread id and instructs the agent not to apply other queued feedback.
+thread id and instructs the agent not to apply other queued feedback. A thread sent from the
+card menu may instead say Suggest changes (propose edits only; do not edit),
+Reply in thread (answer with `reply-review-comment` only; do not edit or
+resolve), or Apply changes and resolve (apply, then resolve).
 
 Use `create-review-comment` for agent-authored follow-up notes when a durable
 record is more useful than a chat-only explanation. Keep review comments
