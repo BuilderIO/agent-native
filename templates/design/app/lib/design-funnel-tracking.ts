@@ -219,8 +219,15 @@ export function useDesignReadyViewTracking({
     const screenCount = generationOutputFiles(current.files).length;
 
     for (const [runId, run] of runsRef.current) {
+      if (
+        run.designId &&
+        current.designId &&
+        current.designId !== run.designId
+      ) {
+        runsRef.current.delete(runId);
+        continue;
+      }
       if (!run.completed) continue;
-      if (run.designId && current.designId !== run.designId) continue;
       if (!current.isOwner) {
         runsRef.current.delete(runId);
         continue;

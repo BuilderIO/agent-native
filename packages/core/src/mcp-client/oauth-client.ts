@@ -1232,7 +1232,7 @@ export async function resolveMcpOAuthCredentialAccess(options: {
           const next: McpOAuthCredentialAccessBundle = {
             ...credentials,
             tokens: normalizedOAuthCredentialTokens(nextTokens),
-            ...(expiresAt !== undefined ? { tokenExpiresAt: expiresAt } : {}),
+            tokenExpiresAt: expiresAt,
           };
           return next;
         },

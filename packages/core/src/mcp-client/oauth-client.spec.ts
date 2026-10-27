@@ -736,6 +736,31 @@ describe("MCP OAuth client", () => {
     );
   });
 
+  it("clears stale expiry when a refresh response omits expires_in", async () => {
+    getOAuthTokensMock.mockResolvedValue({
+      ...credentials,
+      tokenExpiresAt: Date.now() - 1,
+    });
+    refreshAuthorizationMock.mockResolvedValueOnce({
+      access_token: "<NEW_ACCESS_TOKEN>",
+      token_type: "bearer",
+    });
+
+    await expect(
+      getMcpOAuthAccessToken({
+        key: "mcp_oauth:test",
+        scope: "org",
+        scopeId: "org-test",
+        serverUrl: "https://mcp.example.com/mcp",
+      }),
+    ).resolves.toBe("<NEW_ACCESS_TOKEN>");
+
+    expect(saveOAuthTokensMock.mock.calls[0]?.[2]).toMatchObject({
+      tokens: { access_token: "<NEW_ACCESS_TOKEN>" },
+      tokenExpiresAt: undefined,
+    });
+  });
+
   it("refreshes with the advertised resource identifier, not the WHATWG href", async () => {
     getOAuthTokensMock.mockResolvedValue({
       ...credentials,

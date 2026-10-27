@@ -538,6 +538,18 @@ describe("design_ready_viewed", () => {
     expect(readyEvents()).toHaveLength(0);
   });
 
+  it("drops completed runs when the editor switches to another design", async () => {
+    await renderReady({ files: [] });
+    await agentRun({ isRunning: true });
+    await agentRun({ isRunning: false });
+    expect(readyEvents()).toHaveLength(0);
+
+    await renderReady({ designId: "design-2", files: [screen("b")] });
+    await renderReady({ designId: "design-1", files: [screen("a")] });
+
+    expect(readyEvents()).toHaveLength(0);
+  });
+
   it("reports a newer link's attempt on the same design", async () => {
     setUrl("?generation_attempt_id=attempt_aaaaaaaaaaaaaaaa");
     await renderReady({ files: [screen("a")] });
