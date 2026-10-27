@@ -7,6 +7,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
+import { firstRow } from "../server/lib/first-row.js";
 import {
   blocksStorageTarget,
   isBlocksPropertyType,
@@ -27,7 +28,6 @@ import { resolveContentDocumentAccess } from "./_content-document-access.js";
 import {
   contentChangeActor,
   enqueuePropertyChangeWebhooks,
-  firstRow,
   scheduleContentWebhookDelivery,
 } from "./_content-webhooks.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";

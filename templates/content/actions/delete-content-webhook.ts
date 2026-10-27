@@ -5,10 +5,10 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { firstRow } from "../server/lib/first-row.js";
 import {
   contentWebhookScopeForRow,
   contentWebhookSecretRef,
-  firstRow,
 } from "./_content-webhooks.js";
 
 export default defineAction({

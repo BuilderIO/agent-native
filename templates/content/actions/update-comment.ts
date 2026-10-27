@@ -16,6 +16,7 @@ import {
 import { notifyEditedCommentMentions } from "../server/lib/comment-notifications.js";
 import { commentSubmissionSource } from "../server/lib/comment-submission-source.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
+import { firstRow } from "../server/lib/first-row.js";
 import {
   personMentions,
   readStoredCommentMentions,
@@ -24,7 +25,6 @@ import {
 import {
   contentChangeActor,
   enqueueCommentWebhooks,
-  firstRow,
   scheduleContentWebhookDelivery,
 } from "./_content-webhooks.js";
 
