@@ -283,6 +283,46 @@ describe("Mail decision automation routing", () => {
     expect(mocks.resolveTextAutomationModelSettings).not.toHaveBeenCalled();
   });
 
+  it("marks malformed rule answers retryable in live automation and backfills", async () => {
+    const rules = [
+      {
+        id: "rule-1",
+        name: "Important",
+        condition: "Finance updates",
+        actions: [],
+      },
+    ];
+    mocks.decide.mockImplementation(
+      async ({
+        questions,
+      }: {
+        questions: Array<{ name: string; type: string }>;
+      }) => decisionResult(questions, { failures: ["q_0"] }),
+    );
+
+    const live = await previewAutomationRules(
+      [email],
+      rules,
+      "owner@example.com",
+    );
+    const backfill = await evaluateAiFilterBackfillRules(
+      [email],
+      rules,
+      "owner@example.com",
+      [],
+    );
+
+    const failure = {
+      emailId: email.id,
+      accountEmail: email.accountEmail,
+      ruleId: "rule-1",
+      reason: "invalid_response",
+      retryable: true,
+    };
+    expect(live.failures).toEqual([failure]);
+    expect(backfill.failures).toEqual([failure]);
+  });
+
   it("keeps AI-filter results distinct for matching IDs across accounts", async () => {
     mocks.decide.mockImplementationOnce(
       async ({

@@ -146,7 +146,6 @@ export default defineAction({
       ? priorityRules.map((rule) => rule.condition.trim()).join("\n")
       : AI_PRIORITY_DEFAULT_INSTRUCTION;
     const identity = instructionIdentity(priorityRules, instruction);
-    const selectedModel = modelForProvider(selectedProvider);
     const eligibleEmails = emails
       .filter(
         (email) =>
@@ -166,8 +165,9 @@ export default defineAction({
       fingerprint: emailFingerprint(email),
     }));
     const scores = new Map<string, AiPriorityScore>();
-    let cachedModel: { provider: DecisionProvider; model: string } | null =
-      null;
+    let rankingProvider = selectedProvider;
+    let rankingModel = modelForProvider(selectedProvider);
+    let cachedScores = new Map<string, AiPriorityScore>();
     for (const provider of readyProviders) {
       const model = modelForProvider(provider);
       const providerScores = getCachedPriorityScores(
@@ -177,13 +177,14 @@ export default defineAction({
         provider,
         model,
       );
-      if (providerScores.size > 0 && cachedModel === null) {
-        cachedModel = { provider, model };
+      if (providerScores.size > cachedScores.size) {
+        rankingProvider = provider;
+        rankingModel = model;
+        cachedScores = providerScores;
       }
-      for (const [key, score] of providerScores) {
-        if (!scores.has(key)) scores.set(key, score);
-      }
-      if (scores.size === fingerprints.length) break;
+    }
+    for (const [key, score] of cachedScores) {
+      scores.set(key, score);
     }
     const feedbackValue =
       storedFeedback &&
@@ -226,9 +227,9 @@ export default defineAction({
     let evaluatedCount = 0;
     let failedCount = 0;
     let failures: AiPriorityFailure[] = [];
-    let model: { provider: DecisionProvider; model: string } = cachedModel ?? {
-      provider: selectedProvider,
-      model: selectedModel,
+    let model: { provider: DecisionProvider; model: string } = {
+      provider: rankingProvider,
+      model: rankingModel,
     };
 
     if (pending.length > 0) {
@@ -237,12 +238,22 @@ export default defineAction({
         ownerEmail,
         instruction,
         AbortSignal.timeout(25_000),
+        cachedScores.size ? [rankingProvider] : undefined,
       );
-      evaluatedCount = result.evaluatedCount;
-      failedCount = result.failedCount;
-      failures = result.failures;
-      model = result.model ?? model;
-      const failureKeys = new Set(
+      const resultProviders = new Set(
+        [...result.scores.values()].map((score) => score.provider),
+      );
+      const actualProvider = cachedScores.size
+        ? rankingProvider
+        : (result.model?.provider ??
+          resultProviders.values().next().value ??
+          rankingProvider);
+      model = {
+        provider: actualProvider,
+        model: modelForProvider(actualProvider),
+      };
+      failures = [...result.failures];
+      const failedKeys = new Set(
         failures.map((failure) =>
           aiPriorityEmailKey(failure.accountEmail, failure.emailId),
         ),
@@ -252,8 +263,22 @@ export default defineAction({
       for (const email of pending) {
         const key = aiPriorityEmailKey(email.accountEmail, email.id);
         const score = result.scores.get(key);
+        if (score && score.provider !== actualProvider) {
+          if (!failedKeys.has(key)) {
+            failures.push({
+              emailId: email.id,
+              ...(email.accountEmail
+                ? { accountEmail: email.accountEmail }
+                : {}),
+              reason: "provider_error",
+              retryable: true,
+            });
+            failedKeys.add(key);
+          }
+          continue;
+        }
         if (!score) {
-          if (!failureKeys.has(key)) {
+          if (!failedKeys.has(key)) {
             fail("Priority decision returned an unclassified email.", {
               errorCode: "decision_invalid_response",
               statusCode: 502,
@@ -261,6 +286,7 @@ export default defineAction({
           }
           continue;
         }
+        evaluatedCount += 1;
         if (
           !Number.isFinite(score.score) ||
           score.score < 0 ||
@@ -291,6 +317,7 @@ export default defineAction({
           ...(score.reason ? { reason: score.reason } : {}),
         });
       }
+      failedCount = failures.length;
       if (result.evaluatedCount + result.failedCount !== pending.length) {
         fail("Priority decision returned incomplete results.", {
           errorCode: "decision_invalid_response",

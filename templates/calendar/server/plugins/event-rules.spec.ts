@@ -991,6 +991,83 @@ describe("calendar event rules sweep", () => {
     expect(mocks.rsvpEvent).not.toHaveBeenCalled();
   });
 
+  it("keeps failed invitations pending while processing healthy later batches", async () => {
+    const events = Array.from({ length: 11 }, (_, index) => ({
+      id: `event-${index + 1}`,
+      created: new Date(Date.now() + 60_000).toISOString(),
+      updated: "2026-09-25T12:00:00.000Z",
+      status: "confirmed",
+      summary: `Planning review ${index + 1}`,
+      description: "",
+      end: { dateTime: new Date(Date.now() + 3_600_000).toISOString() },
+      attendees: [{ email: "one@example.com", responseStatus: "needsAction" }],
+    }));
+    const firstEvent = events[0];
+    if (!firstEvent) throw new Error("Expected the first synthetic event.");
+    const cursorKey = "one@example.com:primary";
+    const { owner, settingsByOwner } = configureOwnerSweep({
+      runtime: { cursors: { [cursorKey]: "old-sync-token" } },
+      event: firstEvent,
+    });
+    mocks.calendarListEvents.mockResolvedValueOnce({
+      items: events,
+      nextSyncToken: "new-sync-token",
+    });
+    mocks.decide
+      .mockImplementationOnce(async ({ questions }: any) => ({
+        status: "ok",
+        provider: "openai",
+        model: "gpt-6-luna",
+        answers: Object.fromEntries(
+          questions.flatMap(({ name }: { name: string }) =>
+            name === "event_0_0"
+              ? []
+              : [
+                  [
+                    name,
+                    {
+                      type: "predicate",
+                      name,
+                      probability: name === "event_1_0" ? 1 : 0,
+                    },
+                  ],
+                ],
+          ),
+        ),
+        questionFailures: { event_0_0: "invalid_response" },
+      }))
+      .mockImplementationOnce(async ({ questions }: any) => ({
+        status: "ok",
+        provider: "openai",
+        model: "gpt-6-luna",
+        answers: Object.fromEntries(
+          questions.map(({ name }: { name: string }) => [
+            name,
+            { type: "predicate", name, probability: 0 },
+          ]),
+        ),
+      }));
+
+    await expect(runCalendarEventRulesOnce()).rejects.toMatchObject({
+      name: "AggregateError",
+    });
+
+    expect(mocks.decide).toHaveBeenCalledTimes(2);
+    expect(mocks.rsvpEvent).toHaveBeenCalledTimes(1);
+    expect(mocks.rsvpEvent.mock.calls[0]?.[0]).toBe("event-2");
+    const ownerSettings = settingsByOwner[owner];
+    if (!ownerSettings) throw new Error("Expected persisted owner settings.");
+    const runtime = ownerSettings["calendar-event-rules-runtime"];
+    expect(runtime.cursors[cursorKey]).toBe("old-sync-token");
+    expect(Object.keys(runtime.processed)).toHaveLength(10);
+    expect(runtime.processed).not.toHaveProperty(
+      "google:one@example.com:primary:event-1",
+    );
+    expect(runtime.processed).toHaveProperty(
+      "google:one@example.com:primary:event-2",
+    );
+  });
+
   it("fails an event-rule batch when every decision answer is missing", async () => {
     configureOwnerSweep();
     mocks.decide.mockResolvedValueOnce({

@@ -183,6 +183,7 @@ describe("get-ai-priority action", () => {
       "owner@example.com",
       expect.any(String),
       expect.any(AbortSignal),
+      undefined,
     );
     expect(mocks.saveAiPriorityCache).toHaveBeenCalledWith(
       "owner@example.com",
@@ -299,6 +300,63 @@ describe("get-ai-priority action", () => {
       { provider: "openai", model: "gpt-6-luna" },
     ]);
     expect(mocks.previewAutomationPriority).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a Priority ranking on one provider when cache entries are split", async () => {
+    mocks.getDecisionsStatus.mockResolvedValue(status(["jev", "openai"]));
+    mocks.getCachedPriorityScores.mockImplementation(
+      (
+        _cache,
+        candidateEmails: Array<{ id: string; accountEmail?: string }>,
+        _key,
+        provider: string,
+        model: string,
+      ) => {
+        mocks.cacheLookups.push({ provider, model });
+        const emailId = provider === "jev" ? "email-1" : "email-2";
+        const candidate = candidateEmails.find(({ id }) => id === emailId);
+        if (!candidate) return new Map();
+        return new Map([
+          [
+            aiPriorityEmailKey(candidate.accountEmail, candidate.id),
+            {
+              emailId,
+              score: provider === "jev" ? 0.95 : 0.1,
+            },
+          ],
+        ]);
+      },
+    );
+    mocks.previewAutomationPriority.mockResolvedValueOnce({
+      scores: new Map([
+        [
+          aiPriorityEmailKey(undefined, "email-2"),
+          {
+            emailId: "email-2",
+            score: 0.7,
+            provider: "jev",
+            model: "jev-latest",
+          },
+        ],
+      ]),
+      failures: [],
+      evaluatedCount: 1,
+      failedCount: 0,
+      model: { provider: "jev", model: "jev-latest" },
+    });
+
+    const result = await action.run({
+      emails: [email("email-1"), email("email-2")],
+    });
+
+    expect(result.scores).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ emailId: "email-1", score: 0.95 }),
+        expect.objectContaining({ emailId: "email-2", score: 0.7 }),
+      ]),
+    );
+    expect(result.model).toEqual({ provider: "jev", model: "jev-latest" });
+    expect(mocks.previewAutomationPriority.mock.calls[0]?.[4]).toEqual(["jev"]);
   });
 
   it("returns successful scores with per-email failures and no fallback scores", async () => {

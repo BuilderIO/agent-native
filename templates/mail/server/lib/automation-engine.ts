@@ -1200,6 +1200,12 @@ const NON_RETRYABLE_DECISION_FAILURES = new Set<AiFilterDecisionFailureReason>([
   "unverified_capability",
 ]);
 
+function isRetryableDecisionFailure(
+  reason: AiFilterDecisionFailureReason,
+): boolean {
+  return !NON_RETRYABLE_DECISION_FAILURES.has(reason);
+}
+
 type PriorityScore = {
   score: number;
   provider: DecisionProvider;
@@ -1248,6 +1254,7 @@ async function requestMailDecision(
   input: { type: "json"; value: unknown },
   questions: DecisionQuestion[],
   signal?: AbortSignal,
+  providers?: readonly DecisionProvider[],
 ): Promise<SuccessfulDecision> {
   let result: DecisionResult;
   try {
@@ -1255,7 +1262,11 @@ async function requestMailDecision(
       ownerEmail,
       input: [input],
       questions,
-      options: { timeoutMs: 12_000, ...(signal ? { signal } : {}) },
+      options: {
+        timeoutMs: 12_000,
+        ...(signal ? { signal } : {}),
+        ...(providers ? { providers } : {}),
+      },
     });
   } catch {
     if (signal?.aborted) signal.throwIfAborted();
@@ -1350,7 +1361,7 @@ async function evaluateRules(
     } catch (error) {
       if (signal?.aborted) signal.throwIfAborted();
       if (!(error instanceof MailDecisionRequestError)) throw error;
-      const retryable = !NON_RETRYABLE_DECISION_FAILURES.has(error.reason);
+      const retryable = isRetryableDecisionFailure(error.reason);
       failures.push(
         ...batch.map(({ email, rule }) => ({
           emailId: email.id,
@@ -1368,24 +1379,28 @@ async function evaluateRules(
       const name = `q_${index}`;
       const answer = result.answers[name] as DecisionAnswer | undefined;
       if (!answer) {
+        const reason = result.questionFailures?.[name] ?? "invalid_response";
         failures.push({
           emailId: entry.email.id,
           ...(entry.email.accountEmail
             ? { accountEmail: entry.email.accountEmail }
             : {}),
           ruleId: entry.rule.id,
-          reason: result.questionFailures?.[name] ?? "invalid_response",
+          reason,
+          retryable: isRetryableDecisionFailure(reason),
         });
         continue;
       }
       if (answer.type === "refusal") {
+        const reason = "refusal";
         failures.push({
           emailId: entry.email.id,
           ...(entry.email.accountEmail
             ? { accountEmail: entry.email.accountEmail }
             : {}),
           ruleId: entry.rule.id,
-          reason: "refusal",
+          reason,
+          retryable: isRetryableDecisionFailure(reason),
         });
         continue;
       }
@@ -1393,13 +1408,15 @@ async function evaluateRules(
         answer.type !== "predicate" ||
         result.questionFailures?.[name] !== undefined
       ) {
+        const reason = result.questionFailures?.[name] ?? "invalid_response";
         failures.push({
           emailId: entry.email.id,
           ...(entry.email.accountEmail
             ? { accountEmail: entry.email.accountEmail }
             : {}),
           ruleId: entry.rule.id,
-          reason: result.questionFailures?.[name] ?? "invalid_response",
+          reason,
+          retryable: isRetryableDecisionFailure(reason),
         });
         continue;
       }
@@ -1438,6 +1455,7 @@ async function evaluatePriorityBatch(
   instruction: string,
   ownerEmail: string,
   signal?: AbortSignal,
+  providers?: readonly DecisionProvider[],
 ): Promise<PriorityEvaluation> {
   const { input, questions } = buildPriorityDecisionBatch(emails, instruction);
   const scores = new Map<string, PriorityScore>();
@@ -1448,11 +1466,12 @@ async function evaluatePriorityBatch(
       { type: "json", value: input },
       questions,
       signal,
+      providers,
     );
   } catch (error) {
     if (signal?.aborted) signal.throwIfAborted();
     if (!(error instanceof MailDecisionRequestError)) throw error;
-    const retryable = !NON_RETRYABLE_DECISION_FAILURES.has(error.reason);
+    const retryable = isRetryableDecisionFailure(error.reason);
     const failures = emails.map((email) => ({
       emailId: email.id,
       ...(email.accountEmail ? { accountEmail: email.accountEmail } : {}),
@@ -1474,18 +1493,22 @@ async function evaluatePriorityBatch(
     const key = aiPriorityEmailKey(email.accountEmail, email.id);
     const answer = result.answers[name] as DecisionAnswer | undefined;
     if (!answer) {
+      const reason = result.questionFailures?.[name] ?? "invalid_response";
       failures.push({
         emailId: email.id,
         ...(email.accountEmail ? { accountEmail: email.accountEmail } : {}),
-        reason: result.questionFailures?.[name] ?? "invalid_response",
+        reason,
+        retryable: isRetryableDecisionFailure(reason),
       });
       continue;
     }
     if (answer.type === "refusal") {
+      const reason = "refusal";
       failures.push({
         emailId: email.id,
         ...(email.accountEmail ? { accountEmail: email.accountEmail } : {}),
-        reason: "refusal",
+        reason,
+        retryable: isRetryableDecisionFailure(reason),
       });
       continue;
     }
@@ -1493,10 +1516,12 @@ async function evaluatePriorityBatch(
       answer.type !== "predicate" ||
       result.questionFailures?.[name] !== undefined
     ) {
+      const reason = result.questionFailures?.[name] ?? "invalid_response";
       failures.push({
         emailId: email.id,
         ...(email.accountEmail ? { accountEmail: email.accountEmail } : {}),
-        reason: result.questionFailures?.[name] ?? "invalid_response",
+        reason,
+        retryable: isRetryableDecisionFailure(reason),
       });
       continue;
     }
@@ -1588,6 +1613,7 @@ export async function previewAutomationPriority(
   ownerEmail: string,
   instruction = AI_PRIORITY_DEFAULT_INSTRUCTION,
   signal?: AbortSignal,
+  providers?: readonly DecisionProvider[],
 ): Promise<PriorityEvaluation> {
   const messages = emails.filter(
     (email) =>
@@ -1637,6 +1663,7 @@ export async function previewAutomationPriority(
               instruction,
               ownerEmail,
               signal,
+              providers,
             ),
           };
         } catch (error) {
