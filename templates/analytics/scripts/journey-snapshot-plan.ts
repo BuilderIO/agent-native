@@ -337,8 +337,7 @@ export function selectCaptureTree<T extends SnapshotTree>(
           `Selected journey node ${node.key} has no example list.`,
         );
       }
-      if (exampleIndex >= available.length) continue;
-      const example = available.at(exampleIndex);
+      const example = available[exampleIndex];
       if (!example) continue;
       examples.push(example);
       frameCount += 1;
