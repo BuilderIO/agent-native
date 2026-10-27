@@ -158,8 +158,10 @@ import {
   SuggestionHighlight,
   acceptedSuggestionAtRange,
   editorDocumentSource,
+  isProvisionalDraftSpec,
   setSuggestionHighlights,
   suggestionDecisionHoldsHistory,
+  suggestionHighlightKey,
   type SuggestionHighlightSpec,
 } from "./extensions/SuggestionHighlight";
 import { VideoNode } from "./extensions/VideoNode";
@@ -1603,6 +1605,7 @@ export function suggestionHighlightSpec(
         deletedText: suggestion.beforeText,
         deletedPresentation: suggestion.beforePresentation,
         editableBoundary: true,
+        draft: true,
       };
     }
     return {
@@ -1610,6 +1613,7 @@ export function suggestionHighlightSpec(
       kind: "mark",
       from: range.from,
       to: range.to,
+      draft: true,
       deletedText:
         suggestion.kind === "replace_text" ? suggestion.beforeText : undefined,
       deletedPresentation:
@@ -3576,6 +3580,9 @@ export function VisualEditor({
   // Set by a person's typing that lands before the live copy's seed check
   // finishes, and cleared when a seed, a restore or another tab replaces it.
   const unseededEditRef = useRef(false);
+  // The Page text sent up for each version of the editor's document, so the
+  // highlights can tell whether the Page's drafts have caught up with it.
+  const sentContentRef = useRef(new WeakMap<ProseMirrorNode, string>());
   const markUserEditIntent = useCallback(() => {
     lastUserEditIntentAtRef.current = Date.now();
     hasUserEditIntentRef.current = true;
@@ -3600,6 +3607,7 @@ export function VisualEditor({
             : ("unchanged" as const);
         scheduleLiveBodyParity(editorToPersist);
         const normalized = options?.markdown ?? serialized;
+        sentContentRef.current.set(editorToPersist.state.doc, normalized);
         if (localFileMode && normalized === content && options?.strict !== true)
           return "unchanged" as const;
         if (
@@ -4839,15 +4847,35 @@ export function VisualEditor({
         .join("|"),
     [suggestions],
   );
-  const applySuggestionsRef = useRef<((report?: boolean) => void) | null>(null);
+  const applySuggestionsRef = useRef<
+    ((report?: boolean, transaction?: Transaction) => void) | null
+  >(null);
 
   useLayoutEffect(() => {
     if (!editor || editor.isDestroyed) return;
-    const apply = (report = true) => {
+    const apply = (report = true, transaction?: Transaction) => {
       if (editor.isDestroyed) return;
+      const drafting = suggesting && editable;
+      // The Page redraws the author's drafts a frame or two after their
+      // typing, and until then the highlight plugin moves the drafts along
+      // with it. Undo puts the original words back, so it waits instead.
+      const typed =
+        drafting && !transaction?.getMeta("history$")
+          ? (suggestionHighlightKey.getState(editor.state)?.specs ?? [])
+          : [];
+      const sent = sentContentRef.current.get(editor.state.doc);
+      let lagging = !!transaction || (sent !== undefined && sent !== content);
       const specs = suggestions
         .map((suggestion) => {
           const spec = suggestionHighlightSpec(editor.state.doc, suggestion);
+          if (!spec && drafting && suggestion.presentation === "draft") {
+            lagging = true;
+            return (
+              typed.find(
+                (held) => held.draft && held.suggestionId === suggestion.id,
+              ) ?? null
+            );
+          }
           // While suggesting, a saved suggestion's text outside the document
           // is somewhere to type beside, not a control to focus.
           return spec &&
@@ -4858,9 +4886,16 @@ export function VisualEditor({
             : spec;
         })
         .filter((spec): spec is SuggestionHighlightSpec => spec !== null);
+      if (lagging) specs.push(...typed.filter(isProvisionalDraftSpec));
       if (report)
         onSuggestionAnchorsChange?.(
-          Array.from(new Set(specs.map((spec) => spec.suggestionId))),
+          Array.from(
+            new Set(
+              specs
+                .filter((spec) => !isProvisionalDraftSpec(spec))
+                .map((spec) => spec.suggestionId),
+            ),
+          ),
         );
       // A decision that's saving keeps its words drawn and held either way.
       const visibleSpecs = showCommentIndicators
@@ -4872,7 +4907,11 @@ export function VisualEditor({
       );
       setSuggestionHighlights(
         editor.view,
-        { specs: visibleSpecs, activeId: activeSuggestionId ?? null },
+        {
+          specs: visibleSpecs,
+          activeId: activeSuggestionId ?? null,
+          drafting,
+        },
         selection.status === "mapped" ? selection.selection : undefined,
       );
     };
@@ -4883,6 +4922,7 @@ export function VisualEditor({
     };
   }, [
     activeSuggestionId,
+    content,
     editable,
     editor,
     onSuggestionAnchorsChange,
@@ -4902,7 +4942,7 @@ export function VisualEditor({
       // Collaboration redraws an identical Page when the editor's plugins
       // change, and the highlight plugin keeps its highlights for that.
       if (transaction.docChanged && !transaction.before.eq(transaction.doc))
-        applySuggestionsRef.current?.(!suggestingRef.current);
+        applySuggestionsRef.current?.(!suggestingRef.current, transaction);
     };
     editor.on("transaction", onTransaction);
     return () => {
