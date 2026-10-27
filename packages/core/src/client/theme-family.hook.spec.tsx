@@ -207,6 +207,27 @@ describe("useThemeFamily", () => {
       expect(
         document.documentElement.getAttribute(THEME_FAMILY_STATUS_ATTRIBUTE),
       ).toBe("unreadable");
+
+      act(() => window.history.pushState(null, "", "/preferences"));
+      expect(current?.family).toBe("agent-native");
+      expect(
+        document.documentElement.getAttribute(THEME_FAMILY_ATTRIBUTE),
+      ).toBe("agent-native");
+      expect(
+        document.documentElement.getAttribute(THEME_FAMILY_STATUS_ATTRIBUTE),
+      ).toBe("unreadable");
+
+      act(() => {
+        window.localStorage.removeItem("theme-family:sample-app");
+        window.dispatchEvent(
+          new StorageEvent("storage", { key: "theme-family:sample-app" }),
+        );
+      });
+      expect(current?.family).toBe("agent-native");
+      expect(current?.storageStatus).toBe("missing");
+      expect(
+        document.documentElement.getAttribute(THEME_FAMILY_ATTRIBUTE),
+      ).toBe("agent-native");
     } finally {
       setItem.mockRestore();
     }

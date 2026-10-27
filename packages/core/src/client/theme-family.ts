@@ -168,7 +168,7 @@ function subscribe(
 ): () => void {
   if (typeof window === "undefined") return () => {};
 
-  const refreshFromStorage = () => {
+  const refreshFromStorage = (event?: StorageEvent) => {
     const key = scopeKey(appId);
     const urlFamily = getThemeFamilyUrlOverride(
       window.location.search,
@@ -188,6 +188,50 @@ function subscribe(
     }
 
     const stored = readStoredThemeFamily(appId);
+    const currentFamily = familySnapshots.get(key);
+    const canPreserveCurrentFamily =
+      currentFamily !== undefined && families.includes(currentFamily);
+    const storageWasUnreadable =
+      window.document.documentElement.getAttribute(
+        THEME_FAMILY_STATUS_ATTRIBUTE,
+      ) === "unreadable";
+    const storageEventMatchesCurrentValue =
+      event?.key === key &&
+      stored.status === "valid" &&
+      event.newValue === stored.family;
+    const preserveCurrentFamily =
+      canPreserveCurrentFamily &&
+      (stored.status === "missing" ||
+        stored.status === "invalid" ||
+        (storageWasUnreadable &&
+          stored.status === "valid" &&
+          stored.family !== currentFamily &&
+          !storageEventMatchesCurrentValue));
+    if (preserveCurrentFamily && currentFamily) {
+      familySnapshots.set(key, currentFamily);
+      window.document.documentElement.setAttribute(
+        THEME_FAMILY_ATTRIBUTE,
+        currentFamily,
+      );
+      const status =
+        storageWasUnreadable && stored.status === "valid"
+          ? "unreadable"
+          : stored.status;
+      onStorageStatusChange(status);
+      if (status === "unreadable" || status === "invalid") {
+        window.document.documentElement.setAttribute(
+          THEME_FAMILY_STATUS_ATTRIBUTE,
+          status,
+        );
+      } else {
+        window.document.documentElement.removeAttribute(
+          THEME_FAMILY_STATUS_ATTRIBUTE,
+        );
+      }
+      onChange();
+      return;
+    }
+
     onStorageStatusChange(stored.status);
     if (stored.status === "valid" && families.includes(stored.family)) {
       familySnapshots.set(key, stored.family);
@@ -224,7 +268,7 @@ function subscribe(
   };
   const onStorage = (event: StorageEvent) => {
     if (event.key === null || event.key === scopeKey(appId)) {
-      refreshFromStorage();
+      refreshFromStorage(event);
     }
   };
   const onFamilyChange = (event: Event) => {
