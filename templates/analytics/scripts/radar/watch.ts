@@ -18,6 +18,7 @@ import {
   type RadarCheckResult,
 } from "./checks.ts";
 import { safeRadarEventLabel } from "./event-labels.ts";
+import { addLinkedEventMetricsSql } from "./linked-events-sql.ts";
 import {
   RadarQueryError,
   RADAR_TMP_DIR,
@@ -86,6 +87,7 @@ export interface RadarWatchRun {
   }>;
   coverage: {
     eventSourceCoverage: Record<string, { runs: number; sourceTagged: number }>;
+    funnelCohortDate?: string;
     campaignRecipients?: number;
     campaignSkippedRows?: number;
     campaignFollowupAvailable?: boolean;
@@ -138,6 +140,17 @@ function addDays(date: string, amount: number): string {
   return result.toISOString().slice(0, 10);
 }
 
+export function matureFunnelCohortDate(
+  requestedDate: string,
+  cutoff: Date,
+): string {
+  if (!validDate(requestedDate) || !Number.isFinite(cutoff.getTime())) {
+    throw new RadarQueryError("Funnel cohort date inputs are invalid.", 2);
+  }
+  const latestMatureDate = addDays(cutoff.toISOString().slice(0, 10), -2);
+  return requestedDate < latestMatureDate ? requestedDate : latestMatureDate;
+}
+
 function validDate(date: string): boolean {
   const parsed = new Date(`${date}T00:00:00Z`);
   return (
@@ -162,12 +175,20 @@ function eventRows(
   return rows.filter((row) => {
     if (String(row.app) !== app || String(row.event_name) !== eventName)
       return false;
-    return (
-      (window === "hourly"
-        ? asHour(row.period_start)
-        : asDate(row.period_start)) === period
-    );
+    return periodMatches(row, period, window);
   });
+}
+
+function periodMatches(
+  row: QueryRow,
+  period: string,
+  window: "hourly" | "daily",
+): boolean {
+  return (
+    (window === "hourly"
+      ? asHour(row.period_start)
+      : asDate(row.period_start)) === period
+  );
 }
 
 function eventTotal(
@@ -395,6 +416,85 @@ function thresholdResult(
   });
 }
 
+function safeCount(row: QueryRow, field: string): number | null {
+  const value = row[field];
+  if (value == null) return null;
+  const count = Number(value);
+  return Number.isSafeInteger(count) && count >= 0 ? count : null;
+}
+
+function linkedDailyRateCheck(input: {
+  rows: QueryRow[];
+  definition: RadarCheckDefinition;
+  targetDate: string;
+  app: string;
+  startEvent: string;
+  denominatorField: string;
+  numeratorField: string;
+  unlinkedField: string;
+  metricLabel: string;
+}): RadarCheckResult {
+  const startRows = eventRows(
+    input.rows,
+    input.targetDate,
+    input.app,
+    input.startEvent,
+    "daily",
+  );
+  if (startRows.length === 0) {
+    return thresholdResult(input.definition, {
+      app: input.app,
+      n: 0,
+      value: null,
+      numerator: 0,
+      denominator: 0,
+      detail: `No ${input.metricLabel} starts in the selected day.`,
+    });
+  }
+  if (startRows.length !== 1) {
+    return baseResult(input.definition, input.app, "unavailable", {
+      detail: `${input.metricLabel} daily linkage returned an ambiguous start row.`,
+    });
+  }
+
+  const row = itemAt(startRows, 0);
+  if (!row) {
+    return baseResult(input.definition, input.app, "unavailable", {
+      detail: `${input.metricLabel} daily linkage is unavailable.`,
+    });
+  }
+  const denominator = safeCount(row, input.denominatorField);
+  const numerator = safeCount(row, input.numeratorField);
+  const unlinked = safeCount(row, input.unlinkedField);
+  if (denominator === null || numerator === null || unlinked === null) {
+    return baseResult(input.definition, input.app, "unavailable", {
+      detail: `${input.metricLabel} linkage counts are missing or invalid.`,
+    });
+  }
+  if (unlinked > 0) {
+    return baseResult(input.definition, input.app, "unavailable", {
+      numerator,
+      denominator,
+      detail: `${unlinked} ${input.metricLabel} events lacked a linkage key; the rate is unavailable.`,
+    });
+  }
+  if (numerator > denominator) {
+    return baseResult(input.definition, input.app, "unavailable", {
+      numerator,
+      denominator,
+      detail: `${input.metricLabel} linked outcomes exceeded starts; the rate is unavailable.`,
+    });
+  }
+  return thresholdResult(input.definition, {
+    app: input.app,
+    n: denominator,
+    value: denominator ? numerator / denominator : null,
+    numerator,
+    denominator,
+    detail: `${numerator} linked ${input.metricLabel} outcomes / ${denominator} starts in the selected day.`,
+  });
+}
+
 function median(values: number[]): number {
   if (values.length === 0) return 0;
   const sorted = [...values].sort((a, b) => a - b);
@@ -416,13 +516,14 @@ function sumFor(
   return eventTotal(rows, date, app, name, field, "daily");
 }
 
-function createEventChecks(
+export function createEventChecks(
   rows: QueryRow[],
   funnelRows: QueryRow[],
   troubleRows: QueryRow[],
   uploadRows: QueryRow[],
   issueRows: QueryRow[],
   targetDate: string,
+  funnelCohortDate: string,
   targetHour: string,
   window: "hourly" | "daily",
   campaign?: CampaignFollowupResult,
@@ -446,11 +547,17 @@ function createEventChecks(
     ...requireCheckDefinition("event-feed-coverage"),
     window,
   };
+  const coveragePeriod = window === "hourly" ? targetHour : targetDate;
   for (const app of ["design", "slides", "clips"] as const) {
-    if (!rows.some((row) => String(row.app) === app)) {
+    if (
+      !rows.some(
+        (row) =>
+          String(row.app) === app && periodMatches(row, coveragePeriod, window),
+      )
+    ) {
       checks.push(
         baseResult(eventCoverageDefinition, app, "unavailable", {
-          detail: `No event rows were readable for ${app} in the selected history window.`,
+          detail: `No event rows were readable for ${app} in the selected ${window} period.`,
         }),
       );
     }
@@ -794,58 +901,32 @@ function createEventChecks(
   );
 
   const failureDef = requireCheckDefinition("slides-generation-failure");
-  const failedUsers = eventTotal(
-    rows,
-    targetDate,
-    "slides",
-    "generation_failed",
-    "users",
-    window,
-  );
-  const startedUsers = eventTotal(
-    rows,
-    targetDate,
-    "slides",
-    "generation_started",
-    "users",
-    window,
-  );
   checks.push(
-    thresholdResult(failureDef, {
+    linkedDailyRateCheck({
+      rows,
+      definition: failureDef,
+      targetDate,
       app: "slides",
-      n: startedUsers,
-      value: startedUsers ? failedUsers / startedUsers : null,
-      numerator: failedUsers,
-      denominator: startedUsers,
-      detail: `${failedUsers} failed users / ${startedUsers} generation started users.`,
+      startEvent: "generation_started",
+      denominatorField: "linked_slides_started_users",
+      numeratorField: "linked_slides_failed_started_users",
+      unlinkedField: "linked_slides_unlinked_events",
+      metricLabel: "Slides generation",
     }),
   );
 
   const designDef = requireCheckDefinition("design-prompt-output");
-  const designPrompts = eventTotal(
-    rows,
-    targetDate,
-    "design",
-    "design_prompt_submitted",
-    "users",
-    window,
-  );
-  const designOutputs = eventTotal(
-    rows,
-    targetDate,
-    "design",
-    "design_ready_viewed",
-    "users",
-    window,
-  );
   checks.push(
-    thresholdResult(designDef, {
+    linkedDailyRateCheck({
+      rows,
+      definition: designDef,
+      targetDate,
       app: "design",
-      n: designPrompts,
-      value: designPrompts ? designOutputs / designPrompts : null,
-      numerator: designOutputs,
-      denominator: designPrompts,
-      detail: `${designOutputs} ready-output users / ${designPrompts} prompt users.`,
+      startEvent: "design_prompt_submitted",
+      denominatorField: "users",
+      numeratorField: "linked_design_prompt_output_users",
+      unlinkedField: "linked_design_unlinked_events",
+      metricLabel: "Design prompt-to-output",
     }),
   );
 
@@ -869,30 +950,17 @@ function createEventChecks(
   );
 
   const clipsDef = requireCheckDefinition("clips-ready-rate");
-  const recordingStarts = eventTotal(
-    rows,
-    targetDate,
-    "clips",
-    "recording_started",
-    "events",
-    window,
-  );
-  const readyClips = eventTotal(
-    rows,
-    targetDate,
-    "clips",
-    "recording_ready",
-    "events",
-    window,
-  );
   checks.push(
-    thresholdResult(clipsDef, {
+    linkedDailyRateCheck({
+      rows,
+      definition: clipsDef,
+      targetDate,
       app: "clips",
-      n: recordingStarts,
-      value: recordingStarts ? readyClips / recordingStarts : null,
-      numerator: readyClips,
-      denominator: recordingStarts,
-      detail: `${readyClips} ready clips / ${recordingStarts} recording starts.`,
+      startEvent: "recording_started",
+      denominatorField: "linked_clips_started_attempts",
+      numeratorField: "linked_clips_ready_attempts",
+      unlinkedField: "linked_clips_unlinked_events",
+      metricLabel: "Clips recording",
     }),
   );
 
@@ -920,6 +988,9 @@ function createEventChecks(
   }
 
   const funnelDef = requireCheckDefinition("first-touch-funnel-drop");
+  const funnelPeriodDays = Array.from({ length: 7 }, (_, index) =>
+    addDays(funnelCohortDate, -(index + 1)),
+  );
   const funnelStages = [
     { key: "signup-to-onboarding", parent: "signups", child: "completed" },
     { key: "onboarding-to-app-entry", parent: "completed", child: "entered" },
@@ -929,7 +1000,7 @@ function createEventChecks(
   for (const app of ["design", "slides", "clips"]) {
     const target = funnelRows.find(
       (row) =>
-        asDate(row.signup_date) === targetDate &&
+        asDate(row.signup_date) === funnelCohortDate &&
         String(row.app) === app &&
         String(row.journey_type) ===
           (app === "design" ? "design_web" : "first_touch"),
@@ -937,7 +1008,7 @@ function createEventChecks(
     for (const stage of funnelStages) {
       const numerator = numeric(target, stage.child);
       const denominator = numeric(target, stage.parent);
-      const baselineRows = periodDays.map((date) =>
+      const baselineRows = funnelPeriodDays.map((date) =>
         funnelRows.find(
           (row) =>
             asDate(row.signup_date) === date &&
@@ -1122,12 +1193,13 @@ export async function runWatch(
   options: RadarWatchOptions = {},
 ): Promise<RadarWatchRun> {
   const window = options.window ?? "daily";
-  const currentHour = new Date(Date.now() - 60 * 60 * 1000);
+  const cutoff = new Date();
+  const currentHour = new Date(cutoff.getTime() - 60 * 60 * 1000);
   currentHour.setUTCMinutes(0, 0, 0);
   const date =
     options.date ??
     (window === "daily"
-      ? addDays(new Date().toISOString().slice(0, 10), -1)
+      ? addDays(cutoff.toISOString().slice(0, 10), -1)
       : currentHour.toISOString().slice(0, 10));
   if (!validDate(date))
     throw new RadarQueryError("--date must be YYYY-MM-DD.", 2);
@@ -1136,14 +1208,19 @@ export async function runWatch(
     throw new RadarQueryError("--hour must be between 0 and 23 UTC.", 2);
   }
   const hourKey = `${date}T${String(hour).padStart(2, "0")}`;
+  const funnelCohortDate = matureFunnelCohortDate(date, cutoff);
   const orgId = await resolveRadarOrganizationId();
   const backend = await resolveRadarFirstPartyBackend();
   const eventStart = addDays(date, window === "daily" ? -30 : -14);
   const eventResult =
     backend.sink === "bigquery"
       ? await runBigQuery(
-          buildBigQueryEventStatsSql(
-            await resolveRadarBigQueryEventsTable(),
+          addLinkedEventMetricsSql(
+            buildBigQueryEventStatsSql(
+              await resolveRadarBigQueryEventsTable(),
+              window === "hourly" ? "HOUR" : "DAY",
+            ),
+            "bigquery",
             window === "hourly" ? "HOUR" : "DAY",
           ),
           {
@@ -1154,12 +1231,14 @@ export async function runWatch(
             ],
           },
         )
-      : await runPostgresQuery(buildEventStatsSql(), [
-          eventStart,
-          date,
-          orgId,
-          window === "hourly" ? "hour" : "day",
-        ]);
+      : await runPostgresQuery(
+          addLinkedEventMetricsSql(
+            buildEventStatsSql(),
+            "postgres",
+            window === "hourly" ? "HOUR" : "DAY",
+          ),
+          [eventStart, date, orgId, window === "hourly" ? "hour" : "day"],
+        );
   const eventRowsData = eventResult.rows as QueryRow[];
   const queryCount = 3;
   let funnelRows: QueryRow[] = [];
@@ -1172,9 +1251,9 @@ export async function runWatch(
   let additionalQueries = 0;
 
   if (window === "daily") {
-    const funnelStart = addDays(date, -8);
-    const funnelEnd = addDays(date, 1);
-    const funnelCutoff = new Date().toISOString();
+    const funnelStart = addDays(funnelCohortDate, -8);
+    const funnelEnd = addDays(funnelCohortDate, 1);
+    const funnelCutoff = cutoff.toISOString();
     const [funnel, trouble, upload, issues, slo] = await Promise.all([
       backend.sink === "bigquery"
         ? runBigQuery(
@@ -1248,6 +1327,7 @@ export async function runWatch(
     uploadRows,
     issueRows,
     date,
+    funnelCohortDate,
     hourKey,
     window,
     campaign,
@@ -1279,7 +1359,7 @@ export async function runWatch(
   const journeyRows = funnelRows
     .filter(
       (row) =>
-        asDate(row.signup_date) === date &&
+        asDate(row.signup_date) === funnelCohortDate &&
         ((row.journey_type === "design_web" && row.app === "design") ||
           row.journey_type === "design_mcp" ||
           (row.journey_type === "first_touch" && row.app === "clips")),
@@ -1302,6 +1382,7 @@ export async function runWatch(
     issues: evaluated.issues,
     coverage: {
       eventSourceCoverage: evaluated.sourceCoverage,
+      ...(window === "daily" ? { funnelCohortDate } : {}),
       ...(campaign
         ? {
             campaignRecipients: campaign.sentRecipients,
@@ -1343,6 +1424,9 @@ function formatWatchMarkdown(run: RadarWatchRun): string {
     `# First-touch radar: ${run.date}${run.window === "hourly" ? ` ${String(run.hour).padStart(2, "0")}:00 UTC` : ""}`,
     "",
     `Exit ${run.exitCode}. ${run.checks.filter((check) => check.status === "fired").length} fired, ${run.checks.filter((check) => check.status === "unavailable").length} unavailable, ${run.queryCount} queries.`,
+    ...(run.coverage.funnelCohortDate
+      ? [`Funnel signup cohort date: ${run.coverage.funnelCohortDate} UTC.`]
+      : []),
     "",
     "| Status | Check | App | Value | Baseline | Detail |",
     "| --- | --- | --- | ---: | ---: | --- |",

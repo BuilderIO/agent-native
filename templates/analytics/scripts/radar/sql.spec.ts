@@ -101,8 +101,27 @@ describe("first-touch SQL helpers", () => {
     expect(funnel).toContain("clips_activated_24h");
     expect(funnel).toContain("interval '24 hours'");
     expect(funnel).toContain(
-      "HAVING min(happened_at) + interval '24 hours' <= $4::timestamptz",
+      "HAVING event_date::date + 2 <= ($4::timestamptz AT TIME ZONE 'UTC')::date",
     );
+    expect(funnel).not.toContain(
+      "min(happened_at) + interval '24 hours' <= $4::timestamptz",
+    );
+
+    const entered = funnel.slice(
+      funnel.indexOf("entered_stages AS ("),
+      funnel.indexOf("prompt_stages AS ("),
+    );
+    expect(entered).toContain(
+      "event_name IN ('app_entered', 'onboarding_app_entered')",
+    );
+
+    const mcp = funnel.slice(
+      funnel.indexOf("design_mcp_connected AS ("),
+      funnel.indexOf("design_mcp_daily AS ("),
+    );
+    expect(
+      mcp.match(/e\.happened_at < c\.signup_at \+ interval '24 hours'/g),
+    ).toHaveLength(3);
   });
 
   it("groups upload rejections by the emitted failure reason", () => {

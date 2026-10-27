@@ -229,7 +229,7 @@ signup_cohort AS (
   FROM base_events
   WHERE event_name = 'signup' AND person_key IS NOT NULL
   GROUP BY person_key, app, signup_date
-  HAVING timestamp_add(min(happened_at), INTERVAL 24 HOUR) <= @cutoff
+  HAVING DATE_ADD(event_date, INTERVAL 2 DAY) <= DATE(@cutoff, 'UTC')
 ),
 funnel_events AS (
   SELECT person_key, app, event_name, happened_at
@@ -252,7 +252,7 @@ stages AS (
 ),
 entered_stages AS (
   SELECT s.*,
-    min(if(e.event_name = 'onboarding_app_entered'
+    min(if(e.event_name IN ('app_entered', 'onboarding_app_entered')
       AND e.happened_at >= s.completed_at
       AND e.happened_at < timestamp_add(s.signup_at, INTERVAL 24 HOUR), e.happened_at, null)) AS entered_at
   FROM stages s
@@ -299,6 +299,7 @@ design_mcp_connected AS (
   FROM signup_cohort c
   LEFT JOIN base_events e ON e.person_key = c.person_key
     AND e.app = 'design' AND e.happened_at >= c.signup_at
+    AND e.happened_at < timestamp_add(c.signup_at, INTERVAL 24 HOUR)
     AND e.event_name = 'agent_connected'
   WHERE c.app = 'design' AND c.first_touch_path LIKE '/mcp/oauth%'
   GROUP BY c.person_key, c.signup_date, c.signup_at
@@ -309,6 +310,7 @@ design_mcp_called AS (
   FROM design_mcp_connected c
   LEFT JOIN base_events e ON e.person_key = c.person_key
     AND e.app = 'design' AND e.happened_at >= c.connected_at
+    AND e.happened_at < timestamp_add(c.signup_at, INTERVAL 24 HOUR)
     AND e.event_name = '$mcp_tool_call'
   GROUP BY c.person_key, c.signup_date, c.signup_at, c.connected_at
 ),
@@ -318,6 +320,7 @@ design_mcp_created AS (
   FROM design_mcp_called c
   LEFT JOIN base_events e ON e.person_key = c.person_key
     AND e.app = 'design' AND e.happened_at >= c.first_tool_call_at
+    AND e.happened_at < timestamp_add(c.signup_at, INTERVAL 24 HOUR)
     AND e.event_name = 'design_created'
   GROUP BY c.person_key, c.signup_date, c.connected_at, c.first_tool_call_at
 ),

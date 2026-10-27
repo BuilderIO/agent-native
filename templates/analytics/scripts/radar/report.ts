@@ -496,17 +496,17 @@ export function formatWeeklyMarkdown(report: RadarWeeklyReport): string {
     "",
     "## Daily watch",
     "",
-    "| Date | Exit | Fired | Unavailable | Error |",
-    "| --- | ---: | ---: | ---: | --- |",
+    "| Watch date | Funnel cohort | Exit | Fired | Unavailable | Error |",
+    "| --- | --- | ---: | ---: | ---: | --- |",
   ];
   for (const entry of report.dailyRuns) {
     if (!entry.run)
       lines.push(
-        `| ${entry.date} | 2 | n/a | n/a | ${entry.error ?? "could not run"} |`,
+        `| ${entry.date} | unavailable | 2 | n/a | n/a | ${entry.error ?? "could not run"} |`,
       );
     else
       lines.push(
-        `| ${entry.date} | ${entry.run.exitCode} | ${entry.run.checks.filter((check) => check.status === "fired").length} | ${entry.run.checks.filter((check) => check.status === "unavailable").length} | - |`,
+        `| ${entry.date} | ${entry.run.coverage.funnelCohortDate ?? "not run"} | ${entry.run.exitCode} | ${entry.run.checks.filter((check) => check.status === "fired").length} | ${entry.run.checks.filter((check) => check.status === "unavailable").length} | - |`,
       );
   }
   lines.push("", "## First-touch journeys", "");

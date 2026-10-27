@@ -182,6 +182,32 @@ describe("radar query safety", () => {
     expect(isReadOnlySql("SELECT 1; SELECT 2")).toBe(false);
   });
 
+  it("rejects large-object, remote-query, and server-admin side effects", () => {
+    for (const sql of [
+      "SELECT lo_import('/etc/passwd')",
+      "SELECT lo_export(42, '/tmp/radar-output')",
+      "SELECT \"lo_export\"(42, '/tmp/radar-output')",
+      "SELECT lo_creat(-1)",
+      "SELECT lo_create(42)",
+      "SELECT lo_unlink(42)",
+      "SELECT lo_from_bytea(0, decode('00', 'hex'))",
+      "SELECT lo_put(42, 0, decode('00', 'hex'))",
+      "SELECT lowrite(1, decode('00', 'hex'))",
+      "SELECT dblink_disconnect('remote')",
+      "SELECT dblink_send_query('remote', 'UPDATE records SET value = 1')",
+      "SELECT dblink_cancel_query('remote')",
+      "SELECT pg_backup_start('radar')",
+      "SELECT pg_backup_stop()",
+      "SELECT pg_promote()",
+      "SELECT pg_wal_replay_pause()",
+      "SELECT pg_wal_replay_resume()",
+      "SELECT pg_log_standby_snapshot()",
+      "SELECT pg_log_backend_memory_contexts(pg_backend_pid())",
+    ]) {
+      expect(isReadOnlySql(sql), sql).toBe(false);
+    }
+  });
+
   it("rejects any executable token after the trailing statement terminator", () => {
     expect(isReadOnlySql("SELECT 1; -- trailing comment")).toBe(true);
     expect(isReadOnlySql("SELECT 1; 'second statement'")).toBe(false);

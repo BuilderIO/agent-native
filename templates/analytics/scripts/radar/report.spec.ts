@@ -5,9 +5,11 @@ import {
   acquisitionContextForWeek,
   completedReportWeekEnd,
   DEFAULT_WEEKLY_MAX_TOTAL_GB,
+  formatWeeklyMarkdown,
   parseReportArgs,
   recoveryStateForIssue,
 } from "./report.ts";
+import type { RadarWeeklyReport } from "./report.ts";
 
 const check = (status: RadarCheckResult["status"]): RadarCheckResult => ({
   id: "setup-exposure",
@@ -101,6 +103,61 @@ describe("weekly report arguments", () => {
       skipJourneySnapshot: false,
       maxTotalGb: 25,
     });
+  });
+});
+
+describe("weekly funnel cohort reporting", () => {
+  it("shows each daily run's mature signup cohort date", () => {
+    const report = {
+      generatedAt: "2026-10-27T23:59:00.000Z",
+      week: "2026-10-26",
+      weekEnd: "2026-11-01",
+      coverage: {
+        dailyRuns: { expected: 7, completed: 1, failedDates: [] },
+        campaignFollowup: false,
+        abReadout: false,
+        replayTriage: false,
+        journeySnapshot: "skipped",
+        feedbackIngest: "agent_required",
+        queryCount: 0,
+        bigQueryScan: { maxGb: 100, reservedBytes: 0, exceeded: false },
+      },
+      dailyRuns: [
+        {
+          date: "2026-10-26",
+          run: {
+            generatedAt: "2026-10-27T23:59:00.000Z",
+            window: "daily",
+            date: "2026-10-26",
+            exitCode: 2,
+            checks: [],
+            journeyRows: [],
+            campaignAnnotations: [],
+            issues: [],
+            coverage: {
+              eventSourceCoverage: {},
+              funnelCohortDate: "2026-10-25",
+            },
+            queryCount: 0,
+          },
+        },
+      ],
+      triageSummary: null,
+      triageError: "not run",
+      abReadout: null,
+      campaignFollowup: null,
+      campaignAnnotations: [],
+      acquisitionContext: [],
+      firedIssues: [],
+      recovery: { available: false, items: [] },
+      journeySnapshot: { status: "skipped" },
+      feedback: { status: "agent_required", skill: "feedback-ingest" },
+      exitCode: 2,
+    } satisfies RadarWeeklyReport;
+
+    expect(formatWeeklyMarkdown(report)).toContain(
+      "| 2026-10-26 | 2026-10-25 | 2 | 0 | 0 | - |",
+    );
   });
 });
 

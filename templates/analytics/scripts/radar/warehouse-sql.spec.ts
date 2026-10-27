@@ -86,8 +86,26 @@ describe("first-party BigQuery radar SQL", () => {
     expect(funnel).toContain("clips_activated_24h");
     expect(funnel).toContain("INTERVAL 24 HOUR");
     expect(funnel).toContain(
-      "HAVING timestamp_add(min(happened_at), INTERVAL 24 HOUR) <= @cutoff",
+      "HAVING DATE_ADD(event_date, INTERVAL 2 DAY) <= DATE(@cutoff, 'UTC')",
     );
+
+    const entered = funnel.slice(
+      funnel.indexOf("entered_stages AS ("),
+      funnel.indexOf("prompt_stages AS ("),
+    );
+    expect(entered).toContain(
+      "event_name IN ('app_entered', 'onboarding_app_entered')",
+    );
+
+    const mcp = funnel.slice(
+      funnel.indexOf("design_mcp_connected AS ("),
+      funnel.indexOf("design_mcp_daily AS ("),
+    );
+    expect(
+      mcp.match(
+        /e\.happened_at < timestamp_add\(c\.signup_at, INTERVAL 24 HOUR\)/g,
+      ),
+    ).toHaveLength(3);
   });
 
   it("uses the BigQuery event sink and the emitted upload failure reason", () => {
