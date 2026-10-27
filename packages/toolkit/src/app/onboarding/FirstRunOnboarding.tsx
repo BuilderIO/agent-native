@@ -237,6 +237,8 @@ export function FirstRunOnboarding({
     experiment_id: typeof FIRST_RUN_BUILDER_CREDITS_V2_EXPERIMENT_ID;
     experiment_variant: "control" | "credits";
   } | null>(null);
+  const [creditsV2ExposureConfirmed, setCreditsV2ExposureConfirmed] =
+    useState(false);
   const creditsV2Flag = useFeatureFlagState(
     FIRST_RUN_BUILDER_CREDITS_V2_FLAG_KEY,
   );
@@ -514,7 +516,10 @@ export function FirstRunOnboarding({
     screen !== "choice" ||
     (!creditsV2FlagPending &&
       (!creditsV2FlowEnabled || setupExperimentDecision !== null) &&
-      (setupVariant === null || setupExperimentDecision !== null));
+      (setupVariant === null || setupExperimentDecision !== null) &&
+      (!creditsV2Enabled ||
+        setupExperimentDecision !== true ||
+        creditsV2ExposureConfirmed));
   const beginBeforeSetup = useCallback(() => {
     if (beforeSetupExtensions.length === 0) {
       setScreen("choice");
@@ -850,6 +855,7 @@ export function FirstRunOnboarding({
             variant: creditsV2Assignment.experiment_variant,
           });
           creditsV2ExposureTrackedRef.current = true;
+          setCreditsV2ExposureConfirmed(true);
           trackOnboardingEvent("onboarding_experiment_exposed", {
             flow: "first_run",
             step_id: "choice",

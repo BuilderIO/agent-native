@@ -3686,25 +3686,41 @@ describe("FirstRunOnboarding", () => {
             };
           }) => void)
         | undefined;
+      let resolveConfirmation:
+        | ((result: {
+            assignment: {
+              experiment_id: string;
+              experiment_variant: string;
+            };
+          }) => void)
+        | undefined;
       mocks.recordCreditsV2Exposure.mockImplementation((...args: unknown[]) => {
         const input = args[0] as { confirmedVariant?: string } | undefined;
         if (input?.confirmedVariant) {
-          return Promise.resolve({
-            assignment: {
-              experiment_id: "first_run_builder_credits_v2",
-              experiment_variant: input.confirmedVariant,
-            },
+          return new Promise((resolve) => {
+            resolveConfirmation = resolve;
           });
         }
         return new Promise((resolve) => {
           resolveAssignment = resolve;
         });
       });
-      mocks.trackOnboardingEvent.mockImplementation((name: string) => {
-        if (name === "onboarding_experiment_exposed") {
-          expect(q("first-run-credits-offer")).not.toBeNull();
-        }
-      });
+      mocks.trackOnboardingEvent.mockImplementation(
+        (name: string, properties?: Record<string, unknown>) => {
+          if (name === "onboarding_experiment_exposed") {
+            expect(q("first-run-credits-offer")).not.toBeNull();
+          }
+          if (
+            name === "onboarding_step_viewed" &&
+            properties?.step_id === "choice"
+          ) {
+            expect(mocks.setOnboardingExperiment).toHaveBeenCalledWith({
+              id: "first_run_builder_credits_v2",
+              variant: "credits",
+            });
+          }
+        },
+      );
 
       await act(async () => {
         root.render(
@@ -3738,6 +3754,23 @@ describe("FirstRunOnboarding", () => {
 
       expect(mocks.recordCreditsV2Exposure).toHaveBeenNthCalledWith(2, {
         confirmedVariant: "credits",
+      });
+      expect(mocks.trackOnboardingEvent).not.toHaveBeenCalledWith(
+        "onboarding_step_viewed",
+        expect.objectContaining({ step_id: "choice" }),
+      );
+      expect(mocks.setOnboardingExperiment).not.toHaveBeenCalledWith({
+        id: "first_run_builder_credits_v2",
+        variant: "credits",
+      });
+
+      await act(async () => {
+        resolveConfirmation?.({
+          assignment: {
+            experiment_id: "first_run_builder_credits_v2",
+            experiment_variant: "credits",
+          },
+        });
       });
 
       expect(mocks.setOnboardingExperiment).toHaveBeenCalledWith({
