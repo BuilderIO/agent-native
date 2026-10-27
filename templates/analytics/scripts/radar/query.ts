@@ -15,6 +15,7 @@ const DEFAULT_MAX_GB = 20;
 const MAX_BQ_ROWS = 50_000;
 const MAX_BQ_PAGE_SIZE = 10_000;
 const MAX_BQ_RESULT_BYTES = 20 * 1024 * 1024;
+const MAX_POSTGRES_CURSOR_BATCH_SIZE = 500;
 const MAX_POSTGRES_ROWS = 50_000;
 const MAX_POSTGRES_RESULT_BYTES = 20 * 1024 * 1024;
 
@@ -660,7 +661,9 @@ export async function runPostgresQuery(
     const rows = await db.begin("read only", async (tx) => {
       await tx.unsafe("SET LOCAL statement_timeout = '120s'");
       return collectPostgresRows(
-        tx.unsafe(query, boundParams as never[]).cursor(1),
+        tx
+          .unsafe(query, boundParams as never[])
+          .cursor(MAX_POSTGRES_CURSOR_BATCH_SIZE),
       );
     });
     const result: RadarQueryResult = {
@@ -738,6 +741,53 @@ function parseMaxGb(value: number | undefined): number {
     throw new RadarQueryError("--max-gb must be a positive number.", 2);
   }
   return maxGb;
+}
+
+export interface RadarBigQueryScanBudget {
+  maxGb: number;
+  maxBytes: number;
+  reservedBytes: number;
+  exceeded: boolean;
+}
+
+let activeBigQueryScanBudget: RadarBigQueryScanBudget | undefined;
+
+export function setRadarBigQueryScanBudget(maxGb: number | undefined): void {
+  if (maxGb === undefined) {
+    activeBigQueryScanBudget = undefined;
+    return;
+  }
+  const validatedMaxGb = parseMaxGb(maxGb);
+  activeBigQueryScanBudget = {
+    maxGb: validatedMaxGb,
+    maxBytes: validatedMaxGb * 1_000_000_000,
+    reservedBytes: 0,
+    exceeded: false,
+  };
+}
+
+export function getRadarBigQueryScanBudget(): RadarBigQueryScanBudget | null {
+  return activeBigQueryScanBudget ? { ...activeBigQueryScanBudget } : null;
+}
+
+export function recordRadarBigQueryDryRunBytes(bytes: number): void {
+  const budget = activeBigQueryScanBudget;
+  if (!budget) return;
+  if (!Number.isSafeInteger(bytes) || bytes < 0) {
+    throw new RadarQueryError(
+      "BigQuery dry run returned invalid byte usage.",
+      1,
+    );
+  }
+  const next = budget.reservedBytes + bytes;
+  if (!Number.isSafeInteger(next) || next > budget.maxBytes) {
+    budget.exceeded = true;
+    throw new RadarQueryError(
+      `Cumulative BigQuery dry-run estimate would exceed the report-wide --max-total-gb ${budget.maxGb} budget.`,
+      2,
+    );
+  }
+  budget.reservedBytes = next;
 }
 
 function secretHash(value: string): Buffer {
@@ -1096,6 +1146,7 @@ export async function bqRequest(
   url: string,
   token: string,
   init?: RequestInit,
+  maxResponseBytes = MAX_BQ_RESULT_BYTES,
 ): Promise<BqPayload> {
   let response: Response;
   try {
@@ -1116,7 +1167,53 @@ export async function bqRequest(
       1,
     );
   }
-  const payload = (await response.json()) as BqPayload;
+  const body = response.body;
+  if (!body) {
+    throw new RadarQueryError("BigQuery returned an empty response body.", 1);
+  }
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let responseBytes = 0;
+  try {
+    let nextChunk = await reader.read();
+    while (!nextChunk.done) {
+      const value = nextChunk.value;
+      responseBytes += value.byteLength;
+      if (responseBytes > maxResponseBytes) {
+        await reader.cancel();
+        const cap =
+          maxResponseBytes < 1024 * 1024
+            ? `${maxResponseBytes}-byte`
+            : `${Math.floor(maxResponseBytes / (1024 * 1024))}-MiB`;
+        throw new RadarQueryError(
+          `BigQuery response exceeded the ${cap} safety cap before parsing.`,
+          1,
+        );
+      }
+      chunks.push(value);
+      nextChunk = await reader.read();
+    }
+  } catch (error) {
+    if (error instanceof RadarQueryError) throw error;
+    throw new RadarQueryError(
+      "BigQuery response body could not be read safely.",
+      1,
+    );
+  } finally {
+    reader.releaseLock();
+  }
+  let payload: BqPayload;
+  try {
+    const parsed: unknown = JSON.parse(
+      Buffer.concat(chunks, responseBytes).toString("utf8"),
+    );
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new TypeError();
+    }
+    payload = parsed as BqPayload;
+  } catch {
+    throw new RadarQueryError("BigQuery returned invalid JSON.", 1);
+  }
   if (payload.error) {
     throw new RadarQueryError("BigQuery rejected the read-only query.", 1);
   }
@@ -1274,7 +1371,13 @@ export async function runBigQuery(
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ ...payload, dryRun: true }),
   });
-  const bytesProcessed = Number(dryRun.totalBytesProcessed ?? 0);
+  const bytesProcessed = Number(dryRun.totalBytesProcessed);
+  if (!Number.isSafeInteger(bytesProcessed) || bytesProcessed < 0) {
+    throw new RadarQueryError(
+      "BigQuery dry run returned no valid byte estimate.",
+      2,
+    );
+  }
   const maxBytes = maxGb * 1_000_000_000;
   if (bytesProcessed > maxBytes) {
     throw new RadarQueryError(
@@ -1294,6 +1397,8 @@ export async function runBigQuery(
       return cached;
     }
   }
+
+  recordRadarBigQueryDryRunBytes(bytesProcessed);
 
   const startedAt = Date.now();
   const first = await bqRequest(postUrl, token, {

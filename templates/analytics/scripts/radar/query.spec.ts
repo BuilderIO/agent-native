@@ -10,16 +10,40 @@ import {
   bindRadarPostgresParams,
   collectPostgresRows,
   ensurePrivateRadarCacheDirectory,
+  getRadarBigQueryScanBudget,
   isReadOnlySql,
   parseBigQueryTimestamp,
   parseRadarBigQueryTableParts,
   radarCliExitCode,
   radarRunCliExitCode,
   radarJsonbParam,
+  recordRadarBigQueryDryRunBytes,
   RadarQueryError,
+  setRadarBigQueryScanBudget,
 } from "./query.ts";
 
 describe("radar query safety", () => {
+  it("enforces the weekly cumulative BigQuery scan budget", () => {
+    setRadarBigQueryScanBudget(0.00000001);
+    try {
+      recordRadarBigQueryDryRunBytes(8);
+      expect(getRadarBigQueryScanBudget()).toMatchObject({
+        maxBytes: 10,
+        reservedBytes: 8,
+        exceeded: false,
+      });
+      expect(() => recordRadarBigQueryDryRunBytes(3)).toThrow(
+        /report-wide --max-total-gb/,
+      );
+      expect(getRadarBigQueryScanBudget()).toMatchObject({
+        reservedBytes: 8,
+        exceeded: true,
+      });
+    } finally {
+      setRadarBigQueryScanBudget(undefined);
+    }
+  });
+
   it("binds explicit JSONB parameters through postgres.js JSON serialization", () => {
     const roster = [{ email: "recipient@example.test", app: "clips" }];
     const json = vi.fn((value: unknown) => ({ type: 3802, value }));
@@ -175,6 +199,21 @@ describe("radar query safety", () => {
       const request = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
       expect(request?.signal).toBeInstanceOf(AbortSignal);
       expect(request?.signal?.aborted).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("stops reading a BigQuery response before parsing an oversized page", async () => {
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        new Response("123456789"),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      await expect(
+        bqRequest("https://example.test", "test-token", undefined, 8),
+      ).rejects.toThrow("BigQuery response exceeded the 8-byte safety cap");
     } finally {
       vi.unstubAllGlobals();
     }

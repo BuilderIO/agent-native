@@ -19,7 +19,9 @@ scope: dev
    previous-issue recovery, and A/B maturity before drawing conclusions.
    The `campaign-followup` check runs in daily watch and weekly report; compare
    identified recipients' post-send activity with the seven days before each
-   send, split by recipient app and activity app.
+   send, split by recipient app and activity app. Weekly reports cap cumulative
+   BigQuery dry-run estimates at 100 GB; use `--max-total-gb` to set a different
+   report-wide cap, and treat a reached cap as incomplete evidence.
 5. Run `feedback-ingest` for Slack themes. Searches are read-only and begin at
    the saved watermark.
 6. Send one Telegram to Steve only when a check fired or the weekly report is

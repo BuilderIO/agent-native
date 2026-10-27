@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { RadarCheckResult } from "./checks.ts";
 import {
   acquisitionContextForWeek,
+  DEFAULT_WEEKLY_MAX_TOTAL_GB,
   parseReportArgs,
   recoveryStateForIssue,
 } from "./report.ts";
@@ -63,13 +64,28 @@ describe("weekly report arguments", () => {
   it("can skip screenshot snapshot generation while keeping the week", () => {
     expect(
       parseReportArgs(["--week", "2026-10-19", "--skip-journey-snapshot"]),
-    ).toEqual({ week: "2026-10-19", skipJourneySnapshot: true });
+    ).toEqual({
+      week: "2026-10-19",
+      skipJourneySnapshot: true,
+      maxTotalGb: DEFAULT_WEEKLY_MAX_TOTAL_GB,
+    });
   });
 
   it("runs journey snapshots by default", () => {
     expect(parseReportArgs(["--week", "2026-10-19"])).toEqual({
       week: "2026-10-19",
       skipJourneySnapshot: false,
+      maxTotalGb: DEFAULT_WEEKLY_MAX_TOTAL_GB,
+    });
+  });
+
+  it("accepts an explicit positive report-wide BigQuery scan cap", () => {
+    expect(
+      parseReportArgs(["--week", "2026-10-19", "--max-total-gb", "25"]),
+    ).toEqual({
+      week: "2026-10-19",
+      skipJourneySnapshot: false,
+      maxTotalGb: 25,
     });
   });
 });

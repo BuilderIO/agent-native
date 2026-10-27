@@ -14,7 +14,9 @@ import {
   RadarQueryError,
   RADAR_TMP_DIR,
   closeRadarQueries,
+  getRadarBigQueryScanBudget,
   radarRunCliExitCode,
+  setRadarBigQueryScanBudget,
 } from "./query.ts";
 import { runTriage, type TriageRun } from "./triage.ts";
 import { runWatch, type RadarWatchRun } from "./watch.ts";
@@ -38,6 +40,8 @@ export interface AcquisitionContextNote {
   app: string;
   change: string;
 }
+
+export const DEFAULT_WEEKLY_MAX_TOTAL_GB = 100;
 
 const ACQUISITION_CONTEXT: AcquisitionContextNote[] = [
   {
@@ -69,6 +73,11 @@ export interface RadarWeeklyReport {
     journeySnapshot: "completed" | "failed" | "not_present" | "skipped";
     feedbackIngest: "agent_required";
     queryCount: number;
+    bigQueryScan: {
+      maxGb: number;
+      reservedBytes: number;
+      exceeded: boolean;
+    };
   };
   dailyRuns: DailyEntry[];
   triageSummary: TriageRun["byAppOutcome"] | null;
@@ -241,21 +250,30 @@ function runJourneySnapshot(
 
 export interface WeeklyReportOptions {
   skipJourneySnapshot?: boolean;
+  maxTotalGb?: number;
 }
 
 export function parseReportArgs(args: readonly string[]): {
   week: string | undefined;
   skipJourneySnapshot: boolean;
+  maxTotalGb: number;
 } {
   let week: string | undefined;
   let skipJourneySnapshot = false;
+  let maxTotalGb = DEFAULT_WEEKLY_MAX_TOTAL_GB;
   for (let index = 0; index < args.length; index += 1) {
     if (args[index] === "--week") week = args[++index];
     else if (args[index] === "--skip-journey-snapshot")
       skipJourneySnapshot = true;
-    else throw new RadarQueryError(`Unknown argument: ${args[index]}`, 2);
+    else if (args[index] === "--max-total-gb") {
+      const value = Number(args[++index]);
+      if (!Number.isFinite(value) || value <= 0) {
+        throw new RadarQueryError("--max-total-gb must be positive.", 2);
+      }
+      maxTotalGb = value;
+    } else throw new RadarQueryError(`Unknown argument: ${args[index]}`, 2);
   }
-  return { week, skipJourneySnapshot };
+  return { week, skipJourneySnapshot, maxTotalGb };
 }
 
 function privateDirectory(directory: string): void {
@@ -318,6 +336,20 @@ function writePrivate(file: string, content: string): void {
 export async function buildWeeklyReport(
   week: string,
   options: WeeklyReportOptions = {},
+): Promise<RadarWeeklyReport> {
+  const maxTotalGb = options.maxTotalGb ?? DEFAULT_WEEKLY_MAX_TOTAL_GB;
+  setRadarBigQueryScanBudget(maxTotalGb);
+  try {
+    return await buildWeeklyReportWithinBudget(week, options, maxTotalGb);
+  } finally {
+    setRadarBigQueryScanBudget(undefined);
+  }
+}
+
+async function buildWeeklyReportWithinBudget(
+  week: string,
+  options: WeeklyReportOptions,
+  maxTotalGb: number,
 ): Promise<RadarWeeklyReport> {
   if (!validMonday(week))
     throw new RadarQueryError("--week must be a Monday in YYYY-MM-DD form.", 2);
@@ -418,6 +450,10 @@ export async function buildWeeklyReport(
       : hasFires
         ? 1
         : 0;
+  const bigQueryScanBudget = getRadarBigQueryScanBudget();
+  if (!bigQueryScanBudget) {
+    throw new RadarQueryError("Weekly BigQuery scan budget is unavailable.", 2);
+  }
   return {
     generatedAt: new Date().toISOString(),
     week,
@@ -434,6 +470,11 @@ export async function buildWeeklyReport(
       journeySnapshot: journeySnapshot.status,
       feedbackIngest: "agent_required",
       queryCount,
+      bigQueryScan: {
+        maxGb: bigQueryScanBudget.maxGb,
+        reservedBytes: bigQueryScanBudget.reservedBytes,
+        exceeded: bigQueryScanBudget.exceeded,
+      },
     },
     dailyRuns,
     triageSummary: triage?.byAppOutcome ?? null,
@@ -454,11 +495,14 @@ export async function buildWeeklyReport(
 }
 
 export function formatWeeklyMarkdown(report: RadarWeeklyReport): string {
+  const bigQueryScanGb =
+    report.coverage.bigQueryScan.reservedBytes / 1_000_000_000;
   const lines = [
     `# First-touch radar report: ${report.week} to ${report.weekEnd}`,
     "",
     `Exit ${report.exitCode}. Daily runs ${report.coverage.dailyRuns.completed}/${report.coverage.dailyRuns.expected}. Query count ${report.coverage.queryCount}.`,
     `Coverage: campaign ${report.coverage.campaignFollowup ? "ready" : "missing"}; A/B ${report.coverage.abReadout ? "ready" : "missing"}; triage ${report.coverage.replayTriage ? "ready" : "missing"}; journey snapshot ${report.coverage.journeySnapshot}; Slack feedback ${report.coverage.feedbackIngest}.`,
+    `BigQuery dry-run estimate: ${bigQueryScanGb.toFixed(2)} GB / ${report.coverage.bigQueryScan.maxGb} GB${report.coverage.bigQueryScan.exceeded ? " (budget reached)" : ""}.`,
     "",
     "## Daily watch",
     "",
@@ -605,14 +649,19 @@ export async function writeWeeklyReport(
 }
 
 async function main(): Promise<void> {
-  const { week, skipJourneySnapshot } = parseReportArgs(process.argv.slice(2));
+  const { week, skipJourneySnapshot, maxTotalGb } = parseReportArgs(
+    process.argv.slice(2),
+  );
   if (!week)
     throw new RadarQueryError(
-      "Usage: radar:report --week YYYY-MM-DD [--skip-journey-snapshot]",
+      "Usage: radar:report --week YYYY-MM-DD [--skip-journey-snapshot] [--max-total-gb N]",
       2,
     );
   try {
-    const report = await buildWeeklyReport(week, { skipJourneySnapshot });
+    const report = await buildWeeklyReport(week, {
+      skipJourneySnapshot,
+      maxTotalGb,
+    });
     const paths = await writeWeeklyReport(report);
     console.log(formatWeeklyMarkdown(report));
     console.log(JSON.stringify({ ...paths, exitCode: report.exitCode }));
