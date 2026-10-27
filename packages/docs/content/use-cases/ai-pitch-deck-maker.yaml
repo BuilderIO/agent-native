@@ -1,6 +1,8 @@
 template: v2
 slug: ai-pitch-deck-maker
 app: slides
+roles:
+  - founders
 title: Turn your notes into a pitch deck
 seo_title: AI pitch deck maker for startup founders
 meta_description: Start your pitch deck from a doc, your website or rough notes. Agent-Native Slides drafts it slide by slide, and you edit by hand or by asking the agent.
