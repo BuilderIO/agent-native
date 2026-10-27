@@ -539,6 +539,8 @@ interface SequencedRealtimeVoiceTranscript {
 export function createRealtimeVoiceTranscriptSequencer(
   publish: (transcript: CompletedRealtimeVoiceTranscript) => void,
   stream?: (transcript: CompletedRealtimeVoiceTranscript) => void,
+  /** Each GPT-Live turn as it grows, with its place on the session clock. */
+  onLiveTurn?: (turn: TranscriptSegment) => void,
 ): RealtimeVoiceTranscriptSequencer {
   const order: string[] = [];
   const items = new Map<string, SequencedRealtimeVoiceTranscript>();
@@ -562,8 +564,10 @@ export function createRealtimeVoiceTranscriptSequencer(
     if (liveGrouper) return liveGrouper;
     const grouper = new TranscriptGrouper();
     grouper.on("segment.updated", (segment) => {
+      if (grouper !== liveGrouper) return;
+      onLiveTurn?.(segment);
       const transcript = liveTranscript(segment);
-      if (grouper === liveGrouper && stream && transcript) stream(transcript);
+      if (stream && transcript) stream(transcript);
     });
     grouper.on("segment.closed", ({ segment }) => {
       const transcript = liveTranscript(segment);
@@ -1848,12 +1852,16 @@ function useRealtimeVoiceModeController(
       }),
     [],
   );
+  // The metrics outlive adapter changes such as a locale switch: the
+  // transport cleanup depends on them, and a new instance would end the call.
+  const trackEventRef = useRef(adapters.voice.trackEvent);
+  trackEventRef.current = adapters.voice.trackEvent;
   const turnMetrics = useMemo(
     () =>
       createRealtimeVoiceTurnMetrics((name, properties) =>
-        adapters.voice.trackEvent(name, properties),
+        trackEventRef.current(name, properties),
       ),
-    [adapters],
+    [],
   );
   const toolManifestCoordinator = useMemo(
     () =>
@@ -1957,6 +1965,11 @@ function useRealtimeVoiceModeController(
 
   const updateLivePreferences = useCallback(
     (next: RealtimeVoicePreferences, includeVoice = false) => {
+      turnMetrics.setContext({
+        protocol: protocolRef.current,
+        intelligence: next.intelligence,
+        intelligenceSource: next.intelligenceChosen ? "user" : "default",
+      });
       sendDataChannelEvent(
         channelRef.current,
         createRealtimeVoicePreferenceUpdate(next, {
@@ -1967,7 +1980,7 @@ function useRealtimeVoiceModeController(
         }),
       );
     },
-    [],
+    [turnMetrics],
   );
 
   const setLanguage = useCallback(
@@ -2146,6 +2159,9 @@ function useRealtimeVoiceModeController(
   switchMicrophoneRef.current = setMicrophone;
 
   const cleanupTransport = useCallback(() => {
+    // Teardown keeps what was heard now, so no grouper timer publishes into
+    // the chat after the session is gone.
+    flushTranscriptsRef.current?.();
     turnMetrics.sessionEnded();
     closeRealtimeVoiceWorkSegment(workSegmentRef);
     responseCallCountsRef.current.clear();
@@ -2251,8 +2267,12 @@ function useRealtimeVoiceModeController(
       createRealtimeVoiceTranscriptSequencer(
         (transcript) => publishTranscript(transcript, "complete"),
         (transcript) => publishTranscript(transcript, "streaming"),
+        (turn) => {
+          if (turn.speaker !== "user") return;
+          turnMetrics.userTurnUpdated(performance.now(), turn.id, turn.endMs);
+        },
       ),
-    [publishTranscript],
+    [publishTranscript, turnMetrics],
   );
   flushTranscriptsRef.current = transcriptSequencer.flush;
   const greetingStarter = useMemo(
@@ -2279,7 +2299,7 @@ function useRealtimeVoiceModeController(
       const toolAbortController = new AbortController();
       toolAbortControllersRef.current.add(toolAbortController);
       transition("working");
-      turnMetrics.toolCallStarted();
+      const finishTurnToolCall = turnMetrics.toolCallStarted();
       const workCall: RealtimeVoiceWorkCall = {
         id: call.callId,
         name: call.name,
@@ -2333,6 +2353,7 @@ function useRealtimeVoiceModeController(
           publishRealtimeVoiceWorkSegment(workSegment);
         }
       }
+      finishTurnToolCall(performance.now(), result);
       if (
         transportGeneration !== transportGenerationRef.current ||
         channelRef.current !== transportChannel
@@ -2340,7 +2361,6 @@ function useRealtimeVoiceModeController(
         return;
       }
       if (result.capability) capabilityRef.current = result.capability;
-      turnMetrics.toolCallFinished(performance.now(), result);
       toolManifestCoordinator.enqueue(result);
     },
     [browserTabId, toolManifestCoordinator, transition, turnMetrics],
@@ -2396,8 +2416,10 @@ function useRealtimeVoiceModeController(
         hasOutputAudioRef.current = true;
         lastAssistantTextRef.current = "";
         transition("working");
-      } else if (event.type === "response.output_audio_transcript.delta") {
+      } else if (event.type === "output_audio_buffer.started") {
         turnMetrics.assistantAudioStarted(performance.now());
+      } else if (event.type === "response.output_audio_transcript.delta") {
+        turnMetrics.assistantResponded();
         hasOutputAudioRef.current = true;
         if (typeof event.delta === "string") {
           lastAssistantTextRef.current += event.delta;
@@ -2416,12 +2438,6 @@ function useRealtimeVoiceModeController(
         }
         syncAppState("working");
       } else if (event.type === "session.input_transcript.delta") {
-        const now = performance.now();
-        turnMetrics.userSpeechStarted(now);
-        turnMetrics.userSpeechEnded(
-          now,
-          typeof event.end_ms === "number" ? event.end_ms : undefined,
-        );
         if (typeof event.delta === "string") {
           lastUserTextRef.current += event.delta;
         }
@@ -2520,12 +2536,9 @@ function useRealtimeVoiceModeController(
         );
       }
       if (responseBoundary && !responseCalls.get(delegationId)) {
-        const segment = workSegmentRef.current;
-        if (
-          !delegationId ||
-          !segment?.delegationId ||
-          segment.delegationId === delegationId
-        ) {
+        // Only the segment's own delegation ends it; an uncorrelated
+        // boundary would split one request's work into several rows.
+        if ((workSegmentRef.current?.delegationId ?? "") === delegationId) {
           closeRealtimeVoiceWorkSegment(workSegmentRef);
         }
         transition("listening");

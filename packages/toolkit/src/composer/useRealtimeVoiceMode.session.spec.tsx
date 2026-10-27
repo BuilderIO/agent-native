@@ -263,6 +263,7 @@ describe("realtime voice session controls", () => {
 
     await session.send({ type: "input_audio_buffer.speech_started" });
     await session.send({ type: "input_audio_buffer.speech_stopped" });
+    await session.send({ type: "output_audio_buffer.started" });
     await session.send({
       type: "response.output_audio_transcript.delta",
       item_id: "assistant-1",

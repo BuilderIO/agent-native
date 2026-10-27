@@ -8,6 +8,7 @@ import {
   type H3Event,
 } from "h3";
 
+import { actionCallReadOnly } from "../action-call-classification.js";
 import { getBuilderGatewayRequestHeaders } from "../agent/engine/builder-gateway-headers.js";
 import {
   actionsToEngineTools,
@@ -999,7 +1000,7 @@ function normalizeExecutionResult(
 
 function createToolHandler(
   getToolsByName: () => ReadonlyMap<string, RealtimeFunctionTool>,
-  isReadOnlyTool: (name: string) => boolean,
+  isReadOnlyCall: (name: string, args: Record<string, unknown>) => boolean,
   options: MountRealtimeVoiceRoutesOptions,
 ) {
   return defineEventHandler(async (event: H3Event) => {
@@ -1103,7 +1104,9 @@ function createToolHandler(
           return {
             callId: request.callId,
             ...result,
-            ...(isReadOnlyTool(request.name) ? { readOnly: true } : {}),
+            ...(isReadOnlyCall(request.name, request.args)
+              ? { readOnly: true }
+              : {}),
             ...(expandedTools.length > 0
               ? {
                   expandedTools,
@@ -1148,13 +1151,13 @@ export function mountRealtimeVoiceRoutes(
     (toolsByName ??= new Map(getTools().map((tool) => [tool.name, tool])));
   const app = getH3App(nitroApp);
   app.use(REALTIME_VOICE_SESSION_PATH, createSessionHandler(getTools, options));
-  const isReadOnlyTool = (name: string) => {
+  const isReadOnlyCall = (name: string, args: Record<string, unknown>) => {
     const entry = Object.hasOwn(mounted, name) ? mounted[name] : undefined;
-    return entry?.readOnly === true;
+    return entry ? actionCallReadOnly(entry, args) === true : false;
   };
   app.use(
     REALTIME_VOICE_TOOL_PATH,
-    createToolHandler(getToolsByName, isReadOnlyTool, options),
+    createToolHandler(getToolsByName, isReadOnlyCall, options),
   );
   return {
     sessionPath: REALTIME_VOICE_SESSION_PATH,

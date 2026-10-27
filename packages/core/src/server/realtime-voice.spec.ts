@@ -1786,6 +1786,44 @@ describe("realtime voice tool route", () => {
     });
   });
 
+  it("marks a call read-only from its own arguments' plan-mode effect", async () => {
+    const executeTool = vi
+      .fn()
+      .mockResolvedValue({ status: "completed", output: "{}" });
+    const { handlers } = mount({
+      executeTool,
+      actions: {
+        ...ACTIONS,
+        "manage-items": {
+          tool: {
+            name: "manage-items",
+            description: "List or delete items",
+            parameters: {
+              type: "object",
+              properties: { mode: { type: "string" } },
+            },
+          },
+          planMode: {
+            effect: (args: { mode?: string }) =>
+              args.mode === "list" ? "read" : "write",
+          },
+          run: vi.fn(),
+        },
+      },
+    });
+    const capability = await issueToolCapability(handlers);
+    const call = (mode: string, callId: string) =>
+      handlers.get(REALTIME_VOICE_TOOL_PATH)!(
+        toolEvent(
+          { name: "manage-items", args: { mode }, callId },
+          withToolCapability(capability),
+        ),
+      );
+
+    expect(await call("list", "call_list")).toMatchObject({ readOnly: true });
+    expect(await call("delete", "call_delete")).not.toHaveProperty("readOnly");
+  });
+
   it("routes navigation execution through the active browser tab", async () => {
     const contexts: unknown[] = [];
     runWithRequestContext.mockImplementation(
