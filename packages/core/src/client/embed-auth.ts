@@ -123,7 +123,7 @@ function clearMcpChatBridge(win: Window): void {
   mcpChatBridgeScope = null;
   mcpChatBridgeStorageKeyAtState = null;
   try {
-    win.sessionStorage?.removeItem(currentMcpChatBridgeStorageKey());
+    win.sessionStorage.removeItem(currentMcpChatBridgeStorageKey());
   } catch {
     // ignore unavailable session storage
   }
@@ -138,9 +138,9 @@ export function markEmbedMcpChatBridgeActive(): void {
   mcpChatBridgeStorageKeyAtState = storageKey;
   try {
     if (scope) {
-      win?.sessionStorage?.setItem(storageKey, scope);
+      win?.sessionStorage.setItem(storageKey, scope);
     } else {
-      win?.sessionStorage?.removeItem(storageKey);
+      win?.sessionStorage.removeItem(storageKey);
     }
   } catch {
     // Session storage may be unavailable in some sandboxed hosts. The
@@ -182,7 +182,7 @@ export function isEmbedMcpChatBridgeActive(): boolean {
     return false;
   }
   try {
-    const storedScope = win.sessionStorage?.getItem(storageKey);
+    const storedScope = win.sessionStorage.getItem(storageKey);
     if (storedScope && (scope == null || storedScope === scope)) {
       mcpChatBridgeActive = true;
       mcpChatBridgeScope = storedScope;
@@ -190,7 +190,7 @@ export function isEmbedMcpChatBridgeActive(): boolean {
       return true;
     }
     if (storedScope && scope != null && storedScope !== scope) {
-      win.sessionStorage?.removeItem(storageKey);
+      win.sessionStorage.removeItem(storageKey);
     }
     return false;
   } catch {
@@ -203,7 +203,7 @@ function storedToken(
   storageKey = currentEmbedTokenStorageKey(),
 ): string | null {
   try {
-    return win.sessionStorage?.getItem(storageKey) ?? null;
+    return win.sessionStorage.getItem(storageKey) ?? null;
   } catch {
     return null;
   }
@@ -216,7 +216,7 @@ function storeToken(
 ): void {
   memoryToken = { storageKey, token };
   try {
-    win.sessionStorage?.setItem(storageKey, token);
+    win.sessionStorage.setItem(storageKey, token);
   } catch {
     // Session storage may be unavailable in some sandboxed hosts. The
     // in-memory fallback still covers the normal single-page boot path.
@@ -233,8 +233,7 @@ export function getEmbedAuthToken(): string | null {
     let renewedFrom = renewedFromUrlToken;
     if (!renewedFrom) {
       try {
-        renewedFrom =
-          win.sessionStorage?.getItem(renewedFromStorageKey) ?? null;
+        renewedFrom = win.sessionStorage.getItem(renewedFromStorageKey) ?? null;
       } catch {
         renewedFrom = null;
       }
@@ -247,7 +246,7 @@ export function getEmbedAuthToken(): string | null {
     if (renewedFrom && renewedFrom !== fromUrl) {
       renewedFromUrlToken = null;
       try {
-        win.sessionStorage?.removeItem(renewedFromStorageKey);
+        win.sessionStorage.removeItem(renewedFromStorageKey);
       } catch {
         // coercion-ok: cleanup is best-effort; the refreshed URL token still supersedes this marker.
       }

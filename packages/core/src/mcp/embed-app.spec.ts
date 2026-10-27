@@ -118,6 +118,10 @@ describe("embedApp", () => {
     expect(html).not.toContain("/_agent-native/embed/runtime.js");
     expect(html).toContain("__AGENT_NATIVE_EXTERNAL_EMBED");
     expect(html).toContain("window.history.replaceState");
+    expect(html).toContain("resolveExternalEmbedTargetBasePath");
+    expect(html).toContain(
+      "workspaceAppMountPaths: appConfig.workspaceAppMountPaths",
+    );
     expect(html).toContain("mountTransplantedHtml");
     expect(html).toContain(
       "function importHeadChildrenWithBase(source, baseHref)",

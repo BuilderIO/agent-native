@@ -153,6 +153,44 @@ describe("agentNativePath", () => {
     );
   });
 
+  it("uses the external embed target's explicit root workspace mount", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubGlobal("window", {
+      location: { pathname: "srcdoc" },
+      __AGENT_NATIVE_CONFIG__: {
+        workspaceRuntime: true,
+        workspaceAppPath: "/",
+        workspaceAppMountPaths: ["/deck"],
+      },
+      __AGENT_NATIVE_EXTERNAL_EMBED: { target: "/deck/reports" },
+    });
+
+    expect(appBasePath()).toBe("");
+    expect(agentNativePath("/_agent-native/agent-engine/status")).toBe(
+      "/_agent-native/agent-engine/status",
+    );
+  });
+
+  it("uses the configured nested workspace mount for an external target", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubGlobal("window", {
+      location: { pathname: "srcdoc" },
+      __AGENT_NATIVE_CONFIG__: {
+        workspaceRuntime: true,
+        workspaceAppPath: "/mail/inbox",
+        workspaceAppMountPaths: ["/mail/inbox"],
+      },
+      __AGENT_NATIVE_EXTERNAL_EMBED: {
+        target: "/mail/inbox/threads",
+      },
+    });
+
+    expect(appBasePath()).toBe("/mail/inbox");
+    expect(agentNativePath("/_agent-native/agent-engine/status")).toBe(
+      "/mail/inbox/_agent-native/agent-engine/status",
+    );
+  });
+
   it("keeps a configured workspace base when the current path matches it", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");

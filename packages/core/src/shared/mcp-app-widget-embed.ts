@@ -9,6 +9,114 @@ import { EXTERNAL_EMBED_WINDOW_KEY } from "./route-chunk-recovery-bootstrap.js";
 export const EMBED_TOKEN_STORAGE_KEY = "agent-native:embed-auth-token";
 export const MCP_CHAT_BRIDGE_STORAGE_KEY = "agent-native:mcp-chat-bridge";
 
+export interface WorkspaceAppMountPathOptions {
+  explicitRootPath?: boolean;
+  fallbackPath?: string;
+  frameworkRoutePrefix?: string;
+  routerBasePath?: unknown;
+  workspaceAppMountPaths?: unknown;
+  workspaceAppPath?: unknown;
+}
+
+export function resolveWorkspaceAppMountPath(
+  pathname: string,
+  options: WorkspaceAppMountPathOptions = {},
+): string | undefined {
+  const normalize = (value: unknown): string => {
+    if (typeof value !== "string") return "";
+    const trimmed = value.trim();
+    if (!trimmed || trimmed === "/") return "";
+    return `/${trimmed.replace(/^\/+/, "").replace(/\/+$/, "")}`;
+  };
+  const matches = (basePath: string): boolean =>
+    Boolean(basePath) &&
+    (pathname === basePath || pathname.startsWith(`${basePath}/`));
+  const configuredPath = normalize(options.workspaceAppPath);
+  const explicitRootPath =
+    options.explicitRootPath === true ||
+    (typeof options.workspaceAppPath === "string" &&
+      options.workspaceAppPath.trim().length > 0 &&
+      configuredPath === "");
+  const fallbackPath = normalize(options.fallbackPath);
+  const routerBasePath = normalize(options.routerBasePath);
+
+  if (routerBasePath && matches(routerBasePath)) return routerBasePath;
+  if (configuredPath && matches(configuredPath)) return configuredPath;
+
+  const segment = pathname.split("/").find(Boolean);
+  if (!segment) {
+    if (explicitRootPath) return "";
+    return fallbackPath || undefined;
+  }
+  const frameworkRoutePrefix =
+    normalize(options.frameworkRoutePrefix) || "/_agent-native";
+  if (
+    `/${segment}` === "/_agent-native" ||
+    `/${segment}` === frameworkRoutePrefix ||
+    segment === "api"
+  ) {
+    return fallbackPath;
+  }
+  if (explicitRootPath) return "";
+
+  const matchingMount = (
+    Array.isArray(options.workspaceAppMountPaths)
+      ? options.workspaceAppMountPaths
+      : []
+  )
+    .filter((value): value is string => typeof value === "string")
+    .map(normalize)
+    .filter((basePath) => matches(basePath))
+    .sort((left, right) => right.length - left.length)[0];
+  return matchingMount || fallbackPath || undefined;
+}
+
+export function resolveExternalEmbedTargetBasePath(
+  target: unknown,
+  options: WorkspaceAppMountPathOptions & {
+    frameworkRoutePrefix?: string;
+    workspaceRuntime?: boolean;
+  } = {},
+): string {
+  if (typeof target !== "string" || !target.startsWith("/")) return "";
+
+  const url = new URL(target, "http://agent-native.invalid");
+  const markers = [
+    options.frameworkRoutePrefix || "/_agent-native",
+    "/_agent-native",
+  ];
+  for (const marker of markers) {
+    for (
+      let index = url.pathname.indexOf(marker);
+      index > 0;
+      index = url.pathname.indexOf(marker, index + 1)
+    ) {
+      const end = index + marker.length;
+      if (end === url.pathname.length || url.pathname[end] === "/") {
+        const prefix = url.pathname.slice(0, index).trim();
+        return prefix ? `/${prefix.replace(/^\/+|\/+$/g, "")}` : "";
+      }
+    }
+  }
+  if (!options.workspaceRuntime) return "";
+
+  const segment = url.pathname.split("/").find(Boolean);
+  const frameworkRoutePrefix = options.frameworkRoutePrefix || "/_agent-native";
+  const fallbackPath =
+    segment &&
+    `/${segment}` !== "/_agent-native" &&
+    `/${segment}` !== frameworkRoutePrefix &&
+    segment !== "api"
+      ? `/${segment}`
+      : "";
+  return (
+    resolveWorkspaceAppMountPath(url.pathname, {
+      ...options,
+      fallbackPath,
+    }) ?? fallbackPath
+  );
+}
+
 function normalizedStorageBasePath(basePath: string | undefined): string {
   const trimmed = basePath?.trim();
   if (!trimmed || trimmed === "/") return "";

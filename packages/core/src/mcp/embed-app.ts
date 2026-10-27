@@ -7,6 +7,8 @@ import {
 import {
   EMBED_TOKEN_STORAGE_KEY,
   MCP_CHAT_BRIDGE_STORAGE_KEY,
+  resolveExternalEmbedTargetBasePath,
+  resolveWorkspaceAppMountPath,
 } from "../shared/mcp-app-widget-embed.js";
 import { EXTERNAL_EMBED_WINDOW_KEY } from "../shared/route-chunk-recovery-bootstrap.js";
 import { HIDDEN_EMBED_URL } from "./embed-redaction.js";
@@ -766,29 +768,27 @@ export function embedApp(
           window.history.replaceState(window.history.state, "", config.target);
         }
       } catch (_err) {}
+      // Keep transplanted auth storage on the same mount resolver as its reader.
+      var resolveWorkspaceAppMountPath = ${resolveWorkspaceAppMountPath.toString()};
+      var resolveExternalEmbedTargetBasePath = ${resolveExternalEmbedTargetBasePath.toString()};
       function embedStorageKey(key) {
         var appConfig = window.__AGENT_NATIVE_CONFIG__ || {};
         if (appConfig.workspaceRuntime !== true) return key;
-        var targetPath = new URL(config.target || location.pathname, location.href).pathname;
-        var normalize = function(value) {
-          if (typeof value !== "string" || !value.trim()) return null;
-          var trimmed = value.trim();
-          if (trimmed === "/") return "";
-          return "/" + trimmed.replace(/^\\/+/, "").replace(/\\/+$/, "");
-        };
-        var mounts = [];
-        if (typeof appConfig.workspaceAppPath === "string") mounts.push(appConfig.workspaceAppPath);
-        if (Array.isArray(appConfig.workspaceAppMountPaths)) mounts.push.apply(mounts, appConfig.workspaceAppMountPaths);
-        var matching = mounts
-          .map(normalize)
-          .filter(function(mount) { return mount !== null && (mount === "" || targetPath === mount || targetPath.indexOf(mount + "/") === 0); })
-          .sort(function(left, right) { return right.length - left.length; });
-        if (matching.length) return key + ":" + (matching[0] || "/");
-        var explicitRoot = mounts.some(function(mount) { return normalize(mount) === ""; });
-        if (explicitRoot) return key + ":/";
-        var segment = targetPath.split("/").find(Boolean);
-        if (!segment || segment === "api" || segment === "_agent-native") return key + ":/";
-        return key + ":/" + segment;
+        var runtimeConfig = appConfig.runtime && typeof appConfig.runtime === "object"
+          ? appConfig.runtime
+          : {};
+        var frameworkRoutePrefix = runtimeConfig.frameworkRoutePrefix || appConfig.frameworkRoutePrefix;
+        var basePath = resolveExternalEmbedTargetBasePath(
+          config.target || location.pathname,
+          {
+            workspaceRuntime: true,
+            routerBasePath: window.__reactRouterContext && window.__reactRouterContext.basename,
+            workspaceAppPath: appConfig.workspaceAppPath,
+            workspaceAppMountPaths: appConfig.workspaceAppMountPaths,
+            frameworkRoutePrefix: frameworkRoutePrefix
+          }
+        );
+        return key + ":" + (basePath || "/");
       }
       try {
         if (config.token) {

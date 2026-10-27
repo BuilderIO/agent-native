@@ -5,6 +5,10 @@ import {
   SERVER_ROUTE_PREFIXES,
   toPublicFrameworkPath,
 } from "../shared/framework-route-prefix.js";
+import {
+  resolveExternalEmbedTargetBasePath,
+  resolveWorkspaceAppMountPath,
+} from "../shared/mcp-app-widget-embed.js";
 import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
 import { injectedAgentNativeConfig } from "./app-config.js";
 import { initializeAgentNativeClient } from "./client-bootstrap.js";
@@ -108,13 +112,6 @@ function frameworkMarkerIndex(pathname: string): number {
   return -1;
 }
 
-function isFrameworkSegment(segment: string): boolean {
-  return (
-    `/${segment}` === FRAMEWORK_INTERNAL_ROUTE_PREFIX ||
-    `/${segment}` === frameworkRoutePrefix()
-  );
-}
-
 function pathDerivedBasePath(): string {
   if (
     typeof window === "undefined" ||
@@ -187,37 +184,22 @@ function workspacePathBasePath(fallbackPath = ""): string {
   }
   const pathname = window.location?.pathname;
   if (typeof pathname !== "string") return "";
-  const routerBasePath = routerContextBasePath();
-  if (routerBasePath && pathMatchesBasePath(pathname, routerBasePath)) {
-    return routerBasePath;
-  }
-  const configuredWorkspacePath = workspaceAppConfiguredPath();
-  if (
-    configuredWorkspacePath &&
-    pathMatchesBasePath(pathname, configuredWorkspacePath)
-  ) {
-    return configuredWorkspacePath;
-  }
   const segment = pathname.split("/").find(Boolean);
+  const mounts = workspaceAppMountPaths();
+  const resolved = resolveWorkspaceAppMountPath(pathname, {
+    routerBasePath: routerContextBasePath(),
+    workspaceAppPath: workspaceAppConfiguredPath(),
+    workspaceAppMountPaths: mounts ? [...mounts] : undefined,
+    fallbackPath,
+    explicitRootPath: hasExplicitWorkspaceRootPath(),
+    frameworkRoutePrefix: frameworkRoutePrefix(),
+  });
+  if (resolved !== undefined) return resolved;
   if (!segment) {
-    if (hasExplicitWorkspaceRootPath()) return "";
-    if (fallbackPath) return fallbackPath;
     throw new WorkspaceAppMountResolutionError(
       "Cannot resolve workspace app mount path without explicit mount metadata.",
     );
   }
-  if (isFrameworkSegment(segment) || segment === "api") {
-    return fallbackPath;
-  }
-  if (hasExplicitWorkspaceRootPath()) return "";
-  const mounts = workspaceAppMountPaths();
-  const matchingMount = mounts
-    ? [...mounts]
-        .filter((mount) => pathMatchesBasePath(pathname, mount))
-        .sort((a, b) => b.length - a.length)[0]
-    : undefined;
-  if (matchingMount) return matchingMount;
-  if (fallbackPath) return fallbackPath;
   throw new WorkspaceAppMountResolutionError(
     mounts
       ? "Cannot resolve workspace app mount path because the current URL matches no projected mount."
@@ -263,23 +245,15 @@ function externalEmbedTargetBasePath(): string {
       __AGENT_NATIVE_EXTERNAL_EMBED?: { target?: unknown };
     }
   ).__AGENT_NATIVE_EXTERNAL_EMBED?.target;
-  if (typeof target !== "string" || !target.startsWith("/")) return "";
-  try {
-    const url = new URL(target, "http://agent-native.invalid");
-    const markerIndex = frameworkMarkerIndex(url.pathname);
-    if (markerIndex > 0) {
-      return normalizeBasePath(url.pathname.slice(0, markerIndex));
-    }
-    if (isWorkspaceRuntime()) {
-      const segment = url.pathname.split("/").find(Boolean);
-      if (segment && !isFrameworkSegment(segment) && segment !== "api") {
-        return normalizeBasePath(segment);
-      }
-    }
-  } catch {
-    return "";
-  }
-  return "";
+  const mounts = workspaceAppMountPaths();
+  return resolveExternalEmbedTargetBasePath(target, {
+    workspaceRuntime: isWorkspaceRuntime(),
+    routerBasePath: routerContextBasePath(),
+    workspaceAppPath: workspaceAppConfiguredPath(),
+    workspaceAppMountPaths: mounts ? [...mounts] : undefined,
+    explicitRootPath: hasExplicitWorkspaceRootPath(),
+    frameworkRoutePrefix: frameworkRoutePrefix(),
+  });
 }
 
 export function resolveAppBasePath(): string {
