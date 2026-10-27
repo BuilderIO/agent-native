@@ -111,10 +111,9 @@ Write the checked OID into the transcript as `ship_merge_head_oid` before
 running the merge. `/new-branch`'s post-merge rotation uses it. If the head
 changed, restart the 10 minutes. Never enable auto-merge.
 
-`/babysit-pr` calls this default `ship_mode=merge-authorized`. If the user said
-to leave the PR open, or you only have permission to push to someone else's
-PR, use `ship_mode=ready-only`: stop at a green, review-clean, mergeable PR,
-and don't rotate.
+If the user said to leave the PR open, or you only have permission to push to
+someone else's PR, stop at a green, review-clean, mergeable PR, and don't
+rotate.
 
 ## 6. After merge
 

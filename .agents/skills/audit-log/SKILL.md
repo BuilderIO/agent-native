@@ -83,12 +83,14 @@ minimum useful addition is `target: () => ({ type, id })`.
   `reportedClientVersion` are the MCP client's self-reported `clientInfo` for
   that individual `tools/call`; `initialize`-only values are not carried
   forward. `oauthClientId` is the OAuth client its credential was issued to.
-  `approval` (`agent-chat`, `a2a-review` or `mcp-client-accepted`) records the
-  authorization signal for that call. `agent-chat` is a person's approval in
-  agent chat; `a2a-review` is the owner's approval of a paused A2A call on its
-  review page; `mcp-client-accepted` means the MCP client accepted its
-  elicitation, and the server cannot verify who responded. The recorder reads
-  approval from the invocation's execution frame, never from its context.
+  `approval` (`agent-chat`, `a2a-review`, `mcp-client-accepted` or
+  `mcp-review`) records the authorization signal for that call. `agent-chat`
+  is a person's approval in agent chat; `a2a-review` is the owner's approval
+  of a paused A2A call on its review page; `mcp-client-accepted` means the MCP
+  client accepted its elicitation, and the server cannot verify who responded;
+  `mcp-review` is the signed-in owner's approval of a direct MCP call on its
+  review page. The recorder reads approval from the invocation's execution
+  frame, never from its context.
   Never infer approval from the email, and never backfill these fields on
   older rows.
 - **Attribution comes from one helper** — `recordActionAudit` and

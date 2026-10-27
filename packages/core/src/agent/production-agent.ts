@@ -1351,6 +1351,8 @@ export interface ActionEntry {
   parallelSafe?: boolean;
   /** See `ActionDefinition.retrySafe`. */
   retrySafe?: boolean | ((input: any) => boolean);
+  /** See `ActionDefinition.zonelessTimes`. */
+  zonelessTimes?: "calendar";
   dedupe?: boolean;
   toolCallable?: boolean;
   agentDiscoveryAvailable?: (
@@ -11040,8 +11042,13 @@ export async function runAgentLoop(opts: {
           if (!actionInvoked) {
             // The dispatch marker can persist while cancellation wins; it does
             // not prove the action handler started.
+            // A retry-safe adoption can carry older dispatch history here.
             await executionStepDispatchWrite?.catch(() => {});
-            await resetAgentExecutionStepBeforeInvocation(executionStepIntent);
+            await resetAgentExecutionStepBeforeInvocation(executionStepIntent, {
+              preserveDispatchHistory:
+                executionStepAdmission?.status === "execute" &&
+                executionStepAdmission.wasDispatched,
+            });
           } else if (toolResultLost || callEffect === "unknown") {
             await markAgentExecutionStepUnknown(executionStepIntent);
           } else {
