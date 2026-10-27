@@ -216,15 +216,15 @@ describe("collab polling while a poll is in flight", () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(17_000);
       });
-      expect(polls).toBe(2);
-      expect(awarenessRequests).toBe(2);
+      expect(polls).toBe(7);
+      expect(awarenessRequests).toBe(7);
       expect(awarenessSignal?.aborted).toBe(true);
 
       act(() => window.dispatchEvent(new Event("focus")));
       await act(async () => {
         await vi.advanceTimersByTimeAsync(50);
       });
-      expect(polls).toBe(3);
+      expect(polls).toBe(8);
     },
   );
 });

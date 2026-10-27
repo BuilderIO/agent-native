@@ -395,7 +395,7 @@ describe("Page draft recovery", () => {
       editorSessionId: "tab:page",
       editGeneration: 4,
     };
-    const renderPage = (writePath: Document["writePath"]) =>
+    const renderPage = (writePath: NonNullable<Document["writePath"]>) =>
       root.render(
         <PageDraftRecovery document={{ ...page, writePath }}>
           <textarea defaultValue="Live editor" />

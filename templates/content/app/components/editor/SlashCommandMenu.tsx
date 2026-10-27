@@ -12,7 +12,7 @@ import {
   CONTENT_SLASH_VISUALS,
 } from "@shared/labs";
 import { renderMathToHtml } from "@shared/math-rendering";
-import { collapseExactRepeatedNfm, docToNfm } from "@shared/nfm";
+import { collapseExactRepeatedNfm, docToNfm, type PMNode } from "@shared/nfm";
 import { serializeRegistryBlockToMdx } from "@shared/nfm-registry";
 import {
   IconCheck,
@@ -315,13 +315,13 @@ export function bodyAfterInsert(
   requiredText: string,
   bodyIsLiveCopy: boolean,
 ): string | null {
-  const json = editor.getJSON() as any;
+  const json = editor.getJSON() as PMNode;
   const body = docToNfm(json);
   const collapsed = collapseExactRepeatedNfm(body, { requiredText });
   if (!bodyIsLiveCopy || collapsed === body) return collapsed;
-  const blocks: unknown[] = json.content ?? [];
-  const copy = (part: unknown[]) =>
-    docToNfm({ type: "doc", content: part } as any);
+  const blocks = json.content ?? [];
+  const copy = (part: typeof blocks) =>
+    docToNfm({ type: "doc", content: part });
   const split = blocks.findIndex(
     (_, index) =>
       index > 0 &&

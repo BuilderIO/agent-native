@@ -470,7 +470,7 @@ class CollabDocConnection {
   }
 
   private get retiredUpdatesKey(): string | null {
-    const email = this.lastSetUser?.email?.trim().toLowerCase();
+    const email = this.lastSetUser?.email.trim().toLowerCase();
     return email
       ? `${this.registryKey}\0${email}\0${this.requestSource ?? ""}`
       : null;
@@ -683,7 +683,7 @@ class CollabDocConnection {
     versionedPrefix: string;
     versionedKey: string;
   } | null {
-    const email = this.lastSetUser?.email?.trim().toLowerCase();
+    const email = this.lastSetUser?.email.trim().toLowerCase();
     if (!email || typeof window === "undefined") return null;
     const prefix = outboxPrefix(this.registryKey, email);
     const versionedPrefix = outboxPrefix(
@@ -715,11 +715,7 @@ class CollabDocConnection {
         window.localStorage.removeItem(scope.versionedKey);
       } else {
         const encode = (items: PendingCollabUpdate[]) =>
-          uint8ArrayToBase64(
-            items.length === 1
-              ? items[0].update
-              : Y.mergeUpdates(items.map((item) => item.update)),
-          );
+          uint8ArrayToBase64(Y.mergeUpdates(items.map((item) => item.update)));
         const updates = [true, false].flatMap((requireLiveCopyOutcome) => {
           const items = this.pendingUpdates.filter(
             (item) => item.requireLiveCopyOutcome === requireLiveCopyOutcome,
@@ -1205,10 +1201,7 @@ class CollabDocConnection {
           : this.pendingUpdates
     ).slice(0, this.updateBatchLimit);
     const retiredKey = this.retiredUpdatesKey;
-    const merged =
-      toSend.length === 1
-        ? toSend[0].update
-        : Y.mergeUpdates(toSend.map((item) => item.update));
+    const merged = Y.mergeUpdates(toSend.map((item) => item.update));
     const controller = new AbortController();
     if (keepalive) this.keepaliveInFlight = true;
     else {
@@ -1322,8 +1315,10 @@ class CollabDocConnection {
       }
       if (
         !this.disposed &&
+        // oxlint-disable-next-line typescript/no-unnecessary-condition -- response and subscriber callbacks can refuse updates during the awaited request
         !this.snapshot.updatesRefused &&
         this.pendingUpdates.length &&
+        // oxlint-disable-next-line typescript/no-unnecessary-condition -- an edit can schedule a flush while the request is awaiting its response
         !this.flushTimer
       ) {
         this.flushTimer = setTimeout(
@@ -1981,7 +1976,7 @@ export function useCollaborativeDoc(
         pollInterval,
         pollIntervalWithSse,
         pauseWhenHidden,
-        requestSource,
+        ...(requestSource !== undefined ? { requestSource } : {}),
         durableUpdates,
         requireLiveCopyOutcome: () =>
           activeAcknowledgementScope.current === acknowledgementScope &&

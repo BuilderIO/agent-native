@@ -74,6 +74,16 @@ describe("a save on a page whose body is written through its live copy", () => {
   });
 });
 
+function answerRead(
+  reads: Array<(value: unknown) => void>,
+  index: number,
+  value: unknown,
+) {
+  const answer = reads.find((_, position) => position === index);
+  if (!answer) throw new Error("No pending page read");
+  answer(value);
+}
+
 describe("confirming where a live-copy page's body goes", () => {
   function confirmer(...answers: Array<"live_copy" | "legacy" | Error>) {
     const leave = vi.fn();
@@ -120,10 +130,10 @@ describe("confirming where a live-copy page's body goes", () => {
     path.acknowledge("confirm");
     const confirmed = path.confirmed();
     await vi.waitFor(() => expect(reads).toHaveLength(1));
-    reads[0]!({ writePath: "live_copy" });
+    answerRead(reads, 0, { writePath: "live_copy" });
     // The second read finds the server stopped writing the body from the copy.
     await vi.waitFor(() => expect(reads).toHaveLength(2));
-    reads[1]!({ writePath: "legacy" });
+    answerRead(reads, 1, { writePath: "legacy" });
     await expect(confirmed).resolves.toBe(false);
     expect(readDocument).toHaveBeenCalledTimes(2);
     expect(leave).toHaveBeenCalledTimes(1);
@@ -135,10 +145,10 @@ describe("confirming where a live-copy page's body goes", () => {
     await vi.waitFor(() => expect(reads).toHaveLength(1));
     path.acknowledge("keep");
     // The read may have been answered before the server took that update.
-    reads[0]!({ writePath: "legacy" });
+    answerRead(reads, 0, { writePath: "legacy" });
     await vi.waitFor(() => expect(reads).toHaveLength(2));
     expect(leave).not.toHaveBeenCalled();
-    reads[1]!({ writePath: "live_copy" });
+    answerRead(reads, 1, { writePath: "live_copy" });
     await expect(path.confirmed()).resolves.toBe(true);
     expect(readDocument).toHaveBeenCalledTimes(2);
     expect(leave).not.toHaveBeenCalled();

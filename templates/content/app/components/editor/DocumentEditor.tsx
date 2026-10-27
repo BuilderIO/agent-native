@@ -2320,9 +2320,11 @@ export function liveCopyWritePathConfirmer(options: {
       }
       // An acknowledgment that came in while the page was read may be for an
       // update the server took after that read, so the answer may be stale.
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- acknowledge can change this flag during the awaited page read
       if (askAgain) continue;
       if (!live) return leave();
       known = true;
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- acknowledge can change this flag during the awaited page read
     } while (askAgain);
   };
   const start = () =>
@@ -4551,10 +4553,21 @@ function PageEditorSessionBody({
         const saved = await persistDocumentUpdates(
           { title },
           {
-            allowQueuedSave: options.allowQueuedSave,
-            requireActiveEditorSession: options.requireActiveEditorSession,
-            historySessionId: options.historySessionId,
-            telemetryOrigin: options.telemetryOrigin,
+            ...(options.allowQueuedSave !== undefined
+              ? { allowQueuedSave: options.allowQueuedSave }
+              : {}),
+            ...(options.requireActiveEditorSession !== undefined
+              ? {
+                  requireActiveEditorSession:
+                    options.requireActiveEditorSession,
+                }
+              : {}),
+            ...(options.historySessionId !== undefined
+              ? { historySessionId: options.historySessionId }
+              : {}),
+            ...(options.telemetryOrigin !== undefined
+              ? { telemetryOrigin: options.telemetryOrigin }
+              : {}),
             titleBase: titleSave.titleBase,
           },
         );
@@ -4567,7 +4580,7 @@ function PageEditorSessionBody({
         } else {
           adoptConfirmedSaveWatermarks({
             saved,
-            savedAt: saved.updatedAt ?? new Date().toISOString(),
+            savedAt: saved.updatedAt,
             title,
             content: lastSavedContentRef.current.content,
             updates: { title },

@@ -969,7 +969,7 @@ describe("the body saved after a page insert", () => {
       extensions: createVisualEditorExtensions(),
       content: nfmToDoc("Intro paragraph"),
     });
-    const intro = editor.getJSON().content ?? [];
+    const intro = editor.getJSON().content;
     const once = [...intro, pageReference];
     editor.commands.setContent({
       type: "doc",
@@ -981,7 +981,7 @@ describe("the body saved after a page insert", () => {
   function bodyOnce() {
     const editor = editorWithBody(false);
     try {
-      return docToNfm(editor.getJSON() as any);
+      return docToNfm(editor.getJSON() as Parameters<typeof docToNfm>[0]);
     } finally {
       editor.destroy();
     }
@@ -992,9 +992,13 @@ describe("the body saved after a page insert", () => {
     const once = bodyOnce();
     try {
       expect(bodyAfterInsert(editor, required, true)).toBe(once);
-      expect(docToNfm(editor.getJSON() as any)).toBe(once);
+      expect(docToNfm(editor.getJSON() as Parameters<typeof docToNfm>[0])).toBe(
+        once,
+      );
       expect(bodyAfterInsert(editor, required, true)).toBe(once);
-      expect(docToNfm(editor.getJSON() as any)).toBe(once);
+      expect(docToNfm(editor.getJSON() as Parameters<typeof docToNfm>[0])).toBe(
+        once,
+      );
     } finally {
       editor.destroy();
     }
@@ -1002,10 +1006,14 @@ describe("the body saved after a page insert", () => {
 
   it("leaves the editor alone when the page saves its body", () => {
     const editor = editorWithBody(true);
-    const repeated = docToNfm(editor.getJSON() as any);
+    const repeated = docToNfm(
+      editor.getJSON() as Parameters<typeof docToNfm>[0],
+    );
     try {
       expect(bodyAfterInsert(editor, required, false)).toBe(bodyOnce());
-      expect(docToNfm(editor.getJSON() as any)).toBe(repeated);
+      expect(docToNfm(editor.getJSON() as Parameters<typeof docToNfm>[0])).toBe(
+        repeated,
+      );
     } finally {
       editor.destroy();
     }
@@ -1013,10 +1021,12 @@ describe("the body saved after a page insert", () => {
 
   it("leaves a body that does not repeat as it is", () => {
     const editor = editorWithBody(false);
-    const body = docToNfm(editor.getJSON() as any);
+    const body = docToNfm(editor.getJSON() as Parameters<typeof docToNfm>[0]);
     try {
       expect(bodyAfterInsert(editor, required, true)).toBe(body);
-      expect(docToNfm(editor.getJSON() as any)).toBe(body);
+      expect(docToNfm(editor.getJSON() as Parameters<typeof docToNfm>[0])).toBe(
+        body,
+      );
     } finally {
       editor.destroy();
     }

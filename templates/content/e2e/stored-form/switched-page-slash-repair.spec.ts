@@ -78,6 +78,7 @@ function occurrences(text: string, needle: string): number {
 }
 
 test.describe("the slash menu on a switched page", () => {
+  // oracle-change: this live-copy scenario belongs only in the gate-on arm; legacy pages use a different writer
   test.skip(
     GATE !== "on",
     "Only a switched page writes through its live copy; this runs in the gate-on arm (CONTENT_LIVE_BODY_GATE=on).",
