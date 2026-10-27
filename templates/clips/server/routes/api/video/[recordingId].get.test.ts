@@ -932,7 +932,9 @@ describe("/api/video/:recordingId route", () => {
         );
 
         const event = makeEvent();
-        const result = await handler(event as any);
+        const result = await handler(
+          event as unknown as Parameters<typeof handler>[0],
+        );
 
         expect(event.status).toBe(404);
         expect(result).toEqual({ error: "Not found" });
@@ -957,7 +959,9 @@ describe("/api/video/:recordingId route", () => {
         });
 
         const event = makeEvent();
-        const result = await handler(event as any);
+        const result = await handler(
+          event as unknown as Parameters<typeof handler>[0],
+        );
 
         expect(event.status).toBe(404);
         expect(result).toEqual({ error: "Not found" });
