@@ -107,6 +107,7 @@ describe("list recordings expiry with PostgreSQL", () => {
       schema.recordingComments,
       schema.recordingReactions,
       schema.recordingEvents,
+      schema.recordingContentBindings,
       schema.meetings,
       schema.meetingShares,
       schema.meetingParticipants,

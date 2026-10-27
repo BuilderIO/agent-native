@@ -214,6 +214,7 @@ const messages = {
     spaces: "المساحات",
     meetings: "الاجتماعات",
     dictate: "إملاء",
+    fromContent: "من Content",
     archive: "الأرشيف",
     trash: "المهملات",
     agent: "الوكيل",
@@ -268,6 +269,10 @@ const messages = {
     archive: {
       title: "لا توجد تسجيلات مؤرشفة",
       body: "تبقى Clips المؤرشفة هنا حتى تصبح مستعدًا لإعادتها.",
+    },
+    fromContent: {
+      title: "لا توجد عمليات رفع من Content بعد",
+      body: "تُحفظ هنا مقاطع الفيديو التي ترفعها إلى صفحة في Content بصفتها Clips.",
     },
     trash: {
       title: "المهملات فارغة",
@@ -2288,6 +2293,8 @@ const messages = {
     goHome: "الانتقال إلى الصفحة الرئيسية",
     testMic: "اختبار الميكروفون",
     archivePageTitle: "الأرشيف · Clips",
+    fromContentPageTitle: "من Content · Clips",
+    openContentPage: "فتح الصفحة",
     insightsPageTitle: "الرؤى · Clips",
     folderPageTitle: "المجلد · Clips",
     spacePageTitle: "المساحة · Clips",

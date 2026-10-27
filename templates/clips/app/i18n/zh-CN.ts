@@ -208,6 +208,7 @@ const messages = {
     spaces: "空间",
     meetings: "会议",
     dictate: "听写",
+    fromContent: "来自 Content",
     archive: "归档",
     trash: "废纸篓",
     agent: "代理",
@@ -262,6 +263,10 @@ const messages = {
     archive: {
       title: "暂无归档的录制",
       body: "归档的 Clips 会一直保存在这里，直到你准备好将它们恢复。",
+    },
+    fromContent: {
+      title: "还没有来自 Content 的上传",
+      body: "你上传到 Content 页面的视频会作为 Clips 保存在这里。",
     },
     trash: {
       title: "废纸篓是空的",
@@ -2190,6 +2195,8 @@ const messages = {
     goHome: "返回首页",
     testMic: "测试麦克风",
     archivePageTitle: "归档 · Clips",
+    fromContentPageTitle: "来自 Content · Clips",
+    openContentPage: "打开页面",
     insightsPageTitle: "洞察 · Clips",
     folderPageTitle: "文件夹 · Clips",
     spacePageTitle: "空间 · Clips",
