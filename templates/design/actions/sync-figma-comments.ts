@@ -315,6 +315,11 @@ export default defineAction({
     .strict(),
   errors,
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
   run: async (args, context) => {
     await assertFigmaSyncEnabled();
     await assertAccess("design", args.designId, "editor");
