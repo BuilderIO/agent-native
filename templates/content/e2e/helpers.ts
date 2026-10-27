@@ -38,7 +38,7 @@ import {
 
 export const ACTION_HEADERS = {
   "X-Agent-Native-Frontend": "1",
-  "X-Agent-Native-Client-Compatibility": "content-row-property-ids-v1",
+  "X-Agent-Native-Client-Compatibility": "content-video-block-ids-v1",
   "X-Agent-Native-Build-Id": "development",
 };
 

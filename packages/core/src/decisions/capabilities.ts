@@ -9,7 +9,8 @@ export const DECISION_PROVIDER_CAPABILITIES = {
     builderProxy: {
       predicate: { status: "verified", enabled: true },
       choice: { status: "verified", enabled: true },
-      score: { status: "unverified", enabled: false },
+      // Verified against the Builder proxy's SystemOneRequestSchema and SystemOneResponseSchema.
+      score: { status: "verified", enabled: true },
     },
   },
   openai: {

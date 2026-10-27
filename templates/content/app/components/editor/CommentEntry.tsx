@@ -1,5 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import type { TiptapComposerHandle } from "@agent-native/toolkit/composer";
+import { isCommentAnchorBlockType } from "@shared/comment-block-anchor";
 import { commentMentionsForText } from "@shared/comment-mentions";
 import { IconDots, IconExternalLink } from "@tabler/icons-react";
 import { useRef, useState, type ReactNode } from "react";
@@ -207,6 +208,7 @@ export function CommentEntry({
     )
       return;
     setChecking(true);
+    const blockType = comment.block_type ?? "";
     try {
       await create.mutateAsync({
         clientOperationId: operationId,
@@ -224,6 +226,11 @@ export function CommentEntry({
         fieldId: comment.parent_id
           ? undefined
           : (comment.field_id ?? undefined),
+        ...(!comment.parent_id &&
+        comment.block_id &&
+        isCommentAnchorBlockType(blockType)
+          ? { blockId: comment.block_id, blockType }
+          : {}),
         quotedText: comment.quoted_text ?? undefined,
         anchorPrefix: comment.anchor_prefix ?? undefined,
         anchorSuffix: comment.anchor_suffix ?? undefined,
