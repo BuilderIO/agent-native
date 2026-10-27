@@ -1382,6 +1382,7 @@ export default {
     columnFormatCurrency: "货币",
     columnFormatPercent: "百分比",
     columnFormatDate: "日期",
+    columnFormatDuration: "时长（秒）",
     columnRename: "重命名列",
     columnHide: "隐藏列",
     columnShow: '显示"{{name}}"',
