@@ -86,7 +86,7 @@ other_uses:
 faqs:
   heading: Questions? We have answers
   items:
-    - q: Is Clips free?
+    - q: Is Agent-Native Clips free?
       a: Yes, Agent-Native Clips is free and open source. Summaries, titles and transcript cleanup run on [Builder.io AI credits](https://www.agent-native.com/docs/template-clips-features/) by default. When credits run out, those features stop until you add credits or connect your own Gemini key. Clips is in alpha, so expect changes.
     - q: Does a bot join my meetings?
       a: "No. Clips takes notes from your own computer: Clips Desktop records your microphone and the call's audio, so nothing joins your Zoom, Google Meet or Microsoft Teams call. Since no bot joins, tell people you're taking notes."
