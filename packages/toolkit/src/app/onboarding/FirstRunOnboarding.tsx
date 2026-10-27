@@ -239,6 +239,10 @@ export function FirstRunOnboarding({
   } | null>(null);
   const [creditsV2ExposureConfirmed, setCreditsV2ExposureConfirmed] =
     useState(false);
+  const [
+    creditsV2ExposureConfirmationFailed,
+    setCreditsV2ExposureConfirmationFailed,
+  ] = useState(false);
   const creditsV2Flag = useFeatureFlagState(
     FIRST_RUN_BUILDER_CREDITS_V2_FLAG_KEY,
   );
@@ -266,6 +270,8 @@ export function FirstRunOnboarding({
     creditsV2Flag.status === "ready" &&
     creditsV2Flag.enabled;
   const creditsV2FlowEnabled = creditsV2Enabled || previewCreditsV2;
+  const creditsV2TreatmentConfirmed =
+    previewMode || !creditsV2Enabled || creditsV2ExposureConfirmed;
   const creditsV2FlagPending =
     !previewMode &&
     creditsV2FlagAppliesToApp &&
@@ -293,7 +299,8 @@ export function FirstRunOnboarding({
   const choiceSkippable =
     setupSkippable ||
     (setupVariant === "credits" &&
-      (previewMode || setupExperimentDecision === true));
+      (previewMode || setupExperimentDecision === true) &&
+      creditsV2TreatmentConfirmed);
   const [extensionPlacement, setExtensionPlacement] =
     useState<FirstRunExtensionPlacement>("after-setup");
   const [extensionIndex, setExtensionIndex] = useState(0);
@@ -508,10 +515,8 @@ export function FirstRunOnboarding({
       trackOnboardingEvent("onboarding_started", { flow: "first_run" });
     }
   }, [canTrackOnboardingScreen, firstRun, previewMode]);
-  // Both arms render a skeleton until the experiment decision is known, and the
-  // credits arm's skip depends on it, so the choice view waits for the decision
-  // and is sent once with its resolved optional flag. Without an assigned arm
-  // no decision is ever made, and the choice UI renders as is.
+  // Wait until the choice can be tracked with the variant and optional state
+  // that the user actually sees.
   const choiceStepKnown =
     screen !== "choice" ||
     (!creditsV2FlagPending &&
@@ -519,7 +524,8 @@ export function FirstRunOnboarding({
       (setupVariant === null || setupExperimentDecision !== null) &&
       (!creditsV2Enabled ||
         setupExperimentDecision !== true ||
-        creditsV2ExposureConfirmed));
+        creditsV2ExposureConfirmed ||
+        creditsV2ExposureConfirmationFailed));
   const beginBeforeSetup = useCallback(() => {
     if (beforeSetupExtensions.length === 0) {
       setScreen("choice");
@@ -585,6 +591,33 @@ export function FirstRunOnboarding({
     !connectFlow.connecting &&
     Boolean(connectFlow.terminalError);
   const connectionFailed = provisioningFailed;
+  useEffect(() => {
+    if (
+      previewMode ||
+      !firstRun ||
+      !canTrackOnboardingScreen ||
+      screen !== "choice" ||
+      !creditsV2ExposureConfirmed ||
+      creditsV2ExposureTrackedRef.current ||
+      !creditsV2Assignment
+    ) {
+      return;
+    }
+    creditsV2ExposureTrackedRef.current = true;
+    trackOnboardingEvent("onboarding_experiment_exposed", {
+      flow: "first_run",
+      step_id: "choice",
+      experiment_id: creditsV2Assignment.experiment_id,
+      experiment_variant: creditsV2Assignment.experiment_variant,
+    });
+  }, [
+    canTrackOnboardingScreen,
+    creditsV2Assignment,
+    creditsV2ExposureConfirmed,
+    firstRun,
+    previewMode,
+    screen,
+  ]);
   useEffect(() => {
     if (
       previewMode ||
@@ -834,6 +867,11 @@ export function FirstRunOnboarding({
       return;
     }
     creditsV2ExposureConfirmationStartedRef.current = true;
+    let confirmationFinished = false;
+    const confirmationTimeout = window.setTimeout(() => {
+      confirmationFinished = true;
+      setCreditsV2ExposureConfirmationFailed(true);
+    }, SETUP_EXPERIMENT_DECISION_TIMEOUT_MS);
     const confirmExposure = async () => {
       let lastError: unknown;
       for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -841,6 +879,7 @@ export function FirstRunOnboarding({
           const { assignment } = await creditsV2Exposure.mutateAsync({
             confirmedVariant: creditsV2Assignment.experiment_variant,
           });
+          if (confirmationFinished) return;
           if (
             assignment?.experiment_id !== creditsV2Assignment.experiment_id ||
             assignment.experiment_variant !==
@@ -850,29 +889,33 @@ export function FirstRunOnboarding({
               "The server did not confirm the displayed first-run Builder credits v2 assignment.",
             );
           }
+          confirmationFinished = true;
+          window.clearTimeout(confirmationTimeout);
           setOnboardingExperiment({
             id: creditsV2Assignment.experiment_id,
             variant: creditsV2Assignment.experiment_variant,
           });
-          creditsV2ExposureTrackedRef.current = true;
           setCreditsV2ExposureConfirmed(true);
-          trackOnboardingEvent("onboarding_experiment_exposed", {
-            flow: "first_run",
-            step_id: "choice",
-            experiment_id: creditsV2Assignment.experiment_id,
-            experiment_variant: creditsV2Assignment.experiment_variant,
-          });
           return;
         } catch (error: unknown) {
+          if (confirmationFinished) return;
           lastError = error;
         }
       }
+      if (confirmationFinished) return;
+      confirmationFinished = true;
+      window.clearTimeout(confirmationTimeout);
+      setCreditsV2ExposureConfirmationFailed(true);
       console.error(
         "Failed to confirm first-run Builder credits v2 exposure:",
         lastError,
       );
     };
     void confirmExposure();
+    return () => {
+      confirmationFinished = true;
+      window.clearTimeout(confirmationTimeout);
+    };
   }, [
     creditsV2Assignment,
     creditsV2Enabled,
@@ -1142,16 +1185,25 @@ export function FirstRunOnboarding({
 
     const inCreditsArm = setupVariant === "credits";
     // Both arms wait for exposure so the recorded arm matches what is shown.
+    const creditsV2ConfirmationPending =
+      creditsV2Enabled &&
+      setupExperimentDecision === true &&
+      creditsV2Assignment !== null &&
+      !creditsV2ExposureConfirmed &&
+      !creditsV2ExposureConfirmationFailed;
     if (
       !previewMode &&
       (creditsV2FlagPending ||
         (creditsV2FlowEnabled && setupExperimentDecision === null) ||
-        (setupVariant && setupExperimentDecision === null))
+        (setupVariant && setupExperimentDecision === null) ||
+        creditsV2ConfirmationPending)
     ) {
       return <OnboardingSkeleton />;
     }
     const creditsEligible =
-      inCreditsArm && (previewMode || setupExperimentDecision === true);
+      inCreditsArm &&
+      (previewMode || setupExperimentDecision === true) &&
+      creditsV2TreatmentConfirmed;
 
     const builderStatusError =
       connectFlow.error && connectFlow.errorKind === "status-read" ? (
