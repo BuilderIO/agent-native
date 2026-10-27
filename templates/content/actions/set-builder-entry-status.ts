@@ -4,10 +4,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import type {
-  SetBuilderEntryStatusRequest,
-  SetBuilderEntryStatusResponse,
-} from "../shared/api.js";
+import type { SetBuilderEntryStatusResponse } from "../shared/api.js";
 import { withBuilderCmsPublicationIntent } from "./_builder-cms-unpublished-changes.js";
 import { builderCmsWriteSettingsFromJson } from "./_builder-cms-write-settings.js";
 import {
@@ -62,9 +59,7 @@ export default defineAction({
     destructiveHint: true,
     openWorldHint: false,
   },
-  run: async (
-    args: SetBuilderEntryStatusRequest,
-  ): Promise<SetBuilderEntryStatusResponse> => {
+  run: async (args): Promise<SetBuilderEntryStatusResponse> => {
     const database = await resolveDatabaseForSourceMutation({
       databaseId: args.databaseId,
     });
