@@ -2801,12 +2801,12 @@ function DatabaseTable({
 
     setBuilderReviewCheckedAt(null);
     setBuilderReviewError(null);
+    const executions: DatabaseBuilderRowExecution[] = [];
     try {
       const executableRows = builderReviewExecutableRows(
         preparedReview,
         selectedChangeSetIdSet,
       );
-      const executions: DatabaseBuilderRowExecution[] = [];
       for (const row of executableRows) {
         if (!row.execution?.idempotencyKey) continue;
         if (
@@ -2885,17 +2885,18 @@ function DatabaseTable({
       const message =
         error instanceof Error ? error.message : dbText("tryAgain");
       setPreparedBuilderReviewConfirmation(null);
-      const ambiguousReview = databaseBuilderReviewAfterExecutionError(
+      const reviewAfterError = databaseBuilderReviewAfterPartialExecution(
         preparedReview,
+        executions,
         message,
       );
-      if (ambiguousReview) {
-        setBuilderReviewResult(ambiguousReview);
+      if (reviewAfterError) {
+        setBuilderReviewResult(reviewAfterError);
         setBuilderReviewCheckedAt(new Date().toISOString());
-        if (ambiguousReview.result.status === "running") {
+        if (reviewAfterError.result.status === "running") {
           setBuilderReviewError(null);
           toast.info(dbText("working"), {
-            description: ambiguousReview.result.message,
+            description: reviewAfterError.result.message,
           });
           return;
         }
@@ -4614,6 +4615,28 @@ export type DatabaseBuilderRowExecution = {
   changeSetId: string;
   source: ContentDatabaseSource | null;
 };
+
+/**
+ * The review after a push that stopped on an error. Rows pushed before the
+ * error show their result, and the review's result is the error, never a
+ * success. Null when nothing was pushed and the error leaves no state to show.
+ */
+export function databaseBuilderReviewAfterPartialExecution(
+  review: ContentDatabaseSourceReviewPayload,
+  executions: DatabaseBuilderRowExecution[],
+  message: string,
+) {
+  const pushed =
+    executions.length > 0
+      ? databaseBuilderReviewAfterExecution(review, executions)
+      : null;
+  return (
+    databaseBuilderReviewAfterExecutionError(pushed ?? review, message) ??
+    (pushed
+      ? { ...pushed, result: { status: "failed" as const, message } }
+      : null)
+  );
+}
 
 /**
  * The review after a push, built from the Builder source each execution

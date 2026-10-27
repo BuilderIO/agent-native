@@ -62,6 +62,7 @@ import {
   databaseAttachedBuilderModelNames,
   databaseAttachedBuilderSource,
   databaseBuilderReviewAfterExecution,
+  databaseBuilderReviewAfterPartialExecution,
   builderReviewableChangeSets,
   builderReviewExecutableRows,
   builderSourceLiveWriteControlState,
@@ -1306,6 +1307,43 @@ describe("Builder source settings helpers", () => {
     ]);
     expect(skipped?.result.status).toBe("succeeded");
     expect(skipped?.summary).toBe(preparedReview.summary);
+
+    const failedAfterFirst = databaseBuilderReviewAfterPartialExecution(
+      preparedReview,
+      [pushedFirst],
+      "Builder rejected the second entry.",
+    );
+    expect(
+      failedAfterFirst?.rows.map((row) => [
+        row.changeSetId,
+        row.execution?.state,
+      ]),
+    ).toEqual([
+      ["change-first", "succeeded"],
+      [
+        "change-second",
+        preparedReview.rows.find((row) => row.changeSetId === "change-second")
+          ?.execution?.state,
+      ],
+    ]);
+    expect(failedAfterFirst?.result).toEqual({
+      status: "failed",
+      message: "Builder rejected the second entry.",
+    });
+    expect(
+      databaseBuilderReviewAfterPartialExecution(
+        preparedReview,
+        [pushedFirst],
+        "Builder execution is already running.",
+      )?.result.status,
+    ).toBe("running");
+    expect(
+      databaseBuilderReviewAfterPartialExecution(
+        preparedReview,
+        [],
+        "Builder rejected the first entry.",
+      ),
+    ).toBeNull();
   });
 });
 
