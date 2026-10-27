@@ -4,6 +4,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { getComposerDraftKey } from "./draft-key.js";
 import { PromptComposer, type PromptComposerProps } from "./PromptComposer.js";
 import type {
   ComposerTextReference,
@@ -77,6 +78,25 @@ function lines() {
 }
 
 describe("composer text with chips", () => {
+  it("applies an explicit initial prompt before a saved draft", async () => {
+    const draftScope = `initial-prompt-${crypto.randomUUID()}`;
+    localStorage.setItem(getComposerDraftKey(draftScope), "Older saved prompt");
+
+    try {
+      await render({
+        draftScope,
+        initialText: "Selected suggestion prompt",
+        initialTextKey: "suggestion-1",
+      });
+
+      expect(composerRef.current?.getDraftSnapshot?.().text).toBe(
+        "Selected suggestion prompt",
+      );
+    } finally {
+      localStorage.removeItem(getComposerDraftKey(draftScope));
+    }
+  });
+
   it("seeds the initial text with each chip in place of its range", async () => {
     await render({
       initialText: "@Sam Lee and @Sam Lee, thanks",

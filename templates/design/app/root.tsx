@@ -141,8 +141,10 @@ function designFirstPaintSuggestions(
     createHomeSuggestionRandom(seed),
     order,
   ).map(({ id, label, prompt: messageKey }) => {
+    if (!messageKey)
+      throw new Error(`Missing Design home suggestion prompt key: ${label}`);
     const [, , roleKey, labelKey] = label.split(".");
-    const [, , , promptKey] = messageKey?.split(".") ?? [];
+    const [, , , promptKey] = messageKey.split(".");
     const roleLabels = designEnglish.home.suggestionLabels as Record<
       string,
       Record<string, string>
@@ -248,7 +250,6 @@ const designFirstPaintHome: Omit<AppShellFirstPaintHome, "suggestions"> = {
   library: <DesignFirstPaintLibrary />,
   skipPromptLabel: designEnglish.promptDialog.skipPrompt,
   suggestionRole: "general",
-  reserveConnectionBar: true,
   renderComposer: (props) => (
     <div data-design-inline-prompt data-agentkit-composer-size="large">
       <PromptComposer
@@ -487,9 +488,17 @@ export default function Root() {
     location.pathname === "/" || location.pathname === "/home",
     "design",
   );
+  const { session } = useSession();
+  const homeSuggestionRoleScope =
+    session?.authUserId || session?.userId
+      ? JSON.stringify([
+          session.authUserId ?? session.userId,
+          session.orgId ?? "",
+        ])
+      : null;
   const homeSuggestionRole = useMemo(
-    () => readHomeSuggestionRole("design"),
-    [location.pathname],
+    () => readHomeSuggestionRole("design", homeSuggestionRoleScope),
+    [homeSuggestionRoleScope, location.pathname],
   );
   const homeSuggestionOrder = useMemo(() => {
     const rolePool = DESIGN_HOME_SUGGESTION_POOLS[homeSuggestionRole];

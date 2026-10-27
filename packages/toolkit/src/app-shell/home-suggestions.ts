@@ -39,11 +39,27 @@ function homeSuggestionSeedStorageKey(appId: string): string {
   return `agent-native:home-suggestion-seed:${appId}`;
 }
 
-function homeSuggestionRoleStorageKey(appId: string): string {
-  return `agent-native:home-suggestion-role:${appId}`;
+function homeSuggestionRoleStorageKey(
+  appId: string,
+  identityScope: string,
+): string {
+  return `agent-native:home-suggestion-role:${appId}:${encodeURIComponent(identityScope)}`;
 }
 
-export function readHomeSuggestionRole(appId: string): HomeSuggestionRoleKey {
+export function readHomeSuggestionRole(
+  appId: string,
+  identityScope?: string | null,
+): HomeSuggestionRoleKey {
+  if (identityScope) {
+    try {
+      const cached = window.sessionStorage.getItem(
+        homeSuggestionRoleStorageKey(appId, identityScope),
+      );
+      if (cached) return normalizeHomeSuggestionRole(cached);
+    } catch {
+      // coercion-ok: a blocked role cache falls back to the impersonal shell role.
+    }
+  }
   if (typeof document !== "undefined") {
     const shellRole = Array.from(
       document.querySelectorAll<HTMLElement>(
@@ -60,27 +76,22 @@ export function readHomeSuggestionRole(appId: string): HomeSuggestionRoleKey {
     }
   }
 
-  try {
-    return normalizeHomeSuggestionRole(
-      window.sessionStorage.getItem(homeSuggestionRoleStorageKey(appId)),
-    );
-  } catch {
-    // coercion-ok: a blocked hint cache uses the designed general pool.
-    return "general";
-  }
+  return "general";
 }
 
 export function writeHomeSuggestionRole(
   appId: string,
   role: string | null | undefined,
+  identityScope?: string | null,
 ): void {
+  if (!identityScope) return;
   try {
     window.sessionStorage.setItem(
-      homeSuggestionRoleStorageKey(appId),
+      homeSuggestionRoleStorageKey(appId, identityScope),
       normalizeHomeSuggestionRole(role),
     );
   } catch {
-    // coercion-ok: this optional cache only personalizes a later home visit.
+    // coercion-ok: the profile query remains the source for this visit.
   }
 }
 
@@ -106,20 +117,36 @@ function readHomeSuggestionSeed(appId: string): number {
   const fromMemory = homeSuggestionSeeds.get(appId);
   if (fromMemory !== undefined) return fromMemory;
 
-  const fromSession = parseHomeSuggestionSeed(
-    window.sessionStorage.getItem(homeSuggestionSeedStorageKey(appId)),
-  );
-  return fromSession ?? createHomeSuggestionSeed();
+  try {
+    const fromSession = parseHomeSuggestionSeed(
+      window.sessionStorage.getItem(homeSuggestionSeedStorageKey(appId)),
+    );
+    return fromSession ?? createHomeSuggestionSeed();
+  } catch {
+    // coercion-ok: a blocked seed cache gets a fresh in-memory seed.
+    return createHomeSuggestionSeed();
+  }
 }
 
 function writeHomeSuggestionSeed(appId: string, seed: number): void {
   homeSuggestionSeeds.set(appId, seed);
-  window.sessionStorage.setItem(homeSuggestionSeedStorageKey(appId), `${seed}`);
+  try {
+    window.sessionStorage.setItem(
+      homeSuggestionSeedStorageKey(appId),
+      `${seed}`,
+    );
+  } catch {
+    // coercion-ok: the in-memory seed still keeps shell hydration stable.
+  }
 }
 
 function clearHomeSuggestionSeed(appId: string): void {
   homeSuggestionSeeds.delete(appId);
-  window.sessionStorage.removeItem(homeSuggestionSeedStorageKey(appId));
+  try {
+    window.sessionStorage.removeItem(homeSuggestionSeedStorageKey(appId));
+  } catch {
+    // coercion-ok: clearing this optional cache cannot block navigation.
+  }
 }
 
 export function createHomeSuggestionRandom(seed: number): () => number {

@@ -281,7 +281,7 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
 vi.mock("@agent-native/toolkit/app-shell", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/toolkit/app-shell")>()),
   useHomeSearchShortcut: vi.fn(),
-  useHomeSuggestionRole: () => null,
+  useHomeSuggestionRole: () => "general",
   useSetPageTitle: () => {},
   writeHomeSuggestionRole: vi.fn(),
 }));
@@ -623,7 +623,9 @@ describe("Index skip to editor", () => {
       '[data-agent-suggestion-position="1"]',
     );
     await act(async () => suggestion?.click());
-    expect(mocks.submitWithText).toHaveBeenCalledWith(suggestion?.textContent);
+    expect(mocks.submitWithText).toHaveBeenCalledWith(
+      expect.stringMatching(/^home\.suggestions\.design\./),
+    );
     expect(mocks.promptProps?.initialText).toBeUndefined();
     expect(mocks.promptProps?.selectedTemplateId).toBe("saved-template");
     expect(mocks.promptProps?.selectedDesignSystemId).toBe("override-system");
@@ -723,7 +725,7 @@ describe("Index skip to editor", () => {
     expect(mocks.promptProps).toMatchObject({
       inline: true,
       open: true,
-      draftScope: "design:new:0",
+      draftScope: expect.stringMatching(/^design:new:0:/),
     });
     expect(container.textContent).not.toContain("home.newDesign");
     expect(container.textContent).not.toContain("home.createFirstDesign");
@@ -863,7 +865,7 @@ describe("Index skip to editor", () => {
     expect(
       bar?.querySelectorAll('[data-agent-suggestion-chip="true"]'),
     ).toHaveLength(3);
-    expect(bar?.textContent).toContain("home.suggestions.general.");
+    expect(bar?.textContent).toContain("home.suggestionLabels.general.");
   });
 
   it("switches to the onboarding role pool after the profile resolves", async () => {
@@ -874,7 +876,7 @@ describe("Index skip to editor", () => {
     expect(
       container.querySelector('[aria-label="home.suggestedPrompts"]')
         ?.textContent,
-    ).toContain("home.suggestions.general.");
+    ).toContain("home.suggestionLabels.general.");
 
     mocks.suggestionProfileFetching = false;
     mocks.suggestionRole = "marketing";
@@ -882,8 +884,8 @@ describe("Index skip to editor", () => {
     const bar = container.querySelector<HTMLElement>(
       '[aria-label="home.suggestedPrompts"]',
     );
-    expect(bar?.textContent).toContain("home.suggestions.marketing.");
-    expect(bar?.textContent).not.toContain("home.suggestions.general.");
+    expect(bar?.textContent).toContain("home.suggestionLabels.marketing.");
+    expect(bar?.textContent).not.toContain("home.suggestionLabels.general.");
   });
 
   it("keeps suggestions available before AI setup and after connection", async () => {
@@ -920,13 +922,15 @@ describe("Index skip to editor", () => {
     const suggestion = container.querySelector<HTMLButtonElement>(
       '[data-agent-suggestion-position="1"]',
     );
-    const prompt = suggestion?.textContent ?? "";
+    const label = suggestion?.textContent ?? "";
 
     await act(async () => suggestion?.click());
 
+    const prompt = mocks.promptProps?.initialText;
+    expect(prompt).toMatch(/^home\.suggestions\.design\./);
+    expect(prompt).not.toBe(label);
     expect(mocks.setComposerText).toHaveBeenCalledWith(prompt);
     expect(mocks.focusComposer).toHaveBeenCalled();
-    expect(mocks.promptProps?.initialText).toBe(prompt);
     expect(mocks.homeSuggestionEvent).toHaveBeenCalledWith(
       "home_suggestion_clicked",
       expect.objectContaining({
@@ -955,7 +959,7 @@ describe("Index skip to editor", () => {
     expect(
       container.querySelector('[aria-label="home.suggestedPrompts"]')
         ?.textContent,
-    ).toContain("home.suggestions.general.");
+    ).toContain("home.suggestionLabels.general.");
   });
 
   it.each([
@@ -1268,7 +1272,7 @@ describe("Index search empty state", () => {
     expect(container.textContent).toContain("Try a different search.");
     expect(container.textContent).not.toContain("home.createFirstDesign");
     expect(container.textContent).not.toContain("home.pickStartingPoint");
-    expect(container.textContent).toContain("home.suggestions.design.");
+    expect(container.textContent).toContain("home.suggestionLabels.design.");
   });
 
   it("keeps searched shared designs visible when the user owns no designs", async () => {

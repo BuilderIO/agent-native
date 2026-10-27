@@ -9,7 +9,6 @@ export interface PromptHomeProps {
   mobileToolbar?: ReactNode;
   connection?: ReactNode;
   connectionAttached?: boolean;
-  reserveConnectionSpace?: boolean;
   quickActions?: ReactNode;
   focusComposer?: () => void;
   children?: ReactNode;
@@ -21,7 +20,6 @@ export function PromptHome({
   mobileToolbar,
   connection,
   connectionAttached,
-  reserveConnectionSpace = false,
   quickActions,
   focusComposer,
   children,
@@ -99,7 +97,6 @@ export function PromptHome({
           <div
             className="agent-prompt-home-connection"
             data-visible={connection ? "true" : undefined}
-            data-reserved={reserveConnectionSpace || undefined}
             aria-hidden={!connection || undefined}
           >
             {connection}

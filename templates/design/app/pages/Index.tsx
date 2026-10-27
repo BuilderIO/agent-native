@@ -26,6 +26,7 @@ import {
   PromptHome,
   TemplateLibraryGrid,
   createHomeSuggestionRandom,
+  normalizeHomeSuggestionRole,
   pickHomeSuggestions,
   useHomeSuggestionRole,
   useHomeSuggestionSeed,
@@ -440,6 +441,14 @@ export default function Index() {
     suggestionSession?.orgId ?? "",
   ];
   const homeSuggestionsIdentityScope = JSON.stringify(homeSuggestionsIdentity);
+  const homeSuggestionRoleScope =
+    suggestionSession?.authUserId || suggestionSession?.userId
+      ? JSON.stringify([
+          suggestionSession.authUserId ?? suggestionSession.userId,
+          suggestionSession.orgId ?? "",
+        ])
+      : null;
+  const homeSuggestionDraftScope = homeSuggestionRoleScope ?? "anonymous";
   const homeSuggestionSeed = useHomeSuggestionSeed();
   const shellSuggestionRole = useHomeSuggestionRole();
   const homeSuggestionsProfile = useActionQuery<{
@@ -453,16 +462,17 @@ export default function Index() {
     },
   );
   const homeSuggestionRole =
-    shellSuggestionRole ??
-    homeSuggestionsProfile.data?.onboardingRole ??
-    "general";
+    homeSuggestionsProfile.data !== undefined
+      ? normalizeHomeSuggestionRole(homeSuggestionsProfile.data.onboardingRole)
+      : (shellSuggestionRole ?? "general");
   useEffect(() => {
     if (homeSuggestionsProfile.data === undefined) return;
     writeHomeSuggestionRole(
       "design",
       homeSuggestionsProfile.data.onboardingRole,
+      homeSuggestionRoleScope,
     );
-  }, [homeSuggestionsProfile.data]);
+  }, [homeSuggestionRoleScope, homeSuggestionsProfile.data]);
   const selectedHomeSuggestionKeys = useMemo(
     () =>
       pickHomeSuggestions(
@@ -1312,7 +1322,6 @@ export default function Index() {
       <PromptHome
         title={t("home.designPromptTitle")}
         focusComposer={focusComposer}
-        reserveConnectionSpace
         connectionAttached={agentEngine.state !== "configured"}
         connection={
           agentEngineConfigured ? null : agentEngineMissing ? (
@@ -1348,7 +1357,7 @@ export default function Index() {
               requireAgentEngine
               showMissingApiKeySetup={false}
               title={t("home.newDesignLower")}
-              draftScope="design:new:0"
+              draftScope={`design:new:0:${homeSuggestionDraftScope}`}
               initialText={homePromptInitialText}
               initialTextKey={homePromptInitialTextKey}
               onPromptTextChange={handleHomePromptTextChange}

@@ -7,6 +7,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
 
+import { consumeFirstPaintPromptDraft } from "../../app-shell/first-paint-prompt-draft.js";
 import { AppShellSkeleton } from "./AppShellSkeleton.js";
 import type { AppShellFirstPaintHome } from "./AppShellSkeleton.js";
 
@@ -77,7 +78,6 @@ describe("AppShellSkeleton home layout", () => {
       skipPromptLabel: "Skip prompt",
       suggestionRole: "design",
       suggestionSeed: 123,
-      reserveConnectionBar: true,
       suggestions: [
         { id: "one", label: "Portfolio", prompt: "Build a portfolio" },
         {
@@ -226,18 +226,12 @@ describe("AppShellSkeleton home layout", () => {
           .querySelector<HTMLButtonElement>('[data-home-suggestion-id="one"]')
           ?.click();
       });
-      expect(
-        JSON.parse(
-          window.sessionStorage.getItem(
-            "agent-native:first-paint-prompt-draft:design",
-          ) ?? "null",
-        ).text,
-      ).toBe("Créer un portfolio");
+      expect(consumeFirstPaintPromptDraft("design")).toMatchObject({
+        status: "present",
+        draft: { text: "Créer un portfolio", source: "home_suggestion" },
+      });
     } finally {
       await act(async () => root.unmount());
-      window.sessionStorage.removeItem(
-        "agent-native:first-paint-prompt-draft:design",
-      );
       container.remove();
       if (originalLocale === undefined) {
         delete document.documentElement.dataset.locale;

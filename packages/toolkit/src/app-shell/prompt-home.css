@@ -22,17 +22,11 @@
   grid-template-rows: 0fr;
   opacity: 0;
   transition:
-    grid-template-rows 200ms ease,
-    opacity 160ms ease;
+    grid-template-rows 225ms var(--ease-out-strong),
+    opacity 225ms var(--ease-out-strong);
 }
 
 .agent-prompt-home-connection[data-visible] {
-  grid-template-rows: 1fr;
-  opacity: 1;
-}
-
-.agent-prompt-home-connection[data-reserved] {
-  min-height: 58px;
   grid-template-rows: 1fr;
   opacity: 1;
 }

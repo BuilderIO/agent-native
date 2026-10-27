@@ -6238,21 +6238,20 @@ function TiptapComposerSurface({
     const savedDraft = saved ? readComposerDraft(saved) : null;
 
     try {
-      if (savedDraft && editor.isEmpty && shouldRestoreSavedDraft) {
+      if (initialText !== undefined && initialTextKeyRef.current !== key) {
+        initialTextKeyRef.current = key;
+        editor.commands.setContent(
+          plainTextToDoc(initialText, textChips(initialReferencesRef.current)),
+        );
+      } else if (savedDraft && editor.isEmpty && shouldRestoreSavedDraft) {
         editor.commands.setContent(savedDraft.html);
         updateSlotReferences(savedDraft.slotReferences);
         editor.commands.focus("end");
-        if (initialText !== undefined) initialTextKeyRef.current = key;
       } else if (initialText === undefined) {
         onTextChangeRef.current?.(
           editor.getText({ blockSeparator: "\n" }).trim(),
         );
         return;
-      } else if (initialTextKeyRef.current !== key) {
-        initialTextKeyRef.current = key;
-        editor.commands.setContent(
-          plainTextToDoc(initialText, textChips(initialReferencesRef.current)),
-        );
       } else {
         return;
       }

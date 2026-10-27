@@ -57,7 +57,6 @@ export interface AppShellFirstPaintHome {
   suggestionRole?: string;
   suggestionSeed?: number;
   onHomeSuggestionClick?: (click: HomeSuggestionClick) => void;
-  reserveConnectionBar?: boolean;
   renderComposer: (
     props: Pick<
       PromptComposerProps,
@@ -471,8 +470,8 @@ function FirstPaintPromptLibrary({
   const composer = config.renderComposer({
     ariaLabel: config.promptPlaceholder,
     composerRef,
-    initialText,
-    initialTextKey,
+    ...(initialText !== undefined ? { initialText } : {}),
+    ...(initialTextKey !== undefined ? { initialTextKey } : {}),
     placeholder: config.promptPlaceholder,
     onTextChange: (text) => {
       if (
@@ -546,12 +545,6 @@ function FirstPaintPromptLibrary({
       composer={composer}
       focusComposer={() => composerRef.current?.focus()}
       quickActions={quickActions}
-      {...(config.reserveConnectionBar
-        ? {
-            reserveConnectionSpace: true,
-            connectionAttached: true,
-          }
-        : {})}
     >
       {config.library ?? (
         <section

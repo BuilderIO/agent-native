@@ -20,6 +20,7 @@ import {
 import {
   PromptHome,
   createHomeSuggestionRandom,
+  normalizeHomeSuggestionRole,
   pickHomeSuggestions,
   useHomeSuggestionRole,
   useHomeSuggestionSeed,
@@ -656,6 +657,14 @@ export default function Index({ active = true }: { active?: boolean }) {
     session?.orgId ?? "",
   ];
   const homeSuggestionsIdentityScope = JSON.stringify(homeSuggestionsIdentity);
+  const homeSuggestionRoleScope =
+    session?.authUserId || session?.userId
+      ? JSON.stringify([
+          session.authUserId ?? session.userId,
+          session.orgId ?? "",
+        ])
+      : null;
+  const homeSuggestionDraftScope = homeSuggestionRoleScope ?? "anonymous";
   const homeSuggestionSeed = useHomeSuggestionSeed();
   const shellSuggestionRole = useHomeSuggestionRole();
   // `session` is null while the check is loading or the server is unreachable,
@@ -685,16 +694,17 @@ export default function Index({ active = true }: { active?: boolean }) {
     },
   );
   const homeSuggestionRole =
-    shellSuggestionRole ??
-    homeSuggestionsProfile.data?.onboardingRole ??
-    "general";
+    homeSuggestionsProfile.data !== undefined
+      ? normalizeHomeSuggestionRole(homeSuggestionsProfile.data.onboardingRole)
+      : (shellSuggestionRole ?? "general");
   useEffect(() => {
     if (homeSuggestionsProfile.data === undefined) return;
     writeHomeSuggestionRole(
       "slides",
       homeSuggestionsProfile.data.onboardingRole,
+      homeSuggestionRoleScope,
     );
-  }, [homeSuggestionsProfile.data]);
+  }, [homeSuggestionRoleScope, homeSuggestionsProfile.data]);
   const selectedHomeSuggestions = useMemo(
     () =>
       pickHomeSuggestions(
@@ -2666,7 +2676,6 @@ export default function Index({ active = true }: { active?: boolean }) {
   return (
     <PromptHome
       title={t("home.firstDeckPromptTitle")}
-      reserveConnectionSpace
       connectionAttached={agentEngine.state !== "configured"}
       focusComposer={() => homeComposerRef.current?.focus()}
       mobileToolbar={
@@ -2805,7 +2814,7 @@ export default function Index({ active = true }: { active?: boolean }) {
                 return false;
               }}
               loading={generating}
-              draftScope={NEW_DECK_DRAFT_SCOPE}
+              draftScope={`${NEW_DECK_DRAFT_SCOPE}:${homeSuggestionDraftScope}`}
               initialText={newDeckInitialPrompt?.text}
               initialTextKey={newDeckInitialPrompt?.key}
               initialModelSelection={newDeckRetryModelSelection}

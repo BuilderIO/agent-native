@@ -288,7 +288,7 @@ vi.mock("@agent-native/toolkit/app-shell", async (importOriginal) => {
     await importOriginal<typeof import("@agent-native/toolkit/app-shell")>();
   return {
     ...appShell,
-    useHomeSuggestionRole: () => null,
+    useHomeSuggestionRole: () => "general",
     useHeaderActions: () => headerActions.current,
     useHeaderTitle: () => pageTitle.current,
     useSetHeaderActions: (actions: ReactNode) => {
@@ -307,7 +307,6 @@ vi.mock("@agent-native/toolkit/app-shell", async (importOriginal) => {
         };
       }, [title]);
     },
-    writeHomeSuggestionRole: vi.fn(),
   };
 });
 vi.mock("@/context/DeckContext", () => ({
@@ -2325,7 +2324,7 @@ describe("Slides prompt-led home", () => {
     const prompt = screen.getByRole("textbox", { name: "Presentation prompt" });
     const suggestion = (
       await screen.findAllByRole("button", {
-        name: /home\.suggestionPrompts\.design\./,
+        name: /home\.suggestionLabels\.design\./,
       })
     ).at(0);
     if (!suggestion) throw new Error("Expected a home suggestion button");
@@ -2337,7 +2336,7 @@ describe("Slides prompt-led home", () => {
     expect(promptProps).toHaveBeenLastCalledWith(
       expect.objectContaining({
         presentation: "inline",
-        draftScope: "slides-new-deck",
+        draftScope: expect.stringMatching(/^slides-new-deck:/),
       }),
     );
     expect(createDeck).not.toHaveBeenCalled();
@@ -2350,7 +2349,7 @@ describe("Slides prompt-led home", () => {
       screen.getByRole("textbox", { name: "Presentation prompt" }),
     ).toBeTruthy();
     const suggestions = await screen.findAllByRole("button", {
-      name: /home\.suggestionPrompts\.design\./,
+      name: /home\.suggestionLabels\.design\./,
     });
     expect(suggestions).toHaveLength(3);
     expect(
@@ -2368,7 +2367,7 @@ describe("Slides prompt-led home", () => {
     renderHome();
 
     const suggestions = await screen.findAllByRole("button", {
-      name: /home\.suggestionPrompts\.general\./,
+      name: /home\.suggestionLabels\.general\./,
     });
     expect(suggestions).toHaveLength(3);
     expect(new Set(suggestions.map((button) => button.textContent)).size).toBe(
@@ -2385,7 +2384,7 @@ describe("Slides prompt-led home", () => {
     });
 
     const suggestions = await screen.findAllByRole("button", {
-      name: /home\.suggestionPrompts\.design\./,
+      name: /home\.suggestionLabels\.design\./,
     });
     const suggestion = suggestions.at(0);
     if (!suggestion) throw new Error("Expected a home suggestion button");
@@ -2502,14 +2501,16 @@ describe("Slides prompt-led home", () => {
     renderHome();
 
     const suggestions = await screen.findAllByRole("button", {
-      name: /home\.suggestionPrompts\.design\./,
+      name: /home\.suggestionLabels\.design\./,
     });
     const suggestion = suggestions.at(0);
     if (!suggestion) throw new Error("Expected a home suggestion button");
-    const prompt = suggestion.textContent;
+    const label = suggestion.textContent;
     fireEvent.click(suggestion);
 
-    expect(promptProps.mock.lastCall?.[0].initialText).toBe(prompt);
+    const prompt = promptProps.mock.lastCall?.[0].initialText;
+    expect(prompt).toMatch(/^home\.suggestionPrompts\.design\./);
+    expect(prompt).not.toBe(label);
     expect(trackEvent).toHaveBeenCalledWith(
       "home_suggestion_clicked",
       expect.objectContaining({

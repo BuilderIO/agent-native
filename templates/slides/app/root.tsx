@@ -3,6 +3,7 @@ import { appPath } from "@agent-native/core/client/api-path";
 import {
   createAgentNativeQueryClient,
   useDbSync,
+  useSession,
 } from "@agent-native/core/client/hooks";
 import {
   enterStyleEditing as coreEnterStyleEditing,
@@ -207,7 +208,6 @@ const slidesFirstPaintHome: Omit<AppShellFirstPaintHome, "suggestions"> = {
   browseAllLabel: slidesEnglish.home.showAllDecks,
   library: <SlidesFirstPaintLibrary />,
   suggestionRole: "general",
-  reserveConnectionBar: true,
   renderComposer: (props) => (
     <div data-agentkit-composer-size="large">
       <PromptComposer
@@ -527,9 +527,17 @@ export default function Root() {
     location.pathname === "/" || location.pathname === "/home",
     "slides",
   );
+  const { session } = useSession();
+  const homeSuggestionRoleScope =
+    session?.authUserId || session?.userId
+      ? JSON.stringify([
+          session.authUserId ?? session.userId,
+          session.orgId ?? "",
+        ])
+      : null;
   const homeSuggestionRole = useMemo(
-    () => readHomeSuggestionRole("slides"),
-    [location.pathname],
+    () => readHomeSuggestionRole("slides", homeSuggestionRoleScope),
+    [homeSuggestionRoleScope, location.pathname],
   );
   const homeSuggestionOrder = useMemo(() => {
     const pool = slidesHomeSuggestionPools[homeSuggestionRole];

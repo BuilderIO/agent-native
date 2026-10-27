@@ -114,12 +114,11 @@ describe("prompt home and library", () => {
     expect(textarea.value).toBe("Unsaved user draft");
   });
 
-  it("keeps the connection slot reserved while agent readiness resolves", () => {
+  it("keeps no connection gap until the bar becomes relevant", () => {
     const home = (connectionReady: boolean) => (
       <PromptHome
         title="Create"
         composer={<textarea />}
-        reserveConnectionSpace
         connectionAttached
         connection={connectionReady ? <button>Connect AI</button> : undefined}
       />
@@ -127,7 +126,7 @@ describe("prompt home and library", () => {
 
     render(home(false));
     const slot = container.querySelector(".agent-prompt-home-connection")!;
-    expect(slot.hasAttribute("data-reserved")).toBe(true);
+    expect(slot.hasAttribute("data-visible")).toBe(false);
     expect(slot.children).toHaveLength(0);
     expect(
       slot.querySelector("[data-prompt-home-connection-skeleton]"),
@@ -135,7 +134,7 @@ describe("prompt home and library", () => {
 
     render(home(true));
     expect(container.querySelector(".agent-prompt-home-connection")).toBe(slot);
-    expect(slot.hasAttribute("data-reserved")).toBe(true);
+    expect(slot.getAttribute("data-visible")).toBe("true");
     expect(slot.textContent).toContain("Connect AI");
     expect(
       slot.querySelector("[data-prompt-home-connection-skeleton]"),

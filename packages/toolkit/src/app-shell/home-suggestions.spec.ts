@@ -32,17 +32,18 @@ const pools: HomeSuggestionPools<HomeSuggestionPrompt> = {
 };
 
 describe("home suggestion selection", () => {
-  it("uses the shell role through hydration and persists it for the next visit", () => {
+  it("scopes the cached role to the current identity", () => {
     const shell = document.createElement("div");
     shell.dataset.homeSuggestionAppId = "design";
     shell.dataset.homeSuggestionShellRole = "design";
     document.body.append(shell);
-    writeHomeSuggestionRole("design", "marketing");
+    writeHomeSuggestionRole("design", "marketing", "user-a:org-a");
 
-    expect(readHomeSuggestionRole("design")).toBe("design");
+    expect(readHomeSuggestionRole("design", "user-a:org-a")).toBe("marketing");
+    expect(readHomeSuggestionRole("design", "user-b:org-a")).toBe("design");
 
     shell.remove();
-    expect(readHomeSuggestionRole("design")).toBe("marketing");
+    expect(readHomeSuggestionRole("design")).toBe("general");
   });
 
   it("selects from the matching role pool", () => {

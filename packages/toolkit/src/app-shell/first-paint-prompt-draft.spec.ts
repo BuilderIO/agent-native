@@ -28,26 +28,39 @@ describe("first paint prompt drafts", () => {
     expect(consumeFirstPaintPromptDraft(appId)).toEqual({ status: "absent" });
   });
 
-  it("reads a stored draft when the in-page bridge is unavailable", () => {
+  it("ignores and clears a legacy persisted prompt", () => {
+    const appId = `legacy-${crypto.randomUUID()}`;
+    const key = `agent-native:first-paint-prompt-draft:${appId}`;
+    window.sessionStorage.setItem(
+      key,
+      JSON.stringify({
+        text: "Another account's draft",
+        source: "composer",
+        revision: Date.now(),
+      }),
+    );
+
+    expect(consumeFirstPaintPromptDraft(appId)).toEqual({ status: "absent" });
+    expect(window.sessionStorage.getItem(key)).toBeNull();
+  });
+
+  it("keeps prompt text in the in-page bridge only", () => {
     const appId = `stored-${crypto.randomUUID()}`;
     const draft = {
       text: "Design a recipe planner",
       source: "composer",
       revision: Date.now(),
     };
-    window.sessionStorage.setItem(
-      `agent-native:first-paint-prompt-draft:${appId}`,
-      JSON.stringify(draft),
-    );
+    writeFirstPaintPromptDraft(appId, draft.text);
 
-    expect(consumeFirstPaintPromptDraft(appId)).toEqual({
-      status: "present",
-      draft,
-    });
     expect(
       window.sessionStorage.getItem(
         `agent-native:first-paint-prompt-draft:${appId}`,
       ),
     ).toBeNull();
+    expect(consumeFirstPaintPromptDraft(appId)).toEqual({
+      status: "present",
+      draft: expect.objectContaining({ text: draft.text, source: "composer" }),
+    });
   });
 });

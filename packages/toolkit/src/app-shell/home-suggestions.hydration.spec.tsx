@@ -77,6 +77,44 @@ describe("home suggestion seed hydration", () => {
     ).toEqual(shellPicks);
   });
 
+  it("keeps an in-memory seed when session storage is blocked", () => {
+    const descriptor = Object.getOwnPropertyDescriptor(
+      window,
+      "sessionStorage",
+    );
+    const shell = document.createElement("div");
+    shell.innerHTML =
+      '<section data-home-suggestion-app-id="blocked" data-home-suggestion-seed="321"></section>';
+    document.body.append(shell);
+    Object.defineProperty(window, "sessionStorage", {
+      configurable: true,
+      get: () => {
+        throw new Error("storage blocked");
+      },
+    });
+
+    try {
+      const firstMount = renderHook(() =>
+        useHomeSuggestionSeedForHome(true, "blocked"),
+      );
+      expect(firstMount.result.current).toBe(321);
+      shell.remove();
+      firstMount.unmount();
+
+      const hydratedMount = renderHook(() =>
+        useHomeSuggestionSeedForHome(true, "blocked"),
+      );
+      expect(hydratedMount.result.current).toBe(321);
+      hydratedMount.unmount();
+    } finally {
+      if (descriptor) {
+        Object.defineProperty(window, "sessionStorage", descriptor);
+      } else {
+        delete (window as Window & { sessionStorage?: Storage }).sessionStorage;
+      }
+    }
+  });
+
   it("hands the shell's ordered slots to a role pool after hydration", () => {
     const seed = 123;
     const order = createHomeSuggestionOrder(

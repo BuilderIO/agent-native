@@ -1342,6 +1342,7 @@ export function renderDesignEditorView({
     "!border-primary !bg-primary !text-primary-foreground shadow-none hover:!border-primary/90 hover:!bg-primary/90 hover:!text-primary-foreground focus-visible:ring-ring [&_svg]:!text-primary-foreground";
   const firstOutputActionsAvailable =
     !hostEmbeddedEditor &&
+    !uiHidden &&
     (widgetEmbed
       ? shouldRenderDesignShareControl({
           widgetEmbed,
