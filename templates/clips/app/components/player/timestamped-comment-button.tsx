@@ -43,9 +43,9 @@ export function TimestampedCommentButton({
 
 interface TimestampedCommentBarProps {
   commentAccessToken?: string;
-  getCommentAccessToken?: (
-    refusedToken?: string | null,
-  ) => Promise<string | null | undefined>;
+  getCommentAccessToken?:
+    | ((refusedToken?: string | null) => Promise<string | null | undefined>)
+    | undefined;
   recordingId: string;
   atMs: number;
   open?: boolean;
@@ -54,7 +54,7 @@ interface TimestampedCommentBarProps {
   className?: string;
   draft?: string;
   onDraftChange?: (value: string) => void;
-  portalContainer?: HTMLElement | null;
+  portalContainer?: HTMLElement | null | undefined;
 }
 
 export function TimestampedCommentBar({
@@ -170,7 +170,7 @@ function TimestampedCommentFields({
   atMs: number;
   onSubmit: () => void;
   onClose: () => void;
-  className?: string;
+  className?: string | undefined;
 }) {
   const t = useT();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);

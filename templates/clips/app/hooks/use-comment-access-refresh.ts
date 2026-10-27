@@ -27,6 +27,16 @@ export function useCommentAccessRefresh(
   }, [token, refresh]);
 }
 
+// Clips targets ES2020, whose Error constructor takes no cause.
+class CommentAccessRenewalError extends Error {
+  readonly cause: unknown;
+  constructor(cause: unknown) {
+    super("Comment access renewal failed");
+    this.name = "CommentAccessRenewalError";
+    this.cause = cause;
+  }
+}
+
 interface CommentAccessResponse {
   ok?: boolean;
   status?: number;
@@ -38,11 +48,11 @@ interface CommentAccessResponse {
 
 export function useCommentAccessToken(
   query: {
-    data?: CommentAccessResponse;
+    data?: CommentAccessResponse | undefined;
     dataUpdatedAt: number;
     refetch: (options: {
       cancelRefetch: boolean;
-    }) => Promise<{ data?: CommentAccessResponse; error: unknown }>;
+    }) => Promise<{ data?: CommentAccessResponse | undefined; error: unknown }>;
   },
   queryKey: QueryKey,
 ) {
@@ -75,7 +85,8 @@ export function useCommentAccessToken(
         return grant.token;
       }
       const result = await renew();
-      if (result.error) throw result.error;
+      if (result.error instanceof Error) throw result.error;
+      if (result.error) throw new CommentAccessRenewalError(result.error);
       if (!result.data?.ok) {
         throw new Error(
           result.data?.data?.error ?? String(result.data?.status),

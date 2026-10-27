@@ -370,11 +370,14 @@ describe("/api/public-recording route", () => {
       }
       if (mode === "missing") mockGetQuery.mockReturnValue({ id: "rec-1" });
       if (mode === "wrong") mockVerifySharePassword.mockReturnValue(false);
-      const result = (await handler({ setCookies: [] } as any)) as any;
-      expect(result.recording?.commentAccessToken).toBe(expected);
+      const result = await handler({ setCookies: [] } as unknown as Parameters<
+        typeof handler
+      >[0]);
+      const recording = "recording" in result ? result.recording : undefined;
+      expect(recording?.commentAccessToken).toBe(expected);
       if (mode === "password" && !enableComments) {
-        expect(result.recording.enableComments).toBe(false);
-        expect(result.comments).toEqual([]);
+        expect(recording?.enableComments).toBe(false);
+        expect("comments" in result ? result.comments : undefined).toEqual([]);
       }
       const grants = mockSignShortLivedToken.mock.calls.filter(([claims]) =>
         claims.resourceId.startsWith("clips-comment:"),

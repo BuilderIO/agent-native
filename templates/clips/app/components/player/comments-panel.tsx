@@ -111,6 +111,14 @@ type SentDraft = {
   replyTo: Comment | null;
 };
 
+type AddCommentVars = {
+  content: string;
+  videoTimestampMs?: number | undefined;
+  threadId?: string | undefined;
+  parentId?: string | undefined;
+  mentions?: unknown;
+};
+
 type FailedSend = {
   comment: Comment;
   vars: object;
@@ -202,7 +210,7 @@ export interface CommentsPanelProps {
   ) => Promise<string | null | undefined>;
   comments: Comment[];
   currentMs: number;
-  getCurrentMs?: () => number;
+  getCurrentMs?: (() => number) | undefined;
   currentUserEmail?: string;
   currentUserName?: string;
   enableComments: boolean;
@@ -479,7 +487,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
     }
   };
 
-  const optimisticComment = (vars: any): Comment => {
+  const optimisticComment = (vars: AddCommentVars): Comment => {
     const id = makeTempId();
     const now = new Date().toISOString();
     return {
@@ -499,7 +507,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
 
   // Text typed, or a reply opened on another comment, since the send wins over
   // the failed draft, which then waits in the feed to be retried.
-  const restoreSentDraft = (vars: object) => {
+  const restoreSentDraft = (vars: AddCommentVars) => {
     const sent = sentDraftsRef.current.get(vars);
     if (!sent) return;
     const composer = sent.replyTo ? "reply" : "comment";
@@ -541,9 +549,9 @@ export function CommentsPanel(props: CommentsPanelProps) {
       );
       return context;
     },
-    onError: (_err, vars: any, ctx: any) => {
+    onError: (_err, vars, ctx) => {
       refuseCommentAccess();
-      rollbackComments(ctx);
+      rollbackComments(ctx as CommentsMutationContext | undefined);
       restoreSentDraft(vars);
     },
     onSuccess: (data: any, _vars, ctx: any) => {
@@ -1128,8 +1136,8 @@ function CommentComposer({
 }: {
   draft: string;
   currentMs: number;
-  currentUserEmail?: string;
-  currentUserName?: string;
+  currentUserEmail?: string | undefined;
+  currentUserName?: string | undefined;
   isSignedIn: boolean;
   isConversationPresentation: boolean;
   isInlinePresentation: boolean;
@@ -1139,7 +1147,7 @@ function CommentComposer({
   onMentionAdd: (mention: MentionEntry) => void;
   members: { email: string; name: string | null }[];
   onSubmit: () => void;
-  onUnauthenticated?: (intent: "comment" | "react") => void;
+  onUnauthenticated?: ((intent: "comment" | "react") => void) | undefined;
 }) {
   const t = useT();
   const avatarUrl = useAvatarUrl(currentUserEmail);
@@ -1428,7 +1436,7 @@ function CommentCard({
   onUnauthenticated?: (intent: "comment" | "react") => void;
   canReply?: boolean;
   isReply?: boolean;
-  sendFailure?: { onRetry?: () => void; onDelete: () => void };
+  sendFailure?: { onRetry?: (() => void) | undefined; onDelete: () => void };
 }) {
   const t = useT();
   const [localJson, setLocalJson] = useState<string | null>(null);

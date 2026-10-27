@@ -78,7 +78,7 @@ it("refreshes when an unlocked tab becomes visible after suspension", async () =
     expect(refresh).toHaveBeenCalledTimes(1);
   } finally {
     act(() => root.unmount());
-    delete (document as any).visibilityState;
+    Reflect.deleteProperty(document, "visibilityState");
   }
 });
 
@@ -107,7 +107,7 @@ it("reuses a fresh grant and renews one that is stale, refused, or rejected", as
   function Probe() {
     const shareQ = useQuery({ queryKey: shareKey, queryFn: shareFetch });
     getToken = useCommentAccessToken(shareQ, shareKey);
-    const token = shareQ.data?.data?.recording?.commentAccessToken;
+    const token = shareQ.data?.data.recording?.commentAccessToken;
     // Declared after the hook, so it runs once the hook has recorded the grant.
     useEffect(() => {
       committedToken = token;
@@ -159,6 +159,66 @@ it("reuses a fresh grant and renews one that is stale, refused, or rejected", as
       );
     });
     expect(shareFetch).toHaveBeenCalledTimes(4);
+  } finally {
+    act(() => root.unmount());
+    queryClient.clear();
+  }
+});
+
+it("rethrows a renewal Error as is and wraps any other failure as its cause", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  const renewalError = new Error("fake renewal failure");
+  const failures: unknown[] = [renewalError, "fake non-error failure"];
+  const shareFetch = vi.fn(() =>
+    shareFetch.mock.calls.length === 1
+      ? Promise.resolve({
+          ok: true,
+          status: 200,
+          data: { recording: { commentAccessToken: "fake-proof" } },
+        })
+      : Promise.reject(failures.shift()),
+  );
+  let getToken!: (refusedToken?: string | null) => Promise<unknown>;
+  let committedToken: unknown;
+  const shareKey = ["public-recording", "fake-failing-share"];
+  function Probe() {
+    const shareQ = useQuery({ queryKey: shareKey, queryFn: shareFetch });
+    getToken = useCommentAccessToken(shareQ, shareKey);
+    const token = shareQ.data?.data.recording.commentAccessToken;
+    useEffect(() => {
+      committedToken = token;
+    }, [token]);
+    return null;
+  }
+  const root = createRoot(document.createElement("div"));
+  try {
+    act(() =>
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <Probe />
+        </QueryClientProvider>,
+      ),
+    );
+    for (let turn = 0; committedToken !== "fake-proof" && turn < 100; turn++) {
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    }
+    expect(committedToken).toBe("fake-proof");
+
+    await act(async () => {
+      await expect(getToken("fake-proof")).rejects.toBe(renewalError);
+    });
+    await act(async () => {
+      const failure = getToken("fake-proof");
+      await expect(failure).rejects.toBeInstanceOf(Error);
+      await expect(failure).rejects.toMatchObject({
+        message: "Comment access renewal failed",
+        cause: "fake non-error failure",
+      });
+    });
+    expect(shareFetch).toHaveBeenCalledTimes(3);
   } finally {
     act(() => root.unmount());
     queryClient.clear();

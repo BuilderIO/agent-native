@@ -30,6 +30,11 @@ import {
 } from "./comments-panel";
 import { TimestampedCommentBar } from "./timestamped-comment-button";
 
+type MockedMutationOptions = {
+  headers?: Record<string, string> | (() => Record<string, string> | undefined);
+  onMutate?: (vars: Record<string, unknown>) => unknown;
+};
+
 const actionMocks = vi.hoisted(() => ({
   addComment: vi.fn(),
   updateComment: vi.fn(),
@@ -46,12 +51,12 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => {
   return {
     cn: (...classes: Array<string | false | null | undefined>) =>
       classes.filter(Boolean).join(" "),
-    useActionMutation: (name: string, options?: any) => {
+    useActionMutation: (name: string, options?: MockedMutationOptions) => {
       if (actionMocks.realMutations)
-        return actual.useActionMutation(name as any, options);
+        return actual.useActionMutation(name, options);
       actionMocks.mutationOptions.set(name, options);
       return {
-        mutate: (vars: any) => {
+        mutate: (vars: Record<string, unknown>) => {
           const headers =
             typeof options?.headers === "function"
               ? options.headers()
@@ -246,7 +251,7 @@ function ProofShare({
   shareFetch: (context: {
     signal: AbortSignal;
   }) => Promise<ReturnType<typeof fakeShare>>;
-  getCurrentMs?: () => number;
+  getCurrentMs?: (() => number) | undefined;
 }) {
   const shareQ = useQuery({ queryKey: fakeShareKey, queryFn: shareFetch });
   const getCommentAccessToken = useCommentAccessToken(shareQ, fakeShareKey);
@@ -263,10 +268,15 @@ function ProofShare({
       canComment
       onSeek={vi.fn()}
       queryKey={fakeShareKey}
-      selectComments={(data: any) => data?.data?.comments}
-      applyComments={(data: any, next) =>
-        data ? { ...data, data: { ...data.data, comments: next } } : data
+      selectComments={(data) =>
+        (data as ReturnType<typeof fakeShare> | undefined)?.data.comments
       }
+      applyComments={(data, next) => {
+        const current = data as ReturnType<typeof fakeShare> | undefined;
+        return current
+          ? { ...current, data: { ...current.data, comments: next } }
+          : current;
+      }}
       commentAccessToken={share.recording.commentAccessToken}
       getCommentAccessToken={getCommentAccessToken}
       presentation="share"
@@ -456,12 +466,12 @@ describe("CommentsPanel reply composer", () => {
   const commentCard = (content: string) =>
     Array.from(container.querySelectorAll("li"))
       .map((item) => item.firstElementChild)
-      .find((card) => card?.textContent?.includes(content));
+      .find((card) => card?.textContent.includes(content));
 
   const pressCommentButton = async (content: string, label: string) => {
     await act(async () => {
       Array.from(commentCard(content)?.querySelectorAll("button") ?? [])
-        .find((button) => button.textContent?.trim() === label)
+        .find((button) => button.textContent.trim() === label)
         ?.click();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
@@ -536,7 +546,8 @@ describe("CommentsPanel reply composer", () => {
       completeRenewal("fake-fresh-proof");
     });
     expect(fetch).toHaveBeenCalledTimes(1);
-    const init = fetch.mock.calls[0][1] as RequestInit;
+    const init = fetch.mock.calls[0]?.[1];
+    assert.isDefined(init);
     expect(new Headers(init.headers).get("x-clips-comment-token")).toBe(
       "fake-fresh-proof",
     );
@@ -621,7 +632,8 @@ describe("CommentsPanel reply composer", () => {
     });
     expect(cancel).toHaveBeenCalled();
     expect(fetch).toHaveBeenCalledTimes(1);
-    const init = fetch.mock.calls[0][1] as RequestInit;
+    const init = fetch.mock.calls[0]?.[1];
+    assert.isDefined(init);
     expect(new Headers(init.headers).get("x-clips-comment-token")).toBe(
       "fake-fresh-proof",
     );
@@ -667,7 +679,11 @@ describe("CommentsPanel reply composer", () => {
       function StaleShare() {
         const shareQ = useQuery({
           queryKey: shareKey,
-          queryFn: () => shareFetches.shift()!(),
+          queryFn: () => {
+            const nextFetch = shareFetches.shift();
+            assert.isDefined(nextFetch);
+            return nextFetch();
+          },
         });
         if (!shareQ.data) return null;
         return (
@@ -680,9 +696,11 @@ describe("CommentsPanel reply composer", () => {
             canComment
             onSeek={vi.fn()}
             queryKey={shareKey}
-            selectComments={(data: any) => data?.comments}
-            applyComments={(data: any, next) =>
-              data ? { ...data, comments: next } : data
+            selectComments={(data) =>
+              (data as { comments?: Comment[] } | undefined)?.comments
+            }
+            applyComments={(data, next) =>
+              data ? { ...(data as object), comments: next } : data
             }
             commentAccessToken={shareQ.data.token}
             getCommentAccessToken={async () => {
@@ -705,10 +723,10 @@ describe("CommentsPanel reply composer", () => {
       const composer = container.querySelector<HTMLTextAreaElement>(
         'textarea[placeholder="commentsPanel.leaveComment"]',
       );
-      expect(composer).not.toBeNull();
-      act(() => setTextareaValue(composer!, "Fake stale-proof comment"));
+      assert.isNotNull(composer);
+      act(() => setTextareaValue(composer, "Fake stale-proof comment"));
       await act(async () => {
-        composer?.dispatchEvent(
+        composer.dispatchEvent(
           new KeyboardEvent("keydown", {
             bubbles: true,
             ctrlKey: true,
@@ -734,7 +752,8 @@ describe("CommentsPanel reply composer", () => {
       }
       expect(feed()).toContain("Fake stale-proof comment");
       expect(fetch).toHaveBeenCalledTimes(1);
-      const init = fetch.mock.calls[0][1] as RequestInit;
+      const init = fetch.mock.calls[0]?.[1];
+      assert.isDefined(init);
       expect(new Headers(init.headers).get("x-clips-comment-token")).toBe(
         "fake-renewed-proof",
       );
@@ -774,7 +793,9 @@ describe("CommentsPanel reply composer", () => {
         'textarea[placeholder="commentsPanel.leaveComment"]',
       );
     const submitComment = async (content: string) => {
-      act(() => setTextareaValue(composer()!, content));
+      const field = composer();
+      assert.isNotNull(field);
+      act(() => setTextareaValue(field, content));
       await act(async () => {
         composer()?.dispatchEvent(
           new KeyboardEvent("keydown", {
@@ -791,7 +812,7 @@ describe("CommentsPanel reply composer", () => {
       );
       const item = Array.from(
         document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-      ).find((candidate) => candidate.textContent?.trim() === label);
+      ).find((candidate) => candidate.textContent.trim() === label);
       expect(item).toBeDefined();
       await act(async () => {
         item?.click();
@@ -818,17 +839,14 @@ describe("CommentsPanel reply composer", () => {
     });
 
     await chooseMenuItem("commentsPanel.editComment");
-    act(() =>
-      setTextareaValue(
-        container.querySelector<HTMLTextAreaElement>(
-          'textarea[aria-label="commentsPanel.editComment"]',
-        )!,
-        "Fake fresh-proof edit",
-      ),
+    const editField = container.querySelector<HTMLTextAreaElement>(
+      'textarea[aria-label="commentsPanel.editComment"]',
     );
+    assert.isNotNull(editField);
+    act(() => setTextareaValue(editField, "Fake fresh-proof edit"));
     await act(async () => {
       Array.from(container.querySelectorAll("button"))
-        .find((button) => button.textContent?.trim() === "common.save")
+        .find((button) => button.textContent.trim() === "common.save")
         ?.click();
     });
     expect(feed()).toContain("Fake fresh-proof edit");
@@ -846,7 +864,9 @@ describe("CommentsPanel reply composer", () => {
     expect(shareFetch).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      responses[0](
+      const respondForbidden = responses[0];
+      assert.isDefined(respondForbidden);
+      respondForbidden(
         new Response(JSON.stringify({ error: "Forbidden" }), {
           status: 403,
           headers: { "Content-Type": "application/json" },
@@ -895,7 +915,8 @@ describe("CommentsPanel reply composer", () => {
     const composer = container.querySelector<HTMLTextAreaElement>(
       'textarea[placeholder="commentsPanel.leaveComment"]',
     );
-    act(() => setTextareaValue(composer!, "Fake comment during renewal"));
+    assert.isNotNull(composer);
+    act(() => setTextareaValue(composer, "Fake comment during renewal"));
     await act(async () => {
       container
         .querySelector<HTMLButtonElement>(
@@ -913,7 +934,8 @@ describe("CommentsPanel reply composer", () => {
     expect(renewalAborted).toBe(false);
     expect(shareFetch).toHaveBeenCalledTimes(2);
     expect(fetch).toHaveBeenCalledTimes(1);
-    const init = fetch.mock.calls[0][1] as RequestInit;
+    const init = fetch.mock.calls[0]?.[1];
+    assert.isDefined(init);
     expect(new Headers(init.headers).get("x-clips-comment-token")).toBe(
       "fake-proof-2",
     );
@@ -951,7 +973,7 @@ describe("CommentsPanel reply composer", () => {
         await act(async () => {
           Array.from(container.querySelectorAll("button"))
             .find(
-              (button) => button.textContent?.trim() === "commentsPanel.reply",
+              (button) => button.textContent.trim() === "commentsPanel.reply",
             )
             ?.click();
           await new Promise((resolve) => setTimeout(resolve, 0));
@@ -978,7 +1000,9 @@ describe("CommentsPanel reply composer", () => {
             ?.click();
         });
       };
-      await mentionMember(composer()!, "Hi");
+      const field = composer();
+      assert.isNotNull(field);
+      await mentionMember(field, "Hi");
       playheadMs = 50_000;
       vi.setSystemTime(Date.now() + 300_000);
 
@@ -1004,7 +1028,8 @@ describe("CommentsPanel reply composer", () => {
       });
       expect(container.querySelector('[role="alert"]')).toBeNull();
       expect(fetch).toHaveBeenCalledTimes(1);
-      const init = fetch.mock.calls[0][1] as RequestInit;
+      const init = fetch.mock.calls[0]?.[1];
+      assert.isDefined(init);
       expect(new Headers(init.headers).get("x-clips-comment-token")).toBe(
         "fake-proof-3",
       );
@@ -1053,7 +1078,8 @@ describe("CommentsPanel reply composer", () => {
     await renderProofShare(shareFetch, () => playheadMs);
     const composer = container.querySelector<HTMLTextAreaElement>(
       'textarea[placeholder="commentsPanel.leaveComment"]',
-    )!;
+    );
+    assert.isNotNull(composer);
     const send = () =>
       act(async () => {
         container
@@ -1147,7 +1173,8 @@ describe("CommentsPanel reply composer", () => {
       await renderProofShare(shareFetch);
       const composer = container.querySelector<HTMLTextAreaElement>(
         'textarea[placeholder="commentsPanel.leaveComment"]',
-      )!;
+      );
+      assert.isNotNull(composer);
       const submit = async (content: string) => {
         act(() => setTextareaValue(composer, content));
         await act(async () => {
@@ -1194,7 +1221,8 @@ describe("CommentsPanel reply composer", () => {
       await pressCommentButton("Fake second comment", "libraryGrid.retry");
       expect(fetch).toHaveBeenCalledTimes(3);
       expect(shareFetch).toHaveBeenCalledTimes(2);
-      const init = fetch.mock.calls[2][1] as RequestInit;
+      const init = fetch.mock.calls[2]?.[1];
+      assert.isDefined(init);
       expect(new Headers(init.headers).get("x-clips-comment-token")).toBe(
         "fake-proof-2",
       );
@@ -1270,7 +1298,9 @@ describe("CommentsPanel reply composer", () => {
       const alerts = () => container.querySelectorAll('[role="alert"]');
 
       await openReply("Please take a look");
-      await mentionMember(replyComposer()!, "Fake failed reply");
+      const failedReply = replyComposer();
+      assert.isNotNull(failedReply);
+      await mentionMember(failedReply, "Fake failed reply");
       vi.setSystemTime(Date.now() + 300_000);
       await act(async () => {
         container
@@ -1302,11 +1332,13 @@ describe("CommentsPanel reply composer", () => {
         restored ? "Fake failed reply @Member " : "",
       );
       expect(alerts()).toHaveLength(1);
-      expect(alerts()[0].textContent).toBe("notificationsRoute.sendFailed");
+      expect(alerts()[0]?.textContent).toBe("notificationsRoute.sendFailed");
       expect(Boolean(commentCard("Fake failed reply"))).toBe(!restored);
       if (restored) return;
 
-      act(() => setTextareaValue(replyComposer()!, "Fake newer reply"));
+      const newerReply = replyComposer();
+      assert.isNotNull(newerReply);
+      act(() => setTextareaValue(newerReply, "Fake newer reply"));
       expect(
         commentCard("Fake failed reply")?.querySelector('[role="alert"]'),
       ).not.toBeNull();
@@ -1318,7 +1350,8 @@ describe("CommentsPanel reply composer", () => {
       await settleRenewal(true);
 
       expect(fetch).toHaveBeenCalledTimes(1);
-      const init = fetch.mock.calls[0][1] as RequestInit;
+      const init = fetch.mock.calls[0]?.[1];
+      assert.isDefined(init);
       expect(new Headers(init.headers).get("x-clips-comment-token")).toBe(
         "fake-proof-3",
       );
@@ -1385,7 +1418,8 @@ describe("CommentsPanel reply composer", () => {
     });
     expect(getCommentAccessToken).toHaveBeenLastCalledWith("fake-stale-proof");
     expect(fetch).toHaveBeenCalledTimes(1);
-    const init = fetch.mock.calls[0][1] as RequestInit;
+    const init = fetch.mock.calls[0]?.[1];
+    assert.isDefined(init);
     expect(new Headers(init.headers).get("x-clips-comment-token")).toBe(
       "fake-renewed-proof",
     );
@@ -1486,7 +1520,9 @@ describe("CommentsPanel reply composer", () => {
     expect(getCommentAccessToken).toHaveBeenCalledTimes(1);
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(
-      new Headers(fetch.mock.calls[0][1]?.headers).get("x-clips-comment-token"),
+      new Headers(fetch.mock.calls[0]?.[1]?.headers).get(
+        "x-clips-comment-token",
+      ),
     ).toBe("fake-fresh-proof");
     expect(onAdded).toHaveBeenCalledTimes(1);
     expect(isOpen()).toBe(false);
@@ -1499,7 +1535,7 @@ describe("CommentsPanel reply composer", () => {
       pressSend("ctrlKey");
     });
     expect(fetch).toHaveBeenCalledTimes(2);
-    expect(JSON.parse(String(fetch.mock.calls[1][1]?.body))).toEqual({
+    expect(JSON.parse(String(fetch.mock.calls[1]?.[1]?.body))).toEqual({
       recordingId: "recording-1",
       content: "Fake follow-up comment",
       videoTimestampMs: 12000,
@@ -1592,7 +1628,7 @@ describe("CommentsPanel reply composer", () => {
           getCommentAccessToken,
         });
       const sentContent = (call: number) =>
-        JSON.parse(String(fetch.mock.calls[call][1]?.body)).content;
+        JSON.parse(String(fetch.mock.calls[call]?.[1]?.body)).content;
       await act(async () => {
         bar().send.click();
       });
