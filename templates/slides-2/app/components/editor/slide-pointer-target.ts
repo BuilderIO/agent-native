@@ -26,10 +26,10 @@ const AREA_HIT_SELECTOR =
   "img, picture, video, canvas, iframe, embed, object, table, .fmd-img-placeholder";
 
 /**
- * Google Slides hit-tests text boxes, unfilled shapes and lines by their
- * outline, which leaves a grab band around them; shapes with a fill, images
- * and tables are hit-tested by area and have none. Lines are drawn as filled
- * strips, so they are recognised by kind rather than by paint.
+ * Text boxes, unfilled shapes, and lines use outline hit testing, leaving a
+ * grab band around them. Filled shapes, images, and tables use area hit
+ * testing and have none. Lines are drawn as filled strips, so they are
+ * recognised by kind rather than by paint.
  */
 function hasEdgeSlop(element: HTMLElement): boolean {
   if (
