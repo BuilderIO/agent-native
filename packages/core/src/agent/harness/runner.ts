@@ -70,10 +70,16 @@ export function startAgentHarnessRun(
 ): ActiveRun {
   let harnessSession: AgentHarnessSession | undefined = opts.session;
   const detachOnComplete = opts.detachOnComplete !== false;
-  const runPolicy = resolveAgentHarnessRunPolicy(
-    opts.runOptions,
-    opts.runOptions?.engineName ?? opts.adapter.name,
-  );
+  const runOptions: StartRunOptions = {
+    ...(opts.runOptions ?? {}),
+    turnId: opts.turnId ?? opts.runOptions?.turnId,
+    recoverChunkBoundaries: opts.runOptions?.recoverChunkBoundaries ?? true,
+    useHostedSoftTimeoutDefault:
+      opts.runOptions?.useHostedSoftTimeoutDefault ?? true,
+    engineName: opts.runOptions?.engineName ?? opts.adapter.name,
+    executionLease: opts.runOptions?.executionLease ?? true,
+  };
+  const runPolicy = resolveAgentHarnessRunPolicy(runOptions, opts.adapter.name);
 
   return startRun(
     opts.runId,
@@ -169,10 +175,13 @@ export function startAgentHarnessRun(
                 if (runControl.turnSignal.aborted) break;
                 if (event.type === "approval-request") {
                   pendingApproval = event;
+                  const resumeState = currentHarnessSession.checkpoint
+                    ? await currentHarnessSession.checkpoint()
+                    : storedSession.resumeState;
                   await updateLiveAgentHarnessSession(
                     currentStoredSessionId,
                     currentHarnessSession,
-                    { pendingApproval: event },
+                    { pendingApproval: event, resumeState },
                   );
                 }
                 await opts.onHarnessEvent?.(event);
@@ -342,15 +351,7 @@ export function startAgentHarnessRun(
       }
     },
     opts.onRunComplete,
-    {
-      ...(opts.runOptions ?? {}),
-      turnId: opts.turnId ?? opts.runOptions?.turnId,
-      recoverChunkBoundaries: opts.runOptions?.recoverChunkBoundaries ?? true,
-      useHostedSoftTimeoutDefault:
-        opts.runOptions?.useHostedSoftTimeoutDefault ?? true,
-      engineName: opts.runOptions?.engineName ?? opts.adapter.name,
-      executionLease: opts.runOptions?.executionLease ?? true,
-    },
+    runOptions,
   );
 }
 
