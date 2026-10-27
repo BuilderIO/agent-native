@@ -16,24 +16,24 @@ hero:
   image:
     dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F55295bda356c490984f639946e838ebe
     light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd84d0fd7f856406e85b739ac0429b0f3
-    alt: "\"Activation funnel\" डैशबोर्ड पर Analytics की विंडो। इसके फ़नल में चार स्टेप हैं: Signed up, Created a project, Connected a data source और Invited a teammate। हर स्टेप अपनी गिनती, साइनअप्स में अपना हिस्सा और पिछले स्टेप से गिरावट दिखाता है, और सबसे बड़ी गिरावट Created a project पर है। बगल में एजेंट चैट समझाती है कि पिछले हफ़्ते के साइनअप्स कहाँ रुके।"
+    alt: '"Activation funnel" डैशबोर्ड पर Analytics की विंडो। इसके फ़नल में चार स्टेप हैं: Signed up, Created a project, Connected a data source और Invited a teammate। हर स्टेप अपनी गिनती, साइनअप्स में अपना हिस्सा और पिछले स्टेप से गिरावट दिखाता है, और सबसे बड़ी गिरावट Created a project पर है। बगल में एजेंट चैट समझाती है कि पिछले हफ़्ते के साइनअप्स कहाँ रुके।'
 how_to:
   heading: "AI से फ़नल एनालिसिस कैसे करें"
   steps:
     - title: "पूछें कि नए यूज़र्स कहाँ रुकते हैं"
-      body: "अपने साइनअप इवेंट्स Analytics में लाएँ। **पूछें** पर सवाल करें, और एजेंट SQL लिखकर हर स्टेप की गिनती और गिरावट वाला [फ़नल पैनल](https://www.agent-native.com/docs/template-analytics-dashboards/) जोड़ देता है। आज़माएँ: \"मेरे Activation funnel डैशबोर्ड में फ़नल जोड़ो: पिछले हफ़्ते के साइनअप्स कहाँ रुके?\""
+      body: 'अपने साइनअप इवेंट्स Analytics में लाएँ। **पूछें** पर सवाल करें, और एजेंट SQL लिखकर हर स्टेप की गिनती और गिरावट वाला [फ़नल पैनल](https://www.agent-native.com/docs/template-analytics-dashboards/) जोड़ देता है। आज़माएँ: "मेरे Activation funnel डैशबोर्ड में फ़नल जोड़ो: पिछले हफ़्ते के साइनअप्स कहाँ रुके?"'
       image:
         dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa752431cecb8420c88d3d6a8f7980ea9
         light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F16ab210c27504ed1b71c37ebdabea744
         alt: "एजेंट चैट में वही रिक्वेस्ट और एजेंट का जवाब, बगल में उसका जोड़ा हुआ फ़नल। स्टेप्स हैं Signed up 1,240, Created a project 612, Connected a data source 418 और Invited a teammate 302, हर एक के साथ उसकी गिरावट।"
     - title: "रुकने वाले लोगों को ढूँढें"
-      body: "Analytics की सेटिंग्स में Sessions triage चालू करें। **सत्र** पर **इवेंट** खोलें। गिरावट से पहले वाले स्टेप के लिए **हुआ** चुनें, जैसे \"signed_up\", और जिस स्टेप तक वे कभी नहीं पहुँचे उसके लिए **नहीं हुआ**, जैसे \"project_created\"।"
+      body: 'Analytics की सेटिंग्स में Sessions triage चालू करें। **सत्र** पर **इवेंट** खोलें। गिरावट से पहले वाले स्टेप के लिए **हुआ** चुनें, जैसे "signed_up", और जिस स्टेप तक वे कभी नहीं पहुँचे उसके लिए **नहीं हुआ**, जैसे "project_created"।'
       image:
         dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F327bf36c28ab452da87cf4f4dc65debe
         light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F49b79e0de78041bb93444ec4d24ce11a
         alt: "Sessions पेज का क्लोज़-अप, जिसमें Events फ़िल्टर खुला है, signed_up, Did पर और project_created, Didn't पर सेट है। नीचे नए यूज़र्स के सेशन्स की फ़िल्टर की हुई लिस्ट है, हर एक के साथ उसकी अवधि, पेज और rage clicks।"
     - title: "पूछें कि सेशन में क्या हुआ"
-      body: "पेज, क्लिक्स और नेटवर्क रिक्वेस्ट्स देखने के लिए कोई रीप्ले खोलें। **एजेंट से पूछें** पर क्लिक करें और पूछें \"इस सेशन में क्या हुआ?\" एजेंट एरर, बार-बार के क्लिक्स और उस व्यक्ति के देखे पेजों का सार बताता है।"
+      body: 'पेज, क्लिक्स और नेटवर्क रिक्वेस्ट्स देखने के लिए कोई रीप्ले खोलें। **एजेंट से पूछें** पर क्लिक करें और पूछें "इस सेशन में क्या हुआ?" एजेंट एरर, बार-बार के क्लिक्स और उस व्यक्ति के देखे पेजों का सार बताता है।'
       image:
         dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7e0b3a4750a143f6bcd609e1c5460fd2
         light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe44e9321e80d4c3f826bd7b25fa54025

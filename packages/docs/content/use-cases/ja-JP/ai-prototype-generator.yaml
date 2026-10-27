@@ -33,7 +33,7 @@ how_to:
         light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fda7cdd9a2f3e42b58f44efec2b950fc9
         alt: 3つのオンボーディングの方向性が並んだキャンバス。エージェントチャットには「方向を選択」と、方向性の名前ごとのボタンが表示されています。
     - title: チームで磨き込む
-      body: '**デザイン**タブでテキスト、余白、色を編集するか、要素を選んでエージェントに頼みます。チームメンバーがコメントをピン留めしたら、**エージェントに送信**をクリックすれば、エージェントがその変更を行います。'
+      body: "**デザイン**タブでテキスト、余白、色を編集するか、要素を選んでエージェントに頼みます。チームメンバーがコメントをピン留めしたら、**エージェントに送信**をクリックすれば、エージェントがその変更を行います。"
       image:
         dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F406b66f9b62e49c09f697f5d08599b5e
         light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F566ca2f3c44f439aac2c5307c72aa572

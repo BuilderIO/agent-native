@@ -20,13 +20,13 @@ how_to:
   heading: AIで営業パイプラインを分析する方法
   steps:
     - title: CRMと通話のデータを連携する
-      body: '**データソース**を開き、**CRM & Sales**にあるHubSpotの横の**接続する**をクリックします。HubSpotの設定で作成した非公開アプリのトークンを貼り付け、**認証情報の保存**をクリックします。Gongもアクセスキーとシークレットで同じように連携します。'
+      body: "**データソース**を開き、**CRM & Sales**にあるHubSpotの横の**接続する**をクリックします。HubSpotの設定で作成した非公開アプリのトークンを貼り付け、**認証情報の保存**をクリックします。Gongもアクセスキーとシークレットで同じように連携します。"
       image:
         dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fdeea3eb7d84048eca0f534b7b00390ee
         light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd918aa95f46047559b1f30c42d89d62f
         alt: データソースページ。HubSpotは「接続済み」に、Gongは「CRM & Sales」に表示されています。Gongの設定シートがアクセスキーシークレットの手順で開いていて、値が貼り付けられ、その下に「認証情報の保存」があります。
     - title: パイプラインについて質問する
-      body: '**質問**で、「同じステージに30日以上とどまっているオープンな取引はどれ？」のように普段の言葉で質問します。エージェントがHubSpotの取引を検索し、並べ替えや追加の質問ができる表で答えます。'
+      body: "**質問**で、「同じステージに30日以上とどまっているオープンな取引はどれ？」のように普段の言葉で質問します。エージェントがHubSpotの取引を検索し、並べ替えや追加の質問ができる表で答えます。"
       image:
         dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7acaa378761c453bb79f9f246d8cab72
         light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe66acdb3c24e41c7b5caef3e0251b17a

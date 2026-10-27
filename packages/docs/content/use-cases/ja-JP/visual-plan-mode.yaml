@@ -19,7 +19,7 @@ how_to:
   heading: コーディングエージェントでビジュアルプランモードを使う方法
   steps:
     - title: ビジュアルな計画を依頼する
-      body: '[1つのインストールコマンド](https://www.agent-native.com/docs/plan-plugin/)で、Claude Code、Codex、CursorにPlanを追加します。次に`/visual-plan`とタスクを入力します。エージェントがコードを読み、計画へのリンクを返します。'
+      body: "[1つのインストールコマンド](https://www.agent-native.com/docs/plan-plugin/)で、Claude Code、Codex、CursorにPlanを追加します。次に`/visual-plan`とタスクを入力します。エージェントがコードを読み、計画へのリンクを返します。"
       image:
         dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F15e26ab97a68472a958aabf9657fdeb2
         light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F01168fa31ed5412080d49febc37f1068
@@ -31,7 +31,7 @@ how_to:
         light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F598a137b56d149f98409ed79c024cb2b
         alt: 計画の図にある招待メールの手順にピン留めされた新しいコメントの拡大図。エージェントと人間の切り替えはエージェント側になっていて、コメントが入力されています。
     - title: コメントをエージェントに送る
-      body: '**エージェントに送信**をクリックし、**エージェント用にコピー**を選ぶと、コメントがプロンプトとしてコピーされます。エージェントのチャットに貼り付ければ計画が更新されます。計画が固まったらチャットで承認し、エージェントが開発を始めます。'
+      body: "**エージェントに送信**をクリックし、**エージェント用にコピー**を選ぶと、コメントがプロンプトとしてコピーされます。エージェントのチャットに貼り付ければ計画が更新されます。計画が固まったらチャットで承認し、エージェントが開発を始めます。"
       image:
         dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F0f841d0983ec4e3386d13c4c4ad7895d
         light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F356c269c867048c392ca26ef5c5767c8

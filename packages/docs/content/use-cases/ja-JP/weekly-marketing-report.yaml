@@ -19,7 +19,7 @@ how_to:
   heading: AIで週次マーケティングレポートを作る方法
   steps:
     - title: マーケティングデータを連携する
-      body: '**データソース**を開き、Google AnalyticsとHubSpotのカードにある[設定手順](https://www.agent-native.com/docs/template-analytics-connectors/)に従って、**接続をテスト**をクリックします。Google Analyticsには、プロパティへの閲覧者権限を持つGoogle Cloudのサービスアカウントが必要です。設定は一度だけです。'
+      body: "**データソース**を開き、Google AnalyticsとHubSpotのカードにある[設定手順](https://www.agent-native.com/docs/template-analytics-connectors/)に従って、**接続をテスト**をクリックします。Google Analyticsには、プロパティへの閲覧者権限を持つGoogle Cloudのサービスアカウントが必要です。設定は一度だけです。"
       image:
         dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F0218d6c271db4bbe8534c00e6f5e85a6
         light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa38de1d80c2e4f7fb8e1407d95f97984

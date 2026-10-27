@@ -31,7 +31,7 @@ how_to:
       image:
         dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe01ffb73c62c427b8077f05657fdeb47
         light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff895d85667344971baec96eb0b2ec956
-        alt: "एक वेब ऐप के चेकआउट पेज पर Clips के रिकॉर्डिंग कंट्रोल और कैमरा बबल, जहाँ \"Something went wrong\" मैसेज दिख रहा है।"
+        alt: 'एक वेब ऐप के चेकआउट पेज पर Clips के रिकॉर्डिंग कंट्रोल और कैमरा बबल, जहाँ "Something went wrong" मैसेज दिख रहा है।'
     - title: "एक लिंक शेयर करें"
       body: "रोकते ही Clips रिकॉर्डिंग का लिंक आपके लिए कॉपी कर देता है। उसे टिकट, चैट या अपने कोडिंग एजेंट में पेस्ट करें। शेयर मेन्यू का एजेंट टैब उसे सीधे Claude, Claude Code या Codex में भी खोलता है।"
       image:

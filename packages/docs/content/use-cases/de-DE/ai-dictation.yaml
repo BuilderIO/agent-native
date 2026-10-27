@@ -36,7 +36,7 @@ how_to:
       image:
         dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F5e344071b49f4e51ae5eef2708c46605
         light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F13f558e09094404f975350ad0c359acc
-        alt: 'Das Clips-Suchmenü mit dem Suchbegriff „webhook“ und zwei früheren Diktaten unter „Diktieren“: ein Prompt, der in Cursor diktiert wurde, und eine Nachricht, die in Slack diktiert wurde.'
+        alt: "Das Clips-Suchmenü mit dem Suchbegriff „webhook“ und zwei früheren Diktaten unter „Diktieren“: ein Prompt, der in Cursor diktiert wurde, und eine Nachricht, die in Slack diktiert wurde."
 features:
   heading: Alles, was Sie zum Diktieren statt Tippen brauchen
   items:

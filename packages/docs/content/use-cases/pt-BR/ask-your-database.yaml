@@ -27,7 +27,7 @@ how_to:
         light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb01d428bca15467eb4c04299dd9575b8
         alt: Detalhe do card do BigQuery em Fontes de dados, marcado como conectado, com o ID do projeto e a conta de serviço configurados e "Connection successful".
     - title: Faça sua pergunta em português
-      body: "Em **Perguntar**, digite a pergunta como você faria a um colega: \"Quantas contas se cadastraram na semana passada, por plano?\" O agente encontra as tabelas certas, roda a consulta e responde com um gráfico."
+      body: 'Em **Perguntar**, digite a pergunta como você faria a um colega: "Quantas contas se cadastraram na semana passada, por plano?" O agente encontra as tabelas certas, roda a consulta e responde com um gráfico.'
       image:
         dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F3e9ac5b30a924dab9b09bc76ed24b2de
         light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F31c48c5ccc9247b792c00474b01f97b0

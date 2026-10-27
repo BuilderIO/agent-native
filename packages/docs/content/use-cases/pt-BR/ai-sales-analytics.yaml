@@ -94,7 +94,7 @@ faqs:
     - q: Preciso escrever SQL?
       a: Não. Você pergunta em português, e o agente encontra os dados no HubSpot ou no Gong, roda a consulta e responde com um número, uma tabela ou um gráfico. Quando você salva uma resposta em um dashboard, o agente configura como cada painel busca dados novos.
     - q: Posso confiar nos números?
-      a: "Sim, conferindo: o agente responde com dados ao vivo do HubSpot e do Gong e marca um número como \"Não verificado\" quando ele não veio de uma consulta ao vivo. Ele segue as [definições da sua equipe na página Camada semântica](https://www.agent-native.com/docs/template-analytics-dashboards/). Compare as primeiras respostas com o HubSpot antes de confiar nelas."
+      a: 'Sim, conferindo: o agente responde com dados ao vivo do HubSpot e do Gong e marca um número como "Não verificado" quando ele não veio de uma consulta ao vivo. Ele segue as [definições da sua equipe na página Camada semântica](https://www.agent-native.com/docs/template-analytics-dashboards/). Compare as primeiras respostas com o HubSpot antes de confiar nelas.'
     - q: Qual a diferença entre o Agent-Native Analytics e a IA que vem com o HubSpot ou o Gong?
       a: A IA do HubSpot ou do Gong fica presa àquela ferramenta. O Analytics responde a uma pergunta com o HubSpot e o Gong juntos, também lê o Stripe e o BigQuery, e guarda a resposta em um dashboard que sua equipe reabre toda semana. Você continua usando o HubSpot e o Gong como antes, e o Analytics lê dos dois.
     - q: Quem pode ver meus dashboards?
