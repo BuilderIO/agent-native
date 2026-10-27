@@ -96,10 +96,7 @@ import action from "./delete-comment";
 
 beforeEach(() => {
   vi.resetAllMocks();
-  mockAssertAccess.mockResolvedValue({
-    role: "viewer",
-    resource: { enableComments: true },
-  });
+  mockAssertAccess.mockResolvedValue({ role: "viewer", resource: {} });
   mockGetUserEmail.mockReturnValue("author@example.com");
   state.rows = [
     {
@@ -161,56 +158,49 @@ describe("delete-comment", () => {
     },
   );
 
-  it("preserves owner cleanup in Trash with comments enabled", async () => {
-    mockGetUserEmail.mockReturnValue("owner@example.com");
-    mockAssertAccess.mockResolvedValue({
-      role: "owner",
-      resource: { enableComments: true, trashedAt: "2026-01-01T00:00:00Z" },
-    });
-    const result = await action.run(action.schema.parse({ id: "comment-1" }));
-    expect(result.deletedCommentIds).toEqual([
-      "comment-1",
-      "comment-1-reply",
-      "comment-1-reply-2",
-    ]);
-  });
-
-  it("deletes a comment and descendants with comments enabled", async () => {
-    mockAssertAccess.mockResolvedValue({
-      role: "viewer",
-      resource: { enableComments: true, trashedAt: null },
-    });
-    const result = await action.run(action.schema.parse({ id: "comment-1" }));
-
-    expect(result).toEqual({
-      id: "comment-1",
-      deletedCommentIds: ["comment-1", "comment-1-reply", "comment-1-reply-2"],
-    });
-    expect(state.rows.map((row) => row.id)).toEqual([
-      "comment-2",
-      "comment-1-cross-record-reply",
-    ]);
-    expect(mockWriteAppState).toHaveBeenCalledWith("refresh-signal", {
-      ts: expect.any(Number),
-    });
-  });
-
-  it.each(["viewer", "editor", "owner"])(
-    "refuses deletion with comments disabled for %s",
-    async (role) => {
+  it.each([true, false])(
+    "preserves owner cleanup in Trash with enableComments=%s",
+    async (enableComments) => {
+      mockGetUserEmail.mockReturnValue("owner@example.com");
       mockAssertAccess.mockResolvedValue({
-        role,
-        resource: { enableComments: false },
+        role: "owner",
+        resource: { enableComments, trashedAt: "2026-01-01T00:00:00Z" },
       });
-      const originalRows = [...state.rows];
-      await expect(action.run({ id: "comment-1" })).rejects.toBeInstanceOf(
-        ForbiddenError,
-      );
-      expect(state.rows).toEqual(originalRows);
-      expect(mockWriteAppState).not.toHaveBeenCalled();
+      const result = await action.run(action.schema.parse({ id: "comment-1" }));
+      expect(result.deletedCommentIds).toEqual([
+        "comment-1",
+        "comment-1-reply",
+        "comment-1-reply-2",
+      ]);
     },
   );
 
+  it.each([true, false])(
+    "deletes a comment and descendants with enableComments=%s",
+    async (enableComments) => {
+      mockAssertAccess.mockResolvedValue({
+        role: "viewer",
+        resource: { enableComments, trashedAt: null },
+      });
+      const result = await action.run(action.schema.parse({ id: "comment-1" }));
+
+      expect(result).toEqual({
+        id: "comment-1",
+        deletedCommentIds: [
+          "comment-1",
+          "comment-1-reply",
+          "comment-1-reply-2",
+        ],
+      });
+      expect(state.rows.map((row) => row.id)).toEqual([
+        "comment-2",
+        "comment-1-cross-record-reply",
+      ]);
+      expect(mockWriteAppState).toHaveBeenCalledWith("refresh-signal", {
+        ts: expect.any(Number),
+      });
+    },
+  );
   it("recognizes the author regardless of email case", async () => {
     state.rows[0].authorEmail = "Author@Example.com";
     mockGetUserEmail.mockReturnValue("author@example.COM");
@@ -235,20 +225,5 @@ describe("delete-comment", () => {
       ForbiddenError,
     );
     expect(state.rows).toEqual(originalRows);
-  });
-
-  it("preserves deletion by a recording editor with comments enabled", async () => {
-    mockGetUserEmail.mockReturnValue("editor@example.com");
-    mockAssertAccess.mockResolvedValue({
-      role: "editor",
-      resource: { enableComments: true },
-    });
-    expect(await action.run({ id: "comment-1" })).toMatchObject({
-      id: "comment-1",
-    });
-    expect(state.rows.map((row) => row.id)).toEqual([
-      "comment-2",
-      "comment-1-cross-record-reply",
-    ]);
   });
 });

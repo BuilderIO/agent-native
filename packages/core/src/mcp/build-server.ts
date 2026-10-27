@@ -1,6 +1,7 @@
 import "../authorization/check-action.js";
 import type {
   CallToolResult,
+  ClientCapabilities,
   InputRequiredResult,
   RequestStateCodec,
   ServerContext,
@@ -9,6 +10,7 @@ import type {
 import type { JWTPayload } from "jose";
 
 import {
+  A2A_ORG_MEMBER_DELEGATION_TYPE,
   organizationPrincipalClaims,
   verifyA2AOrganizationIdentity,
 } from "../a2a/organization-identity.js";
@@ -75,6 +77,11 @@ import {
   renewMcpDirectoryWidgetCapabilityScope,
 } from "../shared/embed-auth.js";
 import {
+  isAutoReadExcludedActionName,
+  isMcpActionInputEligible,
+  isMcpActionNameEligible,
+} from "./action-eligibility.js";
+import {
   type McpAnalyticsContext,
   describeMcpError,
   readClientInfoFromRequest,
@@ -83,6 +90,14 @@ import {
   trackMcpToolCall,
   trackMcpToolsList,
 } from "./analytics.js";
+import {
+  mcpApprovalPrompt,
+  mcpApprovalRelativeLinkNote,
+  mcpApprovalReviewUrl,
+} from "./approval-route.js";
+import { mcpApprovalAppId } from "./approval-store.js";
+export { isAutoReadExcludedActionName } from "./action-eligibility.js";
+import { isMcpAppsInlineEnabled } from "./app-cards-lab.js";
 import { getBuiltinCrossAppTools } from "./builtin-tools.js";
 import {
   MCP_CONNECT_OAUTH_CLIENT_ID,
@@ -101,6 +116,7 @@ import {
   type EmbedCredentialGuard,
   type McpActionApprovalState,
   type McpActionCallContext,
+  type McpApprovalReview,
   canonicalJson,
   isActionVisibleForOAuthScope,
   redactEmbedCredentials,
@@ -172,6 +188,15 @@ export interface MCPConfig {
   createLocalAgentTaskClient?: (
     event: import("h3").H3Event,
   ) => import("../a2a/mcp-task-client.js").McpAgentTaskClient;
+  /**
+   * The app renders approval reviews in its own pages, as the toolkit's
+   * `AppProviders` does, so a signed-in browser opening a review link is sent
+   * to the app's home page with the grant id under `MCP_APPROVAL_HASH_PARAM`.
+   * Otherwise the link shows the framework's plain review page. The app's
+   * review reads approvals under `/_agent-native`, so `mountMCP` refuses this
+   * with any other route prefix.
+   */
+  appApprovalPage?: boolean;
   builtinCrossAppTools?: boolean;
   /**
    * `"app"` serves the app's own action registry flat. `"directory"` serves
@@ -249,7 +274,7 @@ export interface McpDirectoryWidgetTarget {
 
 export interface MCPCallerIdentity {
   userEmail: string | undefined;
-  identityAssurance?: "user" | "organization" | "service";
+  identityAssurance?: "user" | "org-member" | "organization" | "service";
   /** Issue time, in milliseconds, from a verified app-issued MCP credential. */
   mcpCredentialIssuedAtMs?: number;
   orgId?: string | null;
@@ -290,15 +315,24 @@ export function hasVerifiedMcpUserIdentity(
 }
 
 export const MCP_ACTION_APPROVAL_INPUT_KEY = "actionApproval";
+
+/**
+ * The approval prompt a client that offers both kinds gets. A form answers in
+ * the chat; a URL opens the review page. Both show the summary built from the
+ * stored arguments, and a decline or cancel of either returns the review link.
+ */
+const MCP_APPROVAL_PROMPT_PREFERENCE: "form" | "url" = "form";
 const MCP_DIRECTORY_WIDGET_ARGUMENT = /^[A-Za-z0-9_.-]{1,128}$/;
 
 function mcpApprovalPrincipal(
+  appId: string,
   identity: MCPCallerIdentity | undefined,
   orgId: string | undefined,
   requestMeta: MCPRequestMeta | undefined,
 ): string {
   return canonicalJson({
     caller: "mcp",
+    appId,
     userEmail: identity?.userEmail?.trim().toLowerCase() ?? "",
     orgId: orgId ?? identity?.orgId ?? "",
     orgDomain: identity?.orgDomain?.trim().toLowerCase() ?? "",
@@ -315,9 +349,68 @@ export function actionApprovalError(message: string): CallToolResult {
   };
 }
 
+/** Where a call's approval stands when the review page has to decide it. */
+export type McpApprovalReviewReason = "unprompted" | "declined" | "opened";
+
+function priorRunNote(review: McpApprovalReview): string {
+  if (!review.priorRun) return "";
+  const at = new Date(review.priorRun.at).toISOString();
+  return review.priorRun.status === "completed"
+    ? ` This exact call already ran at ${at}, and approving it runs it again.`
+    : ` This exact call started at ${at} and may have finished; check before running it again.`;
+}
+
+/**
+ * The tool result for a call the review page has to approve: what happened,
+ * the page's link, and how to finish. An error result, so a host neither
+ * renders an empty widget for it nor holds it to the tool's output schema.
+ * Every word is the server's, and none of it approves anything.
+ */
+export async function actionApprovalReviewResult(
+  review: McpApprovalReview,
+  reason: McpApprovalReviewReason,
+  requestMeta: MCPRequestMeta | undefined,
+  ownerEmail: string | undefined,
+): Promise<CallToolResult> {
+  const { actionName: name } = review;
+  const url = mcpApprovalReviewUrl(review.nonce, requestMeta);
+  const relativeLinkNote = URL.canParse(url)
+    ? ""
+    : `\n\n${await mcpApprovalRelativeLinkNote(ownerEmail)}`;
+  const status =
+    reason === "unprompted"
+      ? `${name} needs the user's approval before it runs, and this client cannot show an approval prompt. Ask the user to review it here: ${url}`
+      : reason === "declined"
+        ? `${name} was not approved. If the user did not see an approval prompt, they can review it here: ${url}`
+        : `${name} is waiting for the user's decision on its review page: ${url}`;
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text:
+          `${status}
+
+After they approve, call ${name} again with exactly the same arguments before ${new Date(review.expiresAt).toISOString()}. It runs once; different arguments need a new approval.` +
+          priorRunNote(review) +
+          relativeLinkNote,
+      },
+    ],
+    isError: true,
+    _meta: {
+      "agent-native/approvalReview": {
+        url,
+        actionName: name,
+        expiresAt: review.expiresAt,
+      },
+    },
+  };
+}
+
 export interface MCPRequestMeta {
   localAgentTaskClient?: import("../a2a/mcp-task-client.js").McpAgentTaskClient;
   origin?: string;
+  /** Where this mount serves the approval review page; `mcpApprovalRoute()` by default. */
+  approvalRoute?: string;
   basePath?: string;
   target?: "browser" | "desktop" | "terminal";
   clientName?: string;
@@ -356,26 +449,6 @@ function formatAskAgentResult(result: unknown): string {
   }
   const serialized = JSON.stringify(result);
   return serialized === undefined ? String(result) : serialized;
-}
-
-export function isMcpAppsInlineEnabled(
-  identity: MCPCallerIdentity | undefined,
-): boolean {
-  const flag = process.env.AGENT_NATIVE_MCP_APPS_INLINE?.trim().toLowerCase();
-  if (flag === "1" || flag === "true" || flag === "yes" || flag === "on") {
-    return true;
-  }
-  const email = identity?.userEmail?.trim().toLowerCase();
-  if (email) {
-    const allowed = (
-      process.env.AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS ?? ""
-    )
-      .split(/[\s,]+/)
-      .map((value) => value.trim().toLowerCase())
-      .filter(Boolean);
-    if (allowed.includes(email)) return true;
-  }
-  return false;
 }
 
 const TOOL_SEARCH_TOOL_NAME = "tool-search";
@@ -425,7 +498,9 @@ function withoutExternalOptOuts(
   return Object.fromEntries(
     Object.entries(actions).filter(
       ([name, entry]) =>
-        !denyNames.has(name) && isActionExposedToExternalAgents(entry),
+        !denyNames.has(name) &&
+        isActionExposedToExternalAgents(entry) &&
+        isMcpActionNameEligible(name, entry),
     ),
   );
 }
@@ -438,13 +513,20 @@ function withoutExternalOptOuts(
  * `tools/call` resolves. A request converts only the schemas it reads, and
  * the next request converts them again.
  */
-function advertisedInputSchemas(actions: Record<string, ActionEntry>) {
-  const verdicts = new Map<string, Tool["inputSchema"] | UnusableSchemaError>();
+function advertisedInputSchemas(actions: Partial<Record<string, ActionEntry>>) {
+  const verdicts = new Map<
+    string,
+    Tool["inputSchema"] | UnusableSchemaError | null
+  >();
   const verdict = (name: string) => {
     let advertised = verdicts.get(name);
-    if (!advertised) {
-      advertised = usableInputSchema(actions[name]!, (parameters) =>
-        mcpToolInputSchema(name, parameters),
+    if (advertised === undefined) {
+      const entry = actions[name];
+      if (entry === undefined) return null;
+      advertised = usableInputSchema(entry, (parameters) =>
+        isMcpActionInputEligible(entry, parameters)
+          ? mcpToolInputSchema(name, parameters)
+          : null,
       );
       if (advertised instanceof UnusableSchemaError) {
         reportUnusableToolSchema("mcp", name, advertised);
@@ -453,9 +535,11 @@ function advertisedInputSchemas(actions: Record<string, ActionEntry>) {
     }
     return advertised;
   };
-  const isAdvertisable = (name: string) =>
-    !Object.hasOwn(actions, name) ||
-    !(verdict(name) instanceof UnusableSchemaError);
+  const isAdvertisable = (name: string) => {
+    if (!Object.hasOwn(actions, name)) return true;
+    const advertised = verdict(name);
+    return advertised !== null && !(advertised instanceof UnusableSchemaError);
+  };
   return {
     isAdvertisable,
     advertisable: <T>(set: Record<string, T>) =>
@@ -465,6 +549,9 @@ function advertisedInputSchemas(actions: Record<string, ActionEntry>) {
     inputSchema: (name: string): Tool["inputSchema"] => {
       const advertised = verdict(name);
       if (advertised instanceof Error) throw advertised;
+      if (advertised === null) {
+        throw new Error(`Action "${name}" input is not exposed to MCP.`);
+      }
       return advertised;
     },
   };
@@ -972,32 +1059,6 @@ export function isAuthenticatedReadAction(entry: ActionEntry): boolean {
     entry.publicAgent?.expose === true &&
     entry.publicAgent.readOnly === true &&
     entry.publicAgent.requiresAuth === true
-  );
-}
-
-const AUTO_READ_EXCLUDED_ACTION_NAMES = new Set([
-  "db-query",
-  "db-schema",
-  "db-exec",
-  "db-patch",
-  "context-manifest-get",
-  "context-preview-get",
-  "context-pin",
-  "context-evict",
-  "context-restore",
-  "context-report",
-]);
-
-const AUTO_READ_EXCLUDED_ACTION_PATTERNS: RegExp[] = [
-  /^seed-/,
-  /extension/,
-  /browser-session/,
-];
-
-export function isAutoReadExcludedActionName(name: string): boolean {
-  return (
-    AUTO_READ_EXCLUDED_ACTION_NAMES.has(name) ||
-    AUTO_READ_EXCLUDED_ACTION_PATTERNS.some((pattern) => pattern.test(name))
   );
 }
 
@@ -2506,7 +2567,11 @@ export function mcpAppStructuredContent(
         ? { result }
         : {};
   // A link whose URL the walker would hide is left out whole.
-  const openLink = redactEmbedCredentials(meta?.["agent-native/openLink"]);
+  const openLink = redactEmbedCredentials(
+    meta?.["agent-native/openLink"],
+    undefined,
+    { dropHiddenFields: true },
+  );
   if (openLink && typeof openLink === "object" && !Array.isArray(openLink)) {
     const webUrl = (openLink as Record<string, unknown>).webUrl;
     if (typeof webUrl === "string") {
@@ -2523,9 +2588,9 @@ export function mcpAppStructuredContent(
  * derived from its own by these same steps (`deriveMcpResponseOutputSchema`),
  * so a change here must change that derivation too. Opted-in (`contracted`)
  * actions keep an empty object as `{}`, since the `{ status: "ok" }`
- * placeholder is not in their contract. Their result arrives with an embed
- * URL field masked in place (`maskUrlFields`) rather than deleted, since their
- * contract may require the field.
+ * placeholder is not in their contract. A result arrives with an embed URL
+ * field masked in place rather than deleted, which their contract may
+ * require.
  */
 export function mcpResponseStructuredContent(
   result: unknown,
@@ -2740,6 +2805,20 @@ function shortenLinkText(value: string, max = 500): string {
   return `${cut.shown}… [URL shortened: showing the first ${max} of ${cut.total} characters.]`;
 }
 
+// The first of `keys` holding a value, as a `??` chain picks it, except that a
+// value the embed redaction hid counts as absent. A one-line summary then falls
+// back to the next field rather than reading only the placeholder.
+function firstShownField(
+  record: Record<string, unknown>,
+  ...keys: string[]
+): unknown {
+  for (const key of keys) {
+    const value = record[key];
+    if (value != null && value !== HIDDEN_EMBED_URL) return value;
+  }
+  return undefined;
+}
+
 export function conciseMcpAppToolText(
   name: string,
   result: unknown,
@@ -2747,15 +2826,15 @@ export function conciseMcpAppToolText(
   paging?: readonly string[],
 ): string {
   if (typeof result === "string") return truncateToolText(result, 2000, paging);
-  const message = structuredContent.message;
+  const message = firstShownField(structuredContent, "message");
   if (typeof message === "string" && message.trim()) {
     return truncateToolText(message.trim(), 2000, paging);
   }
-  const title = structuredContent.title ?? structuredContent.name;
+  const title = firstShownField(structuredContent, "title", "name");
   if (typeof title === "string" && title.trim()) {
     return `${title.trim()} is ready.`;
   }
-  const id = structuredContent.id;
+  const id = firstShownField(structuredContent, "id");
   if (typeof id === "string" && id.trim()) {
     return `${name} completed for ${id.trim()}.`;
   }
@@ -2767,6 +2846,7 @@ function isSuccessOnlyResult(value: Record<string, unknown>): boolean {
   if (keys.length === 0) return true;
   return keys.every((key) => {
     const item = value[key];
+    if (item === HIDDEN_EMBED_URL) return true;
     if (key === "ok" || key === "success") return item === true;
     if (key === "status") {
       return item === "ok" || item === "success" || item === "completed";
@@ -2796,19 +2876,19 @@ export function conciseToolResultText(
   if (result === true || result == null) return `${name} completed.`;
   if (result && typeof result === "object" && !Array.isArray(result)) {
     const record = result as Record<string, unknown>;
-    const link = record.url ?? record.webUrl ?? record.urlPath ?? record.path;
+    const link = firstShownField(record, "url", "webUrl", "urlPath", "path");
+    const nextAction = firstShownField(record, "nextRequiredAction");
     const next =
-      typeof record.nextRequiredAction === "string" &&
-      record.nextRequiredAction.trim()
-        ? ` Next: ${record.nextRequiredAction.trim()}`
+      typeof nextAction === "string" && nextAction.trim()
+        ? ` Next: ${nextAction.trim()}`
         : "";
     const tail = `${typeof link === "string" && link.trim() ? ` ${shortenLinkText(link.trim())}` : ""}${next}`;
-    const message = record.message ?? record.summary;
+    const message = firstShownField(record, "message", "summary");
     if (typeof message === "string" && message.trim()) {
       return `${truncateToolText(message.trim(), maxTextLength, paging)}${tail}`;
     }
-    const id = record.id ?? record.planId ?? record.commentId;
-    const title = record.title ?? record.name;
+    const id = firstShownField(record, "id", "planId", "commentId");
+    const title = firstShownField(record, "title", "name");
     if (typeof title === "string" && title.trim()) {
       const titleText = title.trim();
       return typeof id === "string" && id.trim()
@@ -2835,11 +2915,13 @@ export async function createMCPServerForRequest(
   requestMeta?: MCPRequestMeta,
 ) {
   const {
+    CLIENT_CAPABILITIES_META_KEY,
     ResourceNotFoundError,
     Server,
     acceptedContent,
     createRequestStateCodec,
     inputRequired,
+    inputResponse,
   } = await import("@modelcontextprotocol/server");
 
   const ownerFromEnv = getConfiguredMcpOwnerEmail();
@@ -2855,7 +2937,7 @@ export async function createMCPServerForRequest(
       config.catalogMode === "directory" ||
       requestMeta?.inlineMcpApps === true ||
       (requestMeta?.inlineMcpApps === undefined &&
-        isMcpAppsInlineEnabled(effectiveIdentity)),
+        (await isMcpAppsInlineEnabled(effectiveIdentity))),
   };
 
   const analyticsBase: McpAnalyticsContext = {
@@ -2929,6 +3011,9 @@ export async function createMCPServerForRequest(
     {
       userEmail: effectiveIdentity?.userEmail,
       orgId,
+      ...(effectiveIdentity?.identityAssurance === "org-member"
+        ? { a2aIdentityAssurance: "org-member" as const }
+        : {}),
       ...(verifiedServiceIdentity ? { verifiedServiceIdentity } : {}),
       ...(effectiveIdentity?.orgId === null
         ? { orgScope: "personal" as const }
@@ -3014,8 +3099,14 @@ export async function createMCPServerForRequest(
     (entry) => entry.needsApproval !== undefined,
   );
   const approvalOrgId = hasApprovalActions ? await orgIdPromise : undefined;
+  const approvalAppId = mcpApprovalAppId(config);
   const approvalPrincipal = hasApprovalActions
-    ? mcpApprovalPrincipal(effectiveIdentity, approvalOrgId, requestMeta)
+    ? mcpApprovalPrincipal(
+        approvalAppId,
+        effectiveIdentity,
+        approvalOrgId,
+        requestMeta,
+      )
     : undefined;
   const approvalCallerKey = approvalPrincipal
     ? await sha256Base64Url(approvalPrincipal)
@@ -3028,7 +3119,9 @@ export async function createMCPServerForRequest(
         await import("../server/better-auth-instance.js");
       approvalCodec = createRequestStateCodec<McpActionApprovalState>({
         key: getAuthSecret(),
-        ttlSeconds: MCP_ACTION_APPROVAL_TTL_SECONDS,
+        // A page decision can grant another full use window near the review
+        // deadline. The store still enforces expiry and one-use consumption.
+        ttlSeconds: MCP_ACTION_APPROVAL_TTL_SECONDS * 2,
         bind: (ctx) => `${ctx.mcpReq.method}\0${approvalPrincipal}`,
       });
     } catch {
@@ -3106,6 +3199,9 @@ export async function createMCPServerForRequest(
         userEmail: effectiveIdentity?.userEmail,
         ...(authUserId ? { authUserId } : {}),
         orgId,
+        ...(effectiveIdentity?.identityAssurance === "org-member"
+          ? { a2aIdentityAssurance: "org-member" as const }
+          : {}),
         ...(verifiedServiceIdentity ? { verifiedServiceIdentity } : {}),
         ...(effectiveIdentity?.orgId === null
           ? { orgScope: "personal" as const }
@@ -3128,32 +3224,94 @@ export async function createMCPServerForRequest(
 
   const actionCallContext: McpActionCallContext = {
     appId: config.appId,
+    approvalAppId,
     identity: effectiveIdentity,
     approvalCallerKey,
     canRequestApproval:
       !approvalConfigurationError && approvalCodec !== undefined,
   };
 
+  /**
+   * Asks for approval of a new grant in the strongest way the client can
+   * show: a URL prompt opens the review page, a form prompt asks in the
+   * client, and a client with neither gets the page's link to pass on. The
+   * capabilities are the request's own on the 2026 protocol and the
+   * connection's otherwise, as the SDK reads them to allow the prompt.
+   */
   async function requestMcpActionApproval(
     approvalState: McpActionApprovalState,
-    name: string,
+    review: McpApprovalReview,
     ctx: ServerContext,
-  ): Promise<InputRequiredResult> {
-    const requestState = await approvalCodec!.mint(approvalState, ctx);
+  ): Promise<InputRequiredResult | CallToolResult> {
+    const name = approvalState.actionName;
+    // Calls reach approval only when `canRequestApproval` saw a codec.
+    const codec = approvalCodec;
+    if (!codec) {
+      throw new Error(`${name} requires approval, but it is not configured.`);
+    }
+    const envelope = ctx.mcpReq.envelope as
+      | Record<string, ClientCapabilities | undefined>
+      | undefined;
+    const elicitation = (
+      envelope
+        ? envelope[CLIENT_CAPABILITIES_META_KEY]
+        : server.getClientCapabilities()
+    )?.elicitation;
+    // A bare `elicitation: {}` declares form mode.
+    const offersForm =
+      elicitation !== undefined &&
+      (elicitation.form !== undefined || elicitation.url === undefined);
+    const reviewUrl = mcpApprovalReviewUrl(review.nonce, requestMeta);
+    // The SDK requires an absolute URL for URL elicitation.
+    const offersUrl = elicitation?.url !== undefined && URL.canParse(reviewUrl);
+    const mode =
+      offersUrl && (MCP_APPROVAL_PROMPT_PREFERENCE === "url" || !offersForm)
+        ? "url"
+        : offersForm
+          ? "form"
+          : undefined;
+    if (mode === undefined) {
+      return actionApprovalReviewResult(
+        review,
+        "unprompted",
+        requestMeta,
+        effectiveIdentity?.userEmail,
+      );
+    }
+    const prompt = await mcpApprovalPrompt({
+      entry: actions[name],
+      review,
+      ownerEmail: effectiveIdentity?.userEmail,
+      mode,
+      reviewUrl,
+    });
+    if (mode === "url") {
+      const requestState = await codec.mint(
+        { ...approvalState, mode: "url" },
+        ctx,
+      );
+      return inputRequired({
+        inputRequests: {
+          [MCP_ACTION_APPROVAL_INPUT_KEY]: inputRequired.elicitUrl({
+            message: prompt.message,
+            url: reviewUrl,
+          }),
+        },
+        requestState,
+      });
+    }
+    const requestState = await codec.mint(approvalState, ctx);
     return inputRequired({
       inputRequests: {
         [MCP_ACTION_APPROVAL_INPUT_KEY]: inputRequired.elicit({
-          message:
-            `Action "${name}" requires your approval before it can run. ` +
-            "Review the exact tool arguments in your MCP client, then explicitly choose Approve or Deny.",
+          message: prompt.message,
           requestedSchema: {
             type: "object",
             properties: {
               decision: {
                 type: "string",
-                title: `Run ${name}?`,
-                description:
-                  "Approve runs this exact call once. Deny leaves it unexecuted.",
+                title: prompt.decisionTitle,
+                description: prompt.decisionHelp,
                 enum: ["approve", "deny"],
               },
             },
@@ -3279,6 +3437,14 @@ export async function createMCPServerForRequest(
               Boolean(inputSchema.properties?.app);
             const toolMeta = {
               ...rawToolMeta,
+              ...(Array.isArray(entry.mcpApp?.visibility)
+                ? {
+                    ui: {
+                      ...metadataObject(rawToolMeta.ui),
+                      visibility: entry.mcpApp.visibility,
+                    },
+                  }
+                : {}),
               ...(mcpAppResource && requestMeta?.inlineMcpApps
                 ? {
                     ...openAiToolDescriptorMeta(
@@ -3415,6 +3581,7 @@ export async function createMCPServerForRequest(
     effectiveIdentity,
     actionCallContext,
     acceptedContent,
+    inputResponse,
     requestMcpActionApproval,
   });
 
@@ -3679,12 +3846,13 @@ export async function createMCPServerForRequest(
               actionName: string;
               resource: ResolvedMcpAppResource;
             } | null = null;
-            const resourceActions = mcpAppWidgetsEnabledForIdentity(
-              config,
-              effectiveIdentity,
-            )
-              ? Object.entries(grantedActions)
-              : [];
+            // Reads follow the same cards decision as resources/list, so a
+            // caller without the lab can't fetch a card by its known URI.
+            const resourceActions =
+              requestMeta.inlineMcpApps &&
+              mcpAppWidgetsEnabledForIdentity(config, effectiveIdentity)
+                ? Object.entries(grantedActions)
+                : [];
             const orderedResourceActions =
               config.catalogMode === "directory"
                 ? resourceActions.sort(([a], [b]) =>
@@ -3810,7 +3978,7 @@ export function getBearerToken(
 }
 
 export class McpIdentityVerificationUnavailableError extends Error {
-  readonly cause: unknown;
+  override readonly cause: unknown;
 
   constructor(cause: unknown) {
     super("MCP identity verification is temporarily unavailable");
@@ -3826,10 +3994,16 @@ export class McpIdentityVerificationRefusedError extends Error {
   }
 }
 
+interface VerifiedMcpA2AIdentity {
+  payload: Record<string, unknown>;
+  identityAssurance?: "org-member";
+}
+
 async function verifyA2AJwtForMcp(
   token: string,
   resourceUrl?: string | string[],
-): Promise<Record<string, unknown> | null> {
+  event?: unknown,
+): Promise<VerifiedMcpA2AIdentity | null> {
   const jose = await import("jose");
   let unverifiedPayload: Record<string, unknown> | null = null;
   try {
@@ -3847,6 +4021,41 @@ async function verifyA2AJwtForMcp(
   const audiences =
     hasAudience || firstPartyMcp ? mcpAudienceList(resourceUrl) : null;
   if ((hasAudience || firstPartyMcp) && !audiences?.length) return null;
+
+  if (unverifiedPayload.typ === "agent-native-org-member-delegation") {
+    if (!hasAudience || !audiences?.length) return null;
+    const { isA2AIdentityVerificationUnavailableError, verifyA2AToken } =
+      await import("../a2a/server.js");
+    let delegatedIdentity;
+    try {
+      delegatedIdentity = await verifyA2AToken(token, event, {
+        expectedAudience: audiences,
+        requireAudience: true,
+      });
+    } catch (error) {
+      if (isA2AIdentityVerificationUnavailableError(error)) {
+        throw new McpIdentityVerificationUnavailableError(error);
+      }
+      throw error;
+    }
+    if (
+      delegatedIdentity.identityAssurance !== "org-member" ||
+      !delegatedIdentity.email ||
+      !delegatedIdentity.orgId
+    ) {
+      return null;
+    }
+    return {
+      payload: {
+        sub: delegatedIdentity.email,
+        org_id: delegatedIdentity.orgId,
+        ...(delegatedIdentity.orgDomain
+          ? { org_domain: delegatedIdentity.orgDomain }
+          : {}),
+      },
+      identityAssurance: "org-member",
+    };
+  }
 
   const verifyWithSecret = async (secret: string) => {
     for (const audience of audiences ?? [undefined]) {
@@ -3883,10 +4092,11 @@ async function verifyA2AJwtForMcp(
           throw new McpIdentityVerificationUnavailableError(error);
         }
         if (organization?.secret.trim() === globalSecret) {
-          return organizationPrincipalClaims(
+          const claims = organizationPrincipalClaims(
             payload as JWTPayload,
             organization,
           ) as Record<string, unknown> | null;
+          return claims ? { payload: claims } : null;
         }
       }
 
@@ -3902,7 +4112,7 @@ async function verifyA2AJwtForMcp(
         !hasOrganizationClaim &&
         !hasOrganizationDomainClaim
       ) {
-        return payload;
+        return { payload };
       }
 
       let verifiedOrganization:
@@ -3914,13 +4124,15 @@ async function verifyA2AJwtForMcp(
         throw new McpIdentityVerificationUnavailableError(error);
       }
       if (verifiedOrganization === null) return null;
-      return verifiedOrganization
-        ? {
-            ...payload,
-            org_id: verifiedOrganization.orgId,
-            org_domain: verifiedOrganization.orgDomain,
-          }
-        : payload;
+      return {
+        payload: verifiedOrganization
+          ? {
+              ...payload,
+              org_id: verifiedOrganization.orgId,
+              org_domain: verifiedOrganization.orgDomain,
+            }
+          : payload,
+      };
     }
   }
 
@@ -3941,10 +4153,21 @@ async function verifyA2AJwtForMcp(
 
   const payload = await verifyWithSecret(organization.secret);
   if (!payload) return null;
-  return organizationPrincipalClaims(
+  const claims = organizationPrincipalClaims(
     payload as JWTPayload,
     organization,
   ) as Record<string, unknown> | null;
+  return claims ? { payload: claims } : null;
+}
+
+async function isOrgMemberDelegationToken(token: string): Promise<boolean> {
+  const jose = await import("jose");
+  try {
+    return jose.decodeJwt(token).typ === A2A_ORG_MEMBER_DELEGATION_TYPE;
+  } catch (error) {
+    if (error instanceof jose.errors.JWTInvalid) return false;
+    throw error;
+  }
 }
 
 function mcpAudienceList(resource: string | string[] | undefined): string[] {
@@ -4307,6 +4530,7 @@ export async function verifyAuth(
   options: {
     allowDevOpen?: boolean;
     resourceUrl?: string | string[];
+    event?: unknown;
     /** This app's public origin; federated orgs need it for the membership check. */
     requestOrigin?: string;
   } = {},
@@ -4314,21 +4538,30 @@ export async function verifyAuth(
   const accessTokens = getAccessTokens();
   const hasA2ASecret = !!readDeployCredentialEnv("A2A_SECRET")?.trim();
   const token = getBearerToken(authHeader);
+  const orgMemberDelegation = token
+    ? await isOrgMemberDelegationToken(token)
+    : false;
   if (token) {
-    const issued = await verifyIssuedMcpCredential(token, options.resourceUrl);
-    if (issued === "unverified") {
-      return (
-        (await matchStaticAccessToken(
-          token,
-          accessTokens,
-          ownerEmailHeader,
-        )) ?? {
-          authed: false,
-          refusal: "invalid",
-        }
+    if (!orgMemberDelegation) {
+      const issued = await verifyIssuedMcpCredential(
+        token,
+        options.resourceUrl,
       );
+      if (issued === "unverified") {
+        return (
+          (await matchStaticAccessToken(
+            token,
+            accessTokens,
+            ownerEmailHeader,
+          )) ?? {
+            authed: false,
+            refusal: "invalid",
+          }
+        );
+      }
+      if (issued)
+        return admitIssuedMcpCredential(issued, options.requestOrigin);
     }
-    if (issued) return admitIssuedMcpCredential(issued, options.requestOrigin);
   }
   if (accessTokens.length === 0 && !hasA2ASecret && !token) {
     if (options.allowDevOpen === false) {
@@ -4343,9 +4576,13 @@ export async function verifyAuth(
 
   if (!token) return { authed: false };
 
-  let payload: Record<string, unknown> | null;
+  let verifiedA2AIdentity: VerifiedMcpA2AIdentity | null;
   try {
-    payload = await verifyA2AJwtForMcp(token, options.resourceUrl);
+    verifiedA2AIdentity = await verifyA2AJwtForMcp(
+      token,
+      options.resourceUrl,
+      options.event,
+    );
   } catch (error) {
     if (error instanceof McpIdentityVerificationUnavailableError) {
       return { authed: false, unavailable: true };
@@ -4355,7 +4592,8 @@ export async function verifyAuth(
     }
     throw error;
   }
-  if (payload) {
+  const payload = verifiedA2AIdentity?.payload ?? null;
+  if (payload && verifiedA2AIdentity) {
     // Connect tokens this app minted never reach here, so a connect-scoped
     // token is a sibling app's per-call first-party MCP token.
     const tokenScope =
@@ -4379,12 +4617,14 @@ export async function verifyAuth(
       authed: true,
       identity: {
         userEmail: typeof payload.sub === "string" ? payload.sub : undefined,
-        ...(typeof payload.sub === "string"
-          ? { identityAssurance: "user" as const }
-          : typeof payload.org_id === "string" ||
-              typeof payload.org_domain === "string"
-            ? { identityAssurance: "organization" as const }
-            : {}),
+        ...(verifiedA2AIdentity.identityAssurance
+          ? { identityAssurance: verifiedA2AIdentity.identityAssurance }
+          : typeof payload.sub === "string"
+            ? { identityAssurance: "user" as const }
+            : typeof payload.org_id === "string" ||
+                typeof payload.org_domain === "string"
+              ? { identityAssurance: "organization" as const }
+              : {}),
         ...(orgId !== undefined ? { orgId } : {}),
         orgDomain:
           typeof payload.org_domain === "string"
@@ -4395,6 +4635,12 @@ export async function verifyAuth(
       fullSurface: true,
       fullCatalog: payload.catalog_scope === "full",
     });
+  }
+
+  // A token that declares the member-delegation type must pass that verifier;
+  // it cannot be reclassified as a shared static bearer after rejection.
+  if (orgMemberDelegation) {
+    return { authed: false, refusal: "invalid" };
   }
 
   // A supplied bearer that failed JWT verification must not fall through to

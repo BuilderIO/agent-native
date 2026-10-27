@@ -7,6 +7,11 @@ import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+function found<T>(value: T | null | undefined): T {
+  if (value == null) throw new Error("Expected the fixture to have it");
+  return value;
+}
+
 const { outcomeCounter } = vi.hoisted(() => ({ outcomeCounter: vi.fn() }));
 vi.mock("@agent-native/core/tracking", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/tracking")>()),
@@ -1252,6 +1257,51 @@ describe("private preview document drafts", () => {
     expect(
       (await asUser(OWNER, () => getDraft.run({ documentId }))).draft?.content,
     ).toBe("Local recovery");
+  });
+
+  it("saves a local draft whose videos share an id as a separate page", async () => {
+    const documentId = await createDocument();
+    const video = (caption: string) =>
+      `<video src="https://example.com/a.mp4" id="video-original">${caption}</video>`;
+    const local = `Local recovery\n${video("Demo")}\n${video("Copy")}`;
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: { ...payload(local), deferredReason: "conflict" },
+      }),
+    );
+
+    outcomeCounter.mockClear();
+    const result = await asUser(OWNER, () =>
+      resolveDraft.run({
+        choice: "save_separately",
+        documentId,
+        expectedDraftVersion: 1,
+        expectedDraftTitle: "Builder row",
+        expectedDraftContent: local,
+        expectedDocumentUpdatedAt: documentUpdatedAt(documentId),
+      }),
+    );
+    // The page's outcome is counted after the action returns; let it land
+    // here rather than in the next test's count.
+    await vi.waitFor(() =>
+      expect(outcomeCounter).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          operation: "create_document",
+          outcome: "written",
+        }),
+      ),
+    );
+
+    expect(result).toMatchObject({ status: "resolved" });
+    const [copy] = await getDb()
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, found(result.createdDocumentId)));
+    expect(copy.content).toBe(local);
   });
 
   it("counts an idempotent inner create replay separately from the winning recovery write", async () => {

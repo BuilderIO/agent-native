@@ -284,14 +284,75 @@ export function runNudgeSelection(
   }
 
   hideSelectionChromeForNudge();
-  const left = parseFloat(nudgeTarget.computedStyles.left || "0") || 0;
-  const top = parseFloat(nudgeTarget.computedStyles.top || "0") || 0;
+  const rendered = {
+    left: parseFloat(nudgeTarget.computedStyles.left || "0") || 0,
+    top: parseFloat(nudgeTarget.computedStyles.top || "0") || 0,
+  };
+  const chain = continuedTranslateNudgeChain(
+    nudgeTarget.selector,
+    intent.sourcePosition,
+    rendered,
+  );
+  const base = chain?.positions[chain.positions.length - 1] ?? rendered;
+  const next = {
+    left: Math.round(base.left + intent.dx),
+    top: Math.round(base.top + intent.dy),
+  };
   commitVisualStyles(nudgeTarget.selector, {
     position:
       nudgeTarget.computedStyles.position === "static"
         ? "relative"
         : nudgeTarget.computedStyles.position || "relative",
-    left: `${Math.round(left + intent.dx)}px`,
-    top: `${Math.round(top + intent.dy)}px`,
+    left: `${next.left}px`,
+    top: `${next.top}px`,
   });
+  translateNudgeChain = {
+    selector: nudgeTarget.selector,
+    positions:
+      chain && !samePosition(rendered, base)
+        ? [...chain.positions, next]
+        : [rendered, next],
+  };
+}
+
+interface NudgePosition {
+  left: number;
+  top: number;
+}
+
+interface TranslateNudgeChain {
+  selector: string;
+  positions: NudgePosition[];
+}
+
+const samePosition = (a: NudgePosition, b: NudgePosition) =>
+  a.left === b.left && a.top === b.top;
+
+// A nudged layer's rendered position comes back from its iframe after the
+// commit, so a quick next tap still reads the position from before the last
+// one and would overwrite it. The chain continues from what this command wrote
+// only while the source still holds the last tap's position and the render is
+// one the chain passed through; any other edit (undo, a drag, a peer, a
+// breakpoint-scoped write) breaks that and the next tap reads the render again.
+let translateNudgeChain: TranslateNudgeChain | null = null;
+
+function continuedTranslateNudgeChain(
+  selector: string,
+  sourcePosition: NudgePosition | undefined,
+  rendered: NudgePosition,
+): TranslateNudgeChain | null {
+  const chain = translateNudgeChain;
+  const last = chain?.positions[chain.positions.length - 1];
+  if (
+    !chain ||
+    !last ||
+    chain.selector !== selector ||
+    !sourcePosition ||
+    !samePosition(sourcePosition, last)
+  ) {
+    return null;
+  }
+  return chain.positions.some((position) => samePosition(position, rendered))
+    ? chain
+    : null;
 }

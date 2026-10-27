@@ -27,9 +27,11 @@ const buttonVariants = cva(
         outline:
           "border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
         // A destructive action that sits among ordinary row actions: the
-        // outline keeps the row calm; red text says what it does.
+        // outline keeps the row calm; red text says what it does. Plain
+        // destructive text is under 4.5:1 here in both themes, so it is pulled
+        // toward the foreground.
         "outline-destructive":
-          "border bg-background text-destructive shadow-xs hover:bg-destructive/10 dark:border-input dark:bg-input/30 dark:hover:bg-destructive/20",
+          "border bg-background text-[color:color-mix(in_oklab,hsl(var(--destructive))_60%,hsl(var(--foreground)))] shadow-xs hover:bg-destructive/10 dark:border-input dark:bg-input/30 dark:hover:bg-destructive/20",
         secondary:
           "bg-secondary text-secondary-foreground hover:bg-secondary/80",
         ghost: "hover:bg-accent hover:text-accent-foreground",

@@ -37,8 +37,11 @@ export {
 
 export {
   maybeCompactThread,
+  compactThreadNow,
+  getThreadCompactionStatus,
   type MaybeCompactThreadOptions,
   type MaybeCompactThreadResult,
+  type ThreadCompactionStatus,
 } from "./compactor.js";
 
 export {

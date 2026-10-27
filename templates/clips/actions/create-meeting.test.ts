@@ -54,6 +54,7 @@ import action from "./create-meeting.js";
 
 function createDb() {
   const updates: Record<string, unknown>[] = [];
+  const inserts: Record<string, unknown>[] = [];
   const event = {
     id: "event-1",
     calendarAccountId: "account-1",
@@ -67,6 +68,12 @@ function createDb() {
   };
   const db = {
     updates,
+    inserts,
+    insert: vi.fn(() => ({
+      values: async (values: Record<string, unknown>) => {
+        inserts.push(values);
+      },
+    })),
     select: vi.fn(() => {
       const builder = {
         from: () => builder,
@@ -117,5 +124,30 @@ describe("create-meeting calendar event claim", () => {
       "meeting-1",
       null,
     ]);
+  });
+});
+
+describe("create-meeting transcript sharing", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.resolveAccess.mockResolvedValue(true);
+    mocks.getDefaultRecordingVisibility.mockResolvedValue("private");
+  });
+
+  it.each([
+    ["a titled meeting", { title: "Planning" }],
+    ["a calendar meeting", { calendarEventId: "event-1" }],
+  ])("puts the transcript on the share link of %s", async (_label, args) => {
+    const db = createDb();
+    mocks.getDb.mockReturnValue(db);
+
+    await action.run(action.schema.parse(args), {
+      userEmail: "owner@example.com",
+    });
+
+    expect(db.inserts[0]).toMatchObject({
+      id: "meeting-1",
+      shareTranscript: true,
+    });
   });
 });

@@ -8,7 +8,6 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { createPortal } from "react-dom";
 
 import {
   createRealtimeVoiceAudioLevelStore,
@@ -17,18 +16,22 @@ import {
   type RealtimeVoiceAudioLevelStore,
 } from "./realtime-voice-audio-level.js";
 import { realtimeVoiceTranscriptRegistry } from "./realtime-voice-transcript.js";
-import {
-  RealtimeVoiceModeDock,
-  type RealtimeVoiceModeCopy,
-  type RealtimeVoiceModeState,
+import type {
+  RealtimeVoiceModeCopy,
+  RealtimeVoiceModeInlineSettings,
+  RealtimeVoiceModeState,
 } from "./RealtimeVoiceMode.js";
 import {
   type ComposerTranslate,
   useComposerRuntimeAdapters,
 } from "./runtime-adapters.js";
+import {
+  isMicrophoneAccessError,
+  voiceDictationStartErrorMessage,
+} from "./useVoiceDictation.js";
 
 const REALTIME_VOICE_STATE_KEY = "realtime-voice-session";
-const REALTIME_VOICE_PREFERENCES_KEY = "realtime-voice-prefs";
+export const REALTIME_VOICE_PREFERENCES_KEY = "realtime-voice-prefs";
 
 const REALTIME_VOICE_SESSION_PATH = "/_agent-native/realtime-voice/session";
 const REALTIME_VOICE_TOOL_PATH = "/_agent-native/realtime-voice/tool";
@@ -149,8 +152,11 @@ export interface RealtimeVoiceModeApi {
   state: "idle" | RealtimeVoiceModeState;
   active: boolean;
   errorMessage: string | null;
-  chatVisible: boolean;
   audioLevels: RealtimeVoiceAudioLevelStore;
+  /** Your microphone is sending silence. */
+  inputMuted: boolean;
+  /** The assistant's voice is not played back. */
+  outputMuted: boolean;
   preferences: RealtimeVoicePreferences;
   microphones: readonly RealtimeVoiceMicrophone[];
   microphoneDeviceId: string;
@@ -161,9 +167,21 @@ export interface RealtimeVoiceModeApi {
   setIntelligence: (intelligence: RealtimeVoiceIntelligence) => void;
   setVoice: (voice: RealtimeVoice) => void;
   setMicrophone: (deviceId: string) => Promise<void>;
-  start: () => Promise<void>;
+  setInputMuted: (muted: boolean) => void;
+  setOutputMuted: (muted: boolean) => void;
+  start: (options?: RealtimeVoiceStartOptions) => Promise<void>;
   end: () => void;
-  toggleChat: () => void;
+  /** Clears a failed session so voice chat can start again. */
+  dismissError: () => void;
+}
+
+export interface RealtimeVoiceStartOptions {
+  /**
+   * The thread that receives the session's transcripts. Defaults to the
+   * thread on screen at start; pass one when the session starts before its
+   * thread is shown, such as from a page that hands off to the chat.
+   */
+  threadId?: string;
 }
 
 export interface RealtimeVoiceMicrophone {
@@ -216,7 +234,7 @@ export async function replaceRealtimeVoiceMicrophone(options: {
   }
 }
 
-function readRealtimeVoiceMicrophoneId(): string {
+export function readRealtimeVoiceMicrophoneId(): string {
   if (typeof window === "undefined") return "default";
   try {
     return (
@@ -228,7 +246,7 @@ function readRealtimeVoiceMicrophoneId(): string {
   }
 }
 
-function writeRealtimeVoiceMicrophoneId(deviceId: string): void {
+export function writeRealtimeVoiceMicrophoneId(deviceId: string): void {
   try {
     window.localStorage.setItem(
       REALTIME_VOICE_MICROPHONE_STORAGE_KEY,
@@ -244,6 +262,38 @@ function isOneOf<T extends readonly string[]>(
   value: unknown,
 ): value is T[number] {
   return typeof value === "string" && values.includes(value);
+}
+
+/** The browser's audio inputs, or null when they cannot be listed. */
+export async function listRealtimeVoiceMicrophones(
+  t: ComposerTranslate,
+): Promise<RealtimeVoiceMicrophone[] | null> {
+  const mediaDevices =
+    typeof navigator === "undefined" ? undefined : navigator.mediaDevices;
+  if (!mediaDevices?.enumerateDevices) return null;
+  try {
+    const devices = await mediaDevices.enumerateDevices();
+    return devices
+      .filter(
+        (device) =>
+          device.kind === "audioinput" &&
+          device.deviceId &&
+          device.deviceId !== "default" &&
+          device.deviceId !== "communications",
+      )
+      .map((device, index) => ({
+        deviceId: device.deviceId,
+        label:
+          device.label ||
+          t("agentChat.voiceMode.settings.microphoneNumber", {
+            number: index + 1,
+            defaultValue: `Microphone ${index + 1}`,
+          }),
+      }));
+  } catch {
+    // coercion-ok: null tells the caller the list is unavailable; the system default stays usable.
+    return null;
+  }
 }
 
 export function normalizeRealtimeVoicePreferences(
@@ -382,8 +432,14 @@ interface LiveRealtimeVoiceTranscriptBuffer {
   sequence: number;
 }
 
+/**
+ * Orders provider transcripts into conversation order. `publish` receives each
+ * final transcript; `stream`, when given, receives the growing text of a turn
+ * under the same `providerId` its final transcript will carry.
+ */
 export function createRealtimeVoiceTranscriptSequencer(
   publish: (transcript: CompletedRealtimeVoiceTranscript) => void,
+  stream?: (transcript: CompletedRealtimeVoiceTranscript) => void,
 ): RealtimeVoiceTranscriptSequencer {
   const order: string[] = [];
   const items = new Map<string, SequencedRealtimeVoiceTranscript>();
@@ -393,7 +449,12 @@ export function createRealtimeVoiceTranscriptSequencer(
     CompletedRealtimeVoiceTranscript["role"],
     LiveRealtimeVoiceTranscriptBuffer
   >();
+  const streamingText = new Map<string, string>();
+  const streamedText = new Map<string, string>();
   let liveSequence = 0;
+
+  const liveProviderId = (buffer: LiveRealtimeVoiceTranscriptBuffer) =>
+    `live-${buffer.sequence}`;
 
   const flushLiveTranscript = (
     role: CompletedRealtimeVoiceTranscript["role"],
@@ -402,7 +463,35 @@ export function createRealtimeVoiceTranscriptSequencer(
     if (!buffer) return;
     liveBuffers.delete(role);
     const text = buffer.text.trim();
-    if (text) publish({ role, text });
+    if (!text) return;
+    publish(
+      stream
+        ? { role, text, providerId: liveProviderId(buffer) }
+        : { role, text },
+    );
+  };
+
+  // A turn appears once every earlier turn has appeared, so a fast reply
+  // never streams in above the question it answers.
+  const emitStreams = () => {
+    if (!stream) return;
+    for (const id of order) {
+      const entry = items.get(id);
+      if (!entry || entry.status === "skipped") continue;
+      const text =
+        entry.status === "completed"
+          ? entry.transcript?.text
+          : streamingText.get(id)?.trim();
+      const role = entry.transcript?.role ?? entry.role;
+      if (!text || !role) return;
+      if (streamedText.get(id) === text) continue;
+      streamedText.set(id, text);
+      stream({
+        role,
+        text,
+        providerId: entry.transcript?.providerId ?? id,
+      });
+    }
   };
 
   const flushLiveTranscripts = () => {
@@ -435,6 +524,8 @@ export function createRealtimeVoiceTranscriptSequencer(
       order.shift();
       items.delete(id);
       settledItemIds.add(id);
+      streamingText.delete(id);
+      streamedText.delete(id);
       if (entry.status === "completed" && entry.transcript) {
         publish(entry.transcript);
       }
@@ -481,6 +572,32 @@ export function createRealtimeVoiceTranscriptSequencer(
         }
         if (typeof event.delta === "string") buffer.text += event.delta;
         if (endMs !== undefined) buffer.lastEndMs = endMs;
+        const text = buffer.text.trim();
+        if (stream && text) {
+          stream({ role, text, providerId: liveProviderId(buffer) });
+        }
+        return;
+      }
+      if (
+        event.type === "conversation.item.input_audio_transcription.delta" ||
+        event.type === "response.output_audio_transcript.delta"
+      ) {
+        const itemId =
+          typeof event.item_id === "string" ? event.item_id : undefined;
+        if (!itemId || settledItemIds.has(itemId)) return;
+        reserve(
+          itemId,
+          event.type === "response.output_audio_transcript.delta"
+            ? "assistant"
+            : "user",
+        );
+        if (typeof event.delta === "string") {
+          streamingText.set(
+            itemId,
+            (streamingText.get(itemId) ?? "") + event.delta,
+          );
+        }
+        emitStreams();
         return;
       }
       if (event.type === "session.closed") flushLiveTranscripts();
@@ -521,7 +638,10 @@ export function createRealtimeVoiceTranscriptSequencer(
             items.set(reservedId, {
               status: "completed",
               role: transcript.role,
-              transcript,
+              // Keep the id the turn streamed under, so it finalizes in place.
+              transcript: stream
+                ? { ...transcript, providerId: reservedId }
+                : transcript,
             });
           } else {
             publish(transcript);
@@ -555,8 +675,35 @@ export function createRealtimeVoiceTranscriptSequencer(
         }
       }
       drain();
+      emitStreams();
     },
-    flush: flushLiveTranscripts,
+    flush() {
+      flushLiveTranscripts();
+      if (!stream) return;
+      // The session is over: a turn that streamed but never got its final
+      // transcript keeps the text that was heard.
+      for (const id of order.splice(0)) {
+        const entry = items.get(id);
+        items.delete(id);
+        settledItemIds.add(id);
+        const text =
+          entry?.status === "completed"
+            ? entry.transcript?.text
+            : entry?.status === "pending"
+              ? streamingText.get(id)?.trim()
+              : undefined;
+        const role = entry?.transcript?.role ?? entry?.role;
+        streamingText.delete(id);
+        streamedText.delete(id);
+        if (text && role) {
+          publish({
+            role,
+            text,
+            providerId: entry?.transcript?.providerId ?? id,
+          });
+        }
+      }
+    },
     reset(options) {
       liveBuffers.clear();
       liveSequence = 0;
@@ -565,6 +712,8 @@ export function createRealtimeVoiceTranscriptSequencer(
       items.clear();
       settledItemIds.clear();
       receivedTranscriptIds.clear();
+      streamingText.clear();
+      streamedText.clear();
     },
   };
 }
@@ -1314,51 +1463,30 @@ export function listenForRealtimeVoicePageHide(
   return () => window.removeEventListener("pagehide", cleanup);
 }
 
-function voiceCopy(t: ComposerTranslate): RealtimeVoiceModeCopy {
+export function createRealtimeVoiceModeCopy(
+  t: ComposerTranslate,
+): RealtimeVoiceModeCopy {
   return {
-    entryButtonLabel: t("agentChat.voiceMode.entryButtonLabel", {
-      defaultValue: "Use microphone",
-    }),
-    promptTitle: t("agentChat.voiceMode.promptTitle", {
-      defaultValue: "Use your voice",
-    }),
-    promptDescription: t("agentChat.voiceMode.promptDescription", {
-      defaultValue:
-        "Voice mode keeps listening while the agent navigates and takes actions.",
-    }),
-    setupTitle: t("agentChat.voiceMode.setupTitle", {
-      defaultValue: "Set up voice mode",
-    }),
-    setupDescription: t("agentChat.voiceMode.setupDescription", {
-      defaultValue:
-        "Use Builder.io for managed voice with free credits, or add your own keys.",
-    }),
-    connectBuilder: t("agentChat.voiceMode.connectBuilder", {
-      defaultValue: "Use Builder.io",
-    }),
-    useOpenAiKey: t("agentChat.voiceMode.useOpenAiKey", {
-      defaultValue: "Add your own keys",
-    }),
-    startWithOpenAiKey: t("agentChat.voiceMode.startWithOpenAiKey", {
-      defaultValue: "Start with OpenAI key",
-    }),
     startVoiceMode: t("agentChat.voiceMode.start", {
       defaultValue: "Start voice chat",
     }),
-    keepDictating: t("agentChat.voiceMode.keepDictating", {
-      defaultValue: "Dictate a message",
+    endVoiceMode: t("agentChat.voiceMode.endVoiceChat", {
+      defaultValue: "End voice chat",
     }),
-    rememberPreference: t("agentChat.voiceMode.rememberPreference", {
-      defaultValue: "Remember my preference",
+    placeholder: t("agentChat.voiceMode.placeholder", {
+      defaultValue: "Listening…",
     }),
-    showChat: t("agentChat.voiceMode.showChat", {
-      defaultValue: "Show chat",
+    muteMicrophone: t("agentChat.voiceMode.muteMicrophone", {
+      defaultValue: "Mute microphone",
     }),
-    hideChat: t("agentChat.voiceMode.hideChat", {
-      defaultValue: "Hide chat",
+    unmuteMicrophone: t("agentChat.voiceMode.unmuteMicrophone", {
+      defaultValue: "Unmute microphone",
     }),
-    endVoiceMode: t("agentChat.voiceMode.end", {
-      defaultValue: "End voice mode",
+    muteSpeaker: t("agentChat.voiceMode.muteSpeaker", {
+      defaultValue: "Mute speaker",
+    }),
+    unmuteSpeaker: t("agentChat.voiceMode.unmuteSpeaker", {
+      defaultValue: "Unmute speaker",
     }),
     voiceSettings: t("agentChat.voiceMode.voiceSettings", {
       defaultValue: "Voice settings",
@@ -1517,7 +1645,7 @@ function voiceCopy(t: ComposerTranslate): RealtimeVoiceModeCopy {
 
 export function useRealtimeVoiceModeCopy(): RealtimeVoiceModeCopy {
   const { translate: t } = useComposerRuntimeAdapters();
-  return useMemo(() => voiceCopy(t!), [t]);
+  return useMemo(() => createRealtimeVoiceModeCopy(t), [t]);
 }
 
 function useRealtimeVoiceModeController(
@@ -1528,7 +1656,11 @@ function useRealtimeVoiceModeController(
   const t = adapters.translate!;
   const [state, setState] = useState<"idle" | RealtimeVoiceModeState>("idle");
   const [error, setError] = useState<string | null>(null);
-  const [chatVisible, setChatVisible] = useState(false);
+  const [inputMuted, setInputMutedState] = useState(false);
+  const [outputMuted, setOutputMutedState] = useState(false);
+  const inputMutedRef = useRef(false);
+  const outputMutedRef = useRef(false);
+  const flushTranscriptsRef = useRef<(() => void) | null>(null);
   const [preferences, setPreferences] = useState(
     DEFAULT_REALTIME_VOICE_PREFERENCES,
   );
@@ -1570,6 +1702,7 @@ function useRealtimeVoiceModeController(
   const lastUserTextRef = useRef("");
   const lastAssistantTextRef = useRef("");
   const transcriptThreadIdRef = useRef<string | undefined>(undefined);
+  const requestedTranscriptThreadIdRef = useRef<string | undefined>(undefined);
   const liveCloseDrainTimerRef = useRef<number | null>(null);
   const liveCloseDrainFinishRef = useRef<(() => void) | null>(null);
   const toolAbortControllersRef = useRef(new Set<AbortController>());
@@ -1741,33 +1874,9 @@ function useRealtimeVoiceModeController(
   const refreshMicrophones = useCallback(async (): Promise<
     RealtimeVoiceMicrophone[] | null
   > => {
-    const mediaDevices = navigator.mediaDevices;
-    if (!mediaDevices?.enumerateDevices) return null;
-    try {
-      const devices = await mediaDevices.enumerateDevices();
-      const inputs = devices
-        .filter(
-          (device) =>
-            device.kind === "audioinput" &&
-            device.deviceId &&
-            device.deviceId !== "default" &&
-            device.deviceId !== "communications",
-        )
-        .map((device, index) => ({
-          deviceId: device.deviceId,
-          label:
-            device.label ||
-            t("agentChat.voiceMode.settings.microphoneNumber", {
-              number: index + 1,
-              defaultValue: `Microphone ${index + 1}`,
-            }),
-        }));
-      setMicrophones(inputs);
-      return inputs;
-    } catch {
-      // Enumeration is progressive enhancement; system default remains usable.
-      return null;
-    }
+    const inputs = await listRealtimeVoiceMicrophones(t);
+    if (inputs) setMicrophones(inputs);
+    return inputs;
   }, [t]);
 
   const startMeterLoop = useCallback(() => {
@@ -1859,8 +1968,9 @@ function useRealtimeVoiceModeController(
           currentStream: streamRef.current,
           deviceId,
         });
-        const replacementTrack = replacementStream.getAudioTracks()[0];
+        const replacementTrack = replacementStream.getAudioTracks().at(0);
         streamRef.current = replacementStream;
+        if (replacementTrack) replacementTrack.enabled = !inputMutedRef.current;
         if (replacementTrack) {
           replacementTrack.onended = () => {
             void switchMicrophoneRef.current("default", true);
@@ -1949,6 +2059,7 @@ function useRealtimeVoiceModeController(
 
   const fail = useCallback(
     (message: string, options?: { openKeySettings?: boolean }) => {
+      flushTranscriptsRef.current?.();
       cleanupTransport();
       setError(message);
       transition("error");
@@ -1999,12 +2110,16 @@ function useRealtimeVoiceModeController(
     [browserTabId, toolManifestCoordinator, transition],
   );
 
-  const publishCompletedTranscript = useCallback(
-    (transcript: CompletedRealtimeVoiceTranscript) => {
+  const publishTranscript = useCallback(
+    (
+      transcript: CompletedRealtimeVoiceTranscript,
+      status: "streaming" | "complete",
+    ) => {
       const threadId = transcriptThreadIdRef.current;
       if (!threadId) return;
-      const sessionIdentity =
-        sessionIdRef.current ?? startedAtRef.current ?? "pending";
+      // The session id arrives after the first events; the start time keeps
+      // every update of one turn under the same message id.
+      const sessionIdentity = startedAtRef.current ?? "pending";
       const providerIdentity =
         transcript.providerId ?? `sequence-${++transcriptSequenceRef.current}`;
       realtimeVoiceTranscriptRegistry.publish({
@@ -2013,15 +2128,21 @@ function useRealtimeVoiceModeController(
         role: transcript.role,
         text: transcript.text,
         createdAt: new Date().toISOString(),
+        status,
       });
     },
     [],
   );
 
   const transcriptSequencer = useMemo(
-    () => createRealtimeVoiceTranscriptSequencer(publishCompletedTranscript),
-    [publishCompletedTranscript],
+    () =>
+      createRealtimeVoiceTranscriptSequencer(
+        (transcript) => publishTranscript(transcript, "complete"),
+        (transcript) => publishTranscript(transcript, "streaming"),
+      ),
+    [publishTranscript],
   );
+  flushTranscriptsRef.current = transcriptSequencer.flush;
   const greetingStarter = useMemo(
     () =>
       createRealtimeVoiceGreetingStarter((event) => {
@@ -2226,13 +2347,19 @@ function useRealtimeVoiceModeController(
     greetingStarter.reset();
     setVoiceChangePending(false);
     transcriptThreadIdRef.current =
+      requestedTranscriptThreadIdRef.current ??
       realtimeVoiceTranscriptRegistry.activeThreadId();
     transcriptSequenceRef.current = 0;
     transcriptSequencer.reset();
+    inputMutedRef.current = false;
+    outputMutedRef.current = false;
+    setInputMutedState(false);
+    setOutputMutedState(false);
     transition("connecting");
-    setChatVisible(false);
-    window.dispatchEvent(new Event("agent-panel:close"));
 
+    // Settings can change the saved choices between sessions.
+    preferencesHydratedRef.current = false;
+    preferencesEditedRef.current = false;
     await hydratePreferences();
     if ((stateRef.current as string) !== "connecting") return;
 
@@ -2285,6 +2412,7 @@ function useRealtimeVoiceModeController(
 
       const audio = document.createElement("audio");
       audio.autoplay = true;
+      audio.muted = outputMutedRef.current;
       audio.setAttribute("playsinline", "");
       audioRef.current = audio;
       peer.ontrack = (trackEvent) => {
@@ -2375,13 +2503,17 @@ function useRealtimeVoiceModeController(
         sessionIdRef.current = undefined;
         transcriptThreadIdRef.current = undefined;
         transition("idle");
-        setChatVisible(true);
         window.dispatchEvent(new Event("agent-panel:open"));
         window.dispatchEvent(new Event("agent-engine:configured-changed"));
         return;
       }
       const status = (startError as { status?: unknown })?.status;
-      fail(errorMessage(startError), { openKeySettings: status === 400 });
+      fail(
+        isMicrophoneAccessError(startError)
+          ? voiceDictationStartErrorMessage(startError, t)
+          : errorMessage(startError),
+        { openKeySettings: status === 400 },
+      );
     }
   }, [
     attachAudioMeter,
@@ -2398,6 +2530,14 @@ function useRealtimeVoiceModeController(
     transition,
   ]);
 
+  const startForThread = useCallback(
+    (options?: RealtimeVoiceStartOptions) => {
+      requestedTranscriptThreadIdRef.current = options?.threadId;
+      return start();
+    },
+    [start],
+  );
+
   const end = useCallback(() => {
     if (stateRef.current === "idle" || stateRef.current === "ending") return;
     const transcriptThreadId = transcriptThreadIdRef.current;
@@ -2405,20 +2545,20 @@ function useRealtimeVoiceModeController(
     const protocol = protocolRef.current;
     transition("ending");
     abortActiveToolCalls();
-    const finish = (confirmed = false) => {
+    const finish = () => {
       if (liveCloseDrainTimerRef.current !== null) {
         window.clearTimeout(liveCloseDrainTimerRef.current);
         liveCloseDrainTimerRef.current = null;
       }
-      if (confirmed) transcriptSequencer.flush();
-      else if (protocol === "live") transcriptSequencer.reset();
+      // An unconfirmed close still keeps what was heard; those turns have
+      // already streamed into the chat.
+      transcriptSequencer.flush();
       liveCloseDrainFinishRef.current = null;
       cleanupTransport();
       setError(null);
       sessionIdRef.current = undefined;
       startedAtRef.current = undefined;
       transcriptThreadIdRef.current = undefined;
-      setChatVisible(true);
       if (
         shouldRestoreRealtimeVoiceTranscriptThread(
           transcriptThreadId,
@@ -2436,7 +2576,7 @@ function useRealtimeVoiceModeController(
     };
     if (protocol === "live") {
       transportGenerationRef.current += 1;
-      liveCloseDrainFinishRef.current = () => finish(true);
+      liveCloseDrainFinishRef.current = finish;
       sendDataChannelEvent(channelRef.current, {
         type: "session.close",
         event_id: "realtime_voice_session_close",
@@ -2456,10 +2596,25 @@ function useRealtimeVoiceModeController(
     transition,
   ]);
 
-  const toggleChat = useCallback(() => {
-    setChatVisible((current) => !current);
-    window.dispatchEvent(new Event("agent-panel:toggle"));
+  const setInputMuted = useCallback((muted: boolean) => {
+    inputMutedRef.current = muted;
+    setInputMutedState(muted);
+    for (const track of streamRef.current?.getAudioTracks() ?? []) {
+      track.enabled = !muted;
+    }
   }, []);
+
+  const setOutputMuted = useCallback((muted: boolean) => {
+    outputMutedRef.current = muted;
+    setOutputMutedState(muted);
+    if (audioRef.current) audioRef.current.muted = muted;
+  }, []);
+
+  const dismissError = useCallback(() => {
+    if (stateRef.current !== "error") return;
+    setError(null);
+    transition("idle");
+  }, [transition]);
 
   useEffect(() => {
     const mediaDevices = navigator.mediaDevices;
@@ -2482,14 +2637,6 @@ function useRealtimeVoiceModeController(
   }, [refreshMicrophones, setMicrophone]);
 
   useEffect(() => {
-    return adapters.voice!.subscribeSidebarState!((detail) => {
-      if (detail && typeof detail.open === "boolean") {
-        setChatVisible(detail.open);
-      }
-    });
-  }, [adapters]);
-
-  useEffect(() => {
     const stopListening = listenForRealtimeVoicePageHide(cleanupTransport);
     return () => {
       stopListening();
@@ -2501,8 +2648,9 @@ function useRealtimeVoiceModeController(
     state,
     active: state !== "idle",
     errorMessage: error,
-    chatVisible,
     audioLevels,
+    inputMuted,
+    outputMuted,
     preferences,
     microphones,
     microphoneDeviceId,
@@ -2513,9 +2661,11 @@ function useRealtimeVoiceModeController(
     setIntelligence,
     setVoice,
     setMicrophone,
-    start,
+    setInputMuted,
+    setOutputMuted,
+    start: startForThread,
     end,
-    toggleChat,
+    dismissError,
   };
 }
 
@@ -2534,127 +2684,104 @@ export function RealtimeVoiceModeProvider({
   );
   const copy = useRealtimeVoiceModeCopy();
   const voice = useRealtimeVoiceModeController(resolvedBrowserTabId, copy);
-  const inlineSettings = useMemo(
-    () => ({
-      dialogLabel: copy.voiceSettings,
-      ...(voice.voiceChangePending
-        ? { appliesNextConversationNote: copy.settings.voiceChangePending }
-        : {}),
-      ...(voice.microphoneError
-        ? { microphoneError: voice.microphoneError }
-        : {}),
-      microphone: {
-        label: copy.settings.microphone,
-        value: voice.microphoneDeviceId,
-        disabled: voice.microphoneSwitching,
-        options: [
-          {
-            value: "default",
-            label: copy.settings.defaultMicrophone,
-          },
-          ...voice.microphones.map((microphone) => ({
-            value: microphone.deviceId,
-            label: microphone.label,
-          })),
-        ],
-        onValueChange: (value: string) => {
-          void voice.setMicrophone(value);
-        },
-      },
-      language: {
-        label: copy.settings.language,
-        value: voice.preferences.language,
-        options: REALTIME_VOICE_LANGUAGES.map((language) => ({
-          value: language,
-          label:
-            language === "auto"
-              ? copy.settings.autoLanguage
-              : copy.settings.languages[language],
-        })),
-        onValueChange: (value: string) => {
-          if (isOneOf(REALTIME_VOICE_LANGUAGES, value)) {
-            voice.setLanguage(value);
-          }
-        },
-      },
-      intelligence: {
-        label: copy.settings.intelligence,
-        value: voice.preferences.intelligence,
-        options: REALTIME_VOICE_INTELLIGENCE_LEVELS.map((intelligence) => ({
-          value: intelligence,
-          label: copy.settings.intelligenceLevels[intelligence],
-        })),
-        onValueChange: (value: string) => {
-          if (isOneOf(REALTIME_VOICE_INTELLIGENCE_LEVELS, value)) {
-            voice.setIntelligence(value);
-          }
-        },
-      },
-      voiceStyle: {
-        label: copy.settings.voiceStyle,
-        value: voice.preferences.voice,
-        options: REALTIME_VOICES.map((voiceName) => ({
-          value: voiceName,
-          label: `${voiceName[0]!.toUpperCase()}${voiceName.slice(1)}`,
-          description: copy.settings.voiceDescriptions[voiceName],
-        })),
-        onValueChange: (value: string) => {
-          if (isOneOf(REALTIME_VOICES, value)) voice.setVoice(value);
-        },
-      },
-    }),
-    [copy, voice],
-  );
-
   return (
     <RealtimeVoiceModeContext.Provider value={voice}>
       {children}
-      {voice.active && typeof document !== "undefined"
-        ? createPortal(
-            <RealtimeVoiceModeDock
-              state={voice.state === "idle" ? "ending" : voice.state}
-              copy={copy}
-              chatVisible={voice.chatVisible}
-              audioLevels={voice.audioLevels}
-              onToggleChat={voice.toggleChat}
-              onEndVoiceMode={voice.end}
-              settings={inlineSettings}
-              errorMessage={voice.errorMessage}
-            />,
-            document.body,
-          )
-        : null}
     </RealtimeVoiceModeContext.Provider>
   );
 }
 
+/** Ensures a voice chat provider above `children`, reusing an existing one. */
 export function RealtimeVoiceModeBoundary({
   children,
   browserTabId,
 }: RealtimeVoiceModeProviderProps) {
   const existing = useRealtimeVoiceModeOptional();
-  if (existing) {
-    return (
-      <RealtimeVoiceModeComposerSurface>
-        {children}
-      </RealtimeVoiceModeComposerSurface>
-    );
-  }
+  if (existing) return children;
   return (
     <RealtimeVoiceModeProvider browserTabId={browserTabId}>
-      <RealtimeVoiceModeComposerSurface>
-        {children}
-      </RealtimeVoiceModeComposerSurface>
+      {children}
     </RealtimeVoiceModeProvider>
   );
 }
 
-function RealtimeVoiceModeComposerSurface({
-  children,
-}: Pick<RealtimeVoiceModeProviderProps, "children">) {
-  const voice = useRealtimeVoiceModeOptional();
-  if (voice?.active && !voice.chatVisible) return null;
-  return children;
+/**
+ * The microphone, language, intelligence, and voice pickers, read from the
+ * same preferences a session uses. Settings renders these rows.
+ */
+export function buildRealtimeVoiceSettings({
+  copy,
+  preferences,
+  microphones,
+  microphoneDeviceId,
+  onMicrophoneChange,
+  onPreferencesChange,
+}: {
+  copy: RealtimeVoiceModeCopy;
+  preferences: RealtimeVoicePreferences;
+  microphones: readonly RealtimeVoiceMicrophone[];
+  microphoneDeviceId: string;
+  onMicrophoneChange: (deviceId: string) => void;
+  onPreferencesChange: (next: RealtimeVoicePreferences) => void;
+}): RealtimeVoiceModeInlineSettings {
+  return {
+    dialogLabel: copy.voiceSettings,
+    microphone: {
+      label: copy.settings.microphone,
+      value: microphoneDeviceId,
+      options: [
+        { value: "default", label: copy.settings.defaultMicrophone },
+        ...microphones.map((microphone) => ({
+          value: microphone.deviceId,
+          label: microphone.label,
+        })),
+      ],
+      onValueChange: onMicrophoneChange,
+    },
+    language: {
+      label: copy.settings.language,
+      value: preferences.language,
+      options: REALTIME_VOICE_LANGUAGES.map((language) => ({
+        value: language,
+        label:
+          language === "auto"
+            ? copy.settings.autoLanguage
+            : copy.settings.languages[language],
+      })),
+      onValueChange: (value: string) => {
+        if (isOneOf(REALTIME_VOICE_LANGUAGES, value)) {
+          onPreferencesChange({ ...preferences, language: value });
+        }
+      },
+    },
+    intelligence: {
+      label: copy.settings.intelligence,
+      value: preferences.intelligence,
+      options: REALTIME_VOICE_INTELLIGENCE_LEVELS.map((intelligence) => ({
+        value: intelligence,
+        label: copy.settings.intelligenceLevels[intelligence],
+      })),
+      onValueChange: (value: string) => {
+        if (isOneOf(REALTIME_VOICE_INTELLIGENCE_LEVELS, value)) {
+          onPreferencesChange({ ...preferences, intelligence: value });
+        }
+      },
+    },
+    voiceStyle: {
+      label: copy.settings.voiceStyle,
+      value: preferences.voice,
+      options: REALTIME_VOICES.map((voiceName) => ({
+        value: voiceName,
+        label: `${voiceName.charAt(0).toUpperCase()}${voiceName.slice(1)}`,
+        description: copy.settings.voiceDescriptions[voiceName],
+      })),
+      onValueChange: (value: string) => {
+        if (isOneOf(REALTIME_VOICES, value)) {
+          onPreferencesChange({ ...preferences, voice: value });
+        }
+      },
+    },
+  };
 }
 
 export function useRealtimeVoiceMode(): RealtimeVoiceModeApi {

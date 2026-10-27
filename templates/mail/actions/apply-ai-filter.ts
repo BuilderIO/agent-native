@@ -22,7 +22,7 @@ import {
   ensureGmailLabel,
 } from "../server/lib/automation-actions.js";
 import {
-  assertMailJevEnabled,
+  assertMailDecisionProviderAvailable,
   createAutomationRule,
   listAutomationRules,
 } from "../server/lib/automations.js";
@@ -156,14 +156,14 @@ export default defineAction({
       const disableOnly =
         settingKeys.length === 1 && args.settings?.enabled === false;
       if (settingKeys.length > 0 && !disableOnly) {
-        await assertMailJevEnabled(ownerEmail);
+        await assertMailDecisionProviderAvailable(ownerEmail);
       }
       const state = await saveAiFilterState(ownerEmail, args.settings);
       await writeAppState("refresh-signal", { ts: Date.now() });
       return { changed: 0, failures: [], state };
     }
 
-    await assertMailJevEnabled(ownerEmail);
+    await assertMailDecisionProviderAvailable(ownerEmail);
     const targets = args.targets ?? [];
     if (targets.length === 0) throw new Error("targets are required");
 

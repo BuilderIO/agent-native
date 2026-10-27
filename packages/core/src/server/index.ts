@@ -16,9 +16,12 @@ export {
   resolveAppHomePath,
   resetAppConfigForTests,
   resolveClipsHostedStorageConfig,
+  resolveContentClipsPeerSecret,
+  resolveHostedStorageConfig,
   appConfigSchema,
   type AppConfig,
   type AppConfigInput,
+  type ClipsConfig,
   type ClipsHostedStorageConfig,
   type ResolvedClipsHostedStorageConfig,
 } from "../app-config/index.js";
@@ -210,6 +213,22 @@ export {
   requestJevThroughBuilder,
   type JevResponse,
 } from "../agent/jev-tool-prefetch.js";
+export { decide, getDecisionsStatus } from "../decisions/decide.js";
+export { JEV_DECISIONS_MODEL } from "../decisions/decide.js";
+export { OPENAI_DECISIONS_MODEL } from "../decisions/providers/openai.js";
+export type {
+  DecideOptions,
+  DecideResult,
+  DecisionAnswer,
+  DecisionFailureReason,
+  DecisionInput,
+  DecisionInputPart,
+  DecisionProvider,
+  DecisionQuestionFailureReason,
+  DecisionQuestion,
+  DecisionResult,
+  DecisionsStatus,
+} from "../decisions/types.js";
 export {
   getCurrentTurnRunEventsForThread,
   getCurrentTurnRunIdsForThread,
@@ -548,6 +567,10 @@ export {
   type RequestContext,
   type RequestRunContext,
 } from "./request-context.js";
+export {
+  loadFirstRunBuilderCreditsV2Assignment,
+  recordFirstRunBuilderCreditsV2Exposure,
+} from "../onboarding/first-run-builder-credits-experiment.js";
 export { formatDateInTimezone, todayInTimezone } from "./date-utils.js";
 
 export {
@@ -747,6 +770,9 @@ export {
 } from "./fusion-agent-feed.js";
 export {
   BUILDER_ASSETS_WRITE_SCOPE,
+  BUILDER_CONTENT_READ_SCOPE,
+  BUILDER_CONTENT_WRITE_SCOPE,
+  BUILDER_OAUTH_RESOURCE,
   BUILDER_OAUTH_SCOPE,
   type BuilderOAuthPermissionScope,
 } from "./builder-oauth.js";
@@ -931,6 +957,7 @@ export {
   signShortLivedToken,
   verifyShortLivedToken,
   type ShortLivedTokenClaims,
+  type ShortLivedTokenKeyOptions,
   type VerifyResult as ShortLivedTokenVerifyResult,
 } from "./short-lived-token.js";
 export {

@@ -6,7 +6,10 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { assertCommentAccess } from "../server/lib/comment-access.js";
+import {
+  isRecordingExpiredForViewer,
+  isRecordingTrashedForViewer,
+} from "../server/lib/recording-page-access.js";
 import { sameOwnerEmail } from "../server/lib/recordings.js";
 
 export default defineAction({
@@ -27,7 +30,27 @@ export default defineAction({
     const userEmail = getRequestUserEmail();
     const isAuthor = sameOwnerEmail(existing.authorEmail, userEmail);
 
-    await assertCommentAccess(existing.recordingId);
+    const access = await assertAccess(
+      "recording",
+      existing.recordingId,
+      "viewer",
+    );
+    if (
+      isRecordingTrashedForViewer({
+        trashedAt: (access.resource as { trashedAt?: string | null }).trashedAt,
+        viewerIsOwner: access.role === "owner",
+      })
+    ) {
+      throw new ForbiddenError();
+    }
+    if (
+      isRecordingExpiredForViewer({
+        expiresAt: (access.resource as { expiresAt?: string }).expiresAt,
+        viewerIsOwner: access.role === "owner",
+      })
+    ) {
+      throw new ForbiddenError("Recording has expired");
+    }
 
     if (!isAuthor) {
       try {

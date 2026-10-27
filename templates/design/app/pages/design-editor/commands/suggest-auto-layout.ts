@@ -4,13 +4,11 @@ import { sourceContentHash } from "@shared/source-workspace";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 
+import { trace } from "@/components/design/design-trace";
 import type { AutoLayoutSuggestion } from "@/pages/design-editor/auto-layout-suggestion";
-import {
-  hasMeaningfulCssTransform,
-  inferAutoLayoutSuggestion,
-} from "@/pages/design-editor/auto-layout-suggestion";
+import { inferAutoLayoutSuggestion } from "@/pages/design-editor/auto-layout-suggestion";
 import type { RuntimeLayerSnapshot } from "@/pages/design-editor/command-types";
-import type { AlignableRect } from "@/pages/design-editor/layout-operations";
+import type { FrameMeasurement } from "@/pages/design-editor/measure-child-rects";
 import type { DesignFile } from "@/pages/design-editor/types";
 
 export interface SuggestAutoLayoutArgs {
@@ -20,13 +18,7 @@ export interface SuggestAutoLayoutArgs {
   designSourceType: "inline" | "localhost" | "fusion";
   getActiveFileSelectedNodeIds: (content: string) => string[];
   getFreshActiveContent: () => string;
-  liveComputedLayoutForNode: (node: CodeLayerNode) => {
-    display: string;
-    transform: string;
-    rotate: string;
-    scale: string;
-  } | null;
-  rectFromCodeLayerNode: (node: CodeLayerNode) => AlignableRect;
+  measureLayoutFrame: (node: CodeLayerNode) => FrameMeasurement;
   runtimeLayerSnapshotsById: Record<string, RuntimeLayerSnapshot>;
   setAutoLayoutSuggestionPreview: Dispatch<
     SetStateAction<{
@@ -47,8 +39,7 @@ export function runSuggestAutoLayout({
   designSourceType,
   getActiveFileSelectedNodeIds,
   getFreshActiveContent,
-  liveComputedLayoutForNode,
-  rectFromCodeLayerNode,
+  measureLayoutFrame,
   runtimeLayerSnapshotsById,
   setAutoLayoutSuggestionPreview,
   t,
@@ -88,31 +79,33 @@ export function runSuggestAutoLayout({
     toast(t("designEditor.autoLayoutSuggestion.selectContainer"));
     return;
   }
-  const containerMeasured = rectFromCodeLayerNode(container);
-  const children = container.children
-    .map((childId) => nodesById.get(childId))
-    .filter((child): child is CodeLayerNode => Boolean(child))
-    .map((child) => {
-      const computed = liveComputedLayoutForNode(child);
-      return {
-        ...rectFromCodeLayerNode(child),
-        transformed: hasMeaningfulCssTransform({
-          transform: computed?.transform ?? child.style.transform,
-          rotate: computed?.rotate ?? child.style.rotate,
-          scale: computed?.scale ?? child.style.scale,
-          classes: child.classes,
-        }),
-      };
+  const measured = measureLayoutFrame(container);
+  if (measured.status !== "measured" || measured.unidentifiedChildren > 0) {
+    trace("structure", "suggest-auto-layout-refused", {
+      nodeId: container.id,
+      reason:
+        measured.status === "measured"
+          ? "unidentified-children"
+          : measured.reason,
     });
+    toast.error(t("designEditor.toasts.layoutUnmeasurable"));
+    return;
+  }
+  // Children are measured from the container's padding box, so the padding
+  // box is the container: its own position would skew every inset.
   const suggestion = inferAutoLayoutSuggestion({
     container: {
       id: container.id,
       x: 0,
       y: 0,
-      width: containerMeasured.width,
-      height: containerMeasured.height,
+      width: measured.paddingBox.width,
+      height: measured.paddingBox.height,
     },
-    children,
+    children: measured.children.map((child) => ({
+      id: child.id,
+      ...child.rect,
+      transformed: child.transformed,
+    })),
   });
   if (!suggestion) {
     toast(t("designEditor.autoLayoutSuggestion.selectContainer"));

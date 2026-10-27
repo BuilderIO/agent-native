@@ -1,5 +1,5 @@
 import { ForbiddenError } from "@agent-native/core/sharing";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockAssertAccess = vi.hoisted(() => vi.fn());
 const mockSelect = vi.hoisted(() => vi.fn());
@@ -28,6 +28,7 @@ import listComments from "./list-comments";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-10-20T12:00:00Z"));
   mockAssertAccess.mockResolvedValue({
     role: "viewer",
     resource: { enableComments: true, trashedAt: null, expiresAt: null },
@@ -41,23 +42,15 @@ beforeEach(() => {
 
 describe("list-comments recording policy", () => {
   it.each([
-    { role: "viewer", resource: { enableComments: false } },
     {
       role: "viewer",
-      resource: {
-        enableComments: true,
-        visibility: "public",
-        password: "fake-share-password",
-      },
+      resource: { enableComments: true, password: "fake-test-password" },
     },
     {
       role: "editor",
-      resource: {
-        enableComments: true,
-        visibility: "public",
-        password: "fake-share-password",
-      },
+      resource: { enableComments: true, password: "fake-test-password" },
     },
+    { role: "viewer", resource: { enableComments: false } },
     {
       role: "viewer",
       resource: { enableComments: true, trashedAt: "2026-10-22T12:00:00.000Z" },
@@ -82,15 +75,11 @@ describe("list-comments recording policy", () => {
   );
 
   it.each([
-    { role: "owner", resource: { enableComments: false } },
     {
       role: "owner",
-      resource: {
-        enableComments: false,
-        visibility: "public",
-        password: "fake-share-password",
-      },
+      resource: { enableComments: true, password: "fake-test-password" },
     },
+    { role: "owner", resource: { enableComments: false } },
     {
       role: "owner",
       resource: { enableComments: true, trashedAt: "2026-10-22T12:00:00.000Z" },
@@ -111,4 +100,40 @@ describe("list-comments recording policy", () => {
       });
     },
   );
+});
+
+afterEach(() => vi.restoreAllMocks());
+
+describe("list-comments recording expiration", () => {
+  it("refuses a non-owner on an expired recording before reading comments", async () => {
+    mockAssertAccess.mockResolvedValue({
+      role: "viewer",
+      resource: { enableComments: true, expiresAt: "2026-10-20T11:00:00Z" },
+    });
+    await expect(
+      listComments.run({ recordingId: "recording-1" }),
+    ).rejects.toThrow(ForbiddenError);
+    expect(mockSelect).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["owner", "2026-10-20T11:00:00Z"],
+    ["viewer", "2026-10-20T13:00:00Z"],
+  ])("allows a %s with expiry %s to read comments", async (role, expiresAt) => {
+    mockAssertAccess.mockResolvedValue({
+      role,
+      resource: { enableComments: true, expiresAt },
+    });
+    const result = await listComments.run({ recordingId: "recording-1" });
+    expect(mockAssertAccess).toHaveBeenCalledWith(
+      "recording",
+      "recording-1",
+      "viewer",
+    );
+    expect(result.comments).toHaveLength(1);
+    expect(result.comments[0]).toMatchObject({
+      id: "comment-1",
+      content: "A saved comment",
+    });
+  });
 });

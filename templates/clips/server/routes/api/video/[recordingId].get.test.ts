@@ -33,6 +33,10 @@ vi.mock("h3", () => ({
   setCookie: (...args: unknown[]) => mockSetCookie(...args),
 }));
 
+vi.mock("@agent-native/core/a2a", () => ({
+  getGlobalA2ASecret: vi.fn(() => undefined),
+}));
+
 vi.mock("@agent-native/core/application-state", () => ({
   readAppState: (...args: unknown[]) => mockReadAppState(...args),
 }));
@@ -222,7 +226,9 @@ describe("/api/video/:recordingId route", () => {
       const event = makeEvent();
       event.query = { t: "existing-token" };
 
-      expect(await handler(event as any)).toEqual({ error: "Not found" });
+      expect(
+        await handler(event as unknown as Parameters<typeof handler>[0]),
+      ).toEqual({ error: "Not found" });
       expect(event.status).toBe(404);
       expect(fetch).not.toHaveBeenCalled();
       expect(mockFetchS3ObjectByUrl).not.toHaveBeenCalled();
@@ -247,7 +253,9 @@ describe("/api/video/:recordingId route", () => {
       vi.mocked(fetch).mockResolvedValue(
         new Response("video", { headers: { "content-type": "video/mp4" } }),
       );
-      const result = await handler(makeEvent() as any);
+      const result = await handler(
+        makeEvent() as unknown as Parameters<typeof handler>[0],
+      );
       expect(result).toBeInstanceOf(Response);
       expect(await (result as Response).text()).toBe("video");
     },

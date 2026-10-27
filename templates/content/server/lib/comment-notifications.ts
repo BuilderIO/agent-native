@@ -39,9 +39,9 @@ function excerpt(content: string): string {
     : collapsed;
 }
 
-function documentUrl(documentId: string): string {
+function commentUrl(documentId: string, threadId: string): string {
   const base = getAppProductionUrl().replace(/\/+$/, "");
-  return `${base}/page/${encodeURIComponent(documentId)}`;
+  return `${base}/page/${encodeURIComponent(documentId)}?comment=${encodeURIComponent(threadId)}`;
 }
 
 async function threadParticipants(
@@ -181,7 +181,7 @@ async function deliverDocumentCommentEmails(
   });
 
   const actor = input.authorName?.trim() || input.authorEmail;
-  const url = documentUrl(input.documentId);
+  const url = commentUrl(input.documentId, input.threadId);
 
   return notifyActivity({
     candidates: allowed,

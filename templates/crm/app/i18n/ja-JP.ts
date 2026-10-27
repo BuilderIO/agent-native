@@ -600,15 +600,15 @@ const messages = {
     reviewDuplicates: "重複を確認",
     duplicateReviewTitle: "重複の可能性があるレコード",
     duplicateReviewDescription:
-      "このレコードをアクセス可能な候補と比較します。Jev を実行すると、レコード名、種類、最大 5 件の候補の一致情報が TypeSafe に送信されます。確率は参考情報であり、統合には別途確認が必要です。",
+      "このレコードをアクセス可能な候補と比較します。意味的な確認では、レコード名、種類、最大 5 件の候補の一致情報が設定済みの AI 判定プロバイダーに送信されます。確率は参考情報であり、統合には別途確認が必要です。",
     duplicateReviewRun: "重複を調べる",
     duplicateReviewLoading: "確認中…",
     duplicateReviewFailed: "重複の確認を完了できませんでした。",
     duplicateReviewUnavailable:
-      "Jev で確認できませんでした。ルールによる候補は引き続き表示されます。",
+      "AI 判定プロバイダーで確認できませんでした。ルールによる候補は引き続き表示されます。",
     duplicateReviewEmpty: "重複の可能性があるレコードはありません。",
     duplicateRuleConfidence: "ルールによる一致度: {{percent}}%",
-    duplicateJevProbability: "Jev による同一エンティティの確率: {{percent}}%",
+    duplicateDecisionProbability: "同一エンティティの確率: {{percent}}%",
     duplicateMatchedOn: "一致した情報: {{values}}",
     evidenceAttached: "通話証拠を添付しました。",
     evidenceAttachFailed: "証拠を添付できませんでした。",
@@ -624,11 +624,9 @@ const messages = {
     automate: "自動化",
     reviewNewClipsCalls: "新しい Clips 通話を確認",
     reviewDescription:
-      "Clips のメディアや文字起こしをコピーせず、この CRM レコードの確認レシピを準備します。",
-    disabledAutomationDescription:
-      "これは無効な状態で開始し、{{name}} に紐付きます。明示的に有効にすると、新しいクリップはアクセス確認済みの録画ページ参照だけをこのレコードに添付できます。",
-    handoffDescription:
-      "引き継ぎで保持するのは不透明なクリップ ID、永続的な {{path}} ページ URL、キャプチャ時刻だけです。イベント URL、メディア、アクセストークン、文字起こし、推測されたレコード、プロバイダーへの書き込みは拒否されます。",
+      "CRM から Clips への通話自動化の設定はまだ利用できません。",
+    disabledAutomationDescription: "選択した CRM レコード: {{name}}。",
+    handoffDescription: "{{path}} ページへのリンクの自動添付は利用できません。",
     manageAutomations: "自動化を管理",
     configureWithAgent: "エージェントで設定",
     editField: "項目を編集",

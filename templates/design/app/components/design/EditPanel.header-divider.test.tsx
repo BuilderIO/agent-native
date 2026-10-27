@@ -55,6 +55,10 @@ it("draws one stroke between the screen header and the section under it", () => 
           height: 900,
         }}
         selectedScreenRoute="/pricing"
+        selectedScreenSource={{
+          sourceType: "url",
+          url: "http://localhost:3000/pricing",
+        }}
         viewMode="overview"
         mode="edit"
         onStyleChange={vi.fn()}

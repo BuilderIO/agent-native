@@ -146,6 +146,8 @@ export interface UseDesignHotkeysProps {
   onToggleHidden?: DesignHotkeyHandler;
   onToggleLocked?: DesignHotkeyHandler;
   onToggleUnderline?: DesignHotkeyHandler;
+  onToggleBold?: DesignHotkeyHandler;
+  onToggleItalic?: DesignHotkeyHandler;
   onToggleStrikethrough?: DesignHotkeyHandler;
   onFlipHorizontal?: DesignHotkeyHandler;
   onFlipVertical?: DesignHotkeyHandler;
@@ -156,10 +158,12 @@ export interface UseDesignHotkeysProps {
   onDistributeSelection?: DesignHotkeyDistributeHandler;
   onTidyUp?: DesignHotkeyHandler;
   onAddAutoLayout?: DesignHotkeyHandler;
+  onRemoveAutoLayout?: DesignHotkeyHandler;
   canClaimBoundChords?: boolean;
   onToggleUi?: DesignHotkeyHandler;
   onToggleMinimalUi?: DesignHotkeyHandler;
   onToggleLayoutGrids?: DesignHotkeyHandler;
+  onToggleRulers?: DesignHotkeyHandler;
   onToggleComments?: DesignHotkeyHandler;
   onShowKeyboardShortcuts?: DesignHotkeyHandler;
 }
@@ -272,6 +276,23 @@ function isDesignHistoryHotkey(event: KeyboardEvent) {
 export function isOptedInDesignHistoryHotkey(event: KeyboardEvent) {
   return (
     isDesignHistoryHotkey(event) && isDesignHistoryHotkeyTarget(event.target)
+  );
+}
+
+/**
+ * A plain Cmd/Ctrl+V pressed in the editor document itself. The editor leaves
+ * it to the native paste event, which carries the clipboard without the async
+ * read's permission prompt; one forwarded from a canvas iframe has no native
+ * paste here and still runs as a hotkey.
+ */
+export function isNativePlainPasteHotkey(event: KeyboardEvent) {
+  return (
+    isPlatformPrimaryModifier(event) &&
+    normalizeDesignHotkeyKey(event) === "v" &&
+    !event.altKey &&
+    !event.shiftKey &&
+    (event as KeyboardEvent & { __agentNativeIframeHotkey?: boolean })
+      .__agentNativeIframeHotkey !== true
   );
 }
 
@@ -682,6 +703,12 @@ export function handleDesignHotkey(
   if (primary && !event.altKey && !event.shiftKey && key === "u") {
     return claim(props.onToggleUnderline);
   }
+  if (primary && !event.altKey && !event.shiftKey && key === "b") {
+    return claim(props.onToggleBold);
+  }
+  if (primary && !event.altKey && !event.shiftKey && key === "i") {
+    return claim(props.onToggleItalic);
+  }
 
   if (event.ctrlKey && event.altKey && !event.metaKey && !event.shiftKey) {
     if (key === "h") return runDistribute("horizontal");
@@ -758,6 +785,9 @@ export function handleDesignHotkey(
     if (digit === "1") return run(props.onShowLayersPanel);
     if (digit === "2") return run(props.onShowAssetsPanel);
   }
+  if (event.shiftKey && !primary && digit === "0") {
+    return run(props.onZoomReset);
+  }
   if (event.shiftKey && !primary && digit === "1") {
     return run(props.onZoomToFit);
   }
@@ -826,6 +856,10 @@ export function handleDesignHotkey(
     return run(props.onAddAutoLayout);
   }
 
+  if (!primary && event.altKey && event.shiftKey && key === "a") {
+    return run(props.onRemoveAutoLayout);
+  }
+
   if (primary && !event.altKey && event.code === "Backslash") {
     return event.shiftKey
       ? claim(props.onToggleMinimalUi)
@@ -834,6 +868,10 @@ export function handleDesignHotkey(
 
   if (!primary && !event.altKey && event.shiftKey && key === "c") {
     return run(props.onToggleComments);
+  }
+
+  if (!primary && !event.altKey && event.shiftKey && key === "r") {
+    return run(props.onToggleRulers);
   }
 
   if (event.ctrlKey && !event.metaKey && !event.altKey) {

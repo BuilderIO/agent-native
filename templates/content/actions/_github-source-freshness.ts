@@ -98,6 +98,8 @@ function statusShown(metadataJson: string | undefined) {
     state?.skippedCount ?? 0,
     state?.skipped.map((file) => `${file.reason}:${file.path}`) ?? [],
     state?.imagesWaiting ?? 0,
+    state?.imagesFailed ?? false,
+    state?.storageReady ?? false,
   ]);
 }
 

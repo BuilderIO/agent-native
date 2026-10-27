@@ -31,6 +31,7 @@ import type { AgentChatEvent } from "../agent/types.js";
 import { getAppConfig } from "../app-config/index.js";
 import {
   formatPromptWithAttachments,
+  promptAttachmentsFromMetadata,
   type AgentPromptAttachment,
 } from "../code-agents/prompt-attachments.js";
 import {
@@ -43,6 +44,7 @@ import {
   type StructuredToolMetadata,
 } from "../coding-tools/index.js";
 import { normalizeImageMediaType } from "../file-upload/attachment-bytes.js";
+import type { McpConfig } from "../mcp-client/config.js";
 import {
   buildMergedConfig,
   McpClientManager,
@@ -76,6 +78,7 @@ import {
 import { createCodeAgentAgentTools } from "./code-agent-agent-tools.js";
 import {
   claudeMcpConfig,
+  codeAgentMcpConfigurationErrors,
   codexMcpConfigArgs,
   mergeCodeAgentMcpConfig,
   restrictCodeAgentMcpConfig,
@@ -160,8 +163,11 @@ export async function executeCodeAgentRun(
   const rawAttachments =
     options.attachments ?? latestUserPromptAttachments(existing.id, prompt);
 
-  const imageAttachments = rawAttachments.filter((a) => a.dataUrl);
-  const textOnlyAttachments = rawAttachments.filter((a) => !a.dataUrl);
+  // An SVG carries both its text and a data URL; the text is what the agent reads.
+  const isImageOnly = (a: AgentPromptAttachment) =>
+    Boolean(a.dataUrl) && a.text === undefined && !a.readError;
+  const imageAttachments = rawAttachments.filter(isImageOnly);
+  const textOnlyAttachments = rawAttachments.filter((a) => !isImageOnly(a));
   const executionPrompt = formatPromptWithAttachments(
     prompt,
     textOnlyAttachments,
@@ -692,11 +698,13 @@ async function executeClaudeCliRun(options: {
     // executeCodexCliRun), through a private file rather than argv because
     // the headers can carry session cookies or bearer tokens.
     const mcpPrincipal = resolveCodeAgentMcpPrincipal(options.run);
-    const mcpConfig = claudeMcpConfig(
+    const mcpConfigSource =
       process.env.MCP_SERVERS === undefined && mcpPrincipal
         ? await buildMergedConfig(mcpPrincipal)
-        : null,
-    );
+        : null;
+    const mcpPromptNotice = codeAgentMcpPromptNotice(mcpConfigSource);
+    appendCodeAgentMcpConfigurationErrors(options.run.id, mcpConfigSource);
+    const mcpConfig = claudeMcpConfig(mcpConfigSource);
     let mcpConfigPath: string | undefined;
     let result: Awaited<ReturnType<typeof runClaudeCodeParticipant>>;
     try {
@@ -715,7 +723,10 @@ async function executeClaudeCliRun(options: {
           options.permissionMode === "full-auto"
             ? "driver"
             : "watchdog",
-        prompt: buildClaudeCliPrompt(options.run, options.prompt),
+        prompt: buildClaudeCliPrompt(
+          options.run,
+          withCodeAgentMcpPromptNotice(options.prompt, mcpPromptNotice),
+        ),
         cwd,
         model,
         effort: reasoningEffort,
@@ -877,6 +888,20 @@ async function executeClaudeCliRun(options: {
     });
   }
   return executeCodeAgentRun(followUpInput);
+}
+
+function codeAgentMcpPromptNotice(
+  config: McpConfig | null,
+): string | undefined {
+  if (codeAgentMcpConfigurationErrors(config).length === 0) return undefined;
+  return "Some app-managed MCP servers are unavailable in this run because their saved configuration could not be read; the affected servers were omitted. Do not claim to have used them. If the task depends on them, ask the user to reconnect them.";
+}
+
+function withCodeAgentMcpPromptNotice(
+  prompt: string,
+  notice: string | undefined,
+): string {
+  return notice ? `${prompt}\n\n${notice}` : prompt;
 }
 
 function buildClaudeCliPrompt(run: CodeAgentRunRecord, prompt: string): string {
@@ -1588,6 +1613,8 @@ async function executeCodexCliRun(options: {
     process.env.MCP_SERVERS === undefined && mcpPrincipal
       ? await buildMergedConfig(mcpPrincipal)
       : null;
+  const mcpPromptNotice = codeAgentMcpPromptNotice(mcpConfig);
+  appendCodeAgentMcpConfigurationErrors(options.run.id, mcpConfig);
   const args = [
     ...codexMcpConfigArgs(mcpConfig),
     "--ask-for-approval",
@@ -1631,7 +1658,10 @@ async function executeCodexCliRun(options: {
     const result = await runCodexCliProcess({
       args,
       cwd,
-      prompt: buildCodexCliPrompt(options.run, options.prompt),
+      prompt: buildCodexCliPrompt(
+        options.run,
+        withCodeAgentMcpPromptNotice(options.prompt, mcpPromptNotice),
+      ),
       stdout: options.stdout,
       streamToolOutputToStdout,
       onEvent: (event) => {
@@ -2137,29 +2167,26 @@ function userPromptAttachmentsForEvent(
   return promptAttachmentsFromMetadata(event?.metadata?.attachments);
 }
 
-function promptAttachmentsFromMetadata(
-  value: unknown,
-): AgentPromptAttachment[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .filter((item): item is Record<string, unknown> =>
-      Boolean(item && typeof item === "object" && !Array.isArray(item)),
-    )
-    .map((item) => ({
-      name: typeof item.name === "string" && item.name ? item.name : "file",
-      ...(typeof item.type === "string" ? { type: item.type } : {}),
-      ...(typeof item.size === "number" ? { size: item.size } : {}),
-      ...(typeof item.text === "string" ? { text: item.text } : {}),
-      ...(typeof item.dataUrl === "string" ? { dataUrl: item.dataUrl } : {}),
-    }));
-}
-
 function metadataString(
   run: CodeAgentRunRecord,
   key: string,
 ): string | undefined {
   const value = run.metadata?.[key];
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function appendCodeAgentMcpConfigurationErrors(
+  runId: string,
+  config: McpConfig | null,
+): void {
+  for (const { serverId, message } of codeAgentMcpConfigurationErrors(config)) {
+    appendCodeAgentTranscriptEvent({
+      runId,
+      kind: "status",
+      message: `MCP server ${serverId} is unavailable for this run: ${message}`,
+      metadata: { type: "mcp-config-error", serverId },
+    });
+  }
 }
 
 async function startCodeAgentMcpManager(

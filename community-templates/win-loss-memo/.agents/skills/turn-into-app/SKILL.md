@@ -112,12 +112,22 @@ Copy and update this checklist. Aim for 45 minutes; note the start time
 ```text
 - [ ] 0 Host classified, source picked
 - [ ] 1 Source read, brief drafted
-- [ ] 2 Design decided, brief posted with App design
+- [ ] 2 Design decided; brief, App design, and time estimate shown
 - [ ] 3 Real scaffold, onboarding config, local sign-in
 - [ ] 4 Actions, domain surface, sample data, agent moments, agent instructions
 - [ ] 5 Running; screenshots reviewed and refined (two passes by default)
 - [ ] 6 Typecheck, doctor, build; final report with evidence labels
 ```
+
+Resume an unfinished run instead of starting a second app. When the working
+directory holds an app this skill started for the same source (a completed
+scaffold or actions, but no review screenshots), verify the completed stages
+from its git status, brief, schema, and actions. Open your first message with
+what exists, the next stage, and the estimated active work, for example:
+"Found a half-built app in this folder from an earlier run that stopped
+partway. The data model and actions are done, so I'll pick up from there:
+screens next, then checks. About 10 more minutes." Resume at the first
+unverified stage without rerunning scaffolding or replacing completed work.
 
 ### 1. Write the source brief
 
@@ -154,9 +164,9 @@ add them to the brief under App design:
 
 Source steps become states of objects (Draft, Checked, Approved), never a
 stepper, numbered tabs, or a wizard. Chrome stays quiet: no eyebrow, subtitle,
-repeated title, or stat strip over visible data. Post the brief once, with its
-App design, before the first scaffold command, as a checkpoint, and continue
-without waiting.
+repeated title, or stat strip over visible data. Before the first scaffold
+command, show the brief with its App design in your message (a saved file is
+not shown), then continue without waiting.
 
 ### 3. Create the real scaffold
 
@@ -192,10 +202,6 @@ stop and report the exact command, the failure, and what is on disk. Never
 hand-build the app in another stack, edit a pinned dependency version to force
 an install, or continue in a half-created directory; a workaround the user
 requests is named in the report.
-
-Before resuming, inspect the target and verify completed stages. Tell the user
-what exists, the next stage, and estimated active work; resume at the first
-unverified stage without rerunning scaffolding or replacing completed work.
 
 Then save the brief as `docs/brief.md`, append the domain surface's design to
 `DESIGN.md` (UI direction guide, section 4), and follow

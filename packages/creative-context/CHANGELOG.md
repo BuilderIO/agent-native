@@ -1,5 +1,29 @@
 # @agent-native/creative-context
 
+## 0.8.58
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.57
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.56
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.55
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.8.54
 
 ### Patch Changes
@@ -633,29 +657,5 @@
 
 - 6acaad0: Extract reusable Postgres search and embedding primitives into Core while preserving Creative Context imports.
   The pgvector setup error now consistently says "Vector search" instead of the narrower "Visual search" wording.
-
-## 0.5.4
-
-### Patch Changes
-
-- 079e19a: Adopt focused Core client entrypoints and ship package migration metadata where applicable.
-
-## 0.5.3
-
-### Patch Changes
-
-- b6d7f87: Move portable rich-editor, context presentation, and visual design controls into Toolkit while preserving Core compatibility re-exports, and add accurate side-effect metadata to capability packages.
-
-## 0.5.2
-
-### Patch Changes
-
-- 915c940: Preserve stubbed optional package imports and package subpaths when bundling Cloudflare Pages workers.
-
-## 0.5.1
-
-### Patch Changes
-
-- 8e0afec: Improve Creative Context sharing and connection-chip interactions.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

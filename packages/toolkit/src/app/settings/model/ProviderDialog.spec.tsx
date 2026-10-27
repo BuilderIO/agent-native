@@ -658,6 +658,65 @@ describe("ProviderDialog", () => {
     );
   });
 
+  it("opens manage directly in key replacement mode when the saved key is unreadable", () => {
+    state.listing = listing(
+      {},
+      {
+        openai: {
+          org: {
+            scope: "org",
+            updatedAt: null,
+            unreadable: true,
+            unreadableKey: true,
+          },
+        },
+      },
+    );
+
+    render({ mode: "manage", provider: "openai", scope: "org" });
+
+    expect(inputByLabel("API key")).toBeTruthy();
+    expect(document.body.textContent).toContain(
+      "Paste a key to see the models it can use.",
+    );
+  });
+
+  it("clears an unreadable endpoint-only value from its manage dialog", async () => {
+    state.listing = listing(
+      {},
+      {
+        openai: {
+          org: {
+            scope: "org",
+            updatedAt: null,
+            unreadable: true,
+            unreadableEndpoint: true,
+          },
+        },
+      },
+    );
+    const { onSaved } = render({
+      mode: "manage",
+      provider: "openai",
+      scope: "org",
+    });
+
+    expect(inputByLabel("Endpoint URL")).toBeTruthy();
+    expect(
+      [...document.querySelectorAll("label")].some(
+        (label) => label.textContent === "API key",
+      ),
+    ).toBe(false);
+    await act(async () => button("Save").click());
+    await vi.waitFor(() => expect(onSaved).toHaveBeenCalled());
+
+    expect(keyMock.saveAgentEngineProviderSettings).toHaveBeenCalledWith({
+      provider: "openai",
+      clearBaseUrl: true,
+      scope: "org",
+    });
+  });
+
   it("adds a service's key for the organization with chat models unchecked", async () => {
     keyMock.fetchProviderModels.mockResolvedValue({
       ok: true,

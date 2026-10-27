@@ -216,7 +216,10 @@ async function selectOnCanvas(app: App, nodeId: string, layerName: string) {
   await expect(node).toBeVisible();
   const rect = await node.boundingBox();
   if (!rect) throw new Error(`Canvas node ${nodeId} has no rendered bounds`);
+  // Cmd+click reaches a nested layer; a plain click takes the top-level one.
+  await app.page.keyboard.down("ControlOrMeta");
   await app.page.mouse.click(rect.x + rect.width / 2, rect.y + rect.height / 2);
+  await app.page.keyboard.up("ControlOrMeta");
   await expect(
     app.page.getByRole("button", { name: "More", exact: true }),
   ).not.toBeFocused();
@@ -482,6 +485,9 @@ test("unsupported managed Motion syntax is visible and does not block canvas tex
     const before = await app.savedNodes(id);
     const originalHeadline = before.get("headline");
     expect(originalHeadline).toBeDefined();
+    // Cmd+click on the layer already selected would step to the one below it.
+    await page.keyboard.press("Escape");
+    await expect.poll(() => app.selectedLayers()).toEqual([]);
     await selectOnCanvas(app, "headline", "Draft headline");
     await page.keyboard.press("Enter");
     const editable = page
@@ -636,6 +642,38 @@ test("turning the Motion lab off hides the dock for a design with a saved track 
     expect(managedMotionCss(await app.savedHtml(id))).toStrictEqual([
       expectedAlphaOpacityCss(),
     ]);
+  } finally {
+    await restoreLab();
+  }
+});
+
+test("deleting the final screen while Motion is open does not crash the editor", async ({
+  app,
+  page,
+}) => {
+  const restoreLab = await setLab(page, DESIGN_MOTION_LAB.key, true);
+  try {
+    const id = await app.seed(SURFACES_HTML);
+    await openAndFit(app, id);
+    await openMotionDockFromMenu(page);
+
+    const screenId = (await app.savedRecord(id)).files.find(
+      (file) => file.filename === "index.html",
+    )?.id;
+    if (!screenId) throw new Error("seeded design has no index.html screen");
+    await page
+      .locator(`[data-frame-id="${screenId}"] [data-frame-title]`)
+      .click();
+    await page.keyboard.press("Delete");
+    await expect
+      .poll(async () =>
+        (await app.savedRecord(id)).files.filter(
+          (file) => file.filename !== "__board__.html",
+        ),
+      )
+      .toHaveLength(0);
+    await app.settled();
+    await expect(page.locator("[data-screen-shell]")).toHaveCount(0);
   } finally {
     await restoreLab();
   }

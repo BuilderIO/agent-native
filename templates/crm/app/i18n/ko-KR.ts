@@ -601,15 +601,15 @@ const messages = {
     reviewDuplicates: "중복 검토",
     duplicateReviewTitle: "중복 가능성이 있는 레코드",
     duplicateReviewDescription:
-      "이 레코드를 접근 가능한 후보와 비교합니다. Jev 실행 시 레코드 이름, 유형 및 최대 5개 후보의 일치 신호가 TypeSafe로 전송됩니다. 확률은 참고용이며 병합에는 별도 검토가 필요합니다.",
+      "이 레코드를 접근 가능한 후보와 비교합니다. 의미 검토에서는 레코드 이름, 유형 및 최대 5개 후보의 일치 신호를 구성된 AI 결정 제공자에게 보냅니다. 확률은 참고용이며 병합에는 별도 검토가 필요합니다.",
     duplicateReviewRun: "중복 확인",
     duplicateReviewLoading: "확인 중…",
     duplicateReviewFailed: "중복 검토를 완료할 수 없습니다.",
     duplicateReviewUnavailable:
-      "Jev가 이 레코드를 검토하지 못했습니다. 규칙 기반 후보는 계속 표시됩니다.",
+      "AI 결정 제공자가 이 레코드를 검토하지 못했습니다. 규칙 기반 후보는 계속 표시됩니다.",
     duplicateReviewEmpty: "중복 가능성이 있는 레코드가 없습니다.",
     duplicateRuleConfidence: "규칙 기반 일치도: {{percent}}%",
-    duplicateJevProbability: "Jev 동일 엔터티 확률: {{percent}}%",
+    duplicateDecisionProbability: "동일 엔터티 확률: {{percent}}%",
     duplicateMatchedOn: "일치 근거: {{values}}",
     evidenceAttached: "통화 증거가 첨부되었습니다.",
     evidenceAttachFailed: "증거를 첨부하지 못했습니다.",
@@ -625,11 +625,10 @@ const messages = {
     automate: "자동화",
     reviewNewClipsCalls: "새 Clips 통화 검토",
     reviewDescription:
-      "Clips 미디어나 녹취를 복사하지 않고 이 CRM 레코드의 검토 레시피를 준비합니다.",
-    disabledAutomationDescription:
-      "이 작업은 사용 중지 상태로 시작하며 {{name}}에 연결된 상태를 유지합니다. 명시적으로 활성화되면 각 새 클립은 액세스 확인을 거친 녹화 페이지 참조만 이 레코드에 첨부할 수 있습니다.",
+      "CRM에서 Clips로의 통화 자동화 설정은 아직 사용할 수 없습니다.",
+    disabledAutomationDescription: "선택한 CRM 레코드: {{name}}.",
     handoffDescription:
-      "전달에는 불투명한 클립 ID, 지속 가능한 {{path}} 페이지 URL 및 캡처 시간만 남습니다. 이벤트 URL, 미디어, 액세스 토큰, 녹취, 추론된 레코드 및 공급자 쓰기는 거부됩니다.",
+      "{{path}} 페이지 링크의 자동 첨부는 사용할 수 없습니다.",
     manageAutomations: "자동화 관리",
     configureWithAgent: "에이전트로 구성",
     editField: "필드 편집",

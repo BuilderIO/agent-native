@@ -52,7 +52,7 @@ function reportLoss(kind: NfmParseLossKind, sample: string): void {
   activeLossSink?.push({ kind, sample });
 }
 
-const BASE_COLORS = [
+export const NFM_BASE_COLORS = [
   "gray",
   "brown",
   "orange",
@@ -62,11 +62,11 @@ const BASE_COLORS = [
   "purple",
   "pink",
   "red",
-];
+] as const;
 export const NFM_COLORS = new Set<string>([
   "default",
-  ...BASE_COLORS,
-  ...BASE_COLORS.map((c) => `${c}_bg`),
+  ...NFM_BASE_COLORS,
+  ...NFM_BASE_COLORS.map((c) => `${c}_bg`),
 ]);
 function isColor(value: string | null | undefined): value is string {
   return !!value && NFM_COLORS.has(value) && value !== "default";
@@ -1413,6 +1413,8 @@ export interface NfmSerializeContext {
   ) => string | undefined | null;
   /** Write the trailing empty paragraph the editor's save drops. */
   keepTrailingEmptyBlock?: boolean;
+  /** Leave out video block ids, which a Notion page has no place for. */
+  omitMediaIds?: boolean;
 }
 
 /**
@@ -1708,9 +1710,14 @@ function serializeMedia(node: PMNode, ind: number): string[] {
   const src = (node.attrs?.src as string) || "";
   const caption = (node.attrs?.title as string) || "";
   const color = node.attrs?.color;
+  const blockId =
+    tag === "video" && !activeSerializeContext?.omitMediaIds
+      ? (node.attrs?.blockId as string | null | undefined)
+      : null;
   const attrStr = serializeAttrs([
     ["src", src],
     ["color", isColor(color) ? color : null],
+    ["id", blockId],
   ]);
   return [
     indentStr(ind) +
@@ -3758,6 +3765,7 @@ function splitTableCells(source: string): TableLinePart[] {
 
 const MEDIA_TAGS = new Set(["video", "audio"]);
 const MEDIA_ATTRS = new Set(["src", "color"]);
+const VIDEO_ATTRS = new Set(["src", "color", "id"]);
 const IMAGE_ATTRS = new Set(["color"]);
 const BLOCK_ATOM_TAGS = new Set([
   "page",
@@ -3776,13 +3784,19 @@ function parseLeafTag(
   label: string,
 ): PMNode | null {
   if (MEDIA_TAGS.has(tagName)) {
-    const attrs = readAttrs(tagName, rawAttrs, MEDIA_ATTRS);
+    const video = tagName === "video";
+    const attrs = readAttrs(
+      tagName,
+      rawAttrs,
+      video ? VIDEO_ATTRS : MEDIA_ATTRS,
+    );
     return {
       type: tagName,
       attrs: {
         src: attrs.src || null,
         title: label ? unescapeAttr(label) : null,
         ...(isColor(attrs.color) ? { color: attrs.color } : {}),
+        ...(video && attrs.id ? { blockId: attrs.id } : {}),
       },
     };
   }
@@ -3818,10 +3832,14 @@ export function canonicalizeNfm(nfm: string | null | undefined): string {
 /**
  * Canonical Markdown that keeps a trailing empty block. A Notion page can end
  * in an empty paragraph its author made, and its pulls, pushes and sync hashes
- * must not drop it.
+ * must not drop it. Video block ids are left out: Notion has nowhere to keep
+ * them, and the editor writing one down is not a change to sync.
  */
 export function canonicalizeNotionNfm(nfm: string | null | undefined): string {
-  return docToNfm(nfmToDoc(nfm ?? ""), { keepTrailingEmptyBlock: true });
+  return docToNfm(nfmToDoc(nfm ?? ""), {
+    keepTrailingEmptyBlock: true,
+    omitMediaIds: true,
+  });
 }
 
 /**

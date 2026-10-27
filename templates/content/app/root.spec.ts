@@ -17,7 +17,11 @@ vi.mock("@agent-native/core/client/api-path", async (importOriginal) => ({
   appBasePath: vi.fn(() => "/content"),
 }));
 
-import { computeSessionBypass, isContentEditorPath } from "./root";
+import {
+  computeSessionBypass,
+  isContentEditorPath,
+  isContentSuggestionReviewPath,
+} from "./root";
 
 describe("Content editor session policy", () => {
   beforeEach(() => {
@@ -41,6 +45,21 @@ describe("Content editor session policy", () => {
     expect(isContentEditorPath("/content/page/database-page")).toBe(true);
     expect(computeSessionBypass("/page/database-page")).toBe(true);
     expect(computeSessionBypass("/content/page/document-1")).toBe(true);
+  });
+
+  it("opens the inline suggestion review card with a scoped embed token", () => {
+    vi.mocked(getEmbedAuthToken).mockReturnValue("scoped-embed-ticket");
+
+    expect(isContentSuggestionReviewPath("/suggestions/document-1")).toBe(true);
+    expect(
+      isContentSuggestionReviewPath("/content/suggestions/document-1"),
+    ).toBe(true);
+    expect(isContentSuggestionReviewPath("/suggestions")).toBe(false);
+    expect(computeSessionBypass("/suggestions/document-1")).toBe(true);
+    expect(computeSessionBypass("/suggestions/document-1/extra")).toBe(false);
+
+    vi.mocked(getEmbedAuthToken).mockReturnValue(null);
+    expect(computeSessionBypass("/suggestions/document-1")).toBe(false);
   });
 
   it("keeps the session gate without a ticket or outside the editor route", () => {

@@ -360,9 +360,9 @@ describe("cleanupOldRuns — execution journal retention", () => {
       .run(expiredAt, threadId, turnId);
     await pglite
       .prepare(
-        `UPDATE agent_execution_leases SET updated_at = to_timestamp(CAST(? AS DOUBLE PRECISION) / 1000.0) WHERE thread_id = ? AND turn_id = ?`,
+        `UPDATE agent_execution_leases SET updated_at = to_timestamp(CAST(? AS DOUBLE PRECISION) / 1000.0), lease_expires_at = to_timestamp(CAST(? AS DOUBLE PRECISION) / 1000.0) WHERE thread_id = ? AND turn_id = ?`,
       )
-      .run(expiredAt, threadId, turnId);
+      .run(expiredAt, expiredAt, threadId, turnId);
 
     await cleanupOldRuns(COMPLETED_RETENTION_MS, ERRORED_RETENTION_MS);
 

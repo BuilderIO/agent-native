@@ -674,6 +674,52 @@ describe("provider corpus jobs", () => {
     expect(second.coverage.totalHits).toBe(1);
   });
 
+  it("keeps a JSON-string body's filters on every cursor page", async () => {
+    const bodies: unknown[] = [];
+    const action = createProviderCorpusJobAction({
+      appId: "analytics",
+      getRuntime: () => ({
+        executeRequest: async (args) => {
+          bodies.push(args.body);
+          const second = bodies.length > 1;
+          return providerEnvelope({
+            items: [{ id: second ? "m2" : "m1", text: "Figma MCP" }],
+            ...(second ? {} : { next: "cursor-2" }),
+          });
+        },
+      }),
+    });
+
+    const result = (await action.run({
+      operation: "start",
+      mode: "paginated-search",
+      request: {
+        provider: "fake",
+        method: "POST",
+        path: "/messages",
+        body: JSON.stringify({ filter: { team: "sales" }, cursor: "" }),
+      },
+      pagination: {
+        itemsPath: "items",
+        nextCursorPath: "next",
+        cursorBodyPath: "cursor",
+        maxPages: 5,
+      },
+      search: { query: "Figma MCP", textPaths: ["text"] },
+    })) as any;
+
+    expect(result.job.status).toBe("completed");
+    expect(result.coverage.pagesProcessed).toBe(2);
+    expect(JSON.parse(bodies[0] as string)).toEqual({
+      filter: { team: "sales" },
+      cursor: "",
+    });
+    expect(JSON.parse(bodies[1] as string)).toEqual({
+      filter: { team: "sales" },
+      cursor: "cursor-2",
+    });
+  });
+
   it("distinguishes a max-pages cap from complete pagination", async () => {
     const action = createProviderCorpusJobAction({
       appId: "analytics",

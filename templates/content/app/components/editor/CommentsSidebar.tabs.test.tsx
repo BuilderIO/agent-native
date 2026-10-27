@@ -295,15 +295,17 @@ describe("comments across Blocks field tabs", () => {
   }
 
   async function openFilterMenu() {
-    const trigger = [...container.querySelectorAll("button")].find(
-      (button) => button.textContent === "comments.filter",
+    const trigger = container.querySelector<HTMLButtonElement>(
+      "[data-discussion-filter-trigger]",
     )!;
-    await act(async () => {
-      trigger.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
-      );
-    });
+    await act(async () => trigger.click());
   }
+
+  const tabOptions = () => [
+    ...document.querySelectorAll<HTMLButtonElement>(
+      '[data-discussion-filter-group="tab"] [data-discussion-filter-option]',
+    ),
+  ];
 
   const tabThreads = [
     thread("notes-1", "notes", "Notes"),
@@ -316,10 +318,12 @@ describe("comments across Blocks field tabs", () => {
       documentProperties: twoFields,
       suggestions: [suggestion("edit-1")],
     });
+    // In page order, text with a known offset comes before a suggested edit
+    // whose place isn't measured.
     expect(feed()).toEqual([
       "# Content",
-      "edit-1",
       "body-1",
+      "edit-1",
       "# Notes",
       "notes-1",
       "# comments.fieldRemoved:Old notes",
@@ -338,10 +342,7 @@ describe("comments across Blocks field tabs", () => {
       suggestions: [suggestion("edit-1")],
     });
     await openFilterMenu();
-    const options = [
-      ...container.querySelectorAll("[data-comments-tab-filter] [role]"),
-    ].map((option) => option.textContent);
-    expect(options).toEqual([
+    expect(tabOptions().map((option) => option.textContent)).toEqual([
       "comments.allTabs",
       "Content",
       "Notes",
@@ -349,14 +350,17 @@ describe("comments across Blocks field tabs", () => {
     ]);
 
     await act(async () =>
-      container
-        .querySelector<HTMLElement>('[data-comments-tab-option="notes"]')!
+      tabOptions()
+        .find((option) => option.dataset.discussionFilterOption === "notes")!
         .click(),
     );
     expect(feed()).toEqual(["# Notes", "notes-1"]);
+    expect(
+      tabOptions().map((option) => option.getAttribute("aria-pressed")),
+    ).toEqual(["false", "false", "true", "false"]);
 
     act(() => replies.setHistoryFilters({ tab: "" }));
-    expect(feed()).toEqual(["# Content", "edit-1", "body-1"]);
+    expect(feed()).toEqual(["# Content", "body-1", "edit-1"]);
 
     act(() => replies.setHistoryFilters({ tab: null }));
     expect(feed()).toHaveLength(7);
@@ -377,8 +381,12 @@ describe("comments across Blocks field tabs", () => {
     });
     expect(feed()).toEqual(["body-1", "body-22"]);
     await openFilterMenu();
-    expect(container.textContent).toContain("comments.authorFilter");
-    expect(container.querySelector("[data-comments-tab-filter]")).toBeNull();
+    expect(
+      document.querySelector('[data-discussion-filter-group="person"]'),
+    ).not.toBeNull();
+    expect(
+      document.querySelector('[data-discussion-filter-group="tab"]'),
+    ).toBeNull();
   });
 
   it("lists a deleted tab's threads under its name even with one field left", () => {

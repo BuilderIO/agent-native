@@ -22,6 +22,7 @@ import {
 } from "@agent-native/toolkit/app/chat/agent-sidebar-events";
 import { ErrorReportActions } from "@agent-native/toolkit/app/feedback";
 import { AgentNativeWebMcpActionRegistration } from "@agent-native/toolkit/app/providers";
+import { ConsentBanner } from "@agent-native/toolkit/app/shared/ConsentBanner";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   lazy,
@@ -362,6 +363,7 @@ function DocsChrome({ children }: { children: React.ReactNode }) {
         <SiteHeader starCount={starCount} />
         {children}
         <Footer />
+        <ConsentBanner privacyPolicyHref="/privacy" />
       </SnackbarProvider>
     </div>
   );
@@ -543,11 +545,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
         {/* Keyed on the build, not the hostname, so the prerendered and
             hydrated head agree. */}
         {isBetaDocsBuild() ? <meta name="robots" content="noindex" /> : null}
-        <script
-          src="https://analytics.ahrefs.com/analytics.js"
-          data-key="z2Qe9BlsuxGKqijbSuv8ow"
-          async
-        />
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         <script
           data-agent-native-locale-init
@@ -585,6 +582,22 @@ export default function Root() {
   }, []);
 
   useEffect(() => {
+    // Ahrefs counts visits, so where the banner applies it waits for
+    // analytics consent like the Google tags. A reject then an accept
+    // runs this again; it can't be unloaded, so it stops on the next page.
+    void import("@agent-native/core/client/consent").then(
+      ({ whenConsentAllows }) => {
+        whenConsentAllows("performance", () => {
+          const src = "https://analytics.ahrefs.com/analytics.js";
+          if (document.querySelector(`script[src="${src}"]`)) return;
+          const script = document.createElement("script");
+          script.src = src;
+          script.async = true;
+          script.dataset.key = "z2Qe9BlsuxGKqijbSuv8ow";
+          document.head.appendChild(script);
+        });
+      },
+    );
     void import("@agent-native/core/client/analytics").then(
       ({ configureTracking }) => {
         configureTracking({

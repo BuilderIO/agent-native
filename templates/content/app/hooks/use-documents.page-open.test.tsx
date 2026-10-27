@@ -74,6 +74,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
+import { lastDocumentReadFailure } from "../lib/document-read-failures";
 import {
   clearDocumentCreationConfirmed,
   clearDocumentCreationPending,
@@ -89,6 +90,7 @@ import {
   startPageOpenCompanionReads,
   startPageOpenDocumentReads,
   useContentNavigationContext,
+  useDocument,
   usePageOpenDocument,
   useUpdateDocument,
 } from "./use-documents";
@@ -181,6 +183,37 @@ describe("page open document reads", () => {
     expect(
       queryClient.getQueryData(["action", "get-document", { id: "doc-1" }]),
     ).not.toHaveProperty("previewDraft");
+  });
+
+  it("remembers a refused read from a reader that isn't a page open", async () => {
+    const refused = Object.assign(new Error("forbidden"), { status: 403 });
+    server.respond = (name, params) =>
+      name === "get-document"
+        ? Promise.reject(refused)
+        : Promise.resolve(pageOrDraft(name, params));
+    function LinkPreview() {
+      useDocument("doc-1");
+      return null;
+    }
+
+    await act(async () => {
+      root.render(
+        createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          createElement(LinkPreview),
+        ),
+      );
+    });
+
+    await vi.waitFor(() =>
+      expect(queryClient.getQueryState(documentQueryKey("doc-1"))?.status).toBe(
+        "error",
+      ),
+    );
+    expect(
+      lastDocumentReadFailure(queryClient, documentQueryKey("doc-1")),
+    ).toBe(refused);
   });
 
   it("waits for a pending page create before fetching its document", async () => {

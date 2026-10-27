@@ -119,6 +119,50 @@ describe("remote automation execution", () => {
     enqueueRemoteCommandMock.mockResolvedValue(makeCommand());
   });
 
+  it("refuses a persisted MCP mark before dispatching to a full-auto execution host", async () => {
+    const settings = await import("../settings/user-settings.js");
+    const locale = vi.spyOn(settings, "getUserSetting").mockResolvedValueOnce({
+      locale: "es-ES",
+    });
+    const meta: JobFrontmatter = {
+      schedule: "0 * * * *",
+      enabled: true,
+      lastStatus: "running",
+      executionHostId: "remote-device-laptop",
+    };
+    const current = makeResource(meta);
+    current.content = current.content.replace(
+      "enabled: true",
+      "enabled: true\nmcpManaged: true",
+    );
+    resourceGetByPathMock.mockResolvedValue(current);
+    resourcePutIfCurrentMock.mockImplementation(async (input) => ({
+      ...current,
+      content: input.content,
+    }));
+    try {
+      await expect(
+        dispatchRemoteAutomation({
+          resource: makeResource(meta),
+          meta,
+          body: "Send the email.",
+          ownerEmail: "alice@example.com",
+          prompt: "Send it.",
+          title: "Send",
+        }),
+      ).rejects.toMatchObject({
+        errorCode: "config_invalid",
+        message:
+          "Las automatizaciones gestionadas por un agente externo no pueden usar funciones sin aprobación por acción.",
+      });
+      expect(enqueueRemoteCommandMock).not.toHaveBeenCalled();
+      expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
+      expect(startAutomationRunMock).not.toHaveBeenCalled();
+    } finally {
+      locale.mockRestore();
+    }
+  });
+
   it.each([
     { owner: "alice@example.com", scope: "personal", orgId: null },
     { owner: "__organization__:acme", scope: "organization", orgId: "acme" },
