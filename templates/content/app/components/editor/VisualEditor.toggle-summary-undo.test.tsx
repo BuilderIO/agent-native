@@ -148,7 +148,7 @@ describe("undo in a Toggle's summary", () => {
     if (index >= inputs.length) {
       throw new Error(`No Toggle summary at ${index}`);
     }
-    return inputs[index];
+    return inputs.item(index);
   }
 
   function storedSummaries(editor: Editor) {
