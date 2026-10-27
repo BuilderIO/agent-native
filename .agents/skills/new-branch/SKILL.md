@@ -39,8 +39,9 @@ legacy and timestamp-named branches.
 
 ```bash
 git status --short --untracked-files=all
-if [ "$(git rev-list --count origin/main..HEAD)" -gt 0 ]; then
-  git switch -c "$branch"            # HEAD has its own commits: keep them
+merged=$(gh pr list --head "$(git branch --show-current)" --state merged --json number --jq '.[0].number // empty')
+if [ "$(git rev-list --count origin/main..HEAD)" -gt 0 ] && [ -z "$merged" ]; then
+  git switch -c "$branch"            # HEAD has unmerged commits of its own: keep them
 else
   git switch -c "$branch" origin/main
 fi

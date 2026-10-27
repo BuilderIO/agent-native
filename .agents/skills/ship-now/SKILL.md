@@ -82,12 +82,13 @@ Because this path merged before remote CI finished, watch the workflows on
 the merge commit:
 
 ```bash
+gh pr checks <number>   # PR CI keeps running on the merged head
 gh run list --commit <mergeCommit.oid> --limit 50 --json name,status,conclusion,url
 ```
 
 A failed query, or no runs listed yet, means unknown, not green. Keep checking until they finish.
-If none have appeared after 10 minutes, the change triggered no workflows
-(path filters). Say so and stop watching. Fix any failure on the fresh branch and send
+If the merge commit has no runs after 10 minutes, it triggered none (path
+filters). Say so and stop watching. Fix any failure on the fresh branch and send
 it through `/ship`. If the PR body has a `Reports` section, run
 `/review-latest-feedback` step 5 for those threads. Merging publishes beta
 automatically. Beyond the merge commit's own workflows, beta, docs, and

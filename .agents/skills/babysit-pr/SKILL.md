@@ -102,7 +102,8 @@ pushes `origin/<local branch>`. Use it
 when `origin` is the PR's head repository and the local branch name equals
 `headRefName`. Otherwise commit your paths, find the remote whose URL matches
 `headRepository.nameWithOwner` (add one if needed), recheck the live head OID,
-and push `HEAD:refs/heads/$headRefName` to it.
+confirm `git log <live headRefOid>..HEAD` lists only this fix's commits, and
+push `HEAD:refs/heads/$headRefName` to it.
 
 If the push is rejected or the head moved, fetch that head, merge it into the
 branch (never rebase or force-push), re-run the focused checks, and push again.
@@ -159,4 +160,5 @@ before merging, rerun the unreplied-comments query and the review-bodies call
 above so no new bot round slips in, and confirm
 `git rev-parse HEAD` equals the live `headRefOid` (nothing local left
 unpushed, nothing remote you haven't seen). Record `ship_merge_head_oid` as `ship`
-describes, then follow its post-merge step.
+describes. Under `/ship`, follow its post-merge step. Standalone, leave the
+branch where it is unless the user also asked to rotate.
