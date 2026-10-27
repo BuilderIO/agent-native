@@ -1,6 +1,8 @@
 template: v2
 slug: weekly-marketing-report
 app: analytics
+roles:
+  - marketing
 title: Haz tu informe semanal sin hojas de cálculo
 seo_title: Informe semanal de marketing con GA4 y HubSpot
 meta_description: Crea tu informe semanal de marketing con Google Analytics y HubSpot en Agent-Native Analytics. Pregunta cómo fue la semana y comparte las respuestas en un panel.

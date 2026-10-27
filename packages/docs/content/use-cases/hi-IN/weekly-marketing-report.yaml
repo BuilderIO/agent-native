@@ -1,6 +1,8 @@
 template: v2
 slug: weekly-marketing-report
 app: analytics
+roles:
+  - marketing
 title: "स्प्रेडशीट के बिना अपनी वीकली मार्केटिंग रिपोर्ट बनाएँ"
 seo_title: "GA4 और HubSpot से वीकली मार्केटिंग रिपोर्ट"
 meta_description: "Agent-Native Analytics से Google Analytics और HubSpot डेटा पर अपनी वीकली मार्केटिंग रिपोर्ट बनाएँ। पूछें कि हफ़्ता कैसा रहा और जवाब डैशबोर्ड के रूप में शेयर करें।"

@@ -1,6 +1,8 @@
 template: v2
 slug: weekly-marketing-report
 app: analytics
+roles:
+  - marketing
 title: "أعدّ تقرير التسويق الأسبوعي دون جداول بيانات"
 seo_title: "تقرير تسويق أسبوعي من GA4 وHubSpot"
 meta_description: "أنشئ تقرير التسويق الأسبوعي من Google Analytics وHubSpot باستخدام Agent-Native Analytics. اسأل كيف كان الأسبوع وشارك الإجابات كلوحة تحكم."

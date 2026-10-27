@@ -1,6 +1,8 @@
 template: v2
 slug: weekly-marketing-report
 app: analytics
+roles:
+  - marketing
 title: 不用电子表格也能做营销周报
 seo_title: 用 GA4 和 HubSpot 生成营销周报
 meta_description: 用 Agent-Native Analytics，基于 Google Analytics 和 HubSpot 做营销周报。问问这一周表现如何，再把答案作为仪表板分享出去。

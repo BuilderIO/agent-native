@@ -1,6 +1,8 @@
 template: v2
 slug: weekly-marketing-report
 app: analytics
+roles:
+  - marketing
 title: Marketing-Wochenbericht ohne Tabellen erstellen
 seo_title: Marketing-Wochenbericht aus GA4 und HubSpot
 meta_description: "Ihr Marketing-Wochenbericht aus Google Analytics und HubSpot: Fragen Sie Agent-Native Analytics, wie die Woche lief, und teilen Sie die Antworten als Dashboard."

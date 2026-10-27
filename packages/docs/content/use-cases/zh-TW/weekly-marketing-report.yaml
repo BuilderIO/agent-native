@@ -1,6 +1,8 @@
 template: v2
 slug: weekly-marketing-report
 app: analytics
+roles:
+  - marketing
 title: 不用試算表，也能做出每週行銷報告
 seo_title: 用 GA4 和 HubSpot 製作每週行銷報告
 meta_description: 用 Agent-Native Analytics，從 Google Analytics 和 HubSpot 製作每週行銷報告。問問這週表現如何，再把答案以儀表板分享出去。

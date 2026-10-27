@@ -1,6 +1,8 @@
 template: v2
 slug: weekly-marketing-report
 app: analytics
+roles:
+  - marketing
 title: Créez votre rapport marketing hebdomadaire sans tableur
 seo_title: Rapport marketing hebdo depuis GA4 et HubSpot
 meta_description: Créez votre rapport marketing hebdo depuis Google Analytics et HubSpot avec Agent-Native Analytics. Demandez le bilan de la semaine, partagez-le en tableau de bord.

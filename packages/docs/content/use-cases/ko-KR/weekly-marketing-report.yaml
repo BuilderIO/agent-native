@@ -1,6 +1,8 @@
 template: v2
 slug: weekly-marketing-report
 app: analytics
+roles:
+  - marketing
 title: 스프레드시트 없이 주간 마케팅 리포트를 만들어 보세요
 seo_title: GA4와 HubSpot으로 만드는 주간 마케팅 리포트
 meta_description: "Agent-Native Analytics로 Google Analytics와 HubSpot 데이터에서 주간 마케팅 리포트를 만드세요. 이번 주가 어땠는지 묻고, 답을 대시보드로 공유하세요."
