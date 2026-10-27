@@ -602,7 +602,11 @@ export function useOwnershipChatHistory(
       id,
       "hidden",
       hidden,
-      () => hideChatThread(id, hidden, { apiUrl: endpoint, scope }),
+      () =>
+        hideChatThread(id, hidden, {
+          apiUrl: endpoint,
+          ...(scope ? { scope } : {}),
+        }),
       failed,
     );
   unhideRef.current = (id) =>
@@ -610,11 +614,11 @@ export function useOwnershipChatHistory(
       toast.error(t("agentChat.history.unhideFailed")),
     );
   listProps.onHide = (id) => {
-    const index = sharedRows.findIndex((row) => row.id === id);
-    if (index < 0) return Promise.resolve(false);
+    const row = findShared(id);
+    if (!row) return Promise.resolve(false);
     hiddenShared.current.set(id, {
-      row: sharedRows[index],
-      index,
+      row,
+      index: sharedRows.indexOf(row),
       view: scopeKey,
     });
     const notice = toast(t("agentChat.history.hidden"), {
