@@ -2698,8 +2698,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
             issuer: "https://workspace.example.test",
           })),
           host: "workspace.example.test",
-          "x-forwarded-host": "internal.gateway:8100",
-          "x-forwarded-proto": "http",
         };
         const event = makeWebEvent({
           ip: "203.0.113.20",
