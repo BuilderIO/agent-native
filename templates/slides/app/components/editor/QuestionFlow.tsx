@@ -80,9 +80,14 @@ export function QuestionFlow({
       questions[0].multiSelect !== true;
 
     return questions.map((question) => {
+      const withDefaultRows = {
+        ...question,
+        includeExplore: question.includeExplore ?? true,
+        includeDecide: question.includeDecide ?? true,
+      };
       const resolvedQuestion = submitSingleChoiceOnSelect
-        ? { ...question, submitOnSelect: true }
-        : question;
+        ? { ...withDefaultRows, submitOnSelect: true }
+        : withDefaultRows;
       return resolvedQuestion.type === "color-options" && designSystem
         ? {
             ...resolvedQuestion,

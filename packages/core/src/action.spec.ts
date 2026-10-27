@@ -40,6 +40,7 @@ import {
   createPlanModeActionRegistry,
 } from "./agent/production-agent.js";
 import {
+  derivedTool,
   plainJsonSnapshot,
   UninterpretedSchema,
   usableInputSchema,
@@ -1148,11 +1149,11 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
 
   it("asks the emitter for 2020-12, the dialect MCP and the checks read", () => {
     const input = vi.fn(() => ({ type: "object" }));
-    defineAction({
+    void defineAction({
       description: "Reads",
       schema: standardSchema(input),
       run: async () => "ok",
-    });
+    }).tool.parameters;
 
     expect(input).toHaveBeenCalledWith({ target: "draft-2020-12" });
   });
@@ -1379,7 +1380,7 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
     },
   );
 
-  it("judges each action by what its emitter returned when it was defined", () => {
+  it("judges each action by what its emitter returned when it was converted", () => {
     const consoleError = vi
       .spyOn(console, "error")
       .mockImplementation(() => {});
@@ -1391,6 +1392,7 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
         schema,
         run: async () => "ok",
       });
+      void before.tool.parameters;
       emitted = accepted;
       const after = defineAction({
         description: "After",
@@ -1469,6 +1471,111 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
       } as never);
 
       expect(tools.map(({ name }) => name)).toEqual(["repaired", "no-emitter"]);
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it("converts on the first read of the parameters, once for every reader", () => {
+    const schema = z.object({
+      title: z.string(),
+      count: z.number().optional(),
+    });
+    const convert = vi.spyOn((schema as any)["~standard"].jsonSchema, "input");
+    const action = defineAction({
+      description: "Lazy",
+      schema,
+      run: async () => "ok",
+    });
+    expect(convert).not.toHaveBeenCalled();
+
+    const first = action.tool.parameters;
+    expect(action.tool.parameters).toBe(first);
+    expect({ ...action.tool }.parameters).toBe(first);
+    expect(JSON.parse(JSON.stringify(action.tool)).parameters).toEqual(first);
+    expect(usableInputSchema(action, (parameters) => parameters)).toBe(first);
+    expect(actionsToEngineTools({ lazy: action })).toHaveLength(1);
+    expect(convert).toHaveBeenCalledTimes(1);
+    expect(first).toMatchObject({
+      type: "object",
+      properties: { title: { type: "string" }, count: { type: "number" } },
+      required: ["title"],
+    });
+  });
+
+  it("finds the verdict whichever reader converts first", () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    try {
+      const unread = () =>
+        defineAction({
+          description: "Accepts nothing",
+          schema: standardSchema(() => refused),
+          run: async () => "bad",
+        });
+
+      expect(mcpVerdict(unread())).toBeInstanceOf(UnusableSchemaError);
+      const derived = derivedTool(unread().tool, { description: "Copy" });
+      expect(mcpVerdict({ tool: derived })).toBeInstanceOf(UnusableSchemaError);
+      expect(actionsToEngineTools({ unread: unread() } as never)).toEqual([]);
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it("validates a call against the parameters it converts on demand", async () => {
+    const action = defineAction({
+      description: "Typed",
+      schema: z.object({ title: z.string() }),
+      run: async () => "ok",
+    });
+
+    await expect(action.run({} as never)).rejects.toThrow(
+      /Expected: \{ title\*: string \}/,
+    );
+  });
+
+  it("takes assigned parameters before or after the first read, and validates with its own", async () => {
+    const replacement = {
+      type: "object" as const,
+      properties: { note: { type: "string" as const } },
+    };
+    const typed = () =>
+      defineAction({
+        description: "Typed",
+        schema: z.object({ title: z.string() }),
+        run: async () => "ok",
+      });
+
+    const unread = typed();
+    unread.tool.parameters = replacement;
+    const read = typed();
+    void read.tool.parameters;
+    Object.assign(read.tool, { parameters: replacement });
+
+    for (const action of [unread, read]) {
+      expect(action.tool.parameters).toBe(replacement);
+      expect({ ...action.tool }.parameters).toBe(replacement);
+      await expect(action.run({} as never)).rejects.toThrow(
+        /Expected: \{ title\*: string \}/,
+      );
+    }
+  });
+
+  it("keeps an unusable schema's verdict when parameters are assigned before the first read", () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    try {
+      const action = defineAction({
+        description: "Accepts nothing",
+        schema: standardSchema(() => refused),
+        run: async () => "bad",
+      });
+      action.tool.parameters = { type: "object", properties: {} };
+
+      expect(mcpVerdict(action)).toBeInstanceOf(UnusableSchemaError);
     } finally {
       consoleError.mockRestore();
     }
@@ -1800,11 +1907,23 @@ describe("defineAction — outputSchema (return-value validation)", () => {
     });
     const out = await action.run({ x: "hi" });
     expect(out).toEqual({ id: "abc", count: 2 });
-    expect(action.outputErrorStrategy).toBe("warn");
+    expect(action.outputErrorStrategy).toBe("strict");
     expect(action.outputSchema).toBeDefined();
   });
 
-  it('warns and returns the ORIGINAL result on mismatch under the default "warn" strategy', async () => {
+  it("throws on mismatch under the default strict strategy", async () => {
+    const action = defineAction({
+      description: "strict by default",
+      schema: z.object({ x: z.string() }),
+      outputSchema: z.object({ id: z.string(), count: z.number() }),
+      run: async () => ({ id: "abc", count: "nope" }) as never,
+    });
+    await expect(action.run({ x: "hi" })).rejects.toMatchObject({
+      errorCode: "output_contract_violation",
+    });
+  });
+
+  it('warns and returns the ORIGINAL result on mismatch under the "warn" strategy', async () => {
     const bad = { id: "abc", count: "not-a-number" };
     const warnings: unknown[][] = [];
     const original = console.warn;
@@ -1816,7 +1935,8 @@ describe("defineAction — outputSchema (return-value validation)", () => {
         description: "warn output",
         schema: z.object({ x: z.string() }),
         outputSchema: z.object({ id: z.string(), count: z.number() }),
-        run: async () => bad,
+        outputErrorStrategy: "warn",
+        run: async () => bad as never,
       });
       const out = await action.run({ x: "hi" });
       expect(out).toBe(bad);
@@ -2031,6 +2151,7 @@ describe("defineAction — outputSchema (return-value validation)", () => {
         outputSchema: z.object({ owner: z.string() }).superRefine(() => {
           throw new Error("refinement bug");
         }),
+        outputErrorStrategy: "warn",
         run: async () => output,
       });
       await expect(action.run({})).resolves.toBe(output);
@@ -2712,8 +2833,11 @@ describe("defineAction — mcpOutputSchema opt-in", () => {
       /requires an outputSchema/,
     ],
     [
-      "the default warn strategy",
-      { outputSchema: z.object({ id: z.string() }) },
+      "a warn strategy",
+      {
+        outputSchema: z.object({ id: z.string() }),
+        outputErrorStrategy: "warn" as const,
+      },
       /outputErrorStrategy: "strict"/,
     ],
     [

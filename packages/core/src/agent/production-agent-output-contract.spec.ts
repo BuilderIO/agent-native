@@ -806,7 +806,8 @@ describe("runAgentLoop — one prepared invocation", () => {
         return { ok: true };
       },
     }) as unknown as ActionEntry;
-    // Deriving the tool's JSON Schema read the default once.
+    // Deriving the tool's JSON Schema reads the default once.
+    void schedule.tool.parameters;
     stamp = 0;
     const first = await runOneCall({ schedule }, "schedule");
     const approval = first.find(
@@ -960,7 +961,8 @@ describe("runAgentLoop — one prepared invocation", () => {
         return `page ${args.page}`;
       },
     }) as unknown as ActionEntry;
-    // Deriving the tool's JSON Schema read the default once.
+    // Deriving the tool's JSON Schema reads the default once.
+    void read.tool.parameters;
     page = 0;
     await runSequentialCalls({ read }, ["read", "read"]);
     expect(ran).toEqual([1, 2]);
@@ -1032,7 +1034,8 @@ describe("runAgentLoop — one prepared invocation", () => {
         return { ok: true };
       },
     }) as unknown as ActionEntry;
-    // Deriving the tool's JSON Schema read the default once.
+    // Deriving the tool's JSON Schema reads the default once.
+    void publish.tool.parameters;
     parses = 0;
     await runOneCall({ "publish-draft": publish }, "publish-draft", {
       executionMode: "plan",
@@ -1069,6 +1072,8 @@ describe("runAgentLoop — one prepared invocation", () => {
         return { ok: true };
       },
     }) as unknown as ActionEntry;
+    // Deriving the tool's JSON Schema reads the default once.
+    void publish.tool.parameters;
     parses = 0;
     const planned = createPlanModeActionRegistry({ "publish-draft": publish });
     // No context: the registry still runs the call its gate admitted.
@@ -1559,6 +1564,8 @@ describe("runAgentLoop — continued turns follow recorded effects", () => {
         return { ok: true };
       },
     }) as unknown as ActionEntry;
+    // Deriving the tool's JSON Schema reads the default once.
+    void publish.tool.parameters;
     parses = 0;
     const prior = await runOneCall({ publish }, "publish");
     const done = toolDone(
@@ -1581,6 +1588,8 @@ describe("runAgentLoop — continued turns follow recorded effects", () => {
         return { ok: true };
       },
     }) as unknown as ActionEntry;
+    // Deriving the tool's JSON Schema reads the default once.
+    void stampDraft.tool.parameters;
     stamp = 0;
     const prior = await runOneCall({ stampDraft }, "stampDraft");
     expect(toolDone(prior)).toMatchObject({ completedSideEffect: true });

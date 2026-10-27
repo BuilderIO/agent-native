@@ -10,8 +10,9 @@ import {
 } from "./lib/save-chapters.js";
 
 export default defineAction({
+  mcpApp: { compactCatalog: true },
   description:
-    "Overwrite the chapters on a recording. Chapters are {startMs,title} entries that appear as markers on the timeline and in the player. Pass the chapters the edit started from as expectedChapters (get-recording-player-data returns them) or expectedVersion, and pass expectedMediaUpdatedAt from the same response; saves based on changed chapters or media are refused.",
+    "Replace all chapters on a recording with the given list, sorted by start time. Chapters are {startMs,title} markers on the timeline and in the player. To add, rename or remove one chapter, read the current chapters from get-recording-player-data and send the whole list. Pass that original list as expectedChapters and its mediaUpdatedAt as expectedMediaUpdatedAt. For a regeneration request, regenerate-chapters supplies expectedVersion and expectedMediaUpdatedAt instead. Saves based on changed chapters or media are refused.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
     chapters: z

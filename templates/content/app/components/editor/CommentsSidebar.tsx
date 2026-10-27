@@ -324,9 +324,72 @@ export function findThreadPosition(
   return null;
 }
 
+// The elements a page's text blocks render as.
+const QUOTE_TEXT_BLOCKS = "p, h1, h2, h3, h4, h5, h6, pre";
+
+/**
+ * A quote as its highlight reads. A stored quote runs blocks together, so
+ * where the highlight crosses into another block this puts a space. Null when
+ * the highlight stays in one block or no longer holds the stored quote.
+ */
+export function highlightedQuote(
+  marked: Iterable<Pick<Element, "textContent" | "closest">>,
+  quotedText: string,
+): string | null {
+  let quote = "";
+  let text = "";
+  let block: Element | null | undefined;
+  for (const element of marked) {
+    const part = element.textContent ?? "";
+    if (!part) continue;
+    const owner = element.closest(QUOTE_TEXT_BLOCKS);
+    if (block !== undefined && owner !== block) quote += " ";
+    block = owner;
+    quote += part;
+    text += part;
+  }
+  return text === quotedText && quote !== text ? quote : null;
+}
+
+/**
+ * The quotes of `threads` that read differently in their highlights, from one
+ * pass over the page's highlights.
+ */
+function measureThreadQuotes(
+  container: ParentNode,
+  threads: readonly { threadId: string; quotedText?: string | null }[],
+): Map<string, string> {
+  const marked = new Map<string, Element[]>();
+  for (const element of container.querySelectorAll(
+    ".ProseMirror [data-comment-thread]",
+  )) {
+    const threadId = element.getAttribute("data-comment-thread")!;
+    const elements = marked.get(threadId);
+    if (elements) elements.push(element);
+    else marked.set(threadId, [element]);
+  }
+  const quotes = new Map<string, string>();
+  for (const { threadId, quotedText } of threads) {
+    const elements = marked.get(threadId);
+    const quote =
+      elements && quotedText ? highlightedQuote(elements, quotedText) : null;
+    if (quote) quotes.set(threadId, quote);
+  }
+  return quotes;
+}
+
 /** Whether a thread's tab is on the page but not open. */
 function sameThreadIds(a: ReadonlySet<string>, b: ReadonlySet<string>) {
   return a.size === b.size && [...b].every((threadId) => a.has(threadId));
+}
+
+function sameQuotes(
+  a: ReadonlyMap<string, string>,
+  b: ReadonlyMap<string, string>,
+) {
+  return (
+    a.size === b.size && [...b].every(([id, quote]) => a.get(id) === quote)
+  );
 }
 
 function threadTabHidden(
@@ -484,6 +547,53 @@ export function layoutCommentThreads<T extends ThreadLayoutIdentity>(
     previousBottom = top + heightFor(thread);
     return item;
   });
+}
+
+/**
+ * An open stack laid out as one block: its Collapse row, then its cards, each
+ * at an offset from the block's top. The card in focus, selected or a new
+ * comment, sits level with its highlight, under the cards before it when they
+ * fit above it. Near the top of the margin they don't, and pushing them above
+ * it would leave the Collapse row where nothing can scroll to it, so the card
+ * in focus comes first and the rest follow in document order.
+ */
+export function arrangeOpenStack(
+  cards: readonly { threadId: string; height: number }[],
+  focusId: string | null,
+  positions: ReadonlyMap<string, CommentThreadPosition>,
+  headerHeight: number,
+  gap = 12,
+): { offsets: Map<string, number>; height: number; layoutTop: number | null } {
+  const focusIndex = cards.findIndex((card) => card.threadId === focusId);
+  const focus = focusIndex >= 0 ? cards[focusIndex] : undefined;
+  const focusTop = focus
+    ? (positions.get(focus.threadId)?.layoutTop ?? null)
+    : null;
+  const above = cards
+    .slice(0, Math.max(0, focusIndex))
+    .reduce((sum, card) => sum + card.height + gap, headerHeight + gap);
+  const order =
+    focus && focusTop !== null && focusTop < above
+      ? [focus, ...cards.filter((_, index) => index !== focusIndex)]
+      : cards;
+  const offsets = new Map<string, number>();
+  let bottom = headerHeight;
+  for (const card of order) {
+    offsets.set(card.threadId, bottom + gap);
+    bottom += gap + card.height;
+  }
+  const anchor = focusTop !== null ? focus : cards[0];
+  const anchorTop = anchor
+    ? (positions.get(anchor.threadId)?.layoutTop ?? null)
+    : null;
+  return {
+    offsets,
+    height: bottom,
+    layoutTop:
+      anchor && anchorTop !== null
+        ? anchorTop - (offsets.get(anchor.threadId) ?? 0)
+        : null,
+  };
 }
 
 export function scrollToCommentAnchor(
@@ -1330,6 +1440,10 @@ export function CommentsSidebar({
     alignToAnchors &&
     !visibleThreadId;
   const [threadBlocks, setThreadBlocks] = useState(NO_BLOCKS);
+  // The open threads the blocks were measured for. A thread the margin hasn't
+  // measured yet sits outside its stack, so until then a stack's front is
+  // only provisional: a posted comment's saved copy, say, before its highlight.
+  const [placedThreadIds, setPlacedThreadIds] = useState<string | null>(null);
   // The block a new comment's text is in, once measured; `key` is null for
   // text in no block, such as a Property.
   const [pendingBlock, setPendingBlock] = useState<{
@@ -1343,6 +1457,9 @@ export function CommentsSidebar({
   // When each thread was last touched, so a folded stack shows that one.
   // Thread ids are unique across tabs, so a touch never crosses tabs.
   const [stackTouches, setStackTouches] = useState(NO_TOUCHES);
+  // The thread each folded card last showed in front, by its stack's threads,
+  // so a card that comes back with another thread in front plays the change.
+  const [shownStackFronts] = useState(() => new Map<string, string>());
   const touchCountRef = useRef(0);
   const touchThread = useCallback((threadId: string) => {
     touchCountRef.current += 1;
@@ -1355,6 +1472,10 @@ export function CommentsSidebar({
   const commentStacks = useMemo(
     () => (stacksEnabled ? groupCommentStacks(openThreads, threadBlocks) : []),
     [openThreads, stacksEnabled, threadBlocks],
+  );
+  const openThreadIds = useMemo(
+    () => openThreads.map((thread) => thread.threadId).join(","),
+    [openThreads],
   );
   const stackOfThread = useMemo(() => {
     const stacks = new Map<string, CommentStack<CommentThread>>();
@@ -1460,32 +1581,22 @@ export function CommentsSidebar({
     return () => container.removeEventListener("click", openFromHighlight);
   }, [openStackOn, scrollContainerRef, stacksEnabled, touchThread]);
   // Resting on a highlight brings its thread to the front of a folded stack;
-  // passing over one on the way to the margin doesn't.
+  // passing over one on the way to the margin doesn't. It does so once per
+  // rest, so a thread touched while the pointer stays put, like a comment
+  // just posted, keeps the front.
+  const peekedThreadRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!hoveredThreadId) return;
+    if (peekedThreadRef.current !== hoveredThreadId)
+      peekedThreadRef.current = null;
+    if (!hoveredThreadId || peekedThreadRef.current) return;
     const stack = stackOfThread.get(hoveredThreadId);
     if (!stack || stack === expandedStack) return;
-    // Touching the stack's last-touched thread again would only rerun this.
-    const touch = stackTouches.get(hoveredThreadId);
-    if (
-      touch !== undefined &&
-      stack.threads.every(
-        (member) => (stackTouches.get(member.threadId) ?? 0) <= touch,
-      )
-    )
-      return;
-    const timer = setTimeout(
-      () => touchThread(hoveredThreadId),
-      STACK_HOVER_INTENT_MS,
-    );
+    const timer = setTimeout(() => {
+      peekedThreadRef.current = hoveredThreadId;
+      touchThread(hoveredThreadId);
+    }, STACK_HOVER_INTENT_MS);
     return () => clearTimeout(timer);
-  }, [
-    expandedStack,
-    hoveredThreadId,
-    stackOfThread,
-    stackTouches,
-    touchThread,
-  ]);
+  }, [expandedStack, hoveredThreadId, stackOfThread, touchThread]);
   const expandedStackKey = expandedStack?.key ?? null;
   const selectedInExpandedStack =
     !!selectedThreadId &&
@@ -1710,6 +1821,10 @@ export function CommentsSidebar({
   const [hiddenTabThreadIds, setHiddenTabThreadIds] = useState<
     ReadonlySet<string>
   >(() => new Set());
+  // Quotes whose highlight crosses a block, with a space where it does.
+  const [threadQuotes, setThreadQuotes] = useState<ReadonlyMap<string, string>>(
+    () => new Map(),
+  );
   // Highlights shown again that the editor hasn't drawn yet.
   const highlightsReturningRef = useRef(false);
   const propertyOrder = useMemo(
@@ -2157,6 +2272,7 @@ export function CommentsSidebar({
         ? measureCommentBlocks(container, openThreads)
         : NO_BLOCKS;
     setThreadBlocks((prev) => (sameBlocks(prev, blocks) ? prev : blocks));
+    setPlacedThreadIds(openThreadIds);
     if (stacksEnabled && container && pendingCommentId) {
       const highlight = pendingOnProperty
         ? null
@@ -2191,6 +2307,7 @@ export function CommentsSidebar({
       setThreadPositions((prev) => (prev.size === 0 ? prev : new Map()));
       setHiddenTabThreadIds((prev) => (prev.size === 0 ? prev : new Set()));
       setMeasuredThreadIds((prev) => (prev.size === 0 ? prev : new Set()));
+      setThreadQuotes((prev) => (prev.size === 0 ? prev : new Map()));
       return;
     }
     // With highlights hidden there are no marks to measure, and guessing from
@@ -2218,6 +2335,8 @@ export function CommentsSidebar({
       else if (threadTabHidden(container, fieldId))
         hiddenTabIds.add(thread.threadId);
     }
+    const quotes = measureThreadQuotes(container, openThreads);
+    setThreadQuotes((prev) => (sameQuotes(prev, quotes) ? prev : quotes));
     const lookedFor = new Set(measuredThreads.map((thread) => thread.threadId));
     setHiddenTabThreadIds((prev) =>
       sameThreadIds(prev, hiddenTabIds) ? prev : hiddenTabIds,
@@ -2245,6 +2364,7 @@ export function CommentsSidebar({
     hasPendingComment,
     highlightsVisible,
     measuredThreads,
+    openThreadIds,
     openThreads,
     pendingCommentId,
     pendingFieldId,
@@ -2416,24 +2536,6 @@ export function CommentsSidebar({
     documentTop: pendingPosition?.documentTop ?? pendingAnchorTop,
     layoutTop: pendingAnchorTop,
   };
-  // An open stack's Collapse row is laid out like a card above its first one.
-  const stackHeaderLayout: ThreadLayoutIdentity | null = expandedStack
-    ? { threadId: STACK_HEADER_LAYOUT_ID, comments: [] }
-    : null;
-  const firstStackAnchor = expandedStack
-    ? [
-        ...expandedStack.threads.map((member) =>
-          threadPositions.get(member.threadId),
-        ),
-        pendingInExpandedStack ? pendingAnchor : undefined,
-      ].reduce<CommentThreadPosition | null>(
-        (first, position) =>
-          position && (!first || position.documentTop < first.documentTop)
-            ? position
-            : first,
-        null,
-      )
-    : null;
   const layoutPositions = new Map(threadPositions);
   const layoutHeights = new Map(threadCardHeights);
   if (pendingLayout) {
@@ -2443,74 +2545,108 @@ export function CommentsSidebar({
       pendingCardHeight ?? PENDING_COMMENT_CARD_ESTIMATE,
     );
   }
-  if (stackHeaderLayout) {
-    if (firstStackAnchor) {
+  const layoutFocusId = pendingLayout
+    ? PENDING_COMMENT_LAYOUT_ID
+    : selectedLayoutThreadId;
+  // An open stack is laid out as one block, its Collapse row on top: its
+  // threads' cards, and a new comment in it.
+  // The stack has its threads in document order, which their highlights'
+  // tops can't give when two share a line.
+  const stackOrder = new Map(
+    expandedStack?.threads.map((member, index) => [member.threadId, index]),
+  );
+  const documentTopOf = (thread: ThreadLayoutIdentity) =>
+    layoutPositions.get(thread.threadId)?.documentTop ?? Infinity;
+  const stackCards: ThreadLayoutIdentity[] = layoutThreads
+    .filter((thread) => stackOrder.has(thread.threadId))
+    .sort(
+      (left, right) =>
+        (stackOrder.get(left.threadId) ?? 0) -
+        (stackOrder.get(right.threadId) ?? 0),
+    );
+  if (pendingInExpandedStack && pendingLayout) {
+    const pendingTop = documentTopOf(pendingLayout);
+    const after = stackCards.findIndex(
+      (card) => documentTopOf(card) > pendingTop,
+    );
+    stackCards.splice(
+      after === -1 ? stackCards.length : after,
+      0,
+      pendingLayout,
+    );
+  }
+  const stackTop = Math.min(...stackCards.map(documentTopOf));
+  const openStackLayout =
+    stackCards.length > 0
+      ? arrangeOpenStack(
+          stackCards.map((card) => ({
+            threadId: card.threadId,
+            height:
+              layoutHeights.get(card.threadId) ??
+              estimateThreadCardHeight(card),
+          })),
+          layoutFocusId ?? null,
+          layoutPositions,
+          STACK_HEADER_HEIGHT,
+        )
+      : null;
+  const stackLayout: ThreadLayoutIdentity | null = openStackLayout
+    ? { threadId: STACK_HEADER_LAYOUT_ID, comments: [] }
+    : null;
+  if (openStackLayout) {
+    if (Number.isFinite(stackTop)) {
       layoutPositions.set(STACK_HEADER_LAYOUT_ID, {
-        documentTop: firstStackAnchor.documentTop - 0.5,
-        layoutTop:
-          firstStackAnchor.layoutTop === null
-            ? null
-            : firstStackAnchor.layoutTop - STACK_HEADER_HEIGHT - 12,
+        documentTop: stackTop - 0.5,
+        layoutTop: openStackLayout.layoutTop,
       });
     }
-    layoutHeights.set(STACK_HEADER_LAYOUT_ID, STACK_HEADER_HEIGHT);
+    layoutHeights.set(STACK_HEADER_LAYOUT_ID, openStackLayout.height);
   }
   const anchoredItems = layoutCommentThreads<
     LayoutThread | ThreadLayoutIdentity
   >(
     [
-      ...layoutThreads,
-      ...(pendingLayout ? [pendingLayout] : []),
-      ...(stackHeaderLayout ? [stackHeaderLayout] : []),
+      ...layoutThreads.filter((thread) => !stackOrder.has(thread.threadId)),
+      ...(pendingLayout && !pendingInExpandedStack ? [pendingLayout] : []),
+      ...(stackLayout ? [stackLayout] : []),
     ],
     layoutPositions,
     layoutHeights,
-    pendingLayout ? PENDING_COMMENT_LAYOUT_ID : selectedLayoutThreadId,
+    stackCards.some((card) => card.threadId === layoutFocusId)
+      ? STACK_HEADER_LAYOUT_ID
+      : layoutFocusId,
   );
-  // Keeping the selected card level with its highlight pushes the cards above
-  // it upward. Near the top of a page that would put an open stack's Collapse
-  // row and first cards above the margin, where nothing can scroll to them, so
-  // the stack starts at the top instead.
+  // Keeping a card lower down level with its highlight pushes the cards above
+  // it upward, and could push an open stack's Collapse row above the margin,
+  // where nothing can scroll to it. The stack starts at the top instead.
   const stackOverflow = Math.max(
     0,
-    -(
-      anchoredItems.find((item) => item.thread === stackHeaderLayout)?.top ?? 0
-    ),
+    -(anchoredItems.find((item) => item.thread === stackLayout)?.top ?? 0),
   );
-  const selectedItems = stackOverflow
-    ? anchoredItems.map((item) => ({ ...item, top: item.top + stackOverflow }))
-    : anchoredItems;
-  const pendingTop =
-    selectedItems.find((item) => item.thread === pendingLayout)?.top ??
-    pendingAnchorTop;
-  const stackHeaderTop = selectedItems.find(
-    (item) => item.thread === stackHeaderLayout,
-  )?.top;
-  const items = selectedItems.filter(
-    (item): item is CommentLayoutItem<LayoutThread> =>
-      item.thread !== pendingLayout && item.thread !== stackHeaderLayout,
+  const tops = new Map(
+    anchoredItems.map((item) => [
+      item.thread.threadId,
+      item.top + stackOverflow,
+    ]),
   );
-  // The guide beside an open stack spans its cards, and a new comment in it.
-  const stackSpans = expandedStack
-    ? selectedItems
-        .filter((item) =>
-          item.thread === pendingLayout
-            ? pendingInExpandedStack
-            : expandedStack.threads.some(
-                (member) => member.threadId === item.thread.threadId,
-              ),
-        )
-        .map((item) => ({
-          top: item.top,
-          bottom:
-            item.top +
-            (layoutHeights.get(item.thread.threadId) ??
-              estimateThreadCardHeight(item.thread)),
-        }))
-    : [];
-  const stackGuideTop = Math.min(...stackSpans.map((span) => span.top)) + 16;
+  const stackHeaderTop = stackLayout
+    ? tops.get(STACK_HEADER_LAYOUT_ID)
+    : undefined;
+  if (openStackLayout && stackHeaderTop !== undefined) {
+    for (const [threadId, offset] of openStackLayout.offsets)
+      tops.set(threadId, stackHeaderTop + offset);
+  }
+  const pendingTop = tops.get(PENDING_COMMENT_LAYOUT_ID) ?? pendingAnchorTop;
+  // Cards keep the resting layout's order, since their places in the flow
+  // follow it, and move by their offset from there.
+  const items = restingItems.map((item) => ({
+    ...item,
+    top: tops.get(item.thread.threadId) ?? item.top,
+  }));
+  // The guide beside an open stack spans its cards.
+  const stackGuideTop = (stackHeaderTop ?? 0) + STACK_HEADER_HEIGHT + 12 + 16;
   const stackGuideHeight =
-    Math.max(...stackSpans.map((span) => span.bottom)) - 16 - stackGuideTop;
+    (stackHeaderTop ?? 0) + (openStackLayout?.height ?? 0) - 16 - stackGuideTop;
 
   // Resolving the open thread closes its card; staying selected would keep it
   // in the margin with no highlight to sit by. In an open stack the next
@@ -2595,6 +2731,9 @@ export function CommentsSidebar({
         heightId={layoutId}
         threads={stack.threads}
         front={front}
+        frontPlaced={placedThreadIds === openThreadIds}
+        shownFronts={shownStackFronts}
+        quotes={threadQuotes}
         isActive={stack.threads.some(
           (member) => member.threadId === activeThreadId,
         )}
@@ -2823,7 +2962,7 @@ export function CommentsSidebar({
         onClose={onClose}
         threadActions={renderThreadActions?.(thread)}
         currentUserEmail={currentUserEmail}
-        quote={thread.quotedText}
+        quote={threadQuotes.get(thread.threadId) ?? thread.quotedText}
         showQuote={inStack}
         propertyTarget={
           thread.property
@@ -3392,7 +3531,7 @@ export function CommentsSidebar({
           t={t}
         />
       ) : null}
-      {expandedStack && stackSpans.length > 0 ? (
+      {expandedStack && openStackLayout && stackHeaderTop !== undefined ? (
         <CommentStackGuide top={stackGuideTop} height={stackGuideHeight} />
       ) : null}
       {/* Pending new comment — positioned at the selection Y offset */}
