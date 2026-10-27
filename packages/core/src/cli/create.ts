@@ -2788,7 +2788,9 @@ export async function _downloadAndExtract(
     await execFileBuffer(
       "curl",
       _curlDownloadArgs(url, tarPath),
-      { maxBuffer: 10 * 1024 * 1024 },
+      {
+        maxBuffer: 10 * 1024 * 1024,
+      },
     );
     if (options.untrustedCommunityArchive) {
       validateCommunityArchive(tarPath);

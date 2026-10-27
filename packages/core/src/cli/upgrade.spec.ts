@@ -1424,7 +1424,10 @@ describe("runUpgrade", () => {
       { command: "pnpm", args: ["install"], cwd: root },
     ]);
     const appPackage = JSON.parse(
-      fs.readFileSync(path.join(root, "apps", "chat", "package.json"), "utf-8"),
+      fs.readFileSync(
+        path.join(root, "apps", "chat", "package.json"),
+        "utf-8",
+      ),
     );
     expect(appPackage.dependencies["@agent-native/dispatch"]).toBe("0.40.40");
     expect(appPackage.dependencies["@agent-native/otel"]).toBe("0.1.25");

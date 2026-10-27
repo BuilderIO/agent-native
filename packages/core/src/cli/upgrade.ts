@@ -1125,7 +1125,7 @@ function refreshLatestAgentNativeDependencies(
       stdio,
     });
     if (result.status !== 0) {
-      updateFailure = `${pm} ${args.join(" ")} failed while refreshing @agent-native/* latest dependencies.`;
+      updateFailure = `${pm} ${args.join(" ")} failed during package refresh.`;
       break;
     }
   }
@@ -1135,7 +1135,12 @@ function refreshLatestAgentNativeDependencies(
     if (!read.ok) {
       return {
         ok: false,
-        message: `Could not read ${relativeTo(project.root, group.file)} after refreshing latest packages.${updateFailure ? ` ${updateFailure}` : ""}`,
+        message: `Could not read ${relativeTo(
+          project.root,
+          group.file,
+        )} after refreshing latest packages.${
+          updateFailure ? ` ${updateFailure}` : ""
+        }`,
       };
     }
     for (const section of PINNABLE_SECTIONS) {
