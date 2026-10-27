@@ -1,3 +1,4 @@
+import { callAction } from "@agent-native/core/client/hooks";
 import { GUIDED_QUESTIONS_SUBMITTED_EVENT } from "@agent-native/toolkit/app/chat/agentkit-chat";
 import {
   DESIGN_GENERATION_ATTEMPT_QUERY_PARAM,
@@ -171,6 +172,28 @@ async function completedRunStatus(
   return null;
 }
 
+async function completedRunOutputStatus(
+  designId: string,
+  runId: string,
+  completed: CompletedAgentRun,
+): Promise<"has_output" | "no_output" | "unknown"> {
+  if (!completed.turnId) return "unknown";
+  try {
+    const output = await callAction(
+      "get-design-generation-output",
+      {
+        designId,
+        runId: completed.runId ?? runId,
+        turnId: completed.turnId,
+      },
+      { method: "GET" },
+    );
+    return output.status;
+  } catch {
+    return "unknown";
+  }
+}
+
 /**
  * `design_ready_viewed`: the owner has the design open with its screens when
  * an agent run on it completes.
@@ -264,6 +287,7 @@ export function useDesignReadyViewTracking({
     const runs = runsRef.current;
     const cancelSends = cancelSendsRef.current;
     let disposed = false;
+    const isDisposed = () => disposed;
     const onRunning = (event: Event) => {
       try {
         const detail = (event as CustomEvent).detail as {
@@ -306,12 +330,28 @@ export function useDesignReadyViewTracking({
         if (detail?.isRunning !== false || !run || run.ending) return;
         run.ending = true;
         void completedRunStatus(run.threadId, runId)
-          .then((completed) => {
+          .then(async (completed) => {
             if (disposed) return;
             if (!completed) {
               runs.delete(runId);
               return;
             }
+            const designId = run.designId ?? latest.current.designId;
+            if (!designId) {
+              runs.delete(runId);
+              return;
+            }
+            const outputStatus = await completedRunOutputStatus(
+              designId,
+              runId,
+              completed,
+            );
+            if (isDisposed() || runs.get(runId) !== run) return;
+            if (outputStatus !== "has_output") {
+              runs.delete(runId);
+              return;
+            }
+            run.designId = designId;
             run.completed = completed;
             run.completedAt = Date.now();
             flushCompletedRunsRef.current();

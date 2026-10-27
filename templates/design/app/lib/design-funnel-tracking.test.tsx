@@ -19,10 +19,16 @@ import {
 const mocks = vi.hoisted(() => ({
   trackDesignRelay: vi.fn(),
   readAgentRunStatus: vi.fn(),
+  callAction: vi.fn(),
 }));
 
 vi.mock("@/lib/agent-run-status", () => ({
   readAgentRunStatus: (...args: unknown[]) => mocks.readAgentRunStatus(...args),
+}));
+
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
+  callAction: (...args: unknown[]) => mocks.callAction(...args),
 }));
 
 vi.mock("@/lib/design-relay-tracking", async (importOriginal) => ({
@@ -113,6 +119,8 @@ beforeEach(() => {
   ).IS_REACT_ACT_ENVIRONMENT = true;
   mocks.trackDesignRelay.mockReset();
   mocks.readAgentRunStatus.mockReset();
+  mocks.callAction.mockReset();
+  mocks.callAction.mockResolvedValue({ status: "has_output" });
   lastRunId = "run-1";
   mocks.readAgentRunStatus.mockImplementation(async () => ({
     ok: true,
@@ -271,6 +279,23 @@ describe("design_ready_viewed", () => {
       screen_count: 1,
     });
   });
+
+  it.each(["no_output", "unknown"] as const)(
+    "does not attribute existing screens when the run output is %s",
+    async (status) => {
+      mocks.callAction.mockResolvedValueOnce({ status });
+      await renderReady({ files: [screen("unrelated")] });
+      await agentRun({ isRunning: true });
+      await agentRun({ isRunning: false });
+
+      expect(readyEvents()).toHaveLength(0);
+      expect(mocks.callAction).toHaveBeenCalledWith(
+        "get-design-generation-output",
+        { designId: "design-1", runId: "run-1", turnId: "turn-1" },
+        { method: "GET" },
+      );
+    },
+  );
 
   it("expires a completed run if no generated screens arrive in the bounded window", async () => {
     let now = 1_000;
