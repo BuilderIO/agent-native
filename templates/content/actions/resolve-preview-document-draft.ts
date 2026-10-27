@@ -12,6 +12,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { withContentRecoverySaveContext } from "./_content-save-outcomes.js";
 import { documentRevisionToken } from "./_document-edit-mutation.js";
 import {
+  fencePreviewDocumentDraftGeneration,
   lockPreviewDocumentDraftSettlement,
   settlePreviewDocumentDraft,
 } from "./_preview-document-draft-settlement.js";
@@ -33,6 +34,7 @@ const durableClaimPayload = z.object({
   processingStartedAt: z.string().optional(),
   draftId: z.string().min(1),
   baseDocumentUpdatedAt: z.string().nullable(),
+  baseContentHash: z.string().nullable().optional(),
   loadedContentWasEmpty: z.number().int(),
   deferredReason: z.string().nullable(),
   editorSessionId: z.string().nullable().optional(),
@@ -49,6 +51,10 @@ function conflict(message: string, details?: Record<string, unknown>): never {
     statusCode: 409,
     details,
   });
+}
+
+function firstRow<T>(rows: readonly T[]): T | undefined {
+  return rows[0];
 }
 
 async function recoveryDocumentId(args: {
@@ -115,6 +121,7 @@ export default defineAction({
     const access = await assertAccess("document", args.documentId, "editor");
     const ownerEmail = access.resource.ownerEmail as string;
     const db = getDb();
+    type ClaimTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
     let recoveryId = await recoveryDocumentId({
       ...args,
       ownerEmail: userEmail,
@@ -206,48 +213,154 @@ export default defineAction({
       eq(schema.documentPreviewDrafts.title, args.expectedDraftTitle),
       eq(schema.documentPreviewDrafts.content, args.expectedDraftContent),
     );
-    const claimExactDraft = async () => {
-      return db.transaction(async (tx) => {
-        const [currentDocument] = await tx
+    const destinationId = recoveryId;
+    const findExistingRecovery = async (
+      executor: Pick<ClaimTransaction, "select"> = db,
+    ) => {
+      const existing = await executor
+        .select()
+        .from(schema.documents)
+        .where(
+          and(
+            eq(schema.documents.id, destinationId),
+            eq(schema.documents.ownerEmail, userEmail),
+            eq(schema.documents.title, args.expectedDraftTitle),
+            eq(schema.documents.content, args.expectedDraftContent),
+          ),
+        )
+        .limit(1)
+        .then(firstRow);
+      return existing ?? null;
+    };
+    const claimGenerationInput = (
+      tx: ClaimTransaction,
+      payload: z.infer<typeof durableClaimPayload>,
+      now: string,
+    ) => {
+      if (payload.editorSessionId == null || payload.editGeneration == null)
+        return null;
+      return {
+        db: tx,
+        ownerEmail: userEmail,
+        orgId,
+        documentId: args.documentId,
+        editorSessionId: payload.editorSessionId,
+        editGeneration: payload.editGeneration,
+        now,
+      };
+    };
+    const fenceClaimGeneration = async (
+      tx: ClaimTransaction,
+      payload: z.infer<typeof durableClaimPayload>,
+      now = new Date().toISOString(),
+    ) => {
+      const input = claimGenerationInput(tx, payload, now);
+      if (!input) return;
+      if (payload.choice === "keep_mine")
+        await lockPreviewDocumentDraftSettlement(input);
+      else await fencePreviewDocumentDraftGeneration(input);
+    };
+    // Historical resolved claims may still need their settlement repaired.
+    const settleClaimGeneration = async (
+      tx: ClaimTransaction,
+      payload: z.infer<typeof durableClaimPayload>,
+      now = new Date().toISOString(),
+    ) => {
+      if (
+        payload.choice === "save_separately" &&
+        !(await findExistingRecovery(tx))
+      )
+        conflict("The recovered copy could not be found.");
+      const input = claimGenerationInput(tx, payload, now);
+      if (!input) return;
+      await settlePreviewDocumentDraft({
+        ...input,
+        discarded: payload.choice !== "keep_mine",
+      });
+    };
+    // Recovery locks rows in one order, page, claim, settlement, draft, so a
+    // choice, its retry and the tab's own draft writes can't deadlock.
+    const claimExactDraft = async () =>
+      db.transaction(async (tx) => {
+        const currentDocument = await tx
           .select()
           .from(schema.documents)
           .where(eq(schema.documents.id, args.documentId))
           .for("update")
-          .limit(1);
-        const [draft] = await tx
+          .limit(1)
+          .then(firstRow);
+        const claim = await tx
           .select()
-          .from(schema.documentPreviewDrafts)
-          .where(draftFilter)
+          .from(schema.documentVersions)
+          .where(
+            and(
+              eq(schema.documentVersions.id, claimId),
+              eq(schema.documentVersions.ownerEmail, userEmail),
+              eq(schema.documentVersions.documentId, claimDocumentId),
+            ),
+          )
           .for("update")
-          .limit(1);
-        if (!draft) {
-          const [claim] = await tx
-            .select()
-            .from(schema.documentVersions)
-            .where(
-              and(
-                eq(schema.documentVersions.id, claimId),
-                eq(schema.documentVersions.ownerEmail, userEmail),
-                eq(schema.documentVersions.documentId, claimDocumentId),
-              ),
-            )
-            .limit(1);
+          .limit(1)
+          .then(firstRow);
+        let payload: z.infer<typeof durableClaimPayload> | undefined;
+        if (claim) {
           if (
-            !claim ||
             claim.title !== args.expectedDraftTitle ||
             claim.content !== args.expectedDraftContent ||
             !claim.chatContext
-          ) {
+          )
             conflict("The saved draft changed during recovery.");
-          }
-          const payload = durableClaimPayload.parse(
-            JSON.parse(claim.chatContext),
-          );
-          if (payload.choice !== args.choice) {
+          payload = durableClaimPayload.parse(JSON.parse(claim.chatContext));
+          if (payload.choice !== args.choice)
             conflict("This draft was already resolved with another choice.");
-          }
           if (payload.status === "resolved") {
+            // Historical resolved claims may have no fence. Repair it before
+            // releasing the page lock or acquiring any draft row lock.
+            await settleClaimGeneration(tx, payload);
+            if (
+              payload.editorSessionId == null ||
+              payload.editGeneration == null
+            ) {
+              const draft = await tx
+                .select({ id: schema.documentPreviewDrafts.id })
+                .from(schema.documentPreviewDrafts)
+                .where(draftFilter)
+                .for("update")
+                .limit(1)
+                .then(firstRow);
+              if (draft) {
+                if (
+                  payload.draftId !== draft.id ||
+                  payload.expectedDocumentUpdatedAt !==
+                    args.expectedDocumentUpdatedAt
+                )
+                  conflict("The saved draft changed during recovery.");
+                if (
+                  !currentDocument ||
+                  currentDocument.updatedAt !== args.expectedDocumentUpdatedAt
+                ) {
+                  return {
+                    status: "document_conflict" as const,
+                    document: currentDocument ?? null,
+                  };
+                }
+                await tx
+                  .delete(schema.documentPreviewDrafts)
+                  .where(draftFilter);
+              }
+            }
             return { status: "resolved" as const };
+          }
+        }
+        const draft = await tx
+          .select()
+          .from(schema.documentPreviewDrafts)
+          .where(draftFilter)
+          .limit(1)
+          .then(firstRow);
+        if (!draft) {
+          if (!claim || !payload) {
+            conflict("The saved draft changed during recovery.");
           }
           const expectedUpdatedAt =
             payload.expectedDocumentUpdatedAt ?? args.expectedDocumentUpdatedAt;
@@ -266,6 +379,7 @@ export default defineAction({
               document: currentDocument ?? null,
             };
           }
+          await fenceClaimGeneration(tx, payload);
           return {
             status: "claimed" as const,
             draft: {
@@ -276,6 +390,7 @@ export default defineAction({
               title: claim.title,
               content: claim.content,
               baseDocumentUpdatedAt: payload.baseDocumentUpdatedAt,
+              baseContentHash: payload.baseContentHash ?? null,
               loadedContentWasEmpty: payload.loadedContentWasEmpty,
               deferredReason: payload.deferredReason,
               editorSessionId: payload.editorSessionId ?? null,
@@ -297,79 +412,51 @@ export default defineAction({
           };
         }
         const now = new Date().toISOString();
-        const inserted = await tx
-          .insert(schema.documentVersions)
-          .values({
-            id: claimId,
-            ownerEmail: userEmail,
-            documentId: claimDocumentId,
-            title: draft.title,
-            content: draft.content,
-            chatContext: JSON.stringify({
-              choice: args.choice,
-              status: "processing",
-              expectedDocumentUpdatedAt: args.expectedDocumentUpdatedAt,
-              processingToken,
-              processingStartedAt: now,
-              draftId: draft.id,
-              baseDocumentUpdatedAt: draft.baseDocumentUpdatedAt,
-              loadedContentWasEmpty: draft.loadedContentWasEmpty,
-              deferredReason: draft.deferredReason,
-              editorSessionId: draft.editorSessionId,
-              editGeneration: draft.editGeneration,
-              createdAt: draft.createdAt,
-              updatedAt: draft.updatedAt,
-            }),
-            actorEmail: userEmail,
-            actorKind: "human",
-            origin: ctx?.caller ?? "frontend",
-            groupKind: "operation",
-            groupId: `draft-recovery:${draft.id}`,
-            operation:
-              args.choice === "use_saved"
-                ? "use-saved-preview-draft"
-                : `claim-preview-draft-${args.choice}`,
-            checkpointKind: "recovery",
-            createdAt: now,
-            updatedAt: now,
-          })
-          .onConflictDoNothing()
-          .returning({ id: schema.documentVersions.id });
-        if (inserted.length === 0) {
-          const [claim] = await tx
-            .select()
-            .from(schema.documentVersions)
-            .where(
-              and(
-                eq(schema.documentVersions.id, claimId),
-                eq(schema.documentVersions.ownerEmail, userEmail),
-                eq(schema.documentVersions.documentId, claimDocumentId),
-              ),
-            )
-            .for("update")
-            .limit(1);
-          if (!claim?.chatContext) conflict("The recovery claim was lost.");
-          const payload = durableClaimPayload.parse(
-            JSON.parse(claim.chatContext),
-          );
-          if (payload.choice !== args.choice)
-            conflict("This draft was already resolved with another choice.");
-          if (payload.status === "resolved") {
-            if (
-              payload.draftId !== draft.id ||
-              payload.expectedDocumentUpdatedAt !==
-                args.expectedDocumentUpdatedAt
-            ) {
-              conflict("The saved draft changed during recovery.");
-            }
-            const deleted = await tx
-              .delete(schema.documentPreviewDrafts)
-              .where(draftFilter)
-              .returning({ id: schema.documentPreviewDrafts.id });
-            if (deleted.length !== 1)
-              conflict("The saved draft changed during recovery.");
-            return { status: "resolved" as const };
-          }
+        if (!claim) {
+          payload = {
+            choice: args.choice,
+            status: "processing",
+            expectedDocumentUpdatedAt: args.expectedDocumentUpdatedAt,
+            processingToken,
+            processingStartedAt: now,
+            draftId: draft.id,
+            baseDocumentUpdatedAt: draft.baseDocumentUpdatedAt,
+            baseContentHash: draft.baseContentHash,
+            loadedContentWasEmpty: draft.loadedContentWasEmpty,
+            deferredReason: draft.deferredReason,
+            editorSessionId: draft.editorSessionId,
+            editGeneration: draft.editGeneration,
+            createdAt: draft.createdAt,
+            updatedAt: draft.updatedAt,
+          };
+          const inserted = await tx
+            .insert(schema.documentVersions)
+            .values({
+              id: claimId,
+              ownerEmail: userEmail,
+              documentId: claimDocumentId,
+              title: draft.title,
+              content: draft.content,
+              chatContext: JSON.stringify(payload),
+              actorEmail: userEmail,
+              actorKind: "human",
+              origin: ctx?.caller ?? "frontend",
+              groupKind: "operation",
+              groupId: `draft-recovery:${draft.id}`,
+              operation:
+                args.choice === "use_saved"
+                  ? "use-saved-preview-draft"
+                  : `claim-preview-draft-${args.choice}`,
+              checkpointKind: "recovery",
+              createdAt: now,
+              updatedAt: now,
+            })
+            .onConflictDoNothing()
+            .returning({ id: schema.documentVersions.id });
+          // The page lock serializes creation of this deterministic claim.
+          if (inserted.length !== 1) conflict("The recovery claim was lost.");
+        } else {
+          if (!payload) conflict("The recovery claim was lost.");
           if (payload.draftId !== draft.id)
             conflict("The saved draft changed during recovery.");
           if (
@@ -392,6 +479,23 @@ export default defineAction({
             })
             .where(eq(schema.documentVersions.id, claimId));
         }
+        await fenceClaimGeneration(tx, payload, now);
+        // The lineage read above takes no D lock: draft writers acquire S
+        // first. Revalidate the whole snapshot once that order is established.
+        const lockedDraft = await tx
+          .select()
+          .from(schema.documentPreviewDrafts)
+          .where(draftFilter)
+          .for("update")
+          .limit(1)
+          .then(firstRow);
+        if (
+          !lockedDraft ||
+          (Object.keys(draft) as (keyof typeof draft)[]).some(
+            (key) => lockedDraft[key] !== draft[key],
+          )
+        )
+          conflict("The saved draft changed during recovery.");
         const deleted = await tx
           .delete(schema.documentPreviewDrafts)
           .where(draftFilter)
@@ -400,9 +504,42 @@ export default defineAction({
           conflict("The saved draft changed during recovery.");
         return { status: "claimed" as const, draft, acquired: true };
       });
+    const settleAndResolveClaim = async (
+      tx: ClaimTransaction,
+      chatContext: string,
+      payload: z.infer<typeof durableClaimPayload>,
+    ) => {
+      const resolvedAt = new Date().toISOString();
+      await settleClaimGeneration(tx, payload, resolvedAt);
+      const resolved = await tx
+        .update(schema.documentVersions)
+        .set({
+          chatContext: JSON.stringify({ ...payload, status: "resolved" }),
+          updatedAt: resolvedAt,
+        })
+        .where(
+          and(
+            eq(schema.documentVersions.id, claimId),
+            eq(schema.documentVersions.ownerEmail, userEmail),
+            eq(schema.documentVersions.documentId, claimDocumentId),
+            eq(schema.documentVersions.chatContext, chatContext),
+          ),
+        )
+        .returning({ id: schema.documentVersions.id });
+      return resolved.length === 1;
     };
     const acquireClaim = async () =>
       db.transaction(async (tx) => {
+        const [currentDocument] = await tx
+          .select({
+            updatedAt: schema.documents.updatedAt,
+            title: schema.documents.title,
+            content: schema.documents.content,
+          })
+          .from(schema.documents)
+          .where(eq(schema.documents.id, args.documentId))
+          .for("update")
+          .limit(1);
         const [claim] = await tx
           .select()
           .from(schema.documentVersions)
@@ -421,17 +558,10 @@ export default defineAction({
         );
         if (payload.choice !== args.choice)
           conflict("This draft was already resolved with another choice.");
-        if (payload.status === "resolved") return false;
-        const [currentDocument] = await tx
-          .select({
-            updatedAt: schema.documents.updatedAt,
-            title: schema.documents.title,
-            content: schema.documents.content,
-          })
-          .from(schema.documents)
-          .where(eq(schema.documents.id, args.documentId))
-          .for("update")
-          .limit(1);
+        if (payload.status === "resolved") {
+          await settleClaimGeneration(tx, payload);
+          return false;
+        }
         if (
           !currentDocument ||
           (currentDocument.updatedAt !== args.expectedDocumentUpdatedAt &&
@@ -450,24 +580,7 @@ export default defineAction({
               currentDocument.title === claim.title &&
               currentDocument.content === claim.content) ||
             (args.choice === "save_separately" &&
-              (
-                await tx
-                  .select({
-                    ownerEmail: schema.documents.ownerEmail,
-                    title: schema.documents.title,
-                    content: schema.documents.content,
-                  })
-                  .from(schema.documents)
-                  .where(
-                    and(
-                      eq(schema.documents.id, recoveryId),
-                      eq(schema.documents.ownerEmail, userEmail),
-                      eq(schema.documents.title, claim.title),
-                      eq(schema.documents.content, claim.content),
-                    ),
-                  )
-                  .limit(1)
-              ).length === 1);
+              (await findExistingRecovery(tx)) !== null);
           if (!alreadyApplied) {
             if (
               !payload.processingStartedAt ||
@@ -477,24 +590,7 @@ export default defineAction({
               conflict("This recovery choice is already being applied.");
             }
           } else {
-            const resolvedAt = new Date().toISOString();
-            const resolved = await tx
-              .update(schema.documentVersions)
-              .set({
-                chatContext: JSON.stringify({
-                  ...payload,
-                  status: "resolved",
-                }),
-                updatedAt: resolvedAt,
-              })
-              .where(
-                and(
-                  eq(schema.documentVersions.id, claimId),
-                  eq(schema.documentVersions.chatContext, claim.chatContext),
-                ),
-              )
-              .returning({ id: schema.documentVersions.id });
-            if (resolved.length !== 1)
+            if (!(await settleAndResolveClaim(tx, claim.chatContext, payload)))
               conflict("This recovery choice is already being applied.");
             return false;
           }
@@ -524,6 +620,7 @@ export default defineAction({
       });
     const markClaimResolved = async () => {
       await db.transaction(async (tx) => {
+        // The claim before the settlement row, in recovery's lock order.
         const [claim] = await tx
           .select({ chatContext: schema.documentVersions.chatContext })
           .from(schema.documentVersions)
@@ -534,6 +631,7 @@ export default defineAction({
               eq(schema.documentVersions.documentId, claimDocumentId),
             ),
           )
+          .for("update")
           .limit(1);
         if (!claim?.chatContext) conflict("The recovery claim was lost.");
         const payload = durableClaimPayload.parse(
@@ -542,43 +640,14 @@ export default defineAction({
         if (payload.choice !== args.choice) {
           conflict("This draft was already resolved with another choice.");
         }
-        if (payload.status === "resolved") return;
+        if (payload.status === "resolved") {
+          await settleClaimGeneration(tx, payload);
+          return;
+        }
         if (payload.processingToken !== processingToken)
           conflict("This recovery choice is already being applied.");
-        const resolvedAt = new Date().toISOString();
-        if (
-          payload.editorSessionId !== null &&
-          payload.editorSessionId !== undefined &&
-          payload.editGeneration !== null &&
-          payload.editGeneration !== undefined
-        ) {
-          await settlePreviewDocumentDraft({
-            db: tx,
-            ownerEmail: userEmail,
-            orgId,
-            documentId: args.documentId,
-            editorSessionId: payload.editorSessionId,
-            editGeneration: payload.editGeneration,
-            discarded: args.choice === "use_saved",
-            now: resolvedAt,
-          });
-        }
-        const resolved = await tx
-          .update(schema.documentVersions)
-          .set({
-            chatContext: JSON.stringify({ ...payload, status: "resolved" }),
-            updatedAt: resolvedAt,
-          })
-          .where(
-            and(
-              eq(schema.documentVersions.id, claimId),
-              eq(schema.documentVersions.ownerEmail, userEmail),
-              eq(schema.documentVersions.documentId, claimDocumentId),
-              eq(schema.documentVersions.chatContext, claim.chatContext),
-            ),
-          )
-          .returning({ id: schema.documentVersions.id });
-        if (resolved.length !== 1) conflict("The recovery claim was lost.");
+        if (!(await settleAndResolveClaim(tx, claim.chatContext, payload)))
+          conflict("The recovery claim was lost.");
       });
     };
     const restoreClaimedDraft = async (
@@ -611,7 +680,9 @@ export default defineAction({
           });
           if (
             settledGeneration !== null &&
-            draft.editGeneration <= settledGeneration
+            draft.editGeneration <= settledGeneration &&
+            (payload.choice !== "save_separately" ||
+              (await findExistingRecovery(tx)) !== null)
           ) {
             await tx
               .update(schema.documentVersions)
@@ -790,20 +861,6 @@ export default defineAction({
       return { status: "resolved" as const, choice: args.choice };
     }
 
-    const destinationId = recoveryId;
-    const findExistingRecovery = async () => {
-      const [existing] = await db
-        .select()
-        .from(schema.documents)
-        .where(eq(schema.documents.id, destinationId))
-        .limit(1);
-      return existing &&
-        existing.ownerEmail === userEmail &&
-        existing.title === args.expectedDraftTitle &&
-        existing.content === args.expectedDraftContent
-        ? existing
-        : null;
-    };
     const claimed = await claimExactDraft();
     if (claimed.status === "document_conflict") return claimed;
     if (claimed.status === "resolved") {

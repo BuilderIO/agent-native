@@ -15,6 +15,7 @@ export async function readPreviewDocumentDraft(
       title: schema.documentPreviewDrafts.title,
       content: schema.documentPreviewDrafts.content,
       baseDocumentUpdatedAt: schema.documentPreviewDrafts.baseDocumentUpdatedAt,
+      baseContentHash: schema.documentPreviewDrafts.baseContentHash,
       loadedContentWasEmpty: schema.documentPreviewDrafts.loadedContentWasEmpty,
       deferredReason: schema.documentPreviewDrafts.deferredReason,
       editorSessionId: schema.documentPreviewDrafts.editorSessionId,
