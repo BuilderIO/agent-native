@@ -2594,9 +2594,11 @@ person should choose between setting things up and making an account.
 - **Browser host.** Builder is the only route: make the Dispatch handoff in
   [the browser-host guide](fresh-project.md).
 - **The person already chose.** "Build it here", "run it locally", or "host it
-  on Builder" all count. So does a target that is already an Agent-Native
-  workspace (a parent \`package.json\` has \`agent-native.workspaceCore\`): build
-  on this machine, inside that workspace.
+  on Builder" all count. A named route wins over every rule below except Local
+  File Mode.
+- **The target is already an Agent-Native workspace** (a parent \`package.json\`
+  has \`agent-native.workspaceCore\`) and no route was named. Build on this
+  machine, inside that workspace.
 - **Resuming.** Keep the route the earlier run took.
 - **Files on this machine are the source of truth** (Local File Mode). Builder
   can't reach them, so build here even if the person asked for Builder, and
