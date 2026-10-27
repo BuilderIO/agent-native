@@ -287,7 +287,7 @@ function errorForState(value: unknown): Error {
 export interface ThemeFamilyHook {
   family: ThemeFamily;
   status: "loading" | "success" | "error";
-  error?: Error;
+  error?: Error | undefined;
   storageStatus: ThemeFamilyStorageStatus;
   isForcedByUrl: boolean;
   setFamily: (family: ThemeFamily) => Promise<ThemeFamily>;
@@ -431,7 +431,7 @@ export function useThemeFamily(): ThemeFamilyHook {
       try {
         const result = await mutation.mutateAsync({ family: nextFamily });
         if (
-          !isThemeFamily(result?.family) ||
+          !isThemeFamily(result.family) ||
           !families.includes(result.family)
         ) {
           throw errorForState(result);

@@ -35,7 +35,8 @@ export function resolveThemeFamilyConfig(
     families.includes(config.defaultFamily)
       ? config.defaultFamily
       : (families.find((family) => family === DEFAULT_THEME_FAMILY) ??
-        families[0]!);
+        families.at(0) ??
+        DEFAULT_THEME_FAMILY);
 
   return { families, defaultFamily };
 }

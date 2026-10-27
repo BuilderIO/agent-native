@@ -81,6 +81,42 @@ describe("useThemeFamily", () => {
     vi.unstubAllGlobals();
   });
 
+  it("changes only the family attribute without changing application DOM", async () => {
+    deps.mutation.mutateAsync.mockResolvedValue({
+      family: "agent-native",
+      appId: "sample-app",
+    });
+
+    function AppSurface() {
+      current = useThemeFamily();
+      return (
+        <main>
+          <h1>Workspace</h1>
+          <button type="button">Open settings</button>
+        </main>
+      );
+    }
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => root?.render(<AppSurface />));
+
+    const before = container.innerHTML;
+    expect(document.documentElement.getAttribute(THEME_FAMILY_ATTRIBUTE)).toBe(
+      "original",
+    );
+
+    await act(async () => {
+      await current?.setFamily("agent-native");
+    });
+
+    expect(document.documentElement.getAttribute(THEME_FAMILY_ATTRIBUTE)).toBe(
+      "agent-native",
+    );
+    expect(container.innerHTML).toBe(before);
+  });
+
   it("keeps the persisted family selected when app-state sync fails", async () => {
     deps.query.data = {
       family: "agent-native",

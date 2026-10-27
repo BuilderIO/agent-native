@@ -37,14 +37,18 @@ describe("theme families", () => {
       '--font-wordmark: "Geist Variable", "Geist", sans-serif',
     );
     expect(css).toContain("--radius: 0.5rem");
-    expect(css).toContain("--radius-md: 0.5rem");
+    expect(css).toContain("--radius-sm: 0.5rem");
+    expect(css).toContain("--radius-md: 0.625rem");
     expect(css).toContain("--radius-lg: 0.625rem");
     expect(css).toContain("--radius-xl: 0.75rem");
     expect(css).toContain("--agent-kit-composer-radius: 0.75rem");
     expect(css).toContain(
       "--agent-kit-composer-elevation: var(--shadow-composer)",
     );
-    expect(css).toContain("0 8px 15px rgba(26, 26, 26, 0.06)");
+    expect(css).toContain("--agent-native-shadow-color: 0 0% 10%");
+    expect(css).toContain(
+      "0 8px 15px hsl(var(--agent-native-shadow-color) / 0.06)",
+    );
   });
 
   it("uses the code dark-palette composer elevation in dark mode", () => {
