@@ -1,5 +1,9 @@
 import { getOrgContext } from "@agent-native/core/org";
-import { getSession, runWithRequestContext } from "@agent-native/core/server";
+import {
+  getForwardedRequestOrigin,
+  getSession,
+  runWithRequestContext,
+} from "@agent-native/core/server";
 import {
   EMBED_START_PATH,
   EMBED_TOKEN_QUERY_PARAM,
@@ -62,12 +66,24 @@ export interface WorkspaceAppChatSession {
 
 const sessionCache = new Map<string, Promise<WorkspaceAppChatSession>>();
 
+interface WorkspaceAppChatProxyEvent {
+  url: URL;
+  req: Request;
+  context?: Record<string, unknown>;
+}
+
 function sessionCacheKey(input: {
   appId: string;
   userEmail: string;
   orgId: string | undefined;
+  requestOrigin: string;
 }): string {
-  return [input.userEmail, input.orgId ?? "", input.appId].join("\u0000");
+  return [
+    input.userEmail,
+    input.orgId ?? "",
+    input.requestOrigin,
+    input.appId,
+  ].join("\u0000");
 }
 
 function errorMessage(error: unknown): string {
@@ -153,6 +169,7 @@ async function resolveWorkspaceAppChatSession(input: {
   appId: string;
   userEmail: string;
   orgId: string | undefined;
+  requestOrigin: string;
   fetchImpl: typeof fetch;
 }): Promise<WorkspaceAppChatSession> {
   const key = sessionCacheKey(input);
@@ -176,6 +193,7 @@ async function resolveWorkspaceAppChatSession(input: {
       {
         userEmail: input.userEmail,
         ...(input.orgId ? { orgId: input.orgId } : {}),
+        requestOrigin: input.requestOrigin,
       },
       async () =>
         exchangeEmbedStartUrl(
@@ -225,22 +243,15 @@ function proxyErrorResponse(status: number, message: string): Response {
   });
 }
 
-interface WorkspaceAppChatProxyEvent {
-  url: URL;
-  req: Request;
-}
-
 export function createWorkspaceAppChatProxyHandler(
   options: { fetchImpl?: typeof fetch } = {},
 ) {
   const fetchImpl = options.fetchImpl ?? fetch;
   return async (event: WorkspaceAppChatProxyEvent): Promise<Response> => {
     const url = event.url;
-    const mountedPathname = (
-      event as WorkspaceAppChatProxyEvent & {
-        context?: { _mountedPathname?: string };
-      }
-    ).context?._mountedPathname;
+    const rawMountedPathname = event.context?._mountedPathname;
+    const mountedPathname =
+      typeof rawMountedPathname === "string" ? rawMountedPathname : undefined;
     const parsed = parseWorkspaceAppChatProxyPath(
       mountedPathname ?? url.pathname,
     );
@@ -263,12 +274,16 @@ export function createWorkspaceAppChatProxyHandler(
       return proxyErrorResponse(401, "Sign in to Dispatch to use app chat.");
     }
 
+    const requestOrigin = getForwardedRequestOrigin(
+      event as unknown as Parameters<typeof getForwardedRequestOrigin>[0],
+    );
     let appSession: WorkspaceAppChatSession;
     try {
       appSession = await resolveWorkspaceAppChatSession({
         appId: parsed.appId,
         userEmail: session.email,
         orgId,
+        requestOrigin,
         fetchImpl,
       });
     } catch (error) {
@@ -320,6 +335,7 @@ export function createWorkspaceAppChatProxyHandler(
           appId: parsed.appId,
           userEmail: session.email,
           orgId,
+          requestOrigin,
         }),
       );
     }

@@ -1,8 +1,10 @@
+import { getRequestContext } from "@agent-native/core/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getSession: vi.fn(),
   getOrgContext: vi.fn(),
+  getForwardedRequestOrigin: vi.fn(),
   createWorkspaceSsoEmbedSession: vi.fn(),
   createGrantedDispatchMcpEmbedSession: vi.fn(),
 }));
@@ -10,7 +12,11 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@agent-native/core/server", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@agent-native/core/server")>();
-  return { ...actual, getSession: mocks.getSession };
+  return {
+    ...actual,
+    getForwardedRequestOrigin: mocks.getForwardedRequestOrigin,
+    getSession: mocks.getSession,
+  };
 });
 
 vi.mock("@agent-native/core/org", () => ({
@@ -27,6 +33,10 @@ import {
   clearWorkspaceAppChatSessions,
   createWorkspaceAppChatProxyHandler,
 } from "./workspace-app-chat-proxy.js";
+
+type WorkspaceAppChatProxyEvent = Parameters<
+  ReturnType<typeof createWorkspaceAppChatProxyHandler>
+>[0];
 
 const APP_ORIGIN = "https://analytics.agent-native.com";
 const START_URL = `${APP_ORIGIN}/_agent-native/embed/start?ticket=ticket-1`;
@@ -45,7 +55,7 @@ function embedToken(expiresInSeconds = 3600): string {
 
 function proxyEvent(path: string, init: RequestInit = {}) {
   const url = new URL(`https://dispatch.agent-native.com${path}`);
-  return { url, req: new Request(url, init) };
+  return { url, req: new Request(url, init) } as WorkspaceAppChatProxyEvent;
 }
 
 function mountedProxyEvent(
@@ -58,7 +68,7 @@ function mountedProxyEvent(
     url,
     req: new Request(url, init),
     context: { _mountedPathname: mountedPath },
-  };
+  } as WorkspaceAppChatProxyEvent;
 }
 
 function stubFetch(
@@ -91,6 +101,9 @@ describe("workspace app chat proxy", () => {
     clearWorkspaceAppChatSessions();
     mocks.getSession.mockResolvedValue({ email: "owner@example.com" });
     mocks.getOrgContext.mockResolvedValue({ orgId: "org-1" });
+    mocks.getForwardedRequestOrigin.mockReturnValue(
+      "https://dispatch.agent-native.com",
+    );
     mocks.createWorkspaceSsoEmbedSession.mockResolvedValue({
       startUrl: START_URL,
       app: "analytics",
@@ -125,6 +138,55 @@ describe("workspace app chat proxy", () => {
     expect(headers.get("x-agent-native-embed-target")).toBe("/");
     expect(headers.get("x-agent-native-csrf")).toBe("1");
     expect(headers.get("cookie")).toBeNull();
+  });
+
+  it("preserves the forwarded origin for both embed-session signing paths", async () => {
+    const requestOrigin = "https://dispatch.agent-native.com";
+    mocks.createWorkspaceSsoEmbedSession.mockImplementation(async () => {
+      expect(getRequestContext()?.requestOrigin).toBe(requestOrigin);
+      throw new Error("Workspace sign-in is not configured for this app.");
+    });
+    mocks.createGrantedDispatchMcpEmbedSession.mockImplementation(async () => {
+      expect(getRequestContext()?.requestOrigin).toBe(requestOrigin);
+      return { startUrl: START_URL, app: "analytics" };
+    });
+    const handler = createWorkspaceAppChatProxyHandler({
+      fetchImpl: stubFetch(() => new Response("ok", { status: 200 })),
+    });
+
+    const response = await handler(
+      proxyEvent("/_agent-native/workspace-app-chat/analytics"),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.getForwardedRequestOrigin).toHaveBeenCalledTimes(1);
+    expect(mocks.createGrantedDispatchMcpEmbedSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps cached app sessions scoped to the request origin", async () => {
+    const requestOrigins = [
+      "https://dispatch.agent-native.com",
+      "https://workspace.agent-native.com",
+    ];
+    const observedOrigins: string[] = [];
+    mocks.getForwardedRequestOrigin
+      .mockReturnValueOnce(requestOrigins[0])
+      .mockReturnValueOnce(requestOrigins[1]);
+    mocks.createWorkspaceSsoEmbedSession.mockImplementation(async () => {
+      observedOrigins.push(getRequestContext()?.requestOrigin ?? "");
+      return { startUrl: START_URL, app: "analytics" };
+    });
+    const handler = createWorkspaceAppChatProxyHandler({
+      fetchImpl: stubFetch(() => new Response("ok", { status: 200 })),
+    });
+    const send = () =>
+      handler(proxyEvent("/_agent-native/workspace-app-chat/analytics"));
+
+    await send();
+    await send();
+
+    expect(observedOrigins).toEqual(requestOrigins);
+    expect(mocks.createWorkspaceSsoEmbedSession).toHaveBeenCalledTimes(2);
   });
 
   it("forwards agent-chat sub-paths and query strings unchanged", async () => {
