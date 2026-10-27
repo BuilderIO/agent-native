@@ -1,7 +1,20 @@
-/*
- * The agent-native family uses the shared Tailwind/shadcn palette from the
- * Design template. App styles remain the original family by default.
- */
+/* Family changes stay token-only so every app keeps the same markup. */
+:root[data-theme-family="agent-native"],
+:root[data-theme-family="agent-native"][data-appearance],
+.dark[data-theme-family="agent-native"],
+.dark[data-theme-family="agent-native"][data-appearance] {
+  --font-sans: "Inter Variable", "Inter", sans-serif;
+  --font-wordmark: "Geist Variable", "Geist", sans-serif;
+  --radius: 0.5rem;
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.625rem;
+  --radius-xl: 0.75rem;
+  --shadow-composer: 0 8px 15px rgba(26, 26, 26, 0.06);
+  --agent-kit-composer-radius: 0.75rem;
+  --agent-kit-composer-elevation: var(--shadow-composer);
+}
+
 :root[data-theme-family="agent-native"],
 :root[data-theme-family="agent-native"][data-appearance] {
   --background: 0 0% 100%;
@@ -63,4 +76,10 @@
   --sidebar-accent-foreground: 0 0% 90%;
   --sidebar-border: 0 0% 20%;
   --sidebar-ring: 0 0% 60%;
+}
+
+.dark[data-theme-family="agent-native"],
+.dark[data-theme-family="agent-native"][data-appearance] {
+  --shadow-composer: 0 8px 30px hsl(var(--background) / 0.22);
+  --agent-kit-composer-elevation: var(--shadow-composer);
 }

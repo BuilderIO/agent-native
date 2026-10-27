@@ -1,21 +1,26 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
 } from "react";
 
 import {
-  DEFAULT_THEME_FAMILY,
+  getThemeFamilyUrlOverride,
   isThemeFamily,
+  resolveThemeFamilyConfig,
   THEME_FAMILY_ATTRIBUTE,
   THEME_FAMILY_STATUS_ATTRIBUTE,
   themeFamilyAppStateKey,
   themeFamilyStorageKey,
   type ThemeFamily,
 } from "../appearance/theme-family.js";
-import { injectedAgentNativeAppId } from "./app-config.js";
+import {
+  injectedAgentNativeAppId,
+  injectedAgentNativeConfig,
+} from "./app-config.js";
 import { readClientAppState } from "./application-state.js";
 import { useActionMutation, useActionQuery } from "./use-action.js";
 import { useChangeVersion } from "./use-change-version.js";
@@ -90,17 +95,28 @@ export function readStoredThemeFamily(
   return { status: "invalid", value };
 }
 
-function getFamilySnapshot(appId?: string | null): ThemeFamily {
-  return familySnapshots.get(scopeKey(appId)) ?? DEFAULT_THEME_FAMILY;
+function getFamilySnapshot(
+  appId: string | null | undefined,
+  families: readonly ThemeFamily[],
+  defaultFamily: ThemeFamily,
+): ThemeFamily {
+  const family = familySnapshots.get(scopeKey(appId));
+  return family && families.includes(family) ? family : defaultFamily;
 }
 
-function subscribe(onChange: () => void, appId?: string | null): () => void {
-  if (typeof window === "undefined") return () => {};
+function subscribe(
+  onChange: () => void,
+  appId: string | null | undefined,
+  families: readonly ThemeFamily[],
+  defaultFamily: ThemeFamily,
+  forcedFamily: ThemeFamily | null,
+): () => void {
+  if (typeof window === "undefined" || forcedFamily) return () => {};
 
   const refreshFromStorage = () => {
     const stored = readStoredThemeFamily(appId);
     const key = scopeKey(appId);
-    if (stored.status === "valid") {
+    if (stored.status === "valid" && families.includes(stored.family)) {
       familySnapshots.set(key, stored.family);
       window.document.documentElement.setAttribute(
         THEME_FAMILY_ATTRIBUTE,
@@ -109,16 +125,20 @@ function subscribe(onChange: () => void, appId?: string | null): () => void {
       window.document.documentElement.removeAttribute(
         THEME_FAMILY_STATUS_ATTRIBUTE,
       );
-    } else if (stored.status === "missing" || stored.status === "invalid") {
-      familySnapshots.set(key, DEFAULT_THEME_FAMILY);
+    } else {
+      familySnapshots.set(key, defaultFamily);
       window.document.documentElement.setAttribute(
         THEME_FAMILY_ATTRIBUTE,
-        DEFAULT_THEME_FAMILY,
+        defaultFamily,
       );
       if (stored.status === "invalid") {
         window.document.documentElement.setAttribute(
           THEME_FAMILY_STATUS_ATTRIBUTE,
           "invalid",
+        );
+      } else {
+        window.document.documentElement.removeAttribute(
+          THEME_FAMILY_STATUS_ATTRIBUTE,
         );
       }
     }
@@ -196,6 +216,7 @@ export interface ThemeFamilyHook {
   status: "loading" | "success" | "error";
   error?: Error;
   storageStatus: ThemeFamilyStorageStatus;
+  isForcedByUrl: boolean;
   setFamily: (family: ThemeFamily) => Promise<ThemeFamily>;
 }
 
@@ -204,6 +225,15 @@ type SetThemeFamilyResult = { family: ThemeFamily; appId: string | null };
 
 export function useThemeFamily(): ThemeFamilyHook {
   const runtimeAppId = injectedAgentNativeAppId();
+  const configuredThemeFamily = injectedAgentNativeConfig().themeFamily;
+  const { families, defaultFamily } = useMemo(
+    () => resolveThemeFamilyConfig(configuredThemeFamily),
+    [configuredThemeFamily],
+  );
+  const urlOverride =
+    typeof window === "undefined"
+      ? null
+      : getThemeFamilyUrlOverride(window.location.search, families);
   const query = useActionQuery<ThemeFamilyPreference>(
     "get-theme-family" as never,
     undefined,
@@ -222,25 +252,43 @@ export function useThemeFamily(): ThemeFamilyHook {
   const [mutationError, setMutationError] = useState<Error>();
   const mutationPending = useRef(false);
   const family = useSyncExternalStore(
-    (onChange) => subscribe(onChange, appId),
-    () => getFamilySnapshot(appId),
-    () => DEFAULT_THEME_FAMILY,
+    (onChange) =>
+      subscribe(onChange, appId, families, defaultFamily, urlOverride),
+    () => urlOverride ?? getFamilySnapshot(appId, families, defaultFamily),
+    () => defaultFamily,
   );
 
   useEffect(() => {
+    if (urlOverride) {
+      window.document.documentElement.setAttribute(
+        THEME_FAMILY_ATTRIBUTE,
+        urlOverride,
+      );
+      window.document.documentElement.removeAttribute(
+        THEME_FAMILY_STATUS_ATTRIBUTE,
+      );
+      setMutationError(undefined);
+      return;
+    }
     if (mutationPending.current) return;
     if (query.data === undefined) return;
     if (!isThemeFamily(query.data?.family)) {
       setMutationError(errorForState(query.data));
       return;
     }
-    const applied = applyThemeFamily(query.data.family, query.data.appId);
+    const persistedFamily =
+      query.data.source === "default" ? defaultFamily : query.data.family;
+    const selectedFamily =
+      isThemeFamily(persistedFamily) && families.includes(persistedFamily)
+        ? persistedFamily
+        : defaultFamily;
+    const applied = applyThemeFamily(selectedFamily, query.data.appId);
     setStorageStatus(storageStatusForApply(applied));
     setMutationError(undefined);
-  }, [mutationPending, query.data]);
+  }, [defaultFamily, families, mutationPending, query.data, urlOverride]);
 
   useEffect(() => {
-    if (appStateVersion === 0) return;
+    if (urlOverride || appStateVersion === 0) return;
     let current = true;
     void readClientAppState<{ family?: unknown }>(appStateKey)
       .then((state) => {
@@ -249,7 +297,10 @@ export function useThemeFamily(): ThemeFamilyHook {
           setMutationError(errorForState(state));
           return;
         }
-        const applied = applyThemeFamily(state.family, appId);
+        const selectedFamily = families.includes(state.family)
+          ? state.family
+          : defaultFamily;
+        const applied = applyThemeFamily(selectedFamily, appId);
         setStorageStatus(storageStatusForApply(applied));
         setMutationError(undefined);
       })
@@ -259,23 +310,45 @@ export function useThemeFamily(): ThemeFamilyHook {
     return () => {
       current = false;
     };
-  }, [appId, appStateKey, appStateVersion]);
+  }, [
+    appId,
+    appStateKey,
+    appStateVersion,
+    defaultFamily,
+    families,
+    urlOverride,
+  ]);
 
   const setFamily = useCallback(
     async (nextFamily: ThemeFamily): Promise<ThemeFamily> => {
+      if (urlOverride) {
+        throw new Error("The theme family is pinned by the URL parameter.");
+      }
       if (!isThemeFamily(nextFamily)) {
         throw new TypeError(`Unknown theme family: ${String(nextFamily)}`);
       }
+      if (!families.includes(nextFamily)) {
+        throw new TypeError(
+          `Theme family is not enabled for this app: ${nextFamily}`,
+        );
+      }
 
       const previousAppId = appId;
-      const previousFamily = getFamilySnapshot(previousAppId);
+      const previousFamily = getFamilySnapshot(
+        previousAppId,
+        families,
+        defaultFamily,
+      );
       mutationPending.current = true;
       const optimistic = applyThemeFamily(nextFamily, previousAppId);
       setStorageStatus(storageStatusForApply(optimistic));
       setMutationError(undefined);
       try {
         const result = await mutation.mutateAsync({ family: nextFamily });
-        if (!isThemeFamily(result?.family)) {
+        if (
+          !isThemeFamily(result?.family) ||
+          !families.includes(result.family)
+        ) {
           throw errorForState(result);
         }
         if (result.appId !== null && typeof result.appId !== "string") {
@@ -307,7 +380,9 @@ export function useThemeFamily(): ThemeFamilyHook {
           ) {
             reconciliationError = errorForState(data);
           } else {
-            reconciledFamily = data.family;
+            reconciledFamily = families.includes(data.family)
+              ? data.family
+              : defaultFamily;
             reconciledAppId = data.appId;
           }
         } catch (refreshError) {
@@ -326,12 +401,26 @@ export function useThemeFamily(): ThemeFamilyHook {
         throw failure;
       }
     },
-    [appId, mutation],
+    [appId, defaultFamily, families, mutation, urlOverride],
   );
 
-  const error =
-    mutationError ?? (query.isError ? asError(query.error) : undefined);
-  const status = error ? "error" : query.isSuccess ? "success" : "loading";
+  const error = urlOverride
+    ? undefined
+    : (mutationError ?? (query.isError ? asError(query.error) : undefined));
+  const status = urlOverride
+    ? "success"
+    : error
+      ? "error"
+      : query.isSuccess
+        ? "success"
+        : "loading";
 
-  return { family, status, error, storageStatus, setFamily };
+  return {
+    family,
+    status,
+    error,
+    storageStatus,
+    isForcedByUrl: urlOverride !== null,
+    setFamily,
+  };
 }

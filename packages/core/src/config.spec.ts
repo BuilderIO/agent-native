@@ -86,6 +86,53 @@ describe("agent-native app config", () => {
     });
   });
 
+  it("keeps theme families opt-in and validates the configured default", () => {
+    expect(normalizeAgentNativeConfig({})).toEqual({});
+    expect(
+      normalizeAgentNativeConfig({
+        themeFamily: {
+          families: ["original", "agent-native", "original"],
+          defaultFamily: "agent-native",
+        },
+      }),
+    ).toEqual({
+      themeFamily: {
+        families: ["original", "agent-native"],
+        defaultFamily: "agent-native",
+      },
+    });
+    expect(() =>
+      normalizeAgentNativeConfig({
+        themeFamily: {
+          families: ["original"],
+          defaultFamily: "agent-native",
+        },
+      }),
+    ).toThrow("defaultFamily must be included in families");
+  });
+
+  it("merges the opt-in family list and its default", () => {
+    expect(
+      mergeAgentNativeConfigs(
+        {
+          themeFamily: {
+            families: ["original"],
+            defaultFamily: "original",
+          },
+        },
+        {
+          themeFamily: {
+            families: ["agent-native"],
+            defaultFamily: "agent-native",
+          },
+        },
+      ).themeFamily,
+    ).toEqual({
+      families: ["original", "agent-native"],
+      defaultFamily: "agent-native",
+    });
+  });
+
   it("normalizes and merges the public deployment environment", () => {
     expect(
       normalizeAgentNativeConfig({ deployment: { environment: "beta" } }),

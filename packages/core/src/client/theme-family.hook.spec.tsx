@@ -5,6 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const deps = vi.hoisted(() => ({
   appId: "sample-app",
+  appConfig: {
+    themeFamily: {
+      families: ["original", "agent-native"] as const,
+      defaultFamily: "original" as const,
+    },
+  },
   appStateVersion: 0,
   readClientAppState: vi.fn(async () => ({ family: "agent-native" })),
   query: {
@@ -23,6 +29,7 @@ const deps = vi.hoisted(() => ({
 
 vi.mock("./app-config.js", () => ({
   injectedAgentNativeAppId: () => deps.appId,
+  injectedAgentNativeConfig: () => deps.appConfig,
 }));
 vi.mock("./application-state.js", () => ({
   readClientAppState: deps.readClientAppState,
@@ -50,6 +57,7 @@ describe("useThemeFamily", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    window.history.replaceState(null, "", "/");
     window.localStorage.clear();
     document.documentElement.removeAttribute(THEME_FAMILY_ATTRIBUTE);
     deps.query.data = {
@@ -134,6 +142,42 @@ describe("useThemeFamily", () => {
     );
     expect(document.documentElement.getAttribute(THEME_FAMILY_ATTRIBUTE)).toBe(
       "agent-native",
+    );
+  });
+
+  it("keeps a URL-pinned family ahead of saved preferences and blocks changes", async () => {
+    deps.query.data = {
+      family: "agent-native",
+      source: "user-setting",
+      appId: "sample-app",
+    };
+    window.history.replaceState(null, "", "/?theme-family=original");
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => root?.render(<Probe />));
+
+    expect(current?.family).toBe("original");
+    expect(current?.isForcedByUrl).toBe(true);
+    expect(current?.status).toBe("success");
+    expect(document.documentElement.getAttribute(THEME_FAMILY_ATTRIBUTE)).toBe(
+      "original",
+    );
+
+    await expect(current?.setFamily("agent-native")).rejects.toThrow(
+      "pinned by the URL parameter",
+    );
+    expect(document.documentElement.getAttribute(THEME_FAMILY_ATTRIBUTE)).toBe(
+      "original",
+    );
+    expect(deps.mutation.mutateAsync).not.toHaveBeenCalled();
+    window.localStorage.setItem("theme-family:sample-app", "agent-native");
+    window.dispatchEvent(
+      new StorageEvent("storage", { key: "theme-family:sample-app" }),
+    );
+    expect(document.documentElement.getAttribute(THEME_FAMILY_ATTRIBUTE)).toBe(
+      "original",
     );
   });
 });

@@ -1,6 +1,10 @@
+import { injectedAgentNativeConfig } from "@agent-native/core/client/app-config";
 import { useOptionalLocale, useT } from "@agent-native/core/client/i18n";
+import { useSession } from "@agent-native/core/client/use-session";
+import { useEffect, useState } from "react";
 
 import { LanguagePicker } from "../../shared/index.js";
+import { isBuilderIoEmployee } from "../../shared/is-builder-io-employee.js";
 import { SchedulingTimezoneField } from "../SchedulingTimezoneField.js";
 import { SettingsGroup, SettingsRow } from "../SettingsRow.js";
 import { VoiceChatSettings } from "../VoiceChatSettings.js";
@@ -16,7 +20,19 @@ const key = (name: string) => `agentChat.settingsShell.account.${name}`;
 export function PreferencesSettings() {
   const t = useT();
   const hasLocale = useOptionalLocale() !== null;
+  const { session, status } = useSession();
+  const [clientReady, setClientReady] = useState(false);
+  const hasMultipleThemeFamilies =
+    (injectedAgentNativeConfig().themeFamily?.families.length ?? 1) > 1;
   const languageLabel = t("agentChat.settingsShell.interfaceLanguage");
+  const canSwitchTheme =
+    clientReady &&
+    hasMultipleThemeFamilies &&
+    status === "authenticated" &&
+    isBuilderIoEmployee(session?.email);
+
+  useEffect(() => setClientReady(true), []);
+
   return (
     <div className="flex flex-col gap-8">
       <SettingsGroup id="language-region" title={t(key("languageAndRegion"))}>
@@ -39,13 +55,15 @@ export function PreferencesSettings() {
           control={<SchedulingTimezoneField compact />}
         />
       </SettingsGroup>
-      <SettingsGroup id="appearance" title={t(key("appearance"))}>
-        <SettingsRow
-          id="theme-family"
-          label={t(key("themeFamily"))}
-          control={<ThemeFamilySettings />}
-        />
-      </SettingsGroup>
+      {canSwitchTheme ? (
+        <SettingsGroup id="appearance" title={t(key("appearance"))}>
+          <SettingsRow
+            id="theme-family"
+            label={t(key("themeFamily"))}
+            control={<ThemeFamilySettings />}
+          />
+        </SettingsGroup>
+      ) : null}
       <SettingsGroup id="voice-input" title={t(key("voiceInput"))}>
         <VoiceTranscriptionSection compact />
       </SettingsGroup>

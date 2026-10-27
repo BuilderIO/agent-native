@@ -1,3 +1,4 @@
+import { isThemeFamily, type ThemeFamily } from "./appearance/theme-family.js";
 import { normalizeFrameworkRoutePrefix } from "./shared/framework-route-prefix.js";
 
 export const AGENT_NATIVE_CONFIG_VERSION = 1 as const;
@@ -86,6 +87,11 @@ export interface AgentNativeHarnessConfig {
 
 export type AgentNativeHarnessSetting = boolean | AgentNativeHarnessConfig;
 
+export interface AgentNativeThemeFamilyConfig {
+  families: ThemeFamily[];
+  defaultFamily: ThemeFamily;
+}
+
 export interface AgentNativeConfig {
   version?: typeof AGENT_NATIVE_CONFIG_VERSION;
   onboarding?: AgentNativeOnboardingConfig;
@@ -97,6 +103,7 @@ export interface AgentNativeConfig {
   translations?: AgentNativeTranslationsConfig;
   changelog?: AgentNativeChangelogConfig;
   harness?: AgentNativeHarnessSetting;
+  themeFamily?: AgentNativeThemeFamilyConfig;
 }
 
 export interface AgentNativeConfigContext {
@@ -178,6 +185,9 @@ const AGENT_NATIVE_CONFIG_ENV_NODES: readonly AgentNativeConfigEnvNode[] = [
   { path: ["changelog", "enabled"], kind: "boolean" },
   { path: ["harness"], kind: "union" },
   { path: ["harness", "runtimes"], kind: "array" },
+  { path: ["themeFamily"], kind: "object" },
+  { path: ["themeFamily", "families"], kind: "array" },
+  { path: ["themeFamily", "defaultFamily"], kind: "string" },
 ];
 
 function agentNativeConfigEnvSegment(segment: string): string {
@@ -205,6 +215,43 @@ function isAgentNativeConfigEnvKey(key: string): boolean {
     key === AGENT_NATIVE_CONFIG_ENV_PREFIX ||
     key.startsWith(`${AGENT_NATIVE_CONFIG_ENV_PREFIX}_`)
   );
+}
+
+function normalizeThemeFamilyConfig(
+  value: unknown,
+  source: string,
+): AgentNativeThemeFamilyConfig {
+  if (!isRecord(value)) {
+    throw new Error(`${source} must be an object`);
+  }
+  if (!Array.isArray(value.families) || value.families.length === 0) {
+    throw new Error(`${source}.families must be a non-empty array`);
+  }
+
+  const families: ThemeFamily[] = [];
+  for (const family of value.families) {
+    if (!isThemeFamily(family)) {
+      throw new Error(
+        `${source}.families contains an unsupported theme family`,
+      );
+    }
+    if (!families.includes(family)) families.push(family);
+  }
+
+  const defaultFamily = value.defaultFamily;
+  if (defaultFamily !== undefined && !isThemeFamily(defaultFamily)) {
+    throw new Error(
+      `${source}.defaultFamily must be a registered theme family`,
+    );
+  }
+  const resolvedDefault =
+    defaultFamily ??
+    (families.includes("original") ? "original" : families[0]!);
+  if (!families.includes(resolvedDefault)) {
+    throw new Error(`${source}.defaultFamily must be included in families`);
+  }
+
+  return { families, defaultFamily: resolvedDefault };
 }
 
 function parseAgentNativeConfigJson(raw: string, key: string): unknown {
@@ -450,6 +497,7 @@ export function normalizeAgentNativeConfig(
   const translationsValue = input.translations;
   const changelogValue = input.changelog;
   const harnessValue = input.harness;
+  const themeFamilyValue = input.themeFamily;
 
   const normalized: AgentNativeConfig = {
     ...(input.version === undefined
@@ -521,6 +569,13 @@ export function normalizeAgentNativeConfig(
     normalized.harness = normalizeHarnessConfig(
       harnessValue,
       `${source}.harness`,
+    );
+  }
+
+  if (themeFamilyValue !== undefined) {
+    normalized.themeFamily = normalizeThemeFamilyConfig(
+      themeFamilyValue,
+      `${source}.themeFamily`,
     );
   }
 
@@ -639,6 +694,22 @@ export function mergeAgentNativeConfigs(
       override.harness,
       arrayStrategy,
     ),
+    themeFamily:
+      base.themeFamily || override.themeFamily
+        ? normalizeThemeFamilyConfig(
+            {
+              families: mergeStringLists(
+                base.themeFamily?.families,
+                override.themeFamily?.families,
+                arrayStrategy,
+              ),
+              defaultFamily:
+                override.themeFamily?.defaultFamily ??
+                base.themeFamily?.defaultFamily,
+            },
+            "merged Agent-Native config.themeFamily",
+          )
+        : undefined,
   };
 }
 
