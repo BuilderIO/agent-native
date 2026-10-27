@@ -546,7 +546,7 @@ LEFT JOIN denominator d ON d.app = x.app
 ORDER BY x.app, x.rejected_recorders DESC`;
 }
 
-export function buildUploadRecorderCountsSql(): string {
+export function buildUploadRejectionAttributionSql(): string {
   const app = recorderAppSql("r");
   return `WITH recorded AS (
   SELECT ${app} AS app, r.session_id
@@ -558,22 +558,88 @@ export function buildUploadRecorderCountsSql(): string {
     AND ${recorderIdentityFilters("r")}
     AND lower(${app}) IN ('design', 'slides', 'clips')
   GROUP BY ${app}, r.session_id
-), rejected AS (
-  SELECT app_sessions.value ->> 'app' AS app, session_ids.session_id
-  FROM jsonb_array_elements($4::jsonb) AS app_sessions(value)
-  CROSS JOIN LATERAL jsonb_array_elements_text(
-    app_sessions.value -> 'session_ids'
-  ) AS session_ids(session_id)
-  WHERE app_sessions.value ->> 'app' IN ('design', 'slides', 'clips')
-    AND nullif(session_ids.session_id, '') IS NOT NULL
+), rejection_groups AS (
+  SELECT
+    lower(coalesce(nullif(group_data.value ->> 'app', ''), 'unknown')) AS reported_app,
+    lower(coalesce(nullif(group_data.value ->> 'reason', ''), 'unknown')) AS reason,
+    lower(coalesce(nullif(group_data.value ->> 'status', ''), 'unknown')) AS status,
+    coalesce((group_data.value ->> 'unidentified_rejections')::int, 0) AS unidentified_rejections,
+    group_data.value -> 'session_ids' AS session_ids
+  FROM jsonb_array_elements($4::jsonb) AS group_data(value)
+), rejected_sessions AS (
+  SELECT g.reported_app, g.reason, g.status, ids.session_id
+  FROM rejection_groups g
+  CROSS JOIN LATERAL jsonb_array_elements_text(g.session_ids) AS ids(session_id)
+  WHERE nullif(ids.session_id, '') IS NOT NULL
+), rejected_ids AS (
+  SELECT DISTINCT session_id FROM rejected_sessions
+), indexed_apps AS (
+  SELECT i.session_id, min(lower(i.app)) AS app
+  FROM analytics_session_events i
+  JOIN rejected_ids ids ON ids.session_id = i.session_id
+  WHERE i.org_id = $3
+    AND lower(i.app) IN ('design', 'slides', 'clips')
+  GROUP BY i.session_id
+), recording_apps AS (
+  SELECT r.session_id, min(${app}) AS app
+  FROM session_recordings r
+  JOIN rejected_ids ids ON ids.session_id = r.session_id
+  WHERE r.org_id = $3
+    AND ${recorderIdentityFilters("r")}
+    AND lower(${app}) IN ('design', 'slides', 'clips')
+  GROUP BY r.session_id
+), rejected_app_map AS (
+  SELECT ids.session_id, coalesce(i.app, r.app, 'unknown') AS app
+  FROM rejected_ids ids
+  LEFT JOIN indexed_apps i USING (session_id)
+  LEFT JOIN recording_apps r USING (session_id)
+), mapped_rejections AS (
+  SELECT
+    coalesce(
+      CASE WHEN s.reported_app IN ('design', 'slides', 'clips') THEN s.reported_app END,
+      m.app,
+      'unknown'
+    ) AS app,
+    s.reason,
+    s.status,
+    s.session_id
+  FROM rejected_sessions s
+  LEFT JOIN rejected_app_map m USING (session_id)
+), rejected_counts AS (
+  SELECT app, reason, status, count(DISTINCT session_id)::int AS rejected_recorders
+  FROM mapped_rejections
+  GROUP BY app, reason, status
+), unidentified_counts AS (
+  SELECT
+    CASE WHEN reported_app IN ('design', 'slides', 'clips') THEN reported_app ELSE 'unknown' END AS app,
+    reason,
+    status,
+    sum(unidentified_rejections)::int AS unidentified_rejections
+  FROM rejection_groups
+  WHERE unidentified_rejections > 0
+  GROUP BY app, reason, status
+), rejection_keys AS (
+  SELECT app, reason, status FROM rejected_counts
+  UNION
+  SELECT app, reason, status FROM unidentified_counts
 ), population AS (
   SELECT app, session_id FROM recorded
   UNION
-  SELECT app, session_id FROM rejected
+  SELECT app, session_id FROM mapped_rejections
+  WHERE app IN ('design', 'slides', 'clips')
+), denominator AS (
+  SELECT app, count(DISTINCT session_id)::int AS recorders
+  FROM population GROUP BY app
 )
-SELECT app, count(DISTINCT session_id)::int AS recorders
-FROM population
-GROUP BY app`;
+SELECT k.app, k.reason, k.status,
+  coalesce(r.rejected_recorders, 0)::int AS rejected_recorders,
+  coalesce(u.unidentified_rejections, 0)::int AS unidentified_rejections,
+  d.recorders
+FROM rejection_keys k
+LEFT JOIN rejected_counts r USING (app, reason, status)
+LEFT JOIN unidentified_counts u USING (app, reason, status)
+LEFT JOIN denominator d USING (app)
+ORDER BY k.app, rejected_recorders DESC`;
 }
 
 export function buildErrorIssuesSql(): string {

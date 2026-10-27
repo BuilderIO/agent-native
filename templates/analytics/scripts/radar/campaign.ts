@@ -3,13 +3,17 @@ import os from "node:os";
 import path from "node:path";
 
 import {
+  type BqParameter,
   RadarQueryError,
   REPO_ROOT,
   radarJsonbParam,
+  resolveRadarBigQueryEventsTable,
   resolveRadarFirstPartyBackend,
+  runBigQuery,
   runPostgresQuery,
 } from "./query.ts";
 import { CAMPAIGN_APPS, buildCampaignFollowupSql } from "./sql.ts";
+import { buildBigQueryCampaignFollowupSql } from "./warehouse-sql.ts";
 
 function itemAt<T>(items: readonly T[], index: number): T | undefined {
   if (index < 0 || index >= items.length) return undefined;
@@ -110,6 +114,33 @@ export function campaignPostgresParams(
     app: recipient.app,
   }));
   return [radarJsonbParam(recipientRows), startDate, endDate, orgId];
+}
+
+export function campaignBigQueryParams(
+  recipients: CampaignRecipient[],
+  startDate: string,
+  endDate: string,
+  observedAt: string,
+  orgId: string,
+): BqParameter[] {
+  // Keep recipient identifiers bound; SQL text and returned rows stay aggregate-only.
+  return [
+    {
+      name: "recipients_json",
+      type: "STRING",
+      value: JSON.stringify(
+        recipients.map((recipient) => ({
+          email: recipient.email,
+          sent_at: recipient.sent_at,
+          app: recipient.app,
+        })),
+      ),
+    },
+    { name: "start_date", type: "DATE", value: startDate },
+    { name: "end_date", type: "DATE", value: endDate },
+    { name: "observed_at", type: "TIMESTAMP", value: observedAt },
+    { name: "org_id", type: "STRING", value: orgId },
+  ];
 }
 
 function normalizeApp(value: string | undefined): string {
@@ -277,17 +308,30 @@ export async function runCampaignFollowup(
   const observedAt = new Date();
   const endDate = observedAt.toISOString().slice(0, 10);
   const backend = await resolveRadarFirstPartyBackend();
-  if (backend.sink === "bigquery") {
-    throw new RadarQueryError(
-      "Campaign follow-up is unavailable for the BigQuery sink until a keyed recipient matching function is configured.",
-      2,
-    );
-  }
-  const { rows } = await runPostgresQuery(
-    buildCampaignFollowupSql(),
-    campaignPostgresParams(recipients, startDate, endDate, orgId),
-    { fresh: true, cache: false },
-  );
+  const { rows } =
+    backend.sink === "bigquery"
+      ? await runBigQuery(
+          buildBigQueryCampaignFollowupSql(
+            await resolveRadarBigQueryEventsTable(),
+            CAMPAIGN_APPS,
+          ),
+          {
+            params: campaignBigQueryParams(
+              recipients,
+              startDate,
+              endDate,
+              observedAt.toISOString(),
+              orgId,
+            ),
+            fresh: true,
+            cache: false,
+          },
+        )
+      : await runPostgresQuery(
+          buildCampaignFollowupSql(),
+          campaignPostgresParams(recipients, startDate, endDate, orgId),
+          { fresh: true, cache: false },
+        );
   const byRecipientApp: Record<string, number> = {};
   const aggregateRows = rows.map((row) => {
     const recipientApp = String(row.recipient_app ?? "unknown");

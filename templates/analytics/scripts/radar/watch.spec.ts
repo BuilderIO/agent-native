@@ -484,7 +484,7 @@ describe("upload rejection evidence routing", () => {
     queryMocks.runBigQuery.mockResolvedValue({
       rows: [
         {
-          app: "clips",
+          app: "other",
           reason: "storage",
           status: "413",
           rejected_recorders: 2,
@@ -492,7 +492,7 @@ describe("upload rejection evidence routing", () => {
           rejected_session_ids: ["recording-1", "recording-2"],
         },
         {
-          app: "clips",
+          app: "other",
           reason: "network",
           status: "502",
           rejected_recorders: 1,
@@ -502,7 +502,24 @@ describe("upload rejection evidence routing", () => {
       ],
     });
     queryMocks.runPostgresQuery.mockResolvedValue({
-      rows: [{ app: "clips", recorders: 8 }],
+      rows: [
+        {
+          app: "clips",
+          reason: "storage",
+          status: "413",
+          rejected_recorders: 2,
+          unidentified_rejections: 0,
+          recorders: 8,
+        },
+        {
+          app: "clips",
+          reason: "network",
+          status: "502",
+          rejected_recorders: 1,
+          unidentified_rejections: 0,
+          recorders: 8,
+        },
+      ],
     });
 
     const rows = await loadUploadRejectionRows(
@@ -524,7 +541,20 @@ describe("upload rejection evidence routing", () => {
         {
           __radarJsonbParameter: true,
           value: [
-            { app: "clips", session_ids: ["recording-1", "recording-2"] },
+            {
+              app: "other",
+              reason: "storage",
+              status: "413",
+              session_ids: ["recording-1", "recording-2"],
+              unidentified_rejections: 0,
+            },
+            {
+              app: "other",
+              reason: "network",
+              status: "502",
+              session_ids: ["recording-1"],
+              unidentified_rejections: 0,
+            },
           ],
         },
       ],

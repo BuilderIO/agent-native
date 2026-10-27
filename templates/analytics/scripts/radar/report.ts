@@ -10,6 +10,7 @@ import {
   type CampaignFollowupResult,
 } from "./campaign.ts";
 import type { RadarCheckResult } from "./checks.ts";
+import { addLinkedEventMetricsSql } from "./linked-events-sql.ts";
 import {
   RadarQueryError,
   RADAR_TMP_DIR,
@@ -18,10 +19,25 @@ import {
   getRadarBigQueryScanBudget,
   radarRunCliExitCode,
   requiredRadarCliValue,
+  resolveRadarBigQueryEventsTable,
+  resolveRadarFirstPartyBackend,
+  resolveRadarOrganizationId,
+  runBigQuery,
   setRadarBigQueryScanBudget,
 } from "./query.ts";
 import { runTriage, type TriageRun } from "./triage.ts";
-import { runWatch, type RadarWatchRun } from "./watch.ts";
+import {
+  buildBigQueryEventStatsSql,
+  buildBigQueryFunnelDailySql,
+  buildBigQueryPromptOutputSloByDateSql,
+  buildBigQueryUploadRejectionSql,
+} from "./warehouse-sql.ts";
+import {
+  matureFunnelCohortDate,
+  runWatch,
+  type RadarWatchPrefetchedQueries,
+  type RadarWatchRun,
+} from "./watch.ts";
 
 interface DailyEntry {
   date: string;
@@ -273,22 +289,26 @@ function runJourneySnapshot(
 export interface WeeklyReportOptions {
   skipJourneySnapshot?: boolean;
   maxTotalGb?: number;
+  freshBigQuery?: boolean;
 }
 
 export function parseReportArgs(args: readonly string[]): {
   week: string | undefined;
   skipJourneySnapshot: boolean;
   maxTotalGb: number;
+  freshBigQuery: boolean;
 } {
   let week: string | undefined;
   let skipJourneySnapshot = false;
   let maxTotalGb = DEFAULT_WEEKLY_MAX_TOTAL_GB;
+  let freshBigQuery = false;
   for (let index = 0; index < args.length; index += 1) {
     if (args[index] === "--week") {
       week = requiredRadarCliValue(args, index, "--week");
       index += 1;
     } else if (args[index] === "--skip-journey-snapshot")
       skipJourneySnapshot = true;
+    else if (args[index] === "--fresh-bigquery") freshBigQuery = true;
     else if (args[index] === "--max-total-gb") {
       const value = Number(
         requiredRadarCliValue(args, index, "--max-total-gb"),
@@ -300,7 +320,7 @@ export function parseReportArgs(args: readonly string[]): {
       index += 1;
     } else throw new RadarQueryError(`Unknown argument: ${args[index]}`, 2);
   }
-  return { week, skipJourneySnapshot, maxTotalGb };
+  return { week, skipJourneySnapshot, maxTotalGb, freshBigQuery };
 }
 
 function privateDirectory(directory: string): void {
@@ -344,6 +364,14 @@ async function buildWeeklyReportWithinBudget(
   maxTotalGb: number,
 ): Promise<RadarWeeklyReport> {
   const weekEnd = completedReportWeekEnd(week);
+  const cutoff = new Date();
+  const prefetched = await prefetchWeeklyBigQuery(
+    week,
+    weekEnd,
+    cutoff,
+    maxTotalGb,
+    options.freshBigQuery ?? false,
+  );
   const dailyRuns: DailyEntry[] = [];
   let queryCount = 0;
   for (let offset = 0; offset < 7; offset += 1) {
@@ -353,6 +381,8 @@ async function buildWeeklyReportWithinBudget(
         date,
         window: "daily",
         includeCampaign: offset === 6,
+        cutoff,
+        ...(prefetched ? { prefetched } : {}),
       });
       dailyRuns.push({ date, run });
       queryCount += run.queryCount;
@@ -364,6 +394,7 @@ async function buildWeeklyReportWithinBudget(
       });
     }
   }
+  if (prefetched) queryCount += 4;
 
   let triage: TriageRun | null = null;
   let triageError: string | null = null;
@@ -410,7 +441,8 @@ async function buildWeeklyReportWithinBudget(
     ) ?? []) {
       const key = issueKey(check);
       const existing = firedByKey.get(key) ?? compactCheck(check);
-      existing.firedOn.push(entry.date);
+      if (!existing.firedOn.includes(entry.date))
+        existing.firedOn.push(entry.date);
       existing.detail = check.detail ?? check.message;
       firedByKey.set(key, existing);
     }
@@ -427,17 +459,15 @@ async function buildWeeklyReportWithinBudget(
   const failedDates = dailyRuns
     .filter((entry) => !entry.run)
     .map((entry) => entry.date);
-  const hasUnavailable = dailyRuns.some((entry) => entry.run?.exitCode === 2);
-  const hasFires = dailyRuns.some((entry) => entry.run?.exitCode === 1);
+  const needsAttention = dailyRuns.some((entry) => entry.run?.exitCode === 1);
   const exitCode: 0 | 1 | 2 =
     failedDates.length ||
-    hasUnavailable ||
     journeySnapshot.status === "failed" ||
     journeySnapshot.status === "skipped" ||
     !triage ||
     !abReadout
       ? 2
-      : hasFires
+      : needsAttention
         ? 1
         : 0;
   const bigQueryScanBudget = getRadarBigQueryScanBudget();
@@ -481,6 +511,84 @@ async function buildWeeklyReportWithinBudget(
     journeySnapshot,
     feedback: { status: "agent_required", skill: "feedback-ingest" },
     exitCode,
+  };
+}
+
+async function prefetchWeeklyBigQuery(
+  week: string,
+  weekEnd: string,
+  cutoff: Date,
+  maxGb: number,
+  fresh: boolean,
+): Promise<RadarWatchPrefetchedQueries | undefined> {
+  const backend = await resolveRadarFirstPartyBackend();
+  if (backend.sink !== "bigquery") return undefined;
+
+  const orgId = await resolveRadarOrganizationId();
+  const table = await resolveRadarBigQueryEventsTable();
+  const eventStart = addDays(week, -30);
+  const eventSql = addLinkedEventMetricsSql(
+    buildBigQueryEventStatsSql(table, "DAY"),
+    "bigquery",
+    "DAY",
+  );
+  const eventRows = await runBigQuery(eventSql, {
+    maxGb,
+    fresh,
+    ...(fresh ? { cache: false } : {}),
+    params: [
+      { name: "start_date", type: "DATE", value: eventStart },
+      { name: "end_date", type: "DATE", value: weekEnd },
+      { name: "org_id", type: "STRING", value: orgId },
+    ],
+  });
+
+  const firstCohort = matureFunnelCohortDate(week, cutoff);
+  const lastCohort = matureFunnelCohortDate(weekEnd, cutoff);
+  const funnelRows = await runBigQuery(buildBigQueryFunnelDailySql(table), {
+    maxGb,
+    fresh,
+    ...(fresh ? { cache: false } : {}),
+    params: [
+      { name: "start_date", type: "DATE", value: addDays(firstCohort, -8) },
+      { name: "end_date", type: "DATE", value: addDays(lastCohort, 1) },
+      { name: "org_id", type: "STRING", value: orgId },
+      { name: "cutoff", type: "TIMESTAMP", value: cutoff.toISOString() },
+    ],
+  });
+
+  const sloRows = await runBigQuery(
+    buildBigQueryPromptOutputSloByDateSql(table),
+    {
+      maxGb,
+      fresh,
+      ...(fresh ? { cache: false } : {}),
+      params: [
+        { name: "source_start_date", type: "DATE", value: addDays(week, -6) },
+        { name: "source_end_date", type: "DATE", value: weekEnd },
+        { name: "target_start_date", type: "DATE", value: week },
+        { name: "target_end_date", type: "DATE", value: weekEnd },
+        { name: "org_id", type: "STRING", value: orgId },
+      ],
+    },
+  );
+
+  const uploadRows = await runBigQuery(buildBigQueryUploadRejectionSql(table), {
+    maxGb,
+    fresh: true,
+    cache: false,
+    params: [
+      { name: "start_date", type: "DATE", value: week },
+      { name: "end_date", type: "DATE", value: weekEnd },
+      { name: "org_id", type: "STRING", value: orgId },
+    ],
+  });
+
+  return {
+    eventRows: eventRows.rows,
+    funnelRows: funnelRows.rows,
+    sloRows: sloRows.rows,
+    uploadRows: uploadRows.rows,
   };
 }
 
@@ -640,17 +748,17 @@ export async function writeWeeklyReport(
 
 async function main(): Promise<void> {
   try {
-    const { week, skipJourneySnapshot, maxTotalGb } = parseReportArgs(
-      process.argv.slice(2),
-    );
+    const { week, skipJourneySnapshot, maxTotalGb, freshBigQuery } =
+      parseReportArgs(process.argv.slice(2));
     if (!week)
       throw new RadarQueryError(
-        "Usage: radar:report --week YYYY-MM-DD [--skip-journey-snapshot] [--max-total-gb N]",
+        "Usage: radar:report --week YYYY-MM-DD [--skip-journey-snapshot] [--max-total-gb N] [--fresh-bigquery]",
         2,
       );
     const report = await buildWeeklyReport(week, {
       skipJourneySnapshot,
       maxTotalGb,
+      freshBigQuery,
     });
     const paths = await writeWeeklyReport(report);
     console.log(formatWeeklyMarkdown(report));

@@ -5,7 +5,9 @@ import {
   bigQueryFirstTouchEventsCte,
   buildBigQueryEventStatsSql,
   buildBigQueryFunnelDailySql,
+  buildBigQueryCampaignFollowupSql,
   buildBigQueryPromptOutputSloSql,
+  buildBigQueryPromptOutputSloByDateSql,
   buildBigQueryTriageEventsSql,
   buildBigQueryUploadRejectionSql,
 } from "./warehouse-sql.ts";
@@ -76,6 +78,14 @@ describe("first-party BigQuery radar SQL", () => {
     expect(slo).toContain("percentile_cont(seconds, 0.9)");
   });
 
+  it("can narrow historical event checks to their needed event names", () => {
+    const sql = buildBigQueryEventStatsSql(range, "HOUR", [
+      "signup",
+      "generation_started",
+    ]);
+    expect(sql).toContain("e.event_name IN ('signup', 'generation_started')");
+  });
+
   it("splits Design web and MCP signups and measures Clips 24-hour activation", () => {
     const funnel = buildBigQueryFunnelDailySql(range);
     expect(funnel).toContain("first_touch_path NOT LIKE '/mcp/oauth%'");
@@ -118,11 +128,43 @@ describe("first-party BigQuery radar SQL", () => {
     );
     expect(upload).toContain("AS rejected_session_ids");
     expect(upload).toContain(
-      "SELECT app, reason, status, rejected_recorders, unidentified_rejections",
+      "SELECT event_date, app, reason, status, rejected_recorders, unidentified_rejections",
     );
+    expect(upload).toContain("GROUP BY event_date, app, reason, status");
     expect(upload).toContain("@start_date");
     expect(upload).toContain("@end_date");
     expect(upload).toContain("@org_id");
+  });
+
+  it("batches daily prompt/output SLOs across a bounded partition range", () => {
+    const slo = buildBigQueryPromptOutputSloByDateSql(range);
+    expect(slo).toContain("@source_start_date");
+    expect(slo).toContain("@source_end_date");
+    expect(slo).toContain("@target_start_date");
+    expect(slo).toContain("@target_end_date");
+    expect(slo).toContain("DATE_SUB(d.target_date, INTERVAL 6 DAY)");
+    expect(slo).toContain("DATE(o.happened_at, 'UTC') <= p.target_date");
+  });
+
+  it("matches campaign cohorts without projecting recipient identities", () => {
+    const campaign = buildBigQueryCampaignFollowupSql(range, [
+      "design",
+      "other",
+    ]);
+    expect(campaign).toContain("@recipients_json");
+    expect(campaign).toContain("@observed_at");
+    expect(campaign).toContain("lower(trim(e.identity_email)) = r.email");
+    expect(campaign).toContain(
+      "GROUP BY period, recipient_app, activity_app, metric",
+    );
+    const finalSelect = campaign.slice(campaign.lastIndexOf("SELECT p.period"));
+    expect(finalSelect).toContain(
+      "SELECT p.period, t.recipient_app, a.activity_app, m.metric, t.recipients,",
+    );
+    expect(finalSelect).not.toContain("email");
+    expect(() =>
+      buildBigQueryCampaignFollowupSql(range, ["apps'; SELECT 1; --"]),
+    ).toThrow("Campaign app list contains an invalid label.");
   });
 
   it("bounds selected BigQuery triage sessions and excludes their identity fields", () => {

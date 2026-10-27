@@ -39,7 +39,7 @@ import {
   buildFunnelDailySql,
   buildPromptOutputSloSql,
   buildTroubleSql,
-  buildUploadRecorderCountsSql,
+  buildUploadRejectionAttributionSql,
   buildUploadRejectionSql,
 } from "./sql.ts";
 import {
@@ -67,6 +67,15 @@ export interface RadarWatchOptions {
   date?: string;
   hour?: number;
   includeCampaign?: boolean;
+  prefetched?: RadarWatchPrefetchedQueries;
+  cutoff?: Date;
+}
+
+export interface RadarWatchPrefetchedQueries {
+  eventRows: Record<string, unknown>[];
+  funnelRows: Record<string, unknown>[];
+  sloRows: Record<string, unknown>[];
+  uploadRows: Record<string, unknown>[];
 }
 
 export interface RadarWatchRun {
@@ -74,7 +83,7 @@ export interface RadarWatchRun {
   window: "hourly" | "daily";
   date: string;
   hour?: number;
-  exitCode: 0 | 1 | 2;
+  exitCode: 0 | 1;
   checks: RadarCheckResult[];
   journeyRows: JourneyRow[];
   campaignFollowup?: CampaignFollowupResult;
@@ -216,6 +225,7 @@ export async function loadUploadRejectionRows(
   backend: { sink: "postgres" | "dual" | "bigquery"; table: string | null },
   date: string,
   orgId: string,
+  prefetchedRows?: readonly QueryRow[],
 ): Promise<QueryRow[]> {
   if (backend.sink !== "bigquery") {
     const { rows } = await runPostgresQuery(buildUploadRejectionSql(), [
@@ -226,19 +236,24 @@ export async function loadUploadRejectionRows(
     return rows as QueryRow[];
   }
 
-  const table = await resolveRadarBigQueryEventsTable();
-  const rejected = await runBigQuery(buildBigQueryUploadRejectionSql(table), {
-    params: [
-      { name: "start_date", type: "DATE", value: date },
-      { name: "end_date", type: "DATE", value: date },
-      { name: "org_id", type: "STRING", value: orgId },
-    ],
-    fresh: true,
-    cache: false,
-  });
-  const rejectedRows = rejected.rows as QueryRow[];
-  const rejectedSessionIdsByApp = new Map<string, Set<string>>();
-  for (const row of rejectedRows) {
+  let rejectedRows = prefetchedRows
+    ? prefetchedRows.filter((row) => asDate(row.event_date) === date)
+    : undefined;
+  if (!rejectedRows) {
+    const table = await resolveRadarBigQueryEventsTable();
+    const rejected = await runBigQuery(buildBigQueryUploadRejectionSql(table), {
+      params: [
+        { name: "start_date", type: "DATE", value: date },
+        { name: "end_date", type: "DATE", value: date },
+        { name: "org_id", type: "STRING", value: orgId },
+      ],
+      fresh: true,
+      cache: false,
+    });
+    rejectedRows = rejected.rows as QueryRow[];
+  }
+  if (!rejectedRows.length) return [];
+  const rejectionGroups = rejectedRows.map((row) => {
     const sessionIds = row.rejected_session_ids;
     if (
       !Array.isArray(sessionIds) ||
@@ -251,39 +266,30 @@ export async function loadUploadRejectionRows(
         1,
       );
     }
-    const app = String(row.app ?? "unknown");
-    const uniqueIds = rejectedSessionIdsByApp.get(app) ?? new Set<string>();
-    for (const sessionId of sessionIds) uniqueIds.add(sessionId);
-    rejectedSessionIdsByApp.set(app, uniqueIds);
-  }
-  const recorders = await runPostgresQuery(
-    buildUploadRecorderCountsSql(),
-    [
-      date,
-      date,
-      orgId,
-      radarJsonbParam(
-        [...rejectedSessionIdsByApp].map(([app, sessionIds]) => ({
-          app,
-          session_ids: [...sessionIds],
-        })),
-      ),
-    ],
-    { fresh: true },
-  );
-  const recordersByApp = new Map(
-    (recorders.rows as QueryRow[]).map((row) => [
-      String(row.app ?? "unknown"),
-      row.recorders,
-    ]),
-  );
-  return rejectedRows.map((row) => {
-    const { rejected_session_ids: _sessionIds, ...summary } = row;
+    const unidentifiedRejections = Number(row.unidentified_rejections);
+    if (
+      !Number.isSafeInteger(unidentifiedRejections) ||
+      unidentifiedRejections < 0
+    ) {
+      throw new RadarQueryError(
+        "BigQuery returned invalid replay rejection counts.",
+        1,
+      );
+    }
     return {
-      ...summary,
-      recorders: recordersByApp.get(String(row.app ?? "unknown")) ?? null,
+      app: String(row.app ?? "unknown"),
+      reason: String(row.reason ?? "unknown"),
+      status: String(row.status ?? "unknown"),
+      session_ids: [...new Set(sessionIds as string[])],
+      unidentified_rejections: unidentifiedRejections,
     };
   });
+  const recorders = await runPostgresQuery(
+    buildUploadRejectionAttributionSql(),
+    [date, date, orgId, radarJsonbParam(rejectionGroups)],
+    { fresh: true },
+  );
+  return recorders.rows as QueryRow[];
 }
 
 export function uploadRejectionCheck(
@@ -323,7 +329,7 @@ export function uploadRejectionCheck(
     return baseResult(definition, app, "unavailable", {
       numerator: rejected,
       denominator: null,
-      detail: `${rejected} replay upload rejections; recorder denominator is unavailable.`,
+      detail: `${rejected} replay upload rejections (${String(row.reason)} / ${String(row.status)}); recorder denominator is unavailable.`,
     });
   }
   return thresholdResult(definition, {
@@ -1193,7 +1199,7 @@ export async function runWatch(
   options: RadarWatchOptions = {},
 ): Promise<RadarWatchRun> {
   const window = options.window ?? "daily";
-  const cutoff = new Date();
+  const cutoff = options.cutoff ?? new Date();
   const currentHour = new Date(cutoff.getTime() - 60 * 60 * 1000);
   currentHour.setUTCMinutes(0, 0, 0);
   const date =
@@ -1211,40 +1217,51 @@ export async function runWatch(
   const funnelCohortDate = matureFunnelCohortDate(date, cutoff);
   const orgId = await resolveRadarOrganizationId();
   const backend = await resolveRadarFirstPartyBackend();
+  if (options.prefetched && backend.sink !== "bigquery") {
+    throw new RadarQueryError(
+      "Prefetched warehouse rows require the BigQuery event backend.",
+      2,
+    );
+  }
   const eventStart = addDays(date, window === "daily" ? -30 : -14);
   const eventBucket = window === "hourly" ? "HOUR" : "DAY";
-  const eventStatsSql =
-    backend.sink === "bigquery"
-      ? buildBigQueryEventStatsSql(
-          await resolveRadarBigQueryEventsTable(),
-          eventBucket,
-        )
-      : buildEventStatsSql();
-  const eventQuerySql =
-    window === "daily"
-      ? addLinkedEventMetricsSql(
-          eventStatsSql,
-          backend.sink === "bigquery" ? "bigquery" : "postgres",
-          eventBucket,
-        )
-      : eventStatsSql;
-  const eventResult =
-    backend.sink === "bigquery"
-      ? await runBigQuery(eventQuerySql, {
-          params: [
-            { name: "start_date", type: "DATE", value: eventStart },
-            { name: "end_date", type: "DATE", value: date },
-            { name: "org_id", type: "STRING", value: orgId },
-          ],
-        })
-      : await runPostgresQuery(eventQuerySql, [
-          eventStart,
-          date,
-          orgId,
-          window === "hourly" ? "hour" : "day",
-        ]);
-  const eventRowsData = eventResult.rows as QueryRow[];
-  const queryCount = 3;
+  let eventRowsData: QueryRow[];
+  if (options.prefetched) {
+    eventRowsData = options.prefetched.eventRows as QueryRow[];
+  } else {
+    const eventStatsSql =
+      backend.sink === "bigquery"
+        ? buildBigQueryEventStatsSql(
+            await resolveRadarBigQueryEventsTable(),
+            eventBucket,
+          )
+        : buildEventStatsSql();
+    const eventQuerySql =
+      window === "daily"
+        ? addLinkedEventMetricsSql(
+            eventStatsSql,
+            backend.sink === "bigquery" ? "bigquery" : "postgres",
+            eventBucket,
+          )
+        : eventStatsSql;
+    const eventResult =
+      backend.sink === "bigquery"
+        ? await runBigQuery(eventQuerySql, {
+            params: [
+              { name: "start_date", type: "DATE", value: eventStart },
+              { name: "end_date", type: "DATE", value: date },
+              { name: "org_id", type: "STRING", value: orgId },
+            ],
+          })
+        : await runPostgresQuery(eventQuerySql, [
+            eventStart,
+            date,
+            orgId,
+            window === "hourly" ? "hour" : "day",
+          ]);
+    eventRowsData = eventResult.rows as QueryRow[];
+  }
+  const queryCount = options.prefetched ? 2 : 3;
   let funnelRows: QueryRow[] = [];
   let troubleRows: QueryRow[] = [];
   let uploadRows: QueryRow[] = [];
@@ -1259,58 +1276,73 @@ export async function runWatch(
     const funnelEnd = addDays(funnelCohortDate, 1);
     const funnelCutoff = cutoff.toISOString();
     const [funnel, trouble, upload, issues, slo] = await Promise.all([
-      backend.sink === "bigquery"
-        ? runBigQuery(
-            buildBigQueryFunnelDailySql(
-              await resolveRadarBigQueryEventsTable(),
-            ),
-            {
-              params: [
-                { name: "start_date", type: "DATE", value: funnelStart },
-                { name: "end_date", type: "DATE", value: funnelEnd },
-                { name: "org_id", type: "STRING", value: orgId },
-                { name: "cutoff", type: "TIMESTAMP", value: funnelCutoff },
-              ],
-            },
-          )
-        : runPostgresQuery(buildFunnelDailySql(), [
-            funnelStart,
-            funnelEnd,
-            orgId,
-            funnelCutoff,
-          ]),
+      options.prefetched
+        ? Promise.resolve({ rows: options.prefetched.funnelRows })
+        : backend.sink === "bigquery"
+          ? runBigQuery(
+              buildBigQueryFunnelDailySql(
+                await resolveRadarBigQueryEventsTable(),
+              ),
+              {
+                params: [
+                  { name: "start_date", type: "DATE", value: funnelStart },
+                  { name: "end_date", type: "DATE", value: funnelEnd },
+                  { name: "org_id", type: "STRING", value: orgId },
+                  { name: "cutoff", type: "TIMESTAMP", value: funnelCutoff },
+                ],
+              },
+            )
+          : runPostgresQuery(buildFunnelDailySql(), [
+              funnelStart,
+              funnelEnd,
+              orgId,
+              funnelCutoff,
+            ]),
       runPostgresQuery(buildTroubleSql(), [date, date, orgId]),
-      loadUploadRejectionRows(backend, date, orgId),
+      loadUploadRejectionRows(
+        backend,
+        date,
+        orgId,
+        options.prefetched?.uploadRows as QueryRow[] | undefined,
+      ),
       runPostgresQuery(buildErrorIssuesSql(), [
         orgId,
         `${date}T00:00:00.000Z`,
         `${addDays(date, 1)}T00:00:00.000Z`,
       ]),
-      backend.sink === "bigquery"
-        ? runBigQuery(
-            buildBigQueryPromptOutputSloSql(
-              await resolveRadarBigQueryEventsTable(),
-            ),
-            {
-              params: [
-                { name: "start_date", type: "DATE", value: addDays(date, -6) },
-                { name: "end_date", type: "DATE", value: date },
-                { name: "org_id", type: "STRING", value: orgId },
-              ],
-            },
-          )
-        : runPostgresQuery(buildPromptOutputSloSql(), [
-            addDays(date, -6),
-            date,
-            orgId,
-          ]),
+      options.prefetched
+        ? Promise.resolve({ rows: options.prefetched.sloRows })
+        : backend.sink === "bigquery"
+          ? runBigQuery(
+              buildBigQueryPromptOutputSloSql(
+                await resolveRadarBigQueryEventsTable(),
+              ),
+              {
+                params: [
+                  {
+                    name: "start_date",
+                    type: "DATE",
+                    value: addDays(date, -6),
+                  },
+                  { name: "end_date", type: "DATE", value: date },
+                  { name: "org_id", type: "STRING", value: orgId },
+                ],
+              },
+            )
+          : runPostgresQuery(buildPromptOutputSloSql(), [
+              addDays(date, -6),
+              date,
+              orgId,
+            ]),
     ]);
     funnelRows = funnel.rows as QueryRow[];
     troubleRows = trouble.rows as QueryRow[];
     uploadRows = upload;
     issueRows = issues.rows as QueryRow[];
     sloRows = slo.rows as QueryRow[];
-    additionalQueries = 5 + (backend.sink === "bigquery" ? 1 : 0);
+    additionalQueries = options.prefetched
+      ? 2 + 1
+      : 5 + (backend.sink === "bigquery" ? 1 : 0);
     if (options.includeCampaign !== false) {
       additionalQueries += 1;
       try {

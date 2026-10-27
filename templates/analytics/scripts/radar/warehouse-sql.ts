@@ -89,6 +89,17 @@ export function bigQueryFirstTouchEventsCte(
     endDateParam?: string;
     orgIdParam?: string;
     includeAllApps?: boolean;
+    eventNames?: readonly string[];
+    columns?: {
+      id?: boolean;
+      eventDate?: boolean;
+      sessionId?: boolean;
+      url?: boolean;
+      personKey?: boolean;
+      identityEmail?: boolean;
+      referralSource?: boolean;
+      properties?: boolean;
+    };
   } = {},
 ): string {
   const startDate = params.startDateParam ?? "@start_date";
@@ -126,17 +137,46 @@ export function bigQueryFirstTouchEventsCte(
   const appFilter = params.includeAllApps
     ? `lower(${app}) <> 'unknown'`
     : `lower(${app}) IN ('design', 'slides', 'clips')`;
+  const eventNameFilter = params.eventNames?.length
+    ? `AND e.event_name IN (${params.eventNames
+        .map((eventName) => `'${eventName.split("'").join("''")}'`)
+        .join(", ")})`
+    : "";
+  const columns = {
+    id: params.columns?.id ?? true,
+    eventDate: params.columns?.eventDate ?? true,
+    sessionId: params.columns?.sessionId ?? true,
+    url: params.columns?.url ?? true,
+    personKey: params.columns?.personKey ?? true,
+    identityEmail: params.columns?.identityEmail ?? true,
+    referralSource: params.columns?.referralSource ?? true,
+    properties: params.columns?.properties ?? true,
+  };
+  const selectedColumns = [
+    ...(columns.id ? ["e.id"] : []),
+    "e.event_name",
+    ...(columns.eventDate ? ["e.event_date"] : []),
+    "e.timestamp AS happened_at",
+    ...(columns.sessionId ? ["e.session_id"] : []),
+    ...(columns.url ? ["e.url"] : []),
+    ...(columns.personKey ? [`${identity} AS person_key`] : []),
+    ...(columns.identityEmail ? [`${identityEmail} AS identity_email`] : []),
+    `${app} AS app`,
+    ...(columns.referralSource
+      ? [
+          `replace(coalesce(json_value(e.properties, '$.referral_source'), ''), '${ZERO_WIDTH_SPACE}', '') AS referral_source`,
+        ]
+      : []),
+    ...(columns.properties ? ["e.properties AS properties"] : []),
+  ];
   return `WITH base_events AS (
-  SELECT e.id, e.event_name, e.event_date, e.timestamp AS happened_at,
-    e.session_id, e.url, ${identity} AS person_key,
-    ${identityEmail} AS identity_email, ${app} AS app,
-    replace(coalesce(json_value(e.properties, '$.referral_source'), ''), '${ZERO_WIDTH_SPACE}', '') AS referral_source,
-    e.properties AS properties
+  SELECT ${selectedColumns.join(",\n    ")}
   FROM ${eventsTableRange}(${startDate}, ${endDate}) AS e
   WHERE e.event_date >= ${startDate}
     AND e.event_date <= ${endDate}
     AND e.org_id = ${orgId}
     AND ${appFilter}
+    ${eventNameFilter}
     AND ${filters}
 )
 `;
@@ -145,8 +185,21 @@ export function bigQueryFirstTouchEventsCte(
 export function buildBigQueryEventStatsSql(
   eventsTableRange: string,
   bucket: "DAY" | "HOUR",
+  eventNames?: readonly string[],
 ): string {
-  return `${bigQueryFirstTouchEventsCte(eventsTableRange)},
+  return `${bigQueryFirstTouchEventsCte(eventsTableRange, {
+    ...(eventNames ? { eventNames } : {}),
+    columns: {
+      id: false,
+      eventDate: false,
+      sessionId: true,
+      url: false,
+      personKey: true,
+      identityEmail: false,
+      referralSource: false,
+      properties: true,
+    },
+  })},
 new_signups AS (
   SELECT person_key, min(happened_at) AS signup_at
   FROM base_events
@@ -222,7 +275,18 @@ SELECT * FROM event_stats ORDER BY period_start, app, event_name`;
 }
 
 export function buildBigQueryFunnelDailySql(eventsTableRange: string): string {
-  return `${bigQueryFirstTouchEventsCte(eventsTableRange)},
+  return `${bigQueryFirstTouchEventsCte(eventsTableRange, {
+    columns: {
+      id: false,
+      eventDate: true,
+      sessionId: false,
+      url: false,
+      personKey: true,
+      identityEmail: false,
+      referralSource: false,
+      properties: true,
+    },
+  })},
 signup_cohort AS (
   SELECT person_key, app, event_date AS signup_date, min(happened_at) AS signup_at,
     max(coalesce(json_value(properties, '$.first_touch_path'), '')) AS first_touch_path
@@ -373,7 +437,18 @@ ORDER BY signup_date, app`;
 export function buildBigQueryPromptOutputSloSql(
   eventsTableRange: string,
 ): string {
-  return `${bigQueryFirstTouchEventsCte(eventsTableRange)},
+  return `${bigQueryFirstTouchEventsCte(eventsTableRange, {
+    columns: {
+      id: false,
+      eventDate: false,
+      sessionId: false,
+      url: false,
+      personKey: true,
+      identityEmail: false,
+      referralSource: false,
+      properties: false,
+    },
+  })},
 prompts AS (
   SELECT person_key, app, min(happened_at) AS prompt_at
   FROM base_events
@@ -405,12 +480,87 @@ FROM counts c JOIN percentiles p USING (app)
 ORDER BY c.app`;
 }
 
+export function buildBigQueryPromptOutputSloByDateSql(
+  eventsTableRange: string,
+): string {
+  return `${bigQueryFirstTouchEventsCte(eventsTableRange, {
+    startDateParam: "@source_start_date",
+    endDateParam: "@source_end_date",
+    columns: {
+      id: false,
+      eventDate: false,
+      sessionId: false,
+      url: false,
+      personKey: true,
+      identityEmail: false,
+      referralSource: false,
+      properties: false,
+    },
+  })},
+target_dates AS (
+  SELECT target_date
+  FROM UNNEST(GENERATE_DATE_ARRAY(@target_start_date, @target_end_date)) AS target_date
+),
+prompts AS (
+  SELECT person_key, app, happened_at AS prompt_at
+  FROM base_events
+  WHERE person_key IS NOT NULL AND event_name IN (
+    'generation_started', 'design_prompt_submitted', 'recording_started'
+  )
+),
+outputs AS (
+  SELECT person_key, app, happened_at
+  FROM base_events
+  WHERE event_name IN ('deck_created', 'design_ready_viewed', 'recording_ready')
+),
+target_prompts AS (
+  SELECT d.target_date, p.person_key, p.app, min(p.prompt_at) AS prompt_at
+  FROM target_dates d
+  JOIN prompts p ON DATE(p.prompt_at, 'UTC') BETWEEN DATE_SUB(d.target_date, INTERVAL 6 DAY) AND d.target_date
+  GROUP BY d.target_date, p.person_key, p.app
+),
+durations AS (
+  SELECT p.target_date, p.person_key, p.app,
+    timestamp_diff(min(o.happened_at), p.prompt_at, MILLISECOND) / 1000.0 AS seconds
+  FROM target_prompts p
+  JOIN outputs o ON o.person_key = p.person_key AND o.app = p.app
+    AND o.happened_at >= p.prompt_at
+    AND DATE(o.happened_at, 'UTC') <= p.target_date
+  GROUP BY p.target_date, p.person_key, p.app, p.prompt_at
+),
+counts AS (
+  SELECT target_date, app, count(*) AS sample_size
+  FROM durations GROUP BY target_date, app
+),
+percentiles AS (
+  SELECT DISTINCT target_date, app,
+    percentile_cont(seconds, 0.9) OVER (PARTITION BY target_date, app) AS p90_seconds
+  FROM durations
+)
+SELECT c.target_date, c.app, c.sample_size, p.p90_seconds
+FROM counts c JOIN percentiles p USING (target_date, app)
+ORDER BY c.target_date, c.app`;
+}
+
 export function buildBigQueryUploadRejectionSql(
   eventsTableRange: string,
 ): string {
-  return `${bigQueryFirstTouchEventsCte(eventsTableRange)},
+  return `${bigQueryFirstTouchEventsCte(eventsTableRange, {
+    includeAllApps: true,
+    eventNames: ["session_replay_upload_rejected"],
+    columns: {
+      id: false,
+      eventDate: true,
+      sessionId: true,
+      url: false,
+      personKey: false,
+      identityEmail: false,
+      referralSource: false,
+      properties: true,
+    },
+  })},
 rejected AS (
-  SELECT app,
+  SELECT event_date, app,
     lower(coalesce(json_value(properties, '$.failure_reason'), 'unknown')) AS reason,
     lower(coalesce(json_value(properties, '$.status'), json_value(properties, '$.status_code'), 'unknown')) AS status,
     count(DISTINCT nullif(session_id, '')) AS rejected_recorders,
@@ -421,16 +571,126 @@ rejected AS (
     ) AS rejected_session_ids
   FROM base_events
   WHERE event_name = 'session_replay_upload_rejected'
-  GROUP BY app, reason, status
+  GROUP BY event_date, app, reason, status
 )
-SELECT app, reason, status, rejected_recorders, unidentified_rejections,
+SELECT event_date, app, reason, status, rejected_recorders, unidentified_rejections,
   rejected_session_ids
 FROM rejected
 ORDER BY app, rejected_recorders DESC`;
 }
 
+export function buildBigQueryCampaignFollowupSql(
+  eventsTableRange: string,
+  campaignApps: readonly string[],
+): string {
+  const appValues = campaignApps.map((app) => {
+    if (!/^[a-z][a-z0-9_-]*$/.test(app)) {
+      throw new Error("Campaign app list contains an invalid label.");
+    }
+    return `'${app}'`;
+  });
+  return `${bigQueryFirstTouchEventsCte(eventsTableRange, {
+    startDateParam: "@start_date",
+    endDateParam: "@end_date",
+    orgIdParam: "@org_id",
+    includeAllApps: true,
+    columns: {
+      id: false,
+      eventDate: false,
+      sessionId: false,
+      url: true,
+      personKey: false,
+      identityEmail: true,
+      referralSource: false,
+      properties: true,
+    },
+  })},
+recipients AS (
+  SELECT lower(trim(json_value(recipient, '$.email'))) AS email,
+    safe_cast(json_value(recipient, '$.sent_at') AS TIMESTAMP) AS sent_at,
+    lower(coalesce(nullif(json_value(recipient, '$.app'), ''), 'unknown')) AS recipient_app
+  FROM UNNEST(JSON_QUERY_ARRAY(@recipients_json)) AS recipient
+),
+recipient_totals AS (
+  SELECT recipient_app, count(DISTINCT email) AS recipients
+  FROM recipients GROUP BY recipient_app
+),
+activity AS (
+  SELECT r.email, r.recipient_app, e.app AS activity_app, e.event_name,
+    CASE WHEN e.happened_at >= r.sent_at THEN 'after_send' ELSE 'prior_7_days' END AS period,
+    (e.event_name = 'pageview' AND (
+      lower(replace(coalesce(json_value(e.properties, '$.utm_campaign'), ''), '${ZERO_WIDTH_SPACE}', '')) = 'outage_recovery_20261026'
+      OR regexp_contains(lower(concat(
+        coalesce(json_value(e.properties, '$.search'), ''), '&',
+        coalesce(e.url, ''), '&',
+        coalesce(json_value(e.properties, '$.url'), '')
+      )), r'(^|[?&#])utm_campaign=outage_recovery_20261026([&#]|$)')
+    )) AS campaign_landing
+  FROM recipients r
+  JOIN base_events e ON lower(trim(e.identity_email)) = r.email
+    AND e.happened_at >= timestamp_sub(r.sent_at, INTERVAL 7 DAY)
+    AND e.happened_at <= @observed_at
+),
+measurements AS (
+  SELECT period, recipient_app, activity_app, email, measurement.metric
+  FROM activity
+  CROSS JOIN UNNEST([
+    STRUCT('any_visit' AS metric, event_name = 'pageview' AS matched),
+    STRUCT('campaign_landing' AS metric, campaign_landing AS matched),
+    STRUCT('builder_connect_succeeded' AS metric, event_name IN ('builder_connect_succeeded', 'builder connect succeeded') AS matched),
+    STRUCT('first_output' AS metric,
+      (activity_app = 'slides' AND event_name = 'deck_created') OR
+      (activity_app = 'design' AND event_name = 'design_ready_viewed') OR
+      (activity_app = 'clips' AND event_name = 'recording_ready') AS matched)
+  ]) AS measurement
+  WHERE measurement.matched
+),
+activity_apps AS (
+  SELECT DISTINCT activity_app
+  FROM (
+    SELECT app AS activity_app FROM base_events
+    UNION ALL SELECT recipient_app AS activity_app FROM recipients
+    UNION ALL SELECT app AS activity_app FROM UNNEST([${appValues.join(", ")}]) AS app
+  )
+),
+periods AS (
+  SELECT period FROM UNNEST(['after_send', 'prior_7_days']) AS period
+),
+metrics AS (
+  SELECT metric FROM UNNEST(['any_visit', 'campaign_landing', 'builder_connect_succeeded', 'first_output']) AS metric
+),
+counts AS (
+  SELECT period, recipient_app, activity_app, metric,
+    count(DISTINCT email) AS recipients_with_activity
+  FROM measurements GROUP BY period, recipient_app, activity_app, metric
+)
+SELECT p.period, t.recipient_app, a.activity_app, m.metric, t.recipients,
+  coalesce(c.recipients_with_activity, 0) AS recipients_with_activity
+FROM recipient_totals t
+CROSS JOIN activity_apps a
+CROSS JOIN periods p
+CROSS JOIN metrics m
+LEFT JOIN counts c ON c.period = p.period AND c.recipient_app = t.recipient_app
+  AND c.activity_app = a.activity_app AND c.metric = m.metric
+ORDER BY t.recipient_app, p.period, a.activity_app, m.metric`;
+}
+
 export function buildBigQueryTriageEventsSql(eventsTableRange: string): string {
-  return `${bigQueryFirstTouchEventsCte(eventsTableRange, { startDateParam: "@event_start_date", endDateParam: "@event_end_date", orgIdParam: "@org_id" })},
+  return `${bigQueryFirstTouchEventsCte(eventsTableRange, {
+    startDateParam: "@event_start_date",
+    endDateParam: "@event_end_date",
+    orgIdParam: "@org_id",
+    columns: {
+      id: false,
+      eventDate: false,
+      sessionId: true,
+      url: false,
+      personKey: false,
+      identityEmail: false,
+      referralSource: false,
+      properties: false,
+    },
+  })},
 signup_sessions AS (
   SELECT session_id, app, min(happened_at) AS signup_at
   FROM base_events

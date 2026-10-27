@@ -6,7 +6,7 @@ import {
   buildFirstTouchEventsCte,
   buildFunnelDailySql,
   buildTriageSql,
-  buildUploadRecorderCountsSql,
+  buildUploadRejectionAttributionSql,
   buildUploadRejectionSql,
   identityExclusionSql,
   normalizedAppSql,
@@ -167,11 +167,16 @@ describe("first-touch SQL helpers", () => {
     expect(upload).toContain(
       "count(*) FILTER (WHERE session_id IS NULL)::int AS unidentified_rejections",
     );
-    const recorderCounts = buildUploadRecorderCountsSql();
+    const recorderCounts = buildUploadRejectionAttributionSql();
     expect(recorderCounts).toContain("session_recordings r");
+    expect(recorderCounts).toContain("analytics_session_events i");
     expect(recorderCounts).toContain("jsonb_array_elements($4::jsonb)");
-    expect(recorderCounts).toContain("nullif(r.session_id, '') IS NOT NULL");
-    expect(recorderCounts).toContain("UNION");
+    expect(recorderCounts).toContain(
+      "jsonb_array_elements_text(g.session_ids)",
+    );
+    expect(recorderCounts).toContain("AS rejected_recorders");
+    expect(recorderCounts).toContain("AS unidentified_rejections");
+    expect(recorderCounts).toContain("AS recorders");
   });
 
   it("uses the session event, trouble, friction, and performance indexes without user content", () => {

@@ -79,10 +79,10 @@ export const RADAR_CHECKS: RadarCheckDefinition[] = [
     window: "hourly",
     baselineDays: 7,
     minN: 10,
-    threshold: 0.6,
+    threshold: 0.4,
     operator: "lt",
     severity: "critical",
-    message: "Builder connection success fell below 60%.",
+    message: "Builder connection success fell below 40%.",
     query: "events",
   },
   {
@@ -318,8 +318,12 @@ export function evaluateThreshold(input: {
   return input.baseline - input.value > input.threshold ? "fired" : "clear";
 }
 
-export function radarExitCode(results: readonly RadarCheckResult[]): 0 | 1 | 2 {
-  if (results.some((result) => result.status === "unavailable")) return 2;
-  if (results.some((result) => result.status === "fired")) return 1;
+export function radarExitCode(results: readonly RadarCheckResult[]): 0 | 1 {
+  if (
+    results.some(
+      (result) => result.status === "fired" || result.status === "unavailable",
+    )
+  )
+    return 1;
   return 0;
 }

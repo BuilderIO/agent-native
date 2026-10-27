@@ -10,8 +10,9 @@ scope: dev
 
 1. Run `pnpm --filter analytics radar:watch --window daily` and read both the
    JSON and Markdown under `.tmp/first-touch-radar/runs/`.
-2. Treat exit 0 as clear, exit 1 as one or more fired checks, and exit 2 as
-   incomplete evidence. Never turn a missing source or failed query into zero.
+2. Treat exit 0 as clear, exit 1 as a fired or unavailable check needing
+   attention, and exit 2 as a run that could not complete. Keep unavailable
+   metrics explicit; never turn a missing source or failed query into zero.
 3. On a fire, run `pnpm --filter analytics radar:triage` and inspect the
    outcome-ranked sessions. Use `metric-watch` and `replay-triage` for details.
 4. For a weekly review, run `pnpm --filter analytics radar:report --week
@@ -24,16 +25,13 @@ scope: dev
    report-wide cap, and treat a reached cap as incomplete evidence.
 5. Run `feedback-ingest` for Slack themes. Searches are read-only and begin at
    the saved watermark.
-6. Send one Telegram to Steve only when a check fired or the weekly report is
-   ready. Include counts and the private run-file path. Send nothing on a quiet
+6. Send one Telegram to Steve only when a check fired or is unavailable, or the
+   weekly report is ready. Include counts and the private run-file path. Send nothing on a quiet
    day. Never send Slack or email.
 7. Keep recipient emails and prompt text out of logs, reports, Telegram, and
-   commits. The campaign check reads its mode-0600 recipient file in memory and
-   emits aggregate counts only. With a PostgreSQL sink, recipient identifiers
-   are parameters to the read-only query and caching is disabled. A BigQuery
-   sink cannot run campaign follow-up until a keyed recipient matching
-   function is configured; report it as incomplete rather than treating it as
-   zero. Unknown signup campaign labels are grouped as `other`. Anonymous
+   commits. The campaign check reads its mode-0600 recipient file in memory,
+   binds identifiers as query parameters, disables caching, and emits aggregate
+   counts only. Unknown signup campaign labels are grouped as `other`. Anonymous
    landings cannot be assigned to a recipient; do not interpret identified
    counts as a complete click total.
 8. This radar changes scripts and skills only. Do not make user-visible UI

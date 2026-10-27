@@ -84,6 +84,7 @@ describe("weekly report arguments", () => {
       week: "2026-10-19",
       skipJourneySnapshot: true,
       maxTotalGb: DEFAULT_WEEKLY_MAX_TOTAL_GB,
+      freshBigQuery: false,
     });
   });
 
@@ -92,6 +93,7 @@ describe("weekly report arguments", () => {
       week: "2026-10-19",
       skipJourneySnapshot: false,
       maxTotalGb: DEFAULT_WEEKLY_MAX_TOTAL_GB,
+      freshBigQuery: false,
     });
   });
 
@@ -102,6 +104,18 @@ describe("weekly report arguments", () => {
       week: "2026-10-19",
       skipJourneySnapshot: false,
       maxTotalGb: 25,
+      freshBigQuery: false,
+    });
+  });
+
+  it("can bypass the BigQuery cache for a complete scan measurement", () => {
+    expect(
+      parseReportArgs(["--week", "2026-10-19", "--fresh-bigquery"]),
+    ).toEqual({
+      week: "2026-10-19",
+      skipJourneySnapshot: false,
+      maxTotalGb: DEFAULT_WEEKLY_MAX_TOTAL_GB,
+      freshBigQuery: true,
     });
   });
 });
@@ -129,7 +143,7 @@ describe("weekly funnel cohort reporting", () => {
             generatedAt: "2026-10-27T23:59:00.000Z",
             window: "daily",
             date: "2026-10-26",
-            exitCode: 2,
+            exitCode: 1,
             checks: [],
             journeyRows: [],
             campaignAnnotations: [],
@@ -156,7 +170,7 @@ describe("weekly funnel cohort reporting", () => {
     } satisfies RadarWeeklyReport;
 
     expect(formatWeeklyMarkdown(report)).toContain(
-      "| 2026-10-26 | 2026-10-25 | 2 | 0 | 0 | - |",
+      "| 2026-10-26 | 2026-10-25 | 1 | 0 | 0 | - |",
     );
   });
 });

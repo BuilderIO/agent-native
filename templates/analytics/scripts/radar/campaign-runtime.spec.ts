@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  resolveRadarBigQueryEventsTable: vi.fn(),
   resolveRadarFirstPartyBackend: vi.fn(),
   runBigQuery: vi.fn(),
   runPostgresQuery: vi.fn(),
@@ -23,6 +24,9 @@ describe("campaign follow-up query privacy", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.resolveRadarBigQueryEventsTable.mockResolvedValue(
+      "project.analytics.events_raw_query_range",
+    );
     directory = fs.mkdtempSync(path.join(os.tmpdir(), "radar-campaign-test-"));
     const sentFile = path.join(directory, "sent.jsonl");
     fs.writeFileSync(
@@ -51,15 +55,44 @@ describe("campaign follow-up query privacy", () => {
     fs.rmSync(directory, { recursive: true, force: true });
   });
 
-  it("fails clearly on BigQuery until secure keyed campaign matching is configured", async () => {
-    await expect(runCampaignFollowup("org-1")).rejects.toMatchObject({
-      name: "RadarQueryError",
-      exitCode: 2,
-      message:
-        "Campaign follow-up is unavailable for the BigQuery sink until a keyed recipient matching function is configured.",
+  it("matches BigQuery recipients through bound parameters and returns aggregates", async () => {
+    mocks.runBigQuery.mockResolvedValue({
+      rows: [
+        {
+          period: "after_send",
+          recipient_app: "clips",
+          activity_app: "clips",
+          metric: "any_visit",
+          recipients: 1,
+          recipients_with_activity: 1,
+        },
+      ],
+      bytesProcessed: 12,
+      cacheHit: false,
     });
-    expect(mocks.runBigQuery).not.toHaveBeenCalled();
+
+    const result = await runCampaignFollowup("org-1");
+    const [sql, options] = mocks.runBigQuery.mock.calls[0] as [
+      string,
+      { params: Array<{ name: string; value: string }> },
+    ];
+    const recipientParam = options.params.find(
+      (parameter) => parameter.name === "recipients_json",
+    );
+    expect(sql).toContain("JSON_QUERY_ARRAY(@recipients_json)");
+    expect(sql).toContain("lower(trim(e.identity_email)) = r.email");
+    expect(recipientParam?.value).toContain("recipient@example.test");
+    expect(options).toMatchObject({ fresh: true, cache: false });
     expect(mocks.runPostgresQuery).not.toHaveBeenCalled();
+    expect(result.rows).toContainEqual(
+      expect.objectContaining({
+        period: "after_send",
+        activity_app: "clips",
+        metric: "any_visit",
+        recipients_with_activity: 1,
+      }),
+    );
+    expect(JSON.stringify(result)).not.toContain("recipient@example.test");
   });
 
   it("runs PostgreSQL campaign matching with uncached recipient parameters", async () => {
