@@ -120,7 +120,10 @@ describe("executeMcpActionCall", () => {
 
     expect(outcome).toEqual({
       status: "completed",
-      value: { title: "Thread", items: [{}, { id: "kept" }] },
+      value: {
+        title: "Thread",
+        items: [{ url: "[hidden embed URL]" }, { id: "kept" }],
+      },
       reportedError: false,
     });
     expect(Reflect.ownKeys(outcome).sort()).toEqual([
@@ -740,9 +743,9 @@ describe("executeMcpActionCall sanitizing", () => {
         bare: entry({ readOnly: true, run: async () => nested }),
       };
       const expected: Record<string, unknown> = {
-        value: { keep: "me" },
+        value: { next: "[hidden embed URL]", keep: "me" },
         key: { links: { keep: "me" } },
-        sibling: { items: [{}, { id: "kept" }] },
+        sibling: { items: [{ url: "[hidden embed URL]" }, { id: "kept" }] },
         bare: "[hidden embed URL]",
       };
       for (const [name, value] of Object.entries(expected)) {
@@ -799,10 +802,53 @@ describe("executeMcpActionCall sanitizing", () => {
         mention,
       ).resolves.toEqual({
         status: "completed",
-        value: { keep: "me" },
+        value: { mention: "[hidden embed URL]", keep: "me" },
         reportedError: false,
       });
     }
+  });
+
+  it("shows a hidden value as the placeholder under its key, so it reads as hidden, not missing", async () => {
+    // A text property whose prose names the route, as a collection row's
+    // read-back carries it.
+    const path =
+      "objectives/tasks/Fix chat failing because the embed start URL is redacted.md";
+    const outcome = await execute(
+      {
+        row: entry({
+          readOnly: true,
+          run: async () => ({
+            readback: {
+              title: "Row",
+              propertyValues: { path, status: "inbox", tags: [path, "kept"] },
+            },
+            ticket: "secret-ticket",
+            [`see ${EMBED_START}`]: "x",
+          }),
+        }),
+      },
+      "row",
+    );
+
+    expect(outcome).toEqual({
+      status: "completed",
+      value: {
+        readback: {
+          title: "Row",
+          propertyValues: {
+            path: "[hidden embed URL]",
+            status: "inbox",
+            tags: ["[hidden embed URL]", "kept"],
+          },
+        },
+      },
+      reportedError: false,
+    });
+    // The placeholder carries nothing of the value, and the ticket field and
+    // the key that names the route are still removed.
+    const visible = JSON.stringify(outcome);
+    expect(visible).not.toContain("secret-ticket");
+    expect(visible).not.toMatch(/embed.?start/i);
   });
 
   it("redacts a deeply nested result in work linear in its depth", async () => {
@@ -870,9 +916,20 @@ describe("executeMcpActionCall sanitizing", () => {
     value.items = [value, { ticket: "secret-ticket" }];
 
     expect(redactEmbedCredentials(value)).toEqual({
+      next: "[hidden embed URL]",
       keep: "me",
       items: ["[circular result]", {}],
     });
+  });
+
+  it("drops a hidden value's key instead when the caller asks, as an open link does", () => {
+    expect(
+      redactEmbedCredentials(
+        { webUrl: EMBED_START, label: "Open", nested: { url: EMBED_START } },
+        undefined,
+        { dropHiddenFields: true },
+      ),
+    ).toEqual({ label: "Open", nested: {} });
   });
 
   it("hides an echoed credential whatever characters it holds", () => {
@@ -883,6 +940,7 @@ describe("executeMcpActionCall sanitizing", () => {
         note: "Use a.b+c(d)[e]$f or secret-ticket-2.",
       }),
     ).toEqual({
+      next: "[hidden embed URL]",
       note: "[hidden embed ticket]",
     });
   });
@@ -919,6 +977,7 @@ describe("executeMcpActionCall sanitizing", () => {
 
     expect(patterns).toBe(1);
     expect(redacted).toEqual({
+      next: "[hidden embed URL]",
       sessions: tickets.map(() => ({})),
       notes: value.notes.map(() => "[hidden embed ticket]"),
     });
@@ -1002,7 +1061,7 @@ describe("executeMcpActionCall sanitizing", () => {
       ]);
       expect(
         redactEmbedCredentials({ next: start, [ticket]: "x", keep: "me" }),
-      ).toEqual({ keep: "me" });
+      ).toEqual({ next: "[hidden embed URL]", keep: "me" });
     });
 
     it("reads a ticket field in any escaping it decodes", () => {

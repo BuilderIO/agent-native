@@ -49,6 +49,8 @@ export function OwnershipChatHistoryRail({
       {...props}
       labels={{
         copyLink: t("agentChat.history.copyLink"),
+        onlyYou: t("agentChat.history.onlyYou"),
+        hide: t("agentChat.history.hide"),
         unread: t("agentChat.history.unread"),
         ...labels,
       }}

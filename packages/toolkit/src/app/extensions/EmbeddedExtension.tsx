@@ -115,6 +115,8 @@ export interface EmbeddedExtensionProps {
   initialHeight?: number;
   onReady?: () => void;
   onUnavailable?: (status?: number) => void;
+  /** Called with each content height the iframe reports, in pixels. */
+  onHeightChange?: (height: number) => void;
 }
 
 export function EmbeddedExtension({
@@ -125,10 +127,13 @@ export function EmbeddedExtension({
   initialHeight = 80,
   onReady,
   onUnavailable,
+  onHeightChange,
 }: EmbeddedExtensionProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const onReadyRef = useRef(onReady);
   onReadyRef.current = onReady;
+  const onHeightChangeRef = useRef(onHeightChange);
+  onHeightChangeRef.current = onHeightChange;
   const readyFiredRef = useRef(false);
   const fireReady = () => {
     if (readyFiredRef.current) return;
@@ -284,6 +289,7 @@ export function EmbeddedExtension({
         const h = Number(message.height);
         if (Number.isFinite(h) && h > 0) {
           setHeight(Math.ceil(h));
+          onHeightChangeRef.current?.(Math.ceil(h));
           fireReady();
         }
         return;
