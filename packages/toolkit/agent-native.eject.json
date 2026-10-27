@@ -1151,7 +1151,10 @@
       "label": "Toolkit app Onboarding",
       "catalog": "toolkit-ui",
       "catalogItems": ["app-onboarding"],
-      "entrypoints": ["./app/onboarding"],
+      "entrypoints": [
+        "./app/onboarding",
+        "./app/onboarding/first-run-builder-credits-flag"
+      ],
       "strategy": "source-copy",
       "sourceEntries": ["src/app/onboarding"],
       "targetRoot": "app/components/agent-native/toolkit",

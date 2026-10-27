@@ -1873,6 +1873,73 @@ describe("FirstRunOnboarding", () => {
     ).toBeNull();
   });
 
+  it.each(["design", "slides", "clips"])(
+    "shows the v2 credits actions in %s",
+    async (appId) => {
+      mocks.creditsV2FlagState = { status: "ready", enabled: true };
+      mocks.recordCreditsV2Exposure.mockResolvedValueOnce({
+        assignment: {
+          experiment_id: "first_run_builder_credits_v2",
+          experiment_variant: "credits",
+        },
+      });
+      mocks.useOnboarding.mockReturnValue({
+        firstRun: true,
+        loading: false,
+        error: null,
+        profile: { appId, appName: appId, capabilities: [] },
+        completeFirstRun: mocks.completeFirstRun,
+        completeFirstRunError: null,
+      });
+
+      await act(async () => {
+        root.render(
+          <TooltipProvider>
+            <FirstRunOnboarding />
+          </TooltipProvider>,
+        );
+      });
+      await act(async () => {
+        document.body
+          .querySelector<HTMLButtonElement>(
+            "[data-testid='first-run-role-skip']",
+          )
+          ?.click();
+      });
+
+      const primary = document.body.querySelector<HTMLButtonElement>(
+        "[data-testid='first-run-credits-activate']",
+      );
+      const existingAccount = document.body.querySelector<HTMLButtonElement>(
+        "[data-testid='first-run-credits-connect-existing']",
+      );
+      const ownKeys = document.body.querySelector<HTMLButtonElement>(
+        "[data-testid='first-run-credits-own-api-keys']",
+      );
+      expect(primary?.textContent).toBe("Activate free credits");
+      expect(existingAccount?.textContent).toBe("I have a Builder.io account");
+      expect(ownKeys?.textContent).toBe("Use my own API keys");
+      expect(
+        document.body.querySelector(
+          "[data-testid='first-run-credits-skip-confirm']",
+        ),
+      ).toBeNull();
+      expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+        "onboarding_experiment_exposed",
+        expect.objectContaining({
+          experiment_id: "first_run_builder_credits_v2",
+          experiment_variant: "credits",
+        }),
+      );
+
+      await act(async () => {
+        ownKeys?.click();
+        await Promise.resolve();
+      });
+      expect(mocks.navigate).toHaveBeenCalled();
+    },
+  );
+
   it("opens the app directly after a configured Builder connection", () => {
     mocks.useBuilderConnectFlow.mockReturnValue({
       hasFetchedStatus: true,
@@ -3139,7 +3206,7 @@ describe("FirstRunOnboarding", () => {
       return start;
     };
 
-    it("does not expose the Clips credits v2 experiment when connection status is unavailable", () => {
+    it("does not expose the credits v2 experiment when connection status is unavailable", () => {
       mocks.creditsV2FlagState = { status: "ready", enabled: true };
       openClipsChoice(vi.fn(), { statusUnavailable: true });
 
@@ -3152,7 +3219,7 @@ describe("FirstRunOnboarding", () => {
       );
     });
 
-    it("retries the Clips credits v2 exposure after a transient mutation failure", async () => {
+    it("retries credits v2 exposure after a transient mutation failure", async () => {
       mocks.creditsV2FlagState = { status: "ready", enabled: true };
       mocks.recordCreditsV2Exposure
         .mockRejectedValueOnce(new Error("temporary failure"))

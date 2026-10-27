@@ -191,6 +191,7 @@ const messages = {
   "onboarding.creditsSkipGoBack": "Go back",
   "onboarding.creditsSkipAnyway": "Skip anyway",
   "onboarding.creditsUseCustomKeys": "Use custom keys",
+  "onboarding.creditsUseOwnApiKeys": "Use my own API keys",
   "onboarding.creditsAboutLabel": "About free credits",
   "onboarding.creditsActivating": "Activating free credits",
   "onboarding.creditsActivatingTooltip":

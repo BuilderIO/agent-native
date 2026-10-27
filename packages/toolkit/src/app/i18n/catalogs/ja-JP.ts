@@ -196,6 +196,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.creditsSkipGoBack": "戻る",
   "onboarding.creditsSkipAnyway": "それでもスキップ",
   "onboarding.creditsUseCustomKeys": "カスタムキーを使用",
+  "onboarding.creditsUseOwnApiKeys": "自分の API キーを使う",
   "onboarding.creditsAboutLabel": "無料クレジットについて",
   "onboarding.creditsActivating": "無料クレジットを有効化しています",
   "onboarding.creditsActivatingTooltip":

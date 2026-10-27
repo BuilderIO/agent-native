@@ -4,13 +4,12 @@ import {
   getRequestContext,
   recordFirstRunBuilderCreditsV2Exposure,
 } from "@agent-native/core/server";
+import { FIRST_RUN_BUILDER_CREDITS_V2_FLAG } from "@agent-native/toolkit/app/onboarding/first-run-builder-credits-flag";
 import { z } from "zod";
-
-import { CLIPS_FIRST_RUN_CREDITS_V2_FLAG } from "../shared/feature-flags.js";
 
 export default defineAction({
   description:
-    "Persist the signed-in user's Clips first-run credits v2 arm after the credits screen is eligible to appear.",
+    "Persist the signed-in user's first-run credits v2 arm after the setup screen is eligible to appear.",
   schema: z.object({}),
   outputSchema: z.object({
     assignment: z
@@ -26,7 +25,7 @@ export default defineAction({
     if (!context?.authUserId) return { assignment: null };
 
     const flagEnabled = await isFeatureFlagEnabled(
-      CLIPS_FIRST_RUN_CREDITS_V2_FLAG,
+      FIRST_RUN_BUILDER_CREDITS_V2_FLAG,
       {
         ...(context.userEmail ? { userEmail: context.userEmail } : {}),
         userKey: context.authUserId,

@@ -256,31 +256,27 @@ export function FirstRunOnboarding({
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("experiment") === "v2";
   const creditsV2Enabled =
-    profile?.appId === "clips" &&
-    creditsV2Flag.status === "ready" &&
-    creditsV2Flag.enabled;
-  const clipsCreditsV2 = creditsV2Enabled || previewCreditsV2;
+    creditsV2Flag.status === "ready" && creditsV2Flag.enabled;
+  const creditsV2FlowEnabled = creditsV2Enabled || previewCreditsV2;
   const creditsV2FlagPending =
-    !previewMode &&
-    profile?.appId === "clips" &&
-    creditsV2Flag.status === "loading";
+    !previewMode && creditsV2Flag.status === "loading";
   const setupVariant = useMemo(() => {
     const previewVariant =
       previewMode && getPreviewFirstRunSetupVariant(window.location.search);
     if (previewCreditsV2) return previewVariant;
     if (previewVariant) return previewVariant;
-    if (clipsCreditsV2) {
+    if (creditsV2FlowEnabled) {
       return creditsV2Assignment?.experiment_variant ?? null;
     }
     return assignFirstRunSetupVariant();
   }, [
-    clipsCreditsV2,
+    creditsV2FlowEnabled,
     creditsV2Assignment,
     previewCreditsV2,
     previewMode,
     profile?.appId,
   ]);
-  const setupExperimentId = clipsCreditsV2
+  const setupExperimentId = creditsV2FlowEnabled
     ? FIRST_RUN_BUILDER_CREDITS_V2_EXPERIMENT_ID
     : FIRST_RUN_SETUP_EXPERIMENT_ID;
   // The credits arm offers Skip in every app, so analytics must mark the choice step optional there too.
@@ -508,7 +504,7 @@ export function FirstRunOnboarding({
   const choiceStepKnown =
     screen !== "choice" ||
     (!creditsV2FlagPending &&
-      (!clipsCreditsV2 || setupExperimentDecision !== null) &&
+      (!creditsV2FlowEnabled || setupExperimentDecision !== null) &&
       (setupVariant === null || setupExperimentDecision !== null));
   const beginBeforeSetup = useCallback(() => {
     if (beforeSetupExtensions.length === 0) {
@@ -717,7 +713,7 @@ export function FirstRunOnboarding({
       !firstRun ||
       screen !== "choice" ||
       creditsV2FlagPending ||
-      clipsCreditsV2 ||
+      creditsV2FlowEnabled ||
       !setupVariant ||
       !setupStatusSettled ||
       setupExperimentDecision !== null
@@ -742,7 +738,7 @@ export function FirstRunOnboarding({
     previewMode,
     screen,
     creditsV2FlagPending,
-    clipsCreditsV2,
+    creditsV2FlowEnabled,
     setupExperimentEligible,
     setupExperimentDecision,
     setupStatusSettled,
@@ -851,7 +847,7 @@ export function FirstRunOnboarding({
       !firstRun ||
       screen !== "choice" ||
       creditsV2FlagPending ||
-      (!setupVariant && !clipsCreditsV2) ||
+      (!setupVariant && !creditsV2FlowEnabled) ||
       setupExperimentDecision !== null
     ) {
       return;
@@ -863,7 +859,7 @@ export function FirstRunOnboarding({
     }, SETUP_EXPERIMENT_DECISION_TIMEOUT_MS);
     return () => window.clearTimeout(timer);
   }, [
-    clipsCreditsV2,
+    creditsV2FlowEnabled,
     creditsV2FlagPending,
     firstRun,
     previewMode,
@@ -1104,7 +1100,7 @@ export function FirstRunOnboarding({
     if (
       !previewMode &&
       (creditsV2FlagPending ||
-        (clipsCreditsV2 && setupExperimentDecision === null) ||
+        (creditsV2FlowEnabled && setupExperimentDecision === null) ||
         (setupVariant && setupExperimentDecision === null))
     ) {
       return <OnboardingSkeleton />;
@@ -1310,6 +1306,17 @@ export function FirstRunOnboarding({
               >
                 {t("agentChat.onboarding.builderExistingAccount")}
               </button>
+              {creditsV2FlowEnabled && (
+                <button
+                  type="button"
+                  data-testid="first-run-credits-own-api-keys"
+                  className="min-h-7 text-xs font-medium text-muted-foreground underline underline-offset-4 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={() => void handleOpenSettings()}
+                  disabled={connectFlow.connecting}
+                >
+                  {t("agentChat.onboarding.creditsUseOwnApiKeys")}
+                </button>
+              )}
               <p className="text-xs leading-5 text-muted-foreground">
                 {t("agentChat.onboarding.creditsFinePrint")}{" "}
                 <a
@@ -1358,7 +1365,7 @@ export function FirstRunOnboarding({
               </div>
             )}
             <div className="fixed bottom-6 right-6 z-10">
-              {clipsCreditsV2 ? (
+              {creditsV2FlowEnabled ? (
                 <button
                   type="button"
                   data-testid="first-run-credits-skip"

@@ -193,6 +193,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.creditsSkipGoBack": "Voltar",
   "onboarding.creditsSkipAnyway": "Pular mesmo assim",
   "onboarding.creditsUseCustomKeys": "Usar chaves personalizadas",
+  "onboarding.creditsUseOwnApiKeys": "Usar minhas próprias chaves de API",
   "onboarding.creditsAboutLabel": "Sobre os créditos gratuitos",
   "onboarding.creditsActivating": "Ativando créditos gratuitos",
   "onboarding.creditsActivatingTooltip":

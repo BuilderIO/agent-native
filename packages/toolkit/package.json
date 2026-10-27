@@ -466,6 +466,13 @@
       "import": "./dist/app/onboarding/index.js",
       "default": "./dist/app/onboarding/index.js"
     },
+    "./app/onboarding/first-run-builder-credits-flag": {
+      "types": "./dist/app/onboarding/first-run-builder-credits-flag.d.ts",
+      "browser": "./dist/app/onboarding/first-run-builder-credits-flag.js",
+      "development": "./dist/app/onboarding/first-run-builder-credits-flag.js",
+      "import": "./dist/app/onboarding/first-run-builder-credits-flag.js",
+      "default": "./dist/app/onboarding/first-run-builder-credits-flag.js"
+    },
     "./app/progress": {
       "types": "./dist/app/progress/index.d.ts",
       "browser": "./dist/app/progress/index.js",

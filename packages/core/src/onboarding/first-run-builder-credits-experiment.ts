@@ -51,7 +51,8 @@ function setRequestAssignment(
 }
 
 /**
- * Persist exposure after the caller has confirmed the Clips v2 flag is on.
+ * Persist exposure after the caller confirms the first-run credits v2 flag is
+ * on.
  * The authenticated id is read from request context and is the only assignment
  * key; no email or anonymous identity can create a row.
  */
