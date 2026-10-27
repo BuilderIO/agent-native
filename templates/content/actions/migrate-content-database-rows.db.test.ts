@@ -1547,6 +1547,31 @@ describe("migrate-content-database-rows", () => {
     expect(await liveCopyVersionOf(liveRowId)).toBe(liveCopyVersion);
   });
 
+  it("refuses a plan that copies a video with its id, migrating no row", async () => {
+    const seed = await fixture(2);
+    const video = (caption: string) =>
+      `<video src="https://synthetic.example.test/a.mp4" id="video-original">${caption}</video>`;
+    const [row] = seed.rows;
+    await getDb()
+      .update(schema.documents)
+      .set({ content: video("Demo") })
+      .where(eq(schema.documents.id, row.documentId));
+    row.content = `${video("Demo")}\n${video("Copy")}`;
+    const before = await readDurableMigrationState(seed);
+
+    for (const phase of ["validate", "apply"] as const)
+      await expect(
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          action.run({ phase, plan: plan(seed) }),
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "DOCUMENT_VIDEO_ID_SHARED",
+        statusCode: 422,
+        details: { blockId: "video-original" },
+      });
+    expect(await readDurableMigrationState(seed)).toEqual(before);
+  });
+
   it("refuses a rollback that would restore the body of a row now on its live copy, leaving rows as migrated", async () => {
     const seed = await fixture(3);
     const input = plan(seed);

@@ -1267,6 +1267,13 @@ async function deleteCollectedDocuments(
     await db
       .delete(schema.documentShares)
       .where(inArray(schema.documentShares.resourceId, documentIdBatch));
+    // Webhook events about these pages, sent or waiting, carry their values
+    // and comments, so they go too; the webhooks stay for the rest.
+    await db
+      .delete(schema.contentWebhookDeliveries)
+      .where(
+        inArray(schema.contentWebhookDeliveries.documentId, documentIdBatch),
+      );
   });
 
   await deleteWhereIn(documentIds, async (documentIdBatch) => {

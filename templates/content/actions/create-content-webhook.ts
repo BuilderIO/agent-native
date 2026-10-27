@@ -64,7 +64,7 @@ async function assertPropertiesInScope(
 
 export default defineAction({
   description:
-    "Register a webhook: Content sends a signed POST to a public HTTPS URL when a property changes on a collection's rows or on one page, or when a comment there is created or resolved. Returns the signing secret once; store it, because list-content-webhooks never shows it again. Deliveries follow Standard Webhooks (webhook-id, webhook-timestamp, webhook-signature headers), are retried for about a day, and repeat the same event id on every retry. Requires admin access to the collection or page. Only edits to a value send property.changed; deleting properties, rows or pages, type changes that clear values, imports, and source syncs send no events.",
+    "Register a webhook: Content sends a signed POST to a public HTTPS URL when a property changes on a collection's rows or on one page, or when a comment there is created or resolved. Returns the signing secret once; store it, because list-content-webhooks never shows it again. Deliveries follow Standard Webhooks (webhook-id, webhook-timestamp, webhook-signature headers), are retried for about a day, and repeat the same event id on every retry. Requires admin access to the collection or page, and a person's approval of each registration. Only edits to a value send property.changed; deleting properties, rows or pages, type changes that clear values, imports, and source syncs send no events.",
   mcpTool: true,
   // It adds a webhook and overwrites nothing, but every later change on the
   // collection or page is sent to the URL it names.
@@ -74,12 +74,17 @@ export default defineAction({
     idempotentHint: false,
     openWorldHint: true,
   },
+  // A registration keeps sending page values and comments to an outside URL,
+  // so a person approves each one: text on a page can't talk an agent into
+  // opening that channel on its own, and no approval carries over to the next.
+  needsApproval: true,
+  allowPersistentApproval: false,
   schema: z.object({
     url: z
       .string()
       .url()
       .describe(
-        "Public HTTPS URL that receives the events; a host that is or resolves to a private, internal, or Tailnet (100.64.0.0/10) address is refused",
+        "Public HTTPS URL that receives the events; a host that is or resolves to a private, internal, or Tailnet (100.64.0.0/10) address is refused, and so is a URL with a username or password in it",
       ),
     databaseId: z
       .string()
@@ -132,6 +137,14 @@ export default defineAction({
     ) {
       throw new ActionContractError(
         "Webhook URLs must be public HTTPS addresses.",
+        { errorCode: "WEBHOOK_URL_NOT_ALLOWED", statusCode: 400 },
+      );
+    }
+    // fetch refuses a URL with credentials in it, so every send would fail;
+    // and listing shows the URL, password and all, to the collection's admins.
+    if (url.username || url.password) {
+      throw new ActionContractError(
+        "Webhook URLs can't contain a username or password. Check the signature on each request instead.",
         { errorCode: "WEBHOOK_URL_NOT_ALLOWED", statusCode: 400 },
       );
     }

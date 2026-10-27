@@ -1525,6 +1525,12 @@ export const runContentMigrations = runMigrations(
     },
     {
       version: 129,
+      name: "content-comment-block-targets",
+      sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS block_id TEXT;
+        ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS block_type TEXT`,
+    },
+    {
+      version: 130,
       name: "content-webhooks",
       sql: `CREATE TABLE IF NOT EXISTS content_webhooks (
           id TEXT PRIMARY KEY,
@@ -1574,7 +1580,9 @@ export const runContentMigrations = runMigrations(
           ON content_webhook_deliveries (webhook_id, lease_expires_at)
           WHERE status = 'pending';
         CREATE INDEX IF NOT EXISTS content_webhook_deliveries_settled_idx
-          ON content_webhook_deliveries (status, updated_at)`,
+          ON content_webhook_deliveries (status, updated_at);
+        CREATE INDEX IF NOT EXISTS content_webhook_deliveries_document_idx
+          ON content_webhook_deliveries (document_id)`,
     },
     {
       version: 130,

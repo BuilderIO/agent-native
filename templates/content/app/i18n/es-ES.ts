@@ -686,6 +686,16 @@ const editor = {
     purple: "Morado",
     pink: "Rosa",
     red: "Rojo",
+    defaultText: "Texto predeterminado",
+    defaultBackground: "Fondo predeterminado",
+    textChoice: "Texto: {{color}}",
+    backgroundChoice: "Fondo: {{color}}",
+  },
+  blockMenu: {
+    label: "Acciones del bloque",
+    duplicate: "Duplicar",
+    delete: "Eliminar",
+    insertBelow: "Insertar bloque debajo",
   },
   noDocumentSelected: "Ningún documento seleccionado",
   registryBlockLoadError: "No se pudo cargar el bloque {{type}}: {{message}}",
@@ -1140,6 +1150,7 @@ const rawLiterals = {
     drag: "Arrastra",
     headerColumn: "Columna de encabezado",
     headerRow: "Fila de encabezado",
+    fitToWidth: "Ajustar al ancho",
     insertAbove: "Insertar arriba",
     insertBelow: "Insertar abajo",
     insertLeft: "Insertar a la izquierda",
@@ -1636,6 +1647,14 @@ const exactEnglish = {
       "El texto alrededor de esta sugerencia cambió, así que no se puede aplicar. Sigue pendiente: recházala o vuelve a sugerir el cambio.",
     proposalUnplaceable:
       "Una de estas sugerencias no se puede aplicar porque el texto a su alrededor cambió, así que no se aplicó ninguna. Siguen pendientes: acéptalas o recházalas de una en una.",
+    suggestionAcceptFailed: "No se pudo aceptar la sugerencia",
+    suggestionRejectFailed: "No se pudo rechazar la sugerencia",
+    proposalAcceptFailed: "No se pudieron aceptar las sugerencias",
+    proposalRejectFailed: "No se pudieron rechazar las sugerencias",
+    suggestionDecisionReverted:
+      "Vuelve a estar pendiente. Se conserva todo lo que escribiste después.",
+    proposalDecisionReverted:
+      "Vuelven a estar pendientes. Se conserva todo lo que escribiste después.",
     suggestionAmendmentFailed: "No se pudo guardar la sugerencia",
     suggestionAmendmentResolved:
       "Esta sugerencia cambió en otro lugar. Tu borrador sin guardar sigue aquí.",

@@ -815,6 +815,86 @@ describe("content webhooks", () => {
     });
   });
 
+  it("W2-4: a collection's webhooks can be listed and removed while it's in Trash", async () => {
+    const ids = await fixture();
+    const { webhook } = await asOwner(() =>
+      createWebhook.run({
+        url: RECEIVER_URL,
+        databaseId: ids.databaseId,
+        events: ["property.changed"],
+      }),
+    );
+    await asOwner(() => trashDatabase.run({ databaseId: ids.databaseId }));
+
+    const ofCollection = await asOwner(() =>
+      listWebhooks.run({ databaseId: ids.databaseId }),
+    );
+    expect(ofCollection.webhooks.map((listed) => listed.id)).toEqual([
+      webhook.id,
+    ]);
+    const mine = await asOwner(() => listWebhooks.run({}));
+    expect(mine.webhooks.map((listed) => listed.id)).toContain(webhook.id);
+    // Only a new webhook needs the collection out of Trash.
+    await expect(
+      asOwner(() =>
+        createWebhook.run({
+          url: RECEIVER_URL,
+          databaseId: ids.databaseId,
+          events: ["property.changed"],
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "DATABASE_NOT_FOUND" });
+
+    await asOwner(() => deleteWebhook.run({ id: webhook.id }));
+    await asOwner(() => restoreDatabase.run({ databaseId: ids.databaseId }));
+    const restored = await asOwner(() =>
+      listWebhooks.run({ databaseId: ids.databaseId }),
+    );
+    expect(restored.webhooks).toEqual([]);
+  });
+
+  it("W2-2: a comment on a row while its collection is in Trash waits, then goes out on restore", async () => {
+    const ids = await fixture();
+    const row = found(ids.rows[0], "Row");
+    const { webhook } = await asOwner(() =>
+      createWebhook.run({
+        url: RECEIVER_URL,
+        databaseId: ids.databaseId,
+        events: ["comment.created"],
+      }),
+    );
+    await asOwner(() => trashDatabase.run({ databaseId: ids.databaseId }));
+    receiver.status = 200;
+    receiver.requests.length = 0;
+
+    await asOwner(() =>
+      addComment.run({ documentId: row.documentId, content: "While in Trash" }),
+    );
+    await vi.waitFor(
+      async () => {
+        expect(await deliveries(webhook.id)).toEqual([
+          expect.objectContaining({
+            eventType: "comment.created",
+            status: "pending",
+            leaseToken: null,
+            lastError: expect.stringContaining("Trash"),
+          }),
+        ]);
+      },
+      { timeout: 10_000, interval: 50 },
+    );
+    expect(eventsFor(webhook.id)).toHaveLength(0);
+
+    await asOwner(() => restoreDatabase.run({ databaseId: ids.databaseId }));
+    await makeDue(webhook.id);
+    expect(await hooks.drainContentWebhookDeliveries()).toMatchObject({
+      delivered: 1,
+    });
+    expect(eventsFor(webhook.id).map((request) => request.event.type)).toEqual([
+      "comment.created",
+    ]);
+  });
+
   it("W2-3: stops sending in the same run once the creator loses access", async () => {
     const ids = await fixture();
     const [row] = ids.rows;
@@ -1069,6 +1149,39 @@ describe("content webhooks", () => {
     expect(calls).toBe(4);
   });
 
+  it("W2-3: two drains that each picked a different event of one webhook lease only one", async () => {
+    const ids = await fixture();
+    const row = found(ids.rows[0], "Row");
+    const { webhook } = await asOwner(() =>
+      createWebhook.run({
+        url: RECEIVER_URL,
+        documentId: row.documentId,
+        events: ["property.changed"],
+      }),
+    );
+    receiver.status = 500;
+    for (const value of ["agent", "alice"]) {
+      await asOwner(() =>
+        setProperty.run({
+          documentId: row.documentId,
+          databaseId: ids.databaseId,
+          propertyId: ids.properties.turn,
+          value,
+        }),
+      );
+    }
+    const queued = await settled(webhook.id, 2);
+    await makeDue(webhook.id);
+
+    // Each drain read its event as free before either leased it.
+    const claims = await Promise.all(
+      queued.map((delivery) =>
+        hooks.claimContentWebhookDelivery(getDb(), webhook.id, delivery.id),
+      ),
+    );
+    expect(claims.filter((claim) => claim !== null)).toHaveLength(1);
+  });
+
   it("W2-1: marks a long value or comment as cut short", async () => {
     const ids = await fixture();
     const [row] = ids.rows;
@@ -1108,6 +1221,12 @@ describe("content webhooks", () => {
   });
 
   it("W2-4: registers, lists and removes a webhook, and keeps others out", async () => {
+    // A person approves each registration an agent asks for; removing and
+    // listing need no approval.
+    expect(createWebhook.needsApproval).toBe(true);
+    expect(createWebhook.allowPersistentApproval).toBe(false);
+    expect(deleteWebhook.needsApproval).toBeUndefined();
+    expect(listWebhooks.needsApproval).toBeUndefined();
     const ids = await fixture();
     const created = await asOwner(() =>
       createWebhook.run({
@@ -1332,6 +1451,44 @@ describe("content webhooks", () => {
     expect(await hooks.removeOrphanedContentWebhooks()).toBe(0);
   });
 
+  it("W2-4: permanently deleting a row page removes its events and keeps the collection's webhook", async () => {
+    const ids = await fixture(2);
+    const gone = found(ids.rows[0], "First row");
+    const kept = found(ids.rows[1], "Second row");
+    const { webhook } = await asOwner(() =>
+      createWebhook.run({
+        url: RECEIVER_URL,
+        databaseId: ids.databaseId,
+        events: ["property.changed"],
+      }),
+    );
+    for (const row of [gone, kept]) {
+      await asOwner(() =>
+        setProperty.run({
+          documentId: row.documentId,
+          databaseId: ids.databaseId,
+          propertyId: ids.properties.turn,
+          value: "agent",
+        }),
+      );
+    }
+    await settled(webhook.id, 2);
+
+    await deleteDocumentRecursive(getDb(), gone.documentId, OWNER);
+
+    const left = await deliveries(webhook.id);
+    expect(left.map((delivery) => delivery.documentId)).toEqual([
+      kept.documentId,
+    ]);
+    expect(await hooks.removeOrphanedContentWebhooks()).toBe(0);
+    const listed = await asOwner(() =>
+      listWebhooks.run({ databaseId: ids.databaseId }),
+    );
+    expect(listed.webhooks.map((listedWebhook) => listedWebhook.id)).toEqual([
+      webhook.id,
+    ]);
+  });
+
   it("W2-4: refuses URLs it can't safely call and properties outside the scope", async () => {
     const ids = await fixture();
     const other = await fixture();
@@ -1346,6 +1503,9 @@ describe("content webhooks", () => {
       "https://localhost/content",
       // A name, not an address, that resolves into the Tailnet.
       "https://receiver.tail1234.ts.net/content",
+      // The receiver's own address, but with credentials fetch won't send.
+      "https://user:pass@hooks.example.com/content",
+      "https://token@hooks.example.com/content",
     ]) {
       await expect(
         asOwner(() => createWebhook.run({ ...base, url })),

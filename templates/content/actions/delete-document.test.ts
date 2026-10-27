@@ -147,6 +147,9 @@ const { schema } = vi.hoisted(() => ({
       ownerEmail: "documentComments.ownerEmail",
     },
     documentShares: { resourceId: "documentShares.resourceId" },
+    contentWebhookDeliveries: {
+      documentId: "contentWebhookDeliveries.documentId",
+    },
     contentDatabaseMigrationReceipts: {
       databaseId: "contentDatabaseMigrationReceipts.databaseId",
     },
@@ -421,6 +424,17 @@ describe("deleteDocumentRecursive", () => {
         { __eq: [schema.documentBodySteps.ownerEmail, "owner-a@example.com"] },
       ],
     });
+  });
+
+  it("deletes the webhook events about the deleted document", async () => {
+    await deleteDocumentRecursive(db, "doc-1", "owner-a@example.com");
+
+    const eventDeletes = deleteCalls.filter(
+      (c) => c.table === "contentWebhookDeliveries",
+    );
+    expect(eventDeletes.map((c) => c.cond)).toEqual([
+      { __inArray: [schema.contentWebhookDeliveries.documentId, ["doc-1"]] },
+    ]);
   });
 
   it("deletes document_comments for every recursively deleted child", async () => {

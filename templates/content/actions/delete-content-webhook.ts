@@ -13,7 +13,7 @@ import {
 
 export default defineAction({
   description:
-    "Remove a webhook by ID. Content stops sending its events at once, deletes its events, sent or waiting, and deletes its signing secret. Requires admin access to the collection or page it watches.",
+    "Remove a webhook by ID. Content stops sending its events at once, deletes its events, sent or waiting, and deletes its signing secret. A request already on its way when the webhook is removed can still arrive. Requires admin access to the collection or page it watches.",
   mcpTool: true,
   mcpAnnotations: {
     readOnlyHint: false,

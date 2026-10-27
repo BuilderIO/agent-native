@@ -962,12 +962,25 @@
 .content-editor table th {
   font-weight: inherit;
   text-align: left;
-  background-color: transparent;
 }
 
 .content-editor table .content-table-header-cell {
-  background-color: hsl(var(--muted) / 0.45);
   font-weight: 500;
+}
+
+/* Kept as weak as the colour classes below, which come later and so win. */
+.content-editor :where(table .content-table-header-cell) {
+  background-color: hsl(var(--muted) / 0.45);
+}
+
+.content-editor :where(table tr.content-block-bg > .content-table-header-cell) {
+  background-color: transparent;
+}
+
+/* Rows and cells take block colours, but stay rows and cells. */
+.content-editor table :is(tr, td, th).content-block-bg {
+  display: revert;
+  border-radius: 0;
 }
 
 .content-editor table .selectedCell:after {
@@ -2493,6 +2506,20 @@ audio.media-block__content {
   --comment-highlight-fill: hsl(210 100% 52% / 0.2);
   --comment-highlight-line: hsl(210 100% 52% / 0.55);
   cursor: default;
+}
+/* A thread on a whole block, such as a video, rings it: a fill would cover
+   the video. */
+.content-editor .comment-highlight.comment-highlight--block {
+  background: none;
+  padding: 0;
+  margin-inline: 0;
+  border-radius: 6px;
+  cursor: default;
+  box-shadow: 0 0 0 2px var(--comment-highlight-line);
+}
+.content-editor .comment-highlight--block.comment-highlight--hovered,
+.content-editor .comment-highlight--block.comment-highlight--active {
+  box-shadow: 0 0 0 3px var(--comment-highlight-line);
 }
 
 @media (prefers-reduced-motion: reduce) {

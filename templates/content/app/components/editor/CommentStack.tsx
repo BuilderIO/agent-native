@@ -12,6 +12,7 @@ import {
 import type { CommentThread } from "@/hooks/use-comments";
 import { cn } from "@/lib/utils";
 
+import { commentThreadQuote } from "./comment-block-anchors";
 import {
   CommentAvatar,
   CommentRow,
@@ -319,7 +320,7 @@ export function CommentStackCard({
     ? threads.find((thread) => thread.threadId === motion.leaving)
     : undefined;
   const quoteOf = (thread: CommentThread) =>
-    quotes.get(thread.threadId) ?? thread.quotedText ?? null;
+    quotes.get(thread.threadId) ?? commentThreadQuote(thread, t) ?? null;
   const quote = quoteOf(front);
   const first = front.comments[0];
   const firstName = first
