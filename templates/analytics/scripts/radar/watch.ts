@@ -167,6 +167,13 @@ function eventTotal(
   );
 }
 
+const SAFE_CAMPAIGN_LABELS = new Set(["outage_recovery_20261026"]);
+
+export function safeCampaignLabel(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  return SAFE_CAMPAIGN_LABELS.has(normalized) ? normalized : "other";
+}
+
 function eventCampaigns(
   rows: QueryRow[],
   period: string,
@@ -179,7 +186,8 @@ function eventCampaigns(
     .filter(
       (value): value is string =>
         typeof value === "string" && value.trim().length > 0,
-    );
+    )
+    .map(safeCampaignLabel);
   return [...new Set(values)].sort();
 }
 

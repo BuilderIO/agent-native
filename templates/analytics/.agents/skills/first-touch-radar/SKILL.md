@@ -27,8 +27,12 @@ scope: dev
    day. Never send Slack or email.
 7. Keep recipient emails and prompt text out of logs, reports, Telegram, and
    commits. The campaign check reads its mode-0600 recipient file in memory and
-   emits aggregate counts only. Anonymous landings cannot be assigned to a
-   recipient; do not interpret identified counts as a complete click total.
+   emits aggregate counts only. It queries the recent PostgreSQL event mirror,
+   including when the configured sink is BigQuery, so recipient identifiers do
+   not leave the local database. Query caching is disabled. Unknown signup
+   campaign labels are grouped as `other`. Anonymous landings cannot be
+   assigned to a recipient; do not interpret identified counts as a complete
+   click total.
 8. This radar changes scripts and skills only. Do not make user-visible UI
    changes. If UI work becomes necessary, stop that scope and request Steve's
    screenshot approval before implementing it.

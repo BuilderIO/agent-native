@@ -1,17 +1,29 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  hashCampaignEmail,
+  campaignPostgresParams,
   summarizeCampaignByActivityApp,
   type CampaignFollowupResult,
 } from "./campaign.ts";
 
 describe("campaign follow-up summaries", () => {
-  it("normalizes recipient identities before producing warehouse join digests", () => {
-    const digest = hashCampaignEmail("Person@Example.test");
+  it("serializes campaign recipients for the PostgreSQL JSONB parameter", () => {
+    const params = campaignPostgresParams(
+      [
+        {
+          email: "person@example.test",
+          sent_at: "2026-10-26T12:00:00.000Z",
+          app: "clips",
+        },
+      ],
+      "2026-10-19",
+      "2026-10-27",
+      "org-1",
+    );
 
-    expect(digest).toMatch(/^[a-f0-9]{64}$/);
-    expect(digest).toBe(hashCampaignEmail("person@example.test"));
+    expect(params[0]).toBe(
+      '[{"email":"person@example.test","sent_at":"2026-10-26T12:00:00.000Z","app":"clips"}]',
+    );
   });
 
   it("aggregates recipient counts by activity app without repeating denominators", () => {

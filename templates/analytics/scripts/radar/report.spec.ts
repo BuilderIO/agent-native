@@ -1,0 +1,45 @@
+import { describe, expect, it } from "vitest";
+
+import type { RadarCheckResult } from "./checks.ts";
+import { recoveryStateForIssue } from "./report.ts";
+
+const check = (status: RadarCheckResult["status"]): RadarCheckResult => ({
+  id: "setup-exposure",
+  app: "clips",
+  window: "daily",
+  baselineDays: 7,
+  minN: 1,
+  threshold: null,
+  operator: "signal",
+  severity: "warning",
+  message: "setup exposure check",
+  query: "events",
+  status,
+});
+
+describe("weekly recovery evidence", () => {
+  it("does not call a missing or omitted final-day check recovered", () => {
+    expect(recoveryStateForIssue(undefined, "setup-exposure|clips")).toBe(
+      "unknown",
+    );
+    expect(recoveryStateForIssue([], "setup-exposure|clips")).toBe("unknown");
+    expect(
+      recoveryStateForIssue([check("insufficient")], "setup-exposure|clips"),
+    ).toBe("unknown");
+    expect(
+      recoveryStateForIssue([check("unavailable")], "setup-exposure|clips"),
+    ).toBe("unknown");
+  });
+
+  it("reports recovery only from a present completed check", () => {
+    expect(
+      recoveryStateForIssue([check("fired")], "setup-exposure|clips"),
+    ).toBe("still_broken");
+    expect(
+      recoveryStateForIssue([check("clear")], "setup-exposure|clips"),
+    ).toBe("recovered");
+    expect(
+      recoveryStateForIssue([check("observed")], "setup-exposure|clips"),
+    ).toBe("recovered");
+  });
+});

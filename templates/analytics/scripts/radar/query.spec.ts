@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   bqRequest,
+  collectPostgresRows,
   ensurePrivateRadarCacheDirectory,
   isReadOnlySql,
   parseBigQueryTimestamp,
@@ -47,6 +48,12 @@ describe("radar query safety", () => {
     expect(isReadOnlySql("SELECT set_config('x', 'y', true)")).toBe(false);
     expect(isReadOnlySql("SELECT nextval('sequence')")).toBe(false);
     expect(isReadOnlySql("SELECT pg_stat_reset()")).toBe(false);
+    expect(
+      isReadOnlySql("SELECT * FROM dblink('remote', 'UPDATE t SET x=1')"),
+    ).toBe(false);
+    expect(isReadOnlySql("SELECT dblink_connect('remote', 'dbname=x')")).toBe(
+      false,
+    );
     expect(isReadOnlySql("SELECT 1; SELECT 2")).toBe(false);
   });
 
@@ -108,6 +115,39 @@ describe("radar query safety", () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it("fails a completed BigQuery job that reports an error result", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({ status: { errorResult: { reason: "badQuery" } } }),
+      ),
+    );
+    try {
+      await expect(
+        bqRequest("https://example.test", "test-token"),
+      ).rejects.toThrow("BigQuery query job completed with an error.");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("streams PostgreSQL rows and fails explicitly at row and byte caps", async () => {
+    async function* batches() {
+      yield [{ value: "a" }];
+      yield [{ value: "b" }];
+    }
+
+    await expect(
+      collectPostgresRows(batches(), { maxRows: 1, maxBytes: 100 }),
+    ).rejects.toThrow(RadarQueryError);
+    await expect(
+      collectPostgresRows(batches(), { maxRows: 10, maxBytes: 2 }),
+    ).rejects.toThrow(RadarQueryError);
+    await expect(
+      collectPostgresRows(batches(), { maxRows: 2, maxBytes: 100 }),
+    ).resolves.toHaveLength(2);
   });
 
   it("normalizes BigQuery REST timestamp seconds to ISO timestamps", () => {

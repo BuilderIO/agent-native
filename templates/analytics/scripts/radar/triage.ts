@@ -36,6 +36,14 @@ export interface TriageRun {
   byAppOutcome: Record<string, Record<string, number>>;
 }
 
+export function triageMetadataParams(
+  selected: Array<{ session_id: string; app: string; signup_at: string }>,
+  orgId: string,
+  windowEnd: string,
+): unknown[] {
+  return [JSON.stringify(selected), orgId, windowEnd];
+}
+
 function addDays(date: string, amount: number): string {
   const result = new Date(`${date}T00:00:00.000Z`);
   result.setUTCDate(result.getUTCDate() + amount);
@@ -96,7 +104,7 @@ export async function runTriage(
       ? (
           await runPostgresQuery(
             buildTriageMetadataSql(),
-            [selected, orgId, windowEnd],
+            triageMetadataParams(selected, orgId, windowEnd),
             { fresh: true },
           )
         ).rows

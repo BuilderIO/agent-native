@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   bigQueryIdentityExclusionSql,
   bigQueryFirstTouchEventsCte,
-  buildBigQueryCampaignFollowupSql,
   buildBigQueryEventStatsSql,
   buildBigQueryFunnelDailySql,
   buildBigQueryPromptOutputSloSql,
@@ -76,33 +75,7 @@ describe("first-party BigQuery radar SQL", () => {
     expect(slo).toContain("percentile_cont(seconds, 0.9)");
   });
 
-  it("returns only aggregate campaign follow-up rows and bounded session timelines", () => {
-    const campaign = buildBigQueryCampaignFollowupSql(range);
-    const recipientsCte = campaign.slice(
-      campaign.indexOf("recipients AS ("),
-      campaign.indexOf("recipient_totals AS ("),
-    );
-    const campaignProjection = campaign.slice(
-      campaign.lastIndexOf("SELECT p.period"),
-    );
-    expect(campaign).toContain("@recipients_json");
-    expect(campaign).toContain("$.email_hash");
-    expect(campaign).toContain(
-      "sha256(cast(lower(trim(e.identity_email)) AS bytes))",
-    );
-    expect(recipientsCte).not.toContain("$.email'");
-    expect(campaign).toContain("$.userEmail");
-    expect(campaign).toContain("$.utm_campaign");
-    expect(campaign).toContain("ELSE 'other'");
-    expect(campaign).toContain("'analytics', 'assets', 'brain'");
-    expect(campaign).not.toContain(
-      "strpos(coalesce(json_value(e.properties, '$.auth_user_id'), ''), '@')",
-    );
-    expect(campaign).toContain("outage_recovery_20261026");
-    expect(campaign).toContain("'prior_7_days'");
-    expect(campaignProjection).not.toMatch(/SELECT[^;]*email/i);
-    expect(campaignProjection).toContain("recipients_with_activity");
-
+  it("bounds selected BigQuery triage sessions and excludes their identity fields", () => {
     const triage = buildBigQueryTriageEventsSql(range);
     expect(triage).toContain("@window_start");
     expect(triage).toContain("LIMIT 500");

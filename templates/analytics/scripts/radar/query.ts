@@ -14,6 +14,8 @@ const CACHE_TTL_MS = 15 * 60 * 1000;
 const DEFAULT_MAX_GB = 20;
 const MAX_BQ_ROWS = 50_000;
 const MAX_BQ_PAGE_SIZE = 10_000;
+const MAX_POSTGRES_ROWS = 50_000;
+const MAX_POSTGRES_RESULT_BYTES = 20 * 1024 * 1024;
 
 export type BqParameterType =
   | "STRING"
@@ -73,6 +75,7 @@ interface BqRow {
 
 interface BqPayload extends Record<string, unknown> {
   error?: unknown;
+  status?: { errorResult?: unknown };
   totalBytesProcessed?: string | number;
   jobReference?: { jobId?: string; location?: string };
   schema?: { fields?: BqField[] };
@@ -361,7 +364,12 @@ export function isReadOnlySql(sql: string): boolean {
     "lo_import",
     "lo_export",
     "dblink_exec",
+    "dblink",
     "dblink_connect",
+    "dblink_connect_u",
+    "dblink_open",
+    "dblink_fetch",
+    "dblink_close",
     "set_config",
     "pg_notify",
     "pg_advisory_lock",
@@ -563,13 +571,24 @@ export async function runPostgresQuery(
   const cacheEnabled = options.cache !== false;
   if (cacheEnabled && !options.fresh) {
     const cached = readCache(key, options.cacheTtlMs ?? CACHE_TTL_MS);
-    if (cached) return cached;
+    if (cached) {
+      return {
+        ...cached,
+        rows: await collectPostgresRows(
+          (async function* () {
+            yield cached.rows;
+          })(),
+        ),
+      };
+    }
   }
 
   try {
     const rows = await db.begin("read only", async (tx) => {
       await tx.unsafe("SET LOCAL statement_timeout = '120s'");
-      return tx.unsafe(query, [...params] as never[]);
+      return collectPostgresRows(
+        tx.unsafe(query, [...params] as never[]).cursor(1),
+      );
     });
     const result: RadarQueryResult = {
       rows: rows as Record<string, unknown>[],
@@ -579,6 +598,7 @@ export async function runPostgresQuery(
     if (cacheEnabled) writeCache(key, result);
     return result;
   } catch (error) {
+    if (error instanceof RadarQueryError) throw error;
     const code =
       error && typeof error === "object" && "code" in error
         ? String(error.code)
@@ -602,6 +622,41 @@ export async function runPostgresQuery(
       1,
     );
   }
+}
+
+export async function collectPostgresRows(
+  batches: AsyncIterable<readonly Record<string, unknown>[]>,
+  limits: { maxRows?: number; maxBytes?: number } = {},
+): Promise<Record<string, unknown>[]> {
+  const maxRows = limits.maxRows ?? MAX_POSTGRES_ROWS;
+  const maxBytes = limits.maxBytes ?? MAX_POSTGRES_RESULT_BYTES;
+  const rows: Record<string, unknown>[] = [];
+  let resultBytes = 0;
+
+  for await (const batch of batches) {
+    for (const row of batch) {
+      let rowBytes: number;
+      try {
+        const serialized = JSON.stringify(row);
+        if (typeof serialized !== "string") throw new TypeError();
+        rowBytes = Buffer.byteLength(serialized, "utf8");
+      } catch {
+        throw new RadarQueryError(
+          "PostgreSQL returned a row that cannot be measured safely.",
+          1,
+        );
+      }
+      if (rows.length >= maxRows || resultBytes + rowBytes > maxBytes) {
+        throw new RadarQueryError(
+          `PostgreSQL result exceeded the ${maxRows}-row or ${Math.floor(maxBytes / (1024 * 1024))}-MiB safety cap; aggregate in SQL.`,
+          1,
+        );
+      }
+      rows.push(row);
+      resultBytes += rowBytes;
+    }
+  }
+  return rows;
 }
 
 function parseMaxGb(value: number | undefined): number {
@@ -974,6 +1029,9 @@ export async function bqRequest(
   const payload = (await response.json()) as BqPayload;
   if (payload.error) {
     throw new RadarQueryError("BigQuery rejected the read-only query.", 1);
+  }
+  if (payload.status?.errorResult) {
+    throw new RadarQueryError("BigQuery query job completed with an error.", 1);
   }
   return payload;
 }

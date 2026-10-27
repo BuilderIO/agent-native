@@ -100,6 +100,19 @@ function compactCheck(check: RadarCheckResult): ReportIssue {
   };
 }
 
+export function recoveryStateForIssue(
+  checks: readonly RadarCheckResult[] | undefined,
+  key: string,
+): "still_broken" | "recovered" | "unknown" {
+  if (!checks) return "unknown";
+  const check = checks.find((item) => issueKey(item) === key);
+  if (!check) return "unknown";
+  if (check.status === "fired") return "still_broken";
+  if (check.status === "clear" || check.status === "observed")
+    return "recovered";
+  return "unknown";
+}
+
 function readPreviousIssues(week: string): ReportIssue[] | null {
   const previousWeek = addDays(week, -7);
   const file = path.join(RADAR_TMP_DIR, "runs", previousWeek, "radar.json");
@@ -311,21 +324,11 @@ export async function buildWeeklyReport(
   }
   const firedIssues = [...firedByKey.values()];
   const prior = readPreviousIssues(week);
-  const lastDayChecks = dailyRuns[dailyRuns.length - 1]?.run?.checks ?? [];
+  const lastDayChecks = dailyRuns[dailyRuns.length - 1]?.run?.checks;
   const recoveryItems = (prior ?? []).map((issue) => {
-    const active = lastDayChecks.find(
-      (check) => issueKey(check) === issue.key && check.status === "fired",
-    );
-    if (active) return { key: issue.key, state: "still_broken" as const };
-    const lastState = lastDayChecks.find(
-      (check) => issueKey(check) === issue.key,
-    )?.status;
     return {
       key: issue.key,
-      state:
-        lastState === "unavailable" || lastState === "insufficient"
-          ? ("unknown" as const)
-          : ("recovered" as const),
+      state: recoveryStateForIssue(lastDayChecks, issue.key),
     };
   });
   const failedDates = dailyRuns
@@ -366,7 +369,10 @@ export async function buildWeeklyReport(
     campaignFollowup,
     campaignAnnotations,
     firedIssues,
-    recovery: { available: prior !== null, items: recoveryItems },
+    recovery: {
+      available: prior !== null && lastDayChecks !== undefined,
+      items: recoveryItems,
+    },
     journeySnapshot,
     feedback: { status: "agent_required", skill: "feedback-ingest" },
     exitCode,
