@@ -84,6 +84,9 @@
   --color-database-blue-foreground: #fff;
   --color-database-chip: var(--database-chip);
   --color-database-chip-foreground: var(--database-chip-foreground);
+  /* The Clip player stays dark in both themes, like Clips' own player. */
+  --color-player-control: hsl(0 0% 0%);
+  --color-player-control-foreground: hsl(0 0% 100%);
   /* Comment cards: resting in the margin, floating as a popover, and the
      lifted state for the hovered, focused, or selected thread. */
   --shadow-comment-card:
@@ -1563,6 +1566,10 @@ div[data-notion-column] > :last-child {
   color: hsl(var(--muted-foreground));
   padding: 1.25rem;
   line-height: 1.4;
+}
+
+.media-block__broken--fill {
+  width: 100%;
 }
 
 .media-block__broken-icon {
