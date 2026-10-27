@@ -810,6 +810,8 @@ const editorPropertiesMessages = {
   editProperty: "Edit {{name}}",
   builderStatusPublishInBuilder:
     "Changes saved in Builder's editor can only be published from Builder.",
+  builderStatusUnpublishedChangesInBuilder:
+    "Unpublished changes come from Builder's editor, so they can't be set here.",
   editStartDate: "Edit {{name}} start date",
   editValue: "Edit {{name}} value",
   moveColumnLeft: "Move column left",

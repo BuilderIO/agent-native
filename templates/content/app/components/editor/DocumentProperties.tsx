@@ -1335,13 +1335,21 @@ function BuilderStatusPicker({
               ) : null}
             </DropdownMenuItem>
           );
-          return status === "published" && available.get(status) === false ? (
+          const unavailableKey =
+            status && available.get(status) === false
+              ? status === "published"
+                ? "editor.properties.builderStatusPublishInBuilder"
+                : status === "unpublished_changes"
+                  ? "editor.properties.builderStatusUnpublishedChangesInBuilder"
+                  : null
+              : null;
+          return unavailableKey ? (
             <Tooltip key={option.id}>
               <TooltipTrigger asChild>
                 <div>{item}</div>
               </TooltipTrigger>
               <TooltipContent className="max-w-64">
-                {t("editor.properties.builderStatusPublishInBuilder")}
+                {t(unavailableKey)}
               </TooltipContent>
             </Tooltip>
           ) : (

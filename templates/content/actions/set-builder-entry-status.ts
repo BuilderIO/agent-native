@@ -15,6 +15,7 @@ import {
   parseBuilderEntrySourceValues,
 } from "./_builder-entry-status.js";
 import { writeBuilderStatusValues } from "./_builder-status-property.js";
+import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import { resolveDatabaseForSourceMutation } from "./_database-source-utils.js";
 
@@ -108,6 +109,9 @@ export default defineAction({
 
     const now = new Date().toISOString();
     const stagedPublicationTransition = await db.transaction(async (tx) => {
+      // Disconnecting deletes the source's rows and then the source under the
+      // collection's lock, so taking it first keeps the two from deadlocking.
+      await lockContentDatabaseMutation(tx, database.id);
       // Refreshes and pushes rewrite the row under this lock, so the staged
       // change is applied to the values they last stored.
       await lockDatabaseMemberships(tx, [target.row.databaseItemId]);

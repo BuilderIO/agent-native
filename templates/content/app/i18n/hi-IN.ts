@@ -876,6 +876,8 @@ const editor = {
     editProperty: "{{name}} संपादित करें",
     builderStatusPublishInBuilder:
       "Builder के एडिटर में सहेजे गए बदलाव केवल Builder से ही प्रकाशित किए जा सकते हैं।",
+    builderStatusUnpublishedChangesInBuilder:
+      "अप्रकाशित बदलाव Builder के एडिटर से आते हैं, इसलिए उन्हें यहाँ सेट नहीं किया जा सकता।",
     editStartDate: "{{name}} आरंभ दिनांक संपादित करें",
     editValue: "{{name}} मान संपादित करें",
     empty: "ख़ाली",

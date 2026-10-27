@@ -853,6 +853,8 @@ const editor = {
     editProperty: "编辑 {{name}}",
     builderStatusPublishInBuilder:
       "在 Builder 编辑器中保存的更改只能从 Builder 发布。",
+    builderStatusUnpublishedChangesInBuilder:
+      "未发布的更改来自 Builder 编辑器，因此无法在此设置。",
     editStartDate: "编辑 {{name}} 开始日期",
     editValue: "编辑 {{name}} 值",
     empty: "空",

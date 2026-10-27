@@ -147,6 +147,7 @@ import { assertNoActiveBuilderSourceExecutions } from "./_builder-source-executi
 import {
   clearBuilderStatusValues,
   ensureBuilderStatusProperty,
+  removeBuilderStatusPropertyWithoutSource,
   writeBuilderStatusValues,
 } from "./_builder-status-property.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
@@ -6679,19 +6680,38 @@ export async function replaceMockSourceRows(args: {
   /** Writes the refreshed values into the source's mapped properties. */
   materializeFields?: boolean;
 }) {
+  const db = getDb();
+  const [sourceAtStart = null] = await db
+    .select({ databaseId: schema.contentDatabaseSources.databaseId })
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, args.sourceId));
+  if (!sourceAtStart) failSourceDisconnected();
   if (args.sourceType === "builder-cms") {
     await ensureBuilderStatusProperty({
       sourceId: args.sourceId,
       now: args.now,
     });
   }
-  const db = getDb();
   const lockRows = mockSourceRowsForSeed(args);
-  await db.transaction(async (tx) => {
-    // Before the memberships, as binding and unbinding a field take it, so
-    // the mappings read below stay current until the refresh commits.
-    if (args.materializeFields) {
-      await lockSourceCollections(tx, [args.sourceId]);
+  const disconnected = await db.transaction(async (tx) => {
+    // Before the memberships. Binding and unbinding a field take it, so the
+    // mappings read below stay current until the refresh commits, and
+    // disconnecting takes it, so rows read from Builder before a disconnect
+    // aren't put back after it.
+    await lockContentDatabaseMutation(tx, sourceAtStart.databaseId);
+    const [source = null] = await tx
+      .select({ databaseId: schema.contentDatabaseSources.databaseId })
+      .from(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.id, args.sourceId));
+    if (!source) {
+      // The status column made above can postdate the disconnect's cleanup.
+      if (args.sourceType === "builder-cms") {
+        await removeBuilderStatusPropertyWithoutSource(tx, {
+          databaseId: sourceAtStart.databaseId,
+          now: args.now,
+        });
+      }
+      return true;
     }
     const scope = args.documentIds?.length
       ? and(
@@ -6727,18 +6747,12 @@ export async function replaceMockSourceRows(args: {
       : lockRows;
     await tx.delete(schema.contentDatabaseSourceRows).where(scope);
     await insertMockSourceRows(tx, rows, args.now);
-    const [source = null] = await tx
-      .select({ databaseId: schema.contentDatabaseSources.databaseId })
-      .from(schema.contentDatabaseSources)
-      .where(eq(schema.contentDatabaseSources.id, args.sourceId));
-    if (source) {
-      await clearBuilderStatusValues(tx, {
-        databaseId: source.databaseId,
-        documentIds: oldRows
-          .map((row) => row.documentId)
-          .filter((documentId): documentId is string => !!documentId),
-      });
-    }
+    await clearBuilderStatusValues(tx, {
+      databaseId: source.databaseId,
+      documentIds: oldRows
+        .map((row) => row.documentId)
+        .filter((documentId): documentId is string => !!documentId),
+    });
     if (args.sourceType === "builder-cms") {
       await writeBuilderStatusValues(tx, {
         sourceId: args.sourceId,
@@ -6772,6 +6786,15 @@ export async function replaceMockSourceRows(args: {
           : undefined,
       });
     }
+    return false;
+  });
+  if (disconnected) failSourceDisconnected();
+}
+
+function failSourceDisconnected(): never {
+  fail("This source was disconnected while it refreshed.", {
+    errorCode: "source_disconnected",
+    statusCode: 409,
   });
 }
 

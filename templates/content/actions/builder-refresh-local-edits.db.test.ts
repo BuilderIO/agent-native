@@ -7,6 +7,7 @@ import { getDbExec } from "@agent-native/core/db";
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 
+import type { ContentDatabaseItem } from "../shared/api";
 import {
   BUILDER_CMS_BODY_BLOCK_COUNT_KEY,
   BUILDER_CMS_BODY_CONTENT_KEY,
@@ -1133,4 +1134,117 @@ it("locks the collection, then the membership before the hydration queue row, as
   expect(queueRowWrittenFirst).not.toContain(true);
   expect(collectionLockedFirst.length).toBeGreaterThanOrEqual(2);
   expect(collectionLockedFirst).not.toContain(false);
+});
+
+it("writes no rows or status column for a source disconnected while the refresh read Builder", async () => {
+  const db = getDb();
+  const [source] = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, SOURCE_ID));
+  const rows = await db
+    .select()
+    .from(schema.contentDatabaseSourceRows)
+    .where(eq(schema.contentDatabaseSourceRows.sourceId, SOURCE_ID));
+  const statusProperty = () =>
+    db
+      .select({ id: schema.documentPropertyDefinitions.id })
+      .from(schema.documentPropertyDefinitions)
+      .where(
+        and(
+          eq(schema.documentPropertyDefinitions.databaseId, DATABASE_ID),
+          eq(schema.documentPropertyDefinitions.systemRole, "builder_status"),
+        ),
+      );
+  const [{ id: statusPropertyId }] = await statusProperty();
+  const documentId = await documentIdFor("entry-a");
+  const [item] = await db
+    .select({
+      id: schema.contentDatabaseItems.id,
+      position: schema.contentDatabaseItems.position,
+    })
+    .from(schema.contentDatabaseItems)
+    .where(eq(schema.contentDatabaseItems.documentId, documentId));
+  const now = tick();
+  // What disconnecting deletes, committed after the refresh read Builder and
+  // before it writes the rows. The status column is left, as one the refresh
+  // made after the disconnect's cleanup would be.
+  databaseLock.beforeNextLock = async (tx) => {
+    await tx
+      .delete(schema.contentDatabaseSourceRows)
+      .where(eq(schema.contentDatabaseSourceRows.sourceId, SOURCE_ID));
+    await tx
+      .delete(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.id, SOURCE_ID));
+  };
+  try {
+    await expect(
+      utils.replaceMockSourceRows({
+        sourceId: SOURCE_ID,
+        ownerEmail: OWNER,
+        sourceType: "builder-cms",
+        sourceTable: MODEL,
+        items: [
+          {
+            id: item.id,
+            databaseId: DATABASE_ID,
+            document: { id: documentId, title: "Entry A", content: "" },
+            position: item.position,
+            properties: [],
+          } as unknown as ContentDatabaseItem,
+        ],
+        now,
+        builderEntriesByDocumentId: new Map([
+          [
+            documentId,
+            {
+              id: "entry-a",
+              model: MODEL,
+              title: "Entry A",
+              urlPath: "/entry-a",
+              updatedAt: now,
+              sourceValues: { "data.title": "Entry A", "data.author": "Ada D" },
+            },
+          ],
+        ]),
+        documentIds: [documentId],
+        materializeFields: true,
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "source_disconnected",
+    });
+    expect(
+      await db
+        .select({ id: schema.contentDatabaseSourceRows.id })
+        .from(schema.contentDatabaseSourceRows)
+        .where(eq(schema.contentDatabaseSourceRows.sourceId, SOURCE_ID)),
+    ).toEqual([]);
+    expect(await statusProperty()).toEqual([]);
+    expect(
+      await db
+        .select({
+          documentId: schema.documentPropertyValueTombstones.documentId,
+        })
+        .from(schema.documentPropertyValueTombstones)
+        .where(
+          eq(
+            schema.documentPropertyValueTombstones.propertyId,
+            statusPropertyId,
+          ),
+        ),
+    ).toEqual([]);
+  } finally {
+    databaseLock.beforeNextLock = null;
+    await db
+      .insert(schema.contentDatabaseSources)
+      .values(source)
+      .onConflictDoNothing();
+    if (rows.length > 0) {
+      await db
+        .insert(schema.contentDatabaseSourceRows)
+        .values(rows)
+        .onConflictDoNothing();
+    }
+  }
 });
