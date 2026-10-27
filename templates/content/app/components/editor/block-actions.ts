@@ -74,8 +74,8 @@ export function turnBlockInto(
     type: NodeType | undefined,
     attrs?: Record<string, unknown>,
   ) => {
-    if (!type) return false;
-    const current = tr.doc.nodeAt(pos)!;
+    const current = tr.doc.nodeAt(pos);
+    if (!type || !current) return false;
     tr.setBlockType(
       pos,
       pos + current.nodeSize,
@@ -91,11 +91,12 @@ export function turnBlockInto(
     if (node.type.name !== "paragraph" && !setType(schema.nodes.paragraph)) {
       return false;
     }
-    const paragraph = tr.doc.nodeAt(pos)!;
+    const paragraph = tr.doc.nodeAt(pos);
+    if (!paragraph) return false;
     const range = tr.doc
       .resolve(pos + 1)
       .blockRange(tr.doc.resolve(pos + paragraph.nodeSize - 1));
-    const type = schema.nodes[wrapper];
+    const type = schema.nodes[wrapper] as NodeType | undefined;
     const wrapping = range && type && findWrapping(range, type);
     if (!range || !wrapping) return false;
     tr.wrap(range, wrapping);

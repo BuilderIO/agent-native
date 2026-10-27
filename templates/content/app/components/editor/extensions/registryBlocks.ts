@@ -1,5 +1,6 @@
 import { createRegistryBlockNode } from "@agent-native/toolkit/editor";
 import { Extension } from "@tiptap/core";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 
 export function createContentBlockId(blockType: string): string {
@@ -22,10 +23,10 @@ export const RegistryBlockNode = createRegistryBlockNode({
 });
 
 /** A component from the page's source, which the page can't add or remove. */
-export function isSourceComponentNode(node: any): boolean {
+export function isSourceComponentNode(node: ProseMirrorNode): boolean {
   return (
-    node.type?.name === "registryBlock" &&
-    node.attrs?.blockType === "source-component" &&
+    node.type.name === "registryBlock" &&
+    node.attrs.blockType === "source-component" &&
     typeof node.attrs.blockId === "string" &&
     !!node.attrs.blockId
   );

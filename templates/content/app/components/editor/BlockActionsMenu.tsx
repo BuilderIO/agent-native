@@ -155,7 +155,10 @@ export function BlockActionsMenu({
   // the search keeps it. A phone's keyboard would cover the page, though.
   const searchInput = useCallback((input: HTMLInputElement | null) => {
     searchRef.current = input;
-    if (input && !window.matchMedia?.("(pointer: coarse)").matches) {
+    const coarse =
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(pointer: coarse)").matches;
+    if (input && !coarse) {
       input.focus({ preventScroll: true });
     }
   }, []);
@@ -330,8 +333,7 @@ export function BlockActionsMenu({
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       const items = enabledItems();
-      const item =
-        event.key === "ArrowDown" ? items[0] : items[items.length - 1];
+      const item = event.key === "ArrowDown" ? items.shift() : items.pop();
       item?.focus();
     } else if (event.key === "Enter" && needle) {
       event.preventDefault();
@@ -509,7 +511,7 @@ export function BlockActionsMenu({
     sections.push([
       "color",
       <ColorChoices
-        value={node?.attrs.color ?? null}
+        value={node.attrs.color ?? null}
         onChange={setColor}
         shows={matches}
       />,
@@ -539,7 +541,7 @@ export function BlockActionsMenu({
         ) : null}
         {showColor ? (
           <ColorSubmenu
-            value={node?.attrs.color ?? null}
+            value={node.attrs.color ?? null}
             onChange={setColor}
             onEscapeKeyDown={markEscaped}
           />

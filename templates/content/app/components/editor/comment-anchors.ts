@@ -236,7 +236,7 @@ export function resolveAnchor(
     if (occurrences.length > 500) break;
   }
 
-  let chosen = occurrences[0];
+  let chosen = hay.indexOf(quote);
   if (occurrences.length > 1) {
     const prefix = anchor.prefix ?? "";
     const suffix = anchor.suffix ?? "";

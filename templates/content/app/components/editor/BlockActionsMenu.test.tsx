@@ -127,7 +127,24 @@ describe("BlockActionsMenu", () => {
 
   const menus = () =>
     Array.from(document.querySelectorAll<HTMLElement>('[role="menu"]'));
-  const searchBox = () => menus()[0]!.querySelector<HTMLInputElement>("input")!;
+
+  function menuAt(index = 0) {
+    const menu = menus()[index] as HTMLElement | undefined;
+    if (!menu) throw new Error(`No menu at ${index}`);
+    return menu;
+  }
+
+  function searchBox() {
+    const input = menuAt().querySelector<HTMLInputElement>("input");
+    if (!input) throw new Error("The menu has no search box");
+    return input;
+  }
+
+  function focused() {
+    const element = document.activeElement;
+    if (!element) throw new Error("Nothing has focus");
+    return element;
+  }
 
   // An item's own words, without its icon or shortcut hint.
   const label = (item: Element) =>
@@ -136,22 +153,22 @@ describe("BlockActionsMenu", () => {
       .map((child) => child.textContent)
       .join("");
 
-  const menuItems = (menu = menus()[0]) =>
-    Array.from(menu?.querySelectorAll<HTMLElement>('[role^="menuitem"]') ?? []);
+  const menuItems = (menu = menuAt()) =>
+    Array.from(menu.querySelectorAll<HTMLElement>('[role^="menuitem"]'));
 
-  const items = (menu = menus()[0]) =>
+  const items = (menu = menuAt()) =>
     menuItems(menu).map(
       (item) =>
         `${label(item)}${item.hasAttribute("aria-checked") ? `=${item.getAttribute("aria-checked")}` : ""}`,
     );
 
-  function item(text: string, menu = menus()[0]) {
+  function item(text: string, menu = menuAt()) {
     const found = menuItems(menu).find((element) => label(element) === text);
     if (!found) throw new Error(`No menu item "${text}"`);
     return found;
   }
 
-  function choose(text: string, menu = menus()[0]) {
+  function choose(text: string, menu = menuAt()) {
     act(() => item(text, menu).click());
   }
 
@@ -160,7 +177,8 @@ describe("BlockActionsMenu", () => {
     const setValue = Object.getOwnPropertyDescriptor(
       HTMLInputElement.prototype,
       "value",
-    )!.set!;
+    )?.set;
+    if (!setValue) throw new Error("Inputs have no value setter");
     act(() => {
       setValue.call(input, text);
       input.dispatchEvent(new Event("input", { bubbles: true }));
@@ -184,14 +202,13 @@ describe("BlockActionsMenu", () => {
     const trigger = item(text);
     act(() => trigger.focus());
     press(trigger, "ArrowRight");
-    return menus()[1]!;
+    return menuAt(1);
   }
 
   function pressEscape() {
-    const focused = document.activeElement;
-    if (!focused) throw new Error("Nothing has focus");
+    const target = focused();
     act(() => {
-      focused.dispatchEvent(
+      target.dispatchEvent(
         new KeyboardEvent("keydown", { bubbles: true, key: "Escape" }),
       );
     });
@@ -205,7 +222,7 @@ describe("BlockActionsMenu", () => {
   it("offers a table's header and width switches", () => {
     open(mount(), 1);
 
-    expect(menus()[0]!.textContent).toContain("editor.slash.table");
+    expect(menuAt().textContent).toContain("editor.slash.table");
     expect(items()).toEqual([
       "database.headerRow=true",
       "database.headerColumn=false",
@@ -241,7 +258,7 @@ describe("BlockActionsMenu", () => {
   it("titles a text block's menu and offers its kind, colour and comment", () => {
     open(mount({ onComment: vi.fn() }), 0);
 
-    expect(menus()[0]!.textContent).toContain("editor.slash.text");
+    expect(menuAt().textContent).toContain("editor.slash.text");
     expect(items()).toEqual([
       "editor.slash.turnInto",
       "editor.color.label",
@@ -326,7 +343,7 @@ describe("BlockActionsMenu", () => {
     const list = target.state.doc.child(0);
     expect(list.type.name).toBe("bulletList");
     expect(list.textContent).toBe("Before");
-    expect(list.firstChild!.firstChild!.attrs.color).toBe("blue");
+    expect(list.firstChild?.firstChild?.attrs.color).toBe("blue");
     expect(target.state.selection.$from.parent.textContent).toBe("Before");
     expect(target.state.selection.$from.parentOffset).toBe(6);
   });
@@ -382,7 +399,7 @@ describe("BlockActionsMenu", () => {
 
     search("zzz");
     expect(items()).toEqual([]);
-    expect(menus()[0]!.textContent).toContain("editor.blockMenu.noResults");
+    expect(menuAt().textContent).toContain("editor.blockMenu.noResults");
 
     search("dup");
     press(searchBox(), "Enter");
@@ -411,7 +428,7 @@ describe("BlockActionsMenu", () => {
     press(searchBox(), "ArrowDown");
     expect(document.activeElement).toBe(item("editor.slash.turnInto"));
 
-    press(document.activeElement!, "ArrowUp");
+    press(focused(), "ArrowUp");
     expect(document.activeElement).toBe(searchBox());
 
     press(searchBox(), "ArrowUp");
@@ -496,7 +513,7 @@ describe("BlockActionsMenu", () => {
     expect(duplicate.hasAttribute("data-disabled")).toBe(true);
     expect(remove.hasAttribute("data-disabled")).toBe(true);
     const reason = document.getElementById(
-      duplicate.getAttribute("aria-describedby")!,
+      duplicate.getAttribute("aria-describedby") ?? "",
     );
     expect(reason?.textContent).toBe("editor.blockMenu.lockedSource");
     expect(remove.getAttribute("aria-describedby")).toBe(reason?.id);
@@ -519,7 +536,9 @@ describe("BlockActionsMenu", () => {
       "editor.blockMenu.insertBelow",
     ]);
 
-    act(() => root!.render(<BlockActionsMenu editor={target} suggesting />));
+    act(() =>
+      mounted().root.render(<BlockActionsMenu editor={target} suggesting />),
+    );
     open(target, 1);
     expect(items()).not.toContain("database.headerRow=true");
   });
@@ -556,7 +575,9 @@ describe("BlockActionsMenu", () => {
       const target = mount();
       open(target, 0);
 
-      press(menuItems(openSubmenu(submenu))[0]!, "Escape");
+      const choice = menuItems(openSubmenu(submenu)).shift();
+      if (!choice) throw new Error(`${submenu} has no items`);
+      press(choice, "Escape");
       await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
 
       expect(menus()).toEqual([]);

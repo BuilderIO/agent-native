@@ -1,5 +1,5 @@
 import { Extension } from "@tiptap/core";
-import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
+import type { Node as ProseMirrorNode, NodeType } from "@tiptap/pm/model";
 import {
   Plugin,
   PluginKey,
@@ -375,7 +375,8 @@ export function deleteBlockTransaction(
   node: ProseMirrorNode,
 ): Transaction {
   const end = pos + node.nodeSize;
-  const paragraph = state.schema.nodes.paragraph;
+  // A schema may leave paragraphs out, though its types list every name.
+  const paragraph = state.schema.nodes.paragraph as NodeType | undefined;
   if (state.doc.childCount <= 1 && paragraph) {
     const replacement = paragraph.createAndFill() ?? paragraph.create();
     const tr = state.tr.replaceWith(pos, end, replacement);
@@ -1411,7 +1412,8 @@ export const DragHandle = Extension.create<DragHandleOptions>({
         active instanceof Element &&
         active.matches("input, textarea") &&
         active.closest('[role="menu"]') &&
-        window.matchMedia?.("(pointer: coarse)").matches
+        typeof window.matchMedia === "function" &&
+        window.matchMedia("(pointer: coarse)").matches
       ) {
         return;
       }
