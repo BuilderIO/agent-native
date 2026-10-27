@@ -9,6 +9,7 @@ vi.mock("./store.js", () => store);
 
 import {
   assignQuestionIntakeExperimentOnSignup,
+  QuestionIntakeAssignmentError,
   QUESTION_INTAKE_CONTROL_VARIANT,
   QUESTION_INTAKE_TREATMENT_VARIANT,
   resolveQuestionIntakeExperimentAssignment,
@@ -90,6 +91,19 @@ describe("signup-time question-intake assignments", () => {
       );
     },
   );
+
+  it("surfaces a typed failure after both signup assignment attempts fail", async () => {
+    store.getAssignment.mockRejectedValue(new Error("db unavailable"));
+
+    await expect(
+      assignQuestionIntakeExperimentOnSignup(config, "user-1"),
+    ).rejects.toMatchObject({
+      name: QuestionIntakeAssignmentError.name,
+      code: "question_intake_assignment_failed",
+      message: expect.stringContaining("design_no_questions"),
+    });
+    expect(store.getAssignment).toHaveBeenCalledTimes(2);
+  });
 
   it("splits a large stable user-id range evenly between the two variants", async () => {
     const counts = new Map<string, number>([

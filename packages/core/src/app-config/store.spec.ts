@@ -20,6 +20,7 @@ describe("app config store", () => {
     delete process.env.AGENT_NATIVE_PRIVATE_BLOB_PUBLIC_UPLOAD_FALLBACK;
     delete process.env.AGENT_NATIVE_DISABLE_DESKTOP_SSO_FALLBACK;
     delete process.env.AGENT_NATIVE_OWNER_EMAIL;
+    delete process.env.AGENT_QUESTION_INTAKE_EXPERIMENT_ENABLED;
     delete process.env.AGENT_QUESTION_INTAKE_EXPERIMENT_DISABLED;
     delete process.env.DISPATCH_ADMIN_EMAILS;
     delete process.env.WORKSPACE_OWNER_EMAIL;
@@ -150,6 +151,7 @@ describe("app config store", () => {
       agent: {
         questionIntake: {
           enabled: true,
+          disabled: false,
           experimentId: "design_no_questions",
           questionToolNames: ["show-design-questions"],
           treatmentInstructions: "Design first.",
@@ -161,6 +163,30 @@ describe("app config store", () => {
       enabled: true,
       disabled: true,
     });
+  });
+
+  it.each([
+    ["AGENT_QUESTION_INTAKE_EXPERIMENT_ENABLED", "true"],
+    ["AGENT_QUESTION_INTAKE_EXPERIMENT_DISABLED", "true"],
+  ])("ignores %s when the app has no experiment config", (key, value) => {
+    process.env[key] = value;
+
+    expect(getAppConfig().agent.questionIntake).toBeUndefined();
+  });
+
+  it("applies the enable alias to a configured app", () => {
+    process.env.AGENT_QUESTION_INTAKE_EXPERIMENT_ENABLED = "true";
+    defineAppConfig({
+      agent: {
+        questionIntake: {
+          experimentId: "design_no_questions",
+          questionToolNames: ["show-design-questions"],
+          treatmentInstructions: "Design first.",
+        },
+      },
+    });
+
+    expect(getAppConfig().agent.questionIntake?.enabled).toBe(true);
   });
 
   it("ranks the deprecated setter layer above env and below the app layer", () => {
@@ -475,6 +501,8 @@ describe("schema reflection", () => {
     const keys = declaredEnvKeys();
     expect(keys).toContain("AGENT_NATIVE_APP_ID");
     expect(keys).toContain("APP_ID");
+    expect(keys).toContain("AGENT_QUESTION_INTAKE_EXPERIMENT_ENABLED");
+    expect(keys).toContain("AGENT_QUESTION_INTAKE_EXPERIMENT_DISABLED");
     expect(new Set(keys).size).toBe(keys.length);
     expect([...keys].sort()).toEqual(keys);
   });

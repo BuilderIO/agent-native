@@ -22,6 +22,18 @@ export interface QuestionIntakeExperimentAssignment {
     | typeof QUESTION_INTAKE_TREATMENT_VARIANT;
 }
 
+export class QuestionIntakeAssignmentError extends Error {
+  readonly code = "question_intake_assignment_failed";
+
+  constructor(experimentId: string, cause: unknown) {
+    super(
+      `Question-intake assignment failed after retry for ${experimentId}.`,
+      { cause },
+    );
+    this.name = "QuestionIntakeAssignmentError";
+  }
+}
+
 export function treatmentInstructionsForQuestionIntake(
   config: QuestionIntakeExperimentConfig | undefined,
   assignment: QuestionIntakeExperimentAssignment | null,
@@ -105,9 +117,19 @@ export async function assignQuestionIntakeExperimentOnSignup(
 
   try {
     return await assign();
-  } catch {
+  } catch (firstError) {
     await new Promise<void>((resolve) => setTimeout(resolve, 50));
-    return assign();
+    try {
+      return await assign();
+    } catch (retryError) {
+      throw new QuestionIntakeAssignmentError(
+        config.experimentId,
+        new AggregateError(
+          [firstError, retryError],
+          "Question-intake assignment failed twice.",
+        ),
+      );
+    }
   }
 }
 

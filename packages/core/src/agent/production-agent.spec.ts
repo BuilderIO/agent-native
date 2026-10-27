@@ -124,6 +124,7 @@ import {
   actionsToEngineTools,
   filterActionsByAllowedNames,
   filterActionsByExcludedNames,
+  trackExperimentExposureAtDispatch,
   filterInitialEngineTools,
   findApprovedStructuredToolCall,
   backgroundNoProgressTerminalEvent,
@@ -10269,6 +10270,37 @@ describe("filterActionsByExcludedNames", () => {
 });
 
 describe("runAgentLoop", () => {
+  it("tracks experiment exposure only after a model dispatch is admitted", async () => {
+    let interruptResult: "none" | "pending" = "pending";
+    const trackExposure = vi.fn();
+    const guards = createRunSafeBoundaryGuards({
+      signal: new AbortController().signal,
+      flushEvents: async () => {},
+      interruptRequestedAtBoundary: async () => interruptResult,
+    });
+    const beforeModelDispatch = trackExperimentExposureAtDispatch(
+      guards.beforeModelDispatch,
+      trackExposure,
+    );
+    const dispatch = vi.fn(() => "started");
+
+    await expect(beforeModelDispatch(dispatch)).resolves.toEqual({
+      started: false,
+    });
+    expect(trackExposure).not.toHaveBeenCalled();
+    expect(dispatch).not.toHaveBeenCalled();
+
+    interruptResult = "none";
+    await expect(beforeModelDispatch(dispatch)).resolves.toEqual({
+      started: true,
+      value: "started",
+    });
+    await beforeModelDispatch(dispatch);
+
+    expect(trackExposure).toHaveBeenCalledOnce();
+    expect(dispatch).toHaveBeenCalledTimes(2);
+  });
+
   it("defers a queued interrupt when the durable abort declines", async () => {
     const abort = vi.fn(async () => false);
     const defer = vi.fn(async () => true);

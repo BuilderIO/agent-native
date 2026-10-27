@@ -2619,15 +2619,39 @@ async function createBetterAuthInstance(
 
             const actingUserId = context?.context?.session?.user?.id;
             if (user.id && (!actingUserId || actingUserId === user.id)) {
+              let experimentId: string | undefined;
               try {
+                const questionIntakeConfig =
+                  getAppConfig().agent.questionIntake;
+                experimentId = questionIntakeConfig?.experimentId;
                 await assignQuestionIntakeExperimentOnSignup(
-                  getAppConfig().agent.questionIntake,
+                  questionIntakeConfig,
                   user.id,
                 );
-              } catch {
+              } catch (error) {
                 console.error(
-                  "[auth] failed to assign question-intake experiment",
+                  "[auth] question-intake assignment failed after retry",
+                  {
+                    code: "question_intake_assignment_failed",
+                    experimentId,
+                  },
                 );
+                try {
+                  const { captureError } = await import("./capture-error.js");
+                  captureError(error, {
+                    route: "auth.signup",
+                    tags: {
+                      failureClass: "question-intake-assignment",
+                      errorCode: "question_intake_assignment_failed",
+                    },
+                    extra: { experimentId },
+                  });
+                } catch {
+                  console.error(
+                    "[auth] failed to report question-intake assignment failure",
+                    { code: "question_intake_assignment_reporting_failed" },
+                  );
+                }
               }
             }
 

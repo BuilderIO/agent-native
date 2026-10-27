@@ -7495,6 +7495,21 @@ export function createRunSafeBoundaryGuards(input: {
   };
 }
 
+export function trackExperimentExposureAtDispatch(
+  beforeModelDispatch: BeforeModelDispatch,
+  trackExposure: () => void,
+): BeforeModelDispatch {
+  let tracked = false;
+  return async <T>(dispatch: () => T) =>
+    beforeModelDispatch(() => {
+      if (!tracked) {
+        tracked = true;
+        trackExposure();
+      }
+      return dispatch();
+    });
+}
+
 export async function confirmQueuedRunInterrupt(input: {
   abort: () => Promise<boolean>;
   defer: () => Promise<unknown>;
@@ -13951,25 +13966,6 @@ export function createProductionAgentHandler(
             ? (questionIntakeConfig?.questionToolNames ?? [])
             : [];
       }
-      if (!internalContinuation && !continueOf) {
-        track(
-          "agent_experiment_exposed",
-          {
-            experiment_id: questionIntakeAssignment.experimentId,
-            experiment_variant: questionIntakeAssignment.variantId,
-            exposure_surface: "agent_run",
-            app_id: options.appId ?? "app",
-            templateId: options.appId ?? "app",
-            agent_native_app: options.appId ?? "app",
-            ...(threadId ? { thread_id: threadId } : {}),
-            ...(requestTurnId ? { turn_id: requestTurnId } : {}),
-          },
-          {
-            ...(ownerEmail ? { userId: ownerEmail } : {}),
-            authUserId: questionIntakeAssignment.authUserId,
-          },
-        );
-      }
     }
     const turnInitiator: AgentTurnInitiator | undefined = ownerEmail
       ? {
@@ -16907,12 +16903,37 @@ export function createProductionAgentHandler(
             }
             return "none";
           };
-        const { beforeModelDispatch, beforeWrite } =
+        const { beforeModelDispatch: guardedBeforeModelDispatch, beforeWrite } =
           createRunSafeBoundaryGuards({
             signal,
             flushEvents: control.flushEvents,
             interruptRequestedAtBoundary: interruptQueuedRunAtBoundary,
           });
+        const exposureAssignment =
+          questionIntakeAssignment && !internalContinuation && !continueOf
+            ? questionIntakeAssignment
+            : null;
+        const beforeModelDispatch = exposureAssignment
+          ? trackExperimentExposureAtDispatch(guardedBeforeModelDispatch, () =>
+              track(
+                "agent_experiment_exposed",
+                {
+                  experiment_id: exposureAssignment.experimentId,
+                  experiment_variant: exposureAssignment.variantId,
+                  exposure_surface: "agent_run",
+                  app_id: options.appId ?? "app",
+                  templateId: options.appId ?? "app",
+                  agent_native_app: options.appId ?? "app",
+                  ...(threadId ? { thread_id: threadId } : {}),
+                  ...(requestTurnId ? { turn_id: requestTurnId } : {}),
+                },
+                {
+                  ...(ownerEmail ? { userId: ownerEmail } : {}),
+                  authUserId: exposureAssignment.authUserId,
+                },
+              ),
+            )
+          : guardedBeforeModelDispatch;
 
         if (selfChainBudget?.skipToBoundary) {
           await recordRunDiagnostic(

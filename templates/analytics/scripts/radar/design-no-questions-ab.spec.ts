@@ -81,6 +81,9 @@ describe("Design no-questions readout query", () => {
       expect(sql).toContain("no_questions");
       expect(sql).toContain("mature_1to7d");
       expect(sql).toContain("mature_24h");
+      expect(
+        sql.match(/AND happened_at <= (\$4::timestamptz|@as_of)/g),
+      ).toHaveLength(2);
     },
   );
 

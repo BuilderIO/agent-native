@@ -73,6 +73,7 @@ exposure_rows AS (
     AND properties ->> 'experiment_id' = '${DESIGN_NO_QUESTIONS_EXPERIMENT_ID}'
     AND properties ->> 'experiment_variant' IN ('control', 'no_questions')
     AND person_key IS NOT NULL
+    AND happened_at <= $4::timestamptz
 ),
 exposures AS (
   SELECT person_key, variant, exposed_at
@@ -87,6 +88,7 @@ prompts AS (
     AND properties ->> 'experiment_id' = '${DESIGN_NO_QUESTIONS_EXPERIMENT_ID}'
     AND properties ->> 'experiment_variant' IN ('control', 'no_questions')
     AND person_key IS NOT NULL
+    AND happened_at <= $4::timestamptz
 ),
 cohort AS (
   SELECT x.person_key, x.variant, x.exposed_at,
@@ -186,6 +188,7 @@ exposure_rows AS (
     AND json_value(properties, '$.experiment_id') = '${DESIGN_NO_QUESTIONS_EXPERIMENT_ID}'
     AND json_value(properties, '$.experiment_variant') IN ('control', 'no_questions')
     AND person_key IS NOT NULL
+    AND happened_at <= @as_of
 ),
 exposures AS (
   SELECT person_key, variant, exposed_at
@@ -200,6 +203,7 @@ prompts AS (
     AND json_value(properties, '$.experiment_id') = '${DESIGN_NO_QUESTIONS_EXPERIMENT_ID}'
     AND json_value(properties, '$.experiment_variant') IN ('control', 'no_questions')
     AND person_key IS NOT NULL
+    AND happened_at <= @as_of
 ),
 cohort AS (
   SELECT x.person_key, x.variant, x.exposed_at,
