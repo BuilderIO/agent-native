@@ -142,11 +142,10 @@ describe("undo in a Toggle's summary", () => {
   }
 
   function summaryInput(index: number) {
-    const input = Array.from(
+    const input: HTMLInputElement | undefined =
       container.querySelectorAll<HTMLInputElement>(
         "input.content-toggle__summary",
-      ),
-    ).at(index);
+      )[index];
     if (!input) throw new Error(`No Toggle summary at ${index}`);
     return input;
   }

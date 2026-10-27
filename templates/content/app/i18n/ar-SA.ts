@@ -1351,6 +1351,14 @@ const exactEnglish = {
       "تغيّر النص المحيط بهذا الاقتراح، لذا لا يمكن تطبيقه. لا يزال معلّقًا: ارفضه أو اقترح التعديل مرة أخرى.",
     proposalUnplaceable:
       "تغيّر النص المحيط بأحد هذه الاقتراحات فلا يمكن تطبيقه، لذا لم يُطبَّق أي منها. لا تزال جميعها معلّقة: اقبلها أو ارفضها واحدًا تلو الآخر.",
+    suggestionAcceptFailed: "تعذر قبول الاقتراح",
+    suggestionRejectFailed: "تعذر رفض الاقتراح",
+    proposalAcceptFailed: "تعذر قبول الاقتراحات",
+    proposalRejectFailed: "تعذر رفض الاقتراحات",
+    suggestionDecisionReverted:
+      "عاد الاقتراح معلّقًا. يُحتفظ بكل ما كتبته بعد ذلك.",
+    proposalDecisionReverted:
+      "عادت الاقتراحات معلّقة. يُحتفظ بكل ما كتبته بعد ذلك.",
     suggestionAmendmentFailed: "تعذر حفظ الاقتراح",
     suggestionAmendmentResolved:
       "تم تغيير هذا الاقتراح في مكان آخر. لا تزال مسودتك غير المحفوظة هنا.",

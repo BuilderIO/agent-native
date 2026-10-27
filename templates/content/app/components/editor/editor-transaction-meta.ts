@@ -2,6 +2,7 @@ import type { Editor } from "@tiptap/core";
 import type { NodeViewProps } from "@tiptap/react";
 
 import { LOCAL_FILE_USER_EDIT_META } from "./extensions/LocalMdxComponentNode";
+import { suggestionDecisionHoldsHistory } from "./extensions/SuggestionHighlight";
 
 // Marks a change to the document that isn't an edit to the page, so it isn't
 // saved: the editor repairing a document it has just loaded, such as table
@@ -49,6 +50,7 @@ export function runPersistableHistoryCommand(
   command: "undo" | "redo",
   { focusEditor = true }: { focusEditor?: boolean } = {},
 ): boolean {
+  if (suggestionDecisionHoldsHistory(editor.state)) return false;
   let applied = false;
   for (let index = 0; index < 20; index += 1) {
     const chain = editor.chain();

@@ -72,6 +72,28 @@ Helper invariants, checked in the same runs:
   each completed pause's marker in that transaction. Completed runs and their
   leases remain unchanged; cross-turn admission is outside this model.
 
+## Coverage review for MCP automation approval
+
+The coverage refresh at `bc6ca396161a` re-read `beginAgentExecutionStep`,
+`confirmAutomationWork`, and the production loop's fence-to-intent region.
+The store still holds the lease fence and row lock while admitting a step;
+completed results and non-replayable dispatched steps retain their existing
+outcomes. Comparing the canonical arguments hash instead of JSON key order
+changes intent identity validation, not the model's one-step lease protocol.
+The loop now derives a stable step name from the checkpoint, action, arguments
+hash and identical-call occurrence, and recovers the ledger's existing step
+name. Step identity remains outside the one-step model as documented above.
+The marked-automation delivery check precedes dispatch and can only refuse it;
+`markAgentExecutionStepDispatched` still commits before adapter invocation.
+No fence, dispatch ordering, reset, replay policy or lease transition changed,
+so the existing model and its deliberate counterexamples remain applicable.
+
+The subsequent merge of main `5252c0e3345b` retains its 44 coverage entries,
+including `insertTurnAbortMarkers`. Re-reading that helper, `tryClaimRunSlot`
+and `markTurnAborted` confirms that current-turn approval admission and
+completed-pause interruption use the cross-turn scope described above. They
+do not weaken step fencing or move an effect ahead of durable dispatch.
+
 ## Results against source snapshot c8190ab8
 
 | Config                                                           | Result                          | Distinct states | Time   |
