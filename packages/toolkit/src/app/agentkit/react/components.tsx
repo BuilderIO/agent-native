@@ -6311,7 +6311,10 @@ export function AgentKitComposer({
   onRetryContextItem,
   contextMenuItems,
   attachmentAdapter,
-  inlineTextAttachments,
+  // AgentKit always uploads attached files and the server reads their text,
+  // so also pasting a text file into the message sends it twice: the copy
+  // here has only a weak truncation note and a read failure here is silent.
+  inlineTextAttachments = false,
   beforeSend,
 }: AgentKitComposerProps) {
   const {
