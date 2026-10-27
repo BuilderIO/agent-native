@@ -16,7 +16,15 @@ import { Editor } from "@tiptap/core";
 import { act, createElement, type ComponentProps, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+  vi,
+} from "vitest";
 import { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
 
@@ -1727,6 +1735,31 @@ it("republishes an acknowledged save when recovery alone finishes", async () => 
 
 it("republishes a newer acknowledged save when an obsolete retry is consumed", async () => {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  const deferredSignal = () => {
+    const signal: { resolve?: () => void } = {};
+    const promise = new Promise<void>((resolve) => {
+      signal.resolve = resolve;
+    });
+    if (!signal.resolve) throw new Error("Missing deferred signal");
+    return { promise, resolve: signal.resolve };
+  };
+  const allowHash = deferredSignal();
+  onTestFinished(() => allowHash.resolve());
+  const digest = crypto.subtle.digest.bind(crypto.subtle);
+  const hashing = vi
+    .spyOn(crypto.subtle, "digest")
+    .mockImplementation(async (...args) => {
+      await allowHash.promise;
+      return digest(...args);
+    });
+  const retained = deferredSignal();
+  const mutate = fixture.mutation.mutateAsync.getMockImplementation();
+  if (!mutate) throw new Error("Missing draft mutation fixture");
+  fixture.mutation.mutateAsync.mockImplementation(async (input) => {
+    const result = await mutate(input);
+    if (input.operation === "upsert") retained.resolve();
+    return result;
+  });
   fixture.flushUpdates.mockResolvedValueOnce(false);
   let acknowledge!: (document: Document) => void;
   fixture.save.mockReturnValue(
@@ -1745,8 +1778,13 @@ it("republishes a newer acknowledged save when an obsolete retry is consumed", a
 
   act(() => fixture.editor!.onChange("Old edit"));
   await act(async () => vi.advanceTimersByTimeAsync(500));
+  expect(hashing).toHaveBeenCalledOnce();
   expect(fixture.flushUpdates).toHaveBeenCalledOnce();
   expect(fixture.save).not.toHaveBeenCalled();
+  await act(async () => {
+    allowHash.resolve();
+    await retained.promise;
+  });
   expect(fixture.mutation.mutateAsync).toHaveBeenCalledWith(
     expect.objectContaining({
       operation: "upsert",
