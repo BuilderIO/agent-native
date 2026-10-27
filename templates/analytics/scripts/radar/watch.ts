@@ -16,7 +16,6 @@ import {
   radarExitCode,
   type RadarCheckDefinition,
   type RadarCheckResult,
-  type RadarWindow,
 } from "./checks.ts";
 import {
   RadarQueryError,
@@ -93,17 +92,6 @@ function itemAt<T>(items: readonly T[], index: number): T | undefined {
   if (index < 0 || index >= items.length) return undefined;
   return items[index];
 }
-const APP_OUTPUT: Record<string, string> = {
-  design: "design_ready_viewed",
-  slides: "deck_created",
-  clips: "recording_ready",
-};
-const APP_PROMPT: Record<string, string> = {
-  design: "design_prompt_submitted",
-  slides: "generation_started",
-  clips: "recording_started",
-};
-
 function requireCheckDefinition(id: string): RadarCheckDefinition {
   const definition = RADAR_CHECKS.find((check) => check.id === id);
   if (!definition) {
@@ -287,7 +275,6 @@ function createEventChecks(
   sourceCoverage: RadarWatchRun["coverage"]["eventSourceCoverage"];
 } {
   const checks: RadarCheckResult[] = [];
-  const at = window === "hourly" ? targetHour : targetDate;
   const periodDays = Array.from({ length: 7 }, (_, index) =>
     addDays(targetDate, -(index + 1)),
   );

@@ -14,7 +14,6 @@ const CACHE_TTL_MS = 15 * 60 * 1000;
 const DEFAULT_MAX_GB = 20;
 const MAX_BQ_ROWS = 50_000;
 const MAX_BQ_PAGE_SIZE = 10_000;
-const REPO_TMP_DIR = path.join(REPO_ROOT, ".tmp");
 
 export type BqParameterType =
   | "STRING"
