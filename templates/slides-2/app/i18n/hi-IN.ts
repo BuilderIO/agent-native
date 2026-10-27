@@ -103,7 +103,7 @@ const messages = {
     retry: "फिर कोशिश करें",
     reload: "फिर से लोड करें",
     mcpAbout:
-      "Slides 2 को Claude, ChatGPT, Cursor या MCP समर्थित किसी भी AI ऐप से कनेक्ट करें। वह ऐप Slides 2 में आपके लिए प्रेज़ेंटेशन बना सकता है, स्लाइड जोड़ सकता है और PowerPoint में एक्सपोर्ट कर सकता है। उसे केवल वही दिखता है जो आपको दिखता है।",
+      "इस वर्कस्पेस को Claude, ChatGPT, Cursor या किसी अन्य MCP समर्थित ऐप से जोड़ें। यह ऐप प्रस्तुति बना सकता है, स्लाइड जोड़ सकता है और PowerPoint में निर्यात कर सकता है। पहुँच केवल उन चीज़ों तक रहेगी जिन्हें आप देख सकते हैं।",
     workspaceTitle: "कार्यस्थान",
     workspaceDescription:
       "टीम सदस्यों, संगठन पहुंच और साझा कार्यस्थान प्राथमिकताओं को प्रबंधित करें।",
@@ -299,7 +299,7 @@ const messages = {
     deleteError: "डिज़ाइन सिस्टम हटाने में विफल",
     emptyTitle: "अपनी ब्रांड पहचान सेट करें",
     emptyDescription:
-      "अपने ब्रांड रंगों, टाइपोग्राफी और लोगो के साथ डिज़ाइन सिस्टम बनाएं। हर नया डेक आपकी विज़ुअल पहचान का पालन करेगा।",
+      "रंग, फ़ॉन्ट और लोगो एक बार चुनें। हर नई प्रस्तुति में सभी स्लाइड पर यही शैली रहेगी, ताकि आप विषय पर ध्यान दे सकें।",
     tierLimitTitle: "डिज़ाइन सिस्टम की सीमा पूरी हो गई",
     tierLimitDescription:
       "आपने अपनी Builder योजना की डिज़ाइन सिस्टम सीमा पूरी कर ली है। नया बनाने के लिए अपनी Builder Builder योजना अपग्रेड करें।",
@@ -786,7 +786,7 @@ const messages = {
   },
   generateSlides: {
     title: "AI से स्लाइड जनरेट करें",
-    description: "अपनी प्रस्तुति का विषय बताएं और AI आपके लिए स्लाइड जनरेट करेगा।",
+    description: "विषय साझा करें, और आपका एजेंट आपके साथ स्लाइड तैयार करेगा।",
     topic: "विषय",
     topicPlaceholder:
       "जैसे React Hooks का परिचय, Q4 Sales Report, Product Roadmap 2025...",
@@ -1409,7 +1409,7 @@ const messages = {
     newDeckPromptTitle: "नया प्रेज़ेंटेशन",
     newDeckPlaceholder: "जिस प्रेज़ेंटेशन को आप बनाना चाहते हैं उसका वर्णन करें...",
     skipPrompt: "प्रॉम्प्ट छोड़ें",
-    firstDeckPromptTitle: "आइए आपकी पहली प्रस्तुति बनाएं",
+    firstDeckPromptTitle: "आइए, मिलकर आपकी पहली प्रस्तुति बनाएँ।",
     firstDeckSkip: "छोड़ें",
     chooseReferences: "संदर्भ चुनें",
     addDesignSystem: "+ डिज़ाइन सिस्टम",
@@ -1471,7 +1471,7 @@ const messages = {
     signIn: "साइन इन",
     emptyTitle: "अभी कोई डेक नहीं",
     createFirstDeck: "अपना पहला डेक बनाएं",
-    emptyDescription: "AI-संचालित जनरेशन के साथ सुंदर प्रेज़ेंटेशन बनाएं।",
+    emptyDescription: "एक विषय से शुरू करें और अपने एजेंट के साथ प्रस्तुति को आकार दें।",
   },
   agentChat: {
     setup: {
