@@ -496,6 +496,7 @@ export default function Root() {
           session.orgId ?? "",
         ])
       : null;
+  const homeSuggestionDraftScope = homeSuggestionRoleScope ?? "anonymous";
   const homeSuggestionRole = useMemo(
     () => readHomeSuggestionRole("design", homeSuggestionRoleScope),
     [homeSuggestionRoleScope, location.pathname],
@@ -527,6 +528,8 @@ export default function Root() {
           layout="prompt-library"
           firstPaintHome={{
             ...designFirstPaintHome,
+            promptDraftScope: `design:new:0:${homeSuggestionDraftScope}`,
+            promptHandoffScope: homeSuggestionDraftScope,
             suggestions: firstPaintSuggestions,
             suggestionRole: homeSuggestionRole,
             suggestionSeed: homeSuggestionSeed,

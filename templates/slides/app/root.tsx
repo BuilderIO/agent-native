@@ -78,6 +78,7 @@ import "@/lib/register-chat-renderers";
 
 import changelog from "../CHANGELOG.md?raw";
 import {
+  SLIDES_NEW_DECK_DRAFT_SCOPE,
   slidesHomeSuggestionPools,
   trackSlidesHomeSuggestionClick,
 } from "./home-suggestions";
@@ -563,6 +564,8 @@ export default function Root() {
           layout="prompt-library"
           firstPaintHome={{
             ...slidesFirstPaintHome,
+            promptDraftScope: `${SLIDES_NEW_DECK_DRAFT_SCOPE}:${homeSuggestionRoleScope ?? "anonymous"}`,
+            promptHandoffScope: homeSuggestionRoleScope ?? "anonymous",
             suggestions: firstPaintSuggestions,
             suggestionRole: homeSuggestionRole,
             suggestionSeed: homeSuggestionSeed,

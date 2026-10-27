@@ -223,6 +223,7 @@
         "react",
         "react-dom",
         "react-markdown",
+        "react-router",
         "remark-gfm",
         "sonner",
         "tailwind-merge"
@@ -1692,6 +1693,7 @@
         "openai",
         "react",
         "react-dom",
+        "react-router",
         "sonner",
         "tailwind-merge"
       ],

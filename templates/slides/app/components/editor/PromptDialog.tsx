@@ -191,6 +191,7 @@ interface PromptPopoverProps {
   draftScope?: string;
   initialText?: string;
   initialTextKey?: string | number;
+  initialTextOverridesSavedDraft?: boolean;
   onPromptTextChange?: (text: string) => void;
   /** Restore a model choice when a prompt is replayed after auth or setup recovery. */
   initialModelSelection?: PromptModelSelection;
@@ -233,6 +234,7 @@ export default function PromptPopover({
   draftScope,
   initialText,
   initialTextKey,
+  initialTextOverridesSavedDraft = false,
   onPromptTextChange,
   initialModelSelection,
   onBeforeUpload,
@@ -811,7 +813,7 @@ export default function PromptPopover({
                 {...context?.props}
                 contextMenuItems={context?.props.contextMenuItems ?? []}
                 composerRef={composerRef}
-                autoFocus={!inline}
+                autoFocus={!inline || (active && open)}
                 layoutVariant={inline ? "hero" : undefined}
                 className={
                   inline ? "slides-home-prompt-composer-area" : undefined
@@ -846,6 +848,7 @@ export default function PromptPopover({
                 draftScope={draftScope}
                 initialText={initialText}
                 initialTextKey={initialTextKey}
+                initialTextOverridesSavedDraft={initialTextOverridesSavedDraft}
                 selectedModel={
                   initialModelSelection ? modelSelection?.model : undefined
                 }

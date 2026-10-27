@@ -496,6 +496,12 @@ beforeEach(async () => {
   });
 });
 
+async function completeFirstRun() {
+  await act(async () => {
+    window.dispatchEvent(new Event("agent-native:first-run-completed"));
+  });
+}
+
 afterEach(async () => {
   await act(async () => {
     root.unmount();
@@ -613,6 +619,7 @@ describe("Index skip to editor", () => {
   });
   it("submits the localized quick start through the current composer without replacing its draft or selections", async () => {
     mocks.submitWithText.mockResolvedValue(true);
+    await completeFirstRun();
     await act(async () =>
       mocks.promptProps?.onDesignSystemChange("override-system"),
     );
@@ -868,7 +875,7 @@ describe("Index skip to editor", () => {
     expect(bar?.textContent).toContain("home.suggestionLabels.general.");
   });
 
-  it("switches to the onboarding role pool after the profile resolves", async () => {
+  it("keeps the shell pool through profile hydration and applies the role after onboarding", async () => {
     await act(async () => root.render(null));
     mocks.suggestionProfileFetching = true;
     mocks.suggestionRole = null;
@@ -884,8 +891,21 @@ describe("Index skip to editor", () => {
     const bar = container.querySelector<HTMLElement>(
       '[aria-label="home.suggestedPrompts"]',
     );
-    expect(bar?.textContent).toContain("home.suggestionLabels.marketing.");
-    expect(bar?.textContent).not.toContain("home.suggestionLabels.general.");
+    expect(bar?.textContent).toContain("home.suggestionLabels.general.");
+    expect(bar?.textContent).not.toContain("home.suggestionLabels.marketing.");
+
+    await act(async () => {
+      window.dispatchEvent(new Event("agent-native:first-run-completed"));
+    });
+    const completedBar = container.querySelector<HTMLElement>(
+      '[aria-label="home.suggestedPrompts"]',
+    );
+    expect(completedBar?.textContent).toContain(
+      "home.suggestionLabels.marketing.",
+    );
+    expect(completedBar?.textContent).not.toContain(
+      "home.suggestionLabels.general.",
+    );
   });
 
   it("keeps suggestions available before AI setup and after connection", async () => {
@@ -919,6 +939,7 @@ describe("Index skip to editor", () => {
   it("prefills and tracks a suggestion before AI setup", async () => {
     mocks.agentEngine = { state: "missing", missing: true, canChat: false };
     await act(async () => root.render(<Index />));
+    await completeFirstRun();
     const suggestion = container.querySelector<HTMLButtonElement>(
       '[data-agent-suggestion-position="1"]',
     );
@@ -1272,7 +1293,7 @@ describe("Index search empty state", () => {
     expect(container.textContent).toContain("Try a different search.");
     expect(container.textContent).not.toContain("home.createFirstDesign");
     expect(container.textContent).not.toContain("home.pickStartingPoint");
-    expect(container.textContent).toContain("home.suggestionLabels.design.");
+    expect(container.textContent).toContain("home.suggestionLabels.general.");
   });
 
   it("keeps searched shared designs visible when the user owns no designs", async () => {
@@ -1770,6 +1791,7 @@ describe("home funnel tracking", () => {
 
   it("records a home suggestion click and submits it with its own source", async () => {
     mocks.createDesign.mockResolvedValue(undefined);
+    await completeFirstRun();
     mocks.submitWithText.mockImplementationOnce(async (text: string) => {
       await mocks.promptProps?.onSubmit(text, [], {});
       return true;

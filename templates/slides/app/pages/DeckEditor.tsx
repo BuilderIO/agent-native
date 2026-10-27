@@ -939,7 +939,9 @@ export default function DeckEditor() {
   const generationTerminalAttemptRef = useRef<string | null>(null);
   const generationLifecycleAttemptKeyRef = useRef<string | null>(null);
   const deckReadyViewCancelRef = useRef<(() => void) | null>(null);
-  const [firstOutputReady, setFirstOutputReady] = useState(false);
+  const [firstOutputReadyId, setFirstOutputReadyId] = useState<string | null>(
+    null,
+  );
   const firstOutputExportRef = useRef<ExportDropdownActionHandle>(null);
   const firstOutputShareRef = useRef<ShareButtonActionHandle>(null);
   const openDeckIdRef = useRef<string | undefined>(undefined);
@@ -2668,7 +2670,7 @@ export default function DeckEditor() {
           deckReadyViewCancelRef.current = runWhenTabVisible(() => {
             deckReadyViewCancelRef.current = null;
             if (openDeckIdRef.current !== id) return;
-            setFirstOutputReady(true);
+            setFirstOutputReadyId(id);
             if (firstDeckReadyView(generationAttemptId)) {
               trackSlidesRelay("deck_ready_viewed", readyProperties);
             }
@@ -6161,6 +6163,7 @@ export default function DeckEditor() {
 
       {!widgetEmbed && (
         <FirstOutputNextStepBar
+          key={id}
           appId="slides"
           positionTargetSelector="[data-slide-editor-viewport]"
           bottomOffset={77}
@@ -6168,7 +6171,7 @@ export default function DeckEditor() {
             ? { userScope: session.userId ?? session.email }
             : {})}
           outputId={id}
-          ready={firstOutputReady}
+          ready={firstOutputReadyId === id}
           labels={{
             ariaLabel: t("home.nextStepBar.ariaLabel"),
             refineWithPrompt: t("home.nextStepBar.refineWithPrompt"),

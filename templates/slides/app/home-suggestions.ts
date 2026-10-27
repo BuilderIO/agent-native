@@ -6,6 +6,8 @@ import type {
   HomeSuggestionRoleKey,
 } from "@agent-native/toolkit/app-shell";
 
+export const SLIDES_NEW_DECK_DRAFT_SCOPE = "slides-new-deck";
+
 const suggestionIds = {
   product: [
     "launch",

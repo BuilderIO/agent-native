@@ -10,22 +10,29 @@ import {
 describe("first paint prompt drafts", () => {
   it("hands typed and suggested prompts to the hydrated composer once", () => {
     const appId = `draft-${crypto.randomUUID()}`;
-    writeFirstPaintPromptDraft(
-      appId,
-      "Build a portfolio",
-      "home_suggestion",
-      "design-3",
-    );
+    writeFirstPaintPromptDraft(appId, "Build a portfolio", "home_suggestion", {
+      suggestionId: "design-3",
+      submitted: true,
+      scope: "design:new:user-a",
+    });
 
-    expect(consumeFirstPaintPromptDraft(appId)).toMatchObject({
+    expect(
+      consumeFirstPaintPromptDraft(appId, "design:new:user-a"),
+    ).toMatchObject({
       status: "present",
       draft: {
         text: "Build a portfolio",
         source: "home_suggestion",
         suggestionId: "design-3",
+        submitted: true,
       },
     });
-    expect(consumeFirstPaintPromptDraft(appId)).toEqual({ status: "absent" });
+    expect(consumeFirstPaintPromptDraft(appId, "design:new:user-a")).toEqual({
+      status: "absent",
+    });
+    expect(consumeFirstPaintPromptDraft(appId, "design:new:user-b")).toEqual({
+      status: "absent",
+    });
   });
 
   it("ignores and clears a legacy persisted prompt", () => {
@@ -42,6 +49,21 @@ describe("first paint prompt drafts", () => {
 
     expect(consumeFirstPaintPromptDraft(appId)).toEqual({ status: "absent" });
     expect(window.sessionStorage.getItem(key)).toBeNull();
+  });
+
+  it("carries an anonymous first-paint prompt into the authenticated home", () => {
+    const appId = `anonymous-${crypto.randomUUID()}`;
+    writeFirstPaintPromptDraft(appId, "Keep this prompt", "composer", {
+      scope: "anonymous",
+    });
+
+    expect(consumeFirstPaintPromptDraft(appId, "user-a:org-a")).toMatchObject({
+      status: "present",
+      draft: { text: "Keep this prompt" },
+    });
+    expect(consumeFirstPaintPromptDraft(appId, "user-b:org-a")).toEqual({
+      status: "absent",
+    });
   });
 
   it("keeps prompt text in the in-page bridge only", () => {

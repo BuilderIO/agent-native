@@ -42,6 +42,7 @@ import {
   type PromptComposerSubmitOptions,
   type TiptapComposerHandle,
 } from "@agent-native/toolkit/app/chat/composer/index";
+import { useFirstRunOnboardingGateOwnsSurface } from "@agent-native/toolkit/app/onboarding";
 import { ClientOnly } from "@agent-native/toolkit/app/shared";
 import { OwnershipFilter } from "@agent-native/toolkit/app/sharing/OwnershipFilter";
 import { designTemplateRetryKey } from "@shared/design-template-retry";
@@ -214,35 +215,6 @@ export default function Index() {
   const designFilterWasSelectedRef = useRef(false);
   const composerRef = useRef<TiptapComposerHandle>(null);
   const focusComposer = useCallback(() => composerRef.current?.focus(), []);
-  const firstPaintPromptDraft = useFirstPaintPromptDraft("design");
-  const firstPaintPrompt =
-    firstPaintPromptDraft.status === "present"
-      ? firstPaintPromptDraft.draft
-      : null;
-  const [homePromptInitialText, setHomePromptInitialText] = useState(
-    () => firstPaintPrompt?.text,
-  );
-  const [homePromptInitialTextKey, setHomePromptInitialTextKey] = useState(
-    () => firstPaintPrompt?.revision,
-  );
-  const homeSuggestionPromptSourceRef = useRef(
-    firstPaintPrompt?.source === "home_suggestion",
-  );
-  const homeSuggestionPromptTextRef = useRef(
-    firstPaintPrompt?.source === "home_suggestion"
-      ? firstPaintPrompt.text
-      : null,
-  );
-  const handleHomePromptTextChange = useCallback((text: string) => {
-    if (
-      homeSuggestionPromptSourceRef.current &&
-      homeSuggestionPromptTextRef.current !== null &&
-      homeSuggestionPromptTextRef.current !== text
-    ) {
-      homeSuggestionPromptSourceRef.current = false;
-      homeSuggestionPromptTextRef.current = null;
-    }
-  }, []);
   const [quickStartPending, setQuickStartPending] = useState(false);
   const quickStartRef = useRef(false);
   const submissionErrorRef = useRef(false);
@@ -449,8 +421,41 @@ export default function Index() {
         ])
       : null;
   const homeSuggestionDraftScope = homeSuggestionRoleScope ?? "anonymous";
+  const firstPaintPromptDraft = useFirstPaintPromptDraft(
+    "design",
+    homeSuggestionDraftScope,
+  );
+  const firstPaintPrompt =
+    firstPaintPromptDraft.status === "present"
+      ? firstPaintPromptDraft.draft
+      : null;
+  const [homePromptInitialText, setHomePromptInitialText] = useState(
+    () => firstPaintPrompt?.text,
+  );
+  const [homePromptInitialTextKey, setHomePromptInitialTextKey] = useState(
+    () => firstPaintPrompt?.revision,
+  );
+  const homeSuggestionPromptSourceRef = useRef(
+    firstPaintPrompt?.source === "home_suggestion",
+  );
+  const homeSuggestionPromptTextRef = useRef(
+    firstPaintPrompt?.source === "home_suggestion"
+      ? firstPaintPrompt.text
+      : null,
+  );
+  const handleHomePromptTextChange = useCallback((text: string) => {
+    if (
+      homeSuggestionPromptSourceRef.current &&
+      homeSuggestionPromptTextRef.current !== null &&
+      homeSuggestionPromptTextRef.current !== text
+    ) {
+      homeSuggestionPromptSourceRef.current = false;
+      homeSuggestionPromptTextRef.current = null;
+    }
+  }, []);
   const homeSuggestionSeed = useHomeSuggestionSeed();
   const shellSuggestionRole = useHomeSuggestionRole();
+  const firstRunOwnsSurface = useFirstRunOnboardingGateOwnsSurface();
   const homeSuggestionsProfile = useActionQuery<{
     onboardingRole?: string | null;
   }>(
@@ -461,8 +466,25 @@ export default function Index() {
       staleTime: 0,
     },
   );
+  const [firstRunCompletedIdentityScope, setFirstRunCompletedIdentityScope] =
+    useState<string | null>(null);
+  useEffect(() => {
+    const handleFirstRunCompleted = () =>
+      setFirstRunCompletedIdentityScope(homeSuggestionsIdentityScope);
+    window.addEventListener(
+      "agent-native:first-run-completed",
+      handleFirstRunCompleted,
+    );
+    return () =>
+      window.removeEventListener(
+        "agent-native:first-run-completed",
+        handleFirstRunCompleted,
+      );
+  }, [homeSuggestionsIdentityScope]);
+  const firstRunCompletedForIdentity =
+    firstRunCompletedIdentityScope === homeSuggestionsIdentityScope;
   const homeSuggestionRole =
-    homeSuggestionsProfile.data !== undefined
+    firstRunCompletedForIdentity && homeSuggestionsProfile.data !== undefined
       ? normalizeHomeSuggestionRole(homeSuggestionsProfile.data.onboardingRole)
       : (shellSuggestionRole ?? "general");
   useEffect(() => {
@@ -473,6 +495,45 @@ export default function Index() {
       homeSuggestionRoleScope,
     );
   }, [homeSuggestionRoleScope, homeSuggestionsProfile.data]);
+  const firstPaintSubmitRevisionRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (
+      !firstPaintPrompt?.submitted ||
+      !firstPaintPrompt.text.trim() ||
+      !quickActionsEnabled ||
+      firstRunOwnsSurface ||
+      firstPaintSubmitRevisionRef.current === firstPaintPrompt.revision
+    ) {
+      return;
+    }
+    const composer = composerRef.current;
+    if (!composer) return;
+    firstPaintSubmitRevisionRef.current = firstPaintPrompt.revision;
+    submissionErrorRef.current = false;
+    void composer
+      .submitWithText(firstPaintPrompt.text)
+      .then((accepted) => {
+        if (!accepted && !submissionErrorRef.current) {
+          toast.error(t("homeContext.notReady"));
+        }
+      })
+      .catch(() => {
+        if (!submissionErrorRef.current) {
+          toast.error(t("home.failedToCreateDesign"));
+        }
+      })
+      .finally(() => {
+        homeSuggestionPromptSourceRef.current = false;
+        homeSuggestionPromptTextRef.current = null;
+      });
+  }, [
+    firstPaintPrompt?.revision,
+    firstPaintPrompt?.submitted,
+    firstPaintPrompt?.text,
+    firstRunOwnsSurface,
+    quickActionsEnabled,
+    t,
+  ]);
   const selectedHomeSuggestionKeys = useMemo(
     () =>
       pickHomeSuggestions(
@@ -1360,6 +1421,9 @@ export default function Index() {
               draftScope={`design:new:0:${homeSuggestionDraftScope}`}
               initialText={homePromptInitialText}
               initialTextKey={homePromptInitialTextKey}
+              initialTextOverridesSavedDraft={
+                homePromptInitialText !== undefined
+              }
               onPromptTextChange={handleHomePromptTextChange}
               placeholder={
                 selectedTemplate

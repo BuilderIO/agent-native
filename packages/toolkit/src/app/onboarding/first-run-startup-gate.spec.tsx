@@ -169,7 +169,7 @@ describe("FirstRunOnboardingStartupGate", () => {
     ).not.toBeNull();
   });
 
-  it("keeps the app visible while eligibility is unresolved", () => {
+  it("keeps the app visible but inert while eligibility is unresolved", async () => {
     const status = deferred<boolean>();
     mocks.fetchStatus.mockReturnValue(status.promise);
 
@@ -192,8 +192,17 @@ describe("FirstRunOnboardingStartupGate", () => {
     ).not.toBeNull();
     expect(container.querySelector("[data-first-run-app-hidden]")).toBeNull();
     expect(
+      container.querySelector("[data-first-run-app-inert]"),
+    ).not.toBeNull();
+    expect(
       container.querySelector("[data-testid='gate-ownership']")?.textContent,
     ).toBe("true");
+
+    await act(async () => {
+      status.resolve(false);
+      await status.promise;
+    });
+    expect(container.querySelector("[data-first-run-app-inert]")).toBeNull();
   });
 
   it("retries a failed status read before revealing a first-run app", async () => {

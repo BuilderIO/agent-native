@@ -149,7 +149,14 @@ export function FirstRunOnboardingStartupGate({
 
   return (
     <FirstRunOnboardingGateContext.Provider value={gateOwnsSurface}>
-      {children}
+      <div
+        aria-hidden={gateOwnsSurface ? "true" : undefined}
+        data-first-run-app-inert={gateOwnsSurface ? "true" : undefined}
+        inert={gateOwnsSurface}
+        style={{ display: "contents" }}
+      >
+        {children}
+      </div>
       {!suppressSurface && decision === "unavailable" && (
         <div
           role="alert"

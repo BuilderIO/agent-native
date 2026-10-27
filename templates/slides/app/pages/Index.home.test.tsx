@@ -1,5 +1,6 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
+import { writeFirstPaintPromptDraft } from "@agent-native/toolkit/app-shell";
 // @vitest-environment happy-dom
 import {
   act,
@@ -518,6 +519,12 @@ function renderHome(
   );
   const result = render(home());
   return { ...result, rerenderHome: () => result.rerender(home()) };
+}
+
+async function completeFirstRun() {
+  await act(async () => {
+    window.dispatchEvent(new Event("agent-native:first-run-completed"));
+  });
 }
 
 beforeEach(() => {
@@ -2321,6 +2328,7 @@ describe("Slides prompt-led home", () => {
   it("submits a local suggestion without replacing the composer", async () => {
     renderHome();
     await screen.findByRole("textbox", { name: "Presentation prompt" });
+    await completeFirstRun();
     const prompt = screen.getByRole("textbox", { name: "Presentation prompt" });
     const suggestion = (
       await screen.findAllByRole("button", {
@@ -2349,7 +2357,7 @@ describe("Slides prompt-led home", () => {
       screen.getByRole("textbox", { name: "Presentation prompt" }),
     ).toBeTruthy();
     const suggestions = await screen.findAllByRole("button", {
-      name: /home\.suggestionLabels\.design\./,
+      name: /home\.suggestionLabels\.general\./,
     });
     expect(suggestions).toHaveLength(3);
     expect(
@@ -2360,6 +2368,31 @@ describe("Slides prompt-led home", () => {
         .getByLabelText("home.suggestedPrompts")
         .querySelectorAll('[data-agent-suggestion-placeholder="true"]'),
     ).toHaveLength(0);
+  });
+
+  it("keeps the shell suggestion pool through profile hydration until onboarding completes", async () => {
+    suggestionQuery.profileRole = "marketing";
+    suggestionQuery.profileFetching = true;
+    const { rerenderHome } = renderHome();
+
+    expect(
+      await screen.findAllByRole("button", {
+        name: /home\.suggestionLabels\.general\./,
+      }),
+    ).toHaveLength(3);
+
+    suggestionQuery.profileFetching = false;
+    await act(async () => rerenderHome());
+    expect(
+      screen.getByLabelText("home.suggestedPrompts").textContent,
+    ).toContain("home.suggestionLabels.general.");
+
+    await act(async () => {
+      window.dispatchEvent(new Event("agent-native:first-run-completed"));
+    });
+    expect(
+      screen.getByLabelText("home.suggestedPrompts").textContent,
+    ).toContain("home.suggestionLabels.marketing.");
   });
 
   it("uses the general pool when the profile is missing or has an unknown role", async () => {
@@ -2381,6 +2414,9 @@ describe("Slides prompt-led home", () => {
     renderHome({
       ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
       deleteDeck: vi.fn(),
+    });
+    await act(async () => {
+      window.dispatchEvent(new Event("agent-native:first-run-completed"));
     });
 
     const suggestions = await screen.findAllByRole("button", {
@@ -2408,6 +2444,28 @@ describe("Slides prompt-led home", () => {
     );
     expect(agentSubmit.mock.calls[0]?.[0]).toContain(
       "home.suggestionPrompts.design.",
+    );
+  });
+
+  it("submits a first-paint prompt once after the hydrated home mounts", async () => {
+    createDeck.mockReturnValue({ id: "new-deck" });
+    homeSuggestionSubmit.invokeSubmit = true;
+    const prompt = "Create a product overview";
+    writeFirstPaintPromptDraft("slides", prompt, "home_suggestion", {
+      submitted: true,
+      scope: JSON.stringify(["viewer-a", "org-a"]),
+    });
+    renderHome({
+      ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+      deleteDeck: vi.fn(),
+    });
+    await completeFirstRun();
+
+    await waitFor(() => expect(agentSubmit).toHaveBeenCalledOnce());
+    expect(agentSubmit.mock.calls[0]?.[0]).toContain(prompt);
+    expect(trackEvent).toHaveBeenCalledWith(
+      "generation_started",
+      expect.objectContaining({ source: "home_suggestion" }),
     );
   });
 
@@ -2499,6 +2557,7 @@ describe("Slides prompt-led home", () => {
     agentEngine.missing = true;
     suggestionQuery.profileRole = "design";
     renderHome();
+    await completeFirstRun();
 
     const suggestions = await screen.findAllByRole("button", {
       name: /home\.suggestionLabels\.design\./,

@@ -56,6 +56,8 @@ export interface AppShellFirstPaintHome {
   skipPromptLabel?: string;
   suggestionRole?: string;
   suggestionSeed?: number;
+  promptDraftScope?: string;
+  promptHandoffScope?: string;
   onHomeSuggestionClick?: (click: HomeSuggestionClick) => void;
   renderComposer: (
     props: Pick<
@@ -64,6 +66,9 @@ export interface AppShellFirstPaintHome {
       | "composerRef"
       | "initialText"
       | "initialTextKey"
+      | "initialTextOverridesSavedDraft"
+      | "suppressInitialTextChange"
+      | "draftScope"
       | "onSubmit"
       | "onTextChange"
       | "placeholder"
@@ -408,6 +413,7 @@ function FirstPaintPromptLibrary({
   const composerRef = useRef<TiptapComposerHandle>(null);
   const sourceRef = useRef<"composer" | "home_suggestion">("composer");
   const expectedSuggestionTextRef = useRef<string | null>(null);
+  const submittedRef = useRef(false);
   const [initialText, setInitialText] = useState<string>();
   const [initialTextKey, setInitialTextKey] = useState<number>();
   const [suggestions, setSuggestions] = useState(config.suggestions);
@@ -472,8 +478,12 @@ function FirstPaintPromptLibrary({
     composerRef,
     ...(initialText !== undefined ? { initialText } : {}),
     ...(initialTextKey !== undefined ? { initialTextKey } : {}),
+    initialTextOverridesSavedDraft: true,
+    suppressInitialTextChange: true,
+    ...(config.promptDraftScope ? { draftScope: config.promptDraftScope } : {}),
     placeholder: config.promptPlaceholder,
     onTextChange: (text) => {
+      if (submittedRef.current) return;
       if (
         sourceRef.current === "home_suggestion" &&
         expectedSuggestionTextRef.current !== text
@@ -481,10 +491,21 @@ function FirstPaintPromptLibrary({
         sourceRef.current = "composer";
         expectedSuggestionTextRef.current = null;
       }
-      writeFirstPaintPromptDraft(config.appId, text, sourceRef.current);
+      writeFirstPaintPromptDraft(config.appId, text, sourceRef.current, {
+        ...(config.promptHandoffScope
+          ? { scope: config.promptHandoffScope }
+          : {}),
+      });
     },
     onSubmit: (text) => {
-      writeFirstPaintPromptDraft(config.appId, text, sourceRef.current);
+      if (!text.trim()) return;
+      submittedRef.current = true;
+      writeFirstPaintPromptDraft(config.appId, text, sourceRef.current, {
+        submitted: true,
+        ...(config.promptHandoffScope
+          ? { scope: config.promptHandoffScope }
+          : {}),
+      });
     },
   });
   const suggestionBar = (
@@ -507,17 +528,18 @@ function FirstPaintPromptLibrary({
       layout="single-line"
       className="px-0 py-0"
       onSelect={(suggestion) => {
+        if (submittedRef.current) return;
         sourceRef.current = "home_suggestion";
         const prompt = suggestion.prompt ?? suggestion.label;
         expectedSuggestionTextRef.current = prompt;
         setInitialText(prompt);
         setInitialTextKey(Date.now());
-        writeFirstPaintPromptDraft(
-          config.appId,
-          prompt,
-          "home_suggestion",
-          suggestion.id,
-        );
+        writeFirstPaintPromptDraft(config.appId, prompt, "home_suggestion", {
+          suggestionId: suggestion.id,
+          ...(config.promptHandoffScope
+            ? { scope: config.promptHandoffScope }
+            : {}),
+        });
         composerRef.current?.focus();
       }}
     />

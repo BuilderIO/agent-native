@@ -62,6 +62,9 @@ describe("AppShellSkeleton home layout", () => {
   });
 
   it("shows the prompt and suggestions immediately while skeletonizing only the library", () => {
+    let composerProps:
+      | Parameters<AppShellFirstPaintHome["renderComposer"]>[0]
+      | undefined;
     const firstPaintHome: AppShellFirstPaintHome = {
       appId: "design",
       appName: "Design",
@@ -76,6 +79,8 @@ describe("AppShellSkeleton home layout", () => {
       recentLabel: "Recent",
       browseAllLabel: "Browse all",
       skipPromptLabel: "Skip prompt",
+      promptDraftScope: "design:new:viewer-a:org-a",
+      promptHandoffScope: "viewer-a:org-a",
       suggestionRole: "design",
       suggestionSeed: 123,
       suggestions: [
@@ -87,13 +92,18 @@ describe("AppShellSkeleton home layout", () => {
         },
         { id: "three", label: "Design a shop", prompt: "Design a shop" },
       ],
-      renderComposer: (props) => (
-        <textarea
-          aria-label={props.ariaLabel}
-          placeholder={props.placeholder}
-          onChange={(event) => props.onTextChange?.(event.currentTarget.value)}
-        />
-      ),
+      renderComposer: (props) => {
+        composerProps = props;
+        return (
+          <textarea
+            aria-label={props.ariaLabel}
+            placeholder={props.placeholder}
+            onChange={(event) =>
+              props.onTextChange?.(event.currentTarget.value)
+            }
+          />
+        );
+      },
     };
     const container = document.createElement("div");
     container.innerHTML = renderToStaticMarkup(
@@ -115,6 +125,11 @@ describe("AppShellSkeleton home layout", () => {
     expect(shell.querySelector("textarea")?.placeholder).toBe(
       "Describe your design",
     );
+    expect(composerProps).toMatchObject({
+      draftScope: "design:new:viewer-a:org-a",
+      initialTextOverridesSavedDraft: true,
+      suppressInitialTextChange: true,
+    });
     expect(shell.querySelectorAll("[data-home-suggestion-id]")).toHaveLength(3);
     expect(
       shell
@@ -226,7 +241,9 @@ describe("AppShellSkeleton home layout", () => {
           .querySelector<HTMLButtonElement>('[data-home-suggestion-id="one"]')
           ?.click();
       });
-      expect(consumeFirstPaintPromptDraft("design")).toMatchObject({
+      expect(
+        consumeFirstPaintPromptDraft("design", "viewer-a:org-a"),
+      ).toMatchObject({
         status: "present",
         draft: { text: "Créer un portfolio", source: "home_suggestion" },
       });

@@ -32,6 +32,7 @@ import {
 } from "@agent-native/toolkit/app-shell";
 import { BuilderSetupCard } from "@agent-native/toolkit/app/chat/chat/run-recovery";
 import { type PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
+import { useFirstRunOnboardingGateOwnsSurface } from "@agent-native/toolkit/app/onboarding";
 import {
   ClientOnly,
   LazyChunkErrorBoundary,
@@ -113,6 +114,7 @@ import {
 } from "@/context/DeckContext";
 import { deckIdFromPathname, useDecks } from "@/context/DeckContext";
 import {
+  SLIDES_NEW_DECK_DRAFT_SCOPE,
   slidesHomeSuggestionPools,
   trackSlidesHomeSuggestionClick,
   type SlidesHomeSuggestion,
@@ -217,7 +219,6 @@ function HomeChrome({ title, actions }: { title: string; actions: ReactNode }) {
   useSetHeaderActions(actions);
   return null;
 }
-const NEW_DECK_DRAFT_SCOPE = "slides-new-deck";
 const PENDING_PROMPT_KEY = "slides:pending-deck-prompt";
 const PENDING_PROMPT_CONTEXT_KEY = "slides:pending-deck-prompt-context";
 const PENDING_PROMPT_MODEL_SELECTION_KEY =
@@ -393,7 +394,10 @@ function savePromptForRetry(
       signInHandoffSaved = true;
     } catch {}
   }
-  const draftSaved = savePromptToComposerDraft(NEW_DECK_DRAFT_SCOPE, prompt);
+  const draftSaved = savePromptToComposerDraft(
+    SLIDES_NEW_DECK_DRAFT_SCOPE,
+    prompt,
+  );
   return signInHandoffSaved && draftSaved;
 }
 
@@ -667,6 +671,7 @@ export default function Index({ active = true }: { active?: boolean }) {
   const homeSuggestionDraftScope = homeSuggestionRoleScope ?? "anonymous";
   const homeSuggestionSeed = useHomeSuggestionSeed();
   const shellSuggestionRole = useHomeSuggestionRole();
+  const firstRunOwnsSurface = useFirstRunOnboardingGateOwnsSurface();
   // `session` is null while the check is loading or the server is unreachable,
   // neither of which means signed out. Only a definitive answer sends the user
   // to sign in; otherwise the server stays the authority on the request.
@@ -693,8 +698,25 @@ export default function Index({ active = true }: { active?: boolean }) {
       staleTime: 0,
     },
   );
+  const [firstRunCompletedIdentityScope, setFirstRunCompletedIdentityScope] =
+    useState<string | null>(null);
+  useEffect(() => {
+    const handleFirstRunCompleted = () =>
+      setFirstRunCompletedIdentityScope(homeSuggestionsIdentityScope);
+    window.addEventListener(
+      "agent-native:first-run-completed",
+      handleFirstRunCompleted,
+    );
+    return () =>
+      window.removeEventListener(
+        "agent-native:first-run-completed",
+        handleFirstRunCompleted,
+      );
+  }, [homeSuggestionsIdentityScope]);
+  const firstRunCompletedForIdentity =
+    firstRunCompletedIdentityScope === homeSuggestionsIdentityScope;
   const homeSuggestionRole =
-    homeSuggestionsProfile.data !== undefined
+    firstRunCompletedForIdentity && homeSuggestionsProfile.data !== undefined
       ? normalizeHomeSuggestionRole(homeSuggestionsProfile.data.onboardingRole)
       : (shellSuggestionRole ?? "general");
   useEffect(() => {
@@ -728,7 +750,19 @@ export default function Index({ active = true }: { active?: boolean }) {
   const [workspaceDefaultCandidate, setWorkspaceDefaultCandidate] =
     useState<Deck | null>(null);
   const homeComposerRef = useRef<PromptPopoverHandle>(null);
-  const firstPaintPromptDraft = useFirstPaintPromptDraft("slides");
+  const [homeComposerReady, setHomeComposerReady] = useState(false);
+  const handleHomeComposerRef = useCallback(
+    (composer: PromptPopoverHandle | null) => {
+      if (homeComposerRef.current === composer) return;
+      homeComposerRef.current = composer;
+      setHomeComposerReady(composer !== null);
+    },
+    [],
+  );
+  const firstPaintPromptDraft = useFirstPaintPromptDraft(
+    "slides",
+    homeSuggestionDraftScope,
+  );
   const firstPaintPrompt =
     firstPaintPromptDraft.status === "present"
       ? firstPaintPromptDraft.draft
@@ -759,6 +793,37 @@ export default function Index({ active = true }: { active?: boolean }) {
       ? { text: firstPaintPrompt.text, key: firstPaintPrompt.revision }
       : null,
   );
+  const firstPaintSubmitRevisionRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (
+      !isHome ||
+      !showNewDeckPrompt ||
+      !firstPaintPrompt?.submitted ||
+      !firstPaintPrompt.text.trim() ||
+      !quickActionsEnabled ||
+      firstRunOwnsSurface ||
+      !homeComposerReady ||
+      firstPaintSubmitRevisionRef.current === firstPaintPrompt.revision
+    ) {
+      return;
+    }
+    const composer = homeComposerRef.current;
+    if (!composer) return;
+    firstPaintSubmitRevisionRef.current = firstPaintPrompt.revision;
+    void composer.submitSource(firstPaintPrompt.text, []).then((accepted) => {
+      if (!accepted) toast.error(t("home.context.notReady"));
+    });
+  }, [
+    firstPaintPrompt?.revision,
+    firstPaintPrompt?.submitted,
+    firstPaintPrompt?.text,
+    firstRunOwnsSurface,
+    homeComposerReady,
+    isHome,
+    quickActionsEnabled,
+    showNewDeckPrompt,
+    t,
+  ]);
   const [newDeckRetryFiles, setNewDeckRetryFiles] = useState<UploadedFile[]>(
     [],
   );
@@ -1154,7 +1219,7 @@ export default function Index({ active = true }: { active?: boolean }) {
     setNewDeckRetryPrompt(saved);
     setNewDeckRetryModelSelection(savedModelSelection);
     setNewDeckRetryReferenceSelection(savedReferenceSelection);
-    savePromptToComposerDraft(NEW_DECK_DRAFT_SCOPE, saved);
+    savePromptToComposerDraft(SLIDES_NEW_DECK_DRAFT_SCOPE, saved);
     clearPendingPromptForRetry();
     setNewDeckInitialPrompt({ text: saved, key: Date.now() });
     setSelectedDesignSystemId(savedReferenceSelection?.designSystemId ?? null);
@@ -1165,7 +1230,7 @@ export default function Index({ active = true }: { active?: boolean }) {
   useEffect(() => {
     const state = location.state as DeckGenerationRetryState | null;
     if (!state?.retryPrompt) return;
-    savePromptToComposerDraft(NEW_DECK_DRAFT_SCOPE, state.retryPrompt);
+    savePromptToComposerDraft(SLIDES_NEW_DECK_DRAFT_SCOPE, state.retryPrompt);
     setNewDeckInitialPrompt({ text: state.retryPrompt, key: Date.now() });
     setNewDeckRetryFiles(state.retryFiles ?? []);
     setNewDeckRetryReferenceSelection(
@@ -2744,7 +2809,7 @@ export default function Index({ active = true }: { active?: boolean }) {
             <PromptPopover
               presentation="inline"
               context={composerContext}
-              controllerRef={homeComposerRef}
+              controllerRef={handleHomeComposerRef}
               disabled={!isHome}
               showModelSelector={agentEngineConfigured}
               modelStatusChecksEnabled={agentEngineConfigured}
@@ -2814,9 +2879,10 @@ export default function Index({ active = true }: { active?: boolean }) {
                 return false;
               }}
               loading={generating}
-              draftScope={`${NEW_DECK_DRAFT_SCOPE}:${homeSuggestionDraftScope}`}
+              draftScope={`${SLIDES_NEW_DECK_DRAFT_SCOPE}:${homeSuggestionDraftScope}`}
               initialText={newDeckInitialPrompt?.text}
               initialTextKey={newDeckInitialPrompt?.key}
+              initialTextOverridesSavedDraft={newDeckInitialPrompt !== null}
               initialModelSelection={newDeckRetryModelSelection}
               onRetainedAttachmentsAbandoned={
                 handlePendingDeckAttachmentsAbandoned
