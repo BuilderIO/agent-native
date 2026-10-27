@@ -30,10 +30,10 @@ pnpm exec tsx scripts/debug-runs.ts find <input> [--app NAME] [--days 30] [--lim
 
 | Input | Example | How it is matched |
 |---|---|---|
-| Run id | `run-1793107111102-9i3jxa` | live `agent_runs`/traces, else the thread active at the timestamp inside the id |
+| Run id | `run-1700000000000-example` | live `agent_runs`/traces, else the thread active at the timestamp inside the id |
 | Email | `user@example.com` | threads they own, plus their MCP/A2A calls |
-| Object link | `https://slides.agent-native.com/deck/0jqouZK_EU` | app from the host, id from the path |
-| Bare object id | `UDcEuuLDaVEXAK2N_dz2l` | every app: thread scope, owner lookup, owner's threads, audit inputs |
+| Object link | `https://slides.agent-native.com/deck/EXAMPLE_deck1` | app from the host, id from the path |
+| Bare object id | `EXAMPLE_design1` | every app: thread scope, owner lookup, owner's threads, audit inputs |
 
 Prefer the link over a bare id: it searches one app and also scans that app's
 audit log even when the object was deleted. `--app` does the same for a bare

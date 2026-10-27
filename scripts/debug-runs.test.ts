@@ -86,14 +86,14 @@ describe("debug-runs", () => {
   it("takes the app and object id from beta and production links", () => {
     assert.deepEqual(
       classifyInput(
-        "https://beta.slides.agent-native.com/deck/0jqouZK_EU?slide=2",
+        "https://beta.slides.agent-native.com/deck/EXAMPLE_deck1?slide=2",
       ),
       {
         kind: "object",
-        value: "0jqouZK_EU",
+        value: "EXAMPLE_deck1",
         app: "slides",
       },
     );
-    assert.equal(classifyInput("run-1793107111102-9i3jxa").kind, "run");
+    assert.equal(classifyInput("run-1700000000000-example").kind, "run");
   });
 });
