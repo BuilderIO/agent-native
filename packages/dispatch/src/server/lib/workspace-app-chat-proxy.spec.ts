@@ -173,6 +173,26 @@ describe("workspace app chat proxy", () => {
     expect(mocks.createGrantedDispatchMcpEmbedSession).toHaveBeenCalledTimes(1);
   });
 
+  it("accepts a request origin from the configured runtime URL", async () => {
+    const runtimeOrigin = "https://workspace.agent-native.com";
+    mocks.getForwardedRequestOrigin.mockReturnValue(runtimeOrigin);
+    const observedOrigins: string[] = [];
+    mocks.createWorkspaceSsoEmbedSession.mockImplementation(async () => {
+      observedOrigins.push(getRequestContext()?.requestOrigin ?? "");
+      return { startUrl: START_URL, app: "analytics" };
+    });
+    const handler = createWorkspaceAppChatProxyHandler({
+      fetchImpl: stubFetch(() => new Response("ok", { status: 200 })),
+    });
+
+    const response = await handler(
+      proxyEvent("/_agent-native/workspace-app-chat/analytics"),
+    );
+
+    expect(response.status).toBe(200);
+    expect(observedOrigins).toEqual([runtimeOrigin]);
+  });
+
   it("ignores untrusted forwarded origins for context and session caching", async () => {
     const requestOrigins = [
       "https://attacker-one.example",
@@ -197,6 +217,46 @@ describe("workspace app chat proxy", () => {
 
     expect(observedOrigins).toEqual(["https://dispatch.agent-native.com"]);
     expect(mocks.createWorkspaceSsoEmbedSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses a valid runtime origin when the configured production URL is invalid", async () => {
+    mocks.getAppProductionUrl.mockReturnValue("not-a-url");
+    mocks.getForwardedRequestOrigin.mockReturnValue("https://attacker.example");
+    const observedOrigins: string[] = [];
+    mocks.createWorkspaceSsoEmbedSession.mockImplementation(async () => {
+      observedOrigins.push(getRequestContext()?.requestOrigin ?? "");
+      return { startUrl: START_URL, app: "analytics" };
+    });
+    const handler = createWorkspaceAppChatProxyHandler({
+      fetchImpl: stubFetch(() => new Response("ok", { status: 200 })),
+    });
+
+    const response = await handler(
+      proxyEvent("/_agent-native/workspace-app-chat/analytics"),
+    );
+
+    expect(response.status).toBe(200);
+    expect(observedOrigins).toEqual(["https://workspace.agent-native.com"]);
+  });
+
+  it("returns a JSON error when no trusted origin is configured", async () => {
+    mocks.getAppProductionUrl.mockReturnValue("not-a-url");
+    mocks.resolveAppRuntimeUrl.mockReturnValue(undefined);
+    mocks.getForwardedRequestOrigin.mockReturnValue("https://attacker.example");
+    const handler = createWorkspaceAppChatProxyHandler({
+      fetchImpl: stubFetch(() => new Response("ok", { status: 200 })),
+    });
+
+    const response = await handler(
+      proxyEvent("/_agent-native/workspace-app-chat/analytics"),
+    );
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toMatchObject({
+      error: expect.stringContaining(
+        "Configured application origin is invalid.",
+      ),
+    });
   });
 
   it("forwards agent-chat sub-paths and query strings unchanged", async () => {

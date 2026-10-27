@@ -88,34 +88,54 @@ function sessionCacheKey(input: {
   ].join("\u0000");
 }
 
-function httpOrigin(value: string | undefined): string | undefined {
-  if (value === undefined) return undefined;
-  const url = new URL(value);
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new Error("Application origin must use HTTP or HTTPS.");
+type HttpOriginResult =
+  | { kind: "absent" }
+  | { kind: "invalid"; cause: unknown }
+  | { kind: "valid"; origin: string };
+
+function httpOrigin(value: string | undefined): HttpOriginResult {
+  if (value === undefined) return { kind: "absent" };
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return {
+        kind: "invalid",
+        cause: new Error("Application origin must use HTTP or HTTPS."),
+      };
+    }
+    return { kind: "valid", origin: url.origin };
+  } catch (cause) {
+    return { kind: "invalid", cause };
   }
-  return url.origin;
 }
 
 function trustedWorkspaceRequestOrigin(
   event: WorkspaceAppChatProxyEvent,
 ): string {
-  const configuredOrigin = httpOrigin(getAppProductionUrl());
-  const runtimeOrigin = httpOrigin(resolveAppRuntimeUrl());
-  const allowedOrigins = new Set(
-    [configuredOrigin, runtimeOrigin].filter((origin): origin is string =>
-      Boolean(origin),
-    ),
-  );
-  const requestOrigin = httpOrigin(
+  const configured = httpOrigin(getAppProductionUrl());
+  const runtime = httpOrigin(resolveAppRuntimeUrl());
+  const request = httpOrigin(
     getForwardedRequestOrigin(
       event as unknown as Parameters<typeof getForwardedRequestOrigin>[0],
     ),
   );
+  const allowedOrigins = new Set(
+    [configured, runtime]
+      .filter(
+        (result): result is Extract<HttpOriginResult, { kind: "valid" }> =>
+          result.kind === "valid",
+      )
+      .map((result) => result.origin),
+  );
 
-  if (requestOrigin && allowedOrigins.has(requestOrigin)) return requestOrigin;
-  if (configuredOrigin) return configuredOrigin;
-  if (runtimeOrigin) return runtimeOrigin;
+  if (request.kind === "valid" && allowedOrigins.has(request.origin)) {
+    return request.origin;
+  }
+  if (configured.kind === "valid") return configured.origin;
+  if (runtime.kind === "valid") return runtime.origin;
+  if (configured.kind === "invalid" || runtime.kind === "invalid") {
+    throw new Error("Configured application origin is invalid.");
+  }
   throw new Error("No trusted application origin is configured for app chat.");
 }
 
@@ -307,9 +327,10 @@ export function createWorkspaceAppChatProxyHandler(
       return proxyErrorResponse(401, "Sign in to Dispatch to use app chat.");
     }
 
-    const requestOrigin = trustedWorkspaceRequestOrigin(event);
+    let requestOrigin: string;
     let appSession: WorkspaceAppChatSession;
     try {
+      requestOrigin = trustedWorkspaceRequestOrigin(event);
       appSession = await resolveWorkspaceAppChatSession({
         appId: parsed.appId,
         userEmail: session.email,
