@@ -5617,7 +5617,9 @@ export const AgentMessageActions = memo(function AgentMessageActions({
                   position.active ||
                   !forkingCapability.enabled
                 }
-                title={forkingCapability.reason}
+                {...(forkingCapability.reason === undefined
+                  ? {}
+                  : { title: forkingCapability.reason })}
                 onPress={() =>
                   void regenerateAction.execute().catch(() => undefined)
                 }
@@ -5718,7 +5720,9 @@ export const AgentMessageActions = memo(function AgentMessageActions({
                 size="compact"
                 className="size-6"
                 disabled={position.active || !forkingCapability.enabled}
-                title={forkingCapability.reason}
+                {...(forkingCapability.reason === undefined
+                  ? {}
+                  : { title: forkingCapability.reason })}
                 aria-pressed={editContext.message?.id === message.id}
                 onPress={() => editContext.setMessage(message)}
               />
