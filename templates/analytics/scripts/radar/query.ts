@@ -456,6 +456,9 @@ export function isReadOnlySql(sql: string): boolean {
     "pg_stat_reset_shared",
     "pg_stat_reset_single_table_counters",
     "pg_stat_reset_single_function_counters",
+    "pg_logical_slot_get_changes",
+    "pg_logical_slot_get_binary_changes",
+    "pg_replication_slot_advance",
   ]);
   return !tokens.some((token, index) => {
     const quotedIdentifier = token.startsWith("<identifier:")

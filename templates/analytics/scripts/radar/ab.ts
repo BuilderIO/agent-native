@@ -443,6 +443,15 @@ export async function runAbReadout(
   const variants = [
     ...new Set(overall.map((row) => String(row.variant))),
   ].sort();
+  if (
+    variants.length !== CONFIGURED_VARIANTS.length ||
+    CONFIGURED_VARIANTS.some((variant) => !variants.includes(variant))
+  ) {
+    throw new RadarQueryError(
+      "A/B readout did not return both configured experiment arms.",
+      2,
+    );
+  }
   const counts = new Map(overall.map((row) => [String(row.variant), row]));
   const armSummaries = variants.map((variant): AbArmSummary => {
     const row = counts.get(variant) ?? {};

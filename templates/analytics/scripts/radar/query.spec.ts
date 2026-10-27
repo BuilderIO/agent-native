@@ -124,6 +124,17 @@ describe("radar query safety", () => {
     expect(isReadOnlySql("SELECT set_config('x', 'y', true)")).toBe(false);
     expect(isReadOnlySql("SELECT nextval('sequence')")).toBe(false);
     expect(isReadOnlySql("SELECT pg_stat_reset()")).toBe(false);
+    expect(
+      isReadOnlySql("SELECT pg_logical_slot_get_changes('slot', NULL, NULL)"),
+    ).toBe(false);
+    expect(
+      isReadOnlySql(
+        "SELECT pg_logical_slot_get_binary_changes('slot', NULL, NULL)",
+      ),
+    ).toBe(false);
+    expect(
+      isReadOnlySql("SELECT pg_replication_slot_advance('slot', NULL)"),
+    ).toBe(false);
     expect(isReadOnlySql("SELECT pg_advisory_unlock_shared(1, 2)")).toBe(false);
     expect(isReadOnlySql("SELECT pg_advisory_xact_lock_shared(1, 2)")).toBe(
       false,

@@ -1,4 +1,15 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const queryMocks = vi.hoisted(() => ({
+  resolveRadarOrganizationId: vi.fn(),
+  resolveRadarFirstPartyBackend: vi.fn(),
+  runPostgresQuery: vi.fn(),
+}));
+
+vi.mock("./query.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./query.ts")>();
+  return { ...actual, ...queryMocks };
+});
 
 import {
   buildBigQueryAbSql,
@@ -7,6 +18,16 @@ import {
   parseAbReadoutArgs,
   runAbReadout,
 } from "./ab.ts";
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  queryMocks.resolveRadarOrganizationId.mockResolvedValue("org-1");
+  queryMocks.resolveRadarFirstPartyBackend.mockResolvedValue({
+    sink: "postgres",
+    table: null,
+  });
+  queryMocks.runPostgresQuery.mockResolvedValue({ rows: [] });
+});
 
 describe("experiment cohort SQL", () => {
   it.each([
@@ -88,4 +109,26 @@ describe("A/B readout arguments", () => {
       });
     },
   );
+
+  it("rejects an empty cohort instead of returning a ready empty readout", async () => {
+    await expect(
+      runAbReadout({ startDate: "2026-10-19", endDate: "2026-10-26" }),
+    ).rejects.toMatchObject({
+      exitCode: 2,
+      message: "A/B readout did not return both configured experiment arms.",
+    });
+  });
+
+  it("rejects a readout that contains only one experiment arm", async () => {
+    queryMocks.runPostgresQuery.mockResolvedValue({
+      rows: [{ app: "all", variant: "control", exposed: 10 }],
+    });
+
+    await expect(
+      runAbReadout({ startDate: "2026-10-19", endDate: "2026-10-26" }),
+    ).rejects.toMatchObject({
+      exitCode: 2,
+      message: "A/B readout did not return both configured experiment arms.",
+    });
+  });
 });
