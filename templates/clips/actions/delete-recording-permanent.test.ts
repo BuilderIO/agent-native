@@ -298,6 +298,19 @@ describe("delete-recording-permanent", () => {
     consoleError.mockRestore();
   });
 
+  it("keeps hosted bytes counted when the frame cleanup itself threw", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    mockExistingRecording.storageMode = "hosted";
+    mockDeleteStoredAgentFrames.mockRejectedValueOnce(new Error("db down"));
+
+    await deleteRecordingPermanent.run({ id: "rec_1" });
+
+    expect(mockAdjustHostedClipRecordingBytes).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
   it("keeps hosted bytes counted while a stored agent frame is still in storage", async () => {
     const consoleError = vi
       .spyOn(console, "error")

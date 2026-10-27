@@ -459,6 +459,47 @@ describe("agent frame store", () => {
       });
     });
 
+    it("prunes frames at timestamps that are no longer recommended", async () => {
+      mockUploadRecordingMedia.mockResolvedValue(null);
+      mockRows.value = [
+        {
+          id: "old",
+          atMs: 12_345,
+          mediaKey: "stale",
+          storageUrl: "https://cdn.example.com/old.jpg",
+          storageProvider: "s3",
+          storageId: null,
+        },
+      ];
+
+      await fillRecommendedAgentFrames(clip, async () => new Uint8Array([4]));
+
+      expect(mockDeleteStoredMediaUrl).toHaveBeenCalledWith(
+        "https://cdn.example.com/old.jpg",
+        { storageMode: "own", recordingId: "rec-1" },
+      );
+      expect(mockDeleted).toHaveLength(1);
+    });
+
+    it("keeps a pruned frame's row when its object is not confirmed gone", async () => {
+      mockUploadRecordingMedia.mockResolvedValue(null);
+      mockRows.value = [
+        {
+          id: "old",
+          atMs: 12_345,
+          mediaKey: "stale",
+          storageUrl: "https://cdn.example.com/old.jpg",
+          storageProvider: "s3",
+          storageId: null,
+        },
+      ];
+      mockDeleteStoredMediaUrl.mockResolvedValue(false);
+
+      await fillRecommendedAgentFrames(clip, async () => new Uint8Array([4]));
+
+      expect(mockDeleted).toHaveLength(0);
+    });
+
     it("skips a frame that cannot be cut and keeps going", async () => {
       mockUploadRecordingMedia.mockResolvedValue({
         url: "https://cdn.example.com/f.jpg",

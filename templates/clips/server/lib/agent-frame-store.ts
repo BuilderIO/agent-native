@@ -87,6 +87,28 @@ async function deleteFrameObject(
   }
 }
 
+/**
+ * Deletes a frame's object, then its row, only while the row still points at
+ * that object: a fill may have re-pointed it at a new one since it was read,
+ * and that row must stay. False means the object is not confirmed gone, so
+ * the row stays for a retry.
+ */
+async function deleteFrameRow(
+  recording: Pick<FrameRecording, "id">,
+  row: FrameObject & { id: string },
+): Promise<boolean> {
+  if (!(await deleteFrameObject(recording, row))) return false;
+  await getDb()
+    .delete(schema.recordingAgentFrames)
+    .where(
+      and(
+        eq(schema.recordingAgentFrames.id, row.id),
+        eq(schema.recordingAgentFrames.storageUrl, row.storageUrl),
+      ),
+    );
+  return true;
+}
+
 function loadFrameRows(recordingId: string) {
   return getDb()
     .select()
@@ -351,6 +373,13 @@ export function fillRecommendedAgentFrames(
               existing ?? null,
             );
           }
+          // An edit or a new transcript changes which timestamps are
+          // recommended; frames at the others would otherwise stay in
+          // storage, and in the hosted quota, until the recording is deleted.
+          const wanted = new Set(times);
+          for (const row of rows) {
+            if (!wanted.has(row.atMs)) await deleteFrameRow(recording, row);
+          }
         },
       ),
     )
@@ -377,8 +406,7 @@ export function fillRecommendedAgentFrames(
 export async function deleteStoredAgentFrames(
   recording: Pick<FrameRecording, "id">,
 ): Promise<number> {
-  const db = getDb();
-  const rows = await db
+  const rows = await getDb()
     .select({
       id: schema.recordingAgentFrames.id,
       storageUrl: schema.recordingAgentFrames.storageUrl,
@@ -389,20 +417,7 @@ export async function deleteStoredAgentFrames(
     .where(eq(schema.recordingAgentFrames.recordingId, recording.id));
   let remaining = 0;
   for (const row of rows) {
-    if (!(await deleteFrameObject(recording, row))) {
-      remaining += 1;
-      continue;
-    }
-    // Only the row whose object was just deleted: a fill may have pointed it
-    // at a new object since the read above, and that row must stay.
-    await db
-      .delete(schema.recordingAgentFrames)
-      .where(
-        and(
-          eq(schema.recordingAgentFrames.id, row.id),
-          eq(schema.recordingAgentFrames.storageUrl, row.storageUrl),
-        ),
-      );
+    if (!(await deleteFrameRow(recording, row))) remaining += 1;
   }
   return remaining;
 }

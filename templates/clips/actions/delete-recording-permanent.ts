@@ -358,7 +358,8 @@ export default defineAction({
         ).length -
         mediaCleanup.deleted -
         mediaCleanup.external +
-        framesLeft
+        // A cleanup that threw has no count: assume a frame is still stored.
+        (agentFrameCleanup.deleted ? 0 : Math.max(framesLeft, 1))
       : 0;
     if (hostedFilesLeft > 0) {
       console.error(
