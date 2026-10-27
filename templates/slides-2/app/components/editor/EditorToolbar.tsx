@@ -919,7 +919,7 @@ export default function EditorToolbar({
         className="deck-editor-context-toolbar-host deck-editor-context-toolbar-host--wide"
       />
 
-      {/* "View only" badge — mirrors Google Slides' viewer chrome */}
+      {/* "View only" badge uses the editor's viewer chrome. */}
       {!canEdit && (
         <span className="flex-shrink-0 inline-flex items-center gap-1 rounded-full border border-border bg-muted/50 px-2.5 py-1 text-xs font-medium text-muted-foreground">
           {t("editorToolbar.viewOnly")}
