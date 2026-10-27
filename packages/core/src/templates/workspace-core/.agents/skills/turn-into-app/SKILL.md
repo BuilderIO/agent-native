@@ -24,7 +24,7 @@ shows progress and receives the result. Avoid form-under-stepper layouts.
 - Local scaffolding needs Node.js 22.22.0 or newer (with npm/npx) and pnpm.
 - **Local host**: a terminal, a filesystem, and a target checkout (Claude Code,
   Codex, Cursor, or an Agent-Native agent that can edit files). Build the app in
-  that checkout with steps 1-6, unless the person picks Builder hosting (below).
+  that checkout with steps 1-6, unless the route is Builder hosting (below).
   Never call `create_workspace_app`.
 - **Browser host**: Claude or ChatGPT on the web, their web Projects, or any
   runtime that cannot edit files. Do steps 1-2, then make the Dispatch handoff

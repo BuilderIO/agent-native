@@ -24,7 +24,7 @@ shows progress and receives the result. Avoid form-under-stepper layouts.
 - Local scaffolding needs Node.js 22.22.0 or newer (with npm/npx) and pnpm.
 - **Local host**: a terminal, a filesystem, and a target checkout (Claude Code,
   Codex, Cursor, or an Agent-Native agent that can edit files). Build the app in
-  that checkout with steps 1-6, unless the person picks Builder hosting (below).
+  that checkout with steps 1-6, unless the route is Builder hosting (below).
   Never call \`create_workspace_app\`.
 - **Browser host**: Claude or ChatGPT on the web, their web Projects, or any
   runtime that cannot edit files. Do steps 1-2, then make the Dispatch handoff
@@ -366,12 +366,15 @@ Rules on this path:
 
 - Never run \`npm\`, \`pnpm\`, \`npx\`, \`agent-native create\`, or \`add-app\`; never
   edit files, build in the host's code interpreter, sandbox, or artifact
-  editor, or start a dev server.
+  editor, or start a dev server. On a local host that chose Builder, the
+  Dispatch connector setup in [where-it-runs.md](where-it-runs.md) is the one
+  exception.
 - Never substitute the generic \`create_workspace_app\` MCP tool. It is a local
   workspace scaffolder, not the Dispatch handoff.
 - If \`start-workspace-app-creation\` is unavailable or Dispatch is not
-  authenticated, stop and give the connector setup below. Do not fall back to
-  a sandbox build or claim that the app exists.
+  authenticated, stop and give the connector setup below (on a local host, the
+  two ways on in [where-it-runs.md](where-it-runs.md)). Do not fall back to a
+  sandbox build or claim that the app exists.
 - Never invent a Builder branch URL. If Dispatch returns only an
   acknowledgement, or a path without a URL, report the Dispatch handoff as
   unverified, not as a ready or verified branch.
