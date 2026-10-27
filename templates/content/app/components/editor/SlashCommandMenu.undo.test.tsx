@@ -46,6 +46,18 @@ function firstBlock(editor: Editor) {
   return `${node.type.name}: ${node.textContent}`;
 }
 
+function lastBlock(editor: Editor) {
+  const node = editor.state.doc.lastChild;
+  if (!node) throw new Error("the document has no blocks");
+  return `${node.type.name}: ${node.textContent}`;
+}
+
+function headingBlock(editor: Editor) {
+  const node = editor.state.doc.maybeChild(1);
+  if (!node) throw new Error("the document has no second block");
+  return `${node.type.name}: ${node.textContent}`;
+}
+
 /** Renders the slash menu beside a collaborative editor. */
 async function mountSlashMenu() {
   const container = document.createElement("div");
@@ -164,6 +176,71 @@ describe("slash command undo", () => {
 
       undo(editor);
       expect(firstBlock(editor)).toBe(`paragraph: ${PARAGRAPH}`);
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("brings back the query of a command that leaves the block as it was", async () => {
+    const { container, editor, unmount } = await mountSlashMenu();
+    try {
+      const headingStart = PARAGRAPH.length + 3;
+      typeAt(editor, headingStart, "More ");
+      const undoState = yUndoPluginKey.getState(editor.state);
+      if (!undoState) throw new Error("the editor has no Yjs undo history");
+      undoState.undoManager.stopCapturing();
+      typeAt(editor, headingStart, "/heading 3");
+      await act(async () => Promise.resolve());
+      expect(container.querySelector(".slash-command-menu")).not.toBeNull();
+
+      // The block is already a heading 3, so the command changes nothing.
+      await pressEnter();
+      expect(headingBlock(editor)).toBe("heading: More Heading three");
+
+      undo(editor);
+      expect(headingBlock(editor)).toBe(
+        "heading: /heading 3More Heading three",
+      );
+
+      undo(editor);
+      expect(headingBlock(editor)).toBe("heading: More Heading three");
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("brings back the query of a command that only opens a prompt", async () => {
+    const { container, editor, unmount } = await mountSlashMenu();
+    try {
+      act(() => {
+        editor.view.dispatch(
+          editor.state.tr
+            .insert(
+              editor.state.doc.content.size,
+              editor.schema.nodes.paragraph.create(),
+            )
+            .setMeta("addToHistory", false),
+        );
+      });
+      typeAt(editor, 1, "Intro ");
+      const undoState = yUndoPluginKey.getState(editor.state);
+      if (!undoState) throw new Error("the editor has no Yjs undo history");
+      undoState.undoManager.stopCapturing();
+      typeAt(editor, editor.state.doc.content.size - 1, "/generate");
+      await act(async () => Promise.resolve());
+      expect(container.querySelector(".slash-command-menu")).not.toBeNull();
+
+      // Generate opens a prompt and leaves the page as it was.
+      await pressEnter();
+      expect(lastBlock(editor)).toBe("paragraph: ");
+
+      undo(editor);
+      expect(firstBlock(editor)).toBe(`paragraph: Intro ${PARAGRAPH}`);
+      expect(lastBlock(editor)).toBe("paragraph: /generate");
+
+      undo(editor);
+      expect(firstBlock(editor)).toBe(`paragraph: Intro ${PARAGRAPH}`);
+      expect(lastBlock(editor)).toBe("paragraph: ");
     } finally {
       await unmount();
     }
