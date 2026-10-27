@@ -26,6 +26,7 @@ export class JevProviderRequestError extends Error {
 
 type JevChoiceAnswer = {
   choice?: unknown;
+  legend?: unknown;
   probabilities?: unknown;
   score?: unknown;
   confidence?: unknown;

@@ -10,6 +10,7 @@ import {
 import { getAppConfig } from "../app-config/index.js";
 import { getActiveFileUploadProviderForRequest } from "../file-upload/registry.js";
 import { ensureS3FileUploadProvider } from "../file-upload/s3.js";
+import { ensureS3PrivateBlobProviders } from "../private-blob/s3-private.js";
 import {
   canUseDeployCredentialFallbackForRequest,
   readDeployCredentialEnv,
@@ -425,6 +426,7 @@ export function registerDefaultOnboardingSteps(): void {
   if (registered) return;
   registered = true;
   ensureS3FileUploadProvider();
+  ensureS3PrivateBlobProviders();
   registerOnboardingStep(llmStep);
   registerOnboardingStep(fileStorageStep);
   registerOnboardingStep(databaseStep);

@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { schema } from "../server/db/index.js";
 import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
+import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
 import {
   DOCUMENT_PROPERTY_VISIBILITIES,
   normalizePropertyValue,
@@ -307,6 +308,7 @@ export function validatePlan(
       persisted.document.updatedAt !== row.expectedUpdatedAt
     )
       throw new Error(`Stale row ${row.documentId}.`);
+    assertNoNewlySharedVideoIds(persisted.document.content, row.content);
     if (
       duplicate(row.propertyValues.map((v) => v.propertyId)) ||
       duplicate(row.protectedPropertyValues.map((v) => v.propertyId))

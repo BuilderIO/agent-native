@@ -97,7 +97,7 @@ const FACTORY_REPO_ONLY_MARKERS = {
   end: "<!-- framework-repo-only:end -->",
 };
 const FACTORY_EXCLUDED_SKILL_FILES = {
-  "review-latest-feedback": new Set(["references/ci-red-report.md"]),
+  "review-latest-feedback": new Set(["references/chat-run-health.md"]),
 };
 
 const workspaceSkillIncludes = [...WORKSPACE_SKILLS];

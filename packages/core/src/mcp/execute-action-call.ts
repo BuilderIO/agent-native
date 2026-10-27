@@ -281,13 +281,14 @@ export function embedCredentialSources(): (
  * travel only in `_meta`, where the embed runtime reads it. The value is read
  * as JSON first, so a `toJSON` method or getter cannot add anything after the
  * walk. A string that mentions the start route (`StringReading`) becomes
- * `[hidden embed URL]`, and an object drops a key that mentions it or holds
- * such a string; with `maskUrlFields`, for a result whose output contract may
- * require the field, it keeps the field as `[hidden embed URL]`. In embed context, which the value or the call's `guard`
- * sets, every `ticket` field is dropped as well. A string that echoes a
- * credential in any of its escaped layers becomes `[hidden embed ticket]`,
- * and a key that does is dropped. Every other key is kept, `__proto__`
- * included.
+ * `[hidden embed URL]`, wherever it is, so a reader sees that a value was
+ * hidden rather than finding its key missing. An object drops a key that
+ * itself mentions the route; with `dropHiddenFields`, for a link whose hidden
+ * URL would not open, it drops a key holding such a string too. In embed
+ * context, which the value or the call's `guard` sets, every `ticket` field
+ * is dropped as well. A string that echoes a credential in any of its escaped
+ * layers becomes `[hidden embed ticket]`, and a key that does is dropped.
+ * Every other key is kept, `__proto__` included.
  *
  * It hides accidental echoes: a credential the call holds, repeated raw or
  * under any escaping `StringReading` decodes. A result it cannot fully read,
@@ -307,12 +308,12 @@ export function redactEmbedCredentials(
 export function redactEmbedCredentials(
   value: unknown,
   guard?: EmbedCredentialGuard,
-  options?: { maskUrlFields?: boolean },
+  options?: { dropHiddenFields?: boolean },
 ): unknown;
 export function redactEmbedCredentials(
   value: unknown,
   guard?: EmbedCredentialGuard,
-  options: { maskUrlFields?: boolean } = {},
+  options: { dropHiddenFields?: boolean } = {},
 ): unknown {
   const read = memoizedReader();
   const data =
@@ -353,9 +354,9 @@ export function redactEmbedCredentials(
         (embedContext && isEmbedCredentialKey(key)) ||
         read(key).mentionsRoute ||
         echoesCredential(key) ||
-        (typeof val === "string" &&
-          read(val).mentionsRoute &&
-          !options.maskUrlFields)
+        (options.dropHiddenFields &&
+          typeof val === "string" &&
+          read(val).mentionsRoute)
       ) {
         continue;
       }

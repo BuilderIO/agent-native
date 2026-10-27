@@ -21,6 +21,10 @@ import {
 } from "./block-field-comment-threads";
 import { blockFieldEditor, inHiddenBlockFieldPanel } from "./blockFieldTabs";
 import type { CommentTextAnchor } from "./comment-anchors";
+import {
+  commentThreadMarkSelector,
+  type CommentBlockTarget,
+} from "./comment-block-anchors";
 import type { PendingCommentSelection } from "./CommentsSidebar";
 
 /**
@@ -62,7 +66,7 @@ export function soloBlockFieldTabs(fieldId: string): BlockFieldTabs {
   };
 }
 
-type TextRange = { from: number; to: number };
+type TextRange = { from: number; to: number; blockId?: string };
 
 export type BlockFieldCommentHandler = (
   fieldId: string,
@@ -72,6 +76,12 @@ export type BlockFieldCommentHandler = (
   range?: TextRange,
 ) => void;
 
+export type BlockFieldBlockCommentHandler = (
+  fieldId: string,
+  target: CommentBlockTarget,
+  offsetTop: number,
+) => void;
+
 type BlockFieldEditorCommentsValue = {
   threads: readonly CommentThread[];
   activeThreadId: string | null;
@@ -79,6 +89,7 @@ type BlockFieldEditorCommentsValue = {
   pending: { fieldId: string; range: TextRange } | null;
   showCommentIndicators: boolean;
   onComment?: BlockFieldCommentHandler;
+  onBlockComment?: BlockFieldBlockCommentHandler;
   onActivateThread?: (threadId: string) => void;
 };
 
@@ -146,6 +157,17 @@ export function useBlockFieldEditorComments(fieldId: string) {
         : undefined,
     [canComment, fieldId],
   );
+  const onBlockCommentRef = useRef(value?.onBlockComment);
+  onBlockCommentRef.current = value?.onBlockComment;
+  const canCommentOnBlocks = !!value?.onBlockComment;
+  const onBlockComment = useMemo(
+    () =>
+      canCommentOnBlocks
+        ? (target: CommentBlockTarget, offsetTop: number) =>
+            onBlockCommentRef.current?.(fieldId, target, offsetTop)
+        : undefined,
+    [canCommentOnBlocks, fieldId],
+  );
   const allThreads = value?.threads ?? NO_THREADS;
   const commentThreads = useMemo(
     () =>
@@ -158,6 +180,7 @@ export function useBlockFieldEditorComments(fieldId: string) {
   if (!value) return null;
   return {
     onComment,
+    onBlockComment,
     commentThreads,
     activeThreadId: value.activeThreadId,
     hoveredThreadId: value.hoveredThreadId,
@@ -223,7 +246,9 @@ function scrollToReviewTarget(
   requestAnimationFrame(() => {
     const editor = blockFieldEditor(container, target.fieldId ?? null);
     const highlight = editor?.querySelector<HTMLElement>(
-      `[${target.attribute}="${cssEscape(target.id)}"]`,
+      target.attribute === "data-comment-thread"
+        ? commentThreadMarkSelector(target.id)
+        : `[${target.attribute}="${cssEscape(target.id)}"]`,
     );
     if (highlight && !inHiddenBlockFieldPanel(highlight)) {
       highlight.scrollIntoView?.({ behavior: "smooth", block: "center" });
@@ -254,6 +279,7 @@ export function useBlockFieldComments({
   pendingComment,
   showCommentIndicators,
   onComment,
+  onBlockComment,
   onActivateThread,
   scrollContainerRef,
 }: {
@@ -272,6 +298,7 @@ export function useBlockFieldComments({
   // Required, so every tab's editor gets the same handlers as the body's;
   // undefined turns them off.
   onComment: BlockFieldCommentHandler | undefined;
+  onBlockComment: BlockFieldBlockCommentHandler | undefined;
   onActivateThread: ((threadId: string) => void) | undefined;
   scrollContainerRef: RefObject<HTMLElement | null>;
 }) {
@@ -395,6 +422,7 @@ export function useBlockFieldComments({
       pending: fieldPending,
       showCommentIndicators,
       onComment,
+      onBlockComment,
       onActivateThread,
     }),
     [
@@ -402,6 +430,7 @@ export function useBlockFieldComments({
       fieldPending,
       hoveredThreadId,
       onActivateThread,
+      onBlockComment,
       onComment,
       selectedThreadId,
       showCommentIndicators,

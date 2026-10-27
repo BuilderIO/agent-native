@@ -1523,6 +1523,12 @@ export const runContentMigrations = runMigrations(
         CREATE INDEX IF NOT EXISTS document_body_steps_document_revision_idx
           ON document_body_steps (document_id, body_revision)`,
     },
+    {
+      version: 129,
+      name: "content-comment-block-targets",
+      sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS block_id TEXT;
+        ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS block_type TEXT`,
+    },
   ],
   { table: "content_migrations" },
 );
