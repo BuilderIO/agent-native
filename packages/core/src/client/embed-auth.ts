@@ -30,7 +30,7 @@ import {
 } from "./api-path.js";
 
 let installed = false;
-let memoryToken: { storageKey: string; token: string } | null = null;
+const memoryTokens = new Map<string, string>();
 let renewedFromUrlToken: string | null = null;
 let pendingWidgetSessionRenewal: Promise<boolean> | null = null;
 let widgetSessionRenewalRequestId = 0;
@@ -89,7 +89,7 @@ function currentMcpChatBridgeStorageKey(): string | null {
 }
 
 function memoryTokenFor(storageKey: string): string | null {
-  return memoryToken?.storageKey === storageKey ? memoryToken.token : null;
+  return memoryTokens.get(storageKey) ?? null;
 }
 
 function externalEmbedToken(win: Window): string | null {
@@ -189,8 +189,9 @@ export function isEmbedMcpChatBridgeActive(): boolean {
   if (!win) return false;
   const storageKey = currentMcpChatBridgeStorageKey();
   if (storageKey === null) {
-    clearMcpChatBridge(win);
-    return false;
+    // A temporary route without a declared mount does not prove the host
+    // unenrolled this document from the bridge.
+    return mcpChatBridgeActive;
   }
   if (mcpChatBridgeActive && mcpChatBridgeStorageKeyAtState !== storageKey) {
     mcpChatBridgeActive = false;
@@ -247,7 +248,7 @@ function storedToken(win: Window, storageKey: string): string | null {
 }
 
 function storeToken(token: string, win: Window, storageKey: string): void {
-  memoryToken = { storageKey, token };
+  memoryTokens.set(storageKey, token);
   try {
     win.sessionStorage.setItem(storageKey, token);
   } catch {
@@ -503,7 +504,7 @@ export function _resetEmbedAuthForTests(): void {
     for (const id of pending.timeoutIds) pending.win.clearTimeout(id);
   }
   installed = false;
-  memoryToken = null;
+  memoryTokens.clear();
   renewedFromUrlToken = null;
   pendingWidgetSessionRenewal = null;
   widgetSessionRenewalRequestId = 0;

@@ -392,7 +392,9 @@ export function useAgentRouteState<
     () =>
       normalizeBrowserTabId(options.browserTabId) ??
       (options.browserTabId === undefined ? defaultBrowserTabId() : undefined),
-    [options.browserTabId],
+    // A workspace router can keep this hook mounted while moving between
+    // app mounts, each of which has its own browser-tab state key.
+    [location.pathname, options.browserTabId],
   );
   const writeGlobalNavigation = options.writeGlobalNavigation ?? false;
   const readGlobalCommandFallback = options.readGlobalCommandFallback ?? false;

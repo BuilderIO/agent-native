@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import {
+  BrowserRouter,
   MemoryRouter,
   Route,
   Routes,
@@ -114,12 +115,13 @@ describe("route-state client helpers", () => {
     for (const container of containers) {
       container.remove();
     }
+    vi.unstubAllGlobals();
+    window.history.replaceState(null, "", "/");
     Reflect.deleteProperty(document, "startViewTransition");
     Object.defineProperty(window, "parent", {
       configurable: true,
       value: window,
     });
-    vi.unstubAllGlobals();
     vi.unstubAllEnvs();
     expect(process.env.VITE_AGENT_NATIVE_WORKSPACE).toBe(originalWorkspaceEnv);
     expect(process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON).toBe(
@@ -179,6 +181,57 @@ describe("route-state client helpers", () => {
       },
       "*",
     );
+  });
+
+  it("switches route-state keys when navigating between workspace mounts", async () => {
+    const { fetchMock, writes } = makeAppStateFetch({});
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([
+        { id: "risk", path: "/risk" },
+        { id: "chat", path: "/chat" },
+      ]),
+    );
+    window.history.replaceState(null, "", "/risk/register");
+    let navigate: ReturnType<typeof useNavigate> | undefined;
+
+    function Harness() {
+      navigate = useNavigate();
+      useAgentRouteState({
+        refetchInterval: false,
+        getNavigationState: ({ pathname }) => ({ pathname }),
+        getCommandPath: () => null,
+      });
+      return null;
+    }
+
+    const rendered = renderWithQueryClient(
+      <BrowserRouter>
+        <Routes>
+          <Route path="*" element={<Harness />} />
+        </Routes>
+      </BrowserRouter>,
+    );
+    roots.push(rendered.root);
+    containers.push(rendered.container);
+    await act(flush);
+
+    await act(async () => {
+      void navigate?.("/chat/thread-1");
+      await flush();
+    });
+
+    const scopedNavigationKeys = Array.from(
+      new Set(
+        writes
+          .map((write) => write.key)
+          .filter((key) => key.startsWith("navigation:")),
+      ),
+    );
+    expect(scopedNavigationKeys).toHaveLength(2);
+    expect(scopedNavigationKeys[0]).not.toBe(scopedNavigationKeys[1]);
   });
 
   it("writes semantic navigation state with request-source metadata", async () => {

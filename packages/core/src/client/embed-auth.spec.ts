@@ -109,6 +109,59 @@ describe("embed auth client", () => {
     expect(reloadedChild.getEmbedAuthToken()).toBe("child-token");
   });
 
+  it("keeps in-memory fallback tokens isolated and available per workspace mount", async () => {
+    const appConfig = window as Window & {
+      __AGENT_NATIVE_CONFIG__?: unknown;
+    };
+    appConfig.__AGENT_NATIVE_CONFIG__ = {
+      workspaceRuntime: true,
+      workspaceAppMountPaths: ["/dispatch", "/event-finder"],
+    };
+    const setItem = vi
+      .spyOn(Storage.prototype, "setItem")
+      .mockImplementation(() => {
+        throw new Error("blocked");
+      });
+    const getItem = vi
+      .spyOn(Storage.prototype, "getItem")
+      .mockImplementation(() => {
+        throw new Error("blocked");
+      });
+    const removeItem = vi
+      .spyOn(Storage.prototype, "removeItem")
+      .mockImplementation(() => {
+        throw new Error("blocked");
+      });
+
+    try {
+      window.history.replaceState(
+        null,
+        "",
+        `/dispatch/inbox?${EMBED_TOKEN_QUERY_PARAM}=dispatch-token`,
+      );
+      const auth = await loadEmbedAuth();
+      expect(auth.getEmbedAuthToken()).toBe("dispatch-token");
+
+      window.history.replaceState(null, "", "/event-finder/inbox");
+      expect(auth.getEmbedAuthToken()).toBeNull();
+      window.history.replaceState(
+        null,
+        "",
+        `/event-finder/inbox?${EMBED_TOKEN_QUERY_PARAM}=event-finder-token`,
+      );
+      expect(auth.getEmbedAuthToken()).toBe("event-finder-token");
+
+      window.history.replaceState(null, "", "/dispatch/inbox");
+      expect(auth.getEmbedAuthToken()).toBe("dispatch-token");
+      window.history.replaceState(null, "", "/event-finder/inbox");
+      expect(auth.getEmbedAuthToken()).toBe("event-finder-token");
+    } finally {
+      setItem.mockRestore();
+      getItem.mockRestore();
+      removeItem.mockRestore();
+    }
+  });
+
   it("persists a transplanted embed token under the target app mount", async () => {
     (
       window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }
@@ -334,6 +387,30 @@ describe("embed auth client", () => {
     window.history.replaceState(null, "", "/inbox?embedded=1");
 
     expect(first.isEmbedMcpChatBridgeActive()).toBe(true);
+  });
+
+  it("preserves an enrolled chat bridge while the route has no workspace mount", async () => {
+    (
+      window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }
+    ).__AGENT_NATIVE_CONFIG__ = {
+      workspaceRuntime: true,
+      workspaceAppMountPaths: ["/mail", "/calendar"],
+    };
+    window.history.replaceState(
+      null,
+      "",
+      `/mail/inbox?embedded=1&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1&${EMBED_TOKEN_QUERY_PARAM}=signed-token`,
+    );
+
+    const auth = await loadEmbedAuth();
+    auth.ensureEmbedAuthFetchInterceptor();
+    expect(auth.isEmbedMcpChatBridgeActive()).toBe(true);
+
+    window.history.replaceState(null, "", "/reports/overview?embedded=1");
+    expect(auth.isEmbedMcpChatBridgeActive()).toBe(true);
+
+    window.history.replaceState(null, "", "/calendar/month?embedded=1");
+    expect(auth.isEmbedMcpChatBridgeActive()).toBe(false);
   });
 
   it("clears the MCP chat bridge when the embed token actually changes", async () => {
