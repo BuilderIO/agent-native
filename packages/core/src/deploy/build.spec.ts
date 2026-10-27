@@ -1,6 +1,7 @@
 import { execFileSync } from "child_process";
 import fs from "fs";
 import { createRequire } from "module";
+import { randomBytes } from "node:crypto";
 import os from "os";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
@@ -25,6 +26,7 @@ import {
   RECURRING_JOBS_SWEEP_PATH,
   RECURRING_JOBS_SWEEP_TOKEN_SUBJECT,
 } from "../jobs/scheduler-dispatch.js";
+import { signEmbedSessionToken } from "../server/embed-session.js";
 import {
   CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
   DEFAULT_SSR_CACHE_HEADERS,
@@ -33,6 +35,7 @@ import {
   ssrCacheHeadersForPolicy,
 } from "../shared/cache-control.js";
 import {
+  EMBED_SESSION_COOKIE,
   EMBED_TARGET_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
 } from "../shared/embed-auth.js";
@@ -2481,6 +2484,61 @@ export default {
       } else {
         expect(body).toEqual({ revoked: true });
       }
+    },
+  );
+
+  it.each(["query", "target-header", "cookie"] as const)(
+    "refuses approval-gated embedded frontend calls with full-app guidance: %s",
+    async (credential) => {
+      vi.stubEnv("OAUTH_STATE_SECRET", randomBytes(32).toString("base64url"));
+      const token = signEmbedSessionToken({
+        ownerEmail: "widget-owner@example.com",
+        audienceHost: "app.test",
+        targetPath: "/visual-edit/design-1",
+        scope: "capability:visual-edit:design:design-1",
+      });
+      const dir = makeTempDir();
+      const actionPath = path.join(dir, "approval-action.mjs");
+      fs.writeFileSync(
+        actionPath,
+        `export default {
+  needsApproval: true,
+  run: async () => { throw new Error("An unapproved action must not run"); },
+};`,
+      );
+      const worker = await importGeneratedWorker(
+        generateWorkerEntry(
+          [],
+          [],
+          [],
+          [{ name: "write-record", absPath: actionPath, method: "post" }],
+        ),
+      );
+      const url = new URL(
+        "https://app.test/_agent-native/actions/write-record",
+      );
+      const headers = new Headers({
+        "content-type": "application/json",
+        "x-agent-native-frontend": "1",
+      });
+      if (credential === "query") {
+        url.searchParams.set(EMBED_TOKEN_QUERY_PARAM, token);
+        url.searchParams.set(EMBED_TARGET_QUERY_PARAM, "/visual-edit/design-1");
+      } else if (credential === "target-header") {
+        headers.set("x-agent-native-embed-target", "/visual-edit/design-1");
+      } else {
+        headers.set("cookie", `${EMBED_SESSION_COOKIE}=${token}`);
+      }
+      const response = await worker.fetch(
+        new Request(url, { method: "POST", headers, body: "{}" }),
+        {},
+        {},
+      );
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({
+        errorCode: "approval_required",
+        error: expect.stringContaining("Open the full app"),
+      });
     },
   );
 

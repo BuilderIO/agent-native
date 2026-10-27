@@ -19,3 +19,5 @@ Keep card read manifests limited to their declared reads, and require a browser 
 An ambient capability cookie does not override an independently authenticated browser account on an unmarked action request. Marked embed requests keep their scoped restrictions, and UI capabilities still require a same-origin browser-cookie identity.
 
 App-catalog session tools advertise generic path and URL inputs only when an action handler is declared; widget renewal remains available independently.
+
+Generated workers return full-app approval guidance for embedded frontend calls instead of asking them to mint a browser UI capability.

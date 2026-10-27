@@ -1501,8 +1501,10 @@ export function generateWorkerEntry(
     const actionIsUiOnly = ${a.uiOnly ? "true" : `${varName}.uiOnly === true`};
     const actionDeclaresApproval =
       ${varName}.needsApproval !== undefined && ${varName}.needsApproval !== false;
+    const actionIsEmbedded = (actionIsUiOnly || actionDeclaresApproval) &&
+      hasGeneratedEmbedCredential(event);
     const uiActionContext = actionIsUiOnly || actionDeclaresApproval
-      ? await getGeneratedUiActionContext(event)
+      ? await getGeneratedUiActionContext(event, actionIsEmbedded)
       : undefined;
     if (actionIsUiOnly && !uiActionContext) {
       return new Response(
@@ -1558,6 +1560,7 @@ export function generateWorkerEntry(
             ${varName},
             params,
             actionRunContext,
+            actionIsEmbedded,
           );
           if (refusal) {
             return new Response(
@@ -2557,8 +2560,8 @@ ${pluginCalls.join("\n")}
 
 ${
   hasActions
-    ? `  async function getGeneratedUiActionContext(event) {
-    if (event.req.headers.has("authorization") || hasGeneratedEmbedCredential(event)) {
+    ? `  async function getGeneratedUiActionContext(event, embedded) {
+    if (event.req.headers.has("authorization") || embedded) {
       return null;
     }
     const session = await getGeneratedBrowserCookieSession(event);

@@ -50,6 +50,7 @@ export async function directHttpActionApprovalRefusal(
     Parameters<typeof preparedCallNeedsApproval>[0],
   params: unknown,
   ctx: ActionRunContext & { actionName: string },
+  embedded = false,
 ): Promise<ActionContractError | null> {
   if (entry.needsApproval === undefined || entry.needsApproval === false) {
     return null;
@@ -66,6 +67,7 @@ export async function directHttpActionApprovalRefusal(
           ? "http"
           : ctx.caller,
         false,
+        embedded,
       )
     : null;
 }
