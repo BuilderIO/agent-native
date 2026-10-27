@@ -91,7 +91,7 @@ export async function fetchMcpApproval(
   const response = await fetch(approvalPath(id), {
     credentials: "same-origin",
     headers: { accept: "application/json" },
-    signal: options.signal,
+    signal: options.signal ?? null,
   });
   if (response.status === 401) return readUnauthorized(response);
   if (response.status === 404) {
