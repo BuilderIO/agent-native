@@ -45,15 +45,20 @@ vi.mock("../mcp/server.js", async (importOriginal) => ({
 }));
 
 // The owner's live browser session is the one input the approval route reads
-// from the web layer.
-vi.mock("./auth.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("./auth.js")>()),
-  getSession: async () => ({
+// from the web layer. It reads cookies only, so the mock stands in for that
+// seam and not for the bearer-capable `getSession`.
+vi.mock("./auth.js", async (importOriginal) => {
+  const browserSession = async () => ({
     email: session.email,
     orgId: session.orgId,
     token: "approval-session",
-  }),
-}));
+  });
+  return {
+    ...(await importOriginal<typeof import("./auth.js")>()),
+    getSession: browserSession,
+    getBrowserCookieSession: browserSession,
+  };
+});
 
 vi.mock("../agent/run-store.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../agent/run-store.js")>()),
