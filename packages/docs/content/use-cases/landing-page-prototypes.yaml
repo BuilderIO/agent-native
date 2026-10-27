@@ -1,6 +1,10 @@
 template: v2
 slug: landing-page-prototypes
 app: design
+roles:
+  - marketing
+  - design
+  - founders
 title: Turn a launch brief into a landing page prototype
 seo_title: AI landing page prototypes for your launch
 meta_description: Give Agent-Native Design your launch brief and get a few landing page versions in your brand to click through, compare and export as HTML. Free and open source.
