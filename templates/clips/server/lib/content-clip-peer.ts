@@ -112,6 +112,12 @@ type RateBucket = { count: number; reset: number };
 const rateBuckets = new Map<string, RateBucket>();
 /** One per reader, page and Clip that didn't open. */
 const missBuckets = new Map<string, RateBucket>();
+/**
+ * Requests that passed the check and haven't been counted yet. Each counts
+ * against both buckets until it is, so a burst can't all pass the check
+ * before the first one finishes opening its Clip.
+ */
+const pendingRequests = new Map<string, number>();
 
 function json(body: unknown, status = 200): Response {
   return Response.json(body, { status, headers: PRIVATE_HEADERS });
@@ -254,8 +260,8 @@ function clipKey(peer: ContentClipPeer, kind: RateKind): string {
   ].join("\n");
 }
 
-function isFull(bucket: RateBucket | undefined, limit: number, now: number) {
-  return Boolean(bucket && bucket.reset >= now && bucket.count >= limit);
+function used(bucket: RateBucket | undefined, now: number): number {
+  return bucket && bucket.reset >= now ? bucket.count : 0;
 }
 
 function missLimit(kind: RateKind): number {
@@ -273,10 +279,17 @@ function tooManyRequests(): Response {
 function overRateLimit(peer: ContentClipPeer, kind: RateKind) {
   const key = clipKey(peer, kind);
   const now = Date.now();
-  return isFull(rateBuckets.get(key), RATE_LIMITS[kind], now) ||
-    isFull(missBuckets.get(key), missLimit(kind), now)
+  const pending = pendingRequests.get(key) ?? 0;
+  return used(rateBuckets.get(key), now) + pending >= RATE_LIMITS[kind] ||
+    used(missBuckets.get(key), now) + pending >= missLimit(kind)
     ? tooManyRequests()
     : null;
+}
+
+function settlePending(key: string): void {
+  const pending = (pendingRequests.get(key) ?? 0) - 1;
+  if (pending > 0) pendingRequests.set(key, pending);
+  else pendingRequests.delete(key);
 }
 
 /**
@@ -337,6 +350,7 @@ export function __resetContentClipRateLimitsForTests(
 ): void {
   rateBuckets.clear();
   missBuckets.clear();
+  pendingRequests.clear();
   rateBucketLimit = limits.buckets ?? RATE_LIMIT_MAX_BUCKETS;
   missLimitForTests = limits.misses ?? null;
 }
@@ -362,13 +376,23 @@ async function withOpenedClip(
   kind: RateKind,
   fn: (opened: OpenedClip) => Promise<Response>,
 ): Promise<Response> {
+  const refused = overRateLimit(peer, kind);
+  if (refused) return refused;
+  const key = clipKey(peer, kind);
+  pendingRequests.set(key, (pendingRequests.get(key) ?? 0) + 1);
   const outcome = { opened: false };
-  const response = await openClip(peer, async (clip) => {
-    outcome.opened = true;
-    return rateLimited(peer, kind) ?? fn(clip);
-  });
-  if (!outcome.opened) countMiss(peer, kind);
-  return response;
+  try {
+    return await openClip(peer, async (clip) => {
+      outcome.opened = true;
+      settlePending(key);
+      return rateLimited(peer, kind) ?? fn(clip);
+    });
+  } finally {
+    if (!outcome.opened) {
+      settlePending(key);
+      countMiss(peer, kind);
+    }
+  }
 }
 
 /**

@@ -35,6 +35,7 @@ const state = vi.hoisted(() => {
   return {
     db: null as unknown as PgliteDatabase,
     blobs: new Map<string, unknown>(),
+    beforeClipOpens: null as (() => Promise<void>) | null,
   };
 });
 
@@ -55,6 +56,18 @@ vi.mock("./s3-upload-provider.js", async (importOriginal) => ({
   // database lacks, and its error would mask the provider fetch under test.
   fetchS3ObjectByUrl: async () => null,
 }));
+vi.mock("./context-footage.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./context-footage.js")>();
+  return {
+    ...actual,
+    contextClipIdForFootage: async (
+      ...args: Parameters<typeof actual.contextClipIdForFootage>
+    ) => {
+      await state.beforeClipOpens?.();
+      return actual.contextClipIdForFootage(...args);
+    },
+  };
+});
 vi.mock("./activity-notifications.js", () => ({
   notifyRecordingComment: async () => null,
   notifyRecordingReaction: async () => null,
@@ -1823,6 +1836,40 @@ describe("token checks", () => {
         )
       ).status,
     ).toBe(404);
+  });
+
+  it("counts a burst's requests before any of them opens the Clip", async () => {
+    __resetContentClipRateLimitsForTests({ misses: 2 });
+    const madeUp = await token({ recordingId: "made-up-1" });
+    // This database answers before the next request's token is verified, so
+    // hold every lookup until the whole burst has been checked.
+    let opening = 0;
+    let answered = 0;
+    const gate: { open?: () => void } = {};
+    const held = new Promise<void>((resolve) => {
+      gate.open = resolve;
+    });
+    state.beforeClipOpens = async () => {
+      opening += 1;
+      await held;
+    };
+    try {
+      const requests = Array.from({ length: 6 }, async () => {
+        const { status } = await playback("made-up-1", madeUp);
+        answered += 1;
+        return status;
+      });
+      await vi.waitFor(() => expect(opening + answered).toBe(6));
+      gate.open?.();
+      const statuses = await Promise.all(requests);
+      expect(opening).toBe(2);
+      expect(statuses.sort((a, b) => a - b)).toEqual([
+        404, 404, 429, 429, 429, 429,
+      ]);
+    } finally {
+      gate.open?.();
+      state.beforeClipOpens = null;
+    }
   });
 
   it("refuses a Clip that opened and then went away once its misses are spent", async () => {
