@@ -348,6 +348,9 @@ const messages = {
     fillerCompleted: "Eliminación de palabras de relleno completada",
     workflowReady: "Flujo de trabajo listo",
     workflowFailed: "No se pudo generar el flujo de trabajo",
+    workflowCancelled: "Se canceló la generación del flujo de trabajo",
+    workflowTimedOut:
+      "La generación del flujo de trabajo superó el tiempo límite",
     transcriptionCompleted: "Transcripción completada",
     transcriptNotReady: "La transcripción aún no está lista",
     tryAfterTranscription:

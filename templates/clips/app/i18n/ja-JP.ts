@@ -345,6 +345,8 @@ const messages = {
     fillerCompleted: "フィラーワードの削除が完了しました",
     workflowReady: "ワークフローの準備ができました",
     workflowFailed: "ワークフローの生成に失敗しました",
+    workflowCancelled: "ワークフローの生成をキャンセルしました",
+    workflowTimedOut: "ワークフローの生成がタイムアウトしました",
     transcriptionCompleted: "文字起こしが完了しました",
     transcriptNotReady: "トランスクリプトはまだ準備ができていません",
     tryAfterTranscription: "文字起こしが完了してからもう一度お試しください。",

@@ -172,15 +172,7 @@ jobs:
           done < <(git diff --name-only -z "$CI_BASE_SHA...$CI_HEAD_SHA")
 
           if ((${#format_files[@]} > 0)); then
-            format_backup_dir="$(mktemp -d)"
-            for file in "${format_files[@]}"; do
-              mkdir -p "$format_backup_dir/$(dirname "$file")"
-              cp "$file" "$format_backup_dir/$file"
-            done
-            pnpm exec oxfmt --write --no-error-on-unmatched-pattern "${format_files[@]}"
-            for file in "${format_files[@]}"; do
-              diff -u "$format_backup_dir/$file" "$file" || true
-            done
+            pnpm exec oxfmt --check --no-error-on-unmatched-pattern "${format_files[@]}"
           fi
           if ((${#lint_files[@]} > 0)); then
             pnpm exec oxlint --config .oxlintrc.json --no-error-on-unmatched-pattern "${lint_files[@]}"

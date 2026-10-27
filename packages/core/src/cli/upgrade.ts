@@ -23,8 +23,7 @@ import {
 } from "./workspace-yaml.js";
 
 const AGENT_NATIVE_SCOPE = "@agent-native/";
-const SAFE_AGENT_NATIVE_PACKAGE_NAME =
-  /^@agent-native\/[a-z0-9][a-z0-9._-]*$/;
+const SAFE_AGENT_NATIVE_PACKAGE_NAME = /^@agent-native\/[a-z0-9][a-z0-9._-]*$/;
 // New workspaces exclude every first-party package from pnpm's release-age
 // gate; older ones only excluded core, so same-day dependencies of a fresh
 // core release failed to install.
@@ -1149,8 +1148,7 @@ function refreshLatestAgentNativeDependencies(
     };
   }
 
-  const usesModernYarn =
-    pm === "yarn" && yarnMajor !== null && yarnMajor >= 2;
+  const usesModernYarn = pm === "yarn" && yarnMajor !== null && yarnMajor >= 2;
   const updateGroups = usesModernYarn
     ? [
         {

@@ -3,7 +3,22 @@ import { describe, expect, it } from "vitest";
 import {
   isRecentWorkflowGeneration,
   workflowGenerationStaleAt,
+  workflowSessionTabId,
 } from "./workflow.js";
+
+describe("workflowSessionTabId", () => {
+  it("uses the same stable session id for matching requests", () => {
+    expect(
+      workflowSessionTabId(
+        "rec_123",
+        "2026-10-18T19:51:00.000Z",
+        "workflow-request-123",
+      ),
+    ).toBe(
+      "clips-workflow:rec_123:2026-10-18T19%3A51%3A00.000Z:workflow-request-123:run",
+    );
+  });
+});
 
 describe("isRecentWorkflowGeneration", () => {
   const now = Date.parse("2026-10-18T20:00:00.000Z");
@@ -47,13 +62,13 @@ describe("isRecentWorkflowGeneration", () => {
     ).toBeNull();
   });
 
-  it("keeps malformed generation timestamps fail-closed", () => {
+  it("does not keep malformed generation timestamps active", () => {
     expect(
       isRecentWorkflowGeneration(
         { status: "generating", requestedAt: "invalid" },
         now,
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("does not treat terminal workflows as active", () => {

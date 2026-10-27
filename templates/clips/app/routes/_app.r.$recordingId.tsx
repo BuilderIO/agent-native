@@ -1,3 +1,4 @@
+import { cancelBackgroundAgentSession } from "@agent-native/core/client/agent-chat";
 import { trackEvent } from "@agent-native/core/client/analytics";
 import {
   agentNativePath,
@@ -16,6 +17,7 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { useLab } from "@agent-native/core/client/labs";
 import {
+  backgroundAgentTurnIdForReceipt,
   isHumanReadableDocumentTitle,
   normalizeDocumentTitle,
   AGENT_SIDEBAR_QUERY_PARAM,
@@ -53,6 +55,7 @@ import {
   isRecentWorkflowGeneration,
   type WorkflowKind,
   workflowGenerationStaleAt,
+  workflowSessionTabId,
 } from "@shared/workflow";
 import {
   IconCalendar,
@@ -521,6 +524,8 @@ interface GeneratedWorkflowState {
   content?: string;
   recordingId?: string;
   requestedAt?: string;
+  requestId?: string;
+  failureReason?: "cancelled" | "timed_out";
   error?: string;
 }
 
@@ -1382,15 +1387,96 @@ export default function RecordingPage() {
       ? generatedWorkflowQ.data
       : null;
   const workflowGenerationExpiry = workflowGenerationStaleAt(generatedWorkflow);
-  const [, refreshWorkflowGeneration] = useState(0);
+  const stopWorkflowGeneration = useCallback(
+    async (
+      workflow: GeneratedWorkflowState,
+      stopReason: "cancelled" | "timed_out",
+    ) => {
+      const recordingId = workflow.recordingId ?? recording?.id;
+      if (!recordingId || !workflow.requestedAt) return;
+      const tabId = workflowSessionTabId(
+        recordingId,
+        workflow.requestedAt,
+        workflow.requestId,
+      );
+      const result = (await callAction(
+        "reconcile-workflow-generation" as any,
+        {
+          operation: "stop",
+          recordingId,
+          requestedAt: workflow.requestedAt,
+          ...(workflow.requestId ? { requestId: workflow.requestId } : {}),
+          tabId,
+          stopReason,
+        } as any,
+      )) as { reconciled?: boolean };
+      if (result.reconciled) {
+        void cancelBackgroundAgentSession({
+          threadId: tabId,
+          turnId: backgroundAgentTurnIdForReceipt(tabId, tabId),
+          reason: stopReason,
+        }).catch((error) => {
+          const status = (error as Error & { status?: unknown }).status;
+          if (status !== 404) {
+            console.warn("[clips] failed to stop workflow generation", {
+              recordingId,
+              requestedAt: workflow.requestedAt,
+              error,
+            });
+          }
+        });
+      }
+      await generatedWorkflowQ.refetch();
+    },
+    [generatedWorkflowQ.refetch, recording?.id],
+  );
+  const cancelWorkflowGeneration = useCallback(
+    (workflow: GeneratedWorkflowState) => {
+      void stopWorkflowGeneration(workflow, "cancelled").catch((error) => {
+        workflowLifecycleActiveRef.current = false;
+        cancelCompletionCue();
+        failWorkflowToast(t("recordingPage.workflowFailed"), {
+          description:
+            actionErrorMessage(error) ?? t("recordingPage.tryAgainMoment"),
+        });
+      });
+    },
+    [cancelCompletionCue, failWorkflowToast, stopWorkflowGeneration, t],
+  );
   useEffect(() => {
-    if (workflowGenerationExpiry === null) return;
+    if (
+      generatedWorkflow?.status !== "generating" ||
+      !generatedWorkflow.requestedAt
+    ) {
+      return;
+    }
     const timer = window.setTimeout(
-      () => refreshWorkflowGeneration((value) => value + 1),
-      Math.max(0, workflowGenerationExpiry - Date.now()),
+      () => {
+        void stopWorkflowGeneration(generatedWorkflow, "timed_out").catch(
+          (error) => {
+            workflowLifecycleActiveRef.current = false;
+            cancelCompletionCue();
+            failWorkflowToast(t("recordingPage.workflowTimedOut"), {
+              description:
+                actionErrorMessage(error) ?? t("recordingPage.tryAgainMoment"),
+            });
+          },
+        );
+      },
+      Math.max(0, (workflowGenerationExpiry ?? Date.now()) - Date.now()),
     );
     return () => window.clearTimeout(timer);
-  }, [refreshWorkflowGeneration, workflowGenerationExpiry]);
+  }, [
+    generatedWorkflow?.recordingId,
+    generatedWorkflow?.requestId,
+    generatedWorkflow?.requestedAt,
+    generatedWorkflow?.status,
+    cancelCompletionCue,
+    failWorkflowToast,
+    stopWorkflowGeneration,
+    t,
+    workflowGenerationExpiry,
+  ]);
   const aiRequestStatus = aiRequestStatusQ.data?.kind
     ? aiRequestStatusQ.data
     : null;
@@ -1412,8 +1498,20 @@ export default function RecordingPage() {
     const status = generatedWorkflow?.status;
     if (!status) return;
     if (status === "generating") {
+      if (!generatedWorkflow.requestedAt) {
+        workflowLifecycleActiveRef.current = false;
+        failWorkflowToast(t("recordingPage.workflowFailed"), {
+          description: t("recordingPage.tryAgainMoment"),
+        });
+        return;
+      }
       workflowLifecycleActiveRef.current = true;
-      startWorkflowToast(t("recordingPage.workflowQueued"));
+      startWorkflowToast(t("recordingPage.workflowQueued"), {
+        action: {
+          label: t("common.cancel"),
+          onClick: () => cancelWorkflowGeneration(generatedWorkflow),
+        },
+      });
       return;
     }
     if (!workflowLifecycleActiveRef.current) return;
@@ -1422,10 +1520,18 @@ export default function RecordingPage() {
       completeWorkflowToast(t("recordingPage.workflowReady"));
       playCompletionCue();
     } else if (status === "failed") {
-      failWorkflowToast(t("recordingPage.workflowFailed"), {
+      const failureMessage =
+        generatedWorkflow.failureReason === "cancelled"
+          ? t("recordingPage.workflowCancelled")
+          : generatedWorkflow.failureReason === "timed_out"
+            ? t("recordingPage.workflowTimedOut")
+            : t("recordingPage.workflowFailed");
+      failWorkflowToast(failureMessage, {
         ...(generatedWorkflow.error
           ? { description: generatedWorkflow.error }
-          : {}),
+          : generatedWorkflow.failureReason === "timed_out"
+            ? { description: t("recordingPage.tryAgainMoment") }
+            : {}),
       });
       cancelCompletionCue();
     } else {
@@ -1434,9 +1540,11 @@ export default function RecordingPage() {
     workflowLifecycleActiveRef.current = false;
   }, [
     cancelCompletionCue,
+    cancelWorkflowGeneration,
     completeWorkflowToast,
     failWorkflowToast,
     generatedWorkflow?.error,
+    generatedWorkflow?.failureReason,
     generatedWorkflow?.requestedAt,
     generatedWorkflow?.status,
     playCompletionCue,

@@ -333,6 +333,8 @@ const messages = {
     fillerCompleted: "اكتملت إزالة الكلمات الحشوية",
     workflowReady: "سير العمل جاهز",
     workflowFailed: "فشل إنشاء سير العمل",
+    workflowCancelled: "تم إيقاف إنشاء سير العمل",
+    workflowTimedOut: "انتهت مهلة إنشاء سير العمل",
     transcriptionCompleted: "اكتمل النسخ",
     transcriptNotReady: "النص ليس جاهزا بعد",
     tryAfterTranscription: "حاول مرة أخرى بعد انتهاء النسخ.",

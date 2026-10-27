@@ -19,6 +19,7 @@ import {
 } from "@shared/ai-request-status";
 import { fullVideoAiModelSelection } from "@shared/clips-ai-prefs";
 import { parseTranscriptSegments } from "@shared/transcript-segments";
+import { workflowSessionTabId } from "@shared/workflow";
 import { useEffect, useRef } from "react";
 
 const TWO_MINUTES_MS = 2 * 60 * 1000;
@@ -242,7 +243,7 @@ export function useAutoTitleBridge(): void {
               continue;
             }
 
-            const tabId = workflowTabId(
+            const tabId = workflowSessionTabId(
               request.recordingId,
               request.requestedAt,
               request.requestId,
@@ -488,17 +489,6 @@ async function persistAndConsumeWorkflowRequest(
     "delivered",
   );
   if (delivered) await consumeWorkflowRequest(request);
-}
-
-function workflowTabId(
-  recordingId: string,
-  requestedAt: string,
-  requestId?: string,
-) {
-  const identity = requestId
-    ? `${encodeURIComponent(requestedAt)}:${encodeURIComponent(requestId)}`
-    : encodeURIComponent(requestedAt);
-  return `clips-workflow:${recordingId}:${identity}:run`;
 }
 
 type BackgroundAiRequestStatus =

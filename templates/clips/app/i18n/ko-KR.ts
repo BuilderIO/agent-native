@@ -340,6 +340,8 @@ const messages = {
     fillerCompleted: "필러 단어 제거가 완료되었습니다.",
     workflowReady: "워크플로가 준비되었습니다.",
     workflowFailed: "워크플로 생성에 실패했습니다.",
+    workflowCancelled: "워크플로 생성을 취소했습니다.",
+    workflowTimedOut: "워크플로 생성 시간이 초과되었습니다.",
     transcriptionCompleted: "전사가 완료되었습니다.",
     transcriptNotReady: "스크립트가 아직 준비되지 않았습니다.",
     tryAfterTranscription: "전사가 완료된 후 다시 시도하세요.",

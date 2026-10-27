@@ -326,6 +326,8 @@ const messages = {
     fillerCompleted: "填充詞移除完成",
     workflowReady: "工作流已準備完成",
     workflowFailed: "工作流產生失敗",
+    workflowCancelled: "已取消工作流程產生",
+    workflowTimedOut: "工作流程產生已逾時",
     transcriptionCompleted: "轉錄完成",
     transcriptNotReady: "逐字稿尚未準備好",
     tryAfterTranscription: "轉錄完成後重試。",

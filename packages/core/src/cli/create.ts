@@ -6,6 +6,8 @@ import os from "os";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 
+import { EnvHttpProxyAgent, fetch as fetchWithProxy } from "undici";
+
 import {
   DISPATCH_WORKSPACE_ROOT_REDIRECTS,
   getWorkspaceAppIdValidationError,
@@ -2759,17 +2761,27 @@ export async function _downloadToFile(
   tarPath: string,
   maxBytes = MAX_TEMPLATE_ARCHIVE_BYTES,
 ): Promise<void> {
+  const fallbackProxy = process.env.all_proxy ?? process.env.ALL_PROXY;
+  const httpProxy =
+    process.env.http_proxy ?? process.env.HTTP_PROXY ?? fallbackProxy;
+  const httpsProxy =
+    process.env.https_proxy ?? process.env.HTTPS_PROXY ?? fallbackProxy;
+  const noProxy = process.env.no_proxy ?? process.env.NO_PROXY;
+  const dispatcher = new EnvHttpProxyAgent({
+    ...(httpProxy ? { httpProxy } : {}),
+    ...(httpsProxy ? { httpsProxy } : {}),
+    ...(noProxy !== undefined ? { noProxy } : {}),
+  });
   const controller = new AbortController();
   const connectTimeout = setTimeout(() => controller.abort(), 10_000);
-  let response: Response;
+  let downloadTimeout: ReturnType<typeof setTimeout> | undefined;
   try {
-    response = await fetch(url, { signal: controller.signal });
-  } finally {
+    const response = await fetchWithProxy(url, {
+      signal: controller.signal,
+      dispatcher,
+    });
     clearTimeout(connectTimeout);
-  }
-
-  const downloadTimeout = setTimeout(() => controller.abort(), 120_000);
-  try {
+    downloadTimeout = setTimeout(() => controller.abort(), 120_000);
     if (!response.ok) {
       await response.body?.cancel();
       throw new Error(`Archive download failed with HTTP ${response.status}.`);
@@ -2810,7 +2822,9 @@ export async function _downloadToFile(
     fs.rmSync(tarPath, { force: true });
     throw error;
   } finally {
+    clearTimeout(connectTimeout);
     clearTimeout(downloadTimeout);
+    await dispatcher.close();
   }
 }
 

@@ -348,6 +348,8 @@ const messages = {
     fillerCompleted: "Remoção de palavras de preenchimento concluída",
     workflowReady: "Fluxo de trabalho pronto",
     workflowFailed: "Falha ao gerar o fluxo de trabalho",
+    workflowCancelled: "Geração do fluxo de trabalho cancelada",
+    workflowTimedOut: "A geração do fluxo de trabalho excedeu o tempo limite",
     transcriptionCompleted: "Transcrição concluída",
     transcriptNotReady: "A transcrição ainda não está pronta",
     tryAfterTranscription: "Tente novamente após o término da transcrição.",

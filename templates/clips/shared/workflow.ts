@@ -6,6 +6,17 @@ export type WorkflowKind = z.infer<typeof WorkflowKindSchema>;
 
 const WORKFLOW_GENERATION_STALE_AFTER_MS = 10 * 60_000;
 
+export function workflowSessionTabId(
+  recordingId: string,
+  requestedAt: string,
+  requestId?: string,
+) {
+  const identity = requestId
+    ? `${encodeURIComponent(requestedAt)}:${encodeURIComponent(requestId)}`
+    : encodeURIComponent(requestedAt);
+  return `clips-workflow:${recordingId}:${identity}:run`;
+}
+
 export function workflowGenerationStaleAt(
   state: { status?: unknown; requestedAt?: unknown } | null | undefined,
 ): number | null {
@@ -24,7 +35,7 @@ export function isRecentWorkflowGeneration(
 ): boolean {
   if (state?.status !== "generating") return false;
   const staleAt = workflowGenerationStaleAt(state);
-  return staleAt === null || now < staleAt;
+  return staleAt !== null && now < staleAt;
 }
 
 export function matchesWorkflowRequest(

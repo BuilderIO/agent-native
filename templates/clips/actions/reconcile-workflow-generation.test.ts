@@ -330,6 +330,33 @@ describe("reconcile-workflow-generation", () => {
     );
   });
 
+  it("stops a matching generation before an agent tab claims it", async () => {
+    mocks.readAppState.mockResolvedValue({
+      kind: "email",
+      status: "generating",
+      recordingId: "rec_123",
+      requestedAt,
+      requestId: "workflow-request-123",
+    });
+
+    await expect(
+      action.run({
+        operation: "stop",
+        recordingId: "rec_123",
+        requestedAt,
+        requestId: "workflow-request-123",
+        tabId,
+        stopReason: "cancelled",
+      }),
+    ).resolves.toEqual({ reconciled: true });
+
+    expect(mocks.compareAndSetAppState).toHaveBeenCalledWith(
+      "clips-workflow-rec_123",
+      expect.objectContaining({ status: "generating", requestedAt }),
+      expect.objectContaining({ status: "failed", failureReason: "cancelled" }),
+    );
+  });
+
   it("does not overwrite completed output", async () => {
     mocks.readAppState.mockResolvedValue({
       kind: "email",

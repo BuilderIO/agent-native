@@ -336,6 +336,8 @@ const messages = {
     fillerCompleted: "भराव शब्द हटाना पूरा हुआ",
     workflowReady: "वर्कफ़्लो तैयार है",
     workflowFailed: "वर्कफ़्लो बनाना विफल रहा",
+    workflowCancelled: "वर्कफ़्लो बनाना रद्द किया गया",
+    workflowTimedOut: "वर्कफ़्लो बनाने का समय समाप्त हो गया",
     transcriptionCompleted: "प्रतिलेखन पूरा हुआ",
     transcriptNotReady: "प्रतिलेख अभी तैयार नहीं है",
     tryAfterTranscription: "प्रतिलेखन समाप्त होने के बाद पुनः प्रयास करें।",

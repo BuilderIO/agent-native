@@ -52,8 +52,16 @@ export default defineAction({
     requestedAt: z.string().min(1),
     requestId: z.string().min(1).optional(),
     tabId: z.string().min(1),
+    stopReason: z.enum(["cancelled", "timed_out"]).optional(),
   }),
-  run: async ({ operation, recordingId, requestedAt, requestId, tabId }) => {
+  run: async ({
+    operation,
+    recordingId,
+    requestedAt,
+    requestId,
+    tabId,
+    stopReason,
+  }) => {
     await assertAccess("recording", recordingId, "viewer");
 
     const requestKey = `clips-ai-request-${recordingId}`;
@@ -274,7 +282,10 @@ export default defineAction({
         ? { reconciled: false, tracked: true }
         : { reconciled: false, tracked: false, reason: "stale" as const };
     }
-    if (state.tabId !== tabId) {
+    if (
+      state.tabId !== tabId &&
+      !(operation === "stop" && !state.tabId && !state.claimedAt)
+    ) {
       return operation === "release"
         ? {
             reconciled: false,
@@ -297,11 +308,17 @@ export default defineAction({
         : { reconciled: false, released: false, reason: "stale" as const };
     }
 
-    const reconciled = await compareAndSetAppState(stateKey, rawState, {
+    const nextState = {
       ...rawState,
       status: "failed",
       failedAt: new Date().toISOString(),
-    });
+      ...(stopReason ? { failureReason: stopReason } : {}),
+    };
+    const reconciled = await compareAndSetAppState(
+      stateKey,
+      rawState,
+      nextState,
+    );
     return reconciled
       ? { reconciled: true }
       : { reconciled: false, reason: "stale" as const };

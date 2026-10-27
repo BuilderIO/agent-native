@@ -843,11 +843,9 @@ describe("template archive downloads", () => {
     const archivePath = path.join(tmpDir, "template.tar.gz");
     fs.mkdirSync(path.dirname(sourceFile), { recursive: true });
     fs.writeFileSync(sourceFile, "template contents\n");
-    execFileSync(
-      resolveTarExecutable(),
-      ["-czf", archivePath, "nested"],
-      { cwd: sourceDir },
-    );
+    execFileSync(resolveTarExecutable(), ["-czf", archivePath, "nested"], {
+      cwd: sourceDir,
+    });
 
     const server = createServer((_request, response) => {
       fs.createReadStream(archivePath).pipe(response);
@@ -865,12 +863,10 @@ describe("template archive downloads", () => {
         `http://127.0.0.1:${address.port}/template.tar.gz`,
         destDir,
       );
-      expect(
-        fs.readFileSync(path.join(destDir, "template.txt"), "utf8"),
-      ).toBe("template contents\n");
-      expect(
-        fs.existsSync(path.join(destDir, ".download.tar.gz")),
-      ).toBe(false);
+      expect(fs.readFileSync(path.join(destDir, "template.txt"), "utf8")).toBe(
+        "template contents\n",
+      );
+      expect(fs.existsSync(path.join(destDir, ".download.tar.gz"))).toBe(false);
     } finally {
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
@@ -903,6 +899,58 @@ describe("template archive downloads", () => {
     } finally {
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
+      });
+      fs.rmSync(archivePath, { force: true });
+    }
+  });
+
+  it("uses the configured environment proxy for archive downloads", async () => {
+    const proxyRequestUrls: string[] = [];
+    const proxy = createServer((request, response) => {
+      proxyRequestUrls.push(request.url ?? "");
+      response.end("archive contents");
+    });
+    proxy.listen(0, "127.0.0.1");
+    await once(proxy, "listening");
+
+    const address = proxy.address();
+    if (!address || typeof address === "string") {
+      throw new Error("Archive proxy test server did not get a TCP address.");
+    }
+    const proxyUrl = `http://127.0.0.1:${address.port}`;
+    const archivePath = path.join(tmpDir, "proxied-archive.tar.gz");
+    const previous = {
+      httpProxy: process.env.http_proxy,
+      httpProxyUpper: process.env.HTTP_PROXY,
+      noProxy: process.env.no_proxy,
+      noProxyUpper: process.env.NO_PROXY,
+    };
+    process.env.http_proxy = proxyUrl;
+    process.env.HTTP_PROXY = proxyUrl;
+    process.env.no_proxy = "";
+    process.env.NO_PROXY = "";
+
+    try {
+      await _downloadToFile(
+        "http://archive.example.test/template.tar.gz",
+        archivePath,
+      );
+      expect(proxyRequestUrls).toEqual([
+        "http://archive.example.test/template.tar.gz",
+      ]);
+      expect(fs.readFileSync(archivePath, "utf8")).toBe("archive contents");
+    } finally {
+      for (const [key, value] of Object.entries({
+        http_proxy: previous.httpProxy,
+        HTTP_PROXY: previous.httpProxyUpper,
+        no_proxy: previous.noProxy,
+        NO_PROXY: previous.noProxyUpper,
+      })) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+      await new Promise<void>((resolve, reject) => {
+        proxy.close((error) => (error ? reject(error) : resolve()));
       });
       fs.rmSync(archivePath, { force: true });
     }
