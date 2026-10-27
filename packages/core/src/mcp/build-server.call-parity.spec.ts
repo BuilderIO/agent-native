@@ -1094,7 +1094,7 @@ describe("direct tools/call embed credential redaction", () => {
       : `[image ${name} dropped: url must be a public https:// URL]`;
   const ordinary = {
     content:
-      "# Synthetic task\n\n<details><summary>Next step</summary>\n\nCheck the embed start behavior before continuing. Read the Agent Native embed start guide.\n\n</details>",
+      "# Synthetic task\n\n<details><summary>Next step</summary>\n\nCheck the embed start behavior before continuing. Read the Agent-Native embed start guide.\n\n</details>",
     source: "embed",
     start: "2026-10-01",
     next: `https://redirect.example/?next=${encodeURIComponent(`${ORIGIN}/inbox`)}`,

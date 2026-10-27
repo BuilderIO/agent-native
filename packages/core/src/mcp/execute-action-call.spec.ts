@@ -764,7 +764,7 @@ describe("executeMcpActionCall sanitizing", () => {
   it("keeps ordinary nested URLs and ticket fields with no embed route beside them", async () => {
     const value = {
       content:
-        "# Synthetic task\n\nCheck the embed start behavior. Read the Agent Native embed start guide.",
+        "# Synthetic task\n\nCheck the embed start behavior. Read the Agent-Native embed start guide.",
       next: `https://redirect.example/?next=${encodeURIComponent("https://mail.agent-native.com/inbox")}`,
       support: {
         ticket: "SUP-12",
