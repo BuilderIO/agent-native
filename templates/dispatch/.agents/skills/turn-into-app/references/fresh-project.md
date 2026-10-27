@@ -35,7 +35,9 @@ On a browser host the host is an orchestrator, not the build environment:
    reproduced verbatim (not in context, too large), say so in the brief and the
    report; never swap in a digest silently. A workbook cannot be attached
    (attachments take images, PDF, text, and JSON): pass a bounded CSV rendering
-   as text, or a public URL, and say what was left out.
+   as text, or a public URL, and say what was left out. Never attach `.env`
+   files, keys, tokens, or other credentials; if a knowledge file holds one,
+   leave it out of the attachment and say so in the report.
 3. Report what Dispatch actually returned: the branch, the path, and the status.
    The browser host cannot run or inspect the app, and a returned path can 404
    until the branch merges and deploys, so the report ends at pending or
