@@ -1,6 +1,5 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
-import { hydrateFirstRunBuilderCreditsV2ForTracking } from "@agent-native/core/onboarding/first-run-builder-credits-experiment";
 import { buildDeepLink, getRequestContext } from "@agent-native/core/server";
 import {
   getRequestUserEmail,
@@ -783,7 +782,6 @@ export default defineAction({
           ctx,
         );
       }
-      await hydrateFirstRunBuilderCreditsV2ForTracking();
       trackSlides(
         "deck_created",
         {
