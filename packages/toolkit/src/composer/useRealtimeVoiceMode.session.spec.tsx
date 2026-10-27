@@ -359,6 +359,76 @@ describe("realtime voice session controls", () => {
     },
   );
 
+  it("asks again when an approved call's approval no longer applies", async () => {
+    const work: RealtimeVoiceWorkUpdate[] = [];
+    const unregister = realtimeVoiceTranscriptRegistry.register({
+      threadId: "thread-approval-renewed",
+      active: true,
+      append: () => true,
+      appendWork: (update) => {
+        work.push(update);
+        return true;
+      },
+    });
+    const sent: Array<Record<string, unknown>> = [];
+    channel = {
+      close: vi.fn(),
+      readyState: "open",
+      send: (data: string) => sent.push(JSON.parse(data)),
+    } as FakeChannel;
+    const requests: Array<Record<string, unknown>> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        requests.push(body);
+        // The first approval expired, so the approved retry asks again.
+        return Response.json(
+          body.approvalId === "approval-2"
+            ? { callId: body.callId, status: "completed", output: "deleted" }
+            : {
+                callId: body.callId,
+                status: "approval_required",
+                output: "Awaiting approval",
+                approvalKey: "delete-slide:key",
+                approvalId: body.approvalId ? "approval-2" : "approval-1",
+              },
+        );
+      }),
+    );
+    const session = await startSession();
+    await session.send({ type: "response.created" });
+    await session.send({
+      type: "response.function_call_arguments.done",
+      call_id: "call-renewed",
+      name: "delete-slide",
+      arguments: JSON.stringify({ slideId: "s1" }),
+    });
+    await act(async () => {
+      await new Promise((done) => setTimeout(done, 0));
+    });
+    sent.length = 0;
+
+    await act(async () => {
+      await session.api().resolveApproval("call-renewed", true);
+    });
+    expect(session.api().approvals).toEqual([
+      { callId: "call-renewed", toolName: "delete-slide" },
+    ]);
+    expect(work.at(-1)?.calls.map((call) => call.status)).toEqual(["running"]);
+    expect(JSON.stringify(sent[0])).toContain("asked for approval again");
+
+    await act(async () => {
+      await session.api().resolveApproval("call-renewed", true);
+    });
+    expect(requests.at(-1)).toMatchObject({ approvalId: "approval-2" });
+    expect(work.at(-1)?.calls.map((call) => call.status)).toEqual([
+      "completed",
+    ]);
+    unregister();
+    await session.unmount();
+  });
+
   it("records a tool call that teardown aborted as cancelled", async () => {
     const work: RealtimeVoiceWorkUpdate[] = [];
     const unregister = realtimeVoiceTranscriptRegistry.register({

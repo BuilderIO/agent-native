@@ -1424,12 +1424,14 @@ export function createRealtimeVoiceApprovalOutcomeEvent(
   result: RealtimeVoiceToolResult | null,
   protocol: RealtimeVoiceProtocol = "realtime",
 ): Record<string, unknown> {
-  const text = result
-    ? `The user approved ${toolName}. ${JSON.stringify({
-        status: result.status,
-        output: result.output,
-      })}`
-    : `The user declined ${toolName}, so it did not run.`;
+  const text = !result
+    ? `The user declined ${toolName}, so it did not run.`
+    : result.status === "approval_required"
+      ? `${toolName} asked for approval again, so it has not run. The user can approve it on screen.`
+      : `The user approved ${toolName}. ${JSON.stringify({
+          status: result.status,
+          output: result.output,
+        })}`;
   return {
     type:
       protocol === "live" ? "response.item.create" : "conversation.item.create",
@@ -2591,14 +2593,26 @@ function useRealtimeVoiceModeController(
           );
         });
       }
-      finishPendingApproval(pending, aborted || !result ? null : result);
-      if (
-        aborted ||
+      const transportChanged =
         transportGeneration !== transportGenerationRef.current ||
-        channelRef.current !== transportChannel
-      ) {
-        return;
+        channelRef.current !== transportChannel;
+      // An approval that expired or no longer applies asks again; the call
+      // stays running and the user sees the new request.
+      const renewedApprovalKey =
+        !aborted && !transportChanged && result?.status === "approval_required"
+          ? result.approvalKey
+          : undefined;
+      if (renewedApprovalKey) {
+        pendingApprovalsRef.current.set(callId, {
+          ...pending,
+          approvalKey: renewedApprovalKey,
+          approvalId: result?.approvalId,
+        });
+        syncApprovals();
+      } else {
+        finishPendingApproval(pending, aborted || !result ? null : result);
       }
+      if (aborted || transportChanged) return;
       if (result?.capability) capabilityRef.current = result.capability;
       sendDataChannelEvent(
         channelRef.current,
