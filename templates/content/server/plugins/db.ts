@@ -1585,7 +1585,7 @@ export const runContentMigrations = runMigrations(
           ON content_webhook_deliveries (document_id)`,
     },
     {
-      version: 130,
+      version: 131,
       name: "content-property-value-generations",
       // A trigger stamps every write, so no writer can forget to. Existing
       // values keep a NULL generation, which reads as 0, until they change.
@@ -1612,7 +1612,7 @@ export const runContentMigrations = runMigrations(
           EXECUTE FUNCTION content_property_value_generation()`,
     },
     {
-      version: 131,
+      version: 132,
       name: "content-property-value-tombstones",
       // Deleting a value records a new generation for that page and
       // property, so a cleared value can't make an old generation current
