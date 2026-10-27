@@ -791,6 +791,42 @@ function toAccessibleApp(
   };
 }
 
+type WorkspaceMountApps = ReturnType<typeof listWorkspaceApps>;
+
+const WORKSPACE_MOUNT_CACHE_TTL_MS = 30_000;
+const workspaceMountCache = new Map<
+  string,
+  { expiresAt: number; apps: WorkspaceMountApps }
+>();
+
+export function clearWorkspaceMountCache(): void {
+  workspaceMountCache.clear();
+}
+
+// Short per-user, per-org cache of the Workspace registry read. A registry
+// change can take up to the TTL to appear in Dispatch.
+function listCachedWorkspaceApps(): WorkspaceMountApps {
+  const key = `${getRequestOrgId() ?? ""}\n${getRequestUserEmail() ?? ""}`;
+  const now = Date.now();
+  const cached = workspaceMountCache.get(key);
+  if (cached && cached.expiresAt > now) return cached.apps;
+  for (const [entryKey, entry] of workspaceMountCache) {
+    if (entry.expiresAt <= now) workspaceMountCache.delete(entryKey);
+  }
+  const apps = listWorkspaceApps({ includeAgentCards: false });
+  workspaceMountCache.set(key, {
+    expiresAt: now + WORKSPACE_MOUNT_CACHE_TTL_MS,
+    apps,
+  });
+  // A failed read must not be served from the cache.
+  apps.catch(() => {
+    if (workspaceMountCache.get(key)?.apps === apps) {
+      workspaceMountCache.delete(key);
+    }
+  });
+  return apps;
+}
+
 export async function listDispatchMcpApps(): Promise<{
   settings: DispatchMcpAppAccessSettings;
   apps: DispatchMcpAccessibleApp[];
@@ -798,7 +834,7 @@ export async function listDispatchMcpApps(): Promise<{
   const [settings, agents, mountedApps] = await Promise.all([
     getDispatchMcpAppAccessSettings(),
     discoverAgents("dispatch"),
-    listWorkspaceApps({ includeAgentCards: false }).catch((error: unknown) => {
+    listCachedWorkspaceApps().catch((error: unknown) => {
       console.warn(
         "[dispatch] Workspace app lookup failed during MCP app discovery",
         { status: httpStatusFromError(error) },
@@ -1145,7 +1181,7 @@ export async function openGrantedDispatchMcpApp(input: {
   > | null = null;
   if (input.embed) {
     try {
-      embedSession = await createGrantedDispatchMcpEmbedSession({
+      embedSession = await createEmbedSessionForResolvedGrantedApp({
         app: target.id,
         resolvedApp: target,
         url,
@@ -1607,7 +1643,6 @@ async function createGrantedDispatchMcpEmbedSessionResult(input: {
 
 export async function createGrantedDispatchMcpEmbedSession(input: {
   app?: string;
-  resolvedApp?: DispatchMcpAccessibleApp;
   url?: string;
   path?: string;
   chrome?: "full" | "minimal";
@@ -1617,6 +1652,23 @@ export async function createGrantedDispatchMcpEmbedSession(input: {
   expiresAt?: number;
   app: string;
 }> {
+  // Copy only public fields so a caller cannot supply a pre-resolved app.
+  return publicEmbedSession(
+    await createGrantedDispatchMcpEmbedSessionResult({
+      app: input.app,
+      url: input.url,
+      path: input.path,
+      chrome: input.chrome,
+    }),
+  );
+}
+
+async function createEmbedSessionForResolvedGrantedApp(input: {
+  app: string;
+  resolvedApp: DispatchMcpAccessibleApp;
+  url: string;
+  chrome?: "full" | "minimal";
+}): Promise<ReturnType<typeof publicEmbedSession>> {
   return publicEmbedSession(
     await createGrantedDispatchMcpEmbedSessionResult(input),
   );
