@@ -55,8 +55,10 @@ for your own PR. For anyone else's PR, `ship`'s ownership rules apply.
    verified head repo and ref as `babysit-pr` describes. Don't open a second
    PR.
 
-5. Merge immediately when the tree is clean and pushed, every review item has
-   a disposition, and the PR isn't `CONFLICTING`. Read the live head OID,
+5. Merge immediately when the tree is clean and pushed, every review item is
+   fixed or answered with a reply that was actually posted, and the PR isn't
+   `CONFLICTING`. A reply you could only draft (someone else's PR, no comment
+   permission) blocks the merge. Read the live head OID,
    write it as `ship_merge_head_oid`, and run:
 
    ```bash
