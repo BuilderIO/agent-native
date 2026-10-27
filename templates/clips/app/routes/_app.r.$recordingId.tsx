@@ -1429,7 +1429,7 @@ export default function RecordingPage() {
         reason: stopReason,
       }).catch((error) => {
         const status = (error as Error & { status?: unknown }).status;
-        if (status !== 404 && status !== 409) throw error;
+        if (status !== 409) throw error;
       });
       const result = await reconcileWorkflowGeneration.mutateAsync({
         operation: "stop",

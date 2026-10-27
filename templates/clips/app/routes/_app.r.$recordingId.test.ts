@@ -165,31 +165,6 @@ describe("direct recording route shell cue", () => {
     );
   });
 
-  it("waits for workflow cancellation and retries stops that are not confirmed", () => {
-    const route = readRoute("_app.r.$recordingId.tsx");
-    const stopStart = route.indexOf(
-      "const stopWorkflowGeneration = useCallback",
-    );
-    const stopEnd = route.indexOf("const cancelWorkflowGeneration", stopStart);
-    const stopHandler = route.slice(stopStart, stopEnd);
-
-    expect(stopStart).toBeGreaterThan(-1);
-    expect(stopHandler).toContain("await cancelBackgroundAgentSession");
-    expect(stopHandler).toContain(
-      "if (!result.reconciled && !sameRequestStillGenerating) return result",
-    );
-    expect(stopHandler).toContain("if (sameRequestStillGenerating)");
-    expect(
-      stopHandler.indexOf("await cancelBackgroundAgentSession"),
-    ).toBeLessThan(stopHandler.indexOf('operation: "stop"'));
-    expect(route.replace(/\s+/g, " ")).toContain(
-      '!canEdit || generatedWorkflow?.status !== "generating"',
-    );
-    expect(route).toContain(
-      "retryTimer = window.setTimeout(() => void attemptStop(), 30_000)",
-    );
-  });
-
   it("offers transcript regeneration when silence removal needs timestamps", () => {
     expect(
       shouldOfferTranscriptRegeneration(

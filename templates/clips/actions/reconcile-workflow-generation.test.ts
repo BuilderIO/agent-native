@@ -300,7 +300,7 @@ describe("reconcile-workflow-generation", () => {
     );
   });
 
-  it("fails the matching generation when its agent run ends", async () => {
+  it("fails a viewer-accessible generation when its agent run ends", async () => {
     mocks.readAppState.mockResolvedValue({
       kind: "email",
       status: "generating",
@@ -321,7 +321,7 @@ describe("reconcile-workflow-generation", () => {
     expect(mocks.assertAccess).toHaveBeenCalledWith(
       "recording",
       "rec_123",
-      "editor",
+      "viewer",
     );
     expect(mocks.compareAndSetAppState).toHaveBeenCalledWith(
       "clips-workflow-rec_123",
