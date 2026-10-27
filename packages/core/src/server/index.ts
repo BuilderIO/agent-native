@@ -250,6 +250,7 @@ export {
   REALTIME_VOICE_SESSION_PATH,
   REALTIME_VOICE_TOOL_PATH,
   type MountRealtimeVoiceRoutesOptions,
+  type RealtimeVoiceIntelligence,
   type RealtimeVoiceRequestContext,
   type RealtimeVoiceToolExecutionRequest,
   type RealtimeVoiceToolExecutionResult,
