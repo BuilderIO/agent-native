@@ -143,6 +143,7 @@ import {
   isHostedModelExperimentEnabled,
   resolveHostedModelExperiment,
 } from "../observability/hosted-model-experiment.js";
+import { resolveQuestionIntakeExperimentAssignment } from "../observability/question-intake-experiment.js";
 import {
   isFirstPartyHostedAgentNative,
   shouldInferSentimentForTurn,
@@ -234,6 +235,7 @@ import {
   SYNTHETIC_TRAFFIC_BETA_E2E,
   SYNTHETIC_TRAFFIC_HEADER,
 } from "../shared/test-traffic.js";
+import { track } from "../tracking/index.js";
 import type { TrackingMeta } from "../tracking/registry.js";
 import { actionPreparationContinuationNote } from "./action-continuation-guidance.js";
 import { agentErrorDetails } from "./action-error-details.js";
@@ -1698,6 +1700,17 @@ export function filterActionsByAllowedNames(
   }
 
   return filtered;
+}
+
+export function filterActionsByExcludedNames(
+  actions: Record<string, ActionEntry>,
+  excludedActionNames: readonly string[],
+): Record<string, ActionEntry> {
+  if (excludedActionNames.length === 0) return actions;
+  const excludedNames = new Set(excludedActionNames);
+  return Object.fromEntries(
+    Object.entries(actions).filter(([name]) => !excludedNames.has(name)),
+  );
 }
 
 export const PLAN_MODE_SYSTEM_PROMPT = `## Plan Mode Active
@@ -13488,7 +13501,10 @@ export function createProductionAgentHandler(
       }
       filtered[name] = entry;
     }
-    return filtered;
+    return filterActionsByExcludedNames(
+      filtered,
+      getRequestRunContext()?.excludedActionNames ?? [],
+    );
   };
   const getEngineTools = (actions: Record<string, ActionEntry>) =>
     actionsToEngineTools(getRequestActions(actions));
@@ -13901,6 +13917,51 @@ export function createProductionAgentHandler(
 
     const ownerEmail = await resolveAgentOwnerEmail(options, event);
     const runRequestContext = getRequestContext();
+    const questionIntakeConfig = getAppConfig().agent.questionIntake;
+    let questionIntakeAssignment: Awaited<
+      ReturnType<typeof resolveQuestionIntakeExperimentAssignment>
+    > = null;
+    try {
+      questionIntakeAssignment =
+        await resolveQuestionIntakeExperimentAssignment(
+          questionIntakeConfig,
+          runRequestContext?.agentRunAnonymous
+            ? undefined
+            : runRequestContext?.authUserId,
+        );
+    } catch {
+      console.error("[agent-chat] question-intake assignment lookup failed");
+    }
+    if (questionIntakeAssignment) {
+      const runContext = ensureRequestRunContext();
+      if (runContext) {
+        runContext.questionIntakeExperimentAssignment =
+          questionIntakeAssignment;
+        runContext.excludedActionNames =
+          questionIntakeAssignment.variantId === "no_questions"
+            ? (questionIntakeConfig?.questionToolNames ?? [])
+            : [];
+      }
+      if (!internalContinuation && !continueOf) {
+        track(
+          "agent_experiment_exposed",
+          {
+            experiment_id: questionIntakeAssignment.experimentId,
+            experiment_variant: questionIntakeAssignment.variantId,
+            exposure_surface: "agent_run",
+            app_id: options.appId ?? "app",
+            templateId: options.appId ?? "app",
+            agent_native_app: options.appId ?? "app",
+            ...(threadId ? { thread_id: threadId } : {}),
+            ...(requestTurnId ? { turn_id: requestTurnId } : {}),
+          },
+          {
+            ...(ownerEmail ? { userId: ownerEmail } : {}),
+            authUserId: questionIntakeAssignment.authUserId,
+          },
+        );
+      }
+    }
     const turnInitiator: AgentTurnInitiator | undefined = ownerEmail
       ? {
           email: ownerEmail,
@@ -14973,7 +15034,14 @@ export function createProductionAgentHandler(
     let experimentAssignments: Array<{
       experimentId: string;
       variantId: string;
-    }> = [];
+    }> = questionIntakeAssignment
+      ? [
+          {
+            experimentId: questionIntakeAssignment.experimentId,
+            variantId: questionIntakeAssignment.variantId,
+          },
+        ]
+      : [];
 
     try {
       // A pinned request model suppresses the experiment's model override, so
@@ -14991,7 +15059,10 @@ export function createProductionAgentHandler(
                 : undefined,
             assignments: expConfig.assignments,
           });
-          experimentAssignments = experimentSelection.assignments;
+          experimentAssignments = [
+            ...experimentAssignments,
+            ...experimentSelection.assignments,
+          ];
           if (experimentSelection.model) {
             effectiveModel = normalizeModelForEngine(
               engine,
@@ -15177,7 +15248,13 @@ export function createProductionAgentHandler(
             typeof options.systemPrompt === "function"
               ? await options.systemPrompt(event)
               : options.systemPrompt;
-          return built;
+          const treatmentInstructions =
+            questionIntakeAssignment?.variantId === "no_questions"
+              ? questionIntakeConfig?.treatmentInstructions.trim()
+              : undefined;
+          return treatmentInstructions
+            ? [built, treatmentInstructions].filter(Boolean).join("\n\n")
+            : built;
         } catch (error) {
           systemPromptError =
             error instanceof Error

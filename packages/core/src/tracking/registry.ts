@@ -1,12 +1,20 @@
 import { randomUUID } from "node:crypto";
 
 import type { ActionRunContext } from "../action.js";
+import { getAppConfig } from "../app-config/index.js";
+import {
+  resolveQuestionIntakeExperimentAssignment,
+  type QuestionIntakeExperimentAssignment,
+} from "../observability/question-intake-experiment.js";
 import {
   queueTrackingEvent,
   type TrackingEventOrigin,
 } from "../observability/tracing.js";
 import { resolveDeployEnvironment } from "../server/deploy-environment.js";
-import { getRequestContext } from "../server/request-context.js";
+import {
+  getRequestContext,
+  getRequestRunContext,
+} from "../server/request-context.js";
 import { isTestIdentity } from "../server/test-identity.js";
 import {
   canonicalTrackingEvent,
@@ -163,6 +171,75 @@ export function track(
   properties?: Record<string, unknown>,
   source?: TrackingSource,
 ): void {
+  const { authUserId, userId } = resolveTrackingSource(source);
+  if (getRequestContext()?.isSyntheticTraffic === true) return;
+  const testIdentity = testIdentityOf(userId, properties);
+  if (testIdentity && name !== "$exception") return;
+
+  const config = getAppConfig().agent.questionIntake;
+  if (
+    config?.enabled &&
+    !config.disabled &&
+    config.trackedEventNames.includes(name) &&
+    authUserId
+  ) {
+    const experimentProperties = { ...(properties ?? {}) };
+    delete experimentProperties.experiment_id;
+    delete experimentProperties.experiment_variant;
+    const requestAssignment =
+      getRequestRunContext()?.questionIntakeExperimentAssignment;
+    if (
+      requestAssignment?.authUserId === authUserId &&
+      requestAssignment.experimentId === config.experimentId
+    ) {
+      emitTrackedEvent(name, experimentProperties, source, requestAssignment);
+      return;
+    }
+
+    const pending = resolveQuestionIntakeExperimentAssignment(
+      config,
+      authUserId,
+    )
+      .then(
+        (assignment) =>
+          emitTrackedEvent(
+            name,
+            experimentProperties,
+            source,
+            assignment ?? undefined,
+          ),
+        () => {
+          console.error("[tracking] question-intake assignment lookup failed");
+          emitTrackedEvent(name, experimentProperties, source);
+        },
+      )
+      .catch(() => {
+        console.error("[tracking] asynchronous event delivery failed");
+      });
+    const waitUntil = getRequestRunContext()?.waitUntil;
+    if (waitUntil) {
+      try {
+        waitUntil(pending);
+        return;
+      } catch {
+        console.error("[tracking] request waitUntil rejected tracked event");
+      }
+    }
+    void pending.catch(() => {
+      console.error("[tracking] tracked event failed outside waitUntil");
+    });
+    return;
+  }
+
+  emitTrackedEvent(name, properties, source);
+}
+
+function emitTrackedEvent(
+  name: string,
+  properties: Record<string, unknown> | undefined,
+  source: TrackingSource | undefined,
+  questionIntakeAssignment?: QuestionIntakeExperimentAssignment,
+): void {
   const {
     userId,
     authUserId,
@@ -188,6 +265,12 @@ export function track(
   const trackedProperties = withCanonicalTrackingProperties({
     ...safeProperties,
     ...(firstRunExperiment ?? {}),
+    ...(questionIntakeAssignment
+      ? {
+          experiment_id: questionIntakeAssignment.experimentId,
+          experiment_variant: questionIntakeAssignment.variantId,
+        }
+      : {}),
     ...(sessionId ? { session_id: sessionId } : {}),
     ...(userId ? { user_id: userId } : {}),
     ...(actionContext?.userEmail

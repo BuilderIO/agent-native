@@ -118,6 +118,7 @@ import {
   isRetryableError,
   actionsToEngineTools,
   filterActionsByAllowedNames,
+  filterActionsByExcludedNames,
   filterInitialEngineTools,
   findApprovedStructuredToolCall,
   backgroundNoProgressTerminalEvent,
@@ -10188,6 +10189,23 @@ describe("filterActionsByAllowedNames", () => {
       ["allowed"],
     );
     expect(result.totalTools).toBe(1);
+  });
+});
+
+describe("filterActionsByExcludedNames", () => {
+  it("removes treatment-only tools before they reach the model or tool search", () => {
+    const actions = {
+      "show-design-questions": actionEntry({}),
+      "create-design": actionEntry({}),
+      "tool-search": actionEntry({}),
+    };
+
+    expect(
+      Object.keys(
+        filterActionsByExcludedNames(actions, ["show-design-questions"]),
+      ),
+    ).toEqual(["create-design", "tool-search"]);
+    expect(filterActionsByExcludedNames(actions, [])).toBe(actions);
   });
 });
 

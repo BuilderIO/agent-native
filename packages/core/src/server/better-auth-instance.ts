@@ -75,6 +75,7 @@ import {
   type IdentityRekeyDb,
 } from "../identity/rekey.js";
 import { saveOAuthTokens } from "../oauth-tokens/store.js";
+import { assignQuestionIntakeExperimentOnSignup } from "../observability/question-intake-experiment.js";
 import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
 import {
   getAuthEmailForUserId,
@@ -2615,6 +2616,20 @@ async function createBetterAuthInstance(
             if (!email) return;
 
             await emitSignupEventForCreatedUser(user, context);
+
+            const actingUserId = context?.context?.session?.user?.id;
+            if (user.id && (!actingUserId || actingUserId === user.id)) {
+              try {
+                await assignQuestionIntakeExperimentOnSignup(
+                  getAppConfig().agent.questionIntake,
+                  user.id,
+                );
+              } catch {
+                console.error(
+                  "[auth] failed to assign question-intake experiment",
+                );
+              }
+            }
 
             if (user.emailVerified !== true) return;
 

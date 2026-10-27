@@ -20,6 +20,7 @@ describe("app config store", () => {
     delete process.env.AGENT_NATIVE_PRIVATE_BLOB_PUBLIC_UPLOAD_FALLBACK;
     delete process.env.AGENT_NATIVE_DISABLE_DESKTOP_SSO_FALLBACK;
     delete process.env.AGENT_NATIVE_OWNER_EMAIL;
+    delete process.env.AGENT_QUESTION_INTAKE_EXPERIMENT_DISABLED;
     delete process.env.DISPATCH_ADMIN_EMAILS;
     delete process.env.WORKSPACE_OWNER_EMAIL;
     delete process.env.DISPATCH_DEFAULT_OWNER_EMAIL;
@@ -141,6 +142,25 @@ describe("app config store", () => {
     process.env.AGENT_NATIVE_PRIVATE_BLOB_PUBLIC_UPLOAD_FALLBACK = "0";
     defineAppConfig({ privateBlob: { publicUploadFallback: true } });
     expect(getAppConfig().privateBlob.publicUploadFallback).toBe(true);
+  });
+
+  it("keeps the question-intake experiment emergency switch above app config", () => {
+    process.env.AGENT_QUESTION_INTAKE_EXPERIMENT_DISABLED = "true";
+    defineAppConfig({
+      agent: {
+        questionIntake: {
+          enabled: true,
+          experimentId: "design_no_questions",
+          questionToolNames: ["show-design-questions"],
+          treatmentInstructions: "Design first.",
+        },
+      },
+    });
+
+    expect(getAppConfig().agent.questionIntake).toMatchObject({
+      enabled: true,
+      disabled: true,
+    });
   });
 
   it("ranks the deprecated setter layer above env and below the app layer", () => {

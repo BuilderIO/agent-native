@@ -32,3 +32,10 @@ pnpm dev
 ```
 
 Full docs: [agent-native.com/docs/template-design](https://agent-native.com/docs/template-design?utm_source=github&utm_medium=referral&utm_content=design-readme).
+
+## First Design experiment
+
+New Design signups are assigned to the `design_no_questions` experiment when
+the app is enabled. To turn the experiment off for a deployment, set
+`AGENT_QUESTION_INTAKE_EXPERIMENT_DISABLED=true`. Users without a stored
+signup-time assignment continue on the control path.
