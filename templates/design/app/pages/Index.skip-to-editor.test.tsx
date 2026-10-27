@@ -1631,6 +1631,38 @@ describe("home library", () => {
     ).toBe("home.recent");
   });
 
+  it("preserves a tab choice after the save-template destination query resolves", async () => {
+    await act(async () => root.unmount());
+    mocks.queryString = "gettingStarted=save-template";
+    mocks.ownCount = 0;
+    mocks.ownStatus = "pending";
+    root = createRoot(container);
+    await act(async () => root.render(<Index />));
+
+    const templates = Array.from(
+      container.querySelectorAll<HTMLElement>('[role="tab"]'),
+    ).find((tab) => tab.textContent === "navigation.templates");
+    if (!templates) throw new Error("Missing Templates tab");
+    await act(async () =>
+      templates.dispatchEvent(
+        new MouseEvent("mousedown", {
+          bubbles: true,
+          button: 0,
+          ctrlKey: false,
+        }),
+      ),
+    );
+    expect(templates.getAttribute("aria-selected")).toBe("true");
+
+    mocks.ownStatus = "success";
+    await act(async () => root.render(<Index />));
+
+    expect(
+      container.querySelector('[role="tab"][aria-selected="true"]')
+        ?.textContent,
+    ).toBe("navigation.templates");
+  });
+
   it("preserves an explicit Templates choice made while the summary is pending", async () => {
     mocks.ownCount = 1;
     mocks.ownStatus = "pending";

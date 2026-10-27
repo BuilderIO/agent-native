@@ -326,12 +326,6 @@ export default function Index() {
   }, []);
   useHomeSearchShortcut(true, revealRecentSearch);
   useEffect(() => {
-    if (isSaveTemplateGettingStarted) {
-      homeLibraryTabWasSelectedRef.current = true;
-      setHomeSection("recent");
-      return;
-    }
-
     if (
       !accessibleDesignsSummary.isSuccess ||
       accessibleDesignCount === undefined
@@ -341,8 +335,9 @@ export default function Index() {
 
     writeHomeLibraryHasRecents(hasAccessibleDesigns);
     if (!hasAccessibleDesigns) {
-      setHomeSection("templates");
-      homeLibraryTabWasSelectedRef.current = false;
+      if (!homeLibraryTabWasSelectedRef.current) {
+        setHomeSection("templates");
+      }
       return;
     }
     if (homeLibraryTabWasSelectedRef.current) return;
@@ -353,7 +348,6 @@ export default function Index() {
     accessibleDesignCount,
     accessibleDesignsSummary.isSuccess,
     hasAccessibleDesigns,
-    isSaveTemplateGettingStarted,
   ]);
   useEffect(() => {
     if (hasSearchResultsSection) setHomeSection("recent");
