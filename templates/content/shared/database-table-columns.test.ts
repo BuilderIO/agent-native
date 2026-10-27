@@ -218,7 +218,7 @@ describe("table column presentation", () => {
       { ...view, itemLayout: layout },
       "deleted",
     ).itemLayout;
-    if (!cleaned) throw new Error("The cleaned view lost its row layout.");
+    if (!cleaned) throw new Error("the cleaned view lost its item layout");
 
     expect(
       resolveContentDatabaseItemLayout(cleaned, [

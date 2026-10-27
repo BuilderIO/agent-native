@@ -2,6 +2,7 @@ import { commentAttributionMessagesByLocale } from "../../shared/comment-attribu
 import { buildMessagesForLocale } from "../i18n-data";
 
 const database = {
+  fitToWidth: "ملاءمة العرض",
   githubLinkTitle: "ربط مجلد GitHub",
   githubNewCollectionTitle: "مجموعة جديدة من مجلد GitHub",
   githubLinkDescription:
@@ -353,6 +354,8 @@ const database = {
   failedToCreateRow: "فشل إنشاء الصف",
   pageCreatedCollectionRefreshFailed:
     "تم إنشاء الصفحة، لكن تعذر تحديث هذه المجموعة. أعد التحميل لرؤيتها.",
+  builderPushResultNotLoaded:
+    "وصل التحديث إلى Builder، لكن تعذر على هذه المراجعة تحميل النتيجة. أعد التحميل لرؤيتها.",
   failedToDeleteRow: "فشل حذف الصف",
   failedToDeleteSelectedRows: "فشل حذف الصفوف المحددة",
   failedToDuplicateEverySelectedRow: "تعذر تكرار كل الصفوف المحددة",
@@ -689,6 +692,16 @@ const editor = {
     purple: "أرجواني",
     pink: "وردي",
     red: "أحمر",
+    defaultText: "النص الافتراضي",
+    defaultBackground: "الخلفية الافتراضية",
+    textChoice: "النص: {{color}}",
+    backgroundChoice: "الخلفية: {{color}}",
+  },
+  blockMenu: {
+    label: "إجراءات الكتلة",
+    duplicate: "تكرار",
+    delete: "حذف",
+    insertBelow: "إدراج كتلة أدناه",
   },
   noDocumentSelected: "لم يتم تحديد أي مستند",
   registryBlockLoadError: "تعذر تحميل كتلة {{type}}: {{message}}",

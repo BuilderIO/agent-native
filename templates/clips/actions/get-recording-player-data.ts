@@ -64,6 +64,7 @@ import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
 import {
   canOpenDirectRecordingPage,
   isRecordingExpiredForViewer,
+  isRecordingTrashedForViewer,
 } from "../server/lib/recording-page-access.js";
 import { hasExplicitRecordingShare } from "../server/lib/recording-share-grant.js";
 import {
@@ -162,6 +163,15 @@ export default defineAction({
     const rec: any = access.resource;
 
     if (
+      isRecordingTrashedForViewer({
+        trashedAt: rec.trashedAt,
+        viewerIsOwner: access.role === "owner",
+      })
+    ) {
+      throw new ForbiddenError(`No access to recording ${args.recordingId}`);
+    }
+
+    if (
       isRecordingExpiredForViewer({
         expiresAt: rec.expiresAt,
         viewerIsOwner: access.role === "owner",
@@ -241,14 +251,17 @@ export default defineAction({
       ? normalizeBuilderCreditsStatus(builderCreditsRaw)
       : null;
 
-    const comments = await db
-      .select()
-      .from(schema.recordingComments)
-      .where(eq(schema.recordingComments.recordingId, args.recordingId))
-      .orderBy(
-        asc(schema.recordingComments.videoTimestampMs),
-        asc(schema.recordingComments.createdAt),
-      );
+    const comments =
+      rec.enableComments || access.role === "owner"
+        ? await db
+            .select()
+            .from(schema.recordingComments)
+            .where(eq(schema.recordingComments.recordingId, args.recordingId))
+            .orderBy(
+              asc(schema.recordingComments.videoTimestampMs),
+              asc(schema.recordingComments.createdAt),
+            )
+        : [];
     const hydratedComments = await hydrateCommentAuthorNames(comments);
 
     const reactions = await db

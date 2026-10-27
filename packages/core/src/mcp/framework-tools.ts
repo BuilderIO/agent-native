@@ -19,11 +19,11 @@ export function frameworkMcpTools<T extends Record<string, ActionEntry>>(
   ) as T;
 }
 
-export function isFrameworkMcpTool(entry: ActionEntry): boolean {
+export function isFrameworkMcpTool(entry: object): boolean {
   return (entry as FrameworkEntry)[FRAMEWORK_MCP_TOOL] === true;
 }
 
-export function carryFrameworkMcpTool(from: ActionEntry, to: object): void {
+export function carryFrameworkMcpTool(from: object, to: object): void {
   if (isFrameworkMcpTool(from)) {
     Object.defineProperty(to, FRAMEWORK_MCP_TOOL, {
       value: true,

@@ -394,6 +394,16 @@ const overrides = {
       purple: "紫色",
       pink: "粉紅色",
       red: "紅色",
+      defaultText: "預設文字",
+      defaultBackground: "預設背景",
+      textChoice: "{{color}}文字",
+      backgroundChoice: "{{color}}背景",
+    },
+    blockMenu: {
+      label: "區塊操作",
+      duplicate: "建立副本",
+      delete: "刪除",
+      insertBelow: "在下方插入區塊",
     },
     heading1: "標題 1",
     heading2: "標題 2",
@@ -1554,6 +1564,8 @@ const overrides = {
     failedToCreateRow: "建立行失敗",
     pageCreatedCollectionRefreshFailed:
       "已建立頁面，但此集合無法重新整理。請重新載入以查看。",
+    builderPushResultNotLoaded:
+      "更新已送達 Builder，但此審閱無法載入結果。請重新載入以查看。",
     failedToDeleteRow: "刪除行失敗",
     failedToDeleteSelectedRows: "刪除所選行失敗",
     failedToDuplicateEverySelectedRow: "未能複製所有選取行",
@@ -1596,6 +1608,7 @@ const overrides = {
     drag: "拖動",
     headerColumn: "標題列",
     headerRow: "標題行",
+    fitToWidth: "符合寬度",
     hideEmptyGroups: "隱藏空分組",
     insertAbove: "在上方插入",
     insertBelow: "在下方插入",

@@ -198,12 +198,15 @@ export default defineAction({
     }
     try {
       const result = await runQuery(args.sql, { signal: context?.signal });
+      const bytesProcessed = result.cached ? 0 : result.bytesProcessed;
       trackBigQueryOutcome(args.sql, context, {
         query_status: result.partial ? "partial" : "success",
         query_duration_ms: Math.max(0, Date.now() - startedAt),
         row_count: result.rows.length,
         total_rows: result.totalRows,
-        bytes_processed: result.cached ? 0 : result.bytesProcessed,
+        ...(bytesProcessed === undefined
+          ? {}
+          : { bytes_processed: bytesProcessed }),
         cache_hit: result.cached === true,
         truncated: result.truncated === true,
         partial: result.partial === true,
@@ -219,7 +222,6 @@ export default defineAction({
         query_duration_ms: Math.max(0, Date.now() - startedAt),
         row_count: 0,
         total_rows: 0,
-        bytes_processed: 0,
         cache_hit: false,
         truncated: false,
       });

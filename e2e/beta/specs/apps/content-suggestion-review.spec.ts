@@ -1263,14 +1263,15 @@ test.describe("[content-review] deciding suggestions on a beta page", () => {
       );
       let decided = false;
       let staleServed = 0;
-      await page.route(
-        "**/_agent-native/actions/decide-resource-suggestion",
-        async (route) => {
-          const response = await route.fetch();
-          await route.fulfill({ response });
+      // The browser sends the decision itself: a request Playwright refetches
+      // leaves out beta's partitioned session cookie and comes back 401.
+      page.on("response", (response) => {
+        if (
+          new URL(response.url()).pathname ===
+          "/_agent-native/actions/decide-resource-suggestion"
+        )
           decided = true;
-        },
-      );
+      });
       // Every list asked for until the page has the decision's answer is
       // answered after it, with the list from before it.
       await page.route(

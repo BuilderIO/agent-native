@@ -295,9 +295,11 @@ describe("SF-02 MCP edit beside the editor's trailing empty paragraph", () => {
       "the editor keeps an empty paragraph after the video",
     ).toBe(true);
 
+    const blockId = doc.firstChild?.attrs.blockId;
+    expect(blockId, "the id comments use for the video").toMatch(/^video-/);
     const saved = immediateSaves.at(-1);
     expect(saved, "the upload's save leaves that paragraph out").toBe(
-      `<video src="${UPLOADED_SRC}"></video>`,
+      `<video src="${UPLOADED_SRC}" id="${blockId}"></video>`,
     );
     await show({
       content: saved!,

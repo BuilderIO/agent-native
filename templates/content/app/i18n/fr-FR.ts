@@ -2,6 +2,7 @@ import { commentAttributionMessagesByLocale } from "../../shared/comment-attribu
 import { buildMessagesForLocale } from "../i18n-data";
 
 const database = {
+  fitToWidth: "Ajuster à la largeur",
   githubLinkTitle: "Lier un dossier GitHub",
   githubNewCollectionTitle: "Nouvelle collection à partir d’un dossier GitHub",
   githubLinkDescription:
@@ -380,6 +381,8 @@ const database = {
   failedToCreateRow: "Échec de la création de la ligne",
   pageCreatedCollectionRefreshFailed:
     "La page a été créée, mais cette collection n'a pas pu être actualisée. Rechargez pour la voir.",
+  builderPushResultNotLoaded:
+    "La mise à jour est arrivée dans Builder, mais cette révision n'a pas pu charger le résultat. Rechargez pour le voir.",
   failedToDeleteRow: "Échec de la suppression de la ligne",
   failedToDeleteSelectedRows:
     "Échec de la suppression des lignes sélectionnées",
@@ -723,6 +726,16 @@ const editor = {
     purple: "Violet",
     pink: "Rose",
     red: "Rouge",
+    defaultText: "Texte par défaut",
+    defaultBackground: "Arrière-plan par défaut",
+    textChoice: "Texte : {{color}}",
+    backgroundChoice: "Arrière-plan : {{color}}",
+  },
+  blockMenu: {
+    label: "Actions du bloc",
+    duplicate: "Dupliquer",
+    delete: "Supprimer",
+    insertBelow: "Insérer un bloc en dessous",
   },
   noDocumentSelected: "Aucun document sélectionné",
   registryBlockLoadError:

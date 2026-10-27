@@ -5,6 +5,11 @@ import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
+import { documentQueryKey } from "@/lib/document-query";
+import {
+  documentReadFailure,
+  trackDocumentReadFailures,
+} from "@/lib/document-read-failures";
 import { cn } from "@/lib/utils";
 
 import {
@@ -1917,6 +1922,96 @@ describe("document editor layout", () => {
       exact: true,
     });
   });
+
+  it.each([
+    [404, "unavailable"],
+    [500, "error"],
+  ] as const)(
+    "keeps a failed read's %i screen while the page is read again, also after a remount",
+    async (status, view) => {
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      trackDocumentReadFailures(queryClient);
+      const queryKey = documentQueryKey("document-a");
+      let attempt = 0;
+      const options = {
+        queryKey,
+        queryFn: async () => {
+          attempt += 1;
+          if (attempt === 1) {
+            throw Object.assign(new Error("read failed"), { status });
+          }
+          return await new Promise<never>(() => {});
+        },
+        refetchOnMount: "always" as const,
+      };
+      // One editor mount: its failure state persists across its renders.
+      const mount = (observer: QueryObserver<unknown, Error>) => {
+        let failure: ReturnType<typeof updateDocumentLoadFailureState> | null =
+          null;
+        return () => {
+          const result = observer.getCurrentResult();
+          failure = updateDocumentLoadFailureState({
+            previous: failure,
+            documentId: "document-a",
+            admitted: false,
+            dataUpdatedAt: result.dataUpdatedAt,
+            errorUpdateCount: result.errorUpdateCount,
+            errorUpdatedAt: result.errorUpdatedAt,
+            isError: result.isError,
+            authoritativeSuccess: {
+              queryIdentity: "document-a",
+              generation: 0,
+              errorUpdateCount: 0,
+            },
+          });
+          return documentEditorLoadState({
+            documentId: "document-a",
+            admittedDocumentId: null,
+            hasDocument: false,
+            isDocumentCreationPending: false,
+            isFetchedAfterMount: result.isFetchedAfterMount,
+            isFetching: result.isFetching,
+            isError: result.isError,
+            hasLoadFailure: failure.failed,
+            isManualRetrying: false,
+            error: documentReadFailure(queryClient, queryKey, result),
+          }).view;
+        };
+      };
+      const readAgain = async (observer: QueryObserver<unknown, Error>) => {
+        await vi.waitFor(() => {
+          const result = observer.getCurrentResult();
+          expect(result.isFetching).toBe(true);
+          expect(result.isError).toBe(false);
+        });
+      };
+
+      const first = new QueryObserver<unknown, Error>(queryClient, options);
+      const firstView = mount(first);
+      firstView();
+      const unsubscribeFirst = first.subscribe(() => {});
+      await vi.waitFor(() =>
+        expect(first.getCurrentResult().isError).toBe(true),
+      );
+      expect(firstView()).toBe(view);
+
+      void queryClient.invalidateQueries({ queryKey, exact: true });
+      await readAgain(first);
+      expect(firstView()).toBe(view);
+
+      // Leaving the page and coming back mounts a new editor while it reads.
+      unsubscribeFirst();
+      const second = new QueryObserver<unknown, Error>(queryClient, options);
+      const unsubscribeSecond = second.subscribe(() => {});
+      await readAgain(second);
+      expect(mount(second)()).toBe(view);
+
+      unsubscribeSecond();
+      await queryClient.cancelQueries({ queryKey, exact: true });
+    },
+  );
 
   it("clears a latched load failure only after an authoritative fetch succeeds", () => {
     const failed = {

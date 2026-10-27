@@ -264,6 +264,7 @@ export const parityMatrix: ParityRow[] = [
     status: "action-backed",
     actions: [
       "adopt-document-snapshot",
+      "convert-page-to-live-copy-if-due",
       "edit-document",
       "get-document-save-attempt",
       "pull-document",
@@ -277,7 +278,7 @@ export const parityMatrix: ParityRow[] = [
       "update-document",
     ],
     exception:
-      "Save-attempt receipt lookup, live collaboration seeding and snapshot adoption, editor mount and merge counts, the flag-gated live-body parity count, and the per-page switch for the flag-gated live-copy writer are browser-only editor support actions hidden from agent tools with agentTool: false.",
+      "Save-attempt receipt lookup, live collaboration seeding and snapshot adoption, editor mount and merge counts, the flag-gated live-body parity count, and the per-page switch for the flag-gated live-copy writer and its backfill on an editor's open are browser-only editor support actions hidden from agent tools with agentTool: false.",
     reliabilityRisk: "none",
     spinePriority: "P0",
     testCoverage: "covered",
@@ -293,6 +294,7 @@ export const parityMatrix: ParityRow[] = [
       "app/components/editor/VisualEditor.merge-telemetry.test.tsx",
       "app/components/editor/VisualEditor.mount-telemetry.test.tsx",
       "server/live-copy/live-copy.test.ts",
+      "server/live-copy/backfill.db.test.ts",
     ],
     evalScenarioIds: ["document-search-edit"],
   },
@@ -696,6 +698,32 @@ export const parityMatrix: ParityRow[] = [
       "actions/resync-content-database-source.db.test.ts",
     ],
     evalScenarioIds: ["database-source-scope"],
+  },
+  {
+    id: "database.change-webhooks",
+    surface: "database",
+    label:
+      "Register, list, and remove webhooks that send a signed event when a property changes or a comment is created or resolved",
+    uiEntrypoints: [],
+    durableEffect:
+      "content_webhooks stores the URL, scope, event filter, and a reference to the signing secret in app secrets; each change writes content_webhook_deliveries rows in the same transaction, which are sent right after commit and retried by the recurring sweep with the same event ID. Only edits to a value send property.changed: deleting a property, a type change that clears values, deleting rows or pages, imports, source syncs, and row migrations send no events.",
+    uiImplementation:
+      "No UI yet: agents and MCP clients manage webhooks through the actions; a settings panel would call the same actions.",
+    status: "action-backed",
+    actions: [
+      "create-content-webhook",
+      "list-content-webhooks",
+      "delete-content-webhook",
+    ],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/content-webhooks.db.test.ts",
+      "server/lib/content-webhook-signature.test.ts",
+    ],
   },
   {
     id: "source-sync.database-source-bindings",

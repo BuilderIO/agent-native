@@ -46,7 +46,10 @@ import {
   editorSaveState,
   publishesEditorSaveState,
 } from "@shared/editor-save-state";
-import { LIVE_BODY_SHADOW_FLAG } from "@shared/feature-flags";
+import {
+  LIVE_BODY_BACKFILL_FLAG,
+  LIVE_BODY_SHADOW_FLAG,
+} from "@shared/feature-flags";
 import { canonicalizeNfm, docToNfm } from "@shared/nfm";
 import { markdownSuggestionOperations } from "@shared/suggestion-diff";
 import {
@@ -143,6 +146,7 @@ import {
 } from "@/hooks/use-documents";
 import type { DocumentUpdateResult } from "@/hooks/use-documents";
 import { useElementWidthValue } from "@/hooks/use-element-width-value";
+import { useConvertPageToLiveCopyOnOpen } from "@/hooks/use-live-copy-backfill";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import {
   documentSyncStatusQueryKey,
@@ -157,6 +161,7 @@ import { rememberContentLandingDocument } from "@/lib/content-landing";
 import { withContentSaveOrigin } from "@/lib/content-save-telemetry";
 import type { DesktopContentFileRevision } from "@/lib/desktop-content-files";
 import { registerDocumentHistoryRestoreController } from "@/lib/document-history-restore-controller";
+import { documentReadFailure } from "@/lib/document-read-failures";
 import { rememberLandingTitleHint } from "@/lib/document-title-hint";
 import { filesRootHintScope } from "@/lib/files-root-hint";
 import { rememberLastLocationHint } from "@/lib/last-location-hint";
@@ -207,6 +212,12 @@ import { BuilderBodySyncingNotice } from "./BuilderBodySyncingNotice";
 import { flushBeforeSave } from "./collab-flush-before-save";
 import { isCommentAiWorkingOn, useCommentAiRequests } from "./comment-ai";
 import type { CommentTextAnchor } from "./comment-anchors";
+import {
+  commentThreadAt,
+  commentThreadHoverHandlers,
+  commentThreadMarkSelector,
+  type CommentBlockTarget,
+} from "./comment-block-anchors";
 import {
   CommentDraftProvider,
   CommentHistoryScrollContainer,
@@ -1668,7 +1679,10 @@ export function PageEditorSurface({
     isManualRetrying,
     isAccessRetrying:
       isManualRetrying && manualRetry?.fromAccessScreen === true,
-    error,
+    error: documentReadFailure(queryClient, documentQueryKeyValue, {
+      isError,
+      error,
+    }),
   });
   admittedDocumentIdRef.current = loadState.admittedDocumentId;
 
@@ -1855,6 +1869,10 @@ export function documentEditorLoadState({
    * read settles so it can't remount and retry again.
    */
   isAccessRetrying?: boolean;
+  /**
+   * The read's error, or while it is read again, the error it last failed
+   * with: a refetch of a page with no data clears the query's own error.
+   */
   error: unknown;
 }) {
   const activeAdmittedDocumentId =
@@ -1896,8 +1914,7 @@ export function documentEditorLoadState({
   if (isManualRetrying || isError || hasLoadFailure) {
     return {
       view:
-        (isError && isDocumentLoadUnavailableError(error)) ||
-        (isAccessRetrying && !isError)
+        isDocumentLoadUnavailableError(error) || (isAccessRetrying && !isError)
           ? ("unavailable" as const)
           : ("error" as const),
       admittedDocumentId: activeAdmittedDocumentId,
@@ -2763,6 +2780,7 @@ function PageEditorSessionBody({
   ]);
   const updateDocument = useUpdateDocument();
   const observeLiveBody = useFeatureFlag(LIVE_BODY_SHADOW_FLAG.key);
+  const backfillLiveCopy = useFeatureFlag(LIVE_BODY_BACKFILL_FLAG.key);
   const resolvePreviewDocumentDraft = useResolvePreviewDocumentDraft();
   const updatePreviewDocumentDraft = useUpdatePreviewDocumentDraft();
   const updatePreviewDocumentDraftRef = useRef(
@@ -2833,6 +2851,13 @@ function PageEditorSessionBody({
   const isLocalFileDocument = document.source?.mode === "local-files";
   // Pages that follow a GitHub file are written by sync; edit the file instead.
   const isGitHubSourceDocument = document.source?.mode === "github";
+  useConvertPageToLiveCopyOnOpen(
+    documentId,
+    backfillLiveCopy &&
+      canEdit &&
+      !isLocalFileDocument &&
+      !isGitHubSourceDocument,
+  );
   const canComment =
     !mcpDirectoryWidgetReadOnly &&
     !isLocalFileDocument &&
@@ -7756,10 +7781,11 @@ function PageEditorSessionBody({
   const [pendingCommentTargetValid, setPendingCommentTargetValid] =
     useState(true);
   const pendingCommentTargetId = pendingComment?.id ?? null;
-  // A comment on a Property has no text to keep selected.
-  const pendingCommentQuotedText = pendingComment?.property
-    ? null
-    : (pendingComment?.quotedText ?? null);
+  // A comment on a Property or a whole block has no text to keep selected.
+  const pendingCommentQuotedText =
+    pendingComment?.property || pendingComment?.block
+      ? null
+      : (pendingComment?.quotedText ?? null);
   useLayoutEffect(() => {
     if (!pendingCommentTargetId || pendingCommentQuotedText === null) {
       setPendingCommentTargetValid(true);
@@ -8006,6 +8032,29 @@ function PageEditorSessionBody({
     },
     [setPendingComment],
   );
+  // A comment on a whole block, such as a video, in the body or in the
+  // Blocks field tab `fieldId`.
+  const handleBlockComment = useCallback(
+    (target: CommentBlockTarget, offsetTop: number, fieldId?: string) => {
+      setPendingComment({
+        quotedText: "",
+        offsetTop,
+        range: { from: target.from, to: target.to, blockId: target.blockId },
+        block: { blockId: target.blockId, blockType: target.blockType },
+        ...(fieldId ? { fieldId } : {}),
+      });
+      setCommentsBrowseOpen(false);
+      setUtilityPanel("comments");
+      setSelectedThreadId(null);
+      setHoveredThreadId(null);
+    },
+    [setPendingComment],
+  );
+  const handleFieldBlockComment = useCallback(
+    (fieldId: string, target: CommentBlockTarget, offsetTop: number) =>
+      handleBlockComment(target, offsetTop, fieldId),
+    [handleBlockComment],
+  );
   const blockFieldComments = useBlockFieldComments({
     expectsBlockFields: !!document.databaseMembership && !isLocalFileDocument,
     threads,
@@ -8019,6 +8068,7 @@ function PageEditorSessionBody({
     pendingComment,
     showCommentIndicators,
     onComment: canComment ? handleFieldComment : undefined,
+    onBlockComment: canComment ? handleFieldBlockComment : undefined,
     onActivateThread: !isLocalFileDocument ? activateCommentThread : undefined,
     scrollContainerRef,
   });
@@ -8556,19 +8606,14 @@ function PageEditorSessionBody({
     const update = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
-        const escapedThreadId = selectedThreadId
-          ? globalThis.CSS?.escape
-            ? globalThis.CSS.escape(selectedThreadId)
-            : selectedThreadId.replace(/["\\]/g, "\\$&")
-          : null;
         const escapedSuggestionId = selectedSuggestionId
           ? globalThis.CSS?.escape
             ? globalThis.CSS.escape(selectedSuggestionId)
             : selectedSuggestionId.replace(/["\\]/g, "\\$&")
           : null;
         const marked = scrollContainer.querySelector(
-          escapedThreadId
-            ? `[data-comment-thread="${escapedThreadId}"]`
+          selectedThreadId
+            ? commentThreadMarkSelector(selectedThreadId)
             : escapedSuggestionId
               ? `[data-suggestion-id="${escapedSuggestionId}"]`
               : ".comment-highlight--pending",
@@ -8608,7 +8653,12 @@ function PageEditorSessionBody({
       childList: true,
       subtree: true,
       attributes: true,
-      attributeFilter: ["data-comment-thread", "data-suggestion-id", "class"],
+      attributeFilter: [
+        "data-comment-thread",
+        "data-comment-block-threads",
+        "data-suggestion-id",
+        "class",
+      ],
     });
     const resizeObserver =
       typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
@@ -9629,9 +9679,9 @@ function PageEditorSessionBody({
           // through this tree even though they render outside it. Those are
           // interactions with an open comment, not clicks on the page.
           if (target && !event.currentTarget.contains(target)) return;
-          const commentHighlight = target?.closest("[data-comment-thread]");
-          const threadId = commentHighlight?.getAttribute(
-            "data-comment-thread",
+          const threadId = commentThreadAt(
+            target,
+            hoveredThreadId ?? selectedThreadId,
           );
           if (threadId) {
             activateCommentThread(threadId);
@@ -9646,24 +9696,10 @@ function PageEditorSessionBody({
           }
           dismissCommentFocus();
         }}
-        onPointerOverCapture={(event) => {
-          const target = event.target as HTMLElement | null;
-          const threadId = target
-            ?.closest("[data-comment-thread]")
-            ?.getAttribute("data-comment-thread");
-          if (threadId) setHoveredThreadId(threadId);
-        }}
-        onPointerOutCapture={(event) => {
-          const target = event.target as HTMLElement | null;
-          const highlight = target?.closest("[data-comment-thread]");
-          if (!highlight) return;
-          const nextHighlight = (event.relatedTarget as HTMLElement | null)
-            ?.closest("[data-comment-thread]")
-            ?.getAttribute("data-comment-thread");
-          if (nextHighlight !== highlight.getAttribute("data-comment-thread")) {
-            setHoveredThreadId(null);
-          }
-        }}
+        {...commentThreadHoverHandlers(
+          hoveredThreadId ?? selectedThreadId,
+          setHoveredThreadId,
+        )}
       >
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <DocumentToolbar
@@ -10406,6 +10442,9 @@ function PageEditorSessionBody({
                                 }
                                 onComment={
                                   canComment ? handleComment : undefined
+                                }
+                                onBlockComment={
+                                  canComment ? handleBlockComment : undefined
                                 }
                                 commentThreads={editorCommentThreads}
                                 activeThreadId={selectedThreadId}

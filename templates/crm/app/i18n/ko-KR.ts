@@ -601,15 +601,15 @@ const messages = {
     reviewDuplicates: "중복 검토",
     duplicateReviewTitle: "중복 가능성이 있는 레코드",
     duplicateReviewDescription:
-      "이 레코드를 접근 가능한 후보와 비교합니다. Jev 실행 시 레코드 이름, 유형 및 최대 5개 후보의 일치 신호가 TypeSafe로 전송됩니다. 확률은 참고용이며 병합에는 별도 검토가 필요합니다.",
+      "이 레코드를 접근 가능한 후보와 비교합니다. 의미 검토에서는 레코드 이름, 유형 및 최대 5개 후보의 일치 신호를 구성된 AI 결정 제공자에게 보냅니다. 확률은 참고용이며 병합에는 별도 검토가 필요합니다.",
     duplicateReviewRun: "중복 확인",
     duplicateReviewLoading: "확인 중…",
     duplicateReviewFailed: "중복 검토를 완료할 수 없습니다.",
     duplicateReviewUnavailable:
-      "Jev가 이 레코드를 검토하지 못했습니다. 규칙 기반 후보는 계속 표시됩니다.",
+      "AI 결정 제공자가 이 레코드를 검토하지 못했습니다. 규칙 기반 후보는 계속 표시됩니다.",
     duplicateReviewEmpty: "중복 가능성이 있는 레코드가 없습니다.",
     duplicateRuleConfidence: "규칙 기반 일치도: {{percent}}%",
-    duplicateJevProbability: "Jev 동일 엔터티 확률: {{percent}}%",
+    duplicateDecisionProbability: "동일 엔터티 확률: {{percent}}%",
     duplicateMatchedOn: "일치 근거: {{values}}",
     evidenceAttached: "통화 증거가 첨부되었습니다.",
     evidenceAttachFailed: "증거를 첨부하지 못했습니다.",

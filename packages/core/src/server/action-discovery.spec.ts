@@ -432,6 +432,21 @@ describe("action discovery", () => {
     expect(registry["send-email"].allowPersistentApproval).toBe(false);
   });
 
+  it("preserves the zone an approval summary gives zoneless times", () => {
+    const registry = loadActionsFromStaticRegistry({
+      "create-event": {
+        default: {
+          tool: { description: "Create an event", parameters: {} },
+          needsApproval: true,
+          zonelessTimes: "calendar",
+          run: async () => ({ ok: true }),
+        },
+      },
+    });
+
+    expect(registry["create-event"].zonelessTimes).toBe("calendar");
+  });
+
   it("threads the http config through named and default static entries", () => {
     const registry = loadActionsFromStaticRegistry({
       "named-get": {
@@ -564,6 +579,28 @@ describe("action discovery", () => {
       ).rejects.toThrow(
         "This action can only be called from the signed-in app UI.",
       );
+    },
+    CORE_ACTION_DISCOVERY_TIMEOUT_MS,
+  );
+
+  it(
+    "keeps persistInBrowser:false on merged core actions that read private data",
+    async () => {
+      // action-routes.ts reads the flag from the registry entry; without it
+      // these reads are let into the browser's persisted query cache.
+      const registry: Record<string, any> = {};
+      await mergeCoreSharingActions(registry);
+
+      for (const name of [
+        "list-api-keys",
+        "get-email-log-body",
+        "get-infrastructure-status",
+        "list-chatgpt-subscription-accounts",
+        "list-workspace-user-groups",
+      ]) {
+        expect(registry[name], `${name} should be merged`).toBeDefined();
+        expect(registry[name].persistInBrowser, name).toBe(false);
+      }
     },
     CORE_ACTION_DISCOVERY_TIMEOUT_MS,
   );

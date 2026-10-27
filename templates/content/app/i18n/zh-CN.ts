@@ -335,6 +335,8 @@ const database = {
   failedToCreateRow: "创建行失败",
   pageCreatedCollectionRefreshFailed:
     "页面已创建，但此集合无法刷新。请重新加载以查看。",
+  builderPushResultNotLoaded:
+    "更新已送达 Builder，但此审阅无法加载结果。请重新加载以查看。",
   failedToDeleteRow: "删除行失败",
   failedToDeleteSelectedRows: "删除所选行失败",
   failedToDuplicateEverySelectedRow: "未能复制所有选中行",
@@ -664,6 +666,16 @@ const editor = {
     purple: "紫色",
     pink: "粉色",
     red: "红色",
+    defaultText: "默认文本",
+    defaultBackground: "默认背景",
+    textChoice: "{{color}}文本",
+    backgroundChoice: "{{color}}背景",
+  },
+  blockMenu: {
+    label: "块操作",
+    duplicate: "创建副本",
+    delete: "删除",
+    insertBelow: "在下方插入块",
   },
   noDocumentSelected: "未选择文档",
   registryBlockLoadError: "无法加载 {{type}} 块：{{message}}",
@@ -1084,6 +1096,7 @@ const rawLiterals = {
     drag: "拖动",
     headerColumn: "标题列",
     headerRow: "标题行",
+    fitToWidth: "适应宽度",
     insertAbove: "在上方插入",
     insertBelow: "在下方插入",
     insertLeft: "在左侧插入",

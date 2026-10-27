@@ -34,7 +34,10 @@ import {
   isHeldForRedaction,
   REDACTION_HOLD_MESSAGE,
 } from "../../../lib/pending-redactions.js";
-import { isRecordingExpiredForViewer } from "../../../lib/recording-page-access.js";
+import {
+  isRecordingExpiredForViewer,
+  isRecordingTrashedForViewer,
+} from "../../../lib/recording-page-access.js";
 import { getOrganizationRoleForEmail } from "../../../lib/recordings.js";
 import {
   fetchS3ObjectByUrl,
@@ -403,11 +406,15 @@ async function loadRecording(recordingId: string, event: H3Event) {
     gate = row;
   }
 
-  if (!clipId) return { recording: gate, role, gateId } as const;
-
-  if (gate.trashedAt && role !== "owner") {
+  if (
+    isRecordingTrashedForViewer({
+      trashedAt: gate.trashedAt,
+      viewerIsOwner: role === "owner",
+    })
+  ) {
     return { error: "Not found", status: 404 } as const;
   }
+  if (!clipId) return { recording: gate, role, gateId } as const;
   const [footage] = await getDb()
     .select({
       thumbnailUrl: schema.recordings.thumbnailUrl,

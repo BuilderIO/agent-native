@@ -59,6 +59,10 @@ import {
   propertyDefinitionsPositionScope,
   withPositionLock,
 } from "./_position-utils.js";
+import {
+  recordPropertyChangeIds,
+  type StoredPropertyChangeIds,
+} from "./_property-generations.js";
 import { withRelationTargets } from "./_relation-values.js";
 
 type DocumentRow = InferSelectModel<typeof schema.documents>;
@@ -619,6 +623,8 @@ export async function listPropertiesForDocument(
     requireDatabaseAccess?: boolean;
     /** The caller's own resolvePropertyDatabaseForDocument result. */
     database?: ContentDatabaseRow | null;
+    /** Filled with the change IDs of the value rows read. */
+    changeIds?: StoredPropertyChangeIds;
   } = {},
 ) {
   const database =
@@ -633,6 +639,7 @@ export async function listPropertiesForDocument(
   if (!database) return [];
   return listPropertiesForDatabase(database.id, document, {
     includeContainerDerivedValues: options.requireDatabaseAccess !== false,
+    changeIds: options.changeIds,
   });
 }
 
@@ -688,8 +695,10 @@ export async function listPropertiesForDatabase(
   options: {
     includeContainerDerivedValues?: boolean;
     propertySchema?: DatabasePropertySchema;
+    /** Filled with the change IDs of the value rows read. */
+    changeIds?: StoredPropertyChangeIds;
   } = {},
-) {
+): Promise<DocumentProperty[]> {
   const db = getDb();
   const { definitions, sourceManagedPropertyIds } =
     options.propertySchema ??
@@ -717,6 +726,7 @@ export async function listPropertiesForDatabase(
         ? blockFieldContentsForDocument(valueDocument.id)
         : new Map<string, string>(),
     ]);
+  if (options.changeIds) recordPropertyChangeIds(options.changeIds, values);
 
   const valueByPropertyId = new Map(
     values.map((value) => [value.propertyId, value]),
@@ -876,6 +886,8 @@ export async function listPropertiesForDatabaseDocuments(
      */
     includeBlocksFieldIdentity: boolean;
     propertySchema?: DatabasePropertySchema;
+    /** Filled with the change IDs of the value rows read. */
+    changeIds?: StoredPropertyChangeIds;
   },
 ): Promise<Map<string, DocumentProperty[]>> {
   const db = getDb();
@@ -943,6 +955,7 @@ export async function listPropertiesForDatabaseDocuments(
         ).then((groups) => groups.flat())
       : [],
   ]);
+  if (options.changeIds) recordPropertyChangeIds(options.changeIds, values);
   const valueByDocumentAndProperty = new Map(
     values.map((value) => [
       propertyValueKey(value.documentId, value.propertyId),

@@ -2,6 +2,7 @@ import { commentAttributionMessagesByLocale } from "../../shared/comment-attribu
 import { buildMessagesForLocale } from "../i18n-data";
 
 const database = {
+  fitToWidth: "Ajustar à largura",
   githubLinkTitle: "Vincular uma pasta do GitHub",
   githubNewCollectionTitle: "Nova coleção a partir de uma pasta do GitHub",
   githubLinkDescription:
@@ -375,6 +376,8 @@ const database = {
   failedToCreateRow: "Falha ao criar linha",
   pageCreatedCollectionRefreshFailed:
     "A página foi criada, mas esta coleção não pôde ser atualizada. Recarregue para vê-la.",
+  builderPushResultNotLoaded:
+    "A atualização chegou ao Builder, mas esta revisão não conseguiu carregar o resultado. Recarregue para vê-lo.",
   failedToDeleteRow: "Falha ao excluir linha",
   failedToDeleteSelectedRows: "Falha ao excluir linhas selecionadas",
   failedToDuplicateEverySelectedRow:
@@ -716,6 +719,16 @@ const editor = {
     purple: "Roxo",
     pink: "Rosa",
     red: "Vermelho",
+    defaultText: "Texto padrão",
+    defaultBackground: "Fundo padrão",
+    textChoice: "Texto: {{color}}",
+    backgroundChoice: "Fundo: {{color}}",
+  },
+  blockMenu: {
+    label: "Ações do bloco",
+    duplicate: "Duplicar",
+    delete: "Excluir",
+    insertBelow: "Inserir bloco abaixo",
   },
   noDocumentSelected: "Nenhum documento selecionado",
   registryBlockLoadError:

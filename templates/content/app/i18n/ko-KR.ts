@@ -2,6 +2,7 @@ import { commentAttributionMessagesByLocale } from "../../shared/comment-attribu
 import { buildMessagesForLocale } from "../i18n-data";
 
 const database = {
+  fitToWidth: "너비에 맞추기",
   githubLinkTitle: "GitHub 폴더 연결",
   githubNewCollectionTitle: "GitHub 폴더로 새 컬렉션 만들기",
   githubLinkDescription:
@@ -368,6 +369,8 @@ const database = {
   failedToCreateRow: "행을 생성하지 못했습니다",
   pageCreatedCollectionRefreshFailed:
     "페이지가 생성되었지만 이 컬렉션을 새로 고치지 못했습니다. 다시 로드하여 확인하세요.",
+  builderPushResultNotLoaded:
+    "업데이트가 Builder에 전달되었지만 이 검토에서 결과를 불러오지 못했습니다. 다시 로드하여 확인하세요.",
   failedToDeleteRow: "행을 삭제하지 못했습니다",
   failedToDeleteSelectedRows: "선택한 행을 삭제하지 못했습니다",
   failedToDuplicateEverySelectedRow: "선택한 모든 행을 복제하지 못했습니다",
@@ -699,6 +702,16 @@ const editor = {
     purple: "보라색",
     pink: "분홍색",
     red: "빨간색",
+    defaultText: "기본 텍스트",
+    defaultBackground: "기본 배경",
+    textChoice: "{{color}} 텍스트",
+    backgroundChoice: "{{color}} 배경",
+  },
+  blockMenu: {
+    label: "블록 작업",
+    duplicate: "복제",
+    delete: "삭제",
+    insertBelow: "아래에 블록 삽입",
   },
   noDocumentSelected: "선택한 문서가 없습니다.",
   registryBlockLoadError: "{{type}} 블록을 불러올 수 없습니다: {{message}}",

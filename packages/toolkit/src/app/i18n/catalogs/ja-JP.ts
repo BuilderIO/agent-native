@@ -133,6 +133,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleOther": "その他",
   "onboarding.roleOtherInputLabel": "役割を入力してください",
   "onboarding.skipForNow": "今はスキップ",
+  "onboarding.builderProvisionFailedDetail":
+    "Builder.io アカウントを作成できませんでした。もう一度試すか、既存のアカウントでサインインしてください。",
   "onboarding.saveRoleError": "役割を保存できませんでした。",
   "onboarding.builderCreateAccount": "Builder.io を使う",
   "onboarding.builderSignInWithAccount": "Builder.io アカウントでサインイン",
@@ -429,6 +431,9 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.openDesktop":
     "このチャットを使用するにはデスクトップ版を開いてください。",
   "composer.removeAttachment": "{{name}} を削除",
+  "composer.attachmentReadFailed": "このファイルを読み込めませんでした",
+  "composer.attachmentTooLarge": "ファイルが 8 MB を超えています",
+  "composer.attachmentNotUtf8": "ファイルが UTF-8 テキストではありません",
   "composer.scrollToBottom": "一番下までスクロール",
   "composer.suggestedPrompts": "おすすめのプロンプト",
   "composer.stopResponse": "応答を停止",
@@ -1923,6 +1928,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.approvalA2AReview":
     "エージェントアクションの確認ページで承認",
   "settings.audit.approvalMcpClient": "MCP クライアントが承諾（未検証）",
+  "settings.audit.approvalMcpReview": "MCP アクションの確認ページで承認",
+  "settings.audit.approvalCliPrompt": "CLI の確認で承認（未検証）",
+  "settings.audit.approvalCliFlag": "--approved 付きで再実行（未検証）",
   "settings.audit.changedBy": "変更者",
   "settings.audit.close": "閉じる",
   "settings.audit.empty": "この期間に変更はありません。",

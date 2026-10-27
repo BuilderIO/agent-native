@@ -364,7 +364,7 @@ describe("TiptapComposer primary slot", () => {
     expect(send()?.dataset.composerPrimary).toBe("voice-chat");
     expect(send()?.getAttribute("aria-label")).toBe("Start voice chat");
     expect(send()?.disabled).toBe(false);
-    expect(send()?.querySelector("svg.tabler-icon-wave-sine")).not.toBeNull();
+    expect(send()?.querySelector("svg.tabler-icon-voice-chat")).not.toBeNull();
 
     act(() => send()?.click());
 

@@ -252,6 +252,8 @@ const databaseMessages = {
   failedToCreateRow: "Failed to create row",
   pageCreatedCollectionRefreshFailed:
     "The page was created, but this collection could not refresh. Reload to see it.",
+  builderPushResultNotLoaded:
+    "The update reached Builder, but this review could not load the result. Reload to see it.",
   failedToDeleteRow: "Failed to delete row",
   failedToDeleteSelectedRows: "Failed to delete selected rows",
   failedToDuplicateEverySelectedRow: "Failed to duplicate every selected row",
@@ -296,6 +298,7 @@ const databaseMessages = {
   drag: "Drag",
   headerColumn: "Header column",
   headerRow: "Header row",
+  fitToWidth: "Fit to width",
   hideEmptyGroups: "Hide empty groups",
   insertAbove: "Insert above",
   insertBelow: "Insert below",
@@ -1519,6 +1522,16 @@ const enUS = {
       purple: "Purple",
       pink: "Pink",
       red: "Red",
+      defaultText: "Default text",
+      defaultBackground: "Default background",
+      textChoice: "{{color}} text",
+      backgroundChoice: "{{color}} background",
+    },
+    blockMenu: {
+      label: "Block actions",
+      duplicate: "Duplicate",
+      delete: "Delete",
+      insertBelow: "Insert block below",
     },
     heading1: "Heading 1",
     heading2: "Heading 2",

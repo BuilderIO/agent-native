@@ -376,6 +376,8 @@ const database = {
   failedToCreateRow: "No se pudo crear la fila",
   pageCreatedCollectionRefreshFailed:
     "La página se creó, pero esta colección no se pudo actualizar. Vuelve a cargar para verla.",
+  builderPushResultNotLoaded:
+    "La actualización llegó a Builder, pero esta revisión no pudo cargar el resultado. Vuelve a cargar para verlo.",
   failedToDeleteRow: "No se pudo eliminar la fila",
   failedToDeleteSelectedRows: "No se pudieron eliminar las filas seleccionadas",
   failedToDuplicateEverySelectedRow:
@@ -716,6 +718,16 @@ const editor = {
     purple: "Morado",
     pink: "Rosa",
     red: "Rojo",
+    defaultText: "Texto predeterminado",
+    defaultBackground: "Fondo predeterminado",
+    textChoice: "Texto: {{color}}",
+    backgroundChoice: "Fondo: {{color}}",
+  },
+  blockMenu: {
+    label: "Acciones del bloque",
+    duplicate: "Duplicar",
+    delete: "Eliminar",
+    insertBelow: "Insertar bloque debajo",
   },
   noDocumentSelected: "Ningún documento seleccionado",
   registryBlockLoadError: "No se pudo cargar el bloque {{type}}: {{message}}",
@@ -1172,6 +1184,7 @@ const rawLiterals = {
     drag: "Arrastra",
     headerColumn: "Columna de encabezado",
     headerRow: "Fila de encabezado",
+    fitToWidth: "Ajustar al ancho",
     insertAbove: "Insertar arriba",
     insertBelow: "Insertar abajo",
     insertLeft: "Insertar a la izquierda",

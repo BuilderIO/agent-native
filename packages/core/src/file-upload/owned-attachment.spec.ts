@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  hydrateOwnedFileUrl,
   hydrateOwnedImageUrl,
   MAX_OWNED_INLINE_IMAGE_BYTES,
 } from "./owned-attachment.js";
@@ -11,6 +12,67 @@ const findProviderMock = vi.hoisted(() => vi.fn());
 vi.mock("./registry.js", () => ({
   findFileUploadProviderOwningUrl: findProviderMock,
 }));
+
+describe("hydrateOwnedFileUrl", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it("charges text to its own pool so it cannot starve sibling images", async () => {
+    findProviderMock.mockResolvedValue({ id: "owned-storage" });
+    const markdown = "x".repeat(2 * 1024 * 1024);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(markdown, {
+            status: 200,
+            headers: { "content-type": "text/markdown" },
+          }),
+      ),
+    );
+    const budget = {
+      deadlineAt: Date.now() + 5_000,
+      remainingCandidates: 6,
+      remainingBytes: 1_000,
+      remainingTextBytes: 8 * 1024 * 1024,
+    };
+
+    await expect(
+      hydrateOwnedFileUrl(
+        "https://storage.example/DESIGN.md",
+        "text/markdown",
+        "DESIGN.md",
+        budget,
+      ),
+    ).resolves.toMatchObject({ kind: "hydrated" });
+    expect(budget.remainingBytes).toBe(1_000);
+    expect(budget.remainingTextBytes).toBe(6 * 1024 * 1024);
+  });
+
+  it("keeps a declared text type when storage reports a non-text one", async () => {
+    findProviderMock.mockResolvedValue({ id: "owned-storage" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response("#!/bin/sh\necho hi\n", {
+            status: 200,
+            headers: { "content-type": "application/x-sh" },
+          }),
+      ),
+    );
+
+    await expect(
+      hydrateOwnedFileUrl(
+        "https://storage.example/deploy.sh",
+        "text/plain",
+        "deploy.sh",
+      ),
+    ).resolves.toMatchObject({ kind: "hydrated", mediaType: "text/plain" });
+  });
+});
 
 describe("hydrateOwnedImageUrl", () => {
   afterEach(() => {

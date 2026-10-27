@@ -2,6 +2,7 @@ import { commentAttributionMessagesByLocale } from "../../shared/comment-attribu
 import { buildMessagesForLocale } from "../i18n-data";
 
 const database = {
+  fitToWidth: "An Breite anpassen",
   githubLinkTitle: "GitHub-Ordner verknüpfen",
   githubNewCollectionTitle: "Neue Sammlung aus einem GitHub-Ordner",
   githubLinkDescription:
@@ -379,6 +380,8 @@ const database = {
   failedToCreateRow: "Zeile konnte nicht erstellt werden",
   pageCreatedCollectionRefreshFailed:
     "Die Seite wurde erstellt, aber diese Sammlung konnte nicht aktualisiert werden. Neu laden, um sie zu sehen.",
+  builderPushResultNotLoaded:
+    "Die Aktualisierung hat Builder erreicht, aber diese Prüfung konnte das Ergebnis nicht laden. Neu laden, um es zu sehen.",
   failedToDeleteRow: "Zeile konnte nicht gelöscht werden",
   failedToDeleteSelectedRows:
     "Ausgewählte Zeilen konnten nicht gelöscht werden",
@@ -720,6 +723,16 @@ const editor = {
     purple: "Violett",
     pink: "Rosa",
     red: "Rot",
+    defaultText: "Standardtext",
+    defaultBackground: "Standardhintergrund",
+    textChoice: "Text in {{color}}",
+    backgroundChoice: "Hintergrund in {{color}}",
+  },
+  blockMenu: {
+    label: "Blockaktionen",
+    duplicate: "Duplizieren",
+    delete: "Löschen",
+    insertBelow: "Block darunter einfügen",
   },
   noDocumentSelected: "Kein Dokument ausgewählt",
   registryBlockLoadError:

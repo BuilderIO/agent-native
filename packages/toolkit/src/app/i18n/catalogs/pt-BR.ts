@@ -131,6 +131,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleOther": "Outro",
   "onboarding.roleOtherInputLabel": "Descreva sua função",
   "onboarding.skipForNow": "Pular por enquanto",
+  "onboarding.builderProvisionFailedDetail":
+    "Não foi possível criar sua conta do Builder.io. Tente novamente ou entre com uma conta existente.",
   "onboarding.saveRoleError": "Não foi possível salvar sua função.",
   "onboarding.builderCreateAccount": "Usar o Builder.io",
   "onboarding.builderSignInWithAccount": "Entrar com uma conta do Builder.io",
@@ -431,6 +433,9 @@ const messages: ToolkitAgentChatTranslation = {
     "Não foi possível adicionar o arquivo solto. Tente outro formato.",
   "composer.openDesktop": "Abra o aplicativo para desktop para usar este chat.",
   "composer.removeAttachment": "Remover {{name}}",
+  "composer.attachmentReadFailed": "Não foi possível ler este arquivo",
+  "composer.attachmentTooLarge": "O arquivo tem mais de 8 MB",
+  "composer.attachmentNotUtf8": "O arquivo não é texto UTF-8",
   "composer.scrollToBottom": "Rolar até o final",
   "composer.suggestedPrompts": "Prompts sugeridos",
   "composer.stopResponse": "Parar resposta",
@@ -2034,6 +2039,12 @@ const messages: ToolkitAgentChatTranslation = {
     "Aprovado na página de revisão de ações do agente",
   "settings.audit.approvalMcpClient":
     "Aceito pelo cliente MCP (não verificado)",
+  "settings.audit.approvalMcpReview":
+    "Aprovado na página de revisão de ações do MCP",
+  "settings.audit.approvalCliPrompt":
+    "Aprovado no prompt da CLI (não verificado)",
+  "settings.audit.approvalCliFlag":
+    "Executado de novo com --approved (não verificado)",
   "settings.audit.changedBy": "Alterado por",
   "settings.audit.close": "Fechar",
   "settings.audit.empty": "Nenhuma alteração neste período.",

@@ -9,6 +9,7 @@ import type {
   ContentDatabaseMutationTarget,
   ContentDatabaseItemsPageResponse,
   ContentDatabaseResponse,
+  ContentDatabaseTableQuery,
   DocumentDiscoveryPagination,
   DeleteDocumentPropertyRequest,
   DocumentProperty,
@@ -40,6 +41,7 @@ import {
   contentDatabaseQueryFilter,
   contentDatabaseConstrainedQueryFilter,
   contentDatabaseQueryKey,
+  invalidateContentDatabaseNavigationQueries,
   removeDocumentPropertyFromDatabaseResponse,
 } from "./use-content-database";
 import {
@@ -757,7 +759,7 @@ export function useDeleteDocumentProperty(
         queryClient.setQueryData(queryKey, data);
       }
     },
-    onSuccess: (data) => {
+    onSuccess: (data, variables) => {
       queryClient.setQueriesData<ContentDatabaseResponse>(
         contentDatabaseQueryFilter(databaseDocumentId),
         (current) => applyDocumentPropertiesToDatabaseResponse(current, data),
@@ -766,9 +768,38 @@ export function useDeleteDocumentProperty(
         queryKey: documentPropertiesQueryKey(documentId, databaseId),
       });
       void queryClient.invalidateQueries(documentQueryFilter(documentId));
+      const databaseQueries = contentDatabaseQueryFilter(databaseDocumentId);
+      const constrainedQueries =
+        contentDatabaseConstrainedQueryFilter(databaseDocumentId);
       void queryClient.invalidateQueries({
-        ...contentDatabaseQueryFilter(databaseDocumentId),
+        queryKey: ["action"],
+        predicate: (query) => {
+          if (!constrainedQueries.predicate(query)) {
+            return databaseQueries.predicate(query);
+          }
+          // A table read that sorts or filters on the property reads again
+          // under a new key once the refetched view drops it. Refetching it
+          // first reruns a filter on a missing property, which matches no
+          // rows.
+          const { tableQuery } = (query.queryKey[2] ?? {}) as {
+            tableQuery?: ContentDatabaseTableQuery;
+          };
+          return ![
+            ...(tableQuery?.filters ?? []),
+            ...(tableQuery?.sorts ?? []),
+          ].some((constraint) => constraint.key === variables.propertyId);
+        },
       });
+      // The cached personal view, and the Files sidebar pages read through
+      // it, can still sort or filter on the property.
+      void queryClient.invalidateQueries({
+        queryKey: [
+          "action",
+          "get-content-database-personal-view",
+          { databaseId },
+        ],
+      });
+      invalidateContentDatabaseNavigationQueries(queryClient, { databaseId });
     },
   });
   return withDatabaseScope(mutation, databaseId);
