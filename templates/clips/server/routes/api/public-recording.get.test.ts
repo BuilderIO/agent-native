@@ -213,9 +213,9 @@ describe("/api/public-recording route", () => {
     mockVerifySharePassword.mockReturnValue(true);
     mockResolvePlayerVideoUrl.mockReturnValue("/api/video/rec-1");
     mockSignScopedAgentAccessToken.mockReturnValue("agent-token");
-    mockSignShortLivedToken
-      .mockReturnValueOnce("media-token")
-      .mockReturnValueOnce("unused-media-token");
+    mockSignShortLivedToken.mockImplementation(({ resourceId }) =>
+      resourceId.startsWith("clips-comment:") ? "comment-token" : "media-token",
+    );
     mockBuildAgentApiUrls.mockReturnValue({
       contextUrl: "https://clips.example/api/agent-context.json?id=rec-1",
     });
@@ -324,18 +324,22 @@ describe("/api/public-recording route", () => {
     },
   );
 
-  it.each([
-    { mode: "password", expected: "comment-token" },
-    { mode: "agent", expected: null },
-    { mode: "owner", expected: null },
-    { mode: "unprotected", expected: null },
-    { mode: "missing", expected: undefined },
-    { mode: "wrong", expected: undefined },
-  ])(
-    "issues comment proof only after password verification: $mode",
-    async ({ mode, expected }) => {
+  it.each(
+    [
+      { mode: "password", expected: "comment-token" },
+      { mode: "agent", expected: null },
+      { mode: "owner", expected: null },
+      { mode: "unprotected", expected: null },
+      { mode: "missing", expected: undefined },
+      { mode: "wrong", expected: undefined },
+    ].flatMap((entry) =>
+      [true, false].map((enableComments) => ({ ...entry, enableComments })),
+    ),
+  )(
+    "issues password proof independently of comments being enabled: $mode / $enableComments",
+    async ({ mode, expected, enableComments }) => {
       const rec = makeRecording({
-        enableComments: true,
+        enableComments,
         sharePasswordVersion: "initial",
         ...(mode === "unprotected" ? { password: null } : {}),
       });
@@ -360,10 +364,18 @@ describe("/api/public-recording route", () => {
         mockGetSession.mockResolvedValue({ email: "owner@example.com" });
         mockResolveAccess.mockResolvedValue({ role: "owner", resource: rec });
       }
+      if (mode === "password" && !enableComments) {
+        mockGetSession.mockResolvedValue({ email: "viewer@example.test" });
+        mockResolveAccess.mockResolvedValue({ role: "viewer", resource: rec });
+      }
       if (mode === "missing") mockGetQuery.mockReturnValue({ id: "rec-1" });
       if (mode === "wrong") mockVerifySharePassword.mockReturnValue(false);
       const result = (await handler({ setCookies: [] } as any)) as any;
       expect(result.recording?.commentAccessToken).toBe(expected);
+      if (mode === "password" && !enableComments) {
+        expect(result.recording.enableComments).toBe(false);
+        expect(result.comments).toEqual([]);
+      }
       const grants = mockSignShortLivedToken.mock.calls.filter(([claims]) =>
         claims.resourceId.startsWith("clips-comment:"),
       );

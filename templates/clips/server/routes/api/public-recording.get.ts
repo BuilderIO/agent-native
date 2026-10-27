@@ -319,7 +319,7 @@ export default defineEventHandler(async (event) => {
   if (rec.password && !viewerIsOwner) {
     if (!tokenAllowsAgentAccess) {
       if (!password) {
-        // No password supplied at all — this is the initial load or a
+        // No password supplied at all â€” this is the initial load or a
         // background poll sitting on the password prompt, not a guess. Don't
         // touch the throttle, or a viewer who never submits anything would
         // eventually get 429'd just for polling.
@@ -337,16 +337,14 @@ export default defineEventHandler(async (event) => {
         setResponseStatus(event, 401);
         return { error: "Password required", passwordRequired: true };
       }
-      if (rec.enableComments) {
-        commentAccessToken = signShortLivedToken({
-          resourceId: getCommentAccessTokenResourceId(
-            recordingId,
-            rec.password,
-            rec.sharePasswordVersion,
-          ),
-          ttlSeconds: 600,
-        });
-      }
+      commentAccessToken = signShortLivedToken({
+        resourceId: getCommentAccessTokenResourceId(
+          recordingId,
+          rec.password,
+          rec.sharePasswordVersion,
+        ),
+        ttlSeconds: 600,
+      });
     }
     protectedMediaToken = setProtectedMediaAccessCookie(
       event,
@@ -525,7 +523,7 @@ export default defineEventHandler(async (event) => {
       kind: resolveRecordingKind(rec.kind),
       // A screenshot's picture is served by the thumbnail route, which is the
       // full stored image and carries the same short-lived token as the video
-      // URL — so the share password gates the image bytes too.
+      // URL â€” so the share password gates the image bytes too.
       imageUrl: isImageRecording(rec) ? playbackThumbnailUrl : null,
       thumbnailUrl: playbackThumbnailUrl,
       animatedThumbnailUrl: playbackAnimatedThumbnailUrl,
