@@ -710,7 +710,7 @@ class CollabDocConnection {
   }
 
   private holdOutboxOwner(key: string): void {
-    if (this.releaseOutboxOwner) return;
+    if (this.disposed || this.releaseOutboxOwner) return;
     const locks =
       typeof navigator === "undefined" ? undefined : navigator.locks;
     if (typeof locks?.request !== "function") {

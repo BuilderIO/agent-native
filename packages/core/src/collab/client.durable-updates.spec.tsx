@@ -1466,6 +1466,59 @@ describe("collab durable updates", () => {
         expect(sentUpdates).toEqual([]);
       },
     },
+    {
+      name: "a late final keepalive does not reclaim a dead owner's retained strict edit",
+      baseline:
+        "Regression: 59e468df reacquires a disposed owner's lock after an ordinary keepalive ACK, blocking a new strict owner's receipt.",
+      run: async () => {
+        const { server, requests } = serveCommittedUpdates();
+        const oldAck = vi.fn();
+        const first = await mountReady({
+          durableUpdates: true,
+          requireLiveCopyOutcome: true,
+          onUpdateAcknowledged: oldAck,
+        });
+        first().ydoc!.getText("t").insert(0, "strict");
+        const ordinary = await mountReady({});
+        updateResponses = [{ ok: true, liveCopy: "derived" }];
+        await expect(ordinary().flushUpdates()).resolves.toBe(false);
+        expect(server.getText("t").toString()).toBe("strict");
+        expect(oldAck).not.toHaveBeenCalled();
+
+        ordinary().ydoc!.getText("t").insert(6, " + ordinary");
+        updateResponses = [{ ok: true }];
+        const release = holdUpdateResponse();
+        onTestFinished(release);
+        act(() => root.unmount());
+        _resetCollabDocRegistryForTests();
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(0);
+        });
+        expect(requests.at(-1)?.keepalive).toBe(true);
+        expect(server.getText("t").toString()).toBe("strict + ordinary");
+        await act(async () => {
+          release();
+          await vi.advanceTimersByTimeAsync(0);
+        });
+        expect(outboxKeys()).toHaveLength(1);
+
+        root = createRoot(container);
+        const currentAck = vi.fn();
+        updateResponses = [{ ok: true, liveCopy: "unchanged" }];
+        const reopened = await mountReady({
+          durableUpdates: true,
+          requireLiveCopyOutcome: true,
+          onUpdateAcknowledged: currentAck,
+        });
+        await expect(reopened().flushUpdates()).resolves.toBe(true);
+        expect(currentAck).toHaveBeenCalledExactlyOnceWith({
+          liveCopy: "unchanged",
+        });
+        expect(outboxKeys()).toEqual([]);
+        expect(server.getText("t").toString()).toBe("strict + ordinary");
+        expect(oldAck).not.toHaveBeenCalled();
+      },
+    },
   ];
 
   it.each(
