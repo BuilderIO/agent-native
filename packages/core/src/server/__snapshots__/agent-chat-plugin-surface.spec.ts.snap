@@ -49,6 +49,7 @@ You also have tools for inline embeds, chat history search (\`chat-history\`), r
 "
 `;
 
+// oracle-change: the shared rules gained #8129's read-the-whole-attachment rule, which #8129 wrote only into the orphaned agent-chat-plugin.surface.spec.ts.snap
 exports[`assembled prompt snapshots > full prompt (default examples) matches snapshot 1`] = `
 "
 ### How You Work
