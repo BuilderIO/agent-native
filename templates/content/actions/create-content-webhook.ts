@@ -95,7 +95,7 @@ export default defineAction({
       .array(z.enum(CONTENT_WEBHOOK_EVENT_TYPES))
       .min(1)
       .describe(
-        "Events to send: property.changed (old and new value of one property when a value is edited; creating, importing, syncing or duplicating rows sends none yet), comment.created, comment.resolved",
+        "Events to send: property.changed (old and new value of one property when a value is edited; creating, importing, syncing or duplicating rows sends none yet), comment.created (a comment added in Content; comments brought in by Notion comment sync send none yet), comment.resolved (reopening a thread sends none)",
       ),
     propertyIds: z
       .array(z.string())
