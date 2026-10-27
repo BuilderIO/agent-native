@@ -1043,29 +1043,34 @@ describe("createBuilderEngine", () => {
     expect(credentialState.sendBuilderCreditLimitNotice).not.toHaveBeenCalled();
   });
 
-  it("marks OAuth custody for reconnect on gateway 401 instead of the legacy key fingerprint", async () => {
+  it("does not mark OAuth custody for reconnect when a 401 refresh leaves the token unchanged", async () => {
     oauthState.ownerEmail = "person@example.com";
     oauthState.accessToken = "oauth-access-token";
     oauthState.stored = true;
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        jsonErrorResponse(401, {
-          code: "unauthorized",
-          message: "Invalid token",
-        }),
-      ),
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonErrorResponse(401, {
+        code: "unauthorized",
+        message: "Invalid token",
+      }),
     );
+    vi.stubGlobal("fetch", fetchMock);
 
     const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
 
-    expect(events.find((e) => e.type === "stop")?.errorCode).toBe(
-      "builder_auth_error",
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(oauthState.resolveAccessState).toHaveBeenCalledTimes(2);
+    expect(oauthState.resolveAccessState).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ forceRefresh: true }),
     );
+    expect(events.find((event) => event.type === "stop")).toMatchObject({
+      errorCode: "builder_oauth_refresh_failed",
+      statusCode: 401,
+    });
     expect(
       credentialState.recordBuilderGatewayAuthFailure,
     ).not.toHaveBeenCalled();
-    expect(oauthState.markReconnect).toHaveBeenCalledWith("person@example.com");
+    expect(oauthState.markReconnect).not.toHaveBeenCalled();
   });
 
   it("maps non-transient OAuth lookup failures to a typed reconnect error", async () => {
@@ -1335,23 +1340,60 @@ describe("createBuilderEngine", () => {
     oauthState.scope = "org";
     oauthState.accessToken = "oauth-access-token";
     oauthState.stored = true;
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
+    oauthState.resolveAccessState
+      .mockResolvedValueOnce({
+        kind: "available",
+        access: {
+          accessToken: "oauth-access-token",
+          ownerEmail: "person@example.com",
+          scopes: ["builder:ai:invoke"],
+          scope: "org",
+          connectionId: "selected-org-grant",
+        },
+      })
+      .mockResolvedValueOnce({
+        kind: "available",
+        access: {
+          accessToken: "refreshed-access-token",
+          ownerEmail: "person@example.com",
+          scopes: ["builder:ai:invoke"],
+          scope: "org",
+          connectionId: "selected-org-grant",
+        },
+      });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
         jsonErrorResponse(401, {
           code: "unauthorized",
-          message: "Invalid token",
+          message: "Expired token",
         }),
-      ),
-    );
+      )
+      .mockResolvedValueOnce(
+        jsonErrorResponse(401, {
+          code: "unauthorized",
+          message: "Invalid refreshed token",
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
 
-    await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
 
-    expect(oauthState.resolveAccessState).toHaveBeenCalledWith(
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1]?.[1]?.headers).toMatchObject({
+      Authorization: "Bearer refreshed-access-token",
+    });
+    expect(oauthState.resolveAccessState).toHaveBeenNthCalledWith(
+      2,
       expect.objectContaining({
         ownerEmail: "person@example.com",
         orgId: "org-request",
+        forceRefresh: true,
+        connectionId: "selected-org-grant",
       }),
+    );
+    expect(events.find((event) => event.type === "stop")?.errorCode).toBe(
+      "builder_auth_error",
     );
     expect(oauthState.markReconnect).toHaveBeenCalledWith(
       "person@example.com",

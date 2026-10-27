@@ -532,6 +532,18 @@ class BuilderEngine implements AgentEngine {
             return;
           }
           response = retryResult.response;
+        } else {
+          await response.body?.cancel().catch(() => {});
+          yield gatewayErrorStop(
+            {
+              error: BUILDER_RECONNECT_MESSAGE,
+              errorCode: "builder_oauth_refresh_failed",
+              statusCode: 401,
+            },
+            false,
+            requestShape,
+          );
+          return;
         }
       }
 

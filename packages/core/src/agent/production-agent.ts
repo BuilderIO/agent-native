@@ -390,6 +390,7 @@ import { applyUncheckedDefaultModelReplacement } from "./provider-model-selectio
 import {
   IncompleteAgentRunError,
   incompleteAgentRunFailure,
+  RUN_RATE_LIMITED_MESSAGE,
 } from "./run-errors.js";
 import {
   startRun,
@@ -12054,8 +12055,7 @@ export function rateLimitChainCapTripped(opts: {
   );
 }
 
-export const PROVIDER_RATE_LIMITED_TERMINAL_MESSAGE =
-  "The AI provider is rate limiting requests right now. Wait a minute and try again.";
+export const PROVIDER_RATE_LIMITED_TERMINAL_MESSAGE = RUN_RATE_LIMITED_MESSAGE;
 
 export function rateLimitChainCapTerminalEvent(
   run: ActiveRun,

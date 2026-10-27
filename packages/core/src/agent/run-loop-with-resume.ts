@@ -163,7 +163,7 @@ async function completedSideEffectInCurrentTurn(
 
 function internalContinuationReasonForAttempt(
   events: readonly AgentChatEvent[],
-): AgentLoopContinuationReason | undefined {
+): Exclude<AgentLoopContinuationReason, "max_tokens"> | undefined {
   const last = events.at(-1);
   if (last?.type !== "auto_continue") return undefined;
   if (
@@ -341,9 +341,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
           hasSuccessfulToolOutput: directEvents.some(
             (event) => event.type === "tool_done" && event.isError !== true,
           ),
-          ...(unfinishedReason === "stream_ended"
-            ? { reason: unfinishedReason }
-            : {}),
+          reason: unfinishedReason,
         });
         reportFinalOutcome({
           state: "failed",
@@ -476,9 +474,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
             hasSuccessfulToolOutput: localTurnEvents.some(
               (event) => event.type === "tool_done" && event.isError !== true,
             ),
-            ...(unfinishedReason === "stream_ended"
-              ? { reason: unfinishedReason }
-              : {}),
+            reason: unfinishedReason,
           });
           reportFinalOutcome({
             state: "failed",

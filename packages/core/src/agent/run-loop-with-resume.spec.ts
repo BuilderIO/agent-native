@@ -21,6 +21,9 @@ import {
 } from "./production-agent.js";
 import {
   IncompleteAgentRunError,
+  RUN_GATEWAY_TIMEOUT_MESSAGE,
+  RUN_NETWORK_INTERRUPTED_MESSAGE,
+  RUN_RATE_LIMITED_MESSAGE,
   RUN_STREAM_ENDED_ERROR_CODE,
   RUN_STREAM_ENDED_MESSAGE,
 } from "./run-errors.js";
@@ -1403,6 +1406,59 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     ]);
   });
 
+  it.each([
+    {
+      reason: "gateway_timeout" as const,
+      code: "gateway_timeout",
+      message: RUN_GATEWAY_TIMEOUT_MESSAGE,
+    },
+    {
+      reason: "network_interrupted" as const,
+      code: "network_interrupted",
+      message: RUN_NETWORK_INTERRUPTED_MESSAGE,
+    },
+    {
+      reason: "rate_limited" as const,
+      code: "rate_limited",
+      message: RUN_RATE_LIMITED_MESSAGE,
+    },
+  ])(
+    "preserves the $reason classification when a direct run is unfinished",
+    async ({ reason, code, message }) => {
+      const outcomes: AgentLoopOutcome[] = [];
+      mockRunAgentLoop.mockImplementation(async (opts) => {
+        opts.onModelDispatchStarted?.();
+        opts.send({ type: "auto_continue", reason });
+        return {
+          inputTokens: 1,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "test-model",
+        };
+      });
+
+      await expect(
+        runAgentLoopDirectWithSoftTimeout(
+          makeOpts(
+            [{ role: "user", content: [{ type: "text", text: "go" }] }],
+            new AbortController().signal,
+            undefined,
+            undefined,
+            outcomes,
+          ),
+          0,
+        ),
+      ).rejects.toMatchObject({ errorCode: code, message });
+      expect(outcomes.at(-1)).toEqual({
+        state: "failed",
+        code,
+        retryable: false,
+        message,
+      });
+    },
+  );
+
   it("preserves accumulated usage on continuation-budget failure", async () => {
     let attempts = 0;
     mockRunAgentLoop.mockImplementation(async (opts) => {
@@ -2396,55 +2452,80 @@ describe("chunk-boundary recovery", () => {
     });
   });
 
-  it("throws a typed failure for an unfinished zero-timeout run with chunk control", async () => {
-    const turn = new AbortController();
-    const { control } = makeControl(turn.signal);
-    const outcomes: AgentLoopOutcome[] = [];
-    mockRunAgentLoop.mockImplementation(async (opts: any) => {
-      opts.onModelDispatchStarted?.();
-      opts.send({ type: "auto_continue", reason: "stream_ended" });
-      return {
-        inputTokens: 2,
-        outputTokens: 3,
-        cacheReadTokens: 4,
-        cacheWriteTokens: 5,
-        model: "test-model",
-      };
-    });
+  it.each([
+    {
+      reason: "gateway_timeout" as const,
+      code: "gateway_timeout",
+      message: RUN_GATEWAY_TIMEOUT_MESSAGE,
+    },
+    {
+      reason: "network_interrupted" as const,
+      code: "network_interrupted",
+      message: RUN_NETWORK_INTERRUPTED_MESSAGE,
+    },
+    {
+      reason: "rate_limited" as const,
+      code: "rate_limited",
+      message: RUN_RATE_LIMITED_MESSAGE,
+    },
+    {
+      reason: "stream_ended" as const,
+      code: RUN_STREAM_ENDED_ERROR_CODE,
+      message: RUN_STREAM_ENDED_MESSAGE,
+    },
+  ])(
+    "preserves $reason for an unfinished zero-timeout run with chunk control",
+    async ({ reason, code, message }) => {
+      const turn = new AbortController();
+      const { control } = makeControl(turn.signal);
+      const outcomes: AgentLoopOutcome[] = [];
+      mockRunAgentLoop.mockImplementation(async (opts: any) => {
+        opts.onModelDispatchStarted?.();
+        opts.send({ type: "auto_continue", reason });
+        return {
+          inputTokens: 2,
+          outputTokens: 3,
+          cacheReadTokens: 4,
+          cacheWriteTokens: 5,
+          model: "test-model",
+        };
+      });
 
-    await expect(
-      runAgentLoopDirectWithSoftTimeout(
-        makeOpts(
-          [{ role: "user", content: [{ type: "text", text: "go" }] }],
-          control.chunkSignal,
+      await expect(
+        runAgentLoopDirectWithSoftTimeout(
+          makeOpts(
+            [{ role: "user", content: [{ type: "text", text: "go" }] }],
+            control.chunkSignal,
+            undefined,
+            "thread-controlled-zero-timeout",
+            outcomes,
+          ),
+          0,
           undefined,
-          "thread-controlled-zero-timeout",
-          outcomes,
+          control,
         ),
-        0,
-        undefined,
-        control,
-      ),
-    ).rejects.toMatchObject({
-      errorCode: RUN_STREAM_ENDED_ERROR_CODE,
-      usage: {
-        inputTokens: 2,
-        outputTokens: 3,
-        cacheReadTokens: 4,
-        cacheWriteTokens: 5,
-        model: "test-model",
-      },
-    });
+      ).rejects.toMatchObject({
+        errorCode: code,
+        message,
+        usage: {
+          inputTokens: 2,
+          outputTokens: 3,
+          cacheReadTokens: 4,
+          cacheWriteTokens: 5,
+          model: "test-model",
+        },
+      });
 
-    expect(outcomes).toEqual([
-      {
-        state: "failed",
-        code: RUN_STREAM_ENDED_ERROR_CODE,
-        retryable: false,
-        message: RUN_STREAM_ENDED_MESSAGE,
-      },
-    ]);
-  });
+      expect(outcomes).toEqual([
+        {
+          state: "failed",
+          code,
+          retryable: false,
+          message,
+        },
+      ]);
+    },
+  );
 });
 
 describe("clientAbortReason", () => {

@@ -6,8 +6,14 @@ import {
   RUN_BUDGET_EXHAUSTED_ERROR_CODE,
   RUN_BUDGET_EXHAUSTED_MESSAGE,
   RUN_CONTINUATION_LIMIT_EXHAUSTED_MESSAGE,
+  RUN_GATEWAY_TIMEOUT_MESSAGE,
+  RUN_LOOP_LIMIT_MESSAGE,
+  RUN_NETWORK_INTERRUPTED_MESSAGE,
+  RUN_NO_PROGRESS_MESSAGE,
+  RUN_RATE_LIMITED_MESSAGE,
   RUN_STREAM_ENDED_ERROR_CODE,
   RUN_STREAM_ENDED_MESSAGE,
+  RUN_TIMEOUT_MESSAGE,
   incompleteAgentRunFailure,
 } from "./run-errors.js";
 
@@ -78,4 +84,49 @@ describe("incompleteAgentRunFailure", () => {
       message: RUN_STREAM_ENDED_MESSAGE,
     });
   });
+
+  it.each([
+    {
+      reason: "run_timeout" as const,
+      code: "run_timeout",
+      message: RUN_TIMEOUT_MESSAGE,
+    },
+    {
+      reason: "loop_limit" as const,
+      code: "loop_limit",
+      message: RUN_LOOP_LIMIT_MESSAGE,
+    },
+    {
+      reason: "no_progress" as const,
+      code: "no_progress",
+      message: RUN_NO_PROGRESS_MESSAGE,
+    },
+    {
+      reason: "gateway_timeout" as const,
+      code: "gateway_timeout",
+      message: RUN_GATEWAY_TIMEOUT_MESSAGE,
+    },
+    {
+      reason: "network_interrupted" as const,
+      code: "network_interrupted",
+      message: RUN_NETWORK_INTERRUPTED_MESSAGE,
+    },
+    {
+      reason: "rate_limited" as const,
+      code: "rate_limited",
+      message: RUN_RATE_LIMITED_MESSAGE,
+    },
+  ])(
+    "preserves $reason as a typed run failure",
+    ({ reason, code, message }) => {
+      expect(
+        incompleteAgentRunFailure({
+          dispatchedModelCalls: 1,
+          hasVisibleText: false,
+          hasSuccessfulToolOutput: false,
+          reason,
+        }),
+      ).toEqual({ code, message });
+    },
+  );
 });
