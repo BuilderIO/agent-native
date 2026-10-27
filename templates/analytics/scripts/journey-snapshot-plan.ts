@@ -65,6 +65,10 @@ export interface SnapshotBand {
   tree: SnapshotTree;
 }
 
+function arrayItemAt<T>(items: readonly T[], index: number): T | undefined {
+  return items.slice(index, index + 1)[0];
+}
+
 export function validateSnapshotCostEstimate(
   value: unknown,
   expected: { maxTotalBytesBilled: number },
@@ -337,7 +341,7 @@ export function selectCaptureTree<T extends SnapshotTree>(
           `Selected journey node ${node.key} has no example list.`,
         );
       }
-      const example = available[exampleIndex];
+      const example = arrayItemAt(available, exampleIndex);
       if (!example) continue;
       examples.push(example);
       frameCount += 1;
