@@ -401,7 +401,19 @@ it("refuses a pick from a collection editor who can't edit the page", async () =
         status: "published",
       }),
     );
+  const collaboratorChoices = async () =>
+    (
+      await runWithRequestContext({ userEmail: collaborator }, () =>
+        listProperties.run({
+          documentId: "doc_entry_draft",
+          databaseId: DATABASE_ID,
+        }),
+      )
+    ).properties.find(
+      (property) => property.definition.systemRole === "builder_status",
+    )?.builderStatusChoices ?? null;
   try {
+    expect(await collaboratorChoices()).toBeNull();
     await expect(pickAsCollaborator()).rejects.toThrow(
       "Requires editor role on document doc_entry_draft (have viewer)",
     );
@@ -416,6 +428,7 @@ it("refuses a pick from a collection editor who can't edit the page", async () =
           eq(schema.documentShares.principalId, collaborator),
         ),
       );
+    expect(await collaboratorChoices()).not.toBeNull();
     await expect(pickAsCollaborator()).resolves.toMatchObject({
       stagedPublicationTransition: "publish",
     });
@@ -546,7 +559,7 @@ it("blocks an approved publish-only push once its pick is cleared", async () => 
     .where(eq(schema.contentDatabases.id, DATABASE_ID));
   const approvedId = "csc_entry_draft_approved_publish";
   const cleared =
-    "This entry's staged publish was cleared, and the push has nothing else to send.";
+    "This push only sends a publish, and this entry has no publish staged.";
   const blockers = async () => {
     const snapshot = await asOwner(() =>
       utils.getContentDatabaseSourceSnapshot(database),

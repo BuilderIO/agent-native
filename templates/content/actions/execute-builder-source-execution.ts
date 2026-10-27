@@ -2265,6 +2265,21 @@ export async function executeBuilderSourceExecutionWithDeps(
         livePreflight,
       };
     }
+    // The claim and live preflight can take a while, so the page edit access
+    // a publish or unpublish needs is checked again just before it is sent.
+    if (args.publicationTransition && changeSet.documentId) {
+      try {
+        await deps.assertPageEditor(changeSet.documentId);
+      } catch (error) {
+        await releaseClaim({
+          state: execution.state,
+          summary: `${plan.summary} Execution stopped before write.`,
+          payload: validatedPayload,
+          lastError: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
+    }
     const writePlan: BuilderCmsExecutionPlan = {
       ...plan,
       payload: writePayload,
