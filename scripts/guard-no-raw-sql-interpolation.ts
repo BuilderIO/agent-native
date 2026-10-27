@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -263,10 +263,14 @@ function isImportedDbExecNamespace(
   identifier: ts.Identifier,
   checker: ts.TypeChecker,
   sourceFile: ts.SourceFile,
+  seen: ReadonlySet<ts.Symbol> = new Set(),
 ): boolean {
   const symbol = checker.getSymbolAtLocation(identifier);
+  if (!symbol || seen.has(symbol)) return false;
+  const nextSeen = new Set(seen);
+  nextSeen.add(symbol);
   return (
-    symbol?.declarations?.some((declaration) => {
+    symbol.declarations?.some((declaration) => {
       if (ts.isNamespaceImport(declaration)) {
         const importClause = declaration.parent;
         if (!ts.isImportClause(importClause)) return false;
@@ -283,7 +287,13 @@ function isImportedDbExecNamespace(
       return (
         ts.isVariableDeclaration(declaration) &&
         declaration.initializer !== undefined &&
-        isDynamicDbExecImport(declaration.initializer, sourceFile)
+        (isDynamicDbExecImport(declaration.initializer, sourceFile) ||
+          isImportedDbExecNamespaceExpression(
+            declaration.initializer,
+            checker,
+            sourceFile,
+            nextSeen,
+          ))
       );
     }) ?? false
   );
@@ -315,9 +325,10 @@ function isImportedDbExecNamespaceExpression(
   expression: ts.Expression,
   checker: ts.TypeChecker,
   sourceFile: ts.SourceFile,
+  seen: ReadonlySet<ts.Symbol> = new Set(),
 ): boolean {
   if (ts.isIdentifier(expression)) {
-    return isImportedDbExecNamespace(expression, checker, sourceFile);
+    return isImportedDbExecNamespace(expression, checker, sourceFile, seen);
   }
   return isDynamicDbExecImport(expression, sourceFile);
 }
@@ -509,37 +520,22 @@ function isDbExecExpression(
   ) {
     return true;
   }
-  if (!ts.isIdentifier(current)) return false;
-  const symbol = checker.getSymbolAtLocation(current);
-  if (!symbol || seen.has(symbol)) return false;
-  const nextSeen = new Set(seen);
-  nextSeen.add(symbol);
-  return (
-    symbol.declarations?.some((declaration) => {
-      if (
-        ts.isVariableDeclaration(declaration) &&
-        declaration.initializer &&
-        isDbExecExpression(
-          declaration.initializer,
-          checker,
-          sourceFile,
-          nextSeen,
-        )
-      ) {
-        return true;
-      }
-      return (
-        (ts.isVariableDeclaration(declaration) ||
-          ts.isParameter(declaration) ||
-          ts.isPropertyDeclaration(declaration) ||
-          ts.isPropertySignature(declaration)) &&
-        ((declaration.type !== undefined &&
-          isImportedDbExecType(declaration.type, checker, sourceFile)) ||
-          (ts.isParameter(declaration) &&
-            isDbExecContextParameter(declaration, checker, sourceFile)))
+  let symbol: ts.Symbol | undefined;
+  if (ts.isIdentifier(current)) {
+    symbol = checker.getSymbolAtLocation(current);
+  } else if (ts.isPropertyAccessExpression(current)) {
+    symbol = checker.getSymbolAtLocation(current.name);
+  } else if (ts.isElementAccessExpression(current)) {
+    const name = staticStringPropertyName(current.argumentExpression);
+    if (name !== undefined) {
+      symbol = checker.getPropertyOfType(
+        checker.getTypeAtLocation(current.expression),
+        name,
       );
-    }) ?? false
-  );
+    }
+  }
+  if (!symbol || seen.has(symbol)) return false;
+  return isDbExecSymbol(symbol, checker, sourceFile, seen);
 }
 
 function isDbExecType(
@@ -562,6 +558,200 @@ function isDbExecType(
     ts.isIdentifier(typeArgument.exprName) &&
     isImportedDbExecFactory(typeArgument.exprName, checker, sourceFile)
   );
+}
+
+function isDbExecSymbol(
+  symbol: ts.Symbol,
+  checker: ts.TypeChecker,
+  sourceFile: ts.SourceFile,
+  seen: ReadonlySet<ts.Symbol>,
+): boolean {
+  if (seen.has(symbol)) return false;
+  const nextSeen = new Set(seen);
+  nextSeen.add(symbol);
+  return (
+    symbol.declarations?.some((declaration) => {
+      if (
+        ts.isVariableDeclaration(declaration) &&
+        declaration.initializer &&
+        isDbExecExpression(
+          declaration.initializer,
+          checker,
+          sourceFile,
+          nextSeen,
+        )
+      ) {
+        return true;
+      }
+      if (
+        ts.isPropertyAssignment(declaration) &&
+        isDbExecExpression(
+          declaration.initializer,
+          checker,
+          sourceFile,
+          nextSeen,
+        )
+      ) {
+        return true;
+      }
+      if (ts.isShorthandPropertyAssignment(declaration)) {
+        const valueSymbol =
+          checker.getShorthandAssignmentValueSymbol(declaration);
+        if (
+          valueSymbol &&
+          isDbExecSymbol(valueSymbol, checker, sourceFile, nextSeen)
+        ) {
+          return true;
+        }
+      }
+      let declaredType: ts.TypeNode | undefined;
+      if (
+        ts.isGetAccessorDeclaration(declaration) ||
+        ts.isMethodDeclaration(declaration) ||
+        ts.isMethodSignature(declaration)
+      ) {
+        declaredType = declaration.type;
+      } else if (
+        ts.isVariableDeclaration(declaration) ||
+        ts.isParameter(declaration) ||
+        ts.isPropertyDeclaration(declaration) ||
+        ts.isPropertySignature(declaration)
+      ) {
+        declaredType = declaration.type;
+      }
+      if (declaredType && isDbExecType(declaredType, checker, sourceFile)) {
+        return true;
+      }
+      return (
+        ts.isParameter(declaration) &&
+        isDbExecContextParameter(declaration, checker, sourceFile)
+      );
+    }) ?? false
+  );
+}
+
+function resolveImportedSourceFile(
+  moduleName: string,
+  containingFile: string,
+): ts.SourceFile | undefined {
+  let modulePath: string | undefined;
+  if (moduleName.startsWith(".")) {
+    modulePath = path.resolve(path.dirname(containingFile), moduleName);
+  } else if (moduleName.startsWith("@agent-native/core/")) {
+    modulePath = path.resolve(
+      rootDir,
+      "packages/core/src",
+      moduleName.slice("@agent-native/core/".length),
+    );
+  }
+  if (!modulePath || !modulePath.startsWith(`${rootDir}${path.sep}`)) {
+    return undefined;
+  }
+  const jsSourcePath = modulePath.replace(/\.(?:mjs|cjs|js|jsx)$/i, (ext) => {
+    if (ext === ".mjs") return ".mts";
+    if (ext === ".cjs") return ".cts";
+    return ext === ".jsx" ? ".tsx" : ".ts";
+  });
+  const candidates = sourceExtension.test(modulePath)
+    ? [jsSourcePath]
+    : [
+        `${modulePath}.ts`,
+        `${modulePath}.tsx`,
+        `${modulePath}.mts`,
+        `${modulePath}.cts`,
+        path.join(modulePath, "index.ts"),
+        path.join(modulePath, "index.tsx"),
+      ];
+  const candidate = candidates.find((fileName) => existsSync(fileName));
+  if (!candidate) return undefined;
+  return ts.createSourceFile(
+    candidate,
+    readFileSync(candidate, "utf8"),
+    ts.ScriptTarget.Latest,
+    true,
+    scriptKind(candidate),
+  );
+}
+
+interface ImportedCallbackSignature {
+  parameters: readonly ts.ParameterDeclaration[];
+  checker: ts.TypeChecker;
+  sourceFile: ts.SourceFile;
+}
+
+function importedFunctionParameters(
+  call: ts.CallExpression,
+  checker: ts.TypeChecker,
+  sourceFile: ts.SourceFile,
+): ImportedCallbackSignature | undefined {
+  if (!ts.isIdentifier(call.expression)) return undefined;
+  const symbol = checker.getSymbolAtLocation(call.expression);
+  if (!symbol) return undefined;
+  for (const declaration of symbol.declarations ?? []) {
+    if (!ts.isImportSpecifier(declaration)) continue;
+    const importedName = declaration.propertyName ?? declaration.name;
+    const importClause = declaration.parent.parent;
+    if (!ts.isImportClause(importClause)) continue;
+    const importDeclaration = importClause.parent;
+    if (
+      !ts.isImportDeclaration(importDeclaration) ||
+      !ts.isStringLiteral(importDeclaration.moduleSpecifier)
+    ) {
+      continue;
+    }
+    const moduleSource = resolveImportedSourceFile(
+      importDeclaration.moduleSpecifier.text,
+      sourceFile.fileName,
+    );
+    if (!moduleSource) continue;
+    const helperChecker = createChecker(moduleSource);
+    for (const statement of moduleSource.statements) {
+      if (
+        ts.isFunctionDeclaration(statement) &&
+        statement.name?.text === importedName.text &&
+        statement.modifiers?.some(
+          (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword,
+        )
+      ) {
+        return {
+          parameters: statement.parameters,
+          checker: helperChecker,
+          sourceFile: moduleSource,
+        };
+      }
+      if (
+        !ts.isVariableStatement(statement) ||
+        !statement.modifiers?.some(
+          (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword,
+        )
+      ) {
+        continue;
+      }
+      const helper = statement.declarationList.declarations.find(
+        (item) =>
+          ts.isIdentifier(item.name) && item.name.text === importedName.text,
+      );
+      if (
+        helper?.initializer &&
+        (ts.isArrowFunction(helper.initializer) ||
+          ts.isFunctionExpression(helper.initializer))
+      ) {
+        return {
+          parameters: helper.initializer.parameters,
+          checker: helperChecker,
+          sourceFile: moduleSource,
+        };
+      }
+      if (helper?.type && ts.isFunctionTypeNode(helper.type)) {
+        return {
+          parameters: helper.type.parameters,
+          checker: helperChecker,
+          sourceFile: moduleSource,
+        };
+      }
+    }
+  }
+  return undefined;
 }
 
 function isDbExecCallbackType(
@@ -587,6 +777,20 @@ function isDbExecCallbackArgument(
   const callbackIndex = call.arguments.indexOf(callback);
   if (callbackIndex < 0) return false;
   const symbol = checker.getSymbolAtLocation(call.expression);
+  const importedParameters = importedFunctionParameters(
+    call,
+    checker,
+    sourceFile,
+  );
+  if (
+    isDbExecCallbackType(
+      importedParameters?.parameters[callbackIndex]?.type,
+      importedParameters?.checker ?? checker,
+      importedParameters?.sourceFile ?? sourceFile,
+    )
+  ) {
+    return true;
+  }
   return (
     symbol?.declarations?.some((declaration) => {
       let parameters: readonly ts.ParameterDeclaration[] | undefined;
@@ -631,8 +835,8 @@ function isDbExecContextParameter(
     return false;
   }
   const callbackIndex = call.arguments.indexOf(callback);
-  if (callbackIndex > 0) {
-    return isDbExecCallbackArgument(call, callback, checker, sourceFile);
+  if (isDbExecCallbackArgument(call, callback, checker, sourceFile)) {
+    return true;
   }
   if (
     ts.isIdentifier(call.expression) &&

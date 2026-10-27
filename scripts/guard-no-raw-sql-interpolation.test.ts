@@ -180,6 +180,36 @@ describe("raw SQL interpolation guard", () => {
     ).toHaveLength(1);
   });
 
+  it("recognizes DbExec receivers reached through class and object properties", () => {
+    const classProperty = source([
+      'import type { DbExec } from "./db/client.js";',
+      "class Context {",
+      "  db: DbExec;",
+      "  run(recordId: string) {",
+      "    this.db.execute(`SELECT * FROM records WHERE id = ${recordId}`);",
+      "  }",
+      "}",
+    ]);
+    const objectProperty = source([
+      "const context = { db: getDbExec() };",
+      "context.db.execute(`SELECT * FROM records WHERE id = ${recordId}`);",
+    ]);
+    const unrelated = source([
+      "const context = { db: { execute: (query: unknown) => query } };",
+      "context.db.execute(`SELECT * FROM records WHERE id = ${recordId}`);",
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolations(FILE, classProperty, new Set([5])),
+    ).toHaveLength(1);
+    expect(
+      findRawSqlInterpolationViolations(FILE, objectProperty, new Set([2])),
+    ).toHaveLength(1);
+    expect(
+      findRawSqlInterpolationViolations(FILE, unrelated, new Set([2])),
+    ).toEqual([]);
+  });
+
   it("recognizes the fenced-write callback's contextual DbExec parameter", () => {
     const text = source([
       'import { withFencedExecutionWrite } from "./agent/execution-fence.js";',
@@ -220,6 +250,34 @@ describe("raw SQL interpolation guard", () => {
     ).toHaveLength(1);
   });
 
+  it("recognizes a DbExec callback in the first argument of a local wrapper", () => {
+    const text = source([
+      "async function withTransaction<T>(fn: (tx: ReturnType<typeof getDbExec>) => Promise<T>): Promise<T> {",
+      "  return fn(getDbExec());",
+      "}",
+      "withTransaction(async (tx) =>",
+      "  tx.execute(`SELECT * FROM records WHERE id = ${recordId}`),",
+      ");",
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolations(FILE, text, new Set([5])),
+    ).toHaveLength(1);
+  });
+
+  it("recognizes a DbExec callback typed by an imported transaction wrapper", () => {
+    const text = source([
+      'import { withServicePrincipalLifecycleLock } from "./org/service-principal-policy.js";',
+      'withServicePrincipalLifecycleLock("org", "service", async (tx) =>',
+      "  tx.execute(`SELECT * FROM records WHERE id = ${recordId}`),",
+      ");",
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolations(FILE, text, new Set([3])),
+    ).toHaveLength(1);
+  });
+
   it("recognizes DbExec factories from trusted dynamic imports", () => {
     const immediate = source([
       '(await import("./db/index.js")).getDbExec().execute(`SELECT * FROM records WHERE id = ${recordId}`);',
@@ -227,6 +285,11 @@ describe("raw SQL interpolation guard", () => {
     const namespace = source([
       'const coreDb = await import("./db/index.js");',
       "coreDb.getDbExec().execute(`SELECT * FROM records WHERE id = ${recordId}`);",
+    ]);
+    const namespaceAlias = source([
+      'const coreDb = await import("./db/index.js");',
+      "const dbModule = coreDb;",
+      "dbModule.getDbExec().execute(`SELECT * FROM records WHERE id = ${recordId}`);",
     ]);
     const destructured = source([
       'const { getDbExec: createDbExec } = await import("./db/index.js");',
@@ -242,6 +305,9 @@ describe("raw SQL interpolation guard", () => {
     ).toHaveLength(1);
     expect(
       findRawSqlInterpolationViolations(FILE, namespace, new Set([2])),
+    ).toHaveLength(1);
+    expect(
+      findRawSqlInterpolationViolations(FILE, namespaceAlias, new Set([3])),
     ).toHaveLength(1);
     expect(
       findRawSqlInterpolationViolations(FILE, destructured, new Set([2])),
