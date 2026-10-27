@@ -4628,7 +4628,7 @@ export function databaseBuilderReviewAfterExecution(
   executions: DatabaseBuilderRowExecution[],
 ) {
   const sources = executions.flatMap(({ source }) => (source ? [source] : []));
-  const latestSource = sources[sources.length - 1];
+  const latestSource = sources.length > 0 ? sources[sources.length - 1] : null;
   if (!latestSource) return null;
   const changeSetsById = new Map(
     sources.flatMap((source) =>

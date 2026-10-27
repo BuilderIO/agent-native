@@ -1506,12 +1506,12 @@ async function changeSetDocumentIds(
 ): Promise<string[]> {
   if (changeSet.documentId) return [changeSet.documentId];
   if (!changeSet.databaseItemId) return [];
-  const [item] = await getDb()
+  const items = await getDb()
     .select({ documentId: schema.contentDatabaseItems.documentId })
     .from(schema.contentDatabaseItems)
     .where(eq(schema.contentDatabaseItems.id, changeSet.databaseItemId))
     .limit(1);
-  return item ? [item.documentId] : [];
+  return items.map((item) => item.documentId);
 }
 
 export async function executeBuilderSourceExecutionWithDeps(

@@ -1256,7 +1256,7 @@ describe("Builder source settings helpers", () => {
       { ...prepared[1], rows: prepared.flatMap((source) => source.rows) },
       prepared.flatMap((source) => source.changeSets),
     );
-    const pushed = ["first", "second"].map((id) => ({
+    const pushedRow = (id: string) => ({
       changeSetId: `change-${id}`,
       source: rowSource(id, {
         state: "applied",
@@ -1264,7 +1264,9 @@ describe("Builder source settings helpers", () => {
           builderExecution({ changeSetId: `change-${id}`, state: "succeeded" }),
         ],
       }),
-    }));
+    });
+    const pushedFirst = pushedRow("first");
+    const pushed = [pushedFirst, pushedRow("second")];
 
     const review = databaseBuilderReviewAfterExecution(preparedReview, pushed);
 
@@ -1284,8 +1286,8 @@ describe("Builder source settings helpers", () => {
     });
     expect(
       databaseBuilderReviewAfterExecution(preparedReview, [
-        pushed[0]!,
-        { changeSetId: "change-second", source: pushed[0]!.source },
+        pushedFirst,
+        { changeSetId: "change-second", source: pushedFirst.source },
       ]),
     ).toBeNull();
 
@@ -1296,7 +1298,11 @@ describe("Builder source settings helpers", () => {
     expect(
       skipped?.rows.map((row) => [row.changeSetId, row.execution?.state]),
     ).toEqual([
-      ["change-first", preparedReview.rows[0]!.execution?.state],
+      [
+        "change-first",
+        preparedReview.rows.find((row) => row.changeSetId === "change-first")
+          ?.execution?.state,
+      ],
       ["change-second", "succeeded"],
     ]);
     expect(skipped?.result.status).toBe("succeeded");
