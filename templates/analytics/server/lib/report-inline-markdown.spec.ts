@@ -101,6 +101,19 @@ describe("safeReportLinkHref", () => {
         BASE,
       ),
     ).toBeNull();
+    // Another scheme or port on the same host is still the dashboard's host.
+    expect(
+      safeReportLinkHref(
+        "http://analytics.example.com/_agent-native/actions/run",
+        BASE,
+      ),
+    ).toBeNull();
+    expect(
+      safeReportLinkHref(
+        "https://analytics.example.com:8443/_agent-native/actions/run",
+        BASE,
+      ),
+    ).toBeNull();
     expect(
       safeReportLinkHref("https://analytics.example.com/dashboards/prs", BASE),
     ).toBe("https://analytics.example.com/dashboards/prs");

@@ -63,8 +63,8 @@ function isFrameworkPath(pathname: string): boolean {
 /**
  * The URL a report link may point at, or null to show the link's text alone:
  * http(s) only, and a relative path resolves against the dashboard's origin.
- * Links on the dashboard's own origin never reach the framework's
- * `_agent-native` endpoints.
+ * Links on the dashboard's own host, under any scheme or port, never reach the
+ * framework's `_agent-native` endpoints.
  */
 export function safeReportLinkHref(
   href: string,
@@ -72,8 +72,8 @@ export function safeReportLinkHref(
 ): string | null {
   const trimmed = href.trim();
   if (!trimmed || trimmed.startsWith("//")) return null;
-  const origin =
-    baseUrl && URL.canParse(baseUrl) ? new URL(baseUrl).origin : null;
+  const base = baseUrl && URL.canParse(baseUrl) ? new URL(baseUrl) : null;
+  const origin = base?.origin ?? null;
   if (trimmed.startsWith("/")) {
     if (!origin) return null;
     const resolved = new URL(trimmed, origin);
@@ -85,7 +85,9 @@ export function safeReportLinkHref(
   if (!URL.canParse(trimmed)) return null;
   const parsed = new URL(trimmed);
   if (!isWebProtocol(parsed.protocol)) return null;
-  if (parsed.origin === origin && isFrameworkPath(parsed.pathname)) return null;
+  if (parsed.hostname === base?.hostname && isFrameworkPath(parsed.pathname)) {
+    return null;
+  }
   return trimmed;
 }
 
