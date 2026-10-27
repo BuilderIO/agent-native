@@ -426,6 +426,70 @@ describe("home-picked .fig handoff", () => {
     expect(mocks.importSourceMutate).not.toHaveBeenCalled();
   });
 
+  it("keeps pasted HTML when a selected file is rejected as non-HTML", async () => {
+    await render();
+    const htmlToggle = container.querySelector<HTMLButtonElement>(
+      'button[aria-controls="html-import"]',
+    );
+    if (!htmlToggle) throw new Error("Missing HTML import toggle");
+    await act(async () => htmlToggle.click());
+
+    const pasted = "<html><body>pasted source</body></html>";
+    await setHtmlDraft(pasted);
+    const file = new File(["plain text"], "invalid.html", {
+      type: "text/html",
+    });
+    await chooseHtmlFile(file);
+
+    await vi.waitFor(() =>
+      expect(mocks.error).toHaveBeenCalledWith(
+        "designEditor.import.errors.notHtml",
+      ),
+    );
+    expect(
+      container.querySelector<HTMLTextAreaElement>("textarea")?.value,
+    ).toBe(pasted);
+    expect(mocks.importSourceMutate).not.toHaveBeenCalled();
+  });
+
+  it("cancels a pending file read when pasted HTML is rejected", async () => {
+    await render();
+    const htmlToggle = container.querySelector<HTMLButtonElement>(
+      'button[aria-controls="html-import"]',
+    );
+    if (!htmlToggle) throw new Error("Missing HTML import toggle");
+    await act(async () => htmlToggle.click());
+
+    const pasted = "plain text";
+    await setHtmlDraft(pasted);
+    let resolveRead!: (content: string) => void;
+    const read = new Promise<string>((resolve) => {
+      resolveRead = resolve;
+    });
+    const file = new File([], "pending.html", { type: "text/html" });
+    Object.defineProperty(file, "text", {
+      configurable: true,
+      value: () => read,
+    });
+    await chooseHtmlFile(file);
+
+    await click("designEditor.import.importHtml");
+    expect(mocks.error).toHaveBeenCalledWith(
+      "designEditor.import.errors.notHtml",
+    );
+    expect(mocks.importSourceMutate).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveRead("<!doctype html><html><body>selected file</body></html>");
+      await read;
+    });
+
+    expect(mocks.importSourceMutate).not.toHaveBeenCalled();
+    expect(
+      container.querySelector<HTMLTextAreaElement>("textarea")?.value,
+    ).toBe(pasted);
+  });
+
   it("imports only the most recently selected HTML file when reads overlap", async () => {
     await render();
     const htmlToggle = container.querySelector<HTMLButtonElement>(

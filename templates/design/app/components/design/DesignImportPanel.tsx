@@ -369,11 +369,11 @@ export const DesignImportPanel = forwardRef<
 
   const importHtmlString = useCallback(
     (content: string, originalName?: string) => {
+      htmlFileReadRef.current += 1;
       if (!looksLikeStandaloneHtml(content)) {
         toast.error(t("designEditor.import.errors.notHtml"));
         return;
       }
-      htmlFileReadRef.current += 1;
       importSource.mutate(
         {
           designId: context.designId,
@@ -516,6 +516,10 @@ export const DesignImportPanel = forwardRef<
       try {
         const content = await file.text();
         if (readId !== htmlFileReadRef.current) return;
+        if (!looksLikeStandaloneHtml(content)) {
+          importHtmlString(content, file.name);
+          return;
+        }
         setHtmlText(content);
         importHtmlString(content, file.name);
       } catch {
