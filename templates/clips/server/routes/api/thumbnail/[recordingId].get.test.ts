@@ -35,6 +35,10 @@ vi.mock("drizzle-orm", () => ({
   eq: vi.fn(),
 }));
 
+vi.mock("@agent-native/core/a2a", () => ({
+  getGlobalA2ASecret: vi.fn(() => undefined),
+}));
+
 vi.mock("@agent-native/core/extensions/url-safety", () => ({
   createSsrfSafeDispatcher: (...args: unknown[]) =>
     mockCreateSsrfSafeDispatcher(...args),
