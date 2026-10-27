@@ -2044,6 +2044,9 @@ const messages: ToolkitAgentChatTranslation = {
     "Aprobado en la página de revisión de acciones del agente",
   "settings.audit.approvalMcpClient":
     "Aceptado por el cliente MCP (sin verificar)",
+  "settings.audit.approvalCliPrompt":
+    "Aprobado en el aviso de la CLI (sin verificar)",
+  "settings.audit.approvalCliFlag": "Repetido con --approved (sin verificar)",
   "settings.audit.changedBy": "Cambiado por",
   "settings.audit.close": "Cerrar",
   "settings.audit.empty": "No hay cambios en este periodo.",
