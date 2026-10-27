@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { classifyFigmaSync, hashJson, hashText } from "./figma-sync.js";
 import {
   filterFigmaSyncAgentActions,
   prepareFigmaSyncAgentRequest,
 } from "./figma-sync-flag.js";
+import { classifyFigmaSync, hashJson, hashText } from "./figma-sync.js";
 
 describe("Figma sync baselines", () => {
   const baseline = {

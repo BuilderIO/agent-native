@@ -14,8 +14,8 @@ import {
   resolveTargetNodeId,
   summarizeFidelity,
 } from "../server/lib/figma-node-import.js";
-import { hashJson, hashText } from "../server/lib/figma-sync.js";
 import { isFigmaSyncEnabled } from "../server/lib/figma-sync-flag.js";
+import { hashJson, hashText } from "../server/lib/figma-sync.js";
 import {
   resolveImportDesignId,
   saveImportedDesignFiles,

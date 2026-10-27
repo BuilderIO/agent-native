@@ -1,5 +1,5 @@
-import { useT } from "@agent-native/core/client/i18n";
 import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconAlertTriangle,
   IconBrandFigma,
@@ -12,7 +12,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
-import { FIGMA_SYNC } from "../../../shared/design-flags";
 import {
   FigmaFileUrlUsedAsTokenError,
   getFigmaConnectionStatus,
@@ -25,6 +24,8 @@ import {
   type FigmaLink,
   type FigmaLinkChatAction,
 } from "@/lib/figma-url";
+
+import { FIGMA_SYNC } from "../../../shared/design-flags";
 
 const FIGMA_TOKEN_DOCS_URL =
   "https://developers.figma.com/docs/rest-api/personal-access-tokens/";

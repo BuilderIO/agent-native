@@ -6,11 +6,11 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
-import { assertFigmaSyncEnabled } from "../server/lib/figma-sync-flag.js";
 import {
   buildScreenFilesFromFigmaNodes,
   fetchFigmaNodeSnapshot,
 } from "../server/lib/figma-node-import.js";
+import { assertFigmaSyncEnabled } from "../server/lib/figma-sync-flag.js";
 import {
   classifyFigmaSync,
   hashJson,
@@ -82,7 +82,9 @@ function failAction(
   },
 ): never {
   return errors.fail(message, options.errorCode, {
-    ...(options.statusCode === undefined ? {} : { statusCode: options.statusCode }),
+    ...(options.statusCode === undefined
+      ? {}
+      : { statusCode: options.statusCode }),
     ...(options.details === undefined ? {} : { details: options.details }),
   });
 }
@@ -275,7 +277,10 @@ export default defineAction({
       .from(schema.designs)
       .where(eq(schema.designs.id, args.designId));
     if (!design) {
-      failAction("Design not found.", { errorCode: "not_found", statusCode: 404 });
+      failAction("Design not found.", {
+        errorCode: "not_found",
+        statusCode: 404,
+      });
     }
     const [screenFile] = await db
       .select({
@@ -425,10 +430,13 @@ export default defineAction({
     );
     const replacement = imported.files.find((file) => file.fileType === "html");
     if (!replacement) {
-      failAction("The linked source node could not be converted to an HTML screen.", {
-        errorCode: "figma_sync_import_failed",
-        statusCode: 422,
-      });
+      failAction(
+        "The linked source node could not be converted to an HTML screen.",
+        {
+          errorCode: "figma_sync_import_failed",
+          statusCode: 422,
+        },
+      );
     }
 
     const latestSnapshot = await fetchFigmaNodeSnapshot(fileKey, nodeId);

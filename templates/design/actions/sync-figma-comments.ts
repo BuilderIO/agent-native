@@ -17,11 +17,11 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
-import { assertFigmaSyncEnabled } from "../server/lib/figma-sync-flag.js";
 import {
   fetchFigmaNodeSnapshot,
   providerJson,
 } from "../server/lib/figma-node-import.js";
+import { assertFigmaSyncEnabled } from "../server/lib/figma-sync-flag.js";
 import { executeProviderApiRequest } from "../server/lib/provider-api.js";
 import { parseFigmaFileKey, parseFigmaNodeId } from "../shared/figma-url.js";
 
@@ -85,7 +85,9 @@ function failAction(
   },
 ): never {
   return errors.fail(message, options.errorCode, {
-    ...(options.statusCode === undefined ? {} : { statusCode: options.statusCode }),
+    ...(options.statusCode === undefined
+      ? {}
+      : { statusCode: options.statusCode }),
     ...(options.details === undefined ? {} : { details: options.details }),
   });
 }
@@ -321,7 +323,10 @@ export default defineAction({
       .from(schema.designs)
       .where(eq(schema.designs.id, args.designId));
     if (!design) {
-      failAction("Design not found.", { errorCode: "not_found", statusCode: 404 });
+      failAction("Design not found.", {
+        errorCode: "not_found",
+        statusCode: 404,
+      });
     }
     const [screen] = await getDb()
       .select({ id: schema.designFiles.id })
@@ -691,28 +696,30 @@ export default defineAction({
               );
               continue;
             }
-            const failure = ({
-              400: {
-                errorCode: "figma_comments_invalid_request",
-                message:
-                  "The comment or reply target was rejected. Check it and try again.",
-              },
-              401: {
-                errorCode: "figma_comments_auth_failed",
-                message:
-                  "The connected source account rejected this comment. Reconnect and try again.",
-              },
-              403: {
-                errorCode: "figma_comments_write_forbidden",
-                message:
-                  "The connected account does not have permission to publish comments to this Draft.",
-              },
-              404: {
-                errorCode: "figma_comments_target_not_found",
-                message:
-                  "The linked source or reply target could not be found. Refresh the link and try again.",
-              },
-            } as const)[status as 400 | 401 | 403 | 404]!;
+            const failure = (
+              {
+                400: {
+                  errorCode: "figma_comments_invalid_request",
+                  message:
+                    "The comment or reply target was rejected. Check it and try again.",
+                },
+                401: {
+                  errorCode: "figma_comments_auth_failed",
+                  message:
+                    "The connected source account rejected this comment. Reconnect and try again.",
+                },
+                403: {
+                  errorCode: "figma_comments_write_forbidden",
+                  message:
+                    "The connected account does not have permission to publish comments to this Draft.",
+                },
+                404: {
+                  errorCode: "figma_comments_target_not_found",
+                  message:
+                    "The linked source or reply target could not be found. Refresh the link and try again.",
+                },
+              } as const
+            )[status as 400 | 401 | 403 | 404]!;
             failAction(failure.message, {
               errorCode: failure.errorCode,
               statusCode: status,
