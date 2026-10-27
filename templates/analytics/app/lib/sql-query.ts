@@ -321,12 +321,14 @@ export async function executeSqlQuery(
   }
 
   const metadata = responseMetadata(data);
-  recordQueryCost({
-    status: "success",
-    cached: metadata.cached,
-    providerCacheHit: metadata.providerCacheHit,
-    bytesProcessed: data.bytesProcessed,
-  });
+  if (scansBigQuery(source)) {
+    recordQueryCost({
+      status: "success",
+      cached: metadata.cached,
+      providerCacheHit: metadata.providerCacheHit,
+      bytesProcessed: data.bytesProcessed,
+    });
+  }
   // "none" is a claim that both layers missed; a response that does not say
   // so for each layer is unknown, never a miss.
   cacheType = metadata.cached
