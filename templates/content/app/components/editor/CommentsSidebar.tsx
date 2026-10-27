@@ -1524,6 +1524,18 @@ export function CommentsSidebar({
       ),
     );
   }, []);
+  // Cards closed by a resolve still saving. One is passed over once the
+  // selection leaves the thread that opened in its place or a new comment
+  // starts, so a failed resolve doesn't take back what came after.
+  const closedResolvesRef = useRef(
+    new Set<{ selection: string | null; passedOver: boolean }>(),
+  );
+  useEffect(() => {
+    for (const closed of closedResolvesRef.current) {
+      if ((selectedThreadId ?? null) !== closed.selection || pendingComment)
+        closed.passedOver = true;
+    }
+  }, [pendingComment, selectedThreadId]);
   const previousSelectionRef = useRef<string | null>(null);
   useEffect(() => {
     const previous = previousSelectionRef.current;
@@ -2652,6 +2664,21 @@ export function CommentsSidebar({
   const stackGuideHeight =
     (stackHeaderTop ?? 0) + (openStackLayout?.height ?? 0) - 16 - stackGuideTop;
 
+  // Resolving the open thread closes its card; staying selected would keep it
+  // in the margin with no highlight to sit by. In an open stack the next
+  // thread opens in its place, so the stack stays open for the rest.
+  const closeResolvedThread = (threadId: string) => {
+    const members = expandedStack?.threads ?? [];
+    const index = members.findIndex((member) => member.threadId === threadId);
+    const rest = members.filter((member) => member.threadId !== threadId);
+    const next =
+      index >= 0 && rest.length >= 2
+        ? (rest[Math.min(index, rest.length - 1)]?.threadId ?? null)
+        : null;
+    setReplyingThreadId(null);
+    onSelectedThreadChange?.(next);
+    return next;
+  };
   const changeResolution = async (thread: CommentThread, resolved: boolean) => {
     if (
       !canResolve ||
@@ -2662,6 +2689,13 @@ export function CommentsSidebar({
       !startResolution(thread.threadId)
     )
       return;
+    const closed =
+      resolved &&
+      presentation === "inline" &&
+      thread.threadId === selectedThreadId
+        ? { selection: closeResolvedThread(thread.threadId), passedOver: false }
+        : null;
+    if (closed) closedResolvesRef.current.add(closed);
     try {
       await resolveComment.mutateAsync({
         id: thread.comments[0].id,
@@ -2669,10 +2703,15 @@ export function CommentsSidebar({
         resolved,
       });
     } catch (error) {
+      // A failed resolve reopens the thread, so its card opens again too,
+      // unless the selection has moved or a new comment started since.
+      if (closed && !closed.passedOver)
+        onSelectedThreadChange?.(thread.threadId);
       toast.error(t("empty.genericError"), {
         description: error instanceof Error ? error.message : undefined,
       });
     } finally {
+      if (closed) closedResolvesRef.current.delete(closed);
       finishResolution(thread.threadId);
     }
   };
