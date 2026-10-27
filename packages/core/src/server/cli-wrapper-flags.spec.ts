@@ -325,4 +325,45 @@ describe("cliWrapperFlagsFromSource", () => {
       http: false,
     });
   });
+
+  it("reads the HTTP route from the action's own options, not nearby code", () => {
+    expect(
+      cliWrapperFlagsFromSource(
+        source(
+          [
+            '  http: { path: "/report" },',
+            '  cleanup: () => fetch(url, { method: "DELETE" }),',
+          ].join("\n"),
+        ),
+      ),
+    ).toEqual({ http: { path: "/report" } });
+    expect(
+      cliWrapperFlagsFromSource(
+        [
+          "export default {",
+          '  tool: { description: "Send" },',
+          '  http: { method: "GET" },',
+          "  run: async () => ({}),",
+          "};",
+        ].join("\n"),
+      ),
+    ).toEqual({ http: { method: "GET" } });
+    expect(cliWrapperFlagsFromSource(source("  http: routeConfig,"))).toEqual(
+      {},
+    );
+    expect(
+      cliWrapperFlagsFromSource(
+        source('  http: { method: "GET" },\n  ...routeOptions,'),
+      ),
+    ).toEqual(hidden);
+    expect(
+      cliWrapperFlagsFromSource(
+        [
+          imported,
+          'const options = { http: { method: "GET" }, run: async () => ({}) };',
+          "export default defineAction(options);",
+        ].join("\n"),
+      ),
+    ).toEqual(hidden);
+  });
 });

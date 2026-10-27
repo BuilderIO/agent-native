@@ -452,10 +452,9 @@ function readOptionFlags(options: BabelNode | "unknown"): ReadFlags {
  * module offering both, or re-exporting a whole file, gets every limit.
  */
 function actionFlags(
-  program: BabelProgram,
+  fromDefault: ReturnType<typeof defaultActionOptions>,
   { names, star }: ReturnType<typeof namedExports>,
 ): ReadFlags | null {
-  const fromDefault = defaultActionOptions(program);
   const named = names.has("tool") && names.has("run");
   if (!named && !star) {
     return fromDefault === null ? null : readOptionFlags(fromDefault);
@@ -471,6 +470,34 @@ function actionFlags(
     }
   }
   return flags;
+}
+
+/**
+ * The value the default action's options give `key`, read in order:
+ * undefined when they don't set it, and "unknown" when the options can't be
+ * seen or a spread or computed key could set it.
+ */
+function optionValue(
+  options: ReturnType<typeof defaultActionOptions>,
+  key: string,
+): BabelNode | "unknown" | undefined {
+  if (options === null) return undefined;
+  if (options === "unknown" || options.type !== "ObjectExpression") {
+    return "unknown";
+  }
+  let value: BabelNode | "unknown" | undefined;
+  for (const prop of options.properties ?? []) {
+    const name = prop.type === "SpreadElement" ? null : propertyName(prop);
+    if (name === null) {
+      value = "unknown";
+    } else if (name === key) {
+      value =
+        prop.type === "ObjectProperty" && typeof prop.value === "object"
+          ? (unwrap(prop.value) ?? "unknown")
+          : "unknown";
+    }
+  }
+  return value;
 }
 
 const HTTP_METHODS = new Set(["GET", "POST", "PUT", "DELETE"]);
@@ -520,15 +547,18 @@ function httpRoute(node: BabelNode): ActionHttpConfig | undefined {
  * by name, built by another helper or a `defineAction` that isn't the
  * framework's, re-exported, or exported through a binding the module changes)
  * and a source it can't parse. A module that defines no action gets none of
- * them. `agentTool: false`, `http: false` and an `http` route are read as
- * written, in the options or as named exports beside `tool` and `run`.
+ * them. `agentTool: false` and `http: false` are read as written wherever
+ * they appear. An `http` route is read from the action's options or a named
+ * `http` export beside `tool` and `run`; one it can't see leaves the default.
  */
 export function cliWrapperFlagsFromSource(src: string): CliWrapperFlags {
   const out: CliWrapperFlags = {};
   const program = parseProgram(src);
   const exported = program ? namedExports(program) : undefined;
-  const flags =
-    program && exported ? actionFlags(program, exported) : { ...UNKNOWN_FLAGS };
+  const options = program ? defaultActionOptions(program) : "unknown";
+  const flags = exported
+    ? actionFlags(options, exported)
+    : { ...UNKNOWN_FLAGS };
   if (flags !== null) {
     for (const name of READ_FLAGS) {
       const value = flags[name];
@@ -544,31 +574,18 @@ export function cliWrapperFlagsFromSource(src: string): CliWrapperFlags {
     exported?.names.has("tool") && exported.names.has("run")
       ? exported.names
       : undefined;
-  const namedHttp = named?.get("http");
+  const http = named ? named.get("http") : optionValue(options, "http");
   if (
     /\bagentTool\s*:\s*false\b/.test(src) ||
     booleanLiteral(named?.get("agentTool")) === false
   ) {
     out.agentTool = false;
   }
-  if (/\bhttp\s*:\s*false\b/.test(src) || booleanLiteral(namedHttp) === false) {
+  if (/\bhttp\s*:\s*false\b/.test(src) || booleanLiteral(http) === false) {
     out.http = false;
-  } else if (namedHttp !== undefined && namedHttp !== "unknown") {
-    const route = httpRoute(namedHttp);
+  } else if (http !== undefined && http !== "unknown") {
+    const route = httpRoute(http);
     if (route) out.http = route;
-  } else {
-    const httpStart = src.search(/\bhttp\s*:\s*\{/);
-    if (httpStart >= 0) {
-      const window = src.slice(httpStart, httpStart + 200);
-      const m = window.match(/method\s*:\s*['"`](GET|POST|PUT|DELETE)['"`]/);
-      const p = window.match(/path\s*:\s*['"`]([^'"`]+)['"`]/);
-      if (m || p) {
-        out.http = {
-          ...(m ? { method: m[1] as "GET" | "POST" | "PUT" | "DELETE" } : {}),
-          ...(p ? { path: p[1] } : {}),
-        };
-      }
-    }
   }
   return out;
 }
