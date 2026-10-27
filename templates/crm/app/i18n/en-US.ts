@@ -600,15 +600,15 @@ const messages = {
     reviewDuplicates: "Review duplicates",
     duplicateReviewTitle: "Possible duplicate records",
     duplicateReviewDescription:
-      "Check this record against accessible candidates. Running Jev sends record names, types, and match signals for up to five candidates to TypeSafe. Its probability is a suggestion; merging always requires a separate review.",
+      "Check this record against accessible candidates. A semantic review sends record names, types, and match signals for up to five candidates to the configured AI decision provider. Its probability is a suggestion; merging always requires a separate review.",
     duplicateReviewRun: "Check duplicates",
     duplicateReviewLoading: "Checking…",
     duplicateReviewFailed: "Duplicate review could not be completed.",
     duplicateReviewUnavailable:
-      "Jev could not review these records. Rule-based candidates remain visible.",
+      "The AI decision provider could not review these records. Rule-based candidates remain visible.",
     duplicateReviewEmpty: "No likely duplicates found.",
     duplicateRuleConfidence: "Rule-based match: {{percent}}%",
-    duplicateJevProbability: "Jev same-entity probability: {{percent}}%",
+    duplicateDecisionProbability: "Same-entity probability: {{percent}}%",
     duplicateMatchedOn: "Matched on: {{values}}",
     evidenceAttached: "Call evidence attached.",
     evidenceAttachFailed: "Evidence could not be attached.",

@@ -29,7 +29,10 @@ import { resolveRunSoftTimeoutMs } from "../../agent/run-manager.js";
 import type { AgentChatEvent } from "../../agent/types.js";
 import { getAppConfig } from "../../app-config/index.js";
 import { isFrameworkGroupedAction } from "../../framework-tools.js";
-import { hasRawQueryInput } from "../../mcp/action-eligibility.js";
+import {
+  hasRawQueryInput,
+  isFrameworkRuntimeAction,
+} from "../../mcp/action-eligibility.js";
 import {
   isAuthenticatedReadAction,
   isAutoReadExcludedActionName,
@@ -85,6 +88,20 @@ export function filterPublicAgentActions(
         config.isConsequential !== true
       );
     }),
+  );
+}
+
+// A run an outside caller started keeps the app's own actions, as the in-app
+// agent has them (`mcpTool` and raw inputs are direct-MCP policy), and loses
+// the framework runtime. Apply it after the request's actions merge and before
+// `tool-search` attaches, so every set the run reads leaves out the same.
+export function filterDelegatedRegistry(
+  actions: Record<string, ActionEntry>,
+): Record<string, ActionEntry> {
+  return Object.fromEntries(
+    Object.entries(filterAgentTools(actions)).filter(
+      ([name, entry]) => !isFrameworkRuntimeAction(name, entry),
+    ),
   );
 }
 
@@ -622,6 +639,9 @@ export async function executeApprovedA2AToolCall(
     ownerEmail: approval.ownerEmail,
     orgId: approval.orgId ?? null,
     appId: options.appId,
+    caller: "tool",
+    networkProtocol: "a2a",
+    networkId: approval.taskId,
     approvedToolCalls: [approval.approvalKey],
     // The replay runs under the lease's thread and turn, never the task's
     // own: as the replay's thread and turn, the task id would load the task's

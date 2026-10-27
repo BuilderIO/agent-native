@@ -24,6 +24,10 @@ import {
   sendFrameJson,
 } from "../../lib/agent-frame-request.js";
 import {
+  clampAgentFrameAtMs,
+  loadStoredAgentFrame,
+} from "../../lib/agent-frame-store.js";
+import {
   ensureRecordingThumbnail,
   RECORDING_THUMBNAIL_AT_MS,
 } from "../../lib/ensure-recording-thumbnail.js";
@@ -106,9 +110,11 @@ function applyFrameHeaders(event: H3Event) {
 
 async function persistDefaultThumbnailIfMissing(
   access: PublicAgentAccess,
+  requestedMs: number,
   frame: Uint8Array,
   mimeType: string,
 ): Promise<void> {
+  if (requestedMs !== RECORDING_THUMBNAIL_AT_MS) return;
   if (access.recording.thumbnailUrl) return;
   try {
     await runWithRequestContext(
@@ -234,10 +240,7 @@ export default defineEventHandler(async (event: H3Event) => {
     queryString(query.atMs),
     queryString(query.tSeconds),
   );
-  const atMs =
-    durationMs > 0
-      ? Math.min(requestedMs, Math.max(0, durationMs - 1))
-      : requestedMs;
+  const atMs = clampAgentFrameAtMs(requestedMs, durationMs);
   const key = cacheKey({
     recordingId: recording.id,
     updatedAt: recording.updatedAt,
@@ -246,18 +249,34 @@ export default defineEventHandler(async (event: H3Event) => {
 
   const access = accessResult.access;
   const cacheable = isPubliclyCacheableFrame(access);
+  const storedMimeType =
+    recording.videoFormat === "mp4" ? "video/mp4" : "video/webm";
   const cached = cacheable ? getCachedFrame(key) : null;
   if (cached) {
-    if (requestedMs === RECORDING_THUMBNAIL_AT_MS) {
-      await persistDefaultThumbnailIfMissing(
-        access,
-        new Uint8Array(cached),
-        recording.videoFormat === "mp4" ? "video/mp4" : "video/webm",
-      );
-    }
+    await persistDefaultThumbnailIfMissing(
+      access,
+      requestedMs,
+      new Uint8Array(cached),
+      storedMimeType,
+    );
     applyFrameHeaders(event);
     return cached;
   }
+
+  const lookup = await loadStoredAgentFrame(recording, atMs);
+  if ("frame" in lookup) {
+    await persistDefaultThumbnailIfMissing(
+      access,
+      requestedMs,
+      lookup.frame,
+      storedMimeType,
+    );
+    applyFrameHeaders(event);
+    const buffer = Buffer.from(lookup.frame);
+    if (cacheable) setCachedFrame(key, buffer);
+    return buffer;
+  }
+  const { claim } = lookup;
 
   try {
     const media = await loadRecordingMediaFile(recording);
@@ -267,18 +286,22 @@ export default defineEventHandler(async (event: H3Event) => {
         atMs,
       });
 
-      if (requestedMs === RECORDING_THUMBNAIL_AT_MS) {
-        await persistDefaultThumbnailIfMissing(
-          access,
-          resolved.frame,
-          media.mimeType,
-        );
-      }
+      await persistDefaultThumbnailIfMissing(
+        access,
+        requestedMs,
+        resolved.frame,
+        media.mimeType,
+      );
 
       if (resolved.atMs !== atMs) {
         return redirectToResolvedFrame(event, access, resolved.atMs);
       }
 
+      await claim?.fill(
+        (frameAtMs) =>
+          extractJpegFrameFromFile({ mediaPath: media.path, atMs: frameAtMs }),
+        { atMs, frame: resolved.frame },
+      );
       applyFrameHeaders(event);
       const buffer = Buffer.from(resolved.frame);
       if (cacheable) setCachedFrame(key, buffer);
@@ -289,5 +312,9 @@ export default defineEventHandler(async (event: H3Event) => {
   } catch (err) {
     const status = frameFailureStatus(err);
     return sendFrameJson(event, status, describeFrameFailure(err, status));
+  } finally {
+    // Whatever ended the request, requests waiting on this clip's frames must
+    // not wait on it any longer.
+    await claim?.release();
   }
 });

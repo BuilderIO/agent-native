@@ -79,17 +79,28 @@ export function getActiveFileUploadProvider(): FileUploadProvider | null {
  * this instead of detecting each provider a second time.
  */
 export async function listFileUploadProviderStatusesForRequest(): Promise<
-  Array<{ provider: FileUploadProvider; configured: boolean }>
+  Array<{
+    provider: FileUploadProvider;
+    configured: boolean;
+    unavailable: boolean;
+  }>
 > {
   return Promise.all(
-    [...providers.values()].map(async (provider) => ({
-      provider,
-      configured:
-        provider.isConfigured() ||
-        (provider.isConfiguredForRequest
-          ? await provider.isConfiguredForRequest()
-          : false),
-    })),
+    [...providers.values()].map(async (provider) => {
+      try {
+        return {
+          provider,
+          configured:
+            provider.isConfigured() ||
+            (provider.isConfiguredForRequest
+              ? await provider.isConfiguredForRequest()
+              : false),
+          unavailable: false,
+        };
+      } catch {
+        return { provider, configured: false, unavailable: true };
+      }
+    }),
   );
 }
 
