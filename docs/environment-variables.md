@@ -385,7 +385,7 @@ or delivery fails, the reporter job fails visibly instead of opening an issue.
 | Variable                          | Purpose                                                                                                                                                             |
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `QA_SLACK_BOT_TOKEN`              | Slack bot token (`chat:write`) for the scheduled reporters. Store it as a GitHub Actions secret.                                                                    |
-| `SLACK_CHANNEL`                   | Slack channel id the reporters use for `#qa-agent-native`. Workflow-internal.                                                                                       |
+| `SLACK_CHANNEL`                   | Slack channel id the reporters post to: `#qa-agent-native`, or `#dev-agent-native-alerts` for deploy-path alerts. Workflow-internal.                                |
 | `REPORT_DIR`                      | Scratch directory the Beta E2E reporter uses for jobs, artifacts, logs, and its digest. Workflow-internal.                                                          |
 | `UPDATE_BASELINE`                 | Whether the Beta E2E report covers the full suite and may replace shared notification state. Scoped reports preserve the prior full-suite state. Workflow-internal. |
 | `COLLECT_OUTCOME`                 | Result of collecting the Beta E2E run's jobs, artifacts, and logs; a failed collection produces a degraded report. Workflow-internal.                               |
