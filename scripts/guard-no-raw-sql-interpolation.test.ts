@@ -41,6 +41,37 @@ describe("raw SQL interpolation guard", () => {
     ).toHaveLength(1);
   });
 
+  it("finds interpolated templates passed directly to execute", () => {
+    const text = source([
+      "const database = getDbExec();",
+      "database.execute(`SELECT * FROM records WHERE id = ${recordId}`);",
+      "execute(`DELETE FROM records WHERE id = ${recordId}`);",
+      'database["execute"](`UPDATE records SET active = ${active}`);',
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolations(FILE, text, new Set([2, 3, 4])),
+    ).toEqual([
+      {
+        file: FILE,
+        line: 2,
+        snippet:
+          "database.execute(`SELECT * FROM records WHERE id = ${recordId}`);",
+      },
+      {
+        file: FILE,
+        line: 3,
+        snippet: "execute(`DELETE FROM records WHERE id = ${recordId}`);",
+      },
+      {
+        file: FILE,
+        line: 4,
+        snippet:
+          'database["execute"](`UPDATE records SET active = ${active}`);',
+      },
+    ]);
+  });
+
   it("ignores unchanged SQL templates and added lines outside the property", () => {
     const text = source([
       "const query = { sql: `SELECT * FROM records WHERE id = ${recordId}` };",

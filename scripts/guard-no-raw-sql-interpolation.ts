@@ -46,6 +46,22 @@ function interpolatedTemplate(
   return ts.isTemplateExpression(current) ? current : undefined;
 }
 
+function isExecuteCall(expression: ts.Expression): boolean {
+  if (ts.isIdentifier(expression)) return expression.text === "execute";
+  if (ts.isPropertyAccessExpression(expression)) {
+    return expression.name.text === "execute";
+  }
+  if (ts.isElementAccessExpression(expression)) {
+    const argument = expression.argumentExpression;
+    return (
+      argument !== undefined &&
+      ts.isStringLiteral(argument) &&
+      argument.text === "execute"
+    );
+  }
+  return false;
+}
+
 function lineNumberAt(sourceFile: ts.SourceFile, position: number): number {
   return sourceFile.getLineAndCharacterOfPosition(position).line + 1;
 }
@@ -97,23 +113,33 @@ export function findRawSqlInterpolationViolations(
   const lines = source.split(/\r?\n/);
   const findings: RawSqlInterpolationFinding[] = [];
 
+  const reportIfAdded = (node: ts.Node) => {
+    const startLine = lineNumberAt(sourceFile, node.getStart(sourceFile));
+    const endLine = lineNumberAt(sourceFile, node.end);
+    const touched = [...addedLines].some(
+      (line) => line >= startLine && line <= endLine,
+    );
+    if (!touched || hasPragma(lines, startLine, endLine)) return;
+
+    findings.push({
+      file,
+      line: startLine,
+      snippet: (lines[startLine - 1] ?? "").trim().slice(0, 160),
+    });
+  };
+
   const visit = (node: ts.Node) => {
     if (ts.isPropertyAssignment(node) && isSqlPropertyName(node.name)) {
       const template = interpolatedTemplate(node.initializer);
       if (template && template.templateSpans.length > 0) {
-        const startLine = lineNumberAt(sourceFile, node.getStart(sourceFile));
-        const endLine = lineNumberAt(sourceFile, node.end);
-        const touched = [...addedLines].some(
-          (line) => line >= startLine && line <= endLine,
-        );
-
-        if (touched && !hasPragma(lines, startLine, endLine)) {
-          findings.push({
-            file,
-            line: startLine,
-            snippet: (lines[startLine - 1] ?? "").trim().slice(0, 160),
-          });
-        }
+        reportIfAdded(node);
+      }
+    }
+    if (ts.isCallExpression(node) && isExecuteCall(node.expression)) {
+      const argument = node.arguments[0];
+      const template = argument ? interpolatedTemplate(argument) : undefined;
+      if (template && template.templateSpans.length > 0) {
+        reportIfAdded(node);
       }
     }
     ts.forEachChild(node, visit);

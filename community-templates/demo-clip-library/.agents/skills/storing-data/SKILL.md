@@ -37,9 +37,9 @@ When Drizzle cannot express a PostgreSQL query, import `sql` from
 `sql.ident(name)` for validated lowercase identifiers, `sql.in(values)` for a
 nonempty list (it includes parentheses), and `sql.join(fragments, separator)`
 or nested fragments for composition. The tag rejects plain string interpolation
-at compile time; do not build `{ sql: `...${value}...` }`. The
-`guard:no-raw-sql-interpolation` guard catches new legacy templates; reviewed
-exceptions require `// raw-sql-ok: <reason>`.
+at compile time; do not build `{ sql: `...${value}...` }` or pass interpolated
+templates directly to `execute()`. The `guard:no-raw-sql-interpolation` guard
+catches both forms; reviewed exceptions require `// raw-sql-ok: <reason>`.
 
 ### Schema and migration ownership
 

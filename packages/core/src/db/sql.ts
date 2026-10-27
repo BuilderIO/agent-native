@@ -1,6 +1,11 @@
-const fragmentBrand: unique symbol = Symbol("SqlFragment");
-const identifierBrand: unique symbol = Symbol("SqlIdentifier");
-const boundValueBrand: unique symbol = Symbol("SqlBoundValue");
+declare const fragmentBrand: unique symbol;
+declare const identifierBrand: unique symbol;
+declare const boundValueBrand: unique symbol;
+
+// Registry symbols let separate loaded copies compose the same SQL protocol.
+const fragmentRuntimeBrand = Symbol.for("@agent-native/core/sql-fragment");
+const identifierRuntimeBrand = Symbol.for("@agent-native/core/sql-identifier");
+const boundValueRuntimeBrand = Symbol.for("@agent-native/core/sql-bound-value");
 
 export interface SqlFragment {
   readonly sql: string;
@@ -32,8 +37,8 @@ function makeFragment(sqlText: string, args: readonly unknown[]): SqlFragment {
   return Object.freeze({
     sql: sqlText,
     args: Object.freeze([...args]),
-    [fragmentBrand]: true as const,
-  });
+    [fragmentRuntimeBrand]: true as const,
+  }) as unknown as SqlFragment;
 }
 
 function requirePresent<T>(value: T | undefined, message: string): T {
@@ -47,7 +52,7 @@ function isSqlFragment(value: unknown): value is SqlFragment {
   return (
     typeof value === "object" &&
     value !== null &&
-    fragmentBrand in value &&
+    fragmentRuntimeBrand in value &&
     "sql" in value &&
     "args" in value &&
     typeof value.sql === "string" &&
@@ -59,7 +64,7 @@ function isSqlIdentifier(value: unknown): value is SqlIdentifier {
   return (
     typeof value === "object" &&
     value !== null &&
-    identifierBrand in value &&
+    identifierRuntimeBrand in value &&
     "name" in value &&
     typeof value.name === "string"
   );
@@ -69,7 +74,7 @@ function isSqlBoundValue(value: unknown): value is SqlBoundValue {
   return (
     typeof value === "object" &&
     value !== null &&
-    boundValueBrand in value &&
+    boundValueRuntimeBrand in value &&
     "value" in value
   );
 }
@@ -141,14 +146,20 @@ export const sql: SqlTag = Object.assign(tag, {
         "SQL bound values cannot be undefined; use null explicitly.",
       );
     }
-    return Object.freeze({ value, [boundValueBrand]: true as const });
+    return Object.freeze({
+      value,
+      [boundValueRuntimeBrand]: true as const,
+    }) as unknown as SqlBoundValue;
   },
   ident(name: string): SqlIdentifier {
     const match = /^[a-z_][a-z0-9_]*$/.exec(name);
     if (match?.[0] !== name) {
       throw new TypeError(`Invalid SQL identifier: ${name}`);
     }
-    return Object.freeze({ name, [identifierBrand]: true as const });
+    return Object.freeze({
+      name,
+      [identifierRuntimeBrand]: true as const,
+    }) as unknown as SqlIdentifier;
   },
   join(fragments: readonly SqlFragment[], separator: SqlFragment): SqlFragment {
     if (!isSqlFragment(separator)) {

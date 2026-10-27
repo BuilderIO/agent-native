@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { sql } from "./sql.js";
+import { sql, type SqlFragment } from "./sql.js";
 
 type AssertFalse<T extends false> = T;
 export type RawStringsAreNotSqlInterpolations = AssertFalse<
@@ -23,6 +23,19 @@ describe("sql", () => {
     const query = sql`SELECT ${sql.value("thread-1")}`;
 
     expect(Object.isFrozen(query.args)).toBe(true);
+  });
+
+  it("composes fragments from a second package instance", () => {
+    const foreignFragment = Object.freeze({
+      sql: "WHERE id = ?",
+      args: Object.freeze(["thread-1"]),
+      [Symbol.for("@agent-native/core/sql-fragment")]: true,
+    }) as unknown as SqlFragment;
+
+    const query = sql`SELECT * FROM tasks ${foreignFragment}`;
+
+    expect(query.sql).toBe("SELECT * FROM tasks WHERE id = ?");
+    expect(query.args).toEqual(["thread-1"]);
   });
 
   it("joins fragments with a fragment separator", () => {
