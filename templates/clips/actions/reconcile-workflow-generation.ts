@@ -4,7 +4,10 @@ import {
   compareAndSetManyAppState,
   readAppState,
 } from "@agent-native/core/application-state";
-import { abortTurnByRefDurably } from "@agent-native/core/server";
+import {
+  abortTurnByRefDurably,
+  getActiveRunForThreadAsync,
+} from "@agent-native/core/server";
 import { backgroundAgentTurnIdForReceipt } from "@agent-native/core/shared";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
@@ -49,6 +52,7 @@ export default defineAction({
       "release",
       "mark-delivered",
       "consume",
+      "settle",
       "stop",
     ]),
     recordingId: z.string().min(1),
@@ -70,6 +74,16 @@ export default defineAction({
       recordingId,
       operation === "stop" ? "editor" : "viewer",
     );
+
+    if (
+      ["track", "settle", "stop"].includes(operation) &&
+      tabId !== workflowSessionTabId(recordingId, requestedAt, requestId)
+    ) {
+      fail("Invalid workflow generation session", {
+        errorCode: "invalid_workflow_generation_session",
+        statusCode: 400,
+      });
+    }
 
     const requestKey = `clips-ai-request-${recordingId}`;
     if (operation === "mark-delivered" || operation === "consume") {
@@ -302,22 +316,21 @@ export default defineAction({
         : { reconciled: false, reason: "different-run" as const };
     }
     if (operation === "stop") {
-      const expectedTabId = workflowSessionTabId(
-        recordingId,
-        requestedAt,
-        requestId,
-      );
-      if (tabId !== expectedTabId) {
-        fail("Invalid workflow generation session", {
-          errorCode: "invalid_workflow_generation_session",
-          statusCode: 400,
-        });
-      }
       await abortTurnByRefDurably(
         tabId,
         backgroundAgentTurnIdForReceipt(tabId, tabId),
         stopReason ?? "workflow-session-ended",
       );
+    }
+    if (operation === "settle") {
+      const activeRun = await getActiveRunForThreadAsync(tabId);
+      if (
+        activeRun?.inFlight ||
+        activeRun?.awaitingRedispatch ||
+        activeRun?.hasInFlightWork
+      ) {
+        return { reconciled: false, reason: "in-progress" as const };
+      }
     }
     if (operation === "release") {
       const untrackedState = { ...rawState };

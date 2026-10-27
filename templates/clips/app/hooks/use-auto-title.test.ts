@@ -35,7 +35,7 @@ describe("notifyAiRequestQueued", () => {
 
 describe("retryWorkflowAction", () => {
   const request = {
-    operation: "stop",
+    operation: "settle",
     recordingId: "rec_123",
     requestedAt: "2026-07-11T12:00:00.000Z",
     tabId: "clips-workflow:rec_123:test",
