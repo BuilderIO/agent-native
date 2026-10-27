@@ -100,7 +100,8 @@ export interface McpApprovalReviewGateProps {
 
 /**
  * Shows the review for the grant the URL fragment names in place of the app,
- * and the app once the reader leaves it.
+ * and the app once the reader leaves it. Client only: it reads the window
+ * while rendering.
  */
 export function McpApprovalReviewGate({
   appName,

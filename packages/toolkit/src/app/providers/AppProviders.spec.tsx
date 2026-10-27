@@ -813,6 +813,23 @@ describe("AppProviders MCP approval review", () => {
     }
   });
 
+  it("stays out of the server render, which has no window to read the review from", () => {
+    useSessionMock.mockReturnValue(SIGNED_IN_SESSION);
+    vi.stubGlobal("window", undefined);
+    let markup: string;
+    try {
+      markup = renderToStaticMarkup(
+        <AppProviders queryClient={new QueryClient()} i18n={false}>
+          <div>content</div>
+        </AppProviders>,
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(markup).toContain('data-agent-native-app-skeleton="true"');
+  });
+
   it.each([
     ["a token-authenticated surface", { sessionBypass: true }],
     ["a public page", { isPublicPath: true }],
