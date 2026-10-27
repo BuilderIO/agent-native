@@ -2147,6 +2147,18 @@ export default {
       added: "已添加屏幕",
       addFailed: "无法添加屏幕",
     },
+    localhostConsent: {
+      approvedTitle: "已批准 — 请重新运行编辑",
+      approvedDescription:
+        "文件写入权限有效期为 8 小时。请求访问权限的那次编辑未保存。",
+      retryInChat: "在聊天中重新运行",
+      retryPrompt:
+        "已批准对 {{rootPath}} 的文件写入。请重新运行需要此权限的编辑。",
+      unavailableTitle: "此写入请求已不再待处理",
+      unavailableDescription: "重新运行编辑以请求访问权限。",
+      close: "关闭",
+      prepareSignInError: "无法在登录前保存此请求。请重试。",
+    },
     nodeRewrite: {
       composerTitle: "询问或更改所选内容",
       send: "发送",

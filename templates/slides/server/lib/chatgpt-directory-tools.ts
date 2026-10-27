@@ -17,39 +17,6 @@ export const CHATGPT_DIRECTORY_TOOL_NAMES = [
   "duplicate-deck",
 ];
 
-function record(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
-function id(...values: unknown[]): string | null {
-  return (
-    values.find(
-      (value): value is string =>
-        typeof value === "string" && Boolean(value.trim()),
-    ) ?? null
-  );
-}
-
-// share-resource, unshare-resource, and set-resource-visibility assert admin
-// access to the deck themselves, so an editor holds this grant without being
-// able to change sharing.
-const DECK_WIDGET_WRITE_ACTIONS = [
-  "patch-deck",
-  "share-resource",
-  "unshare-resource",
-  "set-resource-visibility",
-] as const;
-
-function deckWidgetTarget(deckId: string) {
-  return {
-    targetPath: `/deck/${encodeURIComponent(deckId)}`,
-    resourceIds: { deckId, resourceType: "deck" },
-    writeActions: DECK_WIDGET_WRITE_ACTIONS,
-  };
-}
-
 type WidgetWriteAuthorizationInput = {
   toolName: string;
   args: Record<string, unknown>;
@@ -86,16 +53,7 @@ export const CHATGPT_DIRECTORY_PROFILE = {
       throw error;
     }
   },
-  widgetTargets: {
-    "create-deck": (args: Record<string, unknown>, result: unknown) => {
-      const deckId = id(record(result).id, args.deckId);
-      return deckId ? deckWidgetTarget(deckId) : null;
-    },
-    "add-slide": (args: Record<string, unknown>, result: unknown) => {
-      const deckId = id(args.deckId, record(result).deckId);
-      return deckId ? deckWidgetTarget(deckId) : null;
-    },
-  },
+  widgetTargets: {},
   widgetReadActionArguments: {
     // The ticketed get-deck path normalizes duplicate IDs in memory only.
     "get-deck": { id: "deckId", deckId: "deckId" },

@@ -2184,6 +2184,18 @@ export default {
       added: "تمت إضافة الشاشة",
       addFailed: "تعذرت إضافة الشاشة",
     },
+    localhostConsent: {
+      approvedTitle: "تمت الموافقة — شغّل التعديل مرة أخرى",
+      approvedDescription:
+        "الكتابة إلى الملفات مسموح بها لمدة 8 ساعات. لم يُحفظ التعديل الذي طلب الوصول.",
+      retryInChat: "إعادة التشغيل في الدردشة",
+      retryPrompt:
+        "تمت الموافقة على الكتابة إلى الملفات في {{rootPath}}. شغّل التعديل الذي احتاج إليها مرة أخرى.",
+      unavailableTitle: "لم يعد طلب الكتابة هذا معلقًا",
+      unavailableDescription: "شغّل التعديل مرة أخرى لطلب الوصول.",
+      close: "إغلاق",
+      prepareSignInError: "تعذّر حفظ هذا الطلب قبل تسجيل الدخول. حاول مرة أخرى.",
+    },
     nodeRewrite: {
       composerTitle: "اسأل عن التحديد أو غيّره",
       send: "إرسال",

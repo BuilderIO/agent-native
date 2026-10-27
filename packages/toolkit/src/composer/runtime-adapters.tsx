@@ -267,6 +267,8 @@ export interface ComposerRuntimeAdapters {
       text: string,
       context: VoiceContextPack | undefined,
     ) => string;
+    /** Sends a voice analytics event; properties never carry transcript text. */
+    trackEvent?: (name: string, properties: Record<string, unknown>) => void;
   };
 }
 
@@ -352,6 +354,7 @@ type ResolvedComposerRuntimeAdapters = ComposerRuntimeAdapters &
           | "setAppState"
           | "subscribeSidebarState"
           | "applyContextReplacements"
+          | "trackEvent"
         >
       >;
   };
@@ -394,6 +397,7 @@ const fallbackAdapters: ResolvedComposerRuntimeAdapters = {
     setAppState: () => {},
     subscribeSidebarState: () => () => {},
     applyContextReplacements: applyVoiceContextReplacements,
+    trackEvent: () => {},
   },
 };
 

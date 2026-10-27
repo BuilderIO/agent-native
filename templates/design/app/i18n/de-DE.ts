@@ -2232,6 +2232,20 @@ export default {
       added: "Screen hinzugefügt",
       addFailed: "Screen konnte nicht hinzugefügt werden",
     },
+    localhostConsent: {
+      approvedTitle: "Genehmigt – führe die Änderung erneut aus",
+      approvedDescription:
+        "Dateischreibzugriff ist für 8 Stunden erlaubt. Die Änderung, die den Zugriff angefordert hat, wurde nicht gespeichert.",
+      retryInChat: "Im Chat erneut ausführen",
+      retryPrompt:
+        "Dateischreibzugriff für {{rootPath}} ist genehmigt. Führe die Änderung, die ihn brauchte, erneut aus.",
+      unavailableTitle: "Diese Schreibanfrage steht nicht mehr aus",
+      unavailableDescription:
+        "Führe die Änderung erneut aus, um Zugriff anzufordern.",
+      close: "Schließen",
+      prepareSignInError:
+        "Diese Anfrage konnte vor der Anmeldung nicht gespeichert werden. Versuche es erneut.",
+    },
     nodeRewrite: {
       composerTitle: "Auswahl fragen oder ändern",
       send: "Senden",

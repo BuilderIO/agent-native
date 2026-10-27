@@ -1330,6 +1330,47 @@ export const migrations = runMigrations(
       name: "meeting-capture-stop-revision",
       sql: `ALTER TABLE clips_meetings ADD COLUMN IF NOT EXISTS capture_stop_revision INTEGER NOT NULL DEFAULT 0`,
     },
+    {
+      version: 94,
+      name: "recording-agent-frames",
+      // Additive. Mirrors `recordingAgentFrames` in server/db/schema.ts.
+      sql: `CREATE TABLE IF NOT EXISTS recording_agent_frames (
+        id TEXT PRIMARY KEY,
+        recording_id TEXT NOT NULL,
+        at_ms INTEGER NOT NULL,
+        media_key TEXT NOT NULL,
+        storage_url TEXT NOT NULL,
+        storage_provider TEXT NOT NULL,
+        storage_id TEXT,
+        size_bytes INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS recording_agent_frames_recording_at_unique_idx
+        ON recording_agent_frames (recording_id, at_ms)`,
+    },
+    {
+      version: 95,
+      name: "recording-content-bindings",
+      // Mirrors `recordingContentBindings` in server/db/schema.ts. `state` has
+      // no CHECK so later lifecycle states need no migration.
+      sql: `CREATE TABLE IF NOT EXISTS recording_content_bindings (
+        id TEXT PRIMARY KEY,
+        recording_id TEXT NOT NULL,
+        content_app TEXT NOT NULL,
+        document_id TEXT NOT NULL,
+        block_id TEXT,
+        origin TEXT NOT NULL CHECK (origin IN ('upload', 'link')),
+        state TEXT NOT NULL DEFAULT 'active',
+        state_changed_at TEXT,
+        created_by TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+        updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS recording_content_bindings_recording_document_unique_idx
+        ON recording_content_bindings (recording_id, content_app, document_id);
+      CREATE INDEX IF NOT EXISTS recording_content_bindings_document_idx
+        ON recording_content_bindings (content_app, document_id)`,
+    },
   ]),
   { table: "clips_migrations" },
 );

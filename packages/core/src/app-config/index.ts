@@ -8,6 +8,8 @@ export { resolveAppHomePath } from "./app-identity.js";
 export { AppConfigurationError } from "./configuration-error.js";
 export {
   resolveClipsHostedStorageConfig,
+  resolveContentClipsPeerSecret,
+  type ClipsConfig,
   type ClipsHostedStorageConfig,
   type ResolvedClipsHostedStorageConfig,
 } from "./clips.js";
