@@ -1,0 +1,108 @@
+template: v2
+slug: ai-funnel-analysis
+app: analytics
+title: Trouvez où décrochent vos nouveaux inscrits
+seo_title: Analyse de funnel par IA avec replays de sessions
+meta_description: Demandez à Agent-Native Analytics quelle étape d'inscription vous fait perdre du monde, obtenez le funnel de vos événements, puis voyez les replays des partants.
+updated: 2026-10-27
+hero:
+  body: "Demandez à Agent-Native Analytics quelle étape d'inscription perd le plus de monde : l'agent bâtit le funnel depuis vos événements. Regardez ensuite les replays des partants et demandez-lui pourquoi."
+  button:
+    label: Trouvez votre point de chute
+    url: https://analytics.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F55295bda356c490984f639946e838ebe
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd84d0fd7f856406e85b739ac0429b0f3
+    alt: "La fenêtre Analytics sur un tableau de bord « Activation funnel ». Son funnel a quatre étapes : Signed up, Created a project, Connected a data source et Invited a teammate. Chaque étape affiche son nombre, sa part des inscriptions et la perte par rapport à l'étape précédente, et la plus grosse perte est à Created a project. Le chat de l'agent à côté explique où se sont arrêtés les inscrits de la semaine dernière."
+how_to:
+  heading: Comment analyser un funnel avec l'IA
+  steps:
+    - title: Demandez où s'arrêtent les nouveaux utilisateurs
+      body: "Envoyez vos événements d'inscription dans Analytics. Posez la question dans **Demander** : l'agent écrit le SQL et ajoute un [panneau funnel](https://www.agent-native.com/docs/template-analytics-dashboards/) avec le nombre et la perte de chaque étape. Essayez : « Ajoute un funnel à mon tableau de bord Activation funnel : où se sont arrêtés les inscrits de la semaine dernière ? »"
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa752431cecb8420c88d3d6a8f7980ea9
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F16ab210c27504ed1b71c37ebdabea744
+        alt: Le chat de l'agent avec cette demande et la réponse de l'agent, à côté du funnel ajouté. Les étapes indiquent Signed up 1 240, Created a project 612, Connected a data source 418 et Invited a teammate 302, chacune avec sa perte.
+    - title: Retrouvez les personnes qui ont arrêté
+      body: Activez Tri des sessions dans les Paramètres d'Analytics. Dans **Sessions**, ouvrez **Événements**. Choisissez **Avec** pour l'étape avant la perte, comme « signed_up », et **Sans** pour l'étape jamais atteinte, comme « project_created ».
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F327bf36c28ab452da87cf4f4dc65debe
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F49b79e0de78041bb93444ec4d24ce11a
+        alt: Gros plan sur la page Sessions avec le filtre Événements ouvert, signed_up réglé sur Avec et project_created sur Sans. En dessous, la liste filtrée des sessions des nouveaux utilisateurs, chacune avec sa durée, sa page et ses clics de rage.
+    - title: Demandez ce qui s'est passé dans une session
+      body: Ouvrez un replay pour voir la page, les clics et les requêtes réseau. Cliquez sur **Demander à l'agent** et posez la question « Que s'est-il passé dans cette session ? ». L'agent résume les erreurs, les clics répétés et les pages vues.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7e0b3a4750a143f6bcd609e1c5460fd2
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe44e9321e80d4c3f826bd7b25fa54025
+        alt: Le replay d'un nouvel utilisateur sur la page de création de projet, avec la réponse de l'agent à côté. La personne a saisi un nom de projet et cliqué trois fois sur Create project. La requête vers l'API des projets a échoué à chaque fois, et elle est partie.
+features:
+  heading: Tout ce qu'il faut pour trouver et corriger les décrochages
+  items:
+    - title: Sauter une étape n'est pas décrocher
+      body: Indiquez à l'agent les étapes facultatives, et le funnel distingue ceux qui les sautent de ceux qui quittent l'app.
+    - title: Vos propres noms d'événements
+      body: Les admins décrivent vos événements et métriques dans la page **Couche sémantique**, et l'agent utilise ces noms exacts dans chaque requête.
+    - title: Voyez la requête échouée
+      body: Ouvrez **Outils de dev** sur un replay pour lire sa console et ses requêtes réseau, et sauter au moment où une requête a échoué.
+    - title: Des replays expurgés pour les agents
+      body: Un agent externe reçoit la console et le réseau du replay, erreurs en tête, jamais l'enregistrement lui-même. Son lien expire en deux heures.
+    - title: Privé par défaut
+      body: La saisie est masquée dans chaque replay, et vous choisissez les autres parties de la page à cacher.
+    - title: Le funnel chaque jour
+      body: Faites envoyer votre tableau de bord funnel chaque jour, à l'heure choisie, par e-mail à cinq personnes au plus ou sur Slack.
+integrations:
+  heading: Connectez Analytics aux outils que vous utilisez déjà
+  cards:
+    - title: Interrogez les événements que vous suivez
+      logos:
+        - name: PostHog
+        - name: Amplitude
+        - name: Mixpanel
+        - name: Google Analytics
+        - name: BigQuery
+      body: L'agent interroge les données produit déjà collectées dans ces outils, ou les événements que votre app envoie à Analytics.
+    - title: Collez un replay dans votre agent de code
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+      body: "Cliquez sur **Copier pour l'agent** sur un replay et collez le lien dans votre agent de code : il débogue avec les logs de la session."
+    - title: Connectez n'importe quoi via MCP
+      logos:
+        - name: Sentry
+        - name: Linear
+        - name: GitHub
+        - name: Intercom
+      more: true
+      body: Connectez les outils de votre équipe via MCP, ou ajoutez n'importe quel serveur MCP par son URL.
+other_uses:
+  heading: Autres usages d'Agent-Native Analytics
+  cards:
+    - title: Créez le tableau de bord KPI de votre startup
+      url: https://www.agent-native.com/use-cases/ai-kpi-dashboard/
+      body: Décrivez les KPI que vous suivez, et l'agent crée un tableau de bord à partir de Stripe, HubSpot et vos données produit.
+    - title: Interrogez vos données en langage courant
+      url: https://www.agent-native.com/use-cases/ask-your-database/
+      body: Posez vos questions sur vos données BigQuery, et l'agent écrit un SQL en lecture seule que vous pouvez vérifier.
+    - title: Créez votre rapport marketing hebdomadaire sans tableur
+      url: https://www.agent-native.com/use-cases/weekly-marketing-report/
+      body: Demandez comment s'est passée votre semaine marketing, et l'agent répond depuis Google Analytics et HubSpot dans un tableau de bord.
+faqs:
+  heading: Des questions ? Nous avons les réponses
+  items:
+    - q: Agent-Native Analytics est-il gratuit ?
+      a: "Oui, Agent-Native Analytics est gratuit et open source. Utilisez l'application hébergée, ou [faites tourner votre propre copie](https://www.agent-native.com/docs/template-analytics/). Vous apportez les données : vos propres événements, ou les outils que vous connectez. Analytics est en alpha, attendez-vous à des changements."
+    - q: Dois-je connaître le SQL ?
+      a: "Non. Posez votre question en langage courant : l'agent écrit et exécute le SQL, puis répond avec un graphique, un tableau ou un chiffre. Demandez à voir la requête quand vous voulez la vérifier. Quelqu'un qui connaît vos données devra peut-être d'abord [connecter vos sources](https://www.agent-native.com/docs/template-analytics-connectors/)."
+    - q: D'où viennent les replays de sessions ?
+      a: "De votre propre application web. Créez une clé publique dans **Sources de données**, puis ajoutez à votre app le court snippet de suivi de la page **Sessions**, avec le replay de session activé. Connectez un stockage pour les enregistrements : Builder.io ou votre propre bucket S3. Par défaut, les [replays](https://www.agent-native.com/docs/template-analytics-monitoring-and-sessions/) n'enregistrent que les utilisateurs connectés."
+    - q: Qu'enregistre un replay de session ?
+      a: Un replay restitue la page, les clics et le défilement, la sortie console et les requêtes réseau. La saisie est masquée par défaut, et les champs nommés comme mots de passe ou données de carte ne sont jamais capturés. Pour masquer autre chose, ajoutez une classe à cette partie de la page.
+    - q: Puis-je utiliser mes données PostHog, Amplitude ou Mixpanel ?
+      a: Oui. Connectez-les dans **Sources de données** et posez vos questions sur les événements que vous y suivez. L'agent interroge chaque outil pour vous. Les replays de sessions ne viennent que du suivi propre à Analytics, alors ajoutez-le à votre app pour voir les personnes qui ont arrêté.
+    - q: En quoi Analytics diffère-t-il de l'IA de mon outil d'analytics ?
+      a: "L'IA d'un outil d'analytics travaille sur les données de cet outil. L'agent Analytics travaille sur toutes les sources que vous connectez, retrouve les replays des personnes précises qui ont arrêté, et explique chacun d'eux ou le confie à votre agent de code. Il est aussi open source. C'est une [application agentique](https://www.agent-native.com/articles/what-is-an-agent-native-app/) : l'intelligence d'un agent, l'intuitivité d'une application."

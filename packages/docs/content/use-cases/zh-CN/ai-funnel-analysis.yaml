@@ -1,0 +1,108 @@
+template: v2
+slug: ai-funnel-analysis
+app: analytics
+title: 找出新用户在哪一步流失
+seo_title: 结合会话回放的 AI 漏斗分析
+meta_description: 用日常语言问 Agent-Native Analytics 哪一步注册流程流失的新用户最多，基于你自己的事件得到漏斗，再观看离开者的会话回放。
+updated: 2026-10-27
+hero:
+  body: 问 Agent-Native Analytics 哪一步注册流程流失的人最多，agent 会用你自己的事件搭出漏斗。然后观看离开者的会话回放，再问 agent 原因。
+  button:
+    label: 找出流失环节
+    url: https://analytics.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F55295bda356c490984f639946e838ebe
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd84d0fd7f856406e85b739ac0429b0f3
+    alt: Analytics 窗口中的 Activation funnel 仪表板。漏斗有四步：Signed up、Created a project、Connected a data source 和 Invited a teammate。每一步都显示人数、占注册用户的比例以及相对上一步的流失，最大的流失出现在 Created a project。旁边的 agent 聊天解释了上周注册的用户停在了哪里。
+how_to:
+  heading: 如何用 AI 做漏斗分析
+  steps:
+    - title: 问新用户停在了哪一步
+      body: 先把注册事件导入 Analytics。在 **提问** 中发问，agent 会写 SQL 并添加一个[漏斗面板](https://www.agent-native.com/docs/template-analytics-dashboards/)，显示每一步的人数和流失。试试：“在我的 Activation funnel 仪表板里加一个漏斗：上周注册的用户停在了哪一步？”
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa752431cecb8420c88d3d6a8f7980ea9
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F16ab210c27504ed1b71c37ebdabea744
+        alt: agent 聊天中是这个请求和 agent 的回复，旁边是它添加的漏斗。各步骤为 Signed up 1,240、Created a project 612、Connected a data source 418 和 Invited a teammate 302，每一步都标有流失。
+    - title: 找到中途停下的人
+      body: 在 Analytics 设置中打开会话筛选。在 **会话** 页面打开 **事件**。为流失前的那一步选择 **包含**，比如“signed_up”；为他们没走到的那一步选择 **不包含**，比如“project_created”。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F327bf36c28ab452da87cf4f4dc65debe
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F49b79e0de78041bb93444ec4d24ce11a
+        alt: 会话页面的特写，Events 筛选已展开，signed_up 设为 Did，project_created 设为 Didn't。下方是筛选后的新用户会话列表，每条都显示时长、页面和愤怒点击次数。
+    - title: 问问某次会话发生了什么
+      body: 打开一段回放，查看页面、点击和网络请求。点击 **询问 agent**，问“这次会话发生了什么？”agent 会总结报错、重复点击以及这个人看过的页面。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7e0b3a4750a143f6bcd609e1c5460fd2
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe44e9321e80d4c3f826bd7b25fa54025
+        alt: 一位新用户在创建项目页面上的回放，旁边是 agent 的回答。这个人输入了项目名称，点了三次 Create project。每次对 projects API 的请求都失败了，随后他离开了。
+features:
+  heading: 找到并解决流失所需的一切
+  items:
+    - title: 跳过不等于流失
+      body: 告诉 agent 哪些步骤可以跳过，漏斗就会把跳过的人和在那一步离开应用的人分开显示。
+    - title: 用你自己的事件名称
+      body: 管理员在 **语义层** 页面描述你们的事件和指标，agent 在每次查询中都使用这些准确的名称。
+    - title: 看到失败的请求
+      body: 在回放上打开 **开发工具**，查看控制台和网络请求，直接跳到请求失败的那一刻。
+    - title: 给 agent 的脱敏回放
+      body: 外部 agent 拿到的是回放的控制台和网络记录，报错排在最前，绝不会拿到录像本身。链接两小时后失效。
+    - title: 默认保护隐私
+      body: 每段回放中的输入内容都会被遮盖，页面上其他哪些部分需要隐藏由你决定。
+    - title: 每天收到漏斗
+      body: 让 agent 每天在你选定的时间，把漏斗仪表板通过邮件发给最多五个人，或发到 Slack。
+integrations:
+  heading: 把 Analytics 连接到你已经在用的工具
+  cards:
+    - title: 询问你在跟踪的事件
+      logos:
+        - name: PostHog
+        - name: Amplitude
+        - name: Mixpanel
+        - name: Google Analytics
+        - name: BigQuery
+      body: agent 会查询你已经在这些工具里收集的产品数据，或你的应用发送给 Analytics 的事件。
+    - title: 把回放粘贴给编码 agent
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+      body: 在回放上点击 **复制给 agent**，把链接粘贴给你的编码 agent，让它根据这次会话的日志来调试。
+    - title: 通过 MCP 连接任何工具
+      logos:
+        - name: Sentry
+        - name: Linear
+        - name: GitHub
+        - name: Intercom
+      more: true
+      body: 通过 MCP 连接团队在用的工具，或通过 URL 添加任意 MCP 服务器。
+other_uses:
+  heading: 用 Agent-Native Analytics 还能做的其他事
+  cards:
+    - title: 为你的创业公司搭建 KPI 仪表板
+      url: https://www.agent-native.com/use-cases/ai-kpi-dashboard/
+      body: 描述你跟踪的 KPI，agent 会用 Stripe、HubSpot 和产品数据搭出一个仪表板。
+    - title: 用日常语言向你的数据提问
+      url: https://www.agent-native.com/use-cases/ask-your-database/
+      body: 向你的 BigQuery 数据提问，agent 会写出你可以检查的只读 SQL。
+    - title: 不用电子表格也能做营销周报
+      url: https://www.agent-native.com/use-cases/weekly-marketing-report/
+      body: 问问这一周的营销表现如何，agent 会在仪表板里用 Google Analytics 和 HubSpot 的数据回答。
+faqs:
+  heading: 有疑问？这里有答案
+  items:
+    - q: Agent-Native Analytics 免费吗？
+      a: 是的，Agent-Native Analytics 免费且开源。你可以使用托管版应用，也可以[自己部署一份](https://www.agent-native.com/docs/template-analytics/)。数据由你提供：你自己的事件，或你连接的工具。Analytics 目前处于 alpha 阶段，后续还会有变化。
+    - q: 我需要懂 SQL 吗？
+      a: 不需要。用日常语言提问，agent 会编写并运行 SQL，然后用图表、表格或数字回答。想核对时，可以让它展示查询。可能需要一位熟悉你们数据的人先[连接数据源](https://www.agent-native.com/docs/template-analytics-connectors/)。
+    - q: 会话回放从哪里来？
+      a: 来自你自己的 Web 应用。在 **数据源** 中创建一个公钥，然后把 **会话** 页面上的简短跟踪代码添加到你的应用里，并开启会话回放。为录像连接存储：Builder.io 或你自己的 S3 存储桶。默认情况下，[回放](https://www.agent-native.com/docs/template-analytics-monitoring-and-sessions/)只录制已登录的用户。
+    - q: 会话回放会记录什么？
+      a: 回放会重现页面、点击和滚动、控制台输出以及网络请求。输入内容默认会被遮盖，标记为密码或银行卡信息的字段永远不会被采集。如需隐藏其他内容，给页面的那部分加一个 class 即可。
+    - q: 能用我在 PostHog、Amplitude 或 Mixpanel 里的数据吗？
+      a: 可以。在 **数据源** 中连接它们，然后询问你在那里跟踪的事件，agent 会替你查询每个工具。会话回放只来自 Analytics 自己的跟踪代码，所以要观看中途停下的人，需要把它添加到你的应用里。
+    - q: Analytics 和我的分析工具里自带的 AI 有什么不同？
+      a: 分析工具里的 AI 只处理那个工具的数据。Analytics 的 agent 能跨你连接的所有数据源工作，找到那些中途停下的具体用户的回放，解释其中任何一段，或把它交给你的编码 agent。它还是开源的。这就是[智能体应用](https://www.agent-native.com/articles/what-is-an-agent-native-app/)：既有 agent 的智能，又有应用的直观易用。

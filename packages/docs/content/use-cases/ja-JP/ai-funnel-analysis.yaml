@@ -1,0 +1,108 @@
+template: v2
+slug: ai-funnel-analysis
+app: analytics
+title: 新規ユーザーの離脱ポイントを見つける
+seo_title: セッションリプレイで行うAIファネル分析
+meta_description: 新規ユーザーがどの登録ステップで離脱するかをAgent-Native Analyticsに普段の言葉で質問し、自社のイベントからファネルを作成。離脱した人のリプレイも確認できます。
+updated: 2026-10-27
+hero:
+  body: どの登録ステップで最も多く離脱しているかをAgent-Native Analyticsに質問すると、エージェントが自社のイベントからファネルを作ります。離脱した人のリプレイを見て、その理由もエージェントに聞けます。
+  button:
+    label: 離脱ポイントを探す
+    url: https://analytics.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F55295bda356c490984f639946e838ebe
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd84d0fd7f856406e85b739ac0429b0f3
+    alt: Analyticsで開いた「アクティベーションファネル」ダッシュボード。ファネルは、登録、プロジェクト作成、データソース接続、チームメンバー招待の4ステップです。各ステップに人数、登録者に占める割合、前のステップからの減少が表示され、最も大きく減っているのはプロジェクト作成です。横のエージェントチャットが、先週の登録者がどこで止まったかを説明しています。
+how_to:
+  heading: AIでファネル分析を行う方法
+  steps:
+    - title: 新規ユーザーが止まる場所を質問する
+      body: 登録イベントをAnalyticsに取り込みます。**質問**で尋ねると、エージェントがSQLを書き、各ステップの人数と減少を示す[ファネルパネル](https://www.agent-native.com/docs/template-analytics-dashboards/)を追加します。例：「アクティベーションファネルのダッシュボードにファネルを追加して。先週の登録者はどこで止まった？」
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa752431cecb8420c88d3d6a8f7980ea9
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F16ab210c27504ed1b71c37ebdabea744
+        alt: その依頼とエージェントの返信が表示されたチャットと、追加されたファネル。ステップは登録1,240、プロジェクト作成612、データソース接続418、チームメンバー招待302で、それぞれに減少が示されています。
+    - title: 離脱した人を見つける
+      body: Analyticsの設定で「セッションの絞り込み」をオンにします。**セッション**で**イベント**を開きます。離脱直前のステップ（例：「signed_up」）に**あり**を、到達しなかったステップ（例：「project_created」）に**なし**を選びます。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F327bf36c28ab452da87cf4f4dc65debe
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F49b79e0de78041bb93444ec4d24ce11a
+        alt: イベントフィルターを開いたセッションページの拡大図。signed_upが「あり」、project_createdが「なし」に設定されています。その下には、絞り込まれた新規ユーザーのセッション一覧があり、それぞれに長さ、ページ、レイジクリックが表示されています。
+    - title: セッションで何が起きたかを質問する
+      body: リプレイを開くと、ページ、クリック、ネットワークリクエストを確認できます。**このセッションについてエージェントに質問**をクリックし、「このセッションで何が起きた？」と尋ねます。エージェントが、エラー、繰り返されたクリック、その人が見たページをまとめます。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7e0b3a4750a143f6bcd609e1c5460fd2
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe44e9321e80d4c3f826bd7b25fa54025
+        alt: プロジェクト作成ページでの新規ユーザーのリプレイと、横に表示されたエージェントの回答。この人はプロジェクト名を入力し、「Create project」を3回クリックしました。プロジェクトAPIへのリクエストは毎回失敗し、その人は離脱しました。
+features:
+  heading: 離脱を見つけて解消するために必要な機能がすべて揃っています
+  items:
+    - title: スキップは離脱ではない
+      body: スキップできるステップをエージェントに伝えれば、ファネルはそこをスキップした人と、そこでアプリを離れた人を分けて表示します。
+    - title: 自社のイベント名を使う
+      body: 管理者が**セマンティックレイヤー**ページでイベントと指標を説明しておけば、エージェントはどのクエリでもその名前どおりに使います。
+    - title: 失敗したリクエストを確認
+      body: リプレイで**開発ツール**を開けば、コンソールとネットワークリクエストを読み、リクエストが失敗した瞬間に移動できます。
+    - title: エージェント向けの伏せ字リプレイ
+      body: 外部のエージェントに渡るのはリプレイのコンソールとネットワークの記録だけで、エラーが先頭に来ます。録画自体は渡さず、リンクは2時間で失効します。
+    - title: 初期設定で非公開
+      body: どのリプレイでも入力内容はマスクされ、ページのほかのどの部分を隠すかも選べます。
+    - title: 毎日のファネル
+      body: ファネルのダッシュボードを毎日指定の時刻に、最大5人へのメールかSlackで送るようエージェントに頼めます。
+integrations:
+  heading: いつものツールとAnalyticsを連携
+  cards:
+    - title: 計測中のイベントについて質問
+      logos:
+        - name: PostHog
+        - name: Amplitude
+        - name: Mixpanel
+        - name: Google Analytics
+        - name: BigQuery
+      body: エージェントは、これらのツールですでに集めている製品データや、アプリからAnalyticsに送られるイベントに対してクエリを実行します。
+    - title: リプレイをコーディングエージェントに貼り付け
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+      body: リプレイで**エージェント用にコピー**をクリックし、リンクをコーディングエージェントに貼り付ければ、そのセッションのログからデバッグします。
+    - title: MCPであらゆるツールと連携
+      logos:
+        - name: Sentry
+        - name: Linear
+        - name: GitHub
+        - name: Intercom
+      more: true
+      body: チームが使っているツールをMCPで連携できます。URLを指定して任意のMCPサーバーを追加することもできます。
+other_uses:
+  heading: Agent-Native Analyticsでできるその他のこと
+  cards:
+    - title: スタートアップのKPIダッシュボードを作成
+      url: https://www.agent-native.com/use-cases/ai-kpi-dashboard/
+      body: 追っているKPIを説明すれば、エージェントがStripe、HubSpot、製品データから1つのダッシュボードを作ります。
+    - title: 普段の言葉でデータに質問
+      url: https://www.agent-native.com/use-cases/ask-your-database/
+      body: BigQueryのデータに質問すると、エージェントが確認できる読み取り専用のSQLを書きます。
+    - title: スプレッドシートなしで週次マーケティングレポートを作成
+      url: https://www.agent-native.com/use-cases/weekly-marketing-report/
+      body: マーケティングの1週間の成果を質問すると、エージェントがGoogle AnalyticsとHubSpotのデータからダッシュボードで答えます。
+faqs:
+  heading: よくある質問
+  items:
+    - q: Agent-Native Analyticsは無料ですか？
+      a: はい、Agent-Native Analyticsは無料のオープンソースです。ホスト版アプリを使うことも、[自分のコピーを動かす](https://www.agent-native.com/docs/template-analytics/)こともできます。データはご自身で用意します。自社のイベントか、連携したツールのデータです。Analyticsはアルファ版のため、今後変更が加わる可能性があります。
+    - q: SQLの知識は必要ですか？
+      a: いいえ。普段の言葉で質問すれば、エージェントがSQLを書いて実行し、グラフ、表、数値で答えます。確認したいときはクエリを見せるよう頼めます。最初に、データに詳しい人が[データソースを接続](https://www.agent-native.com/docs/template-analytics-connectors/)する必要がある場合もあります。
+    - q: セッションリプレイはどこから取得しますか？
+      a: ご自身のWebアプリからです。**データソース**で公開キーを作成し、**セッション**ページにある短いトラッキングスニペットを、セッションリプレイをオンにしてアプリに追加します。録画の保存先として、Builder.ioかご自身のS3バケットを接続します。デフォルトでは、[リプレイ](https://www.agent-native.com/docs/template-analytics-monitoring-and-sessions/)はサインイン済みのユーザーだけを記録します。
+    - q: セッションリプレイには何が記録されますか？
+      a: リプレイでは、ページ、クリックとスクロール、コンソール出力、ネットワークリクエストを再生できます。入力内容はデフォルトでマスクされ、パスワードやカード情報として名前の付いた入力欄は一切記録されません。ほかの部分を隠すには、その部分にクラスを追加します。
+    - q: PostHog、Amplitude、Mixpanelのデータを使えますか？
+      a: はい。**データソース**で接続すれば、それらのツールで計測しているイベントについて質問できます。エージェントが各ツールにクエリを実行します。セッションリプレイはAnalytics独自のトラッキングからのみ取得するので、離脱した人を見るにはアプリにトラッキングを追加しましょう。
+    - q: 分析ツールに付属するAIと何が違いますか？
+      a: 分析ツールのAIは、そのツールのデータを扱います。Analyticsのエージェントは連携したすべてのデータソースを横断し、離脱した人のリプレイを正確に見つけ、どれでも解説したり、コーディングエージェントに渡したりできます。しかもオープンソースです。これが[エージェント型アプリ](https://www.agent-native.com/articles/what-is-an-agent-native-app/)です。エージェントの頭脳と、アプリの直感的な使いやすさを兼ね備えています。

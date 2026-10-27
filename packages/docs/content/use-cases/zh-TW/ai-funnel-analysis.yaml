@@ -1,0 +1,108 @@
+template: v2
+slug: ai-funnel-analysis
+app: analytics
+title: 找出新使用者在哪一步流失
+seo_title: 結合工作階段回放的 AI 漏斗分析
+meta_description: 用日常語言問 Agent-Native Analytics 哪個註冊步驟流失最多新使用者，從你自己的事件取得漏斗，再觀看離開者的工作階段回放。
+updated: 2026-10-27
+hero:
+  body: 問 Agent-Native Analytics 哪個註冊步驟流失最多人，agent 會用你自己的事件建立漏斗。接著觀看離開者的回放，並問 agent 原因。
+  button:
+    label: 找出流失點
+    url: https://analytics.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F55295bda356c490984f639946e838ebe
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd84d0fd7f856406e85b739ac0429b0f3
+    alt: Analytics 視窗中的「Activation funnel」儀表板。漏斗有四個步驟：Signed up、Created a project、Connected a data source 和 Invited a teammate。每個步驟顯示人數、占註冊人數的比例，以及相較前一步的流失，最大的流失在 Created a project。旁邊的 agent 對話說明上週的註冊者停在哪裡。
+how_to:
+  heading: 如何用 AI 做漏斗分析
+  steps:
+    - title: 詢問新使用者停在哪裡
+      body: 把註冊事件匯入 Analytics。在 **提問** 中提問，agent 會撰寫 SQL，並加入一個[漏斗面板](https://www.agent-native.com/docs/template-analytics-dashboards/)，顯示每個步驟的人數和流失。試試看：「在我的 Activation funnel 儀表板加一個漏斗：上週的註冊者停在哪裡？」
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa752431cecb8420c88d3d6a8f7980ea9
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F16ab210c27504ed1b71c37ebdabea744
+        alt: agent 對話中的這則請求和 agent 的回覆，旁邊是它加入的漏斗。各步驟為 Signed up 1,240、Created a project 612、Connected a data source 418 和 Invited a teammate 302，各自顯示流失。
+    - title: 找出中途停下的人
+      body: 在 Analytics 設定中開啟「工作階段篩選」。在 **工作階段** 中開啟 **事件**。流失前的步驟選 **做過**，例如「signed_up」；他們沒走到的步驟選 **沒做過**，例如「project_created」。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F327bf36c28ab452da87cf4f4dc65debe
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F49b79e0de78041bb93444ec4d24ce11a
+        alt: 「工作階段」頁面的特寫，「事件」篩選器已開啟，signed_up 設為「做過」，project_created 設為「沒做過」。下方是篩選後的新使用者工作階段清單，各自顯示長度、頁面和憤怒點擊次數。
+    - title: 問 agent 工作階段裡發生了什麼
+      body: 開啟回放，觀看頁面、點擊和網路請求。點選 **詢問代理**，問「這個工作階段發生了什麼事？」agent 會整理出錯誤、重複點擊，以及這個人看過的頁面。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7e0b3a4750a143f6bcd609e1c5460fd2
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe44e9321e80d4c3f826bd7b25fa54025
+        alt: 一位新使用者在建立專案頁面的回放，旁邊是 agent 的回答。這個人輸入了專案名稱，點了三次 Create project。每次對專案 API 的請求都失敗，於是他離開了。
+features:
+  heading: 找出並修正流失所需的一切
+  items:
+    - title: 跳過不等於流失
+      body: 告訴 agent 哪些步驟可以跳過，漏斗就會把跳過的人和在那裡離開應用程式的人分開顯示。
+    - title: 用你自己的事件名稱
+      body: 管理員在 **語意層** 頁面描述你的事件和指標，agent 在每次查詢中都使用這些確切的名稱。
+    - title: 看到失敗的請求
+      body: 在回放中開啟 **開發工具**，查看主控台和網路請求，並直接跳到請求失敗的那一刻。
+    - title: 給 agent 的去敏回放
+      body: 外部 agent 取得的是回放的主控台和網路記錄，錯誤優先，絕不包含錄影本身。連結兩小時後失效。
+    - title: 預設保護隱私
+      body: 每段回放都會遮蔽輸入內容，頁面的其他部分要隱藏哪些也由你決定。
+    - title: 每天收到漏斗
+      body: 請 agent 每天在你指定的時間寄出漏斗儀表板，透過電子郵件寄給最多五個人，或發到 Slack。
+integrations:
+  heading: 將 Analytics 連接到你已在用的工具
+  cards:
+    - title: 詢問你追蹤的事件
+      logos:
+        - name: PostHog
+        - name: Amplitude
+        - name: Mixpanel
+        - name: Google Analytics
+        - name: BigQuery
+      body: agent 會查詢你已經在這些工具中收集的產品資料，或你的應用程式傳送到 Analytics 的事件。
+    - title: 把回放貼給程式開發 agent
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+      body: 在回放上點選 **複製給代理**，把連結貼到程式開發 agent，讓它根據該工作階段的記錄除錯。
+    - title: 透過 MCP 連接任何工具
+      logos:
+        - name: Sentry
+        - name: Linear
+        - name: GitHub
+        - name: Intercom
+      more: true
+      body: 透過 MCP 連接團隊使用的工具，或用網址加入任何 MCP 伺服器。
+other_uses:
+  heading: 你還能用 Agent-Native Analytics 做的其他事
+  cards:
+    - title: 為你的新創公司打造 KPI 儀表板
+      url: https://www.agent-native.com/use-cases/ai-kpi-dashboard/
+      body: 描述你追蹤的 KPI，agent 會用 Stripe、HubSpot 和產品資料建立一個儀表板。
+    - title: 用日常語言查詢你的資料
+      url: https://www.agent-native.com/use-cases/ask-your-database/
+      body: 對 BigQuery 資料提問，agent 會撰寫你可以檢查的唯讀 SQL。
+    - title: 不用試算表，也能做出每週行銷報告
+      url: https://www.agent-native.com/use-cases/weekly-marketing-report/
+      body: 問問這週的行銷表現，agent 會根據 Google Analytics 和 HubSpot，在儀表板中回答。
+faqs:
+  heading: 有問題？我們來解答
+  items:
+    - q: Agent-Native Analytics 是免費的嗎？
+      a: 是的，Agent-Native Analytics 免費且開源。你可以使用託管的應用程式，或[自行架設一份](https://www.agent-native.com/docs/template-analytics/)。資料由你提供：你自己的事件，或你連接的工具。Analytics 目前是 alpha 版，功能會持續調整。
+    - q: 我需要懂 SQL 嗎？
+      a: 不需要。用日常語言提問，agent 會撰寫並執行 SQL，再以圖表、表格或數字回答。想檢查時，可以請它顯示查詢。熟悉你資料的人可能需要先[連接資料來源](https://www.agent-native.com/docs/template-analytics-connectors/)。
+    - q: 工作階段回放從哪裡來？
+      a: 來自你自己的網頁應用程式。在 **資料來源** 建立一組公開金鑰，再把 **工作階段** 頁面上的簡短追蹤程式碼加到你的應用程式，並開啟工作階段回放。接著連接存放錄影的儲存空間：Builder.io 或你自己的 S3 bucket。[回放](https://www.agent-native.com/docs/template-analytics-monitoring-and-sessions/)預設只錄製已登入的使用者。
+    - q: 工作階段回放會錄下什麼？
+      a: 回放會重現頁面、點擊和捲動、主控台輸出和網路請求。輸入內容預設會遮蔽，標示為密碼或信用卡資料的欄位則絕不擷取。要隱藏其他部分，就在頁面的那個部分加上一個 class。
+    - q: 我可以使用 PostHog、Amplitude 或 Mixpanel 的資料嗎？
+      a: 可以。在 **資料來源** 連接它們，就能詢問你在那裡追蹤的事件，agent 會替你查詢每個工具。工作階段回放只來自 Analytics 自己的追蹤，所以要把它加到你的應用程式，才能觀看中途停下的人。
+    - q: Analytics 和我的分析工具內建的 AI 有什麼不同？
+      a: 分析工具的 AI 只處理該工具的資料。Analytics 的 agent 能跨越你連接的所有來源，找出那些中途停下的人的回放，並解說任何一段，或交給你的程式開發 agent。它也是開源的。這就是 [agentic 應用程式](https://www.agent-native.com/articles/what-is-an-agent-native-app/)：擁有 agent 的智慧，也有應用程式的直覺易用。
