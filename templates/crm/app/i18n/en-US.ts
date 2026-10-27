@@ -624,11 +624,10 @@ const messages = {
     automate: "Automate",
     reviewNewClipsCalls: "Review new Clips calls",
     reviewDescription:
-      "Prepare a review recipe for this CRM record without copying Clips media or transcripts.",
-    disabledAutomationDescription:
-      "This starts disabled and stays tied to {{name}}. Once explicitly activated, each new clip may attach only its access-checked recording-page reference to this record.",
+      "Setting up CRM-to-Clips call automations isn't available yet.",
+    disabledAutomationDescription: "Selected CRM record: {{name}}.",
     handoffDescription:
-      "The handoff keeps only an opaque clip ID, a durable {{path}} page URL, and capture time. It rejects event URLs, media, access tokens, transcripts, inferred records, and provider writes.",
+      "Automatic attachment of {{path}} page links is unavailable.",
     manageAutomations: "Manage automations",
     configureWithAgent: "Configure with agent",
     editField: "Edit field",
