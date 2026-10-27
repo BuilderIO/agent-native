@@ -47,6 +47,8 @@ Every claimed report gets **one** reply in its thread per outcome. People
 have pushed back on replies that were long, technical, condescending, vague
 about who does what next, or that handed them work. Each reply must be:
 
+- **An answer first:** if they asked something ("is this expected?"),
+  answer it in the first words ("no, that's a bug"), not with a status.
 - **Short:** one sentence, about 25 words at most, for someone who doesn't
   read code.
 - **About what they'll notice:** say what changes for them ("recordings no
@@ -63,25 +65,31 @@ about who does what next, or that handed them work. Each reply must be:
   message's time and author, their account and recent activity, logs, the
   linked page or screenshot). Ask only when nothing else can unblock it, and
   then ask one small thing, in this one reply. Never send a list of
-  questions, never ask them to test, retry, re-record, or gather logs, and
-  never come back later asking for something you could have asked the first
-  time.
+  questions, never ask them to test, retry, re-record, pull, reinstall, or
+  gather logs, and never come back later asking for something you could have
+  asked the first time. If it needs access you don't have (credentials, admin
+  rights, account changes), say Steve will handle it; never hand it to the
+  reporter.
 - **Plain, not preachy:** don't explain how the product works unless they
   asked, don't tell them what they should do, and skip apologies, hedging,
   "actually", "just", "simply", and "Great catch!!".
-- **True:** "on beta shortly" only after the merge. Before that, the fix is
-  "in review".
+- **True:** "fixed" only for a merged fix, and "on beta shortly" only after
+  the merge. Before that, the fix is "in review". Never "fixed and verified"
+  on the strength of a local check.
+- **Once:** never post the same reply twice, and never follow up with one
+  that adds nothing new.
 - Link the PR on the word "fix" (`<url|fix>`), never by number.
 - End with the bold line `**This was sent from a bot**` on its own line,
   once.
 
-Don't reply at all to jokes, banter, or a thread a person is already
-handling. Before posting, reread the reply as the reporter: would they get it
+Don't reply at all to jokes, venting, banter, a message meant for Steve
+himself, or a thread a person is already handling. If someone asks the bot to
+stop posting somewhere, don't post there again. Before posting, reread the reply as the reporter: would they get it
 in five seconds, know who does what next, and feel we did the legwork?
 
 Good (each is the first line; the footer goes on the line below it):
 
-- `thanks - the export keeps your column order now; the <https://github.com/BuilderIO/agent-native/pull/1234|fix> is merged and will be on beta shortly.`
+- `thanks - the <https://github.com/BuilderIO/agent-native/pull/1234|fix> so the export keeps your column order is merged and will be on beta shortly.`
 - `thanks - once this <https://github.com/BuilderIO/agent-native/pull/1234|fix> merges, the export will keep your column order; it's in review now.`
 - `thanks - Steve will decide where that button should go.`
 - `thanks - I couldn't find which deck this was; could you paste its link?`
@@ -89,7 +97,7 @@ Good (each is the first line; the footer goes on the line below it):
 So a full reply looks like:
 
 ```text
-thanks - the export keeps your column order now; the <https://github.com/BuilderIO/agent-native/pull/1234|fix> is merged and will be on beta shortly.
+thanks - the <https://github.com/BuilderIO/agent-native/pull/1234|fix> so the export keeps your column order is merged and will be on beta shortly.
 **This was sent from a bot**
 ```
 
@@ -101,6 +109,8 @@ Real replies that missed, and what to send instead:
 | "cleanup now waits for the transcript, and a fix is ready. It should be on beta shortly." (sent before the merge) | "thanks - recordings will keep their transcript once this <url\|fix> is merged; it's in review now." |
 | "I've left moving it somewhere easier to find for product to decide." | "thanks - Steve will decide where the editor should live." |
 | "The framework team needs to decide whether multi-step work should be gathered into one request or handled through the agent's usual back-and-forth." | "thanks - Steve will decide how this should work." |
+| "Partially fixed - PR #7512 merged the project-instructions/context carryover fix", after she'd asked whether FullStory could be added for the whole org | Answer that question first: "yes - I'll add it for everyone" or "not yet - Steve will decide". |
+| "All fixed and verified. Please try again!" plus instructions to pull main and reinstall | "thanks - this <url\|fix> is merged and will be on beta shortly." No homework. |
 | "Thanks for correcting me, Julia - I misread the replies. ... Open - no question: I don't have enough source evidence to claim a fix." | Nothing: the thread was a joke. |
 | Asked for the app URL, what was clicked, and the time; then, in a second reply, for the time zone. | One reply, one question, only for what you can't look up. The message's own timestamp already says when. |
 
