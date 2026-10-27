@@ -34,8 +34,12 @@ const messages = {
       newest: "新着順",
       priority: "優先度",
       priorityFailed: "受信トレイを並べ替えられませんでした。",
+      priorityProviderRequired:
+        "優先度順で並べ替えるには、AIプロバイダーを接続してください。",
+      priorityPartialFailed:
+        "{{count}} 件のメールを評価できませんでした。評価済みのメールの後に表示します。",
       priorityScoreHelp:
-        "スコアが高いほど、Jev が重要と判断したメッセージです。",
+        "スコアが高いほど、このメールが重要である可能性が高くなります。",
       priorityFeedbackSuggestion:
         "この傾向を重要度または自動アーカイブのルールにできます。",
       priorityFeedbackAskAgent: "エージェントにルールを提案してもらう",
@@ -720,12 +724,15 @@ const messages = {
       tagTabsHelp: "各タグが受信トレイのタブになります",
       addTag: "タグを追加",
       triageTitle: "AIトリアージ",
-      connectJev: "Jevを接続",
-      connectJevToRunTriage: "トリアージを実行するにはJevを接続",
+      connectJev: "AIプロバイダーを接続",
+      connectJevToRunTriage:
+        "トリアージを実行するにはAIプロバイダーを接続してください",
       freeBuilderOrApiKey: "Builder.ioなら無料、またはAPIキーを追加。",
-      jevAvailabilityFailed: "Jev の利用可否を確認できませんでした。",
+      jevAvailabilityFailed:
+        "AI 判定プロバイダーが利用可能か確認できませんでした。",
       connectBuilder: "Builder.ioを使用",
-      addJevApiKey: "APIキーを追加",
+      addJevApiKey: "Jev APIキーを追加",
+      addOpenAiApiKey: "OpenAI APIキーを追加",
     },
     draftQueue: {
       title: "Cola de borradores",

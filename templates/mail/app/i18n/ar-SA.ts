@@ -34,7 +34,11 @@ const messages = {
       newest: "الأحدث",
       priority: "الأولوية",
       priorityFailed: "تعذّر ترتيب الوارد.",
-      priorityScoreHelp: "تعني الدرجة الأعلى أن Jev يرى الرسالة أكثر أهمية.",
+      priorityProviderRequired:
+        "اربط موفر ذكاء اصطناعي لاستخدام الفرز حسب الأولوية.",
+      priorityPartialFailed:
+        "تعذّر ترتيب {{count}} من الرسائل. ستظهر بعد الرسائل التي تم تقييمها.",
+      priorityScoreHelp: "تعني الدرجة الأعلى أن احتمال أهمية هذه الرسالة أكبر.",
       priorityFeedbackSuggestion:
         "حوّل هذا النمط إلى قاعدة للأهمية أو للأرشفة التلقائية.",
       priorityFeedbackAskAgent: "اطلب من الوكيل اقتراح قواعد",
@@ -708,12 +712,13 @@ const messages = {
       tagTabsHelp: "وسم توضيحي يصبح علامة تبويب في الوارد",
       addTag: "إضافة وسم",
       triageTitle: "الفرز بالذكاء الاصطناعي",
-      connectJev: "ربط Jev",
-      connectJevToRunTriage: "اربط Jev لتشغيل الفرز",
+      connectJev: "اربط موفر ذكاء اصطناعي",
+      connectJevToRunTriage: "اربط موفر ذكاء اصطناعي لتشغيل الفرز",
       freeBuilderOrApiKey: "مجانًا عبر Builder.io، أو أضف مفتاح API.",
-      jevAvailabilityFailed: "تعذّر التحقق مما إذا كان Jev متاحًا.",
+      jevAvailabilityFailed: "تعذّر التحقق من توفر مزوّد قرارات ذكاء اصطناعي.",
       connectBuilder: "استخدم Builder.io",
-      addJevApiKey: "إضافة مفتاح API",
+      addJevApiKey: "أضف مفتاح Jev API",
+      addOpenAiApiKey: "أضف مفتاح OpenAI API",
     },
     draftQueue: {
       title: "Cola de borradores",

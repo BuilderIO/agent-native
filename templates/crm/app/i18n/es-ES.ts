@@ -602,16 +602,15 @@ const messages = {
     reviewDuplicates: "Revisar duplicados",
     duplicateReviewTitle: "Posibles registros duplicados",
     duplicateReviewDescription:
-      "Compara este registro con candidatos accesibles. Jev envía a TypeSafe nombres, tipos de registro y señales de coincidencia de hasta cinco candidatos. Su probabilidad es orientativa; fusionar exige otra revisión.",
+      "Compara este registro con candidatos accesibles. La revisión semántica envía nombres, tipos de registro y señales de coincidencia de hasta cinco candidatos al proveedor de decisiones de IA configurado. La probabilidad es orientativa; fusionar exige otra revisión.",
     duplicateReviewRun: "Comprobar duplicados",
     duplicateReviewLoading: "Comprobando…",
     duplicateReviewFailed: "No se pudo completar la revisión de duplicados.",
     duplicateReviewUnavailable:
-      "Jev no pudo revisar estos registros. Los candidatos basados en reglas siguen visibles.",
+      "El proveedor de decisiones de IA no pudo revisar estos registros. Los candidatos basados en reglas siguen visibles.",
     duplicateReviewEmpty: "No se encontraron duplicados probables.",
     duplicateRuleConfidence: "Coincidencia por reglas: {{percent}}%",
-    duplicateJevProbability:
-      "Probabilidad de misma entidad según Jev: {{percent}}%",
+    duplicateDecisionProbability: "Probabilidad de misma entidad: {{percent}}%",
     duplicateMatchedOn: "Coincide en: {{values}}",
     evidenceAttached: "Evidencia de llamada adjuntada.",
     evidenceAttachFailed: "No se pudo adjuntar la evidencia.",
