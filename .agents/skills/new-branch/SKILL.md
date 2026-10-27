@@ -68,8 +68,10 @@ git log --oneline <ship_merge_head_oid>..HEAD
   isn't in `origin/main` yet, wait a few seconds and fetch again.
 - `ship_merge_head_oid` is the head `/ship` saved before merging. The `git log`
   must print nothing, which means no commits landed after the merged head.
-  Also check the remote branch has none:
-  `git log --oneline <ship_merge_head_oid>..origin/<branch>`.
+  Also confirm the PR's final head is the one that merged:
+  `gh pr view <number> --json headRefOid --jq .headRefOid` must print
+  `ship_merge_head_oid`. This works even when the source branch was deleted
+  or lives on a fork. If the command fails, keep the branch.
 - `git cat-file -e "<ship_merge_head_oid>^{commit}"` must succeed first. If
   the saved OID is missing or invalid, an empty `git log` proves nothing, so
   keep the branch.

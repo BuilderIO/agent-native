@@ -60,8 +60,10 @@ for your own PR. For anyone else's PR, `ship`'s ownership rules apply.
 5. Merge immediately when the tree is clean and pushed, every review item is
    fixed or answered with a reply that was actually posted, and the PR isn't
    `CONFLICTING`. A reply you could only draft (someone else's PR, no comment
-   permission) blocks the merge. Read the live head OID,
-   write it as `ship_merge_head_oid`, and run:
+   permission) blocks the merge. Read the live `headRefOid`. It must equal
+   `git rev-parse HEAD`, the head you validated and pushed. If it doesn't,
+   someone pushed: redo steps 2-4. When they match, write it as
+   `ship_merge_head_oid` and run:
 
    ```bash
    gh pr merge <number> --squash --admin --match-head-commit <head-oid>
