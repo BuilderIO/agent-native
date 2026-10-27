@@ -57,7 +57,10 @@ local host:
 - Attach the source files the brief relies on from disk, verbatim, instead of
   from context. A workbook still goes as a bounded CSV rendering. Never attach
   `.env` files, keys, tokens, or other credentials, even when the source uses
-  them; name what the app will need instead.
+  them; name what the app will need instead. If a file holds customer data or
+  anything the source marks internal, confidential, or restricted to one role
+  ([source-brief.md](source-brief.md)), ask before sending it and offer to
+  leave it out. The report names what was left out.
 - Run nothing for the app: no `npm`, `pnpm`, scaffold, or dev server. The only
   commands allowed are the Dispatch connector setup below.
 
