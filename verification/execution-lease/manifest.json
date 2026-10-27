@@ -59,7 +59,7 @@
   ],
   "findings": [],
   "coverage": {
-    "syncCommit": "5d0a977551988461d84ffed6f663cb2d92f4d955",
+    "syncCommit": "0b6cac4b78d650ec81a80151f8b1a7b521befd66",
     "code": [
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -84,7 +84,7 @@
       {
         "file": "packages/core/src/agent/run-store.ts",
         "name": "beginAgentExecutionStep",
-        "sha256": "2b7fcb58d698d5f19f94409327e75a63c21bd5de3f25f639f787f5e489809cf4"
+        "sha256": "1ef9a154909460e1b290822062f487967d45a3d7cac8eecf7e02a0a3a3aefc97"
       },
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -94,7 +94,7 @@
       {
         "file": "packages/core/src/agent/run-store.ts",
         "name": "resetAgentExecutionStepBeforeInvocation",
-        "sha256": "77980f0770a6141e7a354e693f09ba7b643b6d7c8c2b7d061dd1ba3d0cd8d56a"
+        "sha256": "d60cca7e2db7367d22f85816a804b8d4514c0c92b4a6be98dddfe29bad95db8d"
       },
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -184,7 +184,7 @@
       {
         "file": "packages/core/src/agent/run-store.ts",
         "name": "pruneAndRollUpPrunedRunOutcomes",
-        "sha256": "034be8dfe4ef43f866b0c601437f9c15fe01727024acf305c5a7fcd77f14c364"
+        "sha256": "00649c3a1283836fd0cfa458d7efd18edbf4b2118b924e2b257c067abae082d0"
       },
       {
         "file": "packages/core/src/agent/execution-fence.ts",
@@ -287,7 +287,7 @@
         "file": "packages/core/src/agent/production-agent.ts",
         "from": "await resetAgentExecutionStepBeforeInvocation(executionStepIntent, {",
         "to": "executionStepAdmission.wasDispatched,",
-        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+        "sha256": "e1431d90525841eaf258b1c9fe60a53d46906b8495a33a85d73379d19feb31b6"
       }
     ]
   }
