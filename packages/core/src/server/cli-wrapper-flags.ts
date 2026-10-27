@@ -23,6 +23,8 @@ type BabelNode = {
   computed?: boolean;
   kind?: string;
   exportKind?: string;
+  importKind?: string;
+  source?: BabelNode;
   expression?: BabelNode;
   key?: BabelNode;
   object?: BabelNode;
@@ -67,6 +69,11 @@ const TYPE_ONLY_WRAPPERS = new Set([
   "TSNonNullExpression",
   "TSTypeAssertion",
   "ParenthesizedExpression",
+]);
+/** The modules that export the framework's own `defineAction`. */
+const ACTION_MODULES = new Set([
+  "@agent-native/core",
+  "@agent-native/core/action",
 ]);
 const FUNCTIONS = new Set([
   "FunctionDeclaration",
@@ -222,11 +229,14 @@ function exportedValue(
     ) {
       value = unwrap(statement.expression.right);
     } else if (
-      statement.type === "ExportNamedDeclaration" &&
-      statement.specifiers?.some(
-        (spec) => specifierName(spec.exported) === "default",
-      )
+      statement.type === "TSExportAssignment" ||
+      (statement.type === "ExportNamedDeclaration" &&
+        statement.specifiers?.some(
+          (spec) => specifierName(spec.exported) === "default",
+        ))
     ) {
+      // How a loader sees TypeScript's `export =` depends on how it compiles
+      // the module, so the reader can't say which object is the action.
       value = "unknown";
     }
   }
@@ -333,15 +343,28 @@ function namedExports(program: BabelProgram): {
 function defaultActionOptions(
   program: BabelProgram,
 ): BabelNode | "unknown" | null {
-  const names = new Set(["defineAction"]);
+  // Only the framework's `defineAction` is known to keep the options it's
+  // given. A local helper or another module's function of the same name could
+  // change them, so a call to one proves nothing.
+  const names = new Set<string>();
+  const namespaces = new Set<string>();
   for (const statement of program.body) {
-    if (statement.type !== "ImportDeclaration") continue;
+    const from = statement.source?.value;
+    if (
+      statement.type !== "ImportDeclaration" ||
+      statement.importKind === "type" ||
+      typeof from !== "string" ||
+      !ACTION_MODULES.has(from)
+    ) {
+      continue;
+    }
     for (const spec of statement.specifiers ?? []) {
-      if (spec.type !== "ImportSpecifier") continue;
       const local = identifierName(spec.local);
+      if (local === undefined || spec.importKind === "type") continue;
+      if (spec.type === "ImportNamespaceSpecifier") namespaces.add(local);
       if (
-        specifierName(spec.imported) === "defineAction" &&
-        local !== undefined
+        spec.type === "ImportSpecifier" &&
+        specifierName(spec.imported) === "defineAction"
       ) {
         names.add(local);
       }
@@ -352,11 +375,15 @@ function defaultActionOptions(
     if (node.type !== "CallExpression") return;
     const callee = unwrap(node.callee);
     const calleeName = identifierName(callee);
+    const namespace =
+      callee?.type === "MemberExpression" && !callee.computed
+        ? identifierName(callee.object)
+        : undefined;
     if (
       (calleeName !== undefined && names.has(calleeName)) ||
-      (callee?.type === "MemberExpression" &&
-        !callee.computed &&
-        identifierName(callee.property) === "defineAction")
+      (namespace !== undefined &&
+        namespaces.has(namespace) &&
+        identifierName(callee?.property) === "defineAction")
     ) {
       calls.push(node);
     }
@@ -442,8 +469,9 @@ function actionFlags(program: BabelProgram): ReadFlags | null {
  * literal `toolCallable: true` lets tool calls in, whether set in the
  * options or as a named `const` export beside `tool` and `run`. Any other
  * value sets the safe one, and so do options it can't see (spread in, passed
- * by name, built by another helper, re-exported, or exported through a
- * binding the module changes) and a source it can't parse. A module that
+ * by name, built by another helper or a `defineAction` that isn't the
+ * framework's, re-exported, or exported through a binding the module changes)
+ * and a source it can't parse. A module that
  * defines no action gets none of them.
  */
 export function cliWrapperFlagsFromSource(src: string): CliWrapperFlags {

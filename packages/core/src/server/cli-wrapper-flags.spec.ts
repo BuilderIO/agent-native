@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 import { cliWrapperFlagsFromSource } from "./cli-wrapper-flags.js";
 
 describe("cliWrapperFlagsFromSource", () => {
+  const imported = 'import { defineAction } from "@agent-native/core/action";';
   const source = (flags: string) =>
     [
+      imported,
       "export default defineAction({",
       '  description: "Send",',
       flags,
@@ -59,55 +61,78 @@ describe("cliWrapperFlagsFromSource", () => {
         "a regex before a spread",
         source("  pattern: /}/,\n  ...approvalFlags,"),
       ],
-      ["options by name", "export default defineAction(sendOptions);"],
+      [
+        "options by name",
+        `${imported}\nexport default defineAction(sendOptions);`,
+      ],
       [
         "a commented example before the real call",
-        "// defineAction({})\nexport default defineAction(sendOptions);",
+        `${imported}\n// defineAction({})\nexport default defineAction(sendOptions);`,
       ],
       [
         "type arguments",
-        "export default defineAction<SendInput>(sendOptions);",
+        `${imported}\nexport default defineAction<SendInput>(sendOptions);`,
       ],
       [
         "options built by another helper",
         "export default createSendAction({ needsApproval: false });",
       ],
+      [
+        "a defineAction the module never imports",
+        "export default defineAction({ needsApproval: false });",
+      ],
+      [
+        "a local defineAction",
+        "function defineAction(options) {\n  return { ...options, needsApproval: true };\n}\nexport default defineAction({ needsApproval: false });",
+      ],
+      [
+        "a defineAction from another module",
+        'import { defineAction } from "./send-helpers.js";\nexport default defineAction({ needsApproval: false });',
+      ],
+      [
+        "a defineAction on an object that isn't the framework",
+        'import * as helpers from "./send-helpers.js";\nexport default helpers.defineAction({ needsApproval: false });',
+      ],
       ["a re-exported action", 'export { default } from "./send-base.js";'],
       [
         "a defineAction call that isn't the export",
-        "const helper = defineAction({ needsApproval: false });\nexport default createSendAction(helper);",
+        `${imported}\nconst helper = defineAction({ needsApproval: false });\nexport default createSendAction(helper);`,
       ],
       [
         "a defineAction call beside a re-export",
-        'defineAction({ needsApproval: false });\nexport { default } from "./send-base.js";',
+        `${imported}\ndefineAction({ needsApproval: false });\nexport { default } from "./send-base.js";`,
       ],
       [
         "an action wrapped by another helper",
-        "export default withLogging(defineAction({ needsApproval: false }));",
+        `${imported}\nexport default withLogging(defineAction({ needsApproval: false }));`,
       ],
       [
         "a default object that isn't an action",
         "export default { needsApproval: false, persistInBrowser: true };",
       ],
       [
+        "TypeScript's export assignment",
+        'export = {\n  tool: { description: "Send" },\n  needsApproval: false,\n  run: async () => ({}),\n};',
+      ],
+      [
         "a binding reassigned before the export",
-        "let send = defineAction({ needsApproval: false });\nsend = defineAction({ needsApproval: true });\nexport default send;",
+        `${imported}\nlet send = defineAction({ needsApproval: false });\nsend = defineAction({ needsApproval: true });\nexport default send;`,
       ],
       [
         "a binding changed after it's declared",
-        "const send = defineAction({ needsApproval: false });\nsend.needsApproval = true;\nexport default send;",
+        `${imported}\nconst send = defineAction({ needsApproval: false });\nsend.needsApproval = true;\nexport default send;`,
       ],
       [
         "a binding declared twice",
-        "var send = defineAction({ needsApproval: false });\nvar send = defineAction({ needsApproval: true });\nexport default send;",
+        `${imported}\nvar send = defineAction({ needsApproval: false });\nvar send = defineAction({ needsApproval: true });\nexport default send;`,
       ],
       [
         "a default function reassigned to an action",
-        "function send() {}\nsend = defineAction({ needsApproval: true });\nexport default send;",
+        `${imported}\nfunction send() {}\nsend = defineAction({ needsApproval: true });\nexport default send;`,
       ],
       [
         "named tool and run beside a default action",
-        'export const tool = { description: "Send" };\nexport async function run() {}\nexport default defineAction({ needsApproval: false });',
+        `${imported}\nexport const tool = { description: "Send" };\nexport async function run() {}\nexport default defineAction({ needsApproval: false });`,
       ],
       ["a whole file re-exported", 'export * from "./send-base.js";'],
       [
@@ -196,6 +221,15 @@ describe("cliWrapperFlagsFromSource", () => {
         ].join("\n"),
       ),
     ).toEqual({ needsApproval: true });
+  });
+
+  it("reads defineAction from either framework entry point", () => {
+    for (const src of [
+      'import { defineAction } from "@agent-native/core";\nexport default defineAction({ needsApproval: false });',
+      'import * as core from "@agent-native/core/action";\nexport default core.defineAction({ needsApproval: false });',
+    ]) {
+      expect(cliWrapperFlagsFromSource(src), src).toEqual({});
+    }
   });
 
   it("leaves modules that define no action alone", () => {
