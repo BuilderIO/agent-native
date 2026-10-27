@@ -698,7 +698,7 @@ export async function listPropertiesForDatabase(
     /** Filled with the change IDs of the value rows read. */
     changeIds?: StoredPropertyChangeIds;
   } = {},
-) {
+): Promise<DocumentProperty[]> {
   const db = getDb();
   const { definitions, sourceManagedPropertyIds } =
     options.propertySchema ??
