@@ -33,6 +33,24 @@ describe("describeUploadedFilesForAgent", () => {
       "ask the user to upload the file or paste its contents",
     );
   });
+
+  it("asks how to use an attached file before writing slides", () => {
+    const context = describeUploadedFilesForAgent(
+      [
+        {
+          path: "uploads/brief.pdf",
+          originalName: "brief.pdf",
+          filename: "brief.pdf",
+          type: "application/pdf",
+          size: 2048,
+        },
+      ],
+      "deck-id",
+    );
+
+    expect(context).toContain("does not say what to do with an attached file");
+    expect(context).toContain("Call `ask-question` once");
+  });
 });
 
 describe("getUploadedImageAgentOptions", () => {

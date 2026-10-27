@@ -244,6 +244,11 @@ export function describeUploadedFilesForAgent(
     importedSourceDeck
       ? "- For a PDF source, keep the layers the import produced — positioned text boxes and images, or the page image where a page carried nothing else — and add restrained design-system chrome around them without obscuring source content. Never replace an imported slide with a retyped approximation of its text."
       : "- Do not pass `importIntoDeck: true` for an attached file unless the user explicitly asks to import or preserve the source pages in the current deck. An attached reference is not an instruction to replace or seed the deck.",
+    ...(importedSourceDeck
+      ? []
+      : [
+          "- If the user's message does not say what to do with an attached file (for example, use it as design inspiration, or build a deck from its content), do not create or edit slides yet. Call `ask-question` once to ask how they want to use the file, offering the likely uses as options, then end the turn; their answer arrives as the next message.",
+        ]),
     "- Text-like files: use the uploaded-text-file blocks already included in the prompt; do not call import-file for them.",
     '- Image files with an embeddable URL are mandatory assets: if the user specified where to use one (e.g. "on the first and last slide"), embed it there with `<img src="...">` exactly as requested. Do not omit a requested image and continue silently — if it truly cannot be placed, say why in your final chat response.',
     '- Image files without a URL are sent as inline visual/reference assets for this run when available; on a follow-up, call `import-file --filePath "<path>" --format image` to reopen a persisted private raster before visual editing, and call `upload-image` if a durable embeddable URL is needed.',
