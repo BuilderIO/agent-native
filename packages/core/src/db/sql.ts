@@ -6,6 +6,9 @@ declare const boundValueBrand: unique symbol;
 const fragmentRuntimeBrand = Symbol.for("@agent-native/core/sql-fragment");
 const identifierRuntimeBrand = Symbol.for("@agent-native/core/sql-identifier");
 const boundValueRuntimeBrand = Symbol.for("@agent-native/core/sql-bound-value");
+const parameterOffsetsRuntimeBrand = Symbol.for(
+  "@agent-native/core/sql-fragment-parameter-offsets",
+);
 
 export interface SqlFragment {
   readonly sql: string;
@@ -33,11 +36,42 @@ export interface SqlTag {
   in(values: readonly unknown[]): SqlFragment;
 }
 
-function makeFragment(sqlText: string, args: readonly unknown[]): SqlFragment {
+interface FragmentBuilder {
+  sqlParts: string[];
+  args: unknown[];
+  parameterOffsets: number[];
+  length: number;
+}
+
+function createBuilder(): FragmentBuilder {
+  return { sqlParts: [], args: [], parameterOffsets: [], length: 0 };
+}
+
+function appendText(builder: FragmentBuilder, text: string): void {
+  builder.sqlParts.push(text);
+  builder.length += text.length;
+}
+
+function parameterOffsets(value: object): readonly number[] | undefined {
+  const metadata = (value as Record<symbol, unknown>)[
+    parameterOffsetsRuntimeBrand
+  ];
+  return Array.isArray(metadata) &&
+    metadata.every((offset) => typeof offset === "number")
+    ? metadata
+    : undefined;
+}
+
+function makeFragment(
+  sqlText: string, // raw-sql-ok: the private builder composes only validated fragments and fixed text.
+  args: readonly unknown[],
+  offsets: readonly number[],
+): SqlFragment {
   return Object.freeze({
     sql: sqlText,
     args: Object.freeze([...args]),
     [fragmentRuntimeBrand]: true as const,
+    [parameterOffsetsRuntimeBrand]: Object.freeze([...offsets]),
   }) as unknown as SqlFragment;
 }
 
@@ -48,7 +82,7 @@ function requirePresent<T>(value: T | undefined, message: string): T {
   return value;
 }
 
-function isSqlFragment(value: unknown): value is SqlFragment {
+export function isSqlFragment(value: unknown): value is SqlFragment {
   return (
     typeof value === "object" &&
     value !== null &&
@@ -56,8 +90,19 @@ function isSqlFragment(value: unknown): value is SqlFragment {
     "sql" in value &&
     "args" in value &&
     typeof value.sql === "string" &&
-    Array.isArray(value.args)
+    Array.isArray(value.args) &&
+    parameterOffsets(value) !== undefined
   );
+}
+
+export function getSqlFragmentParameterOffsets(
+  fragment: SqlFragment,
+): readonly number[] {
+  const offsets = parameterOffsets(fragment);
+  if (!offsets) {
+    throw new TypeError("SQL fragment is missing parameter marker metadata.");
+  }
+  return offsets;
 }
 
 function isSqlIdentifier(value: unknown): value is SqlIdentifier {
@@ -79,31 +124,30 @@ function isSqlBoundValue(value: unknown): value is SqlBoundValue {
   );
 }
 
-function appendFragment(
-  fragment: SqlFragment,
-  sqlParts: string[],
-  args: unknown[],
-): void {
-  sqlParts.push(fragment.sql);
-  args.push(...fragment.args);
+function appendFragment(fragment: SqlFragment, builder: FragmentBuilder): void {
+  for (const offset of getSqlFragmentParameterOffsets(fragment)) {
+    builder.parameterOffsets.push(builder.length + offset);
+  }
+  appendText(builder, fragment.sql);
+  builder.args.push(...fragment.args);
 }
 
 function appendInterpolation(
   value: SqlInterpolation,
-  sqlParts: string[],
-  args: unknown[],
+  builder: FragmentBuilder,
 ): void {
   if (isSqlFragment(value)) {
-    appendFragment(value, sqlParts, args);
+    appendFragment(value, builder);
     return;
   }
   if (isSqlIdentifier(value)) {
-    sqlParts.push(value.name);
+    appendText(builder, value.name);
     return;
   }
   if (isSqlBoundValue(value)) {
-    sqlParts.push("?");
-    args.push(value.value);
+    builder.parameterOffsets.push(builder.length);
+    appendText(builder, "?");
+    builder.args.push(value.value);
     return;
   }
   throw new TypeError(
@@ -122,21 +166,25 @@ const tag = (
     strings[0],
     "SQL template must contain an initial string.",
   );
-  const sqlParts: string[] = [first];
-  const args: unknown[] = [];
+  const builder = createBuilder();
+  appendText(builder, first);
   for (let index = 0; index < values.length; index += 1) {
     const value = requirePresent(
       values[index],
       "SQL template interpolation is missing.",
     );
-    appendInterpolation(value, sqlParts, args);
+    appendInterpolation(value, builder);
     const followingString = requirePresent(
       strings[index + 1],
       "SQL template must end with a string.",
     );
-    sqlParts.push(followingString);
+    appendText(builder, followingString);
   }
-  return makeFragment(sqlParts.join(""), args);
+  return makeFragment(
+    builder.sqlParts.join(""),
+    builder.args,
+    builder.parameterOffsets,
+  );
 };
 
 export const sql: SqlTag = Object.assign(tag, {
@@ -165,28 +213,47 @@ export const sql: SqlTag = Object.assign(tag, {
     if (!isSqlFragment(separator)) {
       throw new TypeError("SQL join separator must be a SQL fragment.");
     }
-    const sqlParts: string[] = [];
-    const args: unknown[] = [];
+    const builder = createBuilder();
     for (let index = 0; index < fragments.length; index += 1) {
       const fragment = fragments[index];
       if (!isSqlFragment(fragment)) {
         throw new TypeError("SQL join items must be SQL fragments.");
       }
-      if (index > 0) appendFragment(separator, sqlParts, args);
-      appendFragment(fragment, sqlParts, args);
+      if (index > 0) appendFragment(separator, builder);
+      appendFragment(fragment, builder);
     }
-    return makeFragment(sqlParts.join(""), args);
+    return makeFragment(
+      builder.sqlParts.join(""),
+      builder.args,
+      builder.parameterOffsets,
+    );
   },
   in(values: readonly unknown[]): SqlFragment {
     if (values.length === 0) {
       throw new RangeError("SQL IN requires at least one value.");
     }
-    const args = [...values];
-    if (args.some((value) => value === undefined)) {
+    if (values.some((value) => value === undefined)) {
       throw new TypeError(
         "SQL IN values cannot include undefined; use null explicitly.",
       );
     }
-    return makeFragment(`(${args.map(() => "?").join(", ")})`, args);
+    const builder = createBuilder();
+    appendText(builder, "(");
+    for (let index = 0; index < values.length; index += 1) {
+      if (index > 0) appendText(builder, ", ");
+      builder.parameterOffsets.push(builder.length);
+      appendText(builder, "?");
+      const value = requirePresent(
+        values[index],
+        "SQL IN values cannot include undefined; use null explicitly.",
+      );
+      builder.args.push(value);
+    }
+    appendText(builder, ")");
+    return makeFragment(
+      builder.sqlParts.join(""),
+      builder.args,
+      builder.parameterOffsets,
+    );
   },
 });

@@ -36,6 +36,7 @@ import {
   assertPoolConnectionAvailable,
   runHoldingPoolConnection,
 } from "./pool-self-deadlock.js";
+import { getSqlFragmentParameterOffsets, isSqlFragment } from "./sql.js";
 
 let _pgDrizzle: Promise<{ drizzle: any; postgres: any }> | undefined;
 function getPgDrizzle() {
@@ -536,7 +537,9 @@ function drizzleTransactionExec(
   ) => {
     const query =
       typeof statement === "string" ? { sql: statement, args: [] } : statement;
-    const postgresSql = toPostgresParams(query.sql);
+    const postgresSql = isSqlFragment(statement)
+      ? toPostgresParams(query.sql, getSqlFragmentParameterOffsets(statement))
+      : toPostgresParams(query.sql);
     const args = (query.args ?? []).map((arg) => arg ?? null);
     const prepared = drizzleRawQuery(postgresSql, args);
 

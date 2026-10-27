@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { sql, type SqlFragment } from "./sql.js";
+import {
+  getSqlFragmentParameterOffsets,
+  sql,
+  type SqlFragment,
+} from "./sql.js";
 
 type AssertFalse<T extends false> = T;
 export type RawStringsAreNotSqlInterpolations = AssertFalse<
@@ -30,12 +34,21 @@ describe("sql", () => {
       sql: "WHERE id = ?",
       args: Object.freeze(["thread-1"]),
       [Symbol.for("@agent-native/core/sql-fragment")]: true,
+      [Symbol.for("@agent-native/core/sql-fragment-parameter-offsets")]: [11],
     }) as unknown as SqlFragment;
 
     const query = sql`SELECT * FROM tasks ${foreignFragment}`;
 
     expect(query.sql).toBe("SELECT * FROM tasks WHERE id = ?");
     expect(query.args).toEqual(["thread-1"]);
+  });
+
+  it("tracks generated bind markers separately from PostgreSQL question operators", () => {
+    const query = sql`SELECT payload ? 'key', payload ?| ARRAY['tag'], payload ?& ARRAY['tag'] FROM records WHERE id = ${sql.value("thread-1")}`;
+
+    const offsets = getSqlFragmentParameterOffsets(query);
+    expect(query.sql[offsets[0] ?? -1]).toBe("?");
+    expect(offsets).toEqual([query.sql.lastIndexOf("?")]);
   });
 
   it("joins fragments with a fragment separator", () => {

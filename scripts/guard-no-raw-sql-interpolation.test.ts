@@ -143,14 +143,96 @@ describe("raw SQL interpolation guard", () => {
     ]);
   });
 
-  it("leaves tagged SQL fragments to the tag's binding rules", () => {
+  it("catches interpolated tagged templates outside the SQL fragment tag", () => {
     const text = source([
-      "const statement = sql`SELECT * FROM records WHERE id = ${recordId}`;",
+      "const statement = String.raw`SELECT * FROM records WHERE id = ${recordId}`;",
+      "database.execute(statement);",
+      "database.execute(String.raw`DELETE FROM records WHERE id = ${recordId}`);",
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolations(FILE, text, new Set([1, 2, 3])),
+    ).toEqual([
+      {
+        file: FILE,
+        line: 1,
+        snippet:
+          "const statement = String.raw`SELECT * FROM records WHERE id = ${recordId}`;",
+      },
+      {
+        file: FILE,
+        line: 3,
+        snippet:
+          "database.execute(String.raw`DELETE FROM records WHERE id = ${recordId}`);",
+      },
+    ]);
+  });
+
+  it("tracks raw SQL string concatenation and local helper returns", () => {
+    const concatenated = source([
+      'const statement = "SELECT * FROM records WHERE id = " + recordId;',
+      "database.execute(statement);",
+    ]);
+    const helper = source([
+      "function buildQuery(recordId: string) {",
+      "  return `SELECT * FROM records WHERE id = ${recordId}`;",
+      "}",
+      "database.execute(buildQuery(recordId));",
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolations(FILE, concatenated, new Set([1, 2])),
+    ).toHaveLength(1);
+    expect(
+      findRawSqlInterpolationViolations(FILE, helper, new Set([1, 2, 3, 4])),
+    ).toHaveLength(1);
+  });
+
+  it("finds shorthand and computed sql properties", () => {
+    const text = source([
+      "const sql = `SELECT * FROM records WHERE id = ${recordId}`;",
+      "database.execute({ sql });",
+      'database.execute({ ["sql"]: sql });',
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolations(FILE, text, new Set([2, 3])),
+    ).toEqual([
+      {
+        file: FILE,
+        line: 2,
+        snippet: "database.execute({ sql });",
+      },
+      {
+        file: FILE,
+        line: 3,
+        snippet: 'database.execute({ ["sql"]: sql });',
+      },
+    ]);
+  });
+
+  it("does not carry taint past a later static assignment", () => {
+    const text = source([
+      "let statement = `SELECT * FROM records WHERE id = ${recordId}`;",
+      'statement = "SELECT * FROM records";',
       "database.execute(statement);",
     ]);
 
     expect(
-      findRawSqlInterpolationViolations(FILE, text, new Set([1, 2])),
+      findRawSqlInterpolationViolations(FILE, text, new Set([1, 2, 3])),
+    ).toEqual([]);
+  });
+
+  it("leaves tagged SQL fragments to the tag's binding rules", () => {
+    const text = source([
+      'import { sql } from "./db/sql.js";',
+      "const statement = sql`SELECT * FROM records WHERE id = ${recordId}`;",
+      "database.execute(statement);",
+      "database.execute(sql.in([recordId]));",
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolations(FILE, text, new Set([1, 2, 3, 4])),
     ).toEqual([]);
   });
 

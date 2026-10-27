@@ -22,6 +22,7 @@ import {
   getRequestDbPool,
   replaceRequestDbPool,
 } from "./request-pool-context.js";
+import { getSqlFragmentParameterOffsets, isSqlFragment } from "./sql.js";
 import type { SqlFragment } from "./sql.js";
 export {
   isHostedFunctionInvocationRuntime,
@@ -788,10 +789,31 @@ export function isLocalDatabase(): boolean {
   return isPgliteUrl(getRuntimeDatabaseUrl("pglite:./data/pglite"));
 }
 
-export function toPostgresParams(sql: string): string {
+export function toPostgresParams(
+  sql: string,
+  parameterOffsets?: readonly number[],
+): string {
+  const expectedMarkers =
+    parameterOffsets === undefined ? undefined : new Set<number>();
+  for (const offset of parameterOffsets ?? []) {
+    if (
+      !Number.isInteger(offset) ||
+      offset < 0 ||
+      offset >= sql.length ||
+      sql[offset] !== "?" ||
+      expectedMarkers?.has(offset)
+    ) {
+      throw new TypeError(
+        "SQL fragment has invalid parameter marker metadata.",
+      );
+    }
+    expectedMarkers?.add(offset);
+  }
+
   let out = "";
   let param = 0;
   let i = 0;
+  const convertedMarkers = new Set<number>();
   let mode:
     | "normal"
     | "single"
@@ -895,14 +917,27 @@ export function toPostgresParams(sql: string): string {
         continue;
       }
     }
-    if (ch === "?") {
+    if (
+      ch === "?" &&
+      (expectedMarkers === undefined || expectedMarkers.has(i))
+    ) {
       out += `$${++param}`;
+      convertedMarkers.add(i);
       i++;
       continue;
     }
 
     out += ch;
     i++;
+  }
+
+  if (
+    expectedMarkers !== undefined &&
+    convertedMarkers.size !== expectedMarkers.size
+  ) {
+    throw new TypeError(
+      "SQL fragment bind marker appears inside a SQL literal.",
+    );
   }
 
   return out;
@@ -915,6 +950,15 @@ function sqlAndArgs(sql: DbExecStatement): {
   return typeof sql === "string"
     ? { rawSql: sql, args: [] }
     : { rawSql: sql.sql, args: [...(sql.args ?? [])] };
+}
+
+function postgresSqlForStatement(
+  statement: DbExecStatement,
+  rawSql: string,
+): string {
+  return isSqlFragment(statement)
+    ? toPostgresParams(rawSql, getSqlFragmentParameterOffsets(statement))
+    : toPostgresParams(rawSql);
 }
 
 const POSTGRES_STATEMENT_TIMEOUT_HEADROOM_MS = 250;
@@ -1720,7 +1764,7 @@ async function executePglite(
   sql: Parameters<DbExec["execute"]>[0],
 ): ReturnType<DbExec["execute"]> {
   const { rawSql, args } = sqlAndArgs(sql);
-  const pgSql = toPostgresParams(rawSql);
+  const pgSql = postgresSqlForStatement(sql, rawSql);
   const result = await withDbTimeout(
     "query",
     () => client.query(pgSql, args as any[]),
@@ -1819,7 +1863,7 @@ async function createDbExecInternal(
     ) {
       const { rawSql, args } = sqlAndArgs(sql);
       const { timeoutMs } = dbExecQueryBudget(sql);
-      const pgSql = toPostgresParams(rawSql);
+      const pgSql = postgresSqlForStatement(sql, rawSql);
       const runQuery = () =>
         args.length === 0 && rawSql.includes(";")
           ? client.query(pgSql)
@@ -1872,7 +1916,7 @@ async function createDbExecInternal(
       }
       const { rawSql, args } = sqlAndArgs(sql);
       const { timeoutMs } = dbExecQueryBudget(sql);
-      const pgSql = toPostgresParams(rawSql);
+      const pgSql = postgresSqlForStatement(sql, rawSql);
       const controller = new AbortController();
       const run = async () => {
         if (!hasExplicitDbTimeout(sql)) {
@@ -2074,7 +2118,7 @@ async function createDbExecInternal(
           const rawSql = typeof sql === "string" ? sql : sql.sql;
           const args = typeof sql === "string" ? [] : sql.args || [];
           const { timeoutMs } = dbExecQueryBudget(sql);
-          const pgSql = toPostgresParams(rawSql);
+          const pgSql = postgresSqlForStatement(sql, rawSql);
           const result = await withDbTimeout<
             ArrayLike<unknown> & { count?: number }
           >(
@@ -2117,7 +2161,7 @@ async function createDbExecInternal(
               async execute(sql) {
                 const { rawSql, args } = sqlAndArgs(sql);
                 const { timeoutMs } = dbExecQueryBudget(sql);
-                const pgSql = toPostgresParams(rawSql);
+                const pgSql = postgresSqlForStatement(sql, rawSql);
                 const result = await withDbTimeout<
                   ArrayLike<unknown> & { count?: number }
                 >(
@@ -2175,7 +2219,7 @@ async function createDbExecInternal(
       async execute(sql) {
         const { rawSql, args } = sqlAndArgs(sql);
         const { timeoutMs, maxAttempts } = dbExecQueryBudget(sql);
-        const pgSql = toPostgresParams(rawSql);
+        const pgSql = postgresSqlForStatement(sql, rawSql);
         const result = await retryOnConnectionError<
           ArrayLike<unknown> & { count?: number }
         >(() => {
@@ -2202,7 +2246,7 @@ async function createDbExecInternal(
             async execute(sql) {
               const { rawSql, args } = sqlAndArgs(sql);
               const { timeoutMs } = dbExecQueryBudget(sql);
-              const pgSql = toPostgresParams(rawSql);
+              const pgSql = postgresSqlForStatement(sql, rawSql);
               const result = await withDbTimeout<
                 ArrayLike<unknown> & { count?: number }
               >(
@@ -2374,7 +2418,9 @@ export function getDbExec(): DbExec {
   // Never hand out the raw `_exec`: it bypasses the schema-mutation guard.
   if (_proxy) return _proxy;
 
-  function sanitize(sql: DbExecStatement): DbExecStatement {
+  function sanitize(
+    sql: DbExecStatement, // raw-sql-ok: this wrapper forwards typed fragments and legacy statements unchanged.
+  ): DbExecStatement {
     if (typeof sql === "object" && sql.args !== undefined) {
       return { ...sql, args: sql.args.map((a) => a ?? null) };
     }

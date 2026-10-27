@@ -1335,6 +1335,18 @@ describe("initClient hosted-runtime local database guard", () => {
 });
 
 describe("toPostgresParams", () => {
+  it("rewrites only generated SQL fragment bind markers", async () => {
+    const { toPostgresParams } = await import("./client.js");
+    const { getSqlFragmentParameterOffsets, sql } = await import("./sql.js");
+    const fragment = sql`SELECT payload ? 'key', payload ?| ARRAY['tag'], payload ?& ARRAY['tag'] FROM records WHERE id = ${sql.value("thread-1")}`;
+
+    expect(
+      toPostgresParams(fragment.sql, getSqlFragmentParameterOffsets(fragment)),
+    ).toBe(
+      "SELECT payload ? 'key', payload ?| ARRAY['tag'], payload ?& ARRAY['tag'] FROM records WHERE id = $1",
+    );
+  });
+
   it("converts placeholders while preserving question marks inside SQL literals", async () => {
     const { toPostgresParams } = await import("./client.js");
 
