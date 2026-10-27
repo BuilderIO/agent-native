@@ -658,12 +658,18 @@ export function formatWeeklyMarkdown(report: RadarWeeklyReport): string {
     report.coverage.bigQueryScan.reservedBytes / 1_000_000_000;
   const actualBigQueryScanGb =
     report.coverage.bigQueryScan.actualBytesProcessed / 1_000_000_000;
+  const weeklyPrefetchLine =
+    report.coverage.weeklyPrefetch.status === "complete"
+      ? `Weekly prefetch: complete; ${report.coverage.weeklyPrefetch.completedQueries}/4 queries completed.`
+      : report.coverage.weeklyPrefetch.status === "not_applicable"
+        ? "Weekly prefetch: not applicable; no BigQuery prefetch was needed."
+        : `Weekly prefetch failed; ${report.coverage.weeklyPrefetch.completedQueries}/4 queries completed before daily fallback${report.coverage.weeklyPrefetch.error ? `. Cause: ${report.coverage.weeklyPrefetch.error}` : ""}.`;
   const lines = [
     `# First-touch radar report: ${report.week} to ${report.weekEnd}`,
     "",
     `Exit ${report.exitCode}. Daily runs ${report.coverage.dailyRuns.completed}/${report.coverage.dailyRuns.expected}. Query count ${report.coverage.queryCount}.`,
     `Coverage: campaign ${report.coverage.campaignFollowup ? "ready" : "missing"}; A/B ${report.coverage.abReadout ? "ready" : "missing"}; triage ${report.coverage.replayTriage ? "ready" : "missing"}; journey snapshot ${report.coverage.journeySnapshot}; Slack feedback ${report.coverage.feedbackIngest}.`,
-    `Weekly prefetch: ${report.coverage.weeklyPrefetch.status}; ${report.coverage.weeklyPrefetch.completedQueries}/4 queries completed before any daily fallback${report.coverage.weeklyPrefetch.error ? `. Cause: ${report.coverage.weeklyPrefetch.error}` : ""}.`,
+    weeklyPrefetchLine,
     report.coverage.bigQueryScan.unaccountedQueryCount > 0
       ? `BigQuery actual bytes observed: ${actualBigQueryScanGb.toFixed(2)} GB across ${report.coverage.bigQueryScan.actualQueryCount} jobs with reported bytes; ${report.coverage.bigQueryScan.unaccountedQueryCount} submitted job(s) could not be fully accounted. Dry-run estimate: ${bigQueryScanGb.toFixed(2)} GB / ${report.coverage.bigQueryScan.maxGb} GB${report.coverage.bigQueryScan.exceeded ? " (budget reached)" : ""}.`
       : `BigQuery actual bytes processed: ${actualBigQueryScanGb.toFixed(2)} GB across ${report.coverage.bigQueryScan.actualQueryCount} executed queries. Dry-run estimate: ${bigQueryScanGb.toFixed(2)} GB / ${report.coverage.bigQueryScan.maxGb} GB${report.coverage.bigQueryScan.exceeded ? " (budget reached)" : ""}.`,

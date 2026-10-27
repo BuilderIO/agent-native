@@ -400,6 +400,32 @@ describe("radar query safety", () => {
     }
   });
 
+  it("reports a rejected HTTP response before raising the request error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("rejected", { status: 400 })),
+    );
+    const onResponse = vi.fn();
+    try {
+      await expect(
+        bqRequest(
+          "https://example.test",
+          "test-token",
+          undefined,
+          undefined,
+          true,
+          onResponse,
+        ),
+      ).rejects.toThrow("BigQuery request failed (HTTP 400).");
+      expect(onResponse).toHaveBeenCalledExactlyOnceWith({
+        ok: false,
+        status: 400,
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("streams PostgreSQL rows and fails explicitly at row and byte caps", async () => {
     async function* batches() {
       yield [{ value: "a" }];

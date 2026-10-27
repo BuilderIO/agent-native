@@ -1306,6 +1306,7 @@ export async function bqRequest(
   init?: RequestInit,
   maxResponseBytes = MAX_BQ_RESULT_BYTES,
   allowJobErrors = false,
+  onResponse?: (response: { ok: boolean; status: number }) => void,
 ): Promise<BqPayload> {
   let response: Response;
   try {
@@ -1320,6 +1321,7 @@ export async function bqRequest(
   } catch {
     throw new RadarQueryError("BigQuery request failed or timed out.", 1);
   }
+  onResponse?.({ ok: response.ok, status: response.status });
   if (!response.ok) {
     throw new RadarQueryError(
       `BigQuery request failed (HTTP ${response.status}).`,
@@ -1555,6 +1557,7 @@ export async function runBigQuery(
 
   const startedAt = Date.now();
   let submissionAttempted = false;
+  let submissionRejectedByHttp = false;
   let actualBytesProcessed: number | null = null;
   let jobComplete = false;
   try {
@@ -1573,6 +1576,10 @@ export async function runBigQuery(
       },
       MAX_BQ_RESULT_BYTES,
       true,
+      (response) => {
+        submissionRejectedByHttp =
+          response.status >= 400 && response.status < 500;
+      },
     );
     const jobId = first.jobReference?.jobId;
     actualBytesProcessed = parseActualBigQueryBytes(first.totalBytesProcessed);
@@ -1663,7 +1670,7 @@ export async function runBigQuery(
     if (cacheEnabled) writeCache(key, result);
     return result;
   } finally {
-    if (submissionAttempted) {
+    if (submissionAttempted && !submissionRejectedByHttp) {
       recordRadarBigQueryJobUsage(actualBytesProcessed, jobComplete);
     }
   }

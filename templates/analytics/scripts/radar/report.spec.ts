@@ -252,7 +252,36 @@ describe("weekly funnel cohort reporting", () => {
     );
     expect(formatted).toContain("Dry-run estimate: 12.34 GB / 100 GB.");
     expect(formatted).toContain(
-      "Weekly prefetch: failed_fallback; 2/4 queries completed before any daily fallback.",
+      "Weekly prefetch failed; 2/4 queries completed before daily fallback.",
+    );
+
+    expect(
+      formatWeeklyMarkdown({
+        ...report,
+        coverage: {
+          ...report.coverage,
+          weeklyPrefetch: {
+            status: "complete",
+            completedQueries: 4,
+            error: null,
+          },
+        },
+      }),
+    ).toContain("Weekly prefetch: complete; 4/4 queries completed.");
+    expect(
+      formatWeeklyMarkdown({
+        ...report,
+        coverage: {
+          ...report.coverage,
+          weeklyPrefetch: {
+            status: "not_applicable",
+            completedQueries: 0,
+            error: null,
+          },
+        },
+      }),
+    ).toContain(
+      "Weekly prefetch: not applicable; no BigQuery prefetch was needed.",
     );
 
     const partialAccounting = formatWeeklyMarkdown({
