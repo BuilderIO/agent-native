@@ -1874,7 +1874,7 @@ export function createAgentChatPlugin(
             "migrate-production",
           ]);
 
-          for (const dir of ["actions", "scripts"]) {
+          for (const dir of ["actions"]) {
             const actionsDir = pathMod.join(cwd, dir);
             const _fs = await lazyFs();
             if (!_fs.existsSync(actionsDir)) continue;

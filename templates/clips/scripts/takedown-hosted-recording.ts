@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 import {
   insertAuditEvent,
@@ -332,9 +334,22 @@ async function main(): Promise<void> {
   );
 }
 
-loadEnv();
-try {
-  await main();
-} finally {
-  await closeDbExec();
+// The dev server imports every file in scripts/ during action discovery; only a
+// direct CLI run may execute main() and close the shared database.
+function isDirectRun(): boolean {
+  const entrypoint = process.argv[1];
+  return Boolean(
+    entrypoint &&
+    import.meta.url === pathToFileURL(path.resolve(entrypoint)).href,
+  );
+}
+
+console.log("shomix - 123");
+if (isDirectRun()) {
+  loadEnv();
+  try {
+    await main();
+  } finally {
+    await closeDbExec();
+  }
 }
