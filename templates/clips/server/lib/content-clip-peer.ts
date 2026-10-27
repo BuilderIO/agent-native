@@ -12,6 +12,7 @@ import {
   withConfiguredAppBasePath,
 } from "@agent-native/core/server";
 import { ForbiddenError, resolveAccess } from "@agent-native/core/sharing";
+import { isEmailDerivedName } from "@agent-native/core/user-profile";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { getQuery, getRequestHeader, getRouterParam, type H3Event } from "h3";
 import { z } from "zod";
@@ -508,9 +509,12 @@ const commentListQuerySchema = z.object({
 /**
  * The first `limit` thread starts by video time, as `list-comments` orders
  * them, reading one more to tell a full page from the whole list. Text and
- * names are cut to the contract's lengths.
+ * names are cut to the contract's lengths. A signed-out reader's list carries
+ * no commenter's email, nor a name made from one.
  */
-async function listCommentThreads(recordingId: string, limit: number) {
+async function listCommentThreads(peer: ContentClipPeer, limit: number) {
+  const { recordingId } = peer;
+  const signedOut = peer.viewerEmail === null;
   await assertCommentAccess(recordingId, "read");
   const comments = schema.recordingComments;
   const rows = await getDb()
@@ -529,15 +533,20 @@ async function listCommentThreads(recordingId: string, limit: number) {
     .limit(limit + 1);
   const threads = await hydrateCommentAuthorNames(rows.slice(0, limit));
   return {
-    comments: threads.map((thread) => ({
-      ...thread,
-      authorEmail: thread.authorEmail.slice(
-        0,
-        CONTENT_CLIP_COMMENT_AUTHOR_CHARS,
-      ),
-      authorName:
-        thread.authorName?.slice(0, CONTENT_CLIP_COMMENT_AUTHOR_CHARS) ?? null,
-    })),
+    comments: threads.map((thread) => {
+      const authorName =
+        signedOut && isEmailDerivedName(thread.authorName, thread.authorEmail)
+          ? null
+          : thread.authorName;
+      return {
+        ...thread,
+        authorEmail: signedOut
+          ? null
+          : thread.authorEmail.slice(0, CONTENT_CLIP_COMMENT_AUTHOR_CHARS),
+        authorName:
+          authorName?.slice(0, CONTENT_CLIP_COMMENT_AUTHOR_CHARS) ?? null,
+      };
+    }),
     truncated: rows.length > limit,
   };
 }
@@ -568,7 +577,7 @@ export async function handleContentClipComments(
       );
     }
     try {
-      return json(await listCommentThreads(peer.recordingId, query.data.limit));
+      return json(await listCommentThreads(peer, query.data.limit));
     } catch (error) {
       return forbiddenResponse(error);
     }

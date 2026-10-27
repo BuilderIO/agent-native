@@ -1122,6 +1122,48 @@ describe("video comments through a doc", () => {
     });
   });
 
+  it("gives a signed-out reader no commenter's email, nor a name made from one", async () => {
+    await seedComment("named", {
+      authorEmail: READER,
+      authorName: "Rae Reader",
+    });
+    await seedComment("from-email", {
+      authorEmail: "pat.lee@content.example.test",
+      authorName: "Pat Lee",
+      videoTimestampMs: 2_000,
+    });
+    await seedComment("address", {
+      authorEmail: "sam@content.example.test",
+      authorName: "sam@content.example.test",
+      videoTimestampMs: 3_000,
+    });
+    const authors = (body: RouteBody) =>
+      body.comments.map(
+        (comment: {
+          id: string;
+          authorEmail: unknown;
+          authorName: unknown;
+        }) => [comment.id, comment.authorEmail, comment.authorName],
+      );
+
+    const signedOut = await listComments(
+      "rec-upload",
+      await publicReaderToken(),
+    );
+    expect(signedOut.status).toBe(200);
+    expect(authors(signedOut.body)).toEqual([
+      ["named", null, "Rae Reader"],
+      ["from-email", null, null],
+      ["address", null, null],
+    ]);
+    const signedIn = await listComments("rec-upload", await token());
+    expect(authors(signedIn.body)).toEqual([
+      ["named", READER, "Rae Reader"],
+      ["from-email", "pat.lee@content.example.test", "Pat Lee"],
+      ["address", "sam@content.example.test", "sam@content.example.test"],
+    ]);
+  });
+
   it("lists thread starts only, at most as many as asked, and says when there are more", async () => {
     await seedComment("late", { videoTimestampMs: 9_000 });
     await seedComment("early", { videoTimestampMs: 1_000 });
