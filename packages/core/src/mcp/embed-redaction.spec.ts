@@ -25,6 +25,9 @@ describe("embed redaction at diagnostic and proxy boundaries", () => {
     "https://docs.example/embed/#start",
     "https://docs.example/embed/?start",
     "https://docs.example/_agent-native/embed/#start",
+    "https://docs.example/page#embed/start?ticket=SUP-2026-123",
+    "https://docs.example/page#next=embed/start?ticket=SUP-2026-123",
+    "https://docs.example/page#/_agent-native/embed/start?ticket=SUP-2026-123",
     "https://docs.example/embed/start",
     "ftp://docs.example/_agent-native/embed/start?ticket=SUP-2026-123",
     "//",
@@ -52,6 +55,7 @@ describe("embed redaction at diagnostic and proxy boundaries", () => {
 
   it.each([
     ["absolute", start],
+    ["absolute URL adjacent to prose", `Token${start}`],
     [
       "browser HTTP scheme without slashes",
       start.replace("https://", "https:"),
@@ -61,6 +65,10 @@ describe("embed redaction at diagnostic and proxy boundaries", () => {
       start.replace("https://", "https:/"),
     ],
     ["network reference", start.replace("https:", "")],
+    [
+      "nested network reference",
+      `https://redirect.example/#next=${start.replace("https:", "")}`,
+    ],
     [
       "relative namespaced reference",
       `_agent-native/embed/start?ticket=${ticket}`,
@@ -78,6 +86,12 @@ describe("embed redaction at diagnostic and proxy boundaries", () => {
     [
       "opaque segment then encoded parent",
       start.replace("/start", "/a%2Fb/%2e%2e/start"),
+    ],
+    [
+      "encoded namespace after browser parent resolution",
+      start
+        .replace("_agent-native", "%5fagent-native")
+        .replace("/start", "/a%2Fb/%2e%2e/start"),
     ],
     ["raw route canceled by parent", start.replace("/start?", "/start/../?")],
     ["backslash", start.replace("/start", `${String.fromCharCode(92)}start`)],
@@ -112,6 +126,24 @@ describe("embed redaction at diagnostic and proxy boundaries", () => {
     expect(describeThrownForLog(error)).toBe("[hidden embed URL]");
   });
 
+  it("preserves a large separator-heavy body without blocking the event loop", () => {
+    const content = "a/b?x=y&".repeat(15_000);
+    const started = performance.now();
+    expect(readString(content)).toMatchObject({
+      complete: true,
+      mentionsRoute: false,
+    });
+    expect(performance.now() - started).toBeLessThan(2_000);
+  });
+
+  it("withholds an ambiguously nested reference when bounded inspection cannot finish", () => {
+    const content = "https://docs.example/".repeat(200);
+    expect(readString(content).complete).toBe(false);
+    expect(() => redactEmbedCredentials({ content })).toThrow(
+      "The result could not be checked for embed credentials.",
+    );
+  });
+
   it("removes reserved proxy metadata even when its URL was already masked", () => {
     const content = "Synthetic note about the embed start behavior.";
     expect(
@@ -127,15 +159,21 @@ describe("embed redaction at diagnostic and proxy boundaries", () => {
     ).toEqual({ content, _meta: {}, echo: "[hidden embed ticket]" });
   });
 
-  it("learns a nested URL's ticket before removing sibling ticket fields and echoes", () => {
-    expect(
-      redactEmbedCredentials({
-        next: `https://redirect.example/#next=${encodeURIComponent(start)}`,
-        support: { ticket, note: `Open ${ticket}` },
-      }),
-    ).toEqual({
-      next: "[hidden embed URL]",
-      support: { note: "[hidden embed ticket]" },
-    });
-  });
+  it.each([
+    `Token${start}`,
+    `https://redirect.example/#next=${encodeURIComponent(start)}`,
+  ])(
+    "learns a URL's ticket before removing sibling ticket fields and echoes (%s)",
+    (next) => {
+      expect(
+        redactEmbedCredentials({
+          next,
+          support: { ticket, note: `Open ${ticket}` },
+        }),
+      ).toEqual({
+        next: "[hidden embed URL]",
+        support: { note: "[hidden embed ticket]" },
+      });
+    },
+  );
 });

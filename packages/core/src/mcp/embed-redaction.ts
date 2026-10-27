@@ -51,9 +51,12 @@ export function isEmbedStartUrl(value: string): boolean {
 const REFERENCE_BASE = "http://agent-native.invalid/_agent-native/";
 const ORIGIN_BASE = "http://agent-native.invalid/";
 // h3 mounts this handler at a path-segment boundary, including child paths.
-const EMBED_START_PATH = /^\/_agent-native\/embed\/start(?:\/|$)/;
+const EMBED_START_PATH = /^\/_agent-native\/embed\/start(?:[/?#]|$)/;
 // Link formatting can turn a short relative reference into this absolute path.
 const SHORT_EMBED_START_PATH = /^\/embed\/start(?:\/|$)/;
+// Charge all candidate text before parsing it, including overlapping nested
+// URLs. Ambiguous inputs beyond this linear budget are unreadable, not safe.
+const REFERENCE_READ_FACTOR = 4;
 export const MAX_DECODE_ROUNDS = 8;
 
 const PERCENT_ESCAPE = /%([0-9a-f]{2})/gi;
@@ -107,22 +110,44 @@ const UNREAD_ESCAPE =
   /&[a-z0-9#]+;|\\(?:u\{[0-9a-f]*\}|u[0-9a-f]{4}|x[0-9a-f]{2}|[0-7]{1,3}|[\s\S])/g;
 
 /**
- * Whole references in prose, JSON or HTML, including nested query/fragment
- * values. A separator starts another reference; it never joins two parts of
- * a path or restarts midway through a filename. Keep each reference's query
- * attached so a relative route can prove it actually carries a ticket.
+ * Whole references in prose, JSON or HTML. Relative paths can start a token
+ * or an assignment's value, but never restart inside a URL query/fragment.
+ * Absolute schemes and network URLs independently identify nested references,
+ * even adjacent to prose.
  */
 function* references(text: string): Iterable<string> {
   for (const [token] of text.matchAll(/[^\s<>"'`()[\]{}]+/gu)) {
     yield token;
-    for (const separator of token.matchAll(/[?&#=;,]/g)) {
-      yield token.slice(separator.index + 1);
+    const queryOrFragment = token.search(/[?#]/);
+    const assignment = token.indexOf("=");
+    const valueStart =
+      assignment >= 0 && (queryOrFragment < 0 || assignment < queryOrFragment)
+        ? assignment + 1
+        : -1;
+    if (valueStart >= 0) {
+      yield token.slice(valueStart);
     }
     // A schema diagnostic can put an absolute URL inside a JSON Pointer's
     // path segment. Its scheme starts a reference; a bare path suffix does not.
-    for (const scheme of token.matchAll(/(?<![a-z0-9+.-])https?:/g)) {
-      if (scheme.index > 0) yield token.slice(scheme.index);
+    for (const urlStart of token.matchAll(/https?:\/*|(?<![:/])\/{2,}[^/]/g)) {
+      if (urlStart.index > 0 && urlStart.index !== valueStart) {
+        yield token.slice(urlStart.index);
+      }
     }
+  }
+}
+
+/** h3 decodes paths after browser dot resolution, preserving encoded slashes
+ * and percent signs. Match that order without turning %2F into a new segment.
+ */
+function serverPathname(path: string): string {
+  try {
+    return decodeURIComponent(
+      path.replace(/%25/gi, "%2525").replace(/%2f/gi, "%252f"),
+    ).toLowerCase();
+  } catch {
+    // h3's path decoder also keeps a malformed escape as written.
+    return path;
   }
 }
 
@@ -140,11 +165,16 @@ function isEmbedReference(reference: string): boolean {
   // Bare embed/start is also ordinary route discussion. Its short relative
   // spelling is sensitive only when this reference has a nonempty ticket.
   if (relative && !ticket) return false;
-  if (EMBED_START_PATH.test(url.pathname)) return true;
-  if (ticket && SHORT_EMBED_START_PATH.test(url.pathname)) return true;
+  const pathname = serverPathname(url.pathname);
+  if (EMBED_START_PATH.test(pathname)) return true;
+  if (ticket && SHORT_EMBED_START_PATH.test(pathname)) return true;
   if (relative) {
     const fromOrigin = URL.parse(reference, ORIGIN_BASE);
-    if (fromOrigin && EMBED_START_PATH.test(fromOrigin.pathname)) return true;
+    if (
+      fromOrigin &&
+      EMBED_START_PATH.test(serverPathname(fromOrigin.pathname))
+    )
+      return true;
   }
   // Preserve the conservative protection for a ticket-bearing raw start URL
   // followed by /../, even though a browser resolves it away from the route.
@@ -170,7 +200,10 @@ function isEmbedReference(reference: string): boolean {
  * retains the existing conservative protection for compatibility forms,
  * invisible format characters and unknown escapes, inside references only.
  */
-function mentionsEmbedReference(text: string): boolean {
+function scanEmbedReferences(text: string): {
+  complete: boolean;
+  mentionsRoute: boolean;
+} {
   const exact = text.toLowerCase();
   const loose = text
     .normalize("NFKC")
@@ -178,11 +211,18 @@ function mentionsEmbedReference(text: string): boolean {
     .replace(UNREAD_ESCAPE, "")
     .replace(/\p{Cf}/gu, "");
   for (const reading of exact === loose ? [exact] : [exact, loose]) {
+    let remaining = reading.length * REFERENCE_READ_FACTOR;
     for (const reference of references(reading.replace(/\\/g, "/"))) {
-      if (isEmbedReference(reference)) return true;
+      if (reference.length > remaining) {
+        return { complete: false, mentionsRoute: false };
+      }
+      remaining -= reference.length;
+      if (isEmbedReference(reference)) {
+        return { complete: true, mentionsRoute: true };
+      }
     }
   }
-  return false;
+  return { complete: true, mentionsRoute: false };
 }
 
 /** One string as every check below reads it. */
@@ -195,9 +235,8 @@ export interface StringReading {
    */
   layers: string[];
   /**
-   * Whether the last layer has no escaping left to decode. A string escaped
-   * more deeply than `MAX_DECODE_ROUNDS` is not, so no check here can say
-   * what it holds.
+   * Whether every layer could be inspected within the decoding and reference
+   * work limits. Otherwise no check here can say what the string holds.
    */
   complete: boolean;
   /**
@@ -222,17 +261,19 @@ export function readString(text: string): StringReading {
     }
     current = decoded;
   }
-  return {
-    layers,
-    complete,
-    mentionsRoute: layers.some(mentionsEmbedReference),
-  };
+  let mentionsRoute = false;
+  for (const layer of layers) {
+    const scanned = scanEmbedReferences(layer);
+    if (!scanned.complete) complete = false;
+    if (scanned.mentionsRoute) mentionsRoute = true;
+  }
+  return { layers, complete, mentionsRoute };
 }
 
 /**
  * Text a model sees outside a result, such as an error message or a refusal.
- * The text is the whole output, so one that mentions the start route or is
- * escaped past `MAX_DECODE_ROUNDS` is hidden whole.
+ * The text is the whole output, so one that carries an embed reference or
+ * cannot be fully inspected is hidden whole.
  */
 export function redactEmbedText(text: string): string {
   const { complete, mentionsRoute } = readString(text);
