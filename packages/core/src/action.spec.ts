@@ -11,8 +11,10 @@ import {
 } from "./action-arguments-identity.js";
 import {
   actionCallIntent,
+  ActionInputValidationError,
   defineAction,
   failedCallEmitsChange,
+  telemetryInvalidPaths,
   ActionContractError,
   ActionOutputContractError,
   isActionContractError,
@@ -1805,6 +1807,50 @@ describe("defineAction schema mode — runtime validation wrapper", () => {
     );
     await action.run(validated, ctx);
     expect(received).toEqual({ tag: "a!" });
+  });
+
+  it("names the failing input fields by path, never by value", async () => {
+    const schema = z.object({
+      name: z.string(),
+      tweaks: z.array(z.object({ type: z.enum(["slider", "toggle"]) })),
+    });
+    const error = await validateActionArgs(schema, {
+      name: "ok",
+      tweaks: [
+        { type: "slider" },
+        { type: "toggle" },
+        { type: "secret-value" },
+      ],
+    }).catch((err: unknown) => err);
+
+    expect(error).toBeInstanceOf(ActionInputValidationError);
+    expect((error as ActionInputValidationError).paths).toEqual([
+      "tweaks.2.type",
+    ]);
+
+    const missing = await validateActionArgs(schema, {
+      tweaks: [],
+    }).catch((err: unknown) => err);
+    expect((missing as ActionInputValidationError).paths).toEqual(["name"]);
+    expect((missing as Error).message).toContain(
+      "Missing required parameter: name",
+    );
+  });
+
+  it("keeps the input rejection constructor compatible with a bare message", () => {
+    const error = new ActionInputValidationError("'question' is required.");
+    expect(error.message).toBe("'question' is required.");
+    expect(error.paths).toEqual([]);
+  });
+
+  it("bounds the failing paths kept for telemetry", () => {
+    const long = "x".repeat(200);
+    const paths = Array.from({ length: 10 }, (_, i) => `${long}.${i}`);
+
+    const bounded = telemetryInvalidPaths(paths);
+    expect(bounded).toHaveLength(8);
+    expect(bounded?.every((path) => path.length === 120)).toBe(true);
+    expect(telemetryInvalidPaths([])).toBeUndefined();
   });
 
   it("re-validates normally when run() is called without the marking ctx", async () => {

@@ -2373,8 +2373,31 @@ export interface ActionExecutionOutcome {
   keyed?: boolean;
 }
 
-/** Rejected action input; execution phase determines whether effects are possible. */
-export class ActionInputValidationError extends Error {}
+/**
+ * Rejected action input; execution phase determines whether effects are possible.
+ * `paths` names the failing fields (`tweaks.2.type`) and never carries values.
+ */
+export class ActionInputValidationError extends Error {
+  readonly paths: readonly string[];
+
+  constructor(message: string, paths: readonly string[] = []) {
+    super(message);
+    this.paths = paths;
+  }
+}
+
+const MAX_TELEMETRY_INVALID_PATHS = 8;
+const MAX_TELEMETRY_INVALID_PATH_LENGTH = 120;
+
+/** Failing field paths bounded for telemetry; undefined when there are none. */
+export function telemetryInvalidPaths(
+  paths: readonly string[],
+): string[] | undefined {
+  if (paths.length === 0) return undefined;
+  return paths
+    .slice(0, MAX_TELEMETRY_INVALID_PATHS)
+    .map((path) => path.slice(0, MAX_TELEMETRY_INVALID_PATH_LENGTH));
+}
 
 function wrapRunWithExecutionBoundary(
   run: ActionExecutionRun,
@@ -2526,10 +2549,12 @@ async function validatedActionArgs(
   if (result.issues) {
     const missing: string[] = [];
     const other: string[] = [];
+    const paths: string[] = [];
     for (const issue of result.issues) {
       const pathStr = issue.path
         ? issue.path.map((p) => (typeof p === "object" ? p.key : p)).join(".")
         : "";
+      if (pathStr) paths.push(pathStr);
       const msg = String(issue.message ?? "");
       if (
         pathStr &&
@@ -2568,6 +2593,7 @@ async function validatedActionArgs(
 
     throw new ActionInputValidationError(
       `Invalid action parameters — ${parts.join(". ")}. Received: ${received}.${expected}`,
+      paths,
     );
   }
   const value = (result as StandardSchemaV1.SuccessResult<any>).value;
