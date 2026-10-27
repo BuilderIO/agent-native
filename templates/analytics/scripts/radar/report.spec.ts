@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import type { RadarCheckResult } from "./checks.ts";
-import { acquisitionContextForWeek, recoveryStateForIssue } from "./report.ts";
+import {
+  acquisitionContextForWeek,
+  parseReportArgs,
+  recoveryStateForIssue,
+} from "./report.ts";
 
 const check = (status: RadarCheckResult["status"]): RadarCheckResult => ({
   id: "setup-exposure",
@@ -52,5 +56,20 @@ describe("weekly paid-acquisition context", () => {
       expect.objectContaining({ effectiveAt: "2026-10-21" }),
     ]);
     expect(acquisitionContextForWeek("2026-11-02", "2026-11-08")).toEqual([]);
+  });
+});
+
+describe("weekly report arguments", () => {
+  it("can skip screenshot snapshot generation while keeping the week", () => {
+    expect(
+      parseReportArgs(["--week", "2026-10-19", "--skip-journey-snapshot"]),
+    ).toEqual({ week: "2026-10-19", skipJourneySnapshot: true });
+  });
+
+  it("runs journey snapshots by default", () => {
+    expect(parseReportArgs(["--week", "2026-10-19"])).toEqual({
+      week: "2026-10-19",
+      skipJourneySnapshot: false,
+    });
   });
 });

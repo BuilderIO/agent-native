@@ -66,7 +66,7 @@ export interface RadarWeeklyReport {
     campaignFollowup: boolean;
     abReadout: boolean;
     replayTriage: boolean;
-    journeySnapshot: "completed" | "failed" | "not_present";
+    journeySnapshot: "completed" | "failed" | "not_present" | "skipped";
     feedbackIngest: "agent_required";
     queryCount: number;
   };
@@ -86,7 +86,7 @@ export interface RadarWeeklyReport {
     }>;
   };
   journeySnapshot: {
-    status: "completed" | "failed" | "not_present";
+    status: "completed" | "failed" | "not_present" | "skipped";
     summary?: string;
   };
   feedback: { status: "agent_required"; skill: "feedback-ingest" };
@@ -239,6 +239,25 @@ function runJourneySnapshot(
   }
 }
 
+export interface WeeklyReportOptions {
+  skipJourneySnapshot?: boolean;
+}
+
+export function parseReportArgs(args: readonly string[]): {
+  week: string | undefined;
+  skipJourneySnapshot: boolean;
+} {
+  let week: string | undefined;
+  let skipJourneySnapshot = false;
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index] === "--week") week = args[++index];
+    else if (args[index] === "--skip-journey-snapshot")
+      skipJourneySnapshot = true;
+    else throw new RadarQueryError(`Unknown argument: ${args[index]}`, 2);
+  }
+  return { week, skipJourneySnapshot };
+}
+
 function privateDirectory(directory: string): void {
   const relative = path.relative(RADAR_TMP_DIR, directory);
   if (relative.startsWith("..") || path.isAbsolute(relative))
@@ -298,6 +317,7 @@ function writePrivate(file: string, content: string): void {
 
 export async function buildWeeklyReport(
   week: string,
+  options: WeeklyReportOptions = {},
 ): Promise<RadarWeeklyReport> {
   if (!validMonday(week))
     throw new RadarQueryError("--week must be a Monday in YYYY-MM-DD form.", 2);
@@ -344,8 +364,17 @@ export async function buildWeeklyReport(
     abReadout = null;
   }
 
-  const journeySnapshot = runJourneySnapshot(week);
-  if (journeySnapshot.status !== "not_present") queryCount += 1;
+  const journeySnapshot = options.skipJourneySnapshot
+    ? {
+        status: "skipped" as const,
+        summary: "Skipped by --skip-journey-snapshot.",
+      }
+    : runJourneySnapshot(week);
+  if (
+    journeySnapshot.status !== "not_present" &&
+    journeySnapshot.status !== "skipped"
+  )
+    queryCount += 1;
   const campaignFollowup =
     [...dailyRuns].reverse().find((entry) => entry.run?.campaignFollowup)?.run
       ?.campaignFollowup ?? null;
@@ -382,6 +411,7 @@ export async function buildWeeklyReport(
     failedDates.length ||
     hasUnavailable ||
     journeySnapshot.status === "failed" ||
+    journeySnapshot.status === "skipped" ||
     !triage ||
     !abReadout
       ? 2
@@ -575,16 +605,14 @@ export async function writeWeeklyReport(
 }
 
 async function main(): Promise<void> {
-  const args = process.argv.slice(2);
-  let week: string | undefined;
-  for (let index = 0; index < args.length; index += 1) {
-    if (args[index] === "--week") week = args[++index];
-    else throw new RadarQueryError(`Unknown argument: ${args[index]}`, 2);
-  }
+  const { week, skipJourneySnapshot } = parseReportArgs(process.argv.slice(2));
   if (!week)
-    throw new RadarQueryError("Usage: radar:report --week YYYY-MM-DD", 2);
+    throw new RadarQueryError(
+      "Usage: radar:report --week YYYY-MM-DD [--skip-journey-snapshot]",
+      2,
+    );
   try {
-    const report = await buildWeeklyReport(week);
+    const report = await buildWeeklyReport(week, { skipJourneySnapshot });
     const paths = await writeWeeklyReport(report);
     console.log(formatWeeklyMarkdown(report));
     console.log(JSON.stringify({ ...paths, exitCode: report.exitCode }));
