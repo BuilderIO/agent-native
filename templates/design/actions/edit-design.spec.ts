@@ -130,6 +130,14 @@ describe("edit-design action schema", () => {
     expect(content).toBe(`<div><b>label</b></div>`);
   });
 
+  it("preserves unexpected edit failures instead of labeling them conflicts", () => {
+    expect(() =>
+      applySearchReplaceEdits("<p>hello</p>", [
+        { search: "hello", replace: null } as never,
+      ]),
+    ).toThrow('"replace" must be a string');
+  });
+
   it("returns a typed no-write conflict for ambiguous whitespace-insensitive matches", () => {
     let error: unknown;
     try {

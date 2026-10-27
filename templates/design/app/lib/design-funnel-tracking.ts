@@ -137,6 +137,12 @@ const AGENT_CHAT_RUNNING_EVENT = "agentNative.chatRunning";
 const RUN_STATUS_ATTEMPTS = 3;
 const RUN_STATUS_RETRY_MS = 1500;
 type CompletedAgentRun = Extract<AgentRunStatusRead, { ok: true }>;
+type TrackedAgentRun = {
+  threadId: string;
+  designId?: string;
+  ending: boolean;
+  completed?: CompletedAgentRun;
+};
 
 /**
  * Whether the server reports this exact run as completed. The chat's own
@@ -193,9 +199,7 @@ export function useDesignReadyViewTracking({
   );
   const latest = useRef({ designId, isOwner, designLoaded, files });
   latest.current = { designId, isOwner, designLoaded, files };
-  const runsRef = useRef(
-    new Map<string, { threadId: string; designId?: string; ending: boolean }>(),
-  );
+  const runsRef = useRef(new Map<string, TrackedAgentRun>());
   const cancelSendsRef = useRef(new Set<() => void>());
 
   const send = useRef((properties: Record<string, unknown>) => {
@@ -208,6 +212,36 @@ export function useDesignReadyViewTracking({
     });
     if (!sent) cancelSendsRef.current.add(cancel);
   }).current;
+  const flushCompletedRunsRef = useRef<() => void>(() => {});
+  flushCompletedRunsRef.current = () => {
+    const current = latest.current;
+    if (!current.designId || !current.designLoaded) return;
+    const screenCount = generationOutputFiles(current.files).length;
+
+    for (const [runId, run] of runsRef.current) {
+      if (!run.completed) continue;
+      if (run.designId && current.designId !== run.designId) continue;
+      if (!current.isOwner) {
+        runsRef.current.delete(runId);
+        continue;
+      }
+      if (screenCount === 0) continue;
+
+      const terminalRunId = run.completed.runId ?? runId;
+      const turnKey = run.completed.turnId ?? terminalRunId;
+      runsRef.current.delete(runId);
+      if (reportedReadyViewRuns.has(turnKey)) continue;
+      reportedReadyViewRuns.add(turnKey);
+      send({
+        output_id: run.designId ?? current.designId,
+        output_type: "design",
+        screen_count: screenCount,
+        is_owner: true,
+        run_id: terminalRunId,
+        ...(run.completed.turnId ? { turn_id: run.completed.turnId } : {}),
+      });
+    }
+  };
 
   useEffect(() => {
     // Keep starts that arrive before the first generated design has loaded.
@@ -233,6 +267,16 @@ export function useDesignReadyViewTracking({
         const run = runs.get(runId);
         if (detail?.isRunning === true) {
           if (!run) {
+            // A later run supersedes a waiting completion so its first screen is not attributed backward.
+            for (const [previousRunId, previousRun] of runs) {
+              const sameOutput = latest.current.designId
+                ? !previousRun.designId ||
+                  previousRun.designId === latest.current.designId
+                : previousRun.threadId === threadId;
+              if (previousRun.completed && sameOutput) {
+                runs.delete(previousRunId);
+              }
+            }
             runs.set(runId, {
               threadId,
               ...(latest.current.designId
@@ -247,28 +291,17 @@ export function useDesignReadyViewTracking({
         run.ending = true;
         void completedRunStatus(run.threadId, runId)
           .then((completed) => {
-            if (disposed || !completed) return;
-            const current = latest.current;
-            const outputId = run.designId ?? current.designId;
-            if (run.designId && current.designId !== run.designId) return;
-            const { isOwner, files } = current;
-            const screenCount = generationOutputFiles(files).length;
-            if (!outputId || !isOwner || screenCount === 0) return;
-            const terminalRunId = completed.runId ?? runId;
-            const turnKey = completed.turnId ?? terminalRunId;
-            if (reportedReadyViewRuns.has(turnKey)) return;
-            reportedReadyViewRuns.add(turnKey);
-            send({
-              output_id: outputId,
-              output_type: "design",
-              screen_count: screenCount,
-              is_owner: true,
-              run_id: terminalRunId,
-              ...(completed.turnId ? { turn_id: completed.turnId } : {}),
-            });
+            if (disposed) return;
+            if (!completed) {
+              runs.delete(runId);
+              return;
+            }
+            run.completed = completed;
+            flushCompletedRunsRef.current();
           })
           .catch(() => {
             // coercion-ok: an unconfirmed run is never reported.
+            runs.delete(runId);
           });
       } catch {
         // coercion-ok: a failed analytics read must never affect the editor.
@@ -289,6 +322,10 @@ export function useDesignReadyViewTracking({
       if (!run.designId) run.designId = designId;
     }
   }, [designId, designLoaded]);
+
+  useEffect(() => {
+    flushCompletedRunsRef.current();
+  }, [designId, designLoaded, files, isOwner]);
 
   useEffect(() => {
     try {

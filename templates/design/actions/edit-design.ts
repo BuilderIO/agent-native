@@ -29,6 +29,7 @@ import {
   type SourceWorkspaceFile,
 } from "../server/source-workspace.js";
 import {
+  ApplyEditConflictError,
   applyOneEdit,
   type ApplyEditsResult,
   type DesignEdit,
@@ -136,6 +137,7 @@ function applyOneEditWithStableIdFallback(
   try {
     return applyOneEdit(content, edit, index);
   } catch (error) {
+    if (!(error instanceof ApplyEditConflictError)) throw error;
     const span = findUniqueStableIdAgnosticSpan(content, edit.search);
     if (span) {
       return `${content.slice(0, span.start)}${edit.replace}${content.slice(span.end)}`;
@@ -151,10 +153,6 @@ class DesignEditSearchConflictError extends Error {
     super(message);
     this.name = "DesignEditSearchConflictError";
   }
-}
-
-function designEditConflictMessage(): string {
-  return "The design changed since the snapshot used for this edit. Refresh it with get-design-snapshot and re-plan the search/replace edits.";
 }
 
 function designEditConflictOptions() {
@@ -427,12 +425,7 @@ export default defineAction({
               statusCode: error.statusCode,
             });
           }
-          if (error instanceof NoWriteError) throw error;
-          if (checkpointed) throw error;
-          throw new NoWriteError(
-            designEditConflictMessage(),
-            designEditConflictOptions(),
-          );
+          throw error;
         }
       }
       changed = nextContent !== base;

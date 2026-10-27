@@ -232,6 +232,30 @@ describe("design_ready_viewed", () => {
     });
   });
 
+  it("waits for the first screen when a run completes before it loads", async () => {
+    await renderReady();
+    await agentRun({ isRunning: true });
+    await agentRun({ isRunning: false });
+
+    expect(readyEvents()).toHaveLength(0);
+
+    await renderReady({ files: [screen("a")] });
+
+    expect(readyEvents()).toEqual([
+      [
+        "design_ready_viewed",
+        {
+          output_id: "design-1",
+          output_type: "design",
+          screen_count: 1,
+          is_owner: true,
+          run_id: "run-1",
+          turn_id: "turn-1",
+        },
+      ],
+    ]);
+  });
+
   it("sends nothing when the editor closes while a run is being confirmed", async () => {
     let resolveStatus: (value: unknown) => void = () => {};
     mocks.readAgentRunStatus.mockImplementationOnce(
