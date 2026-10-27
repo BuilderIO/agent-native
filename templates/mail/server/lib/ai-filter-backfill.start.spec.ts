@@ -1252,6 +1252,52 @@ describe("startMailAiFilterBackfill", () => {
     expect(JSON.parse(row.stateJson)).not.toHaveProperty("error");
   });
 
+  it("rewinds failed rule evaluations before resuming a saved backfill", async () => {
+    mocks.rules = [rule("rule-a"), rule("rule-b")];
+    const started = await startMailAiFilterBackfill(ownerEmail, [
+      "rule-a",
+      "rule-b",
+    ]);
+    const row = database.rows[0];
+    if (!row) throw new Error("Expected a saved backfill row.");
+    const state: any = backfillState(mocks.rules);
+    state.candidateIndex = 1;
+    state.processedThreads = 1;
+    state.evaluatedCount = 1;
+    state.failedCount = 1;
+    state.incompleteCoverage = true;
+    state.decisionFailures = [
+      { emailId: "thread-a", ruleId: "rule-b", reason: "invalid_response" },
+    ];
+    state.snapshots["local:thread-a"] = {
+      key: "local:thread-a",
+      threadId: "thread-a",
+      local: true,
+      messages: [{ id: "saved-incoming", labels: {} }],
+    };
+    row.status = "failed";
+    row.stateJson = JSON.stringify(state);
+
+    const resumed = await startMailAiFilterBackfill(ownerEmail, [
+      "rule-a",
+      "rule-b",
+    ]);
+
+    expect(resumed).toEqual({ runId: started.runId, status: "queued" });
+    expect(JSON.parse(row.stateJson)).toMatchObject({
+      candidateIndex: 0,
+      processedThreads: 0,
+      evaluatedCount: 0,
+      failedCount: 0,
+      decisionFailures: [],
+      snapshots: state.snapshots,
+    });
+    expect(JSON.parse(row.stateJson)).not.toHaveProperty("incompleteCoverage");
+    expect(JSON.parse(row.stateJson).evaluations).not.toHaveProperty(
+      "local:thread-a",
+    );
+  });
+
   it("rejects concurrent starts whose rule sets overlap", async () => {
     mocks.rules = [rule("rule-a"), rule("rule-b")];
 
@@ -1389,9 +1435,9 @@ describe("startMailAiFilterBackfill", () => {
     expect(saved.decisionFailures).toEqual([
       { emailId: "thread-a", ruleId: "rule-b", reason: "invalid_response" },
     ]);
-    expect(saved.evaluations["local:thread-a"]).toEqual([
-      { ruleId: "rule-a", confidence: 0.95 },
-    ]);
+    expect(saved.evaluations).not.toHaveProperty("local:thread-a");
+    expect(saved.processedThreads).toBe(1);
+    expect(saved.snapshots).toEqual({});
   });
 
   it("persists non-mutating progress once per backfill batch", async () => {

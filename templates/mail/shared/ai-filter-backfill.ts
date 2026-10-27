@@ -44,7 +44,8 @@ export const aiFilterBackfillStatusSchema = z.object({
         emailId: z.string().min(1).max(256),
         accountEmail: z.string().email().optional(),
         ruleId: z.string().min(1).max(64),
-        reason: z.enum(["invalid_response", "refusal"]),
+        reason: z.enum(["invalid_response", "refusal", "invalid_input"]),
+        retryable: z.boolean().optional(),
       }),
     )
     .optional(),

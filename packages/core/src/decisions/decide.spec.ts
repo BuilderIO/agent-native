@@ -467,6 +467,54 @@ describe("decide", () => {
     },
   );
 
+  it("keeps valid Jev answers when a score has no matching legend entry", async () => {
+    const actionableQuestion = {
+      type: "predicate" as const,
+      name: "actionable",
+      instructions: "Does this need action?",
+    };
+    mocks.getJevContextCredentials.mockResolvedValue({
+      apiKey: "jev-test-key",
+      personalApiKey: undefined,
+      directApiKey: "jev-test-key",
+      builderAuth: null,
+    });
+    mocks.requestJev.mockResolvedValue({
+      answers: {
+        urgency: {
+          ...jevScoreAnswer,
+          legend: {
+            "answer-a": "not a known level",
+            "answer-b": "also not a known level",
+            "answer-c": "still not a known level",
+          },
+        },
+        actionable: { type: "noul", noul: 0.88 },
+      },
+    });
+
+    const result = await decide({
+      ownerEmail,
+      input: "A task can wait a few days.",
+      questions: [scoreQuestion, actionableQuestion],
+      options: { providers: ["jev"] },
+    });
+
+    expect(result).toEqual({
+      status: "ok",
+      provider: "jev",
+      model: "jev-latest",
+      answers: {
+        actionable: {
+          type: "predicate",
+          name: "actionable",
+          probability: 0.88,
+        },
+      },
+      questionFailures: { urgency: "invalid_response" },
+    });
+  });
+
   it("reports verified and unverified question capabilities separately from readiness", async () => {
     const result = await getDecisionsStatus(ownerEmail);
 
@@ -709,6 +757,34 @@ describe("decide", () => {
       provider: "openai",
     });
     expect(mocks.getJevContextCredentials).toHaveBeenCalledOnce();
+  });
+
+  it("continues to Jev when the earlier OpenAI credential lookup fails", async () => {
+    mocks.getOwnerApiKeyForEngine.mockImplementation(
+      async (_engine, _email, options) => {
+        options.onLookupFailure();
+        return { apiKey: undefined };
+      },
+    );
+    mocks.getJevContextCredentials.mockResolvedValue({
+      apiKey: "jev-test-key",
+      personalApiKey: "jev-test-key",
+      builderAuth: null,
+    });
+    mocks.requestJev.mockResolvedValue({
+      answers: { route: { type: "choice", choice: "billing" } },
+    });
+
+    const result = await decide({
+      ownerEmail,
+      input: "A ticket",
+      questions: [choiceQuestion],
+      options: { providers: ["openai", "jev"] },
+    });
+
+    expect(result).toMatchObject({ status: "ok", provider: "jev" });
+    expect(mocks.requestOpenAiDecision).not.toHaveBeenCalled();
+    expect(mocks.requestJev).toHaveBeenCalledOnce();
   });
 
   it("does not use a deployment key after an owner credential lookup fails", async () => {

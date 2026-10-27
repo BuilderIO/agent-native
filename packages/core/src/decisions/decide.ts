@@ -267,6 +267,7 @@ export async function decide(input: {
   const timeoutMs = input.options?.timeoutMs ?? configured.timeoutMs;
   const providerDeadlineAt = Date.now() + timeoutMs;
   const missingProviders: DecisionProvider[] = [];
+  const credentialFailures: DecisionProvider[] = [];
   let compatibleProviderCount = 0;
   let unverifiedCapability: {
     provider: DecisionProvider;
@@ -381,11 +382,8 @@ export async function decide(input: {
     }
 
     if (lookupFailed) {
-      return {
-        status: "failed",
-        reason: "credentials_unavailable",
-        provider,
-      };
+      credentialFailures.push(provider);
+      continue;
     }
 
     if (!apiKey) {
@@ -487,6 +485,14 @@ export async function decide(input: {
       };
     }
     return { status: "failed", reason: "unsupported_input" };
+  }
+  const credentialFailure = credentialFailures.at(0);
+  if (credentialFailure !== undefined) {
+    return {
+      status: "failed",
+      reason: "credentials_unavailable",
+      provider: credentialFailure,
+    };
   }
   return {
     status: "not_configured",

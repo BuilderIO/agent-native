@@ -227,7 +227,8 @@ export default defineAction({
     let failures: Array<{
       emailId: string;
       accountEmail?: string;
-      reason: "invalid_response" | "refusal";
+      reason: "invalid_response" | "refusal" | "invalid_input";
+      retryable?: boolean;
     }> = [];
     let model: { provider: DecisionProvider; model: string } = cachedModel ?? {
       provider: selectedProvider,

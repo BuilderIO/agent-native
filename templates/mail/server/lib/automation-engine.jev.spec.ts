@@ -346,6 +346,64 @@ describe("Mail decision automation routing", () => {
     expect(result).toMatchObject({ evaluatedCount: 1, failedCount: 0 });
   });
 
+  it("keeps long rule conditions in structured input instead of question instructions", async () => {
+    const condition = "important detail ".repeat(400);
+    mocks.decide.mockImplementationOnce(
+      async ({
+        input,
+        questions,
+      }: {
+        input: Array<{ value: { rules: Array<{ condition: string }> } }>;
+        questions: Array<{ name: string; type: string; instructions: string }>;
+      }) => {
+        expect(input[0]?.value.rules[0]?.condition).toBe(condition);
+        expect(questions[0]?.instructions.length).toBeLessThan(4_000);
+        return decisionResult(questions);
+      },
+    );
+
+    const result = await previewAutomationRules(
+      [email],
+      [
+        {
+          id: "rule-1",
+          name: "Important",
+          condition,
+          actions: [],
+        },
+      ],
+      "owner@example.com",
+    );
+
+    expect(result).toMatchObject({ evaluatedCount: 1, failedCount: 0 });
+  });
+
+  it("reports a single rule above the payload limit without aborting evaluation", async () => {
+    const result = await previewAutomationRules(
+      [email],
+      [
+        {
+          id: "rule-1",
+          name: "Important",
+          condition: "x".repeat(MAX_DECISION_PAYLOAD_BYTES + 1),
+          actions: [],
+        },
+      ],
+      "owner@example.com",
+    );
+
+    expect(result).toMatchObject({ evaluatedCount: 0, failedCount: 1 });
+    expect(result.failures).toEqual([
+      expect.objectContaining({
+        emailId: email.id,
+        ruleId: "rule-1",
+        reason: "invalid_input",
+        retryable: false,
+      }),
+    ]);
+    expect(mocks.decide).not.toHaveBeenCalled();
+  });
+
   it("reports refusal and omitted answers per email without creating scores", async () => {
     const messages = [
       { ...email, id: "matched" },
@@ -533,6 +591,108 @@ describe("Mail decision automation routing", () => {
       label: "automation",
       app: "mail",
     });
+  });
+
+  it("splits Priority requests by serialized bytes and keeps guidance out of questions", async () => {
+    const emails = Array.from({ length: 50 }, (_, index) => ({
+      ...email,
+      id: `large-${index}`,
+      subject: "\u0000".repeat(500),
+      snippet: "\u0000".repeat(2_000),
+    }));
+    const requestBytes: number[] = [];
+    const guidance = "Prioritize the user's guidance. ".repeat(200);
+    mocks.decide.mockImplementation(
+      async ({
+        input,
+        questions,
+      }: {
+        input: Array<{ value: { guidance: string } }>;
+        questions: Array<{ name: string; type: string; instructions: string }>;
+      }) => {
+        requestBytes.push(
+          new TextEncoder().encode(JSON.stringify({ input, questions }))
+            .byteLength,
+        );
+        expect(input[0]?.value.guidance).toBe(guidance);
+        expect(
+          questions.every((question) => question.instructions.length < 4_000),
+        ).toBe(true);
+        return decisionResult(questions);
+      },
+    );
+
+    const result = await previewAutomationPriority(
+      emails,
+      "owner@example.com",
+      guidance,
+    );
+
+    expect(requestBytes.length).toBeGreaterThan(1);
+    expect(
+      requestBytes.every((size) => size <= MAX_DECISION_PAYLOAD_BYTES),
+    ).toBe(true);
+    expect(result).toMatchObject({ evaluatedCount: 50, failedCount: 0 });
+  });
+
+  it("reports a single Priority email above the payload limit without calling the provider", async () => {
+    const result = await previewAutomationPriority(
+      [email],
+      "owner@example.com",
+      "x".repeat(MAX_DECISION_PAYLOAD_BYTES + 1),
+    );
+
+    expect(result).toMatchObject({ evaluatedCount: 0, failedCount: 1 });
+    expect(result.failures).toEqual([
+      expect.objectContaining({
+        emailId: email.id,
+        reason: "invalid_input",
+        retryable: false,
+      }),
+    ]);
+    expect(mocks.decide).not.toHaveBeenCalled();
+  });
+
+  it("warns when usage recording fails without failing the rule evaluation", async () => {
+    mocks.recordUsage.mockRejectedValueOnce(new Error("usage unavailable"));
+    mocks.decide.mockImplementationOnce(
+      async ({
+        questions,
+      }: {
+        questions: Array<{ name: string; type: string }>;
+      }) => ({
+        ...decisionResult(questions),
+        usage: { inputTokens: 1, outputTokens: 1 },
+      }),
+    );
+    const warning = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+
+    try {
+      const result = await previewAutomationRules(
+        [email],
+        [
+          {
+            id: "rule-1",
+            name: "Important",
+            condition: "Finance updates",
+            actions: [],
+          },
+        ],
+        "owner@example.com",
+      );
+
+      expect(result.failedCount).toBe(0);
+      expect(
+        result.matches.get(aiPriorityEmailKey(email.accountEmail, email.id)),
+      ).toHaveLength(1);
+      expect(warning).toHaveBeenCalledWith(
+        "[automation-engine] Mail decision usage recording failed.",
+      );
+    } finally {
+      warning.mockRestore();
+    }
   });
 
   it("keeps priority answers distinct across accounts and records the provider model", async () => {
@@ -1315,6 +1475,157 @@ describe("Mail decision automation routing", () => {
     expect(
       mocks.userSettings.get("owner@example.com:automation-processed-ids"),
     ).toMatchObject({ ids: ["partial"] });
+  });
+
+  it("leaves history capacity when decision retry IDs fill the pending queue", async () => {
+    const now = Date.now();
+    const accountEmail = "mailbox@example.com";
+    const pendingIds = Array.from(
+      { length: 50 },
+      (_, index) => `stalled-${index}`,
+    );
+    mocks.activeRules = [
+      {
+        id: "tag-rule",
+        domain: "mail",
+        kind: "ai-filter",
+        name: "Project updates",
+        condition: "Project updates",
+        actions: JSON.stringify([
+          { type: "label", labelName: "Project updates" },
+        ]),
+        enabled: 1,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ];
+    mocks.getAiFilterState.mockResolvedValue({ enabled: true, feedback: [] });
+    mocks.userSettings.set("owner@example.com:automation-watermark", {
+      lastHistoryId: "history-1",
+      lastTimestamp: now,
+      pendingMessageIds: pendingIds,
+    });
+    mocks.gmailListHistory.mockResolvedValueOnce({
+      historyId: "history-2",
+      history: [
+        {
+          messagesAdded: [
+            { message: { id: "new-inbox-message", labelIds: ["INBOX"] } },
+          ],
+        },
+      ],
+    });
+    mocks.gmailBatchGetMessages.mockImplementationOnce(
+      async (_accessToken: string, ids: string[]) =>
+        ids.map((id) => ({
+          id,
+          data: {
+            id,
+            threadId: `thread-${id}`,
+            labelIds: ["INBOX"],
+            payload: { headers: [] },
+          },
+        })),
+    );
+    mocks.decide.mockImplementationOnce(
+      async ({
+        questions,
+      }: {
+        questions: Array<{ name: string; type: string }>;
+      }) =>
+        decisionResult(questions, {
+          failures: questions.map(({ name }) => name),
+        }),
+    );
+
+    const result = await processAutomationsForAccount(
+      "owner@example.com",
+      accountEmail,
+      "google-access-token",
+    );
+
+    expect(result.messagesProcessed).toBe(41);
+    expect(mocks.gmailBatchGetMessages).toHaveBeenCalledWith(
+      "google-access-token",
+      expect.arrayContaining([...pendingIds.slice(0, 40), "new-inbox-message"]),
+      "metadata",
+      "incremental",
+      undefined,
+    );
+    expect(
+      mocks.userSettings.get("owner@example.com:automation-watermark"),
+    ).toMatchObject({
+      lastHistoryId: "history-2",
+      pendingMessageIds: expect.arrayContaining(["new-inbox-message"]),
+      pendingDecisionAttempts: { "new-inbox-message": 1 },
+    });
+  });
+
+  it("stops retrying a decision after the bounded attempt limit", async () => {
+    const now = Date.now();
+    mocks.activeRules = [
+      {
+        id: "tag-rule",
+        domain: "mail",
+        kind: "ai-filter",
+        name: "Project updates",
+        condition: "Project updates",
+        actions: JSON.stringify([
+          { type: "label", labelName: "Project updates" },
+        ]),
+        enabled: 1,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ];
+    mocks.getAiFilterState.mockResolvedValue({ enabled: true, feedback: [] });
+    mocks.userSettings.set("owner@example.com:automation-watermark", {
+      lastHistoryId: "history-1",
+      lastTimestamp: now,
+      pendingMessageIds: ["stuck"],
+      pendingDecisionAttempts: { stuck: 4 },
+    });
+    mocks.gmailListHistory.mockResolvedValueOnce({
+      historyId: "history-2",
+      history: [],
+    });
+    mocks.gmailBatchGetMessages.mockResolvedValueOnce([
+      {
+        id: "stuck",
+        data: {
+          id: "stuck",
+          threadId: "thread-stuck",
+          labelIds: ["INBOX"],
+          payload: { headers: [] },
+        },
+      },
+    ]);
+    mocks.decide.mockImplementationOnce(
+      async ({
+        questions,
+      }: {
+        questions: Array<{ name: string; type: string }>;
+      }) => decisionResult(questions, { failures: ["q_0"] }),
+    );
+
+    await processAutomationsForAccount(
+      "owner@example.com",
+      "mailbox@example.com",
+      "google-access-token",
+    );
+
+    expect(
+      mocks.userSettings.get("owner@example.com:automation-watermark"),
+    ).toMatchObject({ lastHistoryId: "history-2" });
+    expect(
+      mocks.userSettings.get("owner@example.com:automation-watermark"),
+    ).not.toHaveProperty("pendingMessageIds");
+    expect(
+      mocks.userSettings.get("owner@example.com:automation-watermark"),
+    ).not.toHaveProperty("pendingDecisionAttempts");
+    expect(
+      mocks.userSettings.get("owner@example.com:automation-processed-ids"),
+    ).toMatchObject({ ids: ["stuck"] });
   });
 
   it("drops notification retries after the attempt limit", async () => {

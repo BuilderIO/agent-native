@@ -113,7 +113,8 @@ type StoredDecisionFailure = {
   emailId: string;
   accountEmail?: string;
   ruleId: string;
-  reason: "invalid_response" | "refusal";
+  reason: "invalid_response" | "refusal" | "invalid_input";
+  retryable?: boolean;
 };
 type BackfillAiFilterSettings = Pick<
   AiFilterState,
@@ -338,6 +339,73 @@ function parseState(raw: string): BackfillState {
   state.failedCount ??= 0;
   state.decisionFailures ??= [];
   return state;
+}
+
+function rewindFailedDecisionEvaluations(state: BackfillState): void {
+  const failures = state.decisionFailures ?? [];
+  if (failures.length === 0) return;
+
+  const failureCounts = new Map<string, number>();
+  for (const failure of failures) {
+    const key = aiPriorityEmailKey(failure.accountEmail, failure.emailId);
+    failureCounts.set(key, (failureCounts.get(key) ?? 0) + 1);
+  }
+  const failedCandidates = state.candidates
+    .map((candidate, index) => ({
+      candidate,
+      index,
+      key: aiPriorityEmailKey(candidate.accountEmail, candidate.email.id),
+    }))
+    .filter(({ key }) => failureCounts.has(key));
+  if (failedCandidates.length === 0) return;
+
+  let evaluatedToRemove = 0;
+  let failuresToRemove = 0;
+  for (const { candidate, key } of failedCandidates) {
+    if (
+      Object.prototype.hasOwnProperty.call(state.evaluations, candidate.key)
+    ) {
+      evaluatedToRemove += Math.max(
+        0,
+        state.rules.length - (failureCounts.get(key) ?? 0),
+      );
+      delete state.evaluations[candidate.key];
+    }
+    failuresToRemove += failureCounts.get(key) ?? 0;
+    state.failedKeys = state.failedKeys.filter(
+      (failedKey) => failedKey !== candidate.key,
+    );
+  }
+  const firstFailedCandidate = Math.min(
+    ...failedCandidates.map(({ index }) => index),
+  );
+  const failedCandidateEmailKeys = new Set(
+    failedCandidates.map(({ key }) => key),
+  );
+  state.candidateIndex = Math.min(state.candidateIndex, firstFailedCandidate);
+  state.processedThreads = Math.min(
+    state.processedThreads,
+    state.candidateIndex,
+  );
+  state.evaluatedCount = Math.max(
+    0,
+    (state.evaluatedCount ?? 0) - evaluatedToRemove,
+  );
+  state.failedCount = Math.max(0, (state.failedCount ?? 0) - failuresToRemove);
+  state.decisionFailures = failures.filter(
+    (failure) =>
+      !failedCandidateEmailKeys.has(
+        aiPriorityEmailKey(failure.accountEmail, failure.emailId),
+      ),
+  );
+  if (
+    state.decisionFailures.length === 0 &&
+    state.failedKeys.length === 0 &&
+    state.undoFailedKeys.length === 0 &&
+    !state.error
+  ) {
+    delete state.incompleteCoverage;
+  }
 }
 
 export function sanitizeBackfillError(error: unknown): string {
@@ -654,6 +722,7 @@ export async function startMailAiFilterBackfill(
     });
     if (failedRun) {
       const previous = parseState(failedRun.stateJson);
+      rewindFailedDecisionEvaluations(previous);
       previous.retryCount = 0;
       delete previous.retryAfterAt;
       if (!previous.incompleteCoverage) delete previous.error;
@@ -1760,37 +1829,92 @@ async function ensureEvaluations(
   if (matchMap.size !== batch.length) {
     throw new Error("Mail AI-filter evaluation did not classify every thread.");
   }
-  const evaluations = batch.map((candidate) => {
-    const matches = matchMap.get(
+  const failedEmailKeys = new Set(
+    evaluation.failures.map((failure) =>
+      aiPriorityEmailKey(failure.accountEmail, failure.emailId),
+    ),
+  );
+  const evaluatedEmailKeys = new Set(
+    batch.map((candidate) =>
       aiPriorityEmailKey(candidate.accountEmail, candidate.email.id),
-    );
-    if (matches === undefined) {
-      throw new Error(
-        "Mail AI-filter evaluation did not classify every thread.",
+    ),
+  );
+  const evaluations = batch
+    .filter(
+      (candidate) =>
+        !failedEmailKeys.has(
+          aiPriorityEmailKey(candidate.accountEmail, candidate.email.id),
+        ),
+    )
+    .map((candidate) => {
+      const matches = matchMap.get(
+        aiPriorityEmailKey(candidate.accountEmail, candidate.email.id),
       );
+      if (matches === undefined) {
+        throw new Error(
+          "Mail AI-filter evaluation did not classify every thread.",
+        );
+      }
+      return [
+        candidate.key,
+        matches.map(({ ruleId, confidence, reason, provider, model }) => ({
+          ruleId,
+          confidence,
+          ...(provider ? { provider } : {}),
+          ...(model ? { model } : {}),
+          ...(reason ? { reason } : {}),
+        })),
+      ] as const;
+    });
+  for (const candidate of batch) {
+    if (
+      failedEmailKeys.has(
+        aiPriorityEmailKey(candidate.accountEmail, candidate.email.id),
+      )
+    ) {
+      delete state.evaluations[candidate.key];
     }
-    return [
-      candidate.key,
-      matches.map(({ ruleId, confidence, reason, provider, model }) => ({
-        ruleId,
-        confidence,
-        ...(provider ? { provider } : {}),
-        ...(model ? { model } : {}),
-        ...(reason ? { reason } : {}),
-      })),
-    ] as const;
-  });
+  }
   for (const [key, matches] of evaluations) {
     state.evaluations[key] = matches;
   }
+  const partialSuccessCount = [...failedEmailKeys].reduce(
+    (count, emailKey) =>
+      count +
+      Math.max(
+        0,
+        state.rules.length -
+          evaluation.failures.filter(
+            (failure) =>
+              aiPriorityEmailKey(failure.accountEmail, failure.emailId) ===
+              emailKey,
+          ).length,
+      ),
+    0,
+  );
   state.evaluatedCount =
-    (state.evaluatedCount ?? 0) + evaluation.evaluatedCount;
+    (state.evaluatedCount ?? 0) +
+    evaluation.evaluatedCount -
+    partialSuccessCount;
   state.failedCount = (state.failedCount ?? 0) + evaluation.failedCount;
   state.decisionFailures = [
-    ...(state.decisionFailures ?? []),
+    ...(state.decisionFailures ?? []).filter(
+      (failure) =>
+        !evaluatedEmailKeys.has(
+          aiPriorityEmailKey(failure.accountEmail, failure.emailId),
+        ),
+    ),
     ...evaluation.failures,
   ];
-  if (evaluation.failedCount > 0) state.incompleteCoverage = true;
+  if (state.decisionFailures.length > 0) {
+    state.incompleteCoverage = true;
+  } else if (
+    state.failedKeys.length === 0 &&
+    state.undoFailedKeys.length === 0 &&
+    !state.error
+  ) {
+    delete state.incompleteCoverage;
+  }
   return saveRunState(row.id, claimId, state, "running");
 }
 
@@ -1864,6 +1988,17 @@ async function processRunningBatch(
   );
   const labelCaches = new Map<string, Map<string, string>>();
   for (const candidate of batch) {
+    if (
+      (state.decisionFailures ?? []).some(
+        (failure) =>
+          aiPriorityEmailKey(failure.accountEmail, failure.emailId) ===
+          aiPriorityEmailKey(candidate.accountEmail, candidate.email.id),
+      )
+    ) {
+      state.processedThreads += 1;
+      state.candidateIndex += 1;
+      continue;
+    }
     const matches = matchedForCandidate(candidate, state) ?? [];
     const candidateMatched = matches.length > 0;
     if (candidateMatched && !state.matchedThreadKeys.includes(candidate.key)) {
