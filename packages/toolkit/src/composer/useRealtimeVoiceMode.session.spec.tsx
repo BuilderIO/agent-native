@@ -171,8 +171,11 @@ describe("realtime voice session controls", () => {
       type: "response.done",
       response: { status: "completed", output: [] },
     });
+    expect(session.api().currentToolName).toBe("web-request");
     await resolveCall("call-search");
+    expect(session.api().currentToolName).toBe("web-request");
     await resolveCall("call-read");
+    expect(session.api().currentToolName).toBeNull();
     expect(work.every((update) => !update.completedAt)).toBe(true);
 
     await session.send({ type: "response.created" });

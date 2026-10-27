@@ -371,6 +371,11 @@ describe("voice chat transcripts in AgentKitChat", () => {
     );
     // The local run never holds the composer the way a server run does.
     expect(client.getThread(threadId).activeRunIds).toEqual([]);
+    // It still shows what it is doing now.
+    const liveStep = () =>
+      container.querySelector('[data-agentkit-current-activity="true"]')
+        ?.textContent;
+    expect(liveStep()).toBeTruthy();
 
     const finishedSearch = {
       ...search,
@@ -403,6 +408,7 @@ describe("voice chat transcripts in AgentKitChat", () => {
     });
 
     const done = container.textContent ?? "";
+    expect(liveStep()).toBeUndefined();
     expect(done.match(/Worked/g)).toHaveLength(1);
     const row = done.indexOf("Worked");
     expect(row).toBeGreaterThan(done.indexOf("On it, searching now."));

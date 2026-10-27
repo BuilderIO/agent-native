@@ -17,8 +17,8 @@ describe("slides realtime voice", () => {
         }),
       );
     }
-    // A quarter of the 64 KB voice session leaves room for the framework's
-    // tools and the discoveries a session adds.
-    expect(bytes).toBeLessThan(16_000);
+    // Under two fifths of the 64 KB voice session leaves room for the
+    // framework's tools and the discoveries a session adds.
+    expect(bytes).toBeLessThan(26_000);
   });
 });

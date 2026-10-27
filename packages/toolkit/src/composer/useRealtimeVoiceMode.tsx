@@ -196,6 +196,8 @@ export interface RealtimeVoiceModeApi {
   end: () => void;
   /** Clears a failed session so voice chat can start again. */
   dismissError: () => void;
+  /** The tool running now, latest first started; null while none runs. */
+  currentToolName: string | null;
   /** Tool calls waiting for the user to approve them, oldest first. */
   approvals: readonly RealtimeVoiceApproval[];
   /** Runs an approved call and tells the assistant how it went. */
@@ -1734,6 +1736,7 @@ export function createRealtimeVoiceModeCopy(
     voiceSettings: t("agentChat.voiceMode.voiceSettings", {
       defaultValue: "Voice settings",
     }),
+    thinking: t("agentChat.status.thinking", { defaultValue: "Thinking" }),
     approval: {
       question: (toolLabel) =>
         t("agentChat.approval.question", {
@@ -1959,6 +1962,17 @@ function useRealtimeVoiceModeController(
   const liveCloseDrainFinishRef = useRef<(() => void) | null>(null);
   const toolAbortControllersRef = useRef(new Set<AbortController>());
   const pendingApprovalsRef = useRef(new Map<string, PendingApproval>());
+  const runningToolsRef = useRef(new Map<string, string>());
+  const [currentToolName, setCurrentToolName] = useState<string | null>(null);
+  const trackRunningTool = useCallback(
+    (callId: string, name: string | null) => {
+      const running = runningToolsRef.current;
+      if (name) running.set(callId, name);
+      else running.delete(callId);
+      setCurrentToolName([...running.values()].at(-1) ?? null);
+    },
+    [],
+  );
   const [approvals, setApprovals] = useState<readonly RealtimeVoiceApproval[]>(
     [],
   );
@@ -2300,6 +2314,8 @@ function useRealtimeVoiceModeController(
     }
     pendingApprovalsRef.current.clear();
     syncApprovals();
+    runningToolsRef.current.clear();
+    setCurrentToolName(null);
     closeRealtimeVoiceWorkSegment(workSegmentRef);
     responseCallCountsRef.current.clear();
     if (liveCloseDrainTimerRef.current !== null) {
@@ -2437,6 +2453,7 @@ function useRealtimeVoiceModeController(
       const toolAbortController = new AbortController();
       toolAbortControllersRef.current.add(toolAbortController);
       transition("working");
+      trackRunningTool(call.callId, call.name);
       const finishTurnToolCall = turnMetrics.toolCallStarted();
       const workCall: RealtimeVoiceWorkCall = {
         id: call.callId,
@@ -2475,6 +2492,7 @@ function useRealtimeVoiceModeController(
         };
       } finally {
         toolAbortControllersRef.current.delete(toolAbortController);
+        trackRunningTool(call.callId, null);
       }
       // Session teardown aborted the call, so it did not fail. A call that
       // asks for approval stays running until the user decides.
@@ -2534,6 +2552,7 @@ function useRealtimeVoiceModeController(
       browserTabId,
       syncApprovals,
       toolManifestCoordinator,
+      trackRunningTool,
       transition,
       turnMetrics,
     ],
@@ -2551,6 +2570,7 @@ function useRealtimeVoiceModeController(
       let aborted = false;
       if (approved) {
         transition("working");
+        trackRunningTool(callId, pending.name);
         const toolAbortController = new AbortController();
         toolAbortControllersRef.current.add(toolAbortController);
         try {
@@ -2573,6 +2593,7 @@ function useRealtimeVoiceModeController(
           };
         } finally {
           toolAbortControllersRef.current.delete(toolAbortController);
+          trackRunningTool(callId, null);
         }
         aborted = toolAbortController.signal.aborted;
       } else if (pending.approvalId) {
@@ -2624,7 +2645,7 @@ function useRealtimeVoiceModeController(
       );
       sendDataChannelEvent(channelRef.current, { type: "response.create" });
     },
-    [browserTabId, syncApprovals, transition],
+    [browserTabId, syncApprovals, trackRunningTool, transition],
   );
 
   const handleServerEvent = useCallback(
@@ -3202,6 +3223,7 @@ function useRealtimeVoiceModeController(
     start: startForThread,
     end,
     dismissError,
+    currentToolName,
     approvals,
     resolveApproval,
   };

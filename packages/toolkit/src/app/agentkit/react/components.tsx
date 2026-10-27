@@ -2554,9 +2554,15 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
         event.type === "run.failed" ||
         event.type === "run.cancelled"),
   );
+  // A local run, such as voice chat's, never starts on the server, so it
+  // stays queued while it works; its own events show it is working.
+  const localRunWorking =
+    run?.status === "queued" && runEvents.length > 0 && !hasTerminalRunEvent;
   const activelyWorking =
     isCurrentSegment &&
-    (run ? run.status === "running" : running && !hasTerminalRunEvent);
+    (run
+      ? run.status === "running" || localRunWorking
+      : running && !hasTerminalRunEvent);
   const waitingLabel =
     isCurrentSegment && run?.status === "awaiting_approval"
       ? labels.waitingForApproval

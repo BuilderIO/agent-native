@@ -57,6 +57,8 @@ export interface RealtimeVoiceModeCopy {
     >;
   };
   status: Record<RealtimeVoiceModeState, string>;
+  /** Shown while working with no tool running: the model is deciding. */
+  thinking: string;
   approval: {
     question: (toolLabel: string) => string;
     approve: string;
@@ -194,7 +196,11 @@ export function RealtimeVoiceComposerControls({
             aria-live="polite"
             className="min-w-0 truncate agent-kit-caption-copy text-muted-foreground"
           >
-            {copy.status[state]}
+            {state === "working"
+              ? voice.currentToolName
+                ? realtimeVoiceToolLabel(voice.currentToolName)
+                : copy.thinking
+              : copy.status[state]}
           </span>
         </div>
       ) : null}

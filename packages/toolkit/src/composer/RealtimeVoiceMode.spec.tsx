@@ -68,6 +68,7 @@ const copy: RealtimeVoiceModeCopy = {
     error: "Voice mode needs attention",
     ending: "Ending voice mode",
   },
+  thinking: "Thinking",
   approval: {
     question: (toolLabel) => `Approve to run ${toolLabel}?`,
     approve: "Approve",
@@ -98,6 +99,7 @@ function voiceSession(
     start: vi.fn(async () => {}),
     end: vi.fn(),
     dismissError: vi.fn(),
+    currentToolName: null,
     approvals: [],
     resolveApproval: vi.fn(async () => {}),
     ...overrides,
@@ -176,6 +178,18 @@ describe("RealtimeVoiceComposerControls", () => {
     renderControls(voiceSession({ state: "speaking", audioLevels }));
     await act(() => new Promise((resolve) => setTimeout(resolve, 200)));
     expect(new Set(bars())).toEqual(new Set(["scaleY(0.4)"]));
+  });
+
+  it("names the step it is working on, and says it is thinking between steps", () => {
+    const status = () =>
+      slot("voice-chat-status")?.querySelector('[role="status"]')?.textContent;
+    renderControls(voiceSession({ state: "working" }));
+    expect(status()).toBe("Thinking");
+
+    renderControls(
+      voiceSession({ state: "working", currentToolName: "patch-deck" }),
+    );
+    expect(status()).toBe("Patch deck");
   });
 
   it("asks to approve a waiting tool call in place of the status", () => {
