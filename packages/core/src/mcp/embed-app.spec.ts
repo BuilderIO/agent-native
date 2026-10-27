@@ -446,7 +446,25 @@ describe("embedApp", () => {
       /    function installExternalEmbedRuntime\(config\) \{[\s\S]*?\n    \}\n/,
     )?.[0];
     expect(installRuntimeSource).toBeTruthy();
-    const runtimeSource = installRuntimeSource as string;
+    const resolverSource = `var resolveMcpAppEmbedBasePath = ${resolveMcpAppEmbedBasePath.toString()};`;
+    const runtimeSource = (installRuntimeSource as string).replace(
+      resolverSource,
+      `var resolveMcpAppEmbedBasePath = function(_mode, target, options) {
+        var pathname = String(target).split(/[?#]/, 1)[0] || "/";
+        var mounts = Array.isArray(options.workspaceAppMountPaths)
+          ? options.workspaceAppMountPaths
+          : [];
+        var match = mounts
+          .filter(function (mount) { return pathname === mount || pathname.startsWith(mount + "/"); })
+          .sort(function (left, right) { return right.length - left.length; })[0];
+        if (match) return match;
+        if (options.explicitRootPath === true) return "";
+        return undefined;
+      };`,
+    );
+    expect(runtimeSource).toContain(
+      "var resolveMcpAppEmbedBasePath = function(_mode",
+    );
 
     const locationObject = {
       href: "https://host.example/deck/reports",

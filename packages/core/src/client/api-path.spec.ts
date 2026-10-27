@@ -110,6 +110,19 @@ describe("agentNativePath", () => {
     );
   });
 
+  it("honors the projected explicit-root flag on nested workspace routes", () => {
+    vi.stubGlobal("window", {
+      location: { pathname: "/reports/detail" },
+      __AGENT_NATIVE_CONFIG__: {
+        workspaceRuntime: true,
+        explicitRootPath: true,
+        workspaceAppMountPaths: ["/mail"],
+      },
+    });
+
+    expect(appBasePath()).toBe("");
+  });
+
   it("accepts an HTTP streaming origin and rejects executable URL schemes", () => {
     vi.stubEnv(
       "VITE_AGENT_NATIVE_AGENT_CHAT_STREAM_URL",
