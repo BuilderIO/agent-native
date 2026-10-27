@@ -194,8 +194,6 @@ export async function exchangeEmbedStartUrl(
   if (startIndex < 0) {
     throw new Error("App session start URL is not an embed start route.");
   }
-  const appBaseUrl = `${start.origin}${start.pathname.slice(0, startIndex)}`;
-
   const response = await fetchImpl(start.toString(), { redirect: "manual" });
   await response.body?.cancel().catch(() => undefined);
   const location = response.headers.get("location");
@@ -206,6 +204,10 @@ export async function exchangeEmbedStartUrl(
   }
 
   const resolved = new URL(location, start);
+  if (resolved.origin !== start.origin) {
+    throw new Error("App session exchange redirected to an untrusted origin.");
+  }
+  const appBaseUrl = `${resolved.origin}${resolved.pathname.replace(/\/+$/, "")}`;
   const token = resolved.searchParams.get(EMBED_TOKEN_QUERY_PARAM);
   if (!token) {
     throw new Error("App session exchange returned no embed token.");

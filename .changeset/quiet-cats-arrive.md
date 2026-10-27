@@ -2,4 +2,4 @@
 "@agent-native/dispatch": patch
 ---
 
-Preserve the request origin when minting embedded Workspace app sessions.
+Preserve trusted request origins and mounted app paths when proxying embedded Workspace chat.

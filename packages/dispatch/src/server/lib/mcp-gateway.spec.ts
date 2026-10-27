@@ -208,6 +208,7 @@ beforeEach(() => {
   mocks.getOrgA2ASecret.mockResolvedValue(null);
   mocks.getOrgDomain.mockResolvedValue(null);
   vi.stubEnv("A2A_SECRET", "");
+  vi.stubEnv("APP_URL", "http://localhost:8092");
   mocks.isFeatureFlagEnabled.mockResolvedValue(true);
 });
 

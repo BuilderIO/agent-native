@@ -43,6 +43,7 @@ type WorkspaceAppChatProxyEvent = Parameters<
 >[0];
 
 const APP_ORIGIN = "https://analytics.agent-native.com";
+const WORKSPACE_ORIGIN = "https://beta.agent-workspace.builder.io";
 const START_URL = `${APP_ORIGIN}/_agent-native/embed/start?ticket=ticket-1`;
 
 function embedToken(expiresInSeconds = 3600): string {
@@ -80,7 +81,11 @@ function stubFetch(
     url: string,
     init: RequestInit,
   ) => Response | Promise<Response>,
-  options: { token?: string; startStatus?: number } = {},
+  options: {
+    token?: string;
+    startStatus?: number;
+    redirectLocation?: (token: string) => string;
+  } = {},
 ) {
   return vi.fn(async (input: string | URL, init: RequestInit = {}) => {
     const url = String(input);
@@ -92,7 +97,9 @@ function stubFetch(
       return new Response("", {
         status: 302,
         headers: {
-          location: `/?embedded=1&__an_embed_token=${encodeURIComponent(token)}`,
+          location:
+            options.redirectLocation?.(token) ??
+            `/?embedded=1&__an_embed_token=${encodeURIComponent(token)}`,
         },
       });
     }
@@ -148,6 +155,59 @@ describe("workspace app chat proxy", () => {
     expect(headers.get("x-agent-native-embed-target")).toBe("/");
     expect(headers.get("x-agent-native-csrf")).toBe("1");
     expect(headers.get("cookie")).toBeNull();
+  });
+
+  it("forwards chat through the Workspace app mount returned by embed exchange", async () => {
+    const appId = "customer-ticket-triage";
+    const appBaseUrl = `${WORKSPACE_ORIGIN}/dispatch/apps/${appId}`;
+    mocks.createWorkspaceSsoEmbedSession.mockResolvedValue({
+      startUrl: `${WORKSPACE_ORIGIN}/dispatch/_agent-native/embed/start?ticket=ticket-1`,
+      app: appId,
+    });
+    const fetchImpl = stubFetch(() => new Response("ok", { status: 200 }), {
+      redirectLocation: (token) =>
+        `/dispatch/apps/${appId}/?embedded=1&__an_embed_token=${encodeURIComponent(token)}`,
+    });
+    const handler = createWorkspaceAppChatProxyHandler({ fetchImpl });
+
+    const response = await handler(
+      proxyEvent(`/_agent-native/workspace-app-chat/${appId}`, {
+        method: "POST",
+        body: JSON.stringify({ messages: [] }),
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const chatCall = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock
+      .calls[1];
+    expect(chatCall[0]).toBe(`${appBaseUrl}/_agent-native/agent-chat`);
+    expect(
+      (chatCall[1].headers as Headers).get("x-agent-native-embed-target"),
+    ).toBe(`/dispatch/apps/${appId}/`);
+  });
+
+  it("does not send an embed token to a cross-origin exchange redirect", async () => {
+    const fetchImpl = stubFetch(
+      () => new Response("unexpected", { status: 200 }),
+      {
+        redirectLocation: (token) =>
+          `https://attacker.example/?__an_embed_token=${encodeURIComponent(token)}`,
+      },
+    );
+    const handler = createWorkspaceAppChatProxyHandler({ fetchImpl });
+
+    const response = await handler(
+      proxyEvent("/_agent-native/workspace-app-chat/analytics", {
+        method: "POST",
+      }),
+    );
+
+    expect(response.status).toBe(502);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(((await response.json()) as { error: string }).error).toContain(
+      "untrusted origin",
+    );
   });
 
   it("preserves a configured request origin for both embed-session signing paths", async () => {
