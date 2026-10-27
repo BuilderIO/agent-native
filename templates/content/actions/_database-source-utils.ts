@@ -8,6 +8,7 @@ import {
   isUnsupportedBodyWriter,
   lockLegacyBodyWrites,
 } from "../server/lib/document-body-revision.js";
+import { firstRow } from "../server/lib/first-row.js";
 import type {
   ContentDatabase,
   ContentDatabaseBodyHydration,
@@ -8278,10 +8279,12 @@ async function lockedSourcePropertyPass(
     const currentSources = await readDatabaseSourceNames(tx, args.database.id);
     if (currentSources.length < 2) return false;
     const definitions = schema.documentPropertyDefinitions;
-    const [definition] = await tx
-      .select({ optionsJson: definitions.optionsJson })
-      .from(definitions)
-      .where(eq(definitions.id, propertyId));
+    const definition = firstRow(
+      await tx
+        .select({ optionsJson: definitions.optionsJson })
+        .from(definitions)
+        .where(eq(definitions.id, propertyId)),
+    );
     if (!definition) return false;
     await tx
       .update(definitions)

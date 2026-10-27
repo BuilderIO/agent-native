@@ -20,6 +20,7 @@ import {
 } from "vitest";
 
 import { verifyContentWebhook } from "../server/lib/content-webhook-signature.js";
+import { firstRow } from "../server/lib/first-row.js";
 
 // guard:allow-unscoped — isolated PGlite fixtures intentionally inspect rows directly.
 
@@ -1436,15 +1437,12 @@ describe("property generations", () => {
   }
 
   async function storedValue(documentId: string, propertyId: string) {
-    const [row] = await getDb()
-      .select({ valueJson: schema.documentPropertyValues.valueJson })
-      .from(schema.documentPropertyValues)
-      .where(
-        and(
-          eq(schema.documentPropertyValues.documentId, documentId),
-          eq(schema.documentPropertyValues.propertyId, propertyId),
-        ),
-      );
+    const row = firstRow(
+      await getDb()
+        .select({ valueJson: schema.documentPropertyValues.valueJson })
+        .from(schema.documentPropertyValues)
+        .where(valueRow(documentId, propertyId)),
+    );
     return row ? JSON.parse(row.valueJson) : undefined;
   }
 
