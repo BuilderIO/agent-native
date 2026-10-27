@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { cliRerunCommand } from "./action-approval.js";
+import { cliApprovalRefusal, cliRerunCommand } from "./action-approval.js";
 
 describe("cliRerunCommand", () => {
   const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
@@ -38,6 +38,51 @@ describe("cliRerunCommand", () => {
     vi.stubEnv("SHELL", "C:\\Program Files\\Git\\usr\\bin\\bash.exe");
     expect(cliRerunCommand("send", ["--title", "Q3 plan"])).toBe(
       "pnpm action send --title 'Q3 plan' --approved",
+    );
+  });
+});
+
+describe("cliApprovalRefusal", () => {
+  const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
+  function onPlatform(value: NodeJS.Platform) {
+    Object.defineProperty(process, "platform", { ...platform, value });
+  }
+
+  afterEach(() => {
+    Object.defineProperty(process, "platform", platform);
+    vi.unstubAllEnvs();
+  });
+
+  it("offers a rerun with --approved", () => {
+    onPlatform("linux");
+    expect(cliApprovalRefusal("send", ["--note", "%HOME% 50%"])).toBe(
+      `Action "send" requires human approval. Ask the person to approve this call, then rerun:\n` +
+        `pnpm action send --note '%HOME% 50%' --approved`,
+    );
+  });
+
+  it.each([
+    ["", `\nIn cmd.exe: pnpm action send --note "%USERNAME%"`],
+    ["C:\\Program Files\\Git\\usr\\bin\\bash.exe", ""],
+  ])(
+    "sends a Windows call with %%NAME%% to the prompt instead (SHELL=%j)",
+    (shell, cmdLine) => {
+      onPlatform("win32");
+      vi.stubEnv("SHELL", shell);
+      expect(cliApprovalRefusal("send", ["--note", "%USERNAME%"])).toBe(
+        `Action "send" requires human approval. An argument contains %NAME%, which Windows expands when pnpm runs the action, so a rerun with --approved might not use these values. Ask the person to run this in a terminal and check the values at the prompt:\n` +
+          `pnpm action send --note '%USERNAME%'${cmdLine}`,
+      );
+    },
+  );
+
+  it("keeps the Windows rerun for a lone percent sign", () => {
+    onPlatform("win32");
+    vi.stubEnv("SHELL", "");
+    expect(cliApprovalRefusal("send", ["--note", "50%"])).toBe(
+      `Action "send" requires human approval. Ask the person to approve this call, then rerun:\n` +
+        `pnpm action send --note '50%' --approved\n` +
+        `In cmd.exe: pnpm action send --note "50%" --approved`,
     );
   });
 });

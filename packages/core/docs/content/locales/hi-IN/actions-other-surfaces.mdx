@@ -80,7 +80,7 @@ pnpm action reply-to-email --emailId thread-123 --body "Thanks!"
 pnpm action reply-to-email --emailId thread-123 --body "Thanks!" --approved
 ```
 
-`--approved` reserved CLI metadata है, जिसे input parsing से पहले हटा दिया जाता है। जिन actions को approval नहीं चाहिए, उनमें यह हानिरहित है। CLI यह नहीं जाँच सकता कि इसे किसने जोड़ा: जो agent बिना पूछे इसे जोड़ता है, वह पुष्टि को छोड़ देता है। यह flag approval को उस command में दिखाता है जिसे व्यक्ति approve करता है, और audit log में भी, जहाँ इसे असत्यापित दिखाया जाता है। POSIX `SHELL` के बिना Windows पर, refusal PowerShell के लिए command दिखाता है, और quoting अलग होने पर cmd.exe के लिए भी।
+`--approved` reserved CLI metadata है, जिसे input parsing से पहले हटा दिया जाता है। जिन actions को approval नहीं चाहिए, उनमें यह हानिरहित है। CLI यह नहीं जाँच सकता कि इसे किसने जोड़ा: जो agent बिना पूछे इसे जोड़ता है, वह पुष्टि को छोड़ देता है। यह flag approval को उस command में दिखाता है जिसे व्यक्ति approve करता है, और audit log में भी, जहाँ इसे असत्यापित दिखाया जाता है। POSIX `SHELL` के बिना Windows पर, refusal PowerShell के लिए command दिखाता है, और quoting अलग होने पर cmd.exe के लिए भी। Windows पर pnpm किसी भी shell से action के arguments cmd.exe के ज़रिए भेजता है, और cmd.exe quotes के अंदर भी `%NAME%` को expand कर देता है। अगर किसी argument में ऐसा variable हो, तो refusal `--approved` वाला rerun नहीं देता: व्यक्ति terminal में command चलाता है और prompt पर values जाँचता है।
 
 Local dev bridge JSON body में approval metadata को `input` के बाहर भेजता है:
 

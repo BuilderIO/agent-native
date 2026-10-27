@@ -78,7 +78,7 @@ Sans ces deux TTY, la CLI demande à l’agent de solliciter l’accord de la pe
 pnpm action reply-to-email --emailId thread-123 --body "Thanks!" --approved
 ```
 
-`--approved` est une métadonnée réservée à la CLI, retirée avant l’analyse de l’entrée. Ce drapeau est sans effet indésirable sur les actions sans approbation obligatoire. La CLI ne peut pas vérifier qui l’a ajouté : un agent qui l’ajoute sans demander contourne la confirmation. Le drapeau rend l’approbation visible dans la commande que la personne approuve et dans le journal d’audit, qui la signale comme non vérifiée. Sous Windows sans `SHELL` POSIX, le refus indique la commande pour PowerShell et, si les guillemets diffèrent, pour cmd.exe.
+`--approved` est une métadonnée réservée à la CLI, retirée avant l’analyse de l’entrée. Ce drapeau est sans effet indésirable sur les actions sans approbation obligatoire. La CLI ne peut pas vérifier qui l’a ajouté : un agent qui l’ajoute sans demander contourne la confirmation. Le drapeau rend l’approbation visible dans la commande que la personne approuve et dans le journal d’audit, qui la signale comme non vérifiée. Sous Windows sans `SHELL` POSIX, le refus indique la commande pour PowerShell et, si les guillemets diffèrent, pour cmd.exe. Sous Windows, pnpm transmet les arguments de l’action à cmd.exe depuis n’importe quel shell, et cmd.exe développe `%NAME%` même entre guillemets. Si un argument contient une telle variable, le refus ne propose pas de relancer avec `--approved` : la personne exécute la commande dans un terminal et vérifie les valeurs à la confirmation.
 
 Le pont de développement local envoie les métadonnées d’approbation hors de `input` dans le corps JSON :
 

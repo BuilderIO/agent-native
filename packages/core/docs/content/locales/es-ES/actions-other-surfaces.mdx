@@ -80,7 +80,7 @@ Sin ambos TTY, la CLI indica al agente que pida aprobación a la persona. Cuando
 pnpm action reply-to-email --emailId thread-123 --body "Thanks!" --approved
 ```
 
-`--approved` son metadatos reservados de la CLI y se elimina antes de analizar la entrada. No tiene efecto adverso en acciones sin aprobación obligatoria. La CLI no puede comprobar quién lo añadió: un agente que lo añade sin preguntar se salta la confirmación. El indicador deja la aprobación a la vista en el comando que la persona aprueba y en el registro de auditoría, que la señala como no verificada. En Windows sin una `SHELL` POSIX, el rechazo muestra el comando para PowerShell y, si las comillas difieren, también para cmd.exe.
+`--approved` son metadatos reservados de la CLI y se elimina antes de analizar la entrada. No tiene efecto adverso en acciones sin aprobación obligatoria. La CLI no puede comprobar quién lo añadió: un agente que lo añade sin preguntar se salta la confirmación. El indicador deja la aprobación a la vista en el comando que la persona aprueba y en el registro de auditoría, que la señala como no verificada. En Windows sin una `SHELL` POSIX, el rechazo muestra el comando para PowerShell y, si las comillas difieren, también para cmd.exe. En Windows, pnpm pasa los argumentos de la acción por cmd.exe desde cualquier shell, y cmd.exe expande `%NAME%` incluso entre comillas. Si un argumento contiene una variable así, el rechazo no ofrece repetir el comando con `--approved`: la persona ejecuta el comando en una terminal y comprueba los valores en la confirmación.
 
 El puente local de desarrollo envía los metadatos de aprobación fuera de `input` en el cuerpo JSON:
 

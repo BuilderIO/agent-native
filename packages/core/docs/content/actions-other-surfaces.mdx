@@ -78,7 +78,7 @@ Without both TTYs, the CLI asks the agent to ask the person for approval. After 
 pnpm action reply-to-email --emailId thread-123 --body "Thanks!" --approved
 ```
 
-`--approved` is reserved CLI metadata, stripped before input parsing. It is harmless on ungated actions. The CLI can't check who added it, so an agent that adds it without asking skips the prompt. The flag keeps the approval visible in the command the person approves and in the audit log, which marks it unverified. On Windows without a POSIX `SHELL`, the refusal prints the rerun command for PowerShell and, when the quoting differs, for cmd.exe.
+`--approved` is reserved CLI metadata, stripped before input parsing. It is harmless on ungated actions. The CLI can't check who added it, so an agent that adds it without asking skips the prompt. The flag keeps the approval visible in the command the person approves and in the audit log, which marks it unverified. On Windows without a POSIX `SHELL`, the refusal prints the rerun command for PowerShell and, when the quoting differs, for cmd.exe. On Windows, pnpm passes action arguments through cmd.exe from any shell, and cmd.exe expands `%NAME%` even inside quotes. When an argument contains one, the refusal offers no `--approved` rerun: the person runs the command in a terminal and checks the values at the prompt.
 
 The local dev bridge sends approval metadata outside `input` in the JSON body:
 

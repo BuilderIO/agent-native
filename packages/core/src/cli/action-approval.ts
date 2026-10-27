@@ -46,8 +46,15 @@ function cmdQuote(value: string): string {
 export function cliRerunCommand(
   actionName: string,
   originalArgs: string[],
+  approved = true,
 ): string {
-  const tokens = ["pnpm", "action", actionName, ...originalArgs, "--approved"];
+  const tokens = [
+    "pnpm",
+    "action",
+    actionName,
+    ...originalArgs,
+    ...(approved ? ["--approved"] : []),
+  ];
   const command = tokens.map(shellQuote).join(" ");
   if (!windowsShellUnknown()) return command;
   // Windows without a POSIX SHELL could be PowerShell or cmd.exe, and they
@@ -56,15 +63,32 @@ export function cliRerunCommand(
   return cmd === command ? command : `${command}\nIn cmd.exe: ${cmd}`;
 }
 
+// On Windows, pnpm runs the action script through cmd.exe from any shell,
+// and cmd.exe expands %NAME% even inside quotes. A rerun with --approved
+// could then run other values than the ones refused, so none is offered.
+const CMD_VARIABLE = /%[^%]+%/;
+
+export function cliApprovalRefusal(
+  actionName: string,
+  originalArgs: string[],
+): string {
+  const heading = `Action "${actionName}" requires human approval.`;
+  if (
+    process.platform === "win32" &&
+    originalArgs.some((arg) => CMD_VARIABLE.test(arg))
+  ) {
+    return `${heading} An argument contains %NAME%, which Windows expands when pnpm runs the action, so a rerun with --approved might not use these values. Ask the person to run this in a terminal and check the values at the prompt:\n${cliRerunCommand(actionName, originalArgs, false)}`;
+  }
+  return `${heading} Ask the person to approve this call, then rerun:\n${cliRerunCommand(actionName, originalArgs)}`;
+}
+
 export async function requestCliApproval(
   actionName: string,
   parsed: unknown,
   originalArgs: string[],
 ): Promise<CliApprovalSource> {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    throw new Error(
-      `Action "${actionName}" requires human approval. Ask the person to approve this call, then rerun:\n${cliRerunCommand(actionName, originalArgs)}`,
-    );
+    throw new Error(cliApprovalRefusal(actionName, originalArgs));
   }
   console.log(`Action "${actionName}" requires human approval.`);
   console.log(JSON.stringify(parsed, null, 2));
