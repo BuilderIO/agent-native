@@ -2204,92 +2204,50 @@ describe("public campaign frontend", () => {
       return title ? [title] : [];
     });
 
-  it("combines role and frequency, includes everyone, and updates URL selections and filter events", () => {
+  it("filters by role, includes everyone, and updates the URL and filter events", () => {
     const view = renderCampaign(
       <UseCasesIndex items={filterItems} />,
-      "/use-cases?role=engineering&often=weekly&utm_source=keep",
+      "/use-cases?role=engineering&utm_source=keep",
     );
     expect(view.getByLabelText("Role").textContent).toBe("Engineering");
-    expect(view.getByLabelText("How often").textContent).toBe("Weekly");
+    expect(view.queryByLabelText("How often")).toBeNull();
     expect(visibleCardTitles(view)).toEqual([
       "Engineering weekly",
+      "Engineering daily",
       "Everyone weekly",
+      "Everyone daily",
     ]);
     expect(view.getByText("Every engineering week")).toBeDefined();
     expect(trackEvent).not.toHaveBeenCalled();
-    fireEvent.click(view.getByLabelText("How often"));
-    fireEvent.click(view.getByRole("option", { name: "Daily" }));
-    expect(visibleCardTitles(view)).toEqual([
-      "Engineering daily",
-      "Everyone daily",
-    ]);
-    expect(view.getByLabelText("How often").textContent).toBe("Daily");
-    expect(view.getByTestId("location").textContent).toBe(
-      "/use-cases?role=engineering&often=daily&utm_source=keep",
-    );
-    expect(trackEvent).toHaveBeenLastCalledWith("index_filter", {
-      role: "engineering",
-      often: "daily",
-    });
     fireEvent.click(view.getByLabelText("Role"));
     fireEvent.click(view.getByRole("option", { name: "Marketing" }));
-    expect(visibleCardTitles(view)).toEqual(["Everyone daily"]);
-    expect(view.getByTestId("location").textContent).toBe(
-      "/use-cases?role=marketing&often=daily&utm_source=keep",
-    );
-    expect(trackEvent).toHaveBeenLastCalledWith("index_filter", {
-      role: "marketing",
-      often: "daily",
-    });
-    fireEvent.click(view.getByLabelText("How often"));
-    fireEvent.click(view.getByRole("option", { name: "Weekly" }));
     expect(visibleCardTitles(view)).toEqual([
       "Everyone weekly",
+      "Everyone daily",
       "Marketing weekly",
     ]);
-    expect(trackEvent).toHaveBeenCalledTimes(3);
-    expect(trackEvent).toHaveBeenLastCalledWith("index_filter", {
+    expect(view.getByTestId("location").textContent).toBe(
+      "/use-cases?role=marketing&utm_source=keep",
+    );
+    expect(trackEvent).toHaveBeenCalledExactlyOnceWith("index_filter", {
       role: "marketing",
-      often: "weekly",
     });
     expect(view.container.querySelectorAll(".grid.gap-px > div")).toHaveLength(
       filterItems.length,
     );
     expect(
       view.container.querySelectorAll(".grid.gap-px > div[hidden]"),
-    ).toHaveLength(4);
+    ).toHaveLength(3);
   });
 
-  it.each([
-    {
-      search: "role=engineering",
-      titles: [
-        "Engineering weekly",
-        "Engineering daily",
-        "Everyone weekly",
-        "Everyone daily",
-      ],
-    },
-    {
-      search: "often=weekly",
-      titles: ["Engineering weekly", "Everyone weekly", "Marketing weekly"],
-    },
-  ])(
-    "applies an individual filter without requiring the other ($search)",
-    ({ search, titles }) => {
-      const view = renderCampaign(
-        <UseCasesIndex items={filterItems} />,
-        `/use-cases?${search}`,
-      );
-      expect(visibleCardTitles(view)).toEqual(titles);
-      expect(trackEvent).not.toHaveBeenCalled();
-    },
-  );
-
-  it("shows an empty state and clears only filter parameters, restoring all cards", async () => {
+  it("shows an empty state and clears only the role parameter, restoring all cards", async () => {
+    // Pages for everyone show under every role, so leave them out to reach an empty result.
+    const items = filterItems.filter(
+      (item) => !item.roles?.includes("everyone"),
+    );
     const view = renderCampaign(
-      <UseCasesIndex items={filterItems} />,
-      "/use-cases?role=finance&often=occasional&utm_source=keep",
+      <UseCasesIndex items={items} />,
+      "/use-cases?role=finance&utm_source=keep",
     );
     expect(visibleCardTitles(view)).toEqual([]);
     expect(view.getByText(enUS.campaign.filterEmpty).getAttribute("role")).toBe(
@@ -2304,26 +2262,22 @@ describe("public campaign frontend", () => {
     expect(visibleCardTitles(view)).toEqual([
       "Engineering weekly",
       "Engineering daily",
-      "Everyone weekly",
-      "Everyone daily",
       "Untagged",
       "Marketing weekly",
     ]);
     expect(view.getByLabelText("Role").textContent).toBe("All");
-    expect(view.getByLabelText("How often").textContent).toBe("Any");
     expect(view.getByTestId("location").textContent).toBe(
       "/use-cases?utm_source=keep",
     );
     expect(trackEvent).toHaveBeenCalledExactlyOnceWith("index_filter", {
       role: "",
-      often: "",
     });
   });
 
-  it("treats unknown role and frequency parameters as unfiltered", () => {
+  it("treats an unknown role, and the retired frequency parameter, as unfiltered", () => {
     const view = renderCampaign(
       <UseCasesIndex items={filterItems} />,
-      "/use-cases?role=unknown&often=monthly",
+      "/use-cases?role=unknown&often=weekly",
     );
     expect(visibleCardTitles(view)).toEqual([
       "Engineering weekly",
@@ -2334,7 +2288,6 @@ describe("public campaign frontend", () => {
       "Marketing weekly",
     ]);
     expect(view.getByLabelText("Role").textContent).toBe("All");
-    expect(view.getByLabelText("How often").textContent).toBe("Any");
     expect(trackEvent).not.toHaveBeenCalled();
   });
 

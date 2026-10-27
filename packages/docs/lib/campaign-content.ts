@@ -80,6 +80,18 @@ const common = {
   cta_band_heading: text,
   cta_band_subhead: text,
 };
+// Who a page is for; the use-cases index filters by it.
+const role = z.enum([
+  "engineering",
+  "product",
+  "design",
+  "marketing",
+  "revops",
+  "sales",
+  "founders",
+  "finance",
+  "everyone",
+]);
 const useCaseSchema = z.object({
   ...common,
   app,
@@ -115,21 +127,7 @@ const useCaseSchema = z.object({
     .enum(["daily", "weekly", "per-project", "occasional"])
     .optional(),
   how_often_label: text.optional(),
-  roles: z
-    .array(
-      z.enum([
-        "engineering",
-        "product",
-        "design",
-        "marketing",
-        "revops",
-        "sales",
-        "founders",
-        "finance",
-        "everyone",
-      ]),
-    )
-    .optional(),
+  roles: z.array(role).optional(),
   angles: z
     .array(
       z.object({
@@ -177,6 +175,7 @@ const useCasePageSchema = z.object({
   template: z.literal("v2"),
   slug,
   app,
+  roles: z.array(role).min(1).optional(),
   title: text,
   seo_title: text,
   meta_description: text,

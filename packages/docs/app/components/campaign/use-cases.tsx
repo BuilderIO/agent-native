@@ -44,14 +44,6 @@ const roleFilters = [
   ["finance", "campaign.filterFinance"],
 ] as const;
 
-const oftenFilters = [
-  ["", "campaign.filterAny"],
-  ["daily", "campaign.filterDaily"],
-  ["weekly", "campaign.filterWeekly"],
-  ["per-project", "campaign.filterPerProject"],
-  ["occasional", "campaign.filterOccasional"],
-] as const;
-
 // The index lists both original pages and new-style (template v2) pages, so it
 // reads only what both have.
 type IndexRequired = Pick<UseCase, "slug" | "app" | "title" | "subhead">;
@@ -70,28 +62,21 @@ export function UseCasesIndex({ items }: { items: UseCaseIndexItem[] }) {
   const role =
     roleFilters.find(([value]) => value === searchParams.get("role"))?.[0] ??
     "";
-  const often =
-    oftenFilters.find(([value]) => value === searchParams.get("often"))?.[0] ??
-    "";
   const matches = (item: UseCaseIndexItem) =>
     !hydrated ||
-    ((!role ||
-      item.roles?.includes("everyone") ||
-      item.roles?.some((candidate) => candidate === role)) &&
-      (!often || item.frequency === often));
+    !role ||
+    item.roles?.includes("everyone") ||
+    item.roles?.some((candidate) => candidate === role);
   const clearParams = new URLSearchParams(searchParams);
   clearParams.delete("role");
-  clearParams.delete("often");
-  function changeFilters(nextRole: string, nextOften: string) {
+  function changeRole(nextRole: string) {
     setSearchParams((previous) => {
       const next = new URLSearchParams(previous);
       if (nextRole) next.set("role", nextRole);
       else next.delete("role");
-      if (nextOften) next.set("often", nextOften);
-      else next.delete("often");
       return next;
     });
-    trackEvent("index_filter", { role: nextRole, often: nextOften });
+    trackEvent("index_filter", { role: nextRole });
   }
   const apps = [...new Set(items.map((item) => item.app))];
   const [beforeArticles, afterArticles] = t("campaign.useCasesIntro", {
@@ -125,16 +110,7 @@ export function UseCasesIndex({ items }: { items: UseCaseIndexItem[] }) {
               label: t(key),
             }))}
             value={role}
-            onChange={(value) => changeFilters(value, often)}
-          />
-          <FormSelect
-            label={t("campaign.filterOften")}
-            options={oftenFilters.map(([value, key]) => ({
-              value,
-              label: t(key),
-            }))}
-            value={often}
-            onChange={(value) => changeFilters(role, value)}
+            onChange={changeRole}
           />
         </div>
       </div>
@@ -146,7 +122,7 @@ export function UseCasesIndex({ items }: { items: UseCaseIndexItem[] }) {
           <Link
             to={`?${clearParams.toString()}`}
             className="campaign-inline-link text-[var(--docs-accent)]"
-            onClick={() => trackEvent("index_filter", { role: "", often: "" })}
+            onClick={() => trackEvent("index_filter", { role: "" })}
           >
             {t("campaign.filterClear")}
           </Link>

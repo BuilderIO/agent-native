@@ -26,6 +26,7 @@ export function loader() {
       ...useCasePages.map((page) => ({
         slug: page.slug,
         app: page.app,
+        roles: page.roles,
         title: page.title,
         subhead: page.hero.body,
       })),
