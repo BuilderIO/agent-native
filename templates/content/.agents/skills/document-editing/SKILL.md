@@ -329,7 +329,7 @@ A new comment emails the document owner, earlier authors in the thread, and anyo
 
 ### Webhooks
 
-A webhook sends a signed POST to a public HTTPS URL when something changes on a collection's rows (`--databaseId`) or on one page (`--documentId`). Events are `property.changed` (one per changed property, with old and new value; select options also carry `oldLabel`/`newLabel`), `comment.created`, and `comment.resolved`. `--propertyIds` limits `property.changed` to those properties. Managing webhooks takes admin access to the collection or page.
+A webhook sends a signed POST to a public HTTPS URL, with no username or password in it, when something changes on a collection's rows (`--databaseId`) or on one page (`--documentId`). Events are `property.changed` (one per changed property, with old and new value; select options also carry `oldLabel`/`newLabel`), `comment.created`, and `comment.resolved`. `--propertyIds` limits `property.changed` to those properties. Managing webhooks takes admin access to the collection or page.
 
 ```bash
 pnpm action create-content-webhook --databaseId db123 --url https://example.com/hook \

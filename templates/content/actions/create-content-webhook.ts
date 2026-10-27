@@ -79,7 +79,7 @@ export default defineAction({
       .string()
       .url()
       .describe(
-        "Public HTTPS URL that receives the events; a host that is or resolves to a private, internal, or Tailnet (100.64.0.0/10) address is refused",
+        "Public HTTPS URL that receives the events; a host that is or resolves to a private, internal, or Tailnet (100.64.0.0/10) address is refused, and so is a URL with a username or password in it",
       ),
     databaseId: z
       .string()
@@ -132,6 +132,14 @@ export default defineAction({
     ) {
       throw new ActionContractError(
         "Webhook URLs must be public HTTPS addresses.",
+        { errorCode: "WEBHOOK_URL_NOT_ALLOWED", statusCode: 400 },
+      );
+    }
+    // fetch refuses a URL with credentials in it, so every send would fail;
+    // and listing shows the URL, password and all, to the collection's admins.
+    if (url.username || url.password) {
+      throw new ActionContractError(
+        "Webhook URLs can't contain a username or password. Check the signature on each request instead.",
         { errorCode: "WEBHOOK_URL_NOT_ALLOWED", statusCode: 400 },
       );
     }

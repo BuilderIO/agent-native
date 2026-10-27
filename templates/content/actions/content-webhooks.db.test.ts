@@ -1305,6 +1305,9 @@ describe("content webhooks", () => {
       "https://localhost/content",
       // A name, not an address, that resolves into the Tailnet.
       "https://receiver.tail1234.ts.net/content",
+      // The receiver's own address, but with credentials fetch won't send.
+      "https://user:pass@hooks.example.com/content",
+      "https://token@hooks.example.com/content",
     ]) {
       await expect(
         asOwner(() => createWebhook.run({ ...base, url })),
