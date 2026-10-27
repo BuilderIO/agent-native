@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { safeRadarEventLabel } from "./event-labels.ts";
-import { loadUploadRejectionRows, safeCampaignLabel } from "./watch.ts";
+import {
+  loadUploadRejectionRows,
+  safeCampaignLabel,
+  uploadRejectionCheck,
+} from "./watch.ts";
 
 const queryMocks = vi.hoisted(() => ({
   resolveRadarBigQueryEventsTable: vi.fn(),
@@ -52,6 +56,7 @@ describe("upload rejection evidence routing", () => {
           reason: "storage",
           status: "413",
           rejected_recorders: 2,
+          unidentified_rejections: 0,
         },
       ],
     });
@@ -83,6 +88,7 @@ describe("upload rejection evidence routing", () => {
         reason: "storage",
         status: "413",
         rejected_recorders: 2,
+        unidentified_rejections: 0,
         recorders: 8,
       },
     ]);
@@ -104,5 +110,36 @@ describe("upload rejection evidence routing", () => {
       expect.stringContaining("session_replay_upload_rejected"),
       ["2026-10-25", "2026-10-25", "org-id"],
     );
+  });
+
+  it("reports rejection rows as unavailable when the recorder denominator is missing", () => {
+    expect(
+      uploadRejectionCheck({
+        app: "clips",
+        reason: "storage",
+        status: "413",
+        rejected_recorders: 2,
+        unidentified_rejections: 0,
+        recorders: null,
+      }),
+    ).toMatchObject({
+      app: "clips",
+      status: "unavailable",
+      numerator: 2,
+      denominator: null,
+    });
+  });
+
+  it("reports sessionless rejection events as unavailable", () => {
+    expect(
+      uploadRejectionCheck({
+        app: "clips",
+        reason: "storage",
+        status: "413",
+        rejected_recorders: 0,
+        unidentified_rejections: 1,
+        recorders: 8,
+      }),
+    ).toMatchObject({ app: "clips", status: "unavailable" });
   });
 });

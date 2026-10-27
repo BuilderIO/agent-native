@@ -410,7 +410,8 @@ rejected AS (
   SELECT app,
     lower(coalesce(json_value(properties, '$.failure_reason'), 'unknown')) AS reason,
     lower(coalesce(json_value(properties, '$.status'), json_value(properties, '$.status_code'), 'unknown')) AS status,
-    count(DISTINCT session_id) AS rejected_recorders
+    count(DISTINCT session_id) AS rejected_recorders,
+    countif(session_id IS NULL OR session_id = '') AS unidentified_rejections
   FROM base_events
   WHERE event_name = 'session_replay_upload_rejected'
   GROUP BY app, reason, status

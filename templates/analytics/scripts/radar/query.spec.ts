@@ -174,6 +174,9 @@ describe("radar query safety", () => {
     const symlinkRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), "radar-cache-symlink-test-"),
     );
+    const danglingRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "radar-cache-dangling-test-"),
+    );
     const target = fs.mkdtempSync(
       path.join(os.tmpdir(), "radar-cache-target-test-"),
     );
@@ -182,8 +185,15 @@ describe("radar query safety", () => {
       expect(() => ensurePrivateRadarCacheDirectory(symlinkRoot)).toThrow(
         RadarQueryError,
       );
+      const danglingTarget = path.join(danglingRoot, "outside");
+      fs.symlinkSync(danglingTarget, path.join(danglingRoot, ".tmp"), "dir");
+      expect(() => ensurePrivateRadarCacheDirectory(danglingRoot)).toThrow(
+        RadarQueryError,
+      );
+      expect(fs.existsSync(danglingTarget)).toBe(false);
     } finally {
       fs.rmSync(symlinkRoot, { recursive: true, force: true });
+      fs.rmSync(danglingRoot, { recursive: true, force: true });
       fs.rmSync(target, { recursive: true, force: true });
     }
   });

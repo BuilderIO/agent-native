@@ -7,6 +7,7 @@ import {
   RadarQueryError,
   RADAR_TMP_DIR,
   closeRadarQueries,
+  ensureRadarPrivateDirectory,
   radarJsonbParam,
   radarRunCliExitCode,
   resolveRadarBigQueryEventsTable,
@@ -201,43 +202,7 @@ export async function runTriage(
 }
 
 function preparePrivateDirectory(directory: string): void {
-  const relative = path.relative(RADAR_TMP_DIR, directory);
-  if (relative.startsWith("..") || path.isAbsolute(relative)) {
-    throw new RadarQueryError(
-      "Radar output directory is outside the private workspace cache.",
-      2,
-    );
-  }
-  fs.mkdirSync(RADAR_TMP_DIR, { recursive: true, mode: 0o700 });
-  const root = fs.lstatSync(RADAR_TMP_DIR);
-  if (root.isSymbolicLink() || !root.isDirectory())
-    throw new RadarQueryError(
-      "Radar output path is not a private directory.",
-      2,
-    );
-  fs.chmodSync(RADAR_TMP_DIR, 0o700);
-  let cursor = RADAR_TMP_DIR;
-  for (const component of relative.split(path.sep).filter(Boolean)) {
-    cursor = path.join(cursor, component);
-    try {
-      fs.mkdirSync(cursor, { mode: 0o700 });
-    } catch (error) {
-      if (
-        !(error instanceof Error) ||
-        !("code" in error) ||
-        error.code !== "EEXIST"
-      ) {
-        throw error;
-      }
-    }
-    const info = fs.lstatSync(cursor);
-    if (info.isSymbolicLink() || !info.isDirectory())
-      throw new RadarQueryError(
-        "Radar output path is not a private directory.",
-        2,
-      );
-    fs.chmodSync(cursor, 0o700);
-  }
+  ensureRadarPrivateDirectory(directory);
 }
 
 function writePrivate(file: string, content: string): void {

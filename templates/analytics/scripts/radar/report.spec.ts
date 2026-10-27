@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { RadarCheckResult } from "./checks.ts";
 import {
   acquisitionContextForWeek,
+  completedReportWeekEnd,
   DEFAULT_WEEKLY_MAX_TOTAL_GB,
   parseReportArgs,
   recoveryStateForIssue,
@@ -87,5 +88,19 @@ describe("weekly report arguments", () => {
       skipJourneySnapshot: false,
       maxTotalGb: 25,
     });
+  });
+});
+
+describe("completed report week boundary", () => {
+  it("accepts a completed week and rejects current or future weeks", () => {
+    expect(completedReportWeekEnd("2026-10-19", "2026-10-26")).toBe(
+      "2026-10-25",
+    );
+    expect(() => completedReportWeekEnd("2026-10-26", "2026-10-26")).toThrow(
+      /partial and future weeks are unavailable/,
+    );
+    expect(() => completedReportWeekEnd("2026-11-02", "2026-10-26")).toThrow(
+      /partial and future weeks are unavailable/,
+    );
   });
 });

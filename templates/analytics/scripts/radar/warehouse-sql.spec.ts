@@ -95,6 +95,9 @@ describe("first-party BigQuery radar SQL", () => {
     expect(upload).toContain("session_replay_upload_rejected");
     expect(upload).toContain("$.failure_reason");
     expect(upload).not.toContain("$.reason");
+    expect(upload).toContain(
+      "countif(session_id IS NULL OR session_id = '') AS unidentified_rejections",
+    );
     expect(upload).toContain("@start_date");
     expect(upload).toContain("@end_date");
     expect(upload).toContain("@org_id");

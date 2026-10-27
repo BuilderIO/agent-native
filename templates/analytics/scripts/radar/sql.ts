@@ -487,29 +487,41 @@ export function buildUploadRejectionSql(): string {
   const app = recorderAppSql("r");
   return `${buildFirstTouchEventsCte({ startDate: "$1", endDate: "$2", orgId: "$3" })},
 recorders AS (
-  SELECT ${app} AS app, count(DISTINCT r.session_id)::int AS recorders
+  SELECT ${app} AS app, r.session_id
   FROM session_recordings r
   WHERE r.org_id = $3
     AND r.started_at::timestamptz >= $1::date
     AND r.started_at::timestamptz < ($2::date + interval '1 day')
+    AND nullif(r.session_id, '') IS NOT NULL
     AND ${recorderIdentityFilters("r")}
     AND lower(${app}) IN ('design', 'slides', 'clips')
-  GROUP BY ${app}
-),
-rejected AS (
-  SELECT app,
+  GROUP BY ${app}, r.session_id
+), rejected_events AS (
+  SELECT app, nullif(session_id, '') AS session_id,
     lower(coalesce(properties ->> 'failure_reason', 'unknown')) AS reason,
-    lower(coalesce(properties ->> 'status', properties ->> 'status_code', 'unknown')) AS status,
-    count(DISTINCT session_id)::int AS rejected_recorders
+    lower(coalesce(properties ->> 'status', properties ->> 'status_code', 'unknown')) AS status
   FROM base_events
   WHERE event_name = 'session_replay_upload_rejected'
+),
+rejected AS (
+  SELECT app, reason, status,
+    count(DISTINCT session_id)::int AS rejected_recorders,
+    count(*) FILTER (WHERE session_id IS NULL)::int AS unidentified_rejections
+  FROM rejected_events
   GROUP BY app, reason, status
+), population AS (
+  SELECT app, session_id FROM recorders
+  UNION
+  SELECT app, session_id FROM rejected_events WHERE session_id IS NOT NULL
+), denominator AS (
+  SELECT app, count(DISTINCT session_id)::int AS recorders
+  FROM population GROUP BY app
 )
-SELECT r.app, x.reason, x.status,
-  coalesce(x.rejected_recorders, 0)::int AS rejected_recorders, r.recorders
-FROM recorders r
-LEFT JOIN rejected x ON r.app = x.app
-ORDER BY r.app, rejected_recorders DESC`;
+SELECT x.app, x.reason, x.status, x.rejected_recorders,
+  x.unidentified_rejections, d.recorders
+FROM rejected x
+LEFT JOIN denominator d ON d.app = x.app
+ORDER BY x.app, x.rejected_recorders DESC`;
 }
 
 export function buildUploadRecorderCountsSql(): string {

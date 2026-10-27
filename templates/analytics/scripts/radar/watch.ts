@@ -22,6 +22,7 @@ import {
   RadarQueryError,
   RADAR_TMP_DIR,
   closeRadarQueries,
+  ensureRadarPrivateDirectory,
   radarRunCliExitCode,
   resolveRadarBigQueryEventsTable,
   resolveRadarFirstPartyBackend,
@@ -223,8 +224,58 @@ export async function loadUploadRejectionRows(
   );
   return (rejected.rows as QueryRow[]).map((row) => ({
     ...row,
-    recorders: recordersByApp.get(String(row.app ?? "unknown")) ?? 0,
+    recorders: recordersByApp.get(String(row.app ?? "unknown")) ?? null,
   }));
+}
+
+export function uploadRejectionCheck(
+  row: QueryRow,
+  definition = requireCheckDefinition("replay-upload-rejection"),
+): RadarCheckResult | undefined {
+  const app = String(row.app ?? "unknown");
+  const rejectedValue = row.rejected_recorders;
+  const unidentifiedValue = row.unidentified_rejections;
+  const rejected = Number(rejectedValue);
+  const unidentified = Number(unidentifiedValue);
+  if (
+    rejectedValue == null ||
+    unidentifiedValue == null ||
+    !Number.isSafeInteger(rejected) ||
+    rejected < 0 ||
+    !Number.isSafeInteger(unidentified) ||
+    unidentified < 0
+  ) {
+    return baseResult(definition, app, "unavailable", {
+      detail: "Replay upload rejection counts are unavailable.",
+    });
+  }
+  if (rejected === 0 && unidentified === 0) return undefined;
+  if (unidentified > 0) {
+    return baseResult(definition, app, "unavailable", {
+      numerator: rejected,
+      detail: `${unidentified} rejection events lacked a session id; the recorder rate is unavailable.`,
+    });
+  }
+  const denominator = Number(row.recorders);
+  if (
+    row.recorders == null ||
+    !Number.isSafeInteger(denominator) ||
+    denominator <= 0
+  ) {
+    return baseResult(definition, app, "unavailable", {
+      numerator: rejected,
+      denominator: null,
+      detail: `${rejected} replay upload rejections; recorder denominator is unavailable.`,
+    });
+  }
+  return thresholdResult(definition, {
+    app,
+    n: denominator,
+    value: rejected / denominator,
+    numerator: rejected,
+    denominator,
+    detail: `${rejected}/${denominator} recorders rejected (${String(row.reason)} / ${String(row.status)}).`,
+  });
 }
 
 function eventCampaigns(
@@ -817,21 +868,9 @@ function createEventChecks(
     );
   }
 
-  const uploadDef = requireCheckDefinition("replay-upload-rejection");
   for (const row of uploadRows) {
-    const denominator = numeric(row, "recorders");
-    const rejected = numeric(row, "rejected_recorders");
-    if (rejected === 0) continue;
-    checks.push(
-      thresholdResult(uploadDef, {
-        app: String(row.app ?? "unknown"),
-        n: denominator,
-        value: denominator ? rejected / denominator : null,
-        numerator: rejected,
-        denominator,
-        detail: `${rejected}/${denominator} recorders rejected (${String(row.reason)} / ${String(row.status)}).`,
-      }),
-    );
+    const result = uploadRejectionCheck(row);
+    if (result) checks.push(result);
   }
 
   const funnelDef = requireCheckDefinition("first-touch-funnel-drop");
@@ -1235,31 +1274,7 @@ export async function runWatch(
 }
 
 function privateOutputDirectory(directory: string): void {
-  const relative = path.relative(RADAR_TMP_DIR, directory);
-  if (relative.startsWith("..") || path.isAbsolute(relative)) {
-    throw new RadarQueryError(
-      "Radar output directory is outside the private workspace cache.",
-      2,
-    );
-  }
-  fs.mkdirSync(RADAR_TMP_DIR, { recursive: true, mode: 0o700 });
-  const rootStat = fs.lstatSync(RADAR_TMP_DIR);
-  if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) {
-    throw new RadarQueryError(
-      "Radar output path is not a private directory.",
-      2,
-    );
-  }
-  fs.chmodSync(RADAR_TMP_DIR, 0o700);
-  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
-  const directoryStat = fs.lstatSync(directory);
-  if (directoryStat.isSymbolicLink() || !directoryStat.isDirectory()) {
-    throw new RadarQueryError(
-      "Radar output path is not a private directory.",
-      2,
-    );
-  }
-  fs.chmodSync(directory, 0o700);
+  ensureRadarPrivateDirectory(directory);
 }
 
 function writePrivateFile(file: string, content: string): void {

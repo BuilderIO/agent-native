@@ -468,16 +468,33 @@ function cachePath(key: string): string {
   return path.join(CACHE_DIR, `${key}.json`);
 }
 
-export function ensurePrivateRadarCacheDirectory(repoRoot = REPO_ROOT): string {
-  const repoTmpDir = path.join(repoRoot, ".tmp");
+export function ensureRadarPrivateDirectory(
+  directory: string,
+  repoRoot = REPO_ROOT,
+): string {
+  const root = path.resolve(repoRoot);
+  const repoTmpDir = path.join(root, ".tmp");
   const radarTmpDir = path.join(repoTmpDir, "first-touch-radar");
-  const cacheDir = path.join(radarTmpDir, "cache");
+  const target = path.resolve(directory);
+  const relative = path.relative(radarTmpDir, target);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new RadarQueryError(
+      "Radar output directory is outside the private workspace cache.",
+      2,
+    );
+  }
+  const directories = [repoTmpDir, radarTmpDir];
+  let cursor = radarTmpDir;
+  for (const component of relative.split(path.sep).filter(Boolean)) {
+    cursor = path.join(cursor, component);
+    directories.push(cursor);
+  }
   const uid = process.getuid?.();
 
   try {
-    for (const directory of [repoTmpDir, radarTmpDir, cacheDir]) {
+    for (const current of directories) {
       try {
-        fs.mkdirSync(directory, { mode: 0o700 });
+        fs.mkdirSync(current, { mode: 0o700 });
       } catch (error) {
         if (
           !(error instanceof Error) ||
@@ -487,7 +504,7 @@ export function ensurePrivateRadarCacheDirectory(repoRoot = REPO_ROOT): string {
           throw error;
         }
       }
-      let info = fs.lstatSync(directory);
+      let info = fs.lstatSync(current);
       if (
         info.isSymbolicLink() ||
         !info.isDirectory() ||
@@ -498,7 +515,7 @@ export function ensurePrivateRadarCacheDirectory(repoRoot = REPO_ROOT): string {
           2,
         );
       }
-      if (directory === repoTmpDir) {
+      if (current === repoTmpDir) {
         if (info.mode & 0o022) {
           throw new RadarQueryError(
             "Radar cache parent is writable by other users.",
@@ -506,11 +523,11 @@ export function ensurePrivateRadarCacheDirectory(repoRoot = REPO_ROOT): string {
           );
         }
       } else {
-        fs.chmodSync(directory, 0o700);
-        info = fs.lstatSync(directory);
+        fs.chmodSync(current, 0o700);
+        info = fs.lstatSync(current);
         if ((info.mode & 0o777) !== 0o700) {
           throw new RadarQueryError(
-            "Radar cache directory permissions could not be secured.",
+            "Radar output directory permissions could not be secured.",
             2,
           );
         }
@@ -518,10 +535,17 @@ export function ensurePrivateRadarCacheDirectory(repoRoot = REPO_ROOT): string {
     }
   } catch (error) {
     if (error instanceof RadarQueryError) throw error;
-    throw new RadarQueryError("Radar cache directory is unavailable.", 2);
+    throw new RadarQueryError("Radar output directory is unavailable.", 2);
   }
 
-  return cacheDir;
+  return target;
+}
+
+export function ensurePrivateRadarCacheDirectory(repoRoot = REPO_ROOT): string {
+  return ensureRadarPrivateDirectory(
+    path.join(repoRoot, ".tmp/first-touch-radar/cache"),
+    repoRoot,
+  );
 }
 
 function prepareCacheDirectory(): void {

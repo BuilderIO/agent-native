@@ -109,6 +109,12 @@ describe("first-touch SQL helpers", () => {
     const upload = buildUploadRejectionSql();
     expect(upload).toContain("properties ->> 'failure_reason'");
     expect(upload).not.toContain("properties ->> 'reason'");
+    expect(upload).toContain(
+      "SELECT app, session_id FROM rejected_events WHERE session_id IS NOT NULL",
+    );
+    expect(upload).toContain(
+      "count(*) FILTER (WHERE session_id IS NULL)::int AS unidentified_rejections",
+    );
     expect(buildUploadRecorderCountsSql()).toContain("session_recordings r");
   });
 

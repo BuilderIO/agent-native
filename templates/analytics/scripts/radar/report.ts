@@ -14,6 +14,7 @@ import {
   RadarQueryError,
   RADAR_TMP_DIR,
   closeRadarQueries,
+  ensureRadarPrivateDirectory,
   getRadarBigQueryScanBudget,
   radarRunCliExitCode,
   setRadarBigQueryScanBudget,
@@ -123,6 +124,22 @@ function validMonday(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const date = new Date(`${value}T00:00:00.000Z`);
   return Number.isFinite(date.getTime()) && date.getUTCDay() === 1;
+}
+
+export function completedReportWeekEnd(
+  week: string,
+  latestCompleteDate = addDays(new Date().toISOString().slice(0, 10), -1),
+): string {
+  if (!validMonday(week))
+    throw new RadarQueryError("--week must be a Monday in YYYY-MM-DD form.", 2);
+  const weekEnd = addDays(week, 6);
+  if (weekEnd > latestCompleteDate) {
+    throw new RadarQueryError(
+      "--week must end before today's UTC date; partial and future weeks are unavailable.",
+      2,
+    );
+  }
+  return weekEnd;
 }
 
 function issueKey(check: RadarCheckResult): string {
@@ -277,42 +294,7 @@ export function parseReportArgs(args: readonly string[]): {
 }
 
 function privateDirectory(directory: string): void {
-  const relative = path.relative(RADAR_TMP_DIR, directory);
-  if (relative.startsWith("..") || path.isAbsolute(relative))
-    throw new RadarQueryError(
-      "Radar report path is outside the private workspace cache.",
-      2,
-    );
-  fs.mkdirSync(RADAR_TMP_DIR, { recursive: true, mode: 0o700 });
-  const root = fs.lstatSync(RADAR_TMP_DIR);
-  if (root.isSymbolicLink() || !root.isDirectory())
-    throw new RadarQueryError(
-      "Radar report path is not a private directory.",
-      2,
-    );
-  fs.chmodSync(RADAR_TMP_DIR, 0o700);
-  let cursor = RADAR_TMP_DIR;
-  for (const component of relative.split(path.sep).filter(Boolean)) {
-    cursor = path.join(cursor, component);
-    try {
-      fs.mkdirSync(cursor, { mode: 0o700 });
-    } catch (error) {
-      if (
-        !(error instanceof Error) ||
-        !("code" in error) ||
-        error.code !== "EEXIST"
-      ) {
-        throw error;
-      }
-    }
-    const info = fs.lstatSync(cursor);
-    if (info.isSymbolicLink() || !info.isDirectory())
-      throw new RadarQueryError(
-        "Radar report path is not a private directory.",
-        2,
-      );
-    fs.chmodSync(cursor, 0o700);
-  }
+  ensureRadarPrivateDirectory(directory);
 }
 
 function writePrivate(file: string, content: string): void {
@@ -351,9 +333,7 @@ async function buildWeeklyReportWithinBudget(
   options: WeeklyReportOptions,
   maxTotalGb: number,
 ): Promise<RadarWeeklyReport> {
-  if (!validMonday(week))
-    throw new RadarQueryError("--week must be a Monday in YYYY-MM-DD form.", 2);
-  const weekEnd = addDays(week, 6);
+  const weekEnd = completedReportWeekEnd(week);
   const dailyRuns: DailyEntry[] = [];
   let queryCount = 0;
   for (let offset = 0; offset < 7; offset += 1) {
