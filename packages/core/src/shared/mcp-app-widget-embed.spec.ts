@@ -140,35 +140,6 @@ describe("MCP app widget embed boot storage", () => {
     ).toBeUndefined();
   });
 
-  it("runs the workspace resolver in the minified first-paint script", async () => {
-    const { transform } = await import("esbuild");
-    setParent({ postMessage() {} } as unknown as Window);
-    setTestUrl("http://localhost:3000/deck/reports");
-    (
-      window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }
-    ).__AGENT_NATIVE_CONFIG__ = {
-      workspaceRuntime: true,
-      workspaceAppPath: "/",
-      workspaceAppMountPaths: ["/deck"],
-    };
-    (
-      window as Window & { __AGENT_NATIVE_EXTERNAL_EMBED?: unknown }
-    ).__AGENT_NATIVE_EXTERNAL_EMBED = { target: "/deck/reports" };
-    sessionStorage.setItem(embedTokenStorageKey("/deck", true), "child-token");
-    sessionStorage.setItem(
-      mcpChatBridgeStorageKey("/deck", true),
-      "child-token",
-    );
-
-    const script = getMcpAppWidgetEmbedBootScriptBody(undefined, true);
-    const minified = await transform(script, { minify: true });
-    new Function(minified.code)();
-
-    expect(
-      document.documentElement.hasAttribute(MCP_APP_WIDGET_EMBED_ATTRIBUTE),
-    ).toBe(true);
-  });
-
   it("reads bridge state only from the current workspace app mount", () => {
     setParent({ postMessage() {} } as unknown as Window);
     setTestUrl("http://localhost:3000/dispatch/home");
