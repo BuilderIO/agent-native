@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { JevContextCredentials } from "../agent/production-agent.js";
+import { DECISION_PROVIDER_CAPABILITIES } from "./capabilities.js";
 
 const mocks = vi.hoisted(() => ({
   getJevContextCredentials: vi.fn(),
@@ -113,6 +114,13 @@ describe("decide", () => {
     vi.useRealTimers();
     vi.clearAllMocks();
     __resetDecisionCacheForTests();
+  });
+
+  it("marks Builder Jev score support as verified", () => {
+    expect(DECISION_PROVIDER_CAPABILITIES.jev.builderProxy.score).toEqual({
+      status: "verified",
+      enabled: true,
+    });
   });
 
   it("uses the configured default provider and returns typed keyed answers", async () => {
