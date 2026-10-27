@@ -598,19 +598,19 @@ export function formatAbMarkdown(result: AbReadout): string {
 }
 
 async function main(): Promise<void> {
-  const args = process.argv.slice(2);
-  let experiment = EXPERIMENT_ID;
-  let startDate: string | undefined;
-  let endDate: string | undefined;
-  let asOf: string | undefined;
-  for (let index = 0; index < args.length; index += 1) {
-    if (args[index] === "--experiment") experiment = args[++index] ?? "";
-    else if (args[index] === "--start") startDate = args[++index];
-    else if (args[index] === "--end") endDate = args[++index];
-    else if (args[index] === "--as-of") asOf = args[++index];
-    else throw new RadarQueryError(`Unknown argument: ${args[index]}`, 2);
-  }
   try {
+    const args = process.argv.slice(2);
+    let experiment = EXPERIMENT_ID;
+    let startDate: string | undefined;
+    let endDate: string | undefined;
+    let asOf: string | undefined;
+    for (let index = 0; index < args.length; index += 1) {
+      if (args[index] === "--experiment") experiment = args[++index] ?? "";
+      else if (args[index] === "--start") startDate = args[++index];
+      else if (args[index] === "--end") endDate = args[++index];
+      else if (args[index] === "--as-of") asOf = args[++index];
+      else throw new RadarQueryError(`Unknown argument: ${args[index]}`, 2);
+    }
     const result = await runAbReadout({
       experiment,
       ...(startDate !== undefined ? { startDate } : {}),

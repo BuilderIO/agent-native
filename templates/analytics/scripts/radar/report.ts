@@ -633,15 +633,15 @@ export async function writeWeeklyReport(
 }
 
 async function main(): Promise<void> {
-  const { week, skipJourneySnapshot, maxTotalGb } = parseReportArgs(
-    process.argv.slice(2),
-  );
-  if (!week)
-    throw new RadarQueryError(
-      "Usage: radar:report --week YYYY-MM-DD [--skip-journey-snapshot] [--max-total-gb N]",
-      2,
-    );
   try {
+    const { week, skipJourneySnapshot, maxTotalGb } = parseReportArgs(
+      process.argv.slice(2),
+    );
+    if (!week)
+      throw new RadarQueryError(
+        "Usage: radar:report --week YYYY-MM-DD [--skip-journey-snapshot] [--max-total-gb N]",
+        2,
+      );
     const report = await buildWeeklyReport(week, {
       skipJourneySnapshot,
       maxTotalGb,

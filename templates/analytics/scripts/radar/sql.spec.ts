@@ -118,6 +118,7 @@ describe("first-touch SQL helpers", () => {
     const recorderCounts = buildUploadRecorderCountsSql();
     expect(recorderCounts).toContain("session_recordings r");
     expect(recorderCounts).toContain("jsonb_array_elements($4::jsonb)");
+    expect(recorderCounts).toContain("nullif(r.session_id, '') IS NOT NULL");
     expect(recorderCounts).toContain("UNION");
   });
 

@@ -532,6 +532,7 @@ export function buildUploadRecorderCountsSql(): string {
   WHERE r.org_id = $3
     AND r.started_at::timestamptz >= $1::date
     AND r.started_at::timestamptz < ($2::date + interval '1 day')
+    AND nullif(r.session_id, '') IS NOT NULL
     AND ${recorderIdentityFilters("r")}
     AND lower(${app}) IN ('design', 'slides', 'clips')
   GROUP BY ${app}, r.session_id

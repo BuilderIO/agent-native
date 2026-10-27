@@ -1443,21 +1443,21 @@ export async function writeWatchRun(
 }
 
 async function main(): Promise<void> {
-  const args = process.argv.slice(2);
-  let window: "hourly" | "daily" = "daily";
-  let date: string | undefined;
-  let hour: number | undefined;
-  for (let index = 0; index < args.length; index += 1) {
-    if (args[index] === "--window") {
-      const value = args[++index];
-      if (value !== "hourly" && value !== "daily")
-        throw new RadarQueryError("--window must be hourly or daily.", 2);
-      window = value;
-    } else if (args[index] === "--date") date = args[++index];
-    else if (args[index] === "--hour") hour = Number(args[++index]);
-    else throw new RadarQueryError(`Unknown argument: ${args[index]}`, 2);
-  }
   try {
+    const args = process.argv.slice(2);
+    let window: "hourly" | "daily" = "daily";
+    let date: string | undefined;
+    let hour: number | undefined;
+    for (let index = 0; index < args.length; index += 1) {
+      if (args[index] === "--window") {
+        const value = args[++index];
+        if (value !== "hourly" && value !== "daily")
+          throw new RadarQueryError("--window must be hourly or daily.", 2);
+        window = value;
+      } else if (args[index] === "--date") date = args[++index];
+      else if (args[index] === "--hour") hour = Number(args[++index]);
+      else throw new RadarQueryError(`Unknown argument: ${args[index]}`, 2);
+    }
     const run = await runWatch({
       window,
       ...(date !== undefined ? { date } : {}),
