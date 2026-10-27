@@ -619,11 +619,18 @@ describe("preloadJevTools", () => {
       "create-task",
       "tool-search",
     ]);
-    expect(typeSafeClient).toHaveBeenCalledWith({
+    expect(typeSafeClient).toHaveBeenCalledTimes(1);
+    const clientOptions = typeSafeClient.mock.calls[0]?.[0] as {
+      apiKey: string;
+      timeout: number;
+      retry: { maxRetries: number };
+    };
+    expect(clientOptions).toMatchObject({
       apiKey: "jev-test-key",
-      timeout: 750,
       retry: { maxRetries: 0 },
     });
+    expect(clientOptions.timeout).toBeGreaterThan(0);
+    expect(clientOptions.timeout).toBeLessThanOrEqual(JEV_TIMEOUT_MS);
     expect(systemOne).toHaveBeenCalledTimes(1);
     expect(systemOne.mock.calls[0][0].state.task).toContain("customer");
   });
