@@ -40,6 +40,10 @@ import {
   touchContentDatabase,
 } from "./_content-database-mutation-lock.js";
 import { ensureDocumentFilesMembership } from "./_content-files.js";
+import {
+  enqueuePropertyChangeWebhooks,
+  type PropertyChangeForWebhooks,
+} from "./_content-webhooks.js";
 import { lockExistingDatabaseMemberships } from "./_database-membership-lock.js";
 import {
   normalizeDatabasePropertyInput,
@@ -882,6 +886,30 @@ export function revisionPropertyIds(context: MutationContext) {
   );
 }
 
+/** The committed value changes of one row, in the shape webhooks report. */
+function webhookPropertyChanges(
+  context: MutationContext,
+  before: RowSnapshot,
+  changedPropertyIds: string[],
+  values: Map<string, string>,
+): PropertyChangeForWebhooks[] {
+  return changedPropertyIds.flatMap((propertyId) => {
+    const definition = context.definitions.find(
+      (candidate) => candidate.id === propertyId,
+    );
+    const newValueJson = values.get(propertyId);
+    return definition && newValueJson !== undefined
+      ? [
+          {
+            definition,
+            oldValueJson: before.values.get(propertyId),
+            newValueJson,
+          },
+        ]
+      : [];
+  });
+}
+
 export function databaseMutationPayloadDigest(
   operation: DatabaseRowMutationOperation,
   input:
@@ -1360,6 +1388,20 @@ async function updateInsideTransaction(
     documentId: args.documentId,
     values: args.values,
     now,
+  });
+  await enqueuePropertyChangeWebhooks(tx, {
+    databaseId: context.database.id,
+    rows: [
+      {
+        documentId: args.documentId,
+        changes: webhookPropertyChanges(
+          context,
+          before,
+          changedValues.map(([propertyId]) => propertyId),
+          args.values,
+        ),
+      },
+    ],
   });
   const after = await rowSnapshot(
     tx,
@@ -2237,10 +2279,12 @@ async function patchRowsInsideTransaction(
   const planned = rows.map((row, index) => {
     const snapshot = before.get(row.itemId)!;
     const changedPropertyIds: string[] = [];
+    const changedValues = new Map<string, string>();
     for (const [propertyId, valueJson] of patches[index]) {
       const existing = snapshot.values.get(propertyId);
       if (existing === valueJson) continue;
       changedPropertyIds.push(propertyId);
+      changedValues.set(propertyId, valueJson);
       (existing === undefined ? valueInserts : valueUpdates).push({
         documentId: row.documentId,
         propertyId,
@@ -2249,7 +2293,13 @@ async function patchRowsInsideTransaction(
     }
     const titleChanged =
       row.title !== undefined && row.title.trim() !== snapshot.document.title;
-    return { snapshot, changedPropertyIds, titleChanged };
+    return {
+      documentId: row.documentId,
+      snapshot,
+      changedPropertyIds,
+      changedValues,
+      titleChanged,
+    };
   });
 
   const documents = schema.documents;
@@ -2354,6 +2404,18 @@ async function patchRowsInsideTransaction(
     "Some rows claim a natural key that is already in use or cannot change; nothing was written.",
     await claimNaturalKeys(tx, context, rows, patches, now),
   );
+  await enqueuePropertyChangeWebhooks(tx, {
+    databaseId: context.database.id,
+    rows: planned.map((plan) => ({
+      documentId: plan.documentId,
+      changes: webhookPropertyChanges(
+        context,
+        plan.snapshot,
+        plan.changedPropertyIds,
+        plan.changedValues,
+      ),
+    })),
+  });
 
   const after = await rowSnapshots(tx, context.database.id, rows, revisionIds);
   return rows.map((row, index) => {
