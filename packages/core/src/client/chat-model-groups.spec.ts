@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildChatModelGroups,
   modelCatalogConfirmsMissing,
+  resolveDefaultModelSelection,
   usesLiveOllamaModels,
 } from "./chat-model-groups.js";
 
@@ -678,5 +679,55 @@ describe("buildChatModelGroups", () => {
         configured: false,
       },
     ]);
+  });
+});
+
+describe("resolveDefaultModelSelection", () => {
+  const groups = [
+    { engine: "builder", models: ["claude-sonnet-5-5"], configured: false },
+    {
+      engine: "anthropic",
+      models: ["claude-haiku-5-5", "claude-sonnet-5-5"],
+      configured: true,
+    },
+    {
+      engine: "ai-sdk:anthropic",
+      models: ["claude-haiku-5-5", "claude-sonnet-5-5"],
+      configured: true,
+    },
+  ];
+
+  it("starts on the app's default model, not the first one listed", () => {
+    expect(resolveDefaultModelSelection(groups, "claude-sonnet-5-5")).toEqual({
+      model: "claude-sonnet-5-5",
+      engine: "anthropic",
+    });
+  });
+
+  it("prefers the app's default engine among those offering the model", () => {
+    expect(
+      resolveDefaultModelSelection(
+        groups,
+        "claude-sonnet-5-5",
+        "ai-sdk:anthropic",
+      ),
+    ).toEqual({ model: "claude-sonnet-5-5", engine: "ai-sdk:anthropic" });
+  });
+
+  it("falls back to the first configured model when no configured engine offers the default", () => {
+    expect(resolveDefaultModelSelection(groups, "gpt-6-luna")).toEqual({
+      model: "claude-haiku-5-5",
+      engine: "anthropic",
+    });
+    expect(resolveDefaultModelSelection(groups, undefined)).toEqual({
+      model: "claude-haiku-5-5",
+      engine: "anthropic",
+    });
+  });
+
+  it("is null when nothing is configured", () => {
+    expect(
+      resolveDefaultModelSelection([groups[0]!], "claude-sonnet-5-5"),
+    ).toBeNull();
   });
 });

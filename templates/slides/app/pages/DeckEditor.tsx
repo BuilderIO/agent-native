@@ -97,6 +97,7 @@ import SlideEditor, {
 } from "@/components/editor/SlideEditor";
 import { TweaksPanel } from "@/components/editor/TweaksPanel";
 import { UploadStorageGate } from "@/components/editor/UploadStorageGate";
+import { useSlidesAgentSelect } from "@/components/editor/use-slides-agent-select";
 import {
   SlideTransitionPreview,
   transitionPreviewPair,
@@ -791,6 +792,7 @@ export default function DeckEditor() {
     loadError,
   } = useDecks();
   const deck = getDeck(id || "");
+  useSlidesAgentSelect(deck?.id, deck?.slides);
   const canUndo = undoAvailability[id ?? ""]?.canUndo ?? false;
   const canRedo = undoAvailability[id ?? ""]?.canRedo ?? false;
   const deckAccessStatusQuery = useDeckAccessStatus(id);
@@ -2919,6 +2921,7 @@ export default function DeckEditor() {
     if (!id || !generationAttemptId || !unresolvedFailureSnapshotUnknown)
       return;
     let cancelled = false;
+    let refreshController: AbortController | undefined;
     let retryTimeout: ReturnType<typeof setTimeout> | undefined;
     let retryIndex = 0;
     let refreshInFlight = false;
@@ -2927,7 +2930,15 @@ export default function DeckEditor() {
         return;
       }
       refreshInFlight = true;
-      const result = await refreshDeckForGenerationOutcome(refreshOpenDeck, id);
+      const controller = new AbortController();
+      refreshController = controller;
+      const result = await refreshDeckForGenerationOutcome(
+        refreshOpenDeck,
+        id,
+        Date.now,
+        controller.signal,
+      );
+      if (refreshController === controller) refreshController = undefined;
       refreshInFlight = false;
       if (cancelled) return;
       if (result.status !== "ready") {
@@ -3014,6 +3025,7 @@ export default function DeckEditor() {
     };
     const refreshOnVisibilityChange = () => {
       if (isDocumentHidden()) {
+        refreshController?.abort();
         if (retryTimeout !== undefined) {
           clearTimeout(retryTimeout);
           retryTimeout = undefined;
@@ -3030,6 +3042,7 @@ export default function DeckEditor() {
     void refreshAndEstablishBaseline();
     return () => {
       cancelled = true;
+      refreshController?.abort();
       if (retryTimeout !== undefined) clearTimeout(retryTimeout);
       document.removeEventListener(
         "visibilitychange",

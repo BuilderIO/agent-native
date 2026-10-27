@@ -57,33 +57,29 @@ Read this skill before:
 
 ## Dropping in the share UI
 
-Clips' `app/components/player/share-dialog.tsx` is a **thin wrapper around the framework `ShareDialog`** from `@agent-native/core/client`. The framework component handles per-user / per-org grants, visibility, and tabbed copy-link / embed UI — Clips just composes it with recording-specific extras.
+Clips composes its share panels from Toolkit pieces rather than the generic
+`ShareButton`. `app/components/player/share-dialog.tsx` (recordings) and
+`app/components/meetings/share-meeting-dialog.tsx` (meetings) both use
+`useShareButtonController`, `SharePeopleInvite`, `SharePeopleList`, and
+`ShareGeneralAccessRow`, so invites, roles, and the organization confirmation
+match every other app.
 
-```tsx
-import { ShareDialog } from "@agent-native/core/client";
+- **Tabs:** recordings show People, Agents, Embed, Social; meetings show People
+  and Agents. Keep that order. A viewer resharing someone else's clip gets no
+  People tab, and no Agents tab when the clip has a password.
+- **Copy link** is the link segment of the Share button (`JoinedShareControl`),
+  not a row inside the panel.
+- **Advanced** sits under General access, in `ShareGeneralAccessRow`'s
+  children, with a one-line summary beside it. For recordings it holds
+  Password required and Link expires, which call
+  `update-recording --password=...` / `--expiresAt=...`. For meetings it holds
+  Transcript on the share link (see the meetings skill).
+- **Embed** never changes access itself. When the clip isn't public, it explains
+  why and links back to General access, which opens the access menu so the
+  change goes through the same confirmation as any other. Copy embed code stays
+  disabled until the clip is public.
 
-<ShareDialog
-  resourceType="recording"
-  resourceId={recording.id}
-  resourceTitle={recording.title}
-  shareUrl={`${origin}/share/${recording.id}`}
-  embedUrl={`${origin}/embed/${recording.id}`}
-  linkTabExtras={
-    <>
-      {/* Password + expiry render in the Link tab, below the share URL. */}
-      <PasswordField recordingId={recording.id} />
-      <ExpiryField recordingId={recording.id} />
-    </>
-  }
-  embedTabContent={<EmbedSnippetAndOptions recordingId={recording.id} />}
-/>;
-```
-
-- `shareUrl` / `embedUrl` — the copy-link and embed URLs the framework renders in its tabs.
-- `linkTabExtras` — Clips-specific controls (password, expiry) shown beneath the link.
-- `embedTabContent` — full replacement for the Embed tab body (embed code, params like `?t=`, `?autoplay=`).
-
-The password and expiry fields call `update-recording --password=...` / `--expiresAt=...`. Keep Clips' share-dialog wrapper minimal — any new generic sharing feature belongs in the framework component, not here.
+Put any new generic sharing behavior in Toolkit, not in these Clips wrappers.
 
 ## Shared with me
 

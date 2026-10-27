@@ -59,6 +59,10 @@ import type { MotionTrackWire } from "@/components/design/design-canvas/motion-t
 import { componentInstanceHasLocalOverrides } from "@/components/design/edit-panel/component-section";
 import { isOutlineDrawingEligible } from "@/components/design/edit-panel/motion-controls";
 import {
+  resolveMotionNativeStyleIdentity,
+  type MotionNativeStyleIdentity,
+} from "@/components/design/motion-native-style-identity";
+import {
   type MotionDockLiveState,
   type MotionDockTrack,
 } from "@/components/design/MotionDock";
@@ -225,6 +229,8 @@ export function useEditorLiveEditsAndPresence({
   const [motionNativeStyles, setMotionNativeStyles] = useState<
     MotionNativeStyleInstance[]
   >([]);
+  const [motionNativeStyleSelection, setMotionNativeStyleSelection] =
+    useState<MotionNativeStyleIdentity | null>(null);
   const [motionAudioClips, setMotionAudioClips] = useState<MotionAudioClip[]>(
     [],
   );
@@ -245,7 +251,53 @@ export function useEditorLiveEditsAndPresence({
       previewing: false,
       selectedTrackId: null,
       selectedKeyframeIds: [],
+      selectedEasingSegment: null,
     });
+  const motionEasingSelectionClearRef = useRef<(() => void) | null>(null);
+  const canvasSelectionTargetNodeId =
+    selectedElement?.sourceLayerIdentity?.nodeId ??
+    selectedElement?.sourceId ??
+    selectedElement?.id ??
+    null;
+  const previousCanvasSelectionTargetNodeIdRef = useRef(
+    canvasSelectionTargetNodeId,
+  );
+  const registerMotionEasingSelectionClear = useCallback(
+    (clear: (() => void) | null) => {
+      motionEasingSelectionClearRef.current = clear;
+    },
+    [],
+  );
+  const handleMotionEasingSegmentBack = useCallback(() => {
+    motionEasingSelectionClearRef.current?.();
+    setMotionDockLiveState((current) =>
+      current.selectedEasingSegment
+        ? { ...current, selectedEasingSegment: null }
+        : current,
+    );
+  }, []);
+  useEffect(() => {
+    if (
+      previousCanvasSelectionTargetNodeIdRef.current ===
+      canvasSelectionTargetNodeId
+    ) {
+      return;
+    }
+    previousCanvasSelectionTargetNodeIdRef.current =
+      canvasSelectionTargetNodeId;
+    const selectedEasingTargetNodeId =
+      motionDockLiveState.selectedEasingSegment?.targetNodeId;
+    if (
+      selectedEasingTargetNodeId &&
+      selectedEasingTargetNodeId !== canvasSelectionTargetNodeId
+    ) {
+      handleMotionEasingSegmentBack();
+    }
+  }, [
+    canvasSelectionTargetNodeId,
+    handleMotionEasingSegmentBack,
+    motionDockLiveState.selectedEasingSegment?.targetNodeId,
+  ]);
   const handleMotionDockLiveStateChange = useCallback(
     (next: MotionDockLiveState) => {
       setMotionDockLiveState((current) =>
@@ -255,7 +307,22 @@ export function useEditorLiveEditsAndPresence({
           next.selectedKeyframeIds.length &&
         current.selectedKeyframeIds.every(
           (key, index) => key === next.selectedKeyframeIds[index],
-        )
+        ) &&
+        current.selectedEasingSegment?.trackId ===
+          next.selectedEasingSegment?.trackId &&
+        current.selectedEasingSegment?.targetNodeId ===
+          next.selectedEasingSegment?.targetNodeId &&
+        current.selectedEasingSegment?.property ===
+          next.selectedEasingSegment?.property &&
+        current.selectedEasingSegment?.label ===
+          next.selectedEasingSegment?.label &&
+        current.selectedEasingSegment?.isTextAnimation ===
+          next.selectedEasingSegment?.isTextAnimation &&
+        current.selectedEasingSegment?.fromT ===
+          next.selectedEasingSegment?.fromT &&
+        current.selectedEasingSegment?.toT ===
+          next.selectedEasingSegment?.toT &&
+        current.selectedEasingSegment?.ease === next.selectedEasingSegment?.ease
           ? current
           : next,
       );
@@ -998,6 +1065,7 @@ export function useEditorLiveEditsAndPresence({
     setMotionTracks([]);
     setMotionAnimationStyles([]);
     setMotionNativeStyles([]);
+    setMotionNativeStyleSelection(null);
     setMotionAudioClips([]);
     setMotionEasingVariables([]);
     setMotionTextDocument(null);
@@ -1300,6 +1368,29 @@ export function useEditorLiveEditsAndPresence({
     selectedElement?.tagName,
     selectedElementIsOutlineDrawable,
   ]);
+  const previousMotionSelectionTargetRef = useRef(motionSelectedTarget?.nodeId);
+  useEffect(() => {
+    const targetChanged =
+      previousMotionSelectionTargetRef.current !== motionSelectedTarget?.nodeId;
+    previousMotionSelectionTargetRef.current = motionSelectedTarget?.nodeId;
+    const resolvedSelection = resolveMotionNativeStyleIdentity(
+      motionNativeStyles,
+      motionSelectedTarget?.nodeId,
+      targetChanged ? null : motionNativeStyleSelection,
+    );
+    if (
+      resolvedSelection?.key === motionNativeStyleSelection?.key &&
+      resolvedSelection?.sourceInstanceId ===
+        motionNativeStyleSelection?.sourceInstanceId
+    ) {
+      return;
+    }
+    setMotionNativeStyleSelection(resolvedSelection);
+  }, [
+    motionNativeStyles,
+    motionNativeStyleSelection,
+    motionSelectedTarget?.nodeId,
+  ]);
   const [motionOriginEditing, setMotionOriginEditing] = useState(false);
 
   const motionTracksWire = useMemo<MotionTrackWire[]>(() => {
@@ -1535,6 +1626,8 @@ export function useEditorLiveEditsAndPresence({
     setMotionAnimationStyles,
     motionNativeStyles,
     setMotionNativeStyles,
+    motionNativeStyleSelection,
+    setMotionNativeStyleSelection,
     motionAudioClips,
     setMotionAudioClips,
     motionEasingVariables,
@@ -1549,6 +1642,8 @@ export function useEditorLiveEditsAndPresence({
     motionPlayhead,
     setMotionPlayhead,
     motionDockLiveState,
+    registerMotionEasingSelectionClear,
+    handleMotionEasingSegmentBack,
     handleMotionDockLiveStateChange,
     motionAutoKeyframeEnabled,
     setMotionAutoKeyframeEnabled,

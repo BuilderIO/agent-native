@@ -34,16 +34,19 @@ export function carryFrameworkMcpTool(from: ActionEntry, to: object): void {
 
 export function preferMcpAppActions(
   actions: Record<string, ActionEntry>,
-  appActions: Record<string, ActionEntry>,
+  appActions: Partial<Record<string, ActionEntry>>,
 ): Record<string, ActionEntry> {
   return Object.fromEntries(
-    Object.entries(actions).map(([name, entry]) => [
-      name,
-      isFrameworkMcpTool(entry) &&
-      appActions[name] &&
-      !isFrameworkMcpTool(appActions[name])
-        ? appActions[name]
-        : entry,
-    ]),
+    Object.entries(actions).map(([name, entry]) => {
+      const appEntry = appActions[name];
+      return [
+        name,
+        isFrameworkMcpTool(entry) &&
+        appEntry !== undefined &&
+        !isFrameworkMcpTool(appEntry)
+          ? appEntry
+          : entry,
+      ];
+    }),
   );
 }

@@ -220,7 +220,7 @@ describe("InteractionStatePanel menu interactions", () => {
     ).toBe("true");
   });
 
-  it("uses the configured state order, icons, and selected trailing dot", async () => {
+  it("uses the configured state order, text-only rows, and selected trailing dot", async () => {
     const { container } = await mountPanel();
     const trigger = container.querySelector<HTMLButtonElement>(
       'button[aria-label="Interaction state"]',
@@ -247,10 +247,7 @@ describe("InteractionStatePanel menu interactions", () => {
       "false",
       "false",
     ]);
-    expect(items[0]?.querySelector("svg")).toBeNull();
-    for (const item of items.slice(1)) {
-      expect(item.querySelector("svg")).not.toBeNull();
-    }
+    expect(items.some((item) => item.querySelector("svg"))).toBe(false);
     expect(items[0]?.querySelector('[aria-hidden="true"]')).not.toBeNull();
   });
 

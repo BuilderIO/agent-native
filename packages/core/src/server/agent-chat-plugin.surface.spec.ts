@@ -768,7 +768,10 @@ describe("interactive agent run options — wiring guards", () => {
     });
 
     expect(source).toMatch(
-      /if \(isBackgroundWorker\) \{\s*await startedRun\.finalized;\s*return \{ ok: true, runId \};\s*\}/,
+      /if \(isBackgroundWorker\) \{\s*try \{\s*await startedRun\.finalized;\s*return \{ ok: true, runId \};\s*\} finally \{\s*stopBackgroundSetupHeartbeat\?\.\(\);\s*\}\s*\}/,
+    );
+    expect(source).toContain(
+      "void startedRun.livenessReady.then(() => stopBackgroundSetupHeartbeat?.());",
     );
     expect(source).not.toContain("backgroundRunDone");
   });

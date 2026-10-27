@@ -17,6 +17,8 @@ export interface McpHttpServerConfig {
   type: "http";
   url: string;
   headers?: Record<string, string>;
+  /** Internal failure marker for a server whose saved settings could not be materialized. */
+  configurationError?: Error;
   firstParty?: boolean;
   firstPartyAppId?: string;
   firstPartyOrgId?: string;

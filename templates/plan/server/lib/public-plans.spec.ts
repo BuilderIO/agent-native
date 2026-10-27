@@ -25,7 +25,7 @@ vi.mock("../db/index.js", () => {
               dbState.lastQueriedId = id;
               const visibility =
                 id !== undefined ? dbState.byId.get(id) : undefined;
-              if (visibility === undefined) return [];
+              if (id === undefined || visibility === undefined) return [];
               return [{ id, visibility }];
             },
           }),

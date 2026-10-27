@@ -252,14 +252,20 @@ async function handleDefine(
     );
   }
   const integration = getIntegrationRequestContext();
+  const userEmail = getCurrentUser();
+  const orgId = getRequestOrgId();
   const definition = await defineAutomation(
     {
-      userEmail: getCurrentUser(),
-      orgId: getRequestOrgId(),
-      appId,
+      userEmail,
+      ...(orgId === undefined ? {} : { orgId }),
+      ...(appId === undefined ? {} : { appId }),
       ...(context?.caller ? { caller: context.caller } : {}),
-      networkProtocol: context?.networkProtocol,
-      automation: context?.automation,
+      ...(context?.networkProtocol === undefined
+        ? {}
+        : { networkProtocol: context.networkProtocol }),
+      ...(context?.automation === undefined
+        ? {}
+        : { automation: context.automation }),
     },
     {
       name: typeof args.name === "string" ? args.name : "",
@@ -352,14 +358,20 @@ async function handleUpdate(
   appId?: string,
   context?: ActionRunContext,
 ): Promise<string> {
+  const userEmail = getCurrentUser();
+  const orgId = getRequestOrgId();
   const definition = await updateAutomation(
     {
-      userEmail: getCurrentUser(),
-      orgId: getRequestOrgId(),
-      appId,
+      userEmail,
+      ...(orgId === undefined ? {} : { orgId }),
+      ...(appId === undefined ? {} : { appId }),
       ...(context?.caller ? { caller: context.caller } : {}),
-      networkProtocol: context?.networkProtocol,
-      automation: context?.automation,
+      ...(context?.networkProtocol === undefined
+        ? {}
+        : { networkProtocol: context.networkProtocol }),
+      ...(context?.automation === undefined
+        ? {}
+        : { automation: context.automation }),
     },
     {
       resourceId:

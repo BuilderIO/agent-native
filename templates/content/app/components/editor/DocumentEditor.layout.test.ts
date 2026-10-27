@@ -601,7 +601,7 @@ describe("document editor layout", () => {
     );
     expect(effect).toContain("new Set(specs.map((spec) => spec.suggestionId))");
     expect(effect).toMatch(
-      /const visibleSpecs = showCommentIndicators\s+\? specs\s+: specs\.filter\(\(spec\) => spec\.settling\)/,
+      /const visibleSpecs = showCommentIndicators\s+\? specs\s+: specs\.filter\(\(spec\) => spec\.settling \|\| spec\.frozen\)/,
     );
     expect(effect).toContain("specs: visibleSpecs");
     expect(effect).toMatch(
@@ -3345,7 +3345,7 @@ describe("document editor layout", () => {
       /decisionRefreshFailed &&\s+\(pendingSuggestionDecision \|\|\s+pendingProposalDecision\)/,
     );
     expect(source).toMatch(
-      /if \(!pendingSuggestionDecision\?\.continueSuggesting && !proposalMembers\)\s+return savedSuggestions/,
+      /if \(!pendingSuggestionDecision\?\.continueSuggesting && !proposalMembers\)\s+return queuedSuggestions/,
     );
     expect(decision).not.toContain("setIsSuggesting(false)");
   });
@@ -3406,7 +3406,7 @@ describe("document editor layout", () => {
       source.match(
         /setUtilityPanel\("comments"\);\s+setCommentsBrowseOpen\(true\)/g,
       ),
-    ).toHaveLength(2);
+    ).toHaveLength(3);
     expect(source).not.toMatch(
       /setIsSuggesting\(false\);[\s\S]{0,240}setUtilityPanel\("comments"\)/,
     );

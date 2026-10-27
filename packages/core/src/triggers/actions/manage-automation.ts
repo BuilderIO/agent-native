@@ -96,9 +96,11 @@ export default defineAction({
       userEmail,
       orgId: ctx?.orgId,
       appId: ctx?.appId,
-      ...(ctx?.caller ? { caller: ctx.caller } : {}),
-      networkProtocol: ctx?.networkProtocol,
-      automation: ctx?.automation,
+      caller: ctx.caller,
+      ...(ctx.networkProtocol === undefined
+        ? {}
+        : { networkProtocol: ctx.networkProtocol }),
+      ...(ctx.automation === undefined ? {} : { automation: ctx.automation }),
     };
 
     if (input.operation === "create") {

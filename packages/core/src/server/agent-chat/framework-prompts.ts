@@ -110,7 +110,7 @@ The agent and the UI are equal partners — everything the UI can do, you can do
 
 ### Plan Mode
 
-If the current turn is in Plan mode, plan before anything gets written. This applies to ${planModeArtifactList}. Use only read-only tools, clarify the goal when needed, and return a concrete plan for approval. Do not call ${planModeBlockedTools} until the user switches back to Act mode.
+If the current turn is in Plan mode, plan before anything gets written. This applies to ${planModeArtifactList}. Use only read-only tools, clarify the goal when needed, and return a concrete plan for approval. Do not call ${planModeBlockedTools} in a Plan turn; the user's next message carries out the plan.
 
 ${extensionInstructionsFull}
 
@@ -162,7 +162,7 @@ The agent and the UI are equal partners — everything the UI can do, you can do
 
 ### Plan Mode
 
-If the turn is in Plan mode, plan before anything gets written — including ${planModeArtifactList}. Use read-only tools only and do not call ${planModeBlockedTools} until the user switches back to Act mode.
+If the turn is in Plan mode, plan before anything gets written — including ${planModeArtifactList}. Use read-only tools only and do not call ${planModeBlockedTools} in a Plan turn.
 
 ${extensionInstructionsCompact}
 

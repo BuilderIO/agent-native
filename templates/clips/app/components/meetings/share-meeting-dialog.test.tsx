@@ -50,8 +50,23 @@ describe("meeting sharing adoption", () => {
       expect.any(Object),
     );
   });
+  it("keeps People and Agents as the meeting tabs and copies the share link from the button", async () => {
+    await render();
+    expect(
+      Array.from(document.querySelectorAll('[role="tab"]')).map(
+        (tab) => tab.textContent,
+      ),
+    ).toEqual(["shareDialog.people", "shareDialog.agents"]);
+    await click(button("recordRoute.copyLinkAction"));
+    expect(mocks.clipboard).toHaveBeenCalledWith(
+      expect.stringContaining("/share/meeting/meeting-test"),
+    );
+  });
   it("keeps transcript opt-in separate and rolls back failed saves", async () => {
     await render();
+    expect(document.body.textContent).toContain(
+      "shareMeeting.linkShowsNotesOnly",
+    );
     const toggle = document.getElementById(
       "meeting-share-transcript-meeting-test",
     )!;
@@ -60,6 +75,9 @@ describe("meeting sharing adoption", () => {
     expect(mocks.update).toHaveBeenCalledWith(
       { id: "meeting-test", shareTranscript: true },
       expect.any(Object),
+    );
+    expect(document.body.textContent).toContain(
+      "shareMeeting.linkShowsTranscript",
     );
     await act(async () =>
       mocks.update.mock.calls[0][1].onError(new Error("transcript denied")),
@@ -76,11 +94,13 @@ describe("meeting sharing adoption", () => {
         ) as HTMLButtonElement
       ).disabled,
     ).toBe(true);
+    expect(mocks.createLink).not.toHaveBeenCalled();
+    await click(button("shareDialog.agents"));
     expect(mocks.createLink).toHaveBeenCalledWith({
       resourceType: "meeting",
       resourceId: "meeting-test",
     });
-    await click(button("shareUi.copy"));
+    await click(button("shareMeeting.copyAgentLink"));
     expect(mocks.clipboard).toHaveBeenCalledWith(
       "https://clips.example.test/scoped-agent",
     );
