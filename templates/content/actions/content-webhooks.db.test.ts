@@ -736,6 +736,44 @@ describe("content webhooks", () => {
     });
   });
 
+  it("W2-4: a collection's webhooks can be listed and removed while it's in Trash", async () => {
+    const ids = await fixture();
+    const { webhook } = await asOwner(() =>
+      createWebhook.run({
+        url: RECEIVER_URL,
+        databaseId: ids.databaseId,
+        events: ["property.changed"],
+      }),
+    );
+    await asOwner(() => trashDatabase.run({ databaseId: ids.databaseId }));
+
+    const ofCollection = await asOwner(() =>
+      listWebhooks.run({ databaseId: ids.databaseId }),
+    );
+    expect(ofCollection.webhooks.map((listed) => listed.id)).toEqual([
+      webhook.id,
+    ]);
+    const mine = await asOwner(() => listWebhooks.run({}));
+    expect(mine.webhooks.map((listed) => listed.id)).toContain(webhook.id);
+    // Only a new webhook needs the collection out of Trash.
+    await expect(
+      asOwner(() =>
+        createWebhook.run({
+          url: RECEIVER_URL,
+          databaseId: ids.databaseId,
+          events: ["property.changed"],
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "DATABASE_NOT_FOUND" });
+
+    await asOwner(() => deleteWebhook.run({ id: webhook.id }));
+    await asOwner(() => restoreDatabase.run({ databaseId: ids.databaseId }));
+    const restored = await asOwner(() =>
+      listWebhooks.run({ databaseId: ids.databaseId }),
+    );
+    expect(restored.webhooks).toEqual([]);
+  });
+
   it("W2-3: stops sending in the same run once the creator loses access", async () => {
     const ids = await fixture();
     const [row] = ids.rows;

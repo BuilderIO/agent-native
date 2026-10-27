@@ -1012,13 +1012,23 @@ export interface ContentWebhookScope {
  * The database or page a webhook watches. Managing webhooks takes admin
  * access to it, the same bar as deleting a database or migrating its rows.
  */
-export async function resolveContentWebhookScope(target: {
-  databaseId?: string;
-  documentId?: string;
-}): Promise<ContentWebhookScope> {
+export async function resolveContentWebhookScope(
+  target: { databaseId?: string; documentId?: string },
+  options: { includeTrashed?: boolean } = {},
+): Promise<ContentWebhookScope> {
   const { databaseId, documentId } = target;
   if (databaseId && !documentId) {
-    const database = await getDatabaseById(databaseId);
+    // A collection in Trash keeps its webhooks, which send again if it's
+    // restored, so its admins can still list and remove them. Only a new
+    // webhook needs the collection out of Trash.
+    const database = options.includeTrashed
+      ? firstRow(
+          await getDb()
+            .select()
+            .from(schema.contentDatabases)
+            .where(eq(schema.contentDatabases.id, databaseId)),
+        )
+      : await getDatabaseById(databaseId);
     if (!database) {
       throw new ActionContractError("Collection not found.", {
         errorCode: "DATABASE_NOT_FOUND",
@@ -1059,6 +1069,7 @@ export async function contentWebhookScopeForRow(
       webhook.scopeType === "database"
         ? { databaseId: webhook.scopeId }
         : { documentId: webhook.scopeId },
+      { includeTrashed: true },
     );
   } catch (error) {
     if (error instanceof ForbiddenError || error instanceof ActionContractError)

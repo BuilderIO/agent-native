@@ -44,7 +44,9 @@ export default defineAction({
     const hooks = schema.contentWebhooks;
     let rows: Array<typeof hooks.$inferSelect>;
     if (args.databaseId || args.documentId) {
-      const scope = await resolveContentWebhookScope(args);
+      const scope = await resolveContentWebhookScope(args, {
+        includeTrashed: true,
+      });
       rows = await db
         .select()
         .from(hooks)
