@@ -124,20 +124,21 @@ function fillKey(recordingId: string, mediaKey: string): string {
 
 /**
  * The stored JPEG for `atMs`, or null when there is none to serve: no row, a
- * row cut from different media, or bytes that cannot be read. The last two
- * are logged and left to the on-demand path rather than served as a failure.
+ * row cut from different media, or an object that cannot be read. The last
+ * is logged and left to the on-demand path, which repairs it. A database
+ * failure is not a miss and propagates.
  */
 async function readStoredFrame(
   recording: FrameRecording,
   atMs: number,
   mediaKey: string,
 ): Promise<Uint8Array | null> {
-  try {
-    const row = (await loadFrameRows(recording.id)).find(
-      (frame) => frame.atMs === atMs,
-    );
-    if (!row || row.mediaKey !== mediaKey) return null;
+  const row = (await loadFrameRows(recording.id)).find(
+    (frame) => frame.atMs === atMs,
+  );
+  if (!row || row.mediaKey !== mediaKey) return null;
 
+  try {
     const response = await fetchRecordingMediaResponse(row.storageUrl, {
       recordingId: recording.id,
       storageMode: recording.storageMode,
@@ -198,12 +199,17 @@ export type AgentFrameClaim = {
 
 export type StoredAgentFrameLookup =
   | { frame: Uint8Array }
-  | { claim: AgentFrameClaim };
+  /** `null`: the store has nothing to add for this request; serve on demand. */
+  | { claim: AgentFrameClaim | null };
 
 /**
  * The stored frame for `atMs`, or the claim to fill the clip's frames. A miss
- * while another request holds the claim waits for it and reads again, so a
- * burst of cold requests shares one video download.
+ * for a recommended timestamp while another request holds the claim waits for
+ * it and reads again, so a burst of cold requests shares one video download.
+ * No claim means the store cannot help: the timestamp is not one a fill
+ * stores, so waiting would only queue the request behind a download that
+ * cannot answer it, or the store could not be read, which is logged and must
+ * not turn into a queue of video downloads.
  */
 export async function loadStoredAgentFrame(
   recording: PublicAgentRecording,
@@ -211,12 +217,24 @@ export async function loadStoredAgentFrame(
 ): Promise<StoredAgentFrameLookup> {
   const mediaKey = agentFrameMediaKey(recording);
   const key = fillKey(recording.id, mediaKey);
-  for (;;) {
-    const frame = await readStoredFrame(recording, atMs, mediaKey);
-    if (frame) return { frame };
-    const held = fillsInFlight.get(key);
-    if (!held) return { claim: claimFill(recording, key, mediaKey) };
-    await held;
+  try {
+    for (;;) {
+      const frame = await readStoredFrame(recording, atMs, mediaKey);
+      if (frame) return { frame };
+      const held = fillsInFlight.get(key);
+      if (!held) return { claim: claimFill(recording, key, mediaKey) };
+      if (!(await recommendedAgentFrameTimes(recording)).includes(atMs)) {
+        return { claim: null };
+      }
+      await held;
+    }
+  } catch (error) {
+    console.error("[agent-frame-store] stored frames unavailable", {
+      recordingId: recording.id,
+      atMs,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { claim: null };
   }
 }
 

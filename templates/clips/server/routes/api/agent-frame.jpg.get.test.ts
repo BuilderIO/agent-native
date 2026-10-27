@@ -407,6 +407,18 @@ describe("agent-frame.jpg route", () => {
     expect(mockLoadStoredAgentFrame).toHaveBeenCalledTimes(1);
   });
 
+  it("serves on demand, without a fill, when the store offers no claim", async () => {
+    mockLoadStoredAgentFrame.mockResolvedValue({ claim: null });
+
+    const event = makeEvent({ id: "rec-1", atMs: "4000" });
+    const result = await handler(event as never);
+
+    expect(Buffer.from(result as Buffer)).toEqual(Buffer.from([1, 2, 3]));
+    expect(mockLoadRecordingMediaFile).toHaveBeenCalledTimes(1);
+    expect(mockClaimFill).not.toHaveBeenCalled();
+    expect(mockClaimRelease).not.toHaveBeenCalled();
+  });
+
   it("takes no claim when a stored frame answers", async () => {
     mockLoadPublicAgentAccess.mockResolvedValue({
       ok: true,

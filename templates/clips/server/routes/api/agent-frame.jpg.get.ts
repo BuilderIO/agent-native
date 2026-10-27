@@ -297,7 +297,7 @@ export default defineEventHandler(async (event: H3Event) => {
         return redirectToResolvedFrame(event, access, resolved.atMs);
       }
 
-      await claim.fill(
+      await claim?.fill(
         (frameAtMs) =>
           extractJpegFrameFromFile({ mediaPath: media.path, atMs: frameAtMs }),
         { atMs, frame: resolved.frame },
@@ -315,6 +315,6 @@ export default defineEventHandler(async (event: H3Event) => {
   } finally {
     // Whatever ended the request, requests waiting on this clip's frames must
     // not wait on it any longer.
-    claim.release();
+    claim?.release();
   }
 });

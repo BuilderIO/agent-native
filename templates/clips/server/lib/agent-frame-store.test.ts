@@ -128,7 +128,7 @@ type TestClip = Parameters<typeof loadStoredAgentFrame>[0];
 function releaseIfClaim(
   lookup: Awaited<ReturnType<typeof loadStoredAgentFrame>>,
 ) {
-  if ("claim" in lookup) lookup.claim.release();
+  if ("claim" in lookup) lookup.claim?.release();
 }
 
 /** Claims the clip's fill the way the route does, then runs it. */
@@ -138,7 +138,9 @@ async function fillRecommendedAgentFrames(
   known?: { atMs: number; frame: Uint8Array },
 ): Promise<void> {
   const lookup = await loadStoredAgentFrame(clip, known?.atMs ?? OPENING_MS);
-  if (!("claim" in lookup)) throw new Error("expected a claim, got a frame");
+  if (!("claim" in lookup) || !lookup.claim) {
+    throw new Error("expected a claim");
+  }
   await lookup.claim.fill(extract, known);
 }
 
@@ -233,6 +235,26 @@ describe("agent frame store", () => {
     const empty = await loadStoredAgentFrame(recording as never, 1000);
     expect(empty).toHaveProperty("claim");
     releaseIfClaim(empty);
+  });
+
+  it("reports an unreadable store as no claim, not as a miss that downloads the video", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    mockRows.value = new Proxy([], {
+      get() {
+        throw new Error("db down");
+      },
+    }) as never;
+
+    expect(await loadStoredAgentFrame(recording as never, 1000)).toEqual({
+      claim: null,
+    });
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("stored frames unavailable"),
+      expect.objectContaining({ error: "db down" }),
+    );
+    consoleError.mockRestore();
   });
 
   it("deletes objects then rows, and keeps a row whose object is not gone", async () => {
@@ -665,7 +687,8 @@ describe("agent frame store", () => {
       mockUploadRecordingMedia.mockResolvedValue(null);
       mockRows.value = [];
       const first = await loadStoredAgentFrame(clip, OPENING_MS);
-      if (!("claim" in first)) throw new Error("expected a claim");
+      if (!("claim" in first) || !first.claim)
+        throw new Error("expected a claim");
 
       const second = loadStoredAgentFrame(clip, OPENING_MS);
       mockRows.value = [
@@ -683,14 +706,27 @@ describe("agent frame store", () => {
       expect(await second).toEqual({ frame: new Uint8Array([7]) });
     });
 
+    it("lets a timestamp no fill stores go on demand instead of queueing behind the fill", async () => {
+      mockRows.value = [];
+      const first = await loadStoredAgentFrame(clip, OPENING_MS);
+      if (!("claim" in first) || !first.claim)
+        throw new Error("expected a claim");
+
+      expect(await loadStoredAgentFrame(clip, 12_345)).toEqual({ claim: null });
+
+      first.claim.release();
+    });
+
     it("gives a cold burst one claim, and the next waiter takes it over on release", async () => {
       mockRows.value = [];
       const [first, second] = [
-        loadStoredAgentFrame(clip, 1000),
-        loadStoredAgentFrame(clip, 2000),
+        loadStoredAgentFrame(clip, 25_000),
+        loadStoredAgentFrame(clip, 50_000),
       ];
       const firstResult = await first;
-      if (!("claim" in firstResult)) throw new Error("expected a claim");
+      if (!("claim" in firstResult) || !firstResult.claim) {
+        throw new Error("expected a claim");
+      }
 
       let secondSettled = false;
       void second.then(() => {
@@ -702,7 +738,7 @@ describe("agent frame store", () => {
       firstResult.claim.release();
       const secondResult = await second;
       expect(secondResult).toHaveProperty("claim");
-      if ("claim" in secondResult) secondResult.claim.release();
+      if ("claim" in secondResult) secondResult.claim?.release();
     });
   });
 });
