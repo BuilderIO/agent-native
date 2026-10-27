@@ -1,85 +1,98 @@
+template: v2
 slug: landing-page-prototypes
-job_id: job-landing-page
 app: design
-audience: technical
-title: "Prototype a landing page for every launch"
-subhead: "Turn a campaign or product brief into an interactive landing page prototype. Compare a few versions side by side, then export the HTML."
-meta_description: "Turn a brief into an interactive landing page prototype, compare versions side by side, and export the HTML. Free, open-source Design from Agent-Native."
-cta_label: "Design for free"
-secondary_cta_label: "See how it works"
-app_cta_url: "https://design.agent-native.com"
-screenshot_alt: "The Design editor showing a landing page prototype in desktop and mobile frames, with layers on the left and design properties on the right"
-old_way:
-  heading: "How most people do it today"
-  body: "Every launch needs a page. You start from the last one, wait on a designer, or fight a page builder, and by the time there's something to react to, the launch date is close. Review happens on screenshots, so feedback arrives as a pile of comments about spacing."
-new_way:
-  heading: "How it works in Design"
+title: Turn a launch brief into a landing page prototype
+seo_title: AI landing page prototypes for your launch
+meta_description: Give Agent-Native Design your launch brief and get a few landing page versions in your brand to click through, compare and export as HTML. Free and open source.
+updated: 2026-10-27
+hero:
+  body: Agent-Native Design builds a few versions side by side, in your brand. Edit the one you pick by hand or by asking, then download it as an HTML file to add to your site.
+  button:
+    label: Design your page
+    url: https://design.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9b9b61c476d745258cbb0f1b78da71be
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F921c26eb2c474e48b203e069b070269f
+    alt: The Design editor with the Product-first version of a launch page for Ledgerlane's same-day contractor payouts, in desktop and mobile frames. The agent chat on the left shows the launch brief, the three versions it offered with Product-first picked, and its note that the page is built out.
+how_to:
+  heading: How to make a landing page prototype with AI
   steps:
-    - "Paste the brief: the offer, the audience, and the call to action. Link a design system so the page matches your brand."
-    - "Ask for a few versions. Design shows them side by side on the canvas. Pin comments to specific elements and send them to the agent."
-    - "Edit text and styling yourself, then export HTML or a ZIP of the files."
-todays_stack:
-  heading: "What changes before launch"
+    - title: Describe your launch
+      body: "On the Design home screen, paste your launch brief into the **New design** box: [the offer, who it's for and the call to action](https://www.agent-native.com/articles/how-do-you-build-a-landing-page-with-ai/). Or attach the brief as a file, and pick your brand's design system below the box."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe8d189f62f944b3d935b058b826150b3
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8db8cda1abfe476f954bfa5bc50a7b6d
+        alt: Close-up of the New design box on the Design home screen. A launch brief for Ledgerlane's same-day payouts is typed in, the brief's PDF is attached and the Ledgerlane Brand design system is picked.
+    - title: Compare a few versions
+      body: Ask the agent for "three versions". Each one appears as its own screen, side by side on the board. Pick one in the chat, and the agent turns it into the full page and clears away the others.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F45d7dcdb0a2d473e82e516e2419e21f0
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe7aac725b27c4046b57faf5e69a2abf2
+        alt: Three versions of the same-day payouts launch page, Product-first, Editorial and Proof-led, side by side on the board. The agent chat asks which one to build out, with a button for each.
+    - title: Export the page's HTML
+      body: In the editor's menu, choose **File**, then **Export**. **Download HTML** gives you one file that opens in any browser. **Copy agent prompt** gives a coding agent what it needs to build the page into your site.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F171cf01db5ca44ee8d31ebb6f98a73b3
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd2640c796dc44746ae1c8a622ec49bdc
+        alt: Close-up of the editor's menu with File and Export open over the Product-first launch page. The options include Download HTML, Download ZIP, Download for Figma (SVG) and Copy agent prompt.
+features:
+  heading: Everything you need to design your launch page
   items:
-    - text: "**Starting from last launch's page** means inheriting its structure, even when the offer is different."
-    - text: "**Describing the page in words** to whoever builds it means finding out what they pictured only when it's done."
-    - text: "**Reviewing screenshots in chat** turns feedback into a list of comments about spacing."
-  in_app: "Design doesn't publish pages, so you still deploy with the tools you use today. Design covers the part before that: comparing versions side by side, pinning comments to elements, and exporting the HTML."
-story: null
+    - title: From brief to landing page
+      body: The agent builds from the claims in your brief instead of inventing new ones. When the brief leaves a choice open, it asks or says what it assumed.
+    - title: AI and visual editing
+      body: Change a headline, a color or the spacing yourself, or ask the agent to rework a section. You both edit the same page.
+    - title: Versions side by side
+      body: Each version gets its own look and a mobile layout, so your team can compare real directions before anything ships.
+    - title: Every launch on brand
+      body: Build a design system from your Figma file, your website or your code once. Every new launch page uses your colors, fonts and styles.
+    - title: Feedback pinned to the page
+      body: "Reviewers pin comments to the exact headline or button. Send one to the agent: it makes that change, or asks you to decide."
+    - title: Code handoff for your developer
+      body: The agent prompt carries your design tokens, the page's files and the instructions a coding agent needs to build it into your site.
+integrations:
+  heading: Connect Design to the tools you already use
+  cards:
+    - title: Start from your brand
+      logos:
+        - name: Figma
+        - name: GitHub
+      body: Build your design system from a Figma file or your site's code on GitHub, so every launch page starts on brand.
+    - title: Hand it to your coding agent
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+      body: Paste the agent prompt into Claude Code, Codex or Cursor, and it turns the page into code for your site.
+    - title: Connect anything through MCP
+      logos:
+        - name: Notion
+        - name: Granola
+        - name: Amplitude
+      more: true
+      body: Connect the tools your team uses through MCP, or add any MCP server by its URL.
+other_uses:
+  heading: Other things you can do with Agent-Native Design
+  cards:
+    - title: Turn a brief into a clickable prototype
+      url: https://www.agent-native.com/use-cases/ai-prototype-generator/
+      body: Prototype a new screen or product flow from your design brief, then click through it with your team.
 faqs:
-  - q: "Does Design publish the page?"
-    a: "No. Design creates interactive HTML prototypes you can share for feedback or export. Publishing and deploying the page is a separate step."
-  - q: "Can I edit a page after AI generates it?"
-    a: "Yes. Adjust text, spacing, and styling with visual controls, or ask the AI agent to change the design. You can compare different directions and keep refining the one you choose."
-  - q: "Can I use my own brand?"
-    a: "Yes. Link a design system to guide colors, typography, styling, and brand instructions. You can reuse it across designs."
-  - q: "Is the export a finished page?"
-    a: "The export is a starting point. Application logic, integrations, testing, and deployment still need implementation and review. HTML exports may use external runtime resources."
-  - q: "Is Design free?"
-    a: "Yes. Design is free and open source. It's labeled alpha, so expect rough edges."
-cta_band_heading: "Prototype your next launch page"
-cta_band_subhead: "Bring a brief. Compare a few versions. Export the one you pick."
-updated: 2026-10-14
-internal:
-  job: "Landing page for each launch or side project"
-  recurs_when: "Every launch"
-  first_session: "Brief to prototype, compare variants"
-  return_signal: "Second page or variant set within 14 days (proposal, confirm with Alice and Michael)"
-  target_terms: "ai landing page builder (US 2,200/mo, KD 50); ai landing page generator (600, KD 43); ai generated landing page (200, KD 0); landing page copywriting template (150). Cluster about 4,750/mo."
-  basis: "hypothesis (Design retains best of the apps; paid for Design launched Oct 13)"
-  verify: "Design does not publish pages. Keep that in every claim."
-frequency: per-project
-how_often_label: "Every launch"
-roles: [marketing, founders, engineering]
-next_jobs: [design-brief-to-prototype, weekly-marketing-report]
-recipes:
-  - id: launch-versions
-    title: "Draft versions for a launch"
-    when: "Use this when a launch needs a page."
-    steps:
-      - "Paste the offer, the audience, and the call to action into Design."
-      - "Ask for a few versions."
-    result: "You'll see landing page prototypes side by side, in desktop and mobile frames."
-    tip: "Link your design system once, so every launch page starts on brand."
-    how_often: "Every launch"
-  - id: review-on-page
-    title: "Review the page, not a screenshot"
-    when: "Use this when you need sign-off."
-    steps:
-      - "Share the design."
-      - "Ask reviewers to pin comments to the elements they're talking about."
-    result: "Feedback lands on the page itself, instead of in a list of comments about spacing."
-    how_often: "Every launch"
-  - id: export-page
-    title: "Export it for deployment"
-    when: "Use this once the page is approved."
-    steps:
-      - "Export HTML or a ZIP of the files."
-      - "Deploy it with the tools you use today."
-    result: "You have files ready to deploy. Design doesn't publish pages for you."
-    how_often: "Every launch"
-angles:
-  - id: marketing
-    audience: "Marketing"
-    title: "Campaign landing pages you can compare before anyone builds them"
-    subhead: "Turn a campaign brief into interactive landing page versions, review them side by side, and export the HTML."
+  heading: Questions? We have answers
+  items:
+    - q: Is Agent-Native Design free?
+      a: Yes, Agent-Native Design is free and open source. Building a page needs an AI connection, either through Builder.io AI credits or your own AI key, so AI use isn't unlimited. Design is in alpha, so expect changes as it grows.
+    - q: Does Design publish or host my landing page?
+      a: No. Design makes the landing page and exports it, and you deploy it with the tools you use today. Download the HTML or a ZIP of the files, or copy a prompt your coding agent uses to add the page to your site.
+    - q: Can I use my own brand?
+      a: Yes. Build a design system from a Figma file, your website, a GitHub repo or uploaded files, and pick it when you start a page. The agent keeps its colors, fonts and styles on every version it makes.
+    - q: Can I edit the landing page after the AI makes it?
+      a: Yes. Change text, colors, spacing and layout by hand on the page, or ask the agent to change a section. You can restore an earlier version from **Version history** at any time.
+    - q: What do I get when I export the landing page?
+      a: "**Download HTML** gives one file that opens in any browser and loads its styles over the internet. **Download ZIP** has all the page's files, and **Download for Figma (SVG)** gives layers you can edit in Figma. The docs list [every export option](https://www.agent-native.com/docs/template-design-features/#export)."
+    - q: How is Design different from asking a chatbot for a landing page?
+      a: "A chatbot gives you code to paste somewhere before you can see the page. In Design, the agent builds the page in an editor you can see and click, in several versions. You change it by hand or by asking, on the same page. That's an [agentic app](https://www.agent-native.com/articles/what-is-an-agent-native-app/): the brains of an agent, the intuitiveness of an app."
