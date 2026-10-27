@@ -35,6 +35,7 @@ import { setActiveOrgId } from "./active-org.js";
 import { __resetDomainMatchCacheForTests } from "./auto-join-domain.js";
 import {
   getOrgContext,
+  getOrgScopeResolutionError,
   hasOrgScopeResolutionUnavailable,
   resolveOrgIdForEmail,
   resolveOrgScopeForEmail,
@@ -730,15 +731,21 @@ describe("getOrgContext", () => {
         orgId: "sess-org",
         orgRole: "admin",
       });
-      mockExecute.mockRejectedValueOnce(
-        Object.assign(new Error("db query timed out"), { code: "57014" }),
-      );
+      const cause = Object.assign(new Error("db query timed out"), {
+        code: "57014",
+      });
+      mockExecute.mockRejectedValueOnce(cause);
       await expect(getOrgContext(EVENT)).resolves.toEqual({
         email: "a@b.com",
         orgId: "sess-org",
         orgName: null,
         role: "admin",
       });
+      const failure = getOrgScopeResolutionError(EVENT);
+      expect(failure).toMatchObject({ statusCode: 503 });
+      expect(failure?.cause).toBe(cause);
+      await getOrgContext(EVENT);
+      expect(getOrgScopeResolutionError(EVENT)).toBe(failure);
     });
 
     it("rejects the lookup when there is no session orgId", async () => {
@@ -941,6 +948,61 @@ describe("getOrgContext", () => {
       expect(mockPutUserSetting).not.toHaveBeenCalled();
       expect(mockAppStatePut).not.toHaveBeenCalled();
     });
+
+    it.each([
+      { phase: "claim", code: "42501" },
+      { phase: "invitation", code: "57014" },
+      { phase: "domain", code: "42501" },
+      { phase: "creation", code: "57014" },
+      { phase: "creation", code: "42501" },
+      { phase: "creation", code: "42P01" },
+    ])(
+      "retains failed $phase preparation ($code) for later consumers",
+      async ({ phase, code }) => {
+        mockGetSession.mockResolvedValue({ email: "creator@example.test" });
+        const cause = Object.assign(
+          new Error("private org preparation failure"),
+          { code },
+        );
+        let attempted = false;
+        let orgWriteAttempts = 0;
+        const queries: string[] = [];
+        mockExecute.mockImplementation(async ({ sql }: { sql: string }) => {
+          queries.push(sql);
+          if (sql.includes("INSERT INTO organizations")) orgWriteAttempts += 1;
+          const fails =
+            phase === "claim"
+              ? sql.includes("INSERT INTO settings")
+              : phase === "invitation"
+                ? sql.includes("FROM org_invitations")
+                : phase === "domain"
+                  ? sql.includes("LOWER(allowed_domain)")
+                  : sql.includes("INSERT INTO organizations");
+          if (fails) {
+            attempted = true;
+            throw cause;
+          }
+          return { rows: [] };
+        });
+        await expect(getOrgContext(EVENT)).resolves.toMatchObject({
+          orgId: null,
+        });
+        expect(attempted).toBe(true);
+        expect(orgWriteAttempts).toBe(phase === "creation" ? 1 : 0);
+        if (phase === "claim")
+          expect(
+            queries.some((sql) => sql.includes("DELETE FROM settings")),
+          ).toBe(false);
+        expect(hasOrgScopeResolutionUnavailable(EVENT)).toBe(true);
+        const failure = getOrgScopeResolutionError(EVENT);
+        expect(failure).toMatchObject({
+          statusCode: code === "57014" ? 503 : 500,
+        });
+        expect(failure?.cause).toBe(cause);
+        await getOrgContext(EVENT);
+        expect(getOrgScopeResolutionError(EVENT)).toBe(failure);
+      },
+    );
 
     it("provisions a default org for a zero-membership user by default", async () => {
       mockGetSession.mockResolvedValue({

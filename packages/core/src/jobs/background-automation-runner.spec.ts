@@ -3,6 +3,12 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createTestPglite } from "../a2a/test-pglite.js";
 import type { AgentEngine, EngineEvent } from "../agent/engine/types.js";
 import { auditAttribution } from "../audit/attribution.js";
+import {
+  applyAutomationFailure,
+  classifyAutomationFailure,
+  isTransientPauseProbeDue,
+  RUNTIME_PAUSE_AFTER,
+} from "./automation-outcome.js";
 
 const pglite = await createTestPglite();
 
@@ -2861,9 +2867,14 @@ describe("runBackgroundAutomation — preconditions fail before any thread or ru
     return history.notification_email;
   }
 
-  it.each(["membership", "admin"] as const)(
-    "records a failed attempt when the %s recipient lookup is unreadable",
-    async (deniedAt) => {
+  it.each([
+    { deniedAt: "membership", transient: false },
+    { deniedAt: "admin", transient: false },
+    { deniedAt: "membership", transient: true },
+    { deniedAt: "admin", transient: true },
+  ])(
+    "records a failed $deniedAt lookup with transient=$transient recovery",
+    async ({ deniedAt, transient }) => {
       await seedOrg([["bob@agent-native.test", "owner"]]);
       const { ensureTable } = await import("./run-history.js");
       await ensureTable();
@@ -2871,7 +2882,7 @@ describe("runBackgroundAutomation — preconditions fail before any thread or ru
         await import("../agent/production-agent.js");
       const { runAgentLoopDirectWithSoftTimeout } =
         await import("../agent/run-loop-with-resume.js");
-      const name = `recipient-denied-${deniedAt}`;
+      const name = `recipient-denied-${deniedAt}-${transient}`;
       const automation = precondition(name, {
         runAs: "shared",
         orgId: "acme",
@@ -2879,9 +2890,13 @@ describe("runBackgroundAutomation — preconditions fail before any thread or ru
       });
       automation.resource.owner = "__organization__:acme";
       const denied = Object.assign(
-        new Error("permission denied for table org_members"),
+        new Error(
+          transient
+            ? "temporary org_members timeout"
+            : "permission denied for table org_members",
+        ),
         {
-          code: "42501",
+          code: transient ? "57014" : "42501",
         },
       );
       const execute = rawClient.execute.getMockImplementation()!;
@@ -2920,8 +2935,9 @@ describe("runBackgroundAutomation — preconditions fail before any thread or ru
           )
           .all(name);
         expect(history).toHaveLength(1);
-        const errorCode =
-          deniedAt === "membership"
+        const errorCode = transient
+          ? "automation_recipient_lookup_unavailable"
+          : deniedAt === "membership"
             ? "owner_unverifiable"
             : "automation_notification_recipient_unavailable";
         expect(history[0]).toMatchObject({
@@ -2932,9 +2948,7 @@ describe("runBackgroundAutomation — preconditions fail before any thread or ru
           path: `jobs/${name}.md`,
           status: "error",
           error_code: errorCode,
-          error: expect.stringContaining(
-            "permission denied for table org_members",
-          ),
+          error: expect.stringContaining(denied.message),
           notification_email: null,
           run_id: null,
           thread_id: null,
@@ -2945,6 +2959,28 @@ describe("runBackgroundAutomation — preconditions fail before any thread or ru
           Number(history[0].started_at),
         );
         expect(result.error).toMatchObject({ errorCode, cause: denied });
+        const failure = classifyAutomationFailure(result.error);
+        const now = new Date("2026-10-27T12:00:00Z");
+        const paused = applyAutomationFailure(
+          {
+            enabled: true,
+            lastErrorCode: errorCode,
+            consecutiveFailures: RUNTIME_PAUSE_AFTER - 1,
+          },
+          failure,
+          now,
+        );
+        expect(paused.pause).toBe(true);
+        expect(
+          isTransientPauseProbeDue(
+            {
+              pausedReason: errorCode,
+              pausedAt: now.toISOString(),
+              consecutiveFailures: RUNTIME_PAUSE_AFTER,
+            },
+            new Date("2026-10-28T12:00:00Z"),
+          ),
+        ).toBe(transient);
         expect(
           errors.mock.calls.some((call) => call.includes(result.error)),
         ).toBe(true);

@@ -9848,7 +9848,7 @@ describe("server/auth", () => {
       expect(sessionLookups).toHaveBeenCalledTimes(2);
     });
 
-    it.each(["42501", "08006", "forbidden"])(
+    it.each(["42501", "42P01", "unexpected", "08006", "forbidden"])(
       "preserves an org backfill failure instead of returning an org-less session (%s)",
       async (code) => {
         vi.stubEnv("NODE_ENV", "production");
@@ -9858,7 +9858,9 @@ describe("server/auth", () => {
         const cause =
           code === "forbidden"
             ? new ForbiddenError()
-            : Object.assign(new Error("membership read failed"), { code });
+            : code === "unexpected"
+              ? new TypeError("private unexpected failure")
+              : Object.assign(new Error("membership read failed"), { code });
         vi.doMock("./better-auth-instance.js", () => ({
           getBetterAuth: vi.fn(async () => undefined),
           getBetterAuthSync: () => ({
@@ -9878,8 +9880,11 @@ describe("server/auth", () => {
           ...(await importOriginal<typeof import("../db/client.js")>()),
           getDbExec: () => ({ execute }),
         }));
-        const { getSession, SessionResolutionUnavailableError } =
-          await import("./auth.js");
+        const { getSession } = await import("./auth.js");
+        const {
+          SessionResolutionUnavailableError,
+          SessionResolutionLookupError,
+        } = await import("./session-resolution-errors.js");
         const session = getSession(
           createMockEvent({
             headers: { cookie: "an_session=fake-session-token" },
@@ -9888,13 +9893,22 @@ describe("server/auth", () => {
         if (code === "forbidden") {
           await expect(session).rejects.toBe(cause);
         } else {
-          await expect(session).rejects.toBeInstanceOf(
-            SessionResolutionUnavailableError,
-          );
           await expect(session).rejects.toMatchObject({
-            statusCode: 503,
+            statusCode: code === "08006" ? 503 : 500,
             cause,
           });
+          if (code === "08006")
+            await expect(session).rejects.toBeInstanceOf(
+              SessionResolutionUnavailableError,
+            );
+          else {
+            await expect(session).rejects.toBeInstanceOf(
+              SessionResolutionLookupError,
+            );
+            await expect(
+              session.catch((error: { headers?: unknown }) => error.headers),
+            ).resolves.toBeUndefined();
+          }
         }
       },
     );
@@ -10841,62 +10855,87 @@ describe("server/auth", () => {
       consoleError.mockRestore();
     });
 
-    it("answers an action route with a retryable 503 when the bearer org domain cannot be resolved", async () => {
-      vi.stubEnv("NODE_ENV", "production");
-      vi.stubEnv("BETTER_AUTH_SECRET", "test-secret-for-mcp-oauth-bearer");
-      delete process.env.ACCESS_TOKEN;
-      delete process.env.ACCESS_TOKENS;
-      delete process.env.A2A_SECRET;
+    it.each(["57014", "42501"])(
+      "preserves bearer org-domain failure classification: %s",
+      async (code) => {
+        vi.stubEnv("NODE_ENV", "production");
+        vi.stubEnv("BETTER_AUTH_SECRET", "test-secret-for-mcp-oauth-bearer");
+        delete process.env.ACCESS_TOKEN;
+        delete process.env.ACCESS_TOKENS;
+        delete process.env.A2A_SECRET;
 
-      const mockExecute = vi.fn(
-        async ({ sql }: { sql: string; args?: unknown[] }) => {
-          if (/FROM organizations/.test(sql)) {
-            throw new Error("connection terminated");
-          }
-          return { rows: [] };
-        },
-      );
-      vi.doMock("../db/client.js", () => ({
-        getDbExec: () => ({ execute: mockExecute }),
-        isLocalDatabase: () => true,
-        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
-      }));
-      vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
-        ...(await importOriginal<object>()),
-        getBetterAuth: async () => undefined,
-        getBetterAuthSync: () => null,
-      }));
+        const mockExecute = vi.fn(
+          async (query: string | { sql: string; args?: unknown[] }) => {
+            const sql = typeof query === "string" ? query : query.sql;
+            if (sql.includes("to_regclass('identity_retired_emails')"))
+              return { rows: [{ present: false }] };
+            if (/FROM organizations/.test(sql)) {
+              throw Object.assign(new Error("private org domain failure"), {
+                code,
+              });
+            }
+            return { rows: [] };
+          },
+        );
+        vi.doMock("../db/client.js", () => ({
+          getDbExec: () => ({ execute: mockExecute }),
+          isLocalDatabase: () => true,
+          retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        }));
+        vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+          ...(await importOriginal<object>()),
+          getBetterAuth: async () => undefined,
+          getBetterAuthSync: () => null,
+        }));
 
-      const { signMcpOAuthAccessToken, MCP_OAUTH_DEFAULT_SCOPE } =
-        await import("../mcp/oauth-token.js");
-      const token = await signMcpOAuthAccessToken({
-        ownerEmail: "owner@plans.test",
-        orgDomain: "plans.test",
-        clientId: "client-123",
-        scope: MCP_OAUTH_DEFAULT_SCOPE,
-        resource: "http://localhost/_agent-native/mcp",
-        issuer: "http://localhost",
-        jti: "jti-connect-domain-unavailable-test",
-        expiresIn: "30d",
-      });
+        const { signMcpOAuthAccessToken, MCP_OAUTH_DEFAULT_SCOPE } =
+          await import("../mcp/oauth-token.js");
+        const token = await signMcpOAuthAccessToken({
+          ownerEmail: "owner@plans.test",
+          orgDomain: "plans.test",
+          clientId: "client-123",
+          scope: MCP_OAUTH_DEFAULT_SCOPE,
+          resource: "http://localhost/_agent-native/mcp",
+          issuer: "http://localhost",
+          jti: "jti-connect-domain-unavailable-test",
+          expiresIn: "30d",
+        });
 
-      const { autoMountAuth } = await import("./auth.js");
-      const app = createMockApp();
-      await autoMountAuth(app);
-      const guard = app.use.mock.calls
-        .map((call: any[]) => call[0])
-        .find((arg: unknown) => typeof arg === "function");
-      const event = createMockEvent({
-        path: "/_agent-native/actions/import-visual-plan-source",
-        headers: { authorization: `Bearer ${token}` },
-      });
+        const { autoMountAuth } = await import("./auth.js");
+        const app = createMockApp();
+        await autoMountAuth(app);
+        const guard = app.use.mock.calls
+          .map((call: any[]) => call[0])
+          .find((arg: unknown) => typeof arg === "function");
+        const event = createMockEvent({
+          path: "/_agent-native/actions/import-visual-plan-source",
+          headers: { authorization: `Bearer ${token}` },
+        });
 
-      await expect(guard(event)).resolves.toEqual({
-        error: "Organization membership could not be verified. Retry shortly.",
-      });
-      expect(event.res.status).toBe(503);
-      expect(event.res.headers.get("retry-after")).toBe("5");
-    });
+        if (code === "57014") {
+          await expect(guard(event)).resolves.toEqual({
+            error:
+              "Organization membership could not be verified. Retry shortly.",
+          });
+          expect(event.res.status).toBe(503);
+          expect(event.res.headers.get("retry-after")).toBe("5");
+        } else {
+          await expect(guard(event)).rejects.toMatchObject({
+            statusCode: 500,
+            retryable: false,
+            cause: expect.objectContaining({ code }),
+          });
+          expect(event.res.headers.get("retry-after")).toBeNull();
+        }
+        expect(
+          mockExecute.mock.calls.some(([query]) =>
+            /FROM organizations/.test(
+              typeof query === "string" ? query : query.sql,
+            ),
+          ),
+        ).toBe(true);
+      },
+    );
 
     it("answers an action route with a 401 naming why a connect token was refused", async () => {
       vi.stubEnv("NODE_ENV", "production");

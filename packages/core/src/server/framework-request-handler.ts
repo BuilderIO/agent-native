@@ -827,9 +827,17 @@ function createMountedMiddleware(
       }
       try {
         setResponseStatus(event, status);
-        new Headers(e?.headers).forEach((value, key) => {
-          setResponseHeader(event, key, value);
-        });
+        if (declaredStatus !== undefined && e?.unhandled !== true) {
+          const headers = new Headers(e?.headers);
+          const retryAfter = headers.get("retry-after");
+          if ((status === 429 || status === 503) && retryAfter) {
+            setResponseHeader(event, "retry-after", retryAfter);
+          }
+          const authenticate = headers.get("www-authenticate");
+          if (status === 401 && authenticate) {
+            setResponseHeader(event, "www-authenticate", authenticate);
+          }
+        }
         setResponseHeader(event, "content-type", "application/json");
       } catch {
         // Response already sent — best effort.

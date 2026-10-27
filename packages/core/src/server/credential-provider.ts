@@ -170,8 +170,7 @@ export function assertCredentialStoreReadable(result: {
 }): void {
   if (result.cause instanceof ForbiddenError) throw result.cause;
   if (result.lookupFailed) {
-    throw isTransientDatabaseError(result.cause) ||
-      result.cause instanceof AppSecretDecryptionError
+    throw isTransientDatabaseError(result.cause)
       ? new CredentialStoreUnavailableError(result.cause)
       : new CredentialStoreLookupError(result.cause);
   }

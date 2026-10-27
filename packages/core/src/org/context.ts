@@ -5,7 +5,11 @@ import { setCookie, type H3Event } from "h3";
 import { warnAgent } from "../agent/action-warnings.js";
 import { getAppConfig } from "../app-config/index.js";
 import { appStatePut } from "../application-state/store.js";
-import { getDbExec, isTransientDatabaseError } from "../db/client.js";
+import {
+  getDbExec,
+  isTransientDatabaseError,
+  isUniqueViolation,
+} from "../db/client.js";
 import { isAnonymousWaitlistSessionEmail } from "../server/anonymous-identity.js";
 import { crossSiteCookieAttrs, getSession } from "../server/auth.js";
 import { shouldWriteFirstRunOnboardingEligibility } from "../server/first-run-onboarding-build-mode.js";
@@ -18,6 +22,10 @@ import {
   getRequestContext,
   hasExplicitPersonalOrgScope,
 } from "../server/request-context.js";
+import {
+  SessionResolutionUnavailableError,
+  sessionResolutionFailure,
+} from "../server/session-resolution-errors.js";
 import { getSetting } from "../settings/store.js";
 import { getUserSetting } from "../settings/user-settings.js";
 import { FIRST_RUN_ONBOARDING_ELIGIBLE_KEY } from "../shared/first-run-onboarding.js";
@@ -48,6 +56,7 @@ const EMPTY_CONTEXT: OrgContext = {
 };
 const ORG_SCOPE_RESOLUTION_UNAVAILABLE_KEY =
   "__anOrgScopeResolutionUnavailable";
+const ORG_SCOPE_RESOLUTION_ERROR_KEY = "__anOrgScopeResolutionError";
 
 export function hasOrgScopeResolutionUnavailable(event: {
   context?: Record<string, unknown>;
@@ -55,10 +64,23 @@ export function hasOrgScopeResolutionUnavailable(event: {
   return event.context?.[ORG_SCOPE_RESOLUTION_UNAVAILABLE_KEY] === true;
 }
 
-function markOrgScopeResolutionUnavailable(event: H3Event): void {
-  (event.context as Record<string, unknown>)[
-    ORG_SCOPE_RESOLUTION_UNAVAILABLE_KEY
-  ] = true;
+export function getOrgScopeResolutionError(event: {
+  context?: Record<string, unknown>;
+}): Error | undefined {
+  const error = event.context?.[ORG_SCOPE_RESOLUTION_ERROR_KEY];
+  return error instanceof Error ? error : undefined;
+}
+
+function markOrgScopeResolutionUnavailable(
+  event: H3Event,
+  failure?: { cause: unknown },
+): void {
+  const context = event.context as Record<string, unknown>;
+  context[ORG_SCOPE_RESOLUTION_UNAVAILABLE_KEY] = true;
+  context[ORG_SCOPE_RESOLUTION_ERROR_KEY] = failure
+    ? sessionResolutionFailure(failure.cause)
+    : (context[ORG_SCOPE_RESOLUTION_ERROR_KEY] ??
+      new SessionResolutionUnavailableError());
 }
 
 export async function queryOrgMembers(query: {
@@ -388,7 +410,7 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
     // A transient membership read must not downgrade an authenticated request
     // to a private/solo scope when the session already carries its org.
     if (sessionOrgId && isTransientDatabaseError(err)) {
-      markOrgScopeResolutionUnavailable(event);
+      markOrgScopeResolutionUnavailable(event, { cause: err });
       if (isDelegatedOrgMember) {
         return { email, orgId: null, orgName: null, role: null };
       }
@@ -989,32 +1011,24 @@ async function hasPendingInvitation(
   exec: ReturnType<typeof getDbExec>,
   email: string,
 ): Promise<boolean> {
-  try {
-    const { rows } = await exec.execute({
-      sql: `SELECT 1 FROM org_invitations WHERE LOWER(email) = ? AND status = 'pending' LIMIT 1`,
-      args: [email.toLowerCase()],
-    });
-    return rows.length > 0;
-  } catch {
-    return true;
-  }
+  const { rows } = await exec.execute({
+    sql: `SELECT 1 FROM org_invitations WHERE LOWER(email) = ? AND status = 'pending' LIMIT 1`,
+    args: [email.toLowerCase()],
+  });
+  return rows.length > 0;
 }
 
 async function hasDomainMatch(
   exec: ReturnType<typeof getDbExec>,
   email: string,
 ): Promise<boolean> {
-  try {
-    const domain = email.split("@")[1]?.toLowerCase();
-    if (!domain) return false;
-    const { rows } = await exec.execute({
-      sql: `SELECT 1 FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 1`,
-      args: [domain],
-    });
-    return rows.length > 0;
-  } catch {
-    return false;
-  }
+  const domain = email.split("@")[1]?.toLowerCase();
+  if (!domain) return false;
+  const { rows } = await exec.execute({
+    sql: `SELECT 1 FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 1`,
+    args: [domain],
+  });
+  return rows.length > 0;
 }
 
 const CLAIM_TTL_MS = 5 * 60 * 1000;
@@ -1029,23 +1043,25 @@ async function tryCreateDefaultOrg(
 
   const claimKey = `u:${email.toLowerCase()}:auto-create-claim`;
 
-  if (!(await acquireClaim(exec, claimKey))) return null;
-
-  // Pending-invite check happens INSIDE the claim so the window where a
-  // newly-arrived invitation can be missed is narrowed to a single SQL
-  // round-trip. (A still-narrower window would require a transaction
-  // spanning org_invitations and settings — out of scope.)
-  if (await hasPendingInvitation(exec, email)) {
-    await releaseClaim(exec, claimKey);
-    return null;
-  }
-
-  if (await hasDomainMatch(exec, email)) {
-    await releaseClaim(exec, claimKey);
-    return null;
-  }
-
+  let ownsClaim = false;
   try {
+    ownsClaim = await acquireClaim(exec, claimKey);
+    if (!ownsClaim) return null;
+
+    // Pending-invite check happens INSIDE the claim so the window where a
+    // newly-arrived invitation can be missed is narrowed to a single SQL
+    // round-trip. (A still-narrower window would require a transaction
+    // spanning org_invitations and settings — out of scope.)
+    if (await hasPendingInvitation(exec, email)) {
+      await releaseClaim(exec, claimKey);
+      return null;
+    }
+
+    if (await hasDomainMatch(exec, email)) {
+      await releaseClaim(exec, claimKey);
+      return null;
+    }
+
     const orgId = nanoid();
     const orgName = defaultOrgName(email, session);
     const now = Date.now();
@@ -1096,8 +1112,9 @@ async function tryCreateDefaultOrg(
     }
 
     return { email, orgId, orgName, role: "owner" };
-  } catch {
-    await releaseClaim(exec, claimKey);
+  } catch (cause) {
+    markOrgScopeResolutionUnavailable(event, { cause });
+    if (ownsClaim) await releaseClaim(exec, claimKey);
     return null;
   }
 }
@@ -1113,7 +1130,8 @@ async function acquireClaim(
       args: [claimKey, JSON.stringify({ at: now }), now],
     });
     return true;
-  } catch {
+  } catch (cause) {
+    if (!isUniqueViolation(cause)) throw cause;
     const staleThreshold = now - CLAIM_TTL_MS;
     const result = (await exec.execute({
       sql: `UPDATE settings SET value = ?, updated_at = ? WHERE key = ? AND updated_at <= ?`,

@@ -62,6 +62,9 @@ afterEach(() => vi.restoreAllMocks());
 describe("integration membership HTTP boundary", () => {
   it.each([
     "denied-read",
+    "permanent-creation",
+    "schema-read",
+    "unexpected-read",
     "delegated-transient",
     "ordinary-owner-transient",
     "ordinary-admin-transient",
@@ -75,7 +78,9 @@ describe("integration membership HTTP boundary", () => {
     fixture.execute.mockClear();
     fixture.session = {
       email: `member+${scenario}@example.test`,
-      ...(scenario === "personal" ? {} : { orgId: "fake-org" }),
+      ...(scenario === "personal" || scenario === "permanent-creation"
+        ? {}
+        : { orgId: "fake-org" }),
       ...(scenario === "ordinary-owner-transient"
         ? { orgRole: "owner" }
         : scenario === "ordinary-admin-transient"
@@ -85,21 +90,35 @@ describe("integration membership HTTP boundary", () => {
     fixture.role = scenario;
     fixture.failure = scenario.endsWith("-transient")
       ? Object.assign(new Error("db query timed out"), { code: "57014" })
-      : scenario === "denied-read"
+      : scenario === "denied-read" || scenario === "permanent-creation"
         ? Object.assign(new Error("permission denied for table org_members"), {
             code: "42501",
           })
-        : undefined;
+        : scenario === "schema-read"
+          ? Object.assign(new Error("private schema failure"), {
+              code: "42P01",
+            })
+          : scenario === "unexpected-read"
+            ? new TypeError("private unexpected failure")
+            : undefined;
     fixture.execute.mockImplementation(async ({ sql }: { sql: string }) => {
       if (sql.includes("FROM org_members")) {
-        if (fixture.failure) throw fixture.failure;
+        if (fixture.failure && scenario !== "permanent-creation")
+          throw fixture.failure;
         return {
           rows:
-            scenario === "personal" || scenario === "delegated-revoked"
+            scenario === "personal" ||
+            scenario === "delegated-revoked" ||
+            scenario === "permanent-creation"
               ? []
               : [{ orgId: "fake-org", orgName: "Fake", role: fixture.role }],
         };
       }
+      if (
+        scenario === "permanent-creation" &&
+        sql.includes("INSERT INTO organizations")
+      )
+        throw fixture.failure;
       return { rows: [] };
     });
     vi.spyOn(console, "error").mockImplementation(() => {});
@@ -133,13 +152,16 @@ describe("integration membership HTTP boundary", () => {
           ),
         ),
     );
-    const unavailable =
-      scenario === "denied-read" || scenario.endsWith("-transient");
+    const unavailable = scenario.endsWith("-transient");
+    const permanent =
+      scenario.endsWith("-read") || scenario === "permanent-creation";
     const forbidden = scenario === "member" || scenario === "delegated-revoked";
-    expect(response.status).toBe(unavailable ? 503 : forbidden ? 403 : 200);
+    expect(response.status).toBe(
+      unavailable ? 503 : permanent ? 500 : forbidden ? 403 : 200,
+    );
     expect(response.headers.get("retry-after")).toBe(unavailable ? "5" : null);
     expect(fixture.save).toHaveBeenCalledTimes(
-      unavailable || forbidden ? 0 : 1,
+      unavailable || permanent || forbidden ? 0 : 1,
     );
     expect(await response.text()).not.toContain("org_members");
     expect(

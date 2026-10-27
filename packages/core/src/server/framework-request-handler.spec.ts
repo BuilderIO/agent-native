@@ -363,6 +363,77 @@ describe("framework request handler", () => {
     expect(event.res.status).toBe(403);
   });
 
+  it.each([
+    {
+      name: "unclassified",
+      statusCode: undefined,
+      unhandled: false,
+      retry: null,
+    },
+    {
+      name: "typed unavailable",
+      statusCode: 503,
+      unhandled: false,
+      retry: "5",
+    },
+    { name: "rate limited", statusCode: 429, unhandled: false, retry: "5" },
+    {
+      name: "authentication challenge",
+      statusCode: 401,
+      unhandled: false,
+      retry: null,
+    },
+    {
+      name: "redacted unavailable",
+      statusCode: 503,
+      unhandled: true,
+      retry: null,
+    },
+  ])(
+    "filters error response headers for $name",
+    async ({ statusCode, unhandled, retry }) => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const app = createNitroApp();
+      const error = Object.assign(new Error("Internal server error"), {
+        ...(statusCode === undefined ? {} : { statusCode }),
+        unhandled,
+        headers: {
+          "Retry-After": "5",
+          "WWW-Authenticate": 'Bearer realm="test"',
+          "Set-Cookie": "fake-session=untrusted",
+          "Content-Length": "999999",
+          "Content-Encoding": "gzip",
+          "X-Private-Diagnostic": "private-diagnostic",
+        },
+      });
+      getH3App(app).use("/_agent-native/header-probe", () => {
+        throw error;
+      });
+      let headers: Headers | undefined;
+      const body = await dispatch(
+        app,
+        "/_agent-native/header-probe",
+        (event) => {
+          headers = event.res.headers;
+        },
+      );
+      expect(body).toEqual({ error: "Internal server error" });
+      expect(headers?.get("retry-after")).toBe(retry);
+      expect(headers?.get("www-authenticate")).toBe(
+        statusCode === 401 ? 'Bearer realm="test"' : null,
+      );
+      expect(headers?.get("content-type")).toBe("application/json");
+      for (const key of [
+        "set-cookie",
+        "content-length",
+        "content-encoding",
+        "x-private-diagnostic",
+      ]) {
+        expect(headers?.get(key)).toBeNull();
+      }
+    },
+  );
+
   it.each(["healthy", "store", "unexpected", "forbidden"])(
     "preserves the %s HTTP boundary",
     async (kind) => {

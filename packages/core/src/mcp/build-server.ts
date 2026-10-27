@@ -1,4 +1,3 @@
-import "../authorization/check-action.js";
 import type {
   CallToolResult,
   ClientCapabilities,
@@ -7,6 +6,8 @@ import type {
   ServerContext,
   Tool,
 } from "@modelcontextprotocol/server";
+
+import "../authorization/check-action.js";
 import type { JWTPayload } from "jose";
 
 import {
@@ -33,6 +34,7 @@ import {
   type NormalizedToolResultImages,
 } from "../agent/tool-result-images.js";
 import { getAppConfig } from "../app-config/store.js";
+import { isTransientDatabaseError } from "../db/errors.js";
 import {
   UnusableSchemaError,
   usableInputSchema,
@@ -3985,10 +3987,19 @@ export function getBearerToken(
 export class McpIdentityVerificationUnavailableError extends Error {
   override readonly cause: unknown;
 
-  constructor(cause: unknown) {
-    super("MCP identity verification is temporarily unavailable");
+  readonly retryable: boolean;
+  readonly statusCode: 500 | 503;
+
+  constructor(cause: unknown, retryable = true) {
+    super(
+      retryable
+        ? "MCP identity verification is temporarily unavailable"
+        : "Internal server error",
+    );
     this.name = "McpIdentityVerificationUnavailableError";
     this.cause = cause;
+    this.retryable = retryable;
+    this.statusCode = retryable ? 503 : 500;
   }
 }
 
@@ -4094,7 +4105,10 @@ async function verifyA2AJwtForMcp(
           organization =
             await resolveA2AOrganizationCredentialsByDomain(orgDomain);
         } catch (error) {
-          throw new McpIdentityVerificationUnavailableError(error);
+          throw new McpIdentityVerificationUnavailableError(
+            error,
+            isTransientDatabaseError(error),
+          );
         }
         if (organization?.secret.trim() === globalSecret) {
           const claims = organizationPrincipalClaims(
@@ -4126,7 +4140,10 @@ async function verifyA2AJwtForMcp(
       try {
         verifiedOrganization = await verifyA2AOrganizationIdentity(payload);
       } catch (error) {
-        throw new McpIdentityVerificationUnavailableError(error);
+        throw new McpIdentityVerificationUnavailableError(
+          error,
+          isTransientDatabaseError(error),
+        );
       }
       if (verifiedOrganization === null) return null;
       return {
@@ -4152,7 +4169,10 @@ async function verifyA2AJwtForMcp(
       await import("../org/context.js");
     organization = await resolveA2AOrganizationCredentialsByDomain(orgDomain);
   } catch (error) {
-    throw new McpIdentityVerificationUnavailableError(error);
+    throw new McpIdentityVerificationUnavailableError(
+      error,
+      isTransientDatabaseError(error),
+    );
   }
   if (!organization) return null;
 
@@ -4590,6 +4610,7 @@ export async function verifyAuth(
     );
   } catch (error) {
     if (error instanceof McpIdentityVerificationUnavailableError) {
+      if (error.retryable === false) throw error;
       return { authed: false, unavailable: true };
     }
     if (error instanceof McpIdentityVerificationRefusedError) {
@@ -4698,7 +4719,10 @@ export async function resolveOrgIdFromDomain(
   try {
     result = await lookupOrgByDomain(orgDomain);
   } catch (cause) {
-    throw new McpIdentityVerificationUnavailableError(cause);
+    throw new McpIdentityVerificationUnavailableError(
+      cause,
+      isTransientDatabaseError(cause),
+    );
   }
   if (result.status === "ambiguous") {
     throw new McpIdentityVerificationRefusedError();
@@ -4728,6 +4752,9 @@ export async function resolveMcpIdentityOrgId(
     if (cause instanceof ForbiddenError) {
       throw new McpIdentityVerificationRefusedError();
     }
-    throw new McpIdentityVerificationUnavailableError(cause);
+    throw new McpIdentityVerificationUnavailableError(
+      cause,
+      isTransientDatabaseError(cause),
+    );
   }
 }

@@ -44,7 +44,6 @@ import {
   MCP_EMBED_CORS_ALLOW_HEADERS,
   shouldAllowMcpEmbedCredentials,
 } from "../shared/mcp-embed-headers.js";
-import { ForbiddenError } from "../sharing/errors.js";
 import {
   createConsentHandler,
   createConsentRegionHandler,
@@ -77,6 +76,7 @@ import {
   publicFrameworkPath,
 } from "./framework-route-prefix.js";
 import { isHttpsRequest } from "./https-request.js";
+import { sessionResolutionFailure } from "./session-resolution-errors.js";
 
 function toWebRequest(event: H3Event): Request {
   const req = (event as any).req as Request;
@@ -1302,6 +1302,7 @@ export async function getMcpOAuthBearerSession(
       identityVerificationUnavailableErrorClass &&
       e instanceof identityVerificationUnavailableErrorClass
     ) {
+      if (e.retryable === false) throw e;
       markCredentialMembershipUnavailable(event);
       return null;
     }
@@ -4812,20 +4813,11 @@ async function backfillSessionOrg(
     const orgId = await resolveOrgIdForEmailViaEvent(event, session.email);
     return orgId ? { ...session, orgId } : session;
   } catch (cause) {
-    if (cause instanceof ForbiddenError) throw cause;
-    throw new SessionResolutionUnavailableError({ cause });
+    throw sessionResolutionFailure(cause);
   }
 }
 
-export class SessionResolutionUnavailableError extends Error {
-  readonly statusCode = 503;
-  readonly headers = { "Retry-After": "5" };
-
-  constructor(options?: ErrorOptions) {
-    super("Session unavailable", options);
-    this.name = "SessionResolutionUnavailableError";
-  }
-}
+export { SessionResolutionUnavailableError } from "./session-resolution-errors.js";
 
 export async function getSession(event: H3Event): Promise<AuthSession | null> {
   const ctx = event.context as {

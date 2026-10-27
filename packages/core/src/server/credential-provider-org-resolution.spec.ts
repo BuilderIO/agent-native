@@ -83,6 +83,7 @@ vi.mock("../secrets/storage.js", () => {
 });
 
 import { isTransientAutomationFailureCode } from "../jobs/automation-outcome.js";
+import { AppSecretDecryptionError } from "../secrets/errors.js";
 import { ForbiddenError } from "../sharing/access.js";
 import {
   CredentialStoreLookupError,
@@ -231,6 +232,16 @@ describe.each([
     name: "database permission",
     cause: Object.assign(new Error("private database permission"), {
       code: "42501",
+    }),
+    status: 500,
+    code: "credential_store_lookup_failed",
+    retryable: false,
+  },
+  {
+    name: "saved credential decryption",
+    cause: new AppSecretDecryptionError({
+      scope: "user",
+      scopeId: "member@example.test",
     }),
     status: 500,
     code: "credential_store_lookup_failed",

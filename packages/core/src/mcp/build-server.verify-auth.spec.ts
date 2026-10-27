@@ -360,22 +360,33 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
   });
 
-  it("preserves unavailable organization credential lookup instead of returning invalid auth", async () => {
-    process.env.A2A_SECRET = "different-global-secret";
-    resolveA2AOrganizationCredentialsByDomainMock.mockRejectedValue(
-      new Error("database unavailable"),
-    );
-    const token = await sign(
-      { sub: "alice@acme", org_domain: "evil.example" },
-      "org-evil-secret",
-    );
+  it.each(["57014", "42501"])(
+    "preserves unavailable organization credential lookup instead of returning invalid auth: %s",
+    async (code) => {
+      process.env.A2A_SECRET = "different-global-secret";
+      resolveA2AOrganizationCredentialsByDomainMock.mockRejectedValue(
+        Object.assign(new Error("private database failure"), { code }),
+      );
+      const token = await sign(
+        { sub: "alice@acme", org_domain: "evil.example" },
+        "org-evil-secret",
+      );
 
-    await expect(verifyAuth(`Bearer ${token}`, "alice@acme")).resolves.toEqual({
-      authed: false,
-      unavailable: true,
-    });
-    expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
-  });
+      const result = verifyAuth(`Bearer ${token}`, "alice@acme");
+      if (code === "57014")
+        await expect(result).resolves.toEqual({
+          authed: false,
+          unavailable: true,
+        });
+      else
+        await expect(result).rejects.toMatchObject({
+          statusCode: 500,
+          retryable: false,
+          cause: expect.objectContaining({ code }),
+        });
+      expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
+    },
+  );
 
   it("rejects identity-scoped SSO JWTs on the MCP endpoint", async () => {
     const token = await sign({
@@ -1444,22 +1455,33 @@ describe("verifyAuth — the token's organization must still be the user's", () 
     expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
   });
 
-  it("keeps global org identity unavailable when local metadata cannot be read", async () => {
-    resolveA2AOrganizationMetadataByDomainMock.mockRejectedValueOnce(
-      new Error("database unavailable"),
-    );
-    const token = await sign({
-      sub: "a@example.com",
-      org_domain: "builder.io",
-      org_id: "org_123",
-    });
+  it.each(["57014", "42501"])(
+    "keeps global org identity unavailable when local metadata cannot be read: %s",
+    async (code) => {
+      resolveA2AOrganizationMetadataByDomainMock.mockRejectedValueOnce(
+        Object.assign(new Error("private database failure"), { code }),
+      );
+      const token = await sign({
+        sub: "a@example.com",
+        org_domain: "builder.io",
+        org_id: "org_123",
+      });
 
-    await expect(verifyAuth(`Bearer ${token}`)).resolves.toEqual({
-      authed: false,
-      unavailable: true,
-    });
-    expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
-  });
+      const result = verifyAuth(`Bearer ${token}`);
+      if (code === "57014")
+        await expect(result).resolves.toEqual({
+          authed: false,
+          unavailable: true,
+        });
+      else
+        await expect(result).rejects.toMatchObject({
+          statusCode: 500,
+          retryable: false,
+          cause: expect.objectContaining({ code }),
+        });
+      expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
+    },
+  );
 
   it("accepts a domain-only A2A claim for a user absent from receiver membership", async () => {
     resolveA2AOrganizationMetadataByDomainMock.mockResolvedValue({
@@ -1951,7 +1973,10 @@ describe("resolveMcpIdentityOrgId", () => {
   );
 
   it("keeps domain lookup failures on the retryable identity path", async () => {
-    const databaseError = new Error("database connection failed");
+    const databaseError = Object.assign(
+      new Error("database connection failed"),
+      { code: "57014" },
+    );
     lookupOrgByDomainMock.mockRejectedValue(databaseError);
 
     const error = await resolveMcpIdentityOrgId({

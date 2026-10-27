@@ -83,6 +83,7 @@ import {
   withThreadDataLock,
 } from "../chat-threads/store.js";
 import { withDbExec, type DbExec } from "../db/client.js";
+import { isTransientDatabaseError } from "../db/errors.js";
 import { automationOutcomeMessagesForUser } from "../localization/automation-outcome-messages.js";
 import { automationRecoveryMessagesForLocale } from "../localization/automation-recovery-messages.js";
 import { isFrameworkRuntimeAction } from "../mcp/action-eligibility.js";
@@ -606,8 +607,16 @@ export async function startBackgroundAutomationHistory(
       orgId,
     );
   } catch (cause) {
-    lookupFailure =
-      cause instanceof BackgroundAutomationRunError
+    const lookupCause =
+      cause instanceof BackgroundAutomationRunError ? cause.cause : cause;
+    lookupFailure = isTransientDatabaseError(lookupCause)
+      ? new BackgroundAutomationRunError(
+          cause instanceof Error ? cause.message : String(cause),
+          "automation_recipient_lookup_unavailable",
+          undefined,
+          { cause: lookupCause },
+        )
+      : cause instanceof BackgroundAutomationRunError
         ? cause
         : new BackgroundAutomationRunError(
             `Could not resolve the alert recipient for automation "${automation.name}"${orgId ? ` in org "${orgId}"` : ""}: ${cause instanceof Error ? cause.message : String(cause)}`,

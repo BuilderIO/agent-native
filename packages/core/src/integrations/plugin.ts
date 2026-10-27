@@ -19,6 +19,7 @@ import { AppConfigurationError, getAppConfig } from "../app-config/index.js";
 import { isServerlessRuntime } from "../db/client.js";
 import {
   getOrgContext,
+  getOrgScopeResolutionError,
   hasOrgScopeResolutionUnavailable,
 } from "../org/context.js";
 import { loadResourcesForPrompt } from "../server/agent-chat-plugin.js";
@@ -49,7 +50,7 @@ import {
 } from "../server/interval-job.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { resolveSelfDispatchBaseUrl } from "../server/self-dispatch.js";
-import { ForbiddenError } from "../sharing/errors.js";
+import { sessionResolutionFailure } from "../server/session-resolution-errors.js";
 import { dispatchAutomationWebhookTask } from "../triggers/dispatcher.js";
 import {
   AUTOMATION_WEBHOOK_PLATFORM,
@@ -1096,16 +1097,14 @@ export function createIntegrationsPlugin(
       try {
         const context = await getOrgContext(event);
         if (hasOrgScopeResolutionUnavailable(event)) {
-          throw new SessionResolutionUnavailableError();
+          throw (
+            getOrgScopeResolutionError(event) ??
+            new SessionResolutionUnavailableError()
+          );
         }
         return context;
       } catch (cause) {
-        if (
-          cause instanceof ForbiddenError ||
-          cause instanceof SessionResolutionUnavailableError
-        )
-          throw cause;
-        throw new SessionResolutionUnavailableError({ cause });
+        throw sessionResolutionFailure(cause);
       }
     }
 

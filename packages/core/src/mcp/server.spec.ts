@@ -12512,34 +12512,45 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     }
   });
 
-  it("answers 503 without an auth challenge when the token's org domain cannot be resolved", async () => {
-    process.env.BETTER_AUTH_SECRET = "oauth-secret-at-least-32-characters-long";
-    const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
-    const token = await signMcpOAuthAccessToken({
-      ownerEmail: "oauth@example.com",
-      orgDomain: "example.com",
-      clientId: "client-123",
-      scope: "mcp:read",
-      resource: "https://mail.agent-native.com/mcp",
-      issuer: "https://mail.agent-native.com",
-    });
-    lookupOrgByDomainMock.mockRejectedValueOnce(
-      new Error("database connection failed"),
-    );
+  it.each(["57014", "42501", "42P01", "unexpected"])(
+    "classifies a failed token org domain lookup: %s",
+    async (code) => {
+      process.env.BETTER_AUTH_SECRET =
+        "oauth-secret-at-least-32-characters-long";
+      const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
+      const token = await signMcpOAuthAccessToken({
+        ownerEmail: "oauth@example.com",
+        orgDomain: "example.com",
+        clientId: "client-123",
+        scope: "mcp:read",
+        resource: "https://mail.agent-native.com/mcp",
+        issuer: "https://mail.agent-native.com",
+      });
+      lookupOrgByDomainMock.mockRejectedValueOnce(
+        Object.assign(new Error("private domain lookup failure"), {
+          code: code === "unexpected" ? undefined : code,
+        }),
+      );
 
-    const event = makeWebEvent({
-      method: "POST",
-      body: { jsonrpc: "2.0", id: 12, method: "tools/list", params: {} },
-      headers: { authorization: `Bearer ${token}` },
-    });
-    const result = await handleMcpRequest(event, config as any);
+      const event = makeWebEvent({
+        method: "POST",
+        body: { jsonrpc: "2.0", id: 12, method: "tools/list", params: {} },
+        headers: { authorization: `Bearer ${token}` },
+      });
+      const result = await handleMcpRequest(event, config as any);
 
-    expect(lookupOrgByDomainMock).toHaveBeenCalledWith("example.com");
-    expect(event._status).toBe(503);
-    expect(event._responseHeaders?.["retry-after"]).toBe("5");
-    expect(event._responseHeaders?.["www-authenticate"]).toBeUndefined();
-    expect(result).toMatchObject({ error: "Service Unavailable" });
-  });
+      expect(lookupOrgByDomainMock).toHaveBeenCalledWith("example.com");
+      expect(event._status).toBe(code === "57014" ? 503 : 500);
+      expect(event._responseHeaders?.["retry-after"]).toBe(
+        code === "57014" ? "5" : undefined,
+      );
+      expect(event._responseHeaders?.["www-authenticate"]).toBeUndefined();
+      expect(result).toMatchObject({
+        error:
+          code === "57014" ? "Service Unavailable" : "Internal server error",
+      });
+    },
+  );
 
   it.each([
     "revoked",
@@ -12573,7 +12584,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
             return realDb.execute(query);
           if (scope === "unavailable")
             throw Object.assign(new Error("fake membership database failure"), {
-              code: "42501",
+              code: "57014",
             });
           return { rows: scope === "revoked" ? [] : [{ role: "member" }] };
         },
@@ -12615,7 +12626,13 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     },
   );
 
-  it.each(["unavailable", "personal"] as const)(
+  it.each([
+    "unavailable",
+    "permission",
+    "schema",
+    "unexpected",
+    "personal",
+  ] as const)(
     "preserves the email-only MCP scope result over HTTP: %s",
     async (scope) => {
       process.env.BETTER_AUTH_SECRET =
@@ -12638,10 +12655,19 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       const execute = vi.fn(async (query: { sql: string; args: unknown[] }) => {
         if (!query.sql.includes("SELECT org_id FROM org_members"))
           return realDb.execute(query);
-        if (scope === "unavailable")
+        if (scope !== "personal")
           throw Object.assign(
             new Error("permission denied for table org_members"),
-            { code: "42501" },
+            {
+              code:
+                scope === "unavailable"
+                  ? "57014"
+                  : scope === "permission"
+                    ? "42501"
+                    : scope === "schema"
+                      ? "42P01"
+                      : undefined,
+            },
           );
         return { rows: [] };
       });
@@ -12656,9 +12682,14 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       try {
         const result = await handleMcpRequest(event, config as any);
         expect(result instanceof Response ? result.status : event._status).toBe(
-          scope === "unavailable" ? 503 : 200,
+          scope === "personal" ? 200 : scope === "unavailable" ? 503 : 500,
         );
         expect(event._responseHeaders?.["www-authenticate"]).toBeUndefined();
+        if (scope !== "personal" && scope !== "unavailable") {
+          expect(event._responseHeaders?.["retry-after"]).toBeUndefined();
+          expect(event._responseHeaders?.["www-authenticate"]).toBeUndefined();
+          expect(result).toEqual({ error: "Internal server error" });
+        }
         if (scope === "unavailable") {
           expect(event._responseHeaders?.["retry-after"]).toBe("5");
           expect(result).toMatchObject({ error: "Service Unavailable" });
