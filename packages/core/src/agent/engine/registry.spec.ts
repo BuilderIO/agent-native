@@ -3720,6 +3720,9 @@ describe("AgentEngine registry", () => {
       expect(create).toHaveBeenCalledWith(
         expect.objectContaining({ apiKey: "openai-test-key" }),
       );
+      const { getEngineLlmConnectionSource } =
+        await import("./credential-owner.js");
+      expect(getEngineLlmConnectionSource(engine)).toBe("app_secrets");
     });
 
     it.each([

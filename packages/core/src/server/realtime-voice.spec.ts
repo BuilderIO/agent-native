@@ -539,6 +539,47 @@ describe("realtime voice session route", () => {
     ).toBeLessThanOrEqual(REALTIME_VOICE_MAX_SESSION_BYTES);
   });
 
+  it("builds the tools once, on the first voice request, from the actions as mounted", async () => {
+    resolveBuilderGatewayAuth.mockResolvedValue({
+      authorization: "Bearer builder-private-example",
+      spaceId: "builder-public-example",
+      userId: null,
+    });
+    const fetchMock = vi.fn().mockImplementation(
+      async () =>
+        new Response("v=0\r\ns=builder\r\n", {
+          status: 201,
+          headers: { "content-type": "application/sdp" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const actions: Record<string, ActionEntry> = { ...ACTIONS };
+
+    const { handlers } = mount({ actions, model: "gpt-realtime-2.1" });
+    expect(actionsToEngineTools).not.toHaveBeenCalled();
+    actions.added = ACTIONS.navigate;
+    await Promise.all([
+      handlers.get(REALTIME_VOICE_SESSION_PATH)!(sessionEvent()),
+      handlers.get(REALTIME_VOICE_SESSION_PATH)!(sessionEvent()),
+    ]);
+    await handlers.get(REALTIME_VOICE_SESSION_PATH)!(sessionEvent());
+
+    expect(actionsToEngineTools).toHaveBeenCalledTimes(1);
+    expect(Object.keys(actionsToEngineTools.mock.calls[0]![0])).toEqual(
+      Object.keys(ACTIONS),
+    );
+    const sent = fetchMock.mock.calls.map(
+      ([, init]) =>
+        JSON.parse(String((init as RequestInit).body)).session.tools,
+    );
+    expect(sent).toHaveLength(3);
+    expect(sent[1]).toEqual(sent[0]);
+    expect(sent[2]).toEqual(sent[0]);
+    expect(sent[0].map((tool: { name: string }) => tool.name)).toEqual([
+      "navigate",
+    ]);
+  });
+
   it("rejects tool schemas over the UTF-8 byte limit", async () => {
     resolveBuilderGatewayAuth.mockResolvedValue({
       authorization: "Bearer builder-private-example",

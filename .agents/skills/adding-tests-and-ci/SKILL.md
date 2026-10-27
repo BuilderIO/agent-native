@@ -63,6 +63,7 @@ its junk patterns. This section covers where it lives and what runs it.
 - **A surviving mutant is a line no test can fail on.** `pnpm mutation:changed`
   runs Stryker on the lines this branch added in `packages/core/src`. CI runs it
   as `Mutation test changed Core lines`.
+- Snapshot output is for reading; reviewers read its diff beside the code diff.
 - Never skip, disable, or quarantine a test to get green.
   `guard:no-oracle-loosening` fails a branch that adds `.skip`/`.only`, test
   retries, or `passWithNoTests`, or that removes more assertions from a test

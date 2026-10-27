@@ -496,6 +496,19 @@ describe("suggestion replacement intent", () => {
   });
 });
 
+// The server's accepted text reaches the editor as a content load, never as
+// typing, which can't touch the words an accepted suggestion is replacing.
+function loadAcceptedContent(editor: Editor, markdown: string) {
+  editor
+    .chain()
+    .command(({ tr }) => {
+      tr.setMeta("addToHistory", false);
+      return true;
+    })
+    .setContent(nfmToDoc(markdown))
+    .run();
+}
+
 function createMarkdownEditor(content: string) {
   return new Editor({
     extensions: [
@@ -1951,7 +1964,7 @@ describe("live suggestion presentation", () => {
       ).toHaveLength(1);
       expect(docToNfm(editor.getJSON() as any)).toBe(before);
 
-      editor.commands.setContent(nfmToDoc(readback));
+      loadAcceptedContent(editor, readback);
       apply(
         presentations.filter((presentation) => presentation.id !== "unrelated"),
       );
@@ -2091,7 +2104,7 @@ describe("live suggestion presentation", () => {
           beforeText: "Before\n",
         }),
       ).toBe(false);
-      editor.commands.setContent(nfmToDoc(after));
+      loadAcceptedContent(editor, after);
       expect(
         editor.view.dom.querySelector(".suggestion-settling-text"),
       ).toBeNull();
@@ -4102,7 +4115,7 @@ describe("VisualEditor markdown round-tripping", () => {
     }
   });
 
-  it("renders markdown table header cells as plain table cells", () => {
+  it("renders a header row as column headers", () => {
     const editor = new Editor({
       extensions: createVisualEditorExtensions(),
       content: {
@@ -4164,8 +4177,17 @@ describe("VisualEditor markdown round-tripping", () => {
     });
 
     try {
-      expect(editor.view.dom.querySelectorAll("th")).toHaveLength(0);
-      expect(editor.view.dom.querySelectorAll("td")).toHaveLength(4);
+      const headers = editor.view.dom.querySelectorAll("th");
+      expect(
+        Array.from(headers, (cell) => [
+          cell.textContent,
+          cell.getAttribute("scope"),
+        ]),
+      ).toEqual([
+        ["A", "col"],
+        ["B", "col"],
+      ]);
+      expect(editor.view.dom.querySelectorAll("td")).toHaveLength(2);
     } finally {
       editor.destroy();
     }
@@ -4274,6 +4296,11 @@ describe("VisualEditor markdown round-tripping", () => {
       expect(
         editor.view.dom.querySelectorAll(".content-table-header-cell"),
       ).toHaveLength(4);
+      expect(
+        Array.from(editor.view.dom.querySelectorAll("th"), (cell) =>
+          cell.getAttribute("scope"),
+        ),
+      ).toEqual(["col", "col", "row", "row"]);
     } finally {
       editor.destroy();
     }
@@ -4717,6 +4744,23 @@ describe("VisualEditor markdown round-tripping", () => {
     }
   });
 
+  // The server half of adopting a newer saved body, for one editor: it takes
+  // the editor's proposal as the live doc and returns it.
+  const fakeSnapshotAdoptionServer = () =>
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const proposal =
+        String(input).includes("adopt-document-snapshot") &&
+        typeof init?.body === "string"
+          ? /"adoptionUpdateBase64":"([^"]+)"/.exec(init.body)?.[1]
+          : undefined;
+      return new Response(
+        JSON.stringify(
+          proposal ? { status: "adopted", stateBase64: proposal } : {},
+        ),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+
   it("keeps exact A restored after a recent A-to-B edit with a trailing empty block", async () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -4774,6 +4818,7 @@ describe("VisualEditor markdown round-tripping", () => {
         ),
       );
 
+    const adoptionServer = fakeSnapshotAdoptionServer();
     try {
       act(() => {
         root.render(
@@ -4932,6 +4977,7 @@ describe("VisualEditor markdown round-tripping", () => {
         );
       });
     } finally {
+      adoptionServer.mockRestore();
       await act(async () => root.unmount());
       queryClient.clear();
       ydoc.destroy();

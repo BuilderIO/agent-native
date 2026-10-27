@@ -55,7 +55,7 @@ afterEach(() => {
     rmSync(dir, { recursive: true, force: true });
 });
 
-describe("Google Slides layout comparator", () => {
+describe("presentation export layout comparator", () => {
   it("passes an exact multi-line readback and records measured geometry", () => {
     const dir = layoutDir([
       { text: "Quarterly review", x: 10, right: 220, baseline: 50 },

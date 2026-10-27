@@ -714,6 +714,7 @@ export default function PromptPopover({
       layoutVariant={inline ? "hero" : undefined}
       className={inline ? "design-home-prompt-composer-area" : undefined}
       voiceEnabled
+      voiceChatEnabled={false}
       composerRef={composerRef}
       ariaLabel={placeholder ?? t("home.describeBuild")}
       showModelSelector={showModelSelector}

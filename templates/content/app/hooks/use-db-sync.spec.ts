@@ -681,6 +681,33 @@ describe("contentActionInvalidatePredicate", () => {
     ).toBe(false);
   });
 
+  it("refreshes the active personal view and Files tree when a property is deleted outside the editor", () => {
+    const predicate = contentActionInvalidatePredicate("/page/database-page");
+    const personalViewQuery = {
+      queryKey: [
+        "action",
+        "get-content-database-personal-view",
+        { databaseId: "database" },
+      ],
+      isActive: () => true,
+    };
+    const filesTreeQuery = {
+      queryKey: [
+        "action",
+        "query-content-database-items",
+        { databaseId: "files", limit: 20, navigation: { parentId: null } },
+      ],
+      isActive: () => true,
+    };
+    const events = [{ source: "action", key: "delete-document-property" }];
+
+    expect(predicate(personalViewQuery, events)).toBe(true);
+    expect(
+      predicate({ ...personalViewQuery, isActive: () => false }, events),
+    ).toBe(false);
+    expect(predicate(filesTreeQuery, events)).toBe(true);
+  });
+
   it("does not refresh unrelated documents or action queries", () => {
     const predicate = contentActionInvalidatePredicate("/page/document-1");
 

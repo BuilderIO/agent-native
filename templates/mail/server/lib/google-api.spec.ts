@@ -95,6 +95,7 @@ vi.mock("./inbox-store.js", () => ({
   },
 }));
 
+import { GmailQuotaRefusedError } from "./gmail-quota.js";
 import {
   GmailQuotaCooldownError,
   createOAuth2Client,
@@ -123,6 +124,7 @@ describe("googleFetch quota handling", () => {
       "gateway-token-b",
       "gateway-token-c",
       "quota-token-a",
+      "quota-token-refused",
       "quota-token-floor",
       "quota-token-cap",
       "quota-token-whole-batch",
@@ -447,6 +449,33 @@ describe("googleFetch quota handling", () => {
         "quota-token-a",
       ),
     ).rejects.toThrow(/briefly busy/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("tells a write Mail refused before sending apart from one Gmail answered 429", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse(429, { error: { message: "User-rate limit exceeded" } }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const createDraft = () =>
+      googleFetch(
+        "https://gmail.googleapis.com/gmail/v1/users/me/drafts",
+        "quota-token-refused",
+        { method: "POST", body: "{}" },
+      ).catch((error: unknown) => error);
+
+    const answered = await createDraft();
+    expect(answered).toBeInstanceOf(GmailQuotaCooldownError);
+    expect(answered).not.toBeInstanceOf(GmailQuotaRefusedError);
+
+    const refused = await createDraft();
+    expect(refused).toBeInstanceOf(GmailQuotaRefusedError);
+    expect(refused).toMatchObject({
+      errorCode: "gmail_quota_cooldown",
+      statusCode: 429,
+    });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 

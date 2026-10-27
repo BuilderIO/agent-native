@@ -364,7 +364,7 @@ describe("TiptapComposer primary slot", () => {
     expect(send()?.dataset.composerPrimary).toBe("voice-chat");
     expect(send()?.getAttribute("aria-label")).toBe("Start voice chat");
     expect(send()?.disabled).toBe(false);
-    expect(send()?.querySelector("svg.tabler-icon-wave-sine")).not.toBeNull();
+    expect(send()?.querySelector("svg.tabler-icon-voice-chat")).not.toBeNull();
 
     act(() => send()?.click());
 
@@ -423,6 +423,34 @@ describe("TiptapComposer primary slot", () => {
     );
 
     expect(trailing()).toEqual(["voice-button", "stop-slot", "send-button"]);
+    expect(send()?.dataset.composerPrimary).toBe("send");
+  });
+
+  it("keeps Send and the mic when voice chat is off", async () => {
+    await act(async () =>
+      root.render(
+        <Harness adapters={realtimeReady} voiceChatEnabled={false} />,
+      ),
+    );
+
+    expect(trailing()).toEqual(["voice-button", "send-button"]);
+    expect(send()?.dataset.composerPrimary).toBe("send");
+    expect(send()?.disabled).toBe(true);
+    act(() => slot<HTMLButtonElement>("voice-button")?.click());
+    expect(voice.start).toHaveBeenCalledTimes(1);
+    expect(realtime.start).not.toHaveBeenCalled();
+  });
+
+  it("leaves another surface's live voice chat out of a composer with voice chat off", async () => {
+    realtime.active = true;
+    realtime.state = "listening";
+    await act(async () =>
+      root.render(
+        <Harness adapters={realtimeReady} voiceChatEnabled={false} />,
+      ),
+    );
+
+    expect(trailing()).toEqual(["voice-button", "send-button"]);
     expect(send()?.dataset.composerPrimary).toBe("send");
   });
 

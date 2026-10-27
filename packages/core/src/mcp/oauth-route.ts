@@ -1,4 +1,9 @@
-import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import {
+  createHash,
+  createHmac,
+  randomBytes,
+  timingSafeEqual,
+} from "node:crypto";
 
 import type { H3Event } from "h3";
 import { getHeader, getMethod, getQuery, setResponseStatus } from "h3";
@@ -9,15 +14,29 @@ import {
   getConfiguredAppBasePath,
   normalizeAppBasePath,
 } from "../server/app-base-path.js";
+import {
+  readAnalyticsAnonymousId,
+  readAnalyticsSessionId,
+} from "../server/attribution.js";
 import { getConfiguredLoginHtml, getSession } from "../server/auth.js";
 import {
   describeBearerCredentialRefusalWithRecovery,
   type BearerCredentialRefusal,
 } from "../server/bearer-credential-refusal.js";
 import { getAuthSecret } from "../server/better-auth-instance.js";
+import { requestAllowsConsentCategory } from "../server/consent-route.js";
 import { CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE } from "../server/credential-membership-unavailable.js";
 import { getOrigin } from "../server/google-oauth.js";
 import { readBody } from "../server/h3-helpers.js";
+import { serializeMcpSignupAttributionCookie } from "../server/mcp-signup-attribution.js";
+import {
+  ANALYTICS_ANONYMOUS_ID_COOKIE_NAME,
+  serializeAnalyticsAnonymousIdCookie,
+} from "../shared/analytics-anonymous-id.js";
+import {
+  ANALYTICS_SESSION_ID_COOKIE_NAME,
+  serializeAnalyticsSessionIdCookie,
+} from "../shared/analytics-session-id.js";
 import {
   connectionApp,
   connectionClientKey,
@@ -26,6 +45,7 @@ import {
 import {
   trackMcpOAuthAuthorizeOpened,
   trackMcpOAuthLoginWallShown,
+  mcpVendorForContext,
   type McpAnalyticsContext,
 } from "./analytics.js";
 import {
@@ -102,6 +122,101 @@ function redirect(location: string): Response {
     status: 302,
     headers: { Location: location, "Cache-Control": "no-store" },
   });
+}
+
+function analyticsIdentityForAuthorize(event: H3Event): {
+  anonymousId?: string;
+  sessionId?: string;
+  performanceAllowed: boolean;
+  setCookies: string[];
+} {
+  const cookieHeader = getHeader(event, "cookie") ?? null;
+  const performanceAllowed = requestAllowsConsentCategory(event, "performance");
+  const existingAnonymousId = performanceAllowed
+    ? readAnalyticsAnonymousId(cookieHeader)
+    : undefined;
+  const anonymousId = performanceAllowed
+    ? (existingAnonymousId ?? `mcp_${randomBytes(16).toString("base64url")}`)
+    : undefined;
+  const existingSessionId = performanceAllowed
+    ? readAnalyticsSessionId(cookieHeader)
+    : undefined;
+  const sessionId = performanceAllowed
+    ? (existingSessionId ?? `mcp_${randomBytes(16).toString("base64url")}`)
+    : undefined;
+  const setCookies = [
+    !existingAnonymousId && anonymousId
+      ? serializeAnalyticsAnonymousIdCookie(anonymousId)
+      : undefined,
+    !existingSessionId
+      ? serializeAnalyticsSessionIdCookie(sessionId)
+      : undefined,
+  ].filter((cookie): cookie is string => Boolean(cookie));
+  if (!performanceAllowed && cookieHeader) {
+    const cookieNamesToExpire = [
+      ANALYTICS_ANONYMOUS_ID_COOKIE_NAME,
+      ANALYTICS_SESSION_ID_COOKIE_NAME,
+    ];
+    for (const cookieName of cookieNamesToExpire) {
+      if (
+        cookieHeader
+          .split(";")
+          .some((cookie) => cookie.trim().startsWith(`${cookieName}=`))
+      ) {
+        setCookies.push(`${cookieName}=; path=/; max-age=0; SameSite=Lax`);
+      }
+    }
+  }
+
+  return {
+    ...(anonymousId ? { anonymousId } : {}),
+    ...(sessionId ? { sessionId } : {}),
+    performanceAllowed,
+    setCookies,
+  };
+}
+
+function appendSetCookies(response: Response, cookies: string[]): Response {
+  for (const cookie of cookies) response.headers.append("Set-Cookie", cookie);
+  return response;
+}
+
+function mcpSignupCookie(
+  event: H3Event,
+  input: AuthorizeAnalyticsInput,
+  identity: ReturnType<typeof analyticsIdentityForAuthorize>,
+): string | undefined {
+  const firstTouchPathAllowed = requestAllowsConsentCategory(
+    event,
+    "targeting",
+  );
+  const redirectHost = URL.canParse(input.redirectUri)
+    ? new URL(input.redirectUri).hostname
+    : undefined;
+  const vendor = mcpVendorForContext({
+    ...(input.clientName ? { clientName: input.clientName } : {}),
+    ...(redirectHost ? { redirectHost } : {}),
+  });
+  try {
+    return serializeMcpSignupAttributionCookie(
+      {
+        signupOrigin: "mcp_oauth",
+        ...(firstTouchPathAllowed && vendor ? { vendorHint: vendor } : {}),
+        ...("anonymousId" in identity && identity.anonymousId
+          ? { anonymousId: identity.anonymousId }
+          : {}),
+        ...(identity.sessionId ? { sessionId: identity.sessionId } : {}),
+        firstTouchPathAllowed,
+      },
+      getAuthSecret(),
+      new URL(getOrigin(event)).protocol === "https:",
+    );
+  } catch (error) {
+    console.error("[mcp-oauth] Could not sign signup attribution context:", {
+      errorType: error instanceof Error ? error.name : typeof error,
+    });
+    return undefined;
+  }
 }
 
 function isSameOriginPost(event: H3Event): boolean {
@@ -573,6 +688,10 @@ function codeChallengeForVerifier(verifier: string): string {
   return createHash("sha256").update(verifier).digest("base64url");
 }
 
+function consentFormState(state: string | undefined): string {
+  return state ?? "";
+}
+
 function safeEqual(a: string, b: string): boolean {
   const aa = Buffer.from(a);
   const bb = Buffer.from(b);
@@ -843,12 +962,16 @@ interface AuthorizeAnalyticsInput {
   redirectUri: string;
   resource: string;
   userId?: string;
+  anonymousId?: string;
+  sessionId?: string;
+  performanceAllowed: boolean;
 }
 
 function trackAuthorizeStage(
   stage: "opened" | "login_wall",
   input: AuthorizeAnalyticsInput,
 ): void {
+  if (!input.performanceAllowed) return;
   // The authorize page is the only way into a connection, so a tracking fault
   // must not turn a sign-in into a failure.
   try {
@@ -866,6 +989,8 @@ function trackAuthorizeStage(
         ? { redirectHost: new URL(input.redirectUri).hostname }
         : {}),
       ...(input.userId ? { userId: input.userId } : {}),
+      ...(input.anonymousId ? { anonymousId: input.anonymousId } : {}),
+      ...(input.sessionId ? { sessionId: input.sessionId } : {}),
     };
     const route = input.resource.endsWith(MCP_DIRECTORY_ROUTE_PREFIX)
       ? "directory"
@@ -946,12 +1071,14 @@ async function handleAuthorize(
   }
 
   const session = await getSession(event);
+  const analyticsIdentity = analyticsIdentityForAuthorize(event);
   const analyticsInput: AuthorizeAnalyticsInput = {
     issuer,
     options,
     clientName: client.clientName,
     redirectUri,
     resource,
+    ...analyticsIdentity,
   };
   if (!session?.email) {
     if (params.prompt === "none") {
@@ -970,9 +1097,20 @@ async function handleAuthorize(
       if (method === "GET") trackAuthorizeStage("opened", analyticsInput);
       trackAuthorizeStage("login_wall", analyticsInput);
     }
-    return loginPage
+    const response = loginPage
       ? html(loginPage.html, loginPage.status)
       : oauthError("login_required", "Sign in required", 401);
+    const setCookies =
+      loginPage?.status === 200 ? [...analyticsIdentity.setCookies] : [];
+    if (loginPage?.status === 200 && method === "GET") {
+      const attributionCookie = mcpSignupCookie(
+        event,
+        analyticsInput,
+        analyticsIdentity,
+      );
+      if (attributionCookie) setCookies.push(attributionCookie);
+    }
+    return appendSetCookies(response, setCookies);
   }
 
   const scope = normalizeOAuthScope(params.scope);
@@ -998,34 +1136,37 @@ async function handleAuthorize(
       ...analyticsInput,
       userId: session.email,
     });
-    return html(
-      renderConsentPage({
-        appName: options.appName || options.appId || "Agent-Native",
-        email: session.email,
-        clientName: client.clientName || client.clientId,
-        redirectUri,
-        scopes: scope.split(/\s+/),
-        organizations,
-        fields: {
-          response_type: "code",
-          client_id: clientId,
-          redirect_uri: redirectUri,
-          resource,
-          scope,
-          state: state ?? "",
-          code_challenge: params.code_challenge,
-          code_challenge_method: "S256",
-          organization_id: defaultOrganizationId ?? "",
-          consent_token: signConsentToken({
-            email: session.email,
-            clientId,
-            redirectUri,
+    return appendSetCookies(
+      html(
+        renderConsentPage({
+          appName: options.appName || options.appId || "Agent-Native",
+          email: session.email,
+          clientName: client.clientName || client.clientId,
+          redirectUri,
+          scopes: scope.split(/\s+/),
+          organizations,
+          fields: {
+            response_type: "code",
+            client_id: clientId,
+            redirect_uri: redirectUri,
             resource,
             scope,
-            codeChallenge: params.code_challenge,
-          }),
-        },
-      }),
+            state: consentFormState(state),
+            code_challenge: params.code_challenge,
+            code_challenge_method: "S256",
+            organization_id: defaultOrganizationId ?? "",
+            consent_token: signConsentToken({
+              email: session.email,
+              clientId,
+              redirectUri,
+              resource,
+              scope,
+              codeChallenge: params.code_challenge,
+            }),
+          },
+        }),
+      ),
+      analyticsIdentity.setCookies,
     );
   }
 

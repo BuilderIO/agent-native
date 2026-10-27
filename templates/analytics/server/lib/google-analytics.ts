@@ -306,6 +306,7 @@ export async function testConnection(): Promise<{
  * Throws once `maxRows` is passed, rather than returning a partial report.
  */
 export async function runFullReport(request: {
+  propertyId?: string;
   dimensions: string[];
   metrics: string[];
   dateRange: GA4DateRange;
@@ -313,7 +314,7 @@ export async function runFullReport(request: {
   maxRows: number;
   signal?: AbortSignal;
 }): Promise<GA4ReportRow[]> {
-  const { propertyId } = await getConfig();
+  const propertyId = request.propertyId ?? (await getConfig()).propertyId;
   const token = await getGoogleServiceAccountToken();
   const pageSize = Math.min(100_000, request.maxRows);
   const rows: GA4ReportRow[] = [];

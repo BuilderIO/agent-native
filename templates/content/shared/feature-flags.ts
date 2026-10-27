@@ -21,7 +21,18 @@ export const LIVE_BODY_WRITER_FLAG = defineFeatureFlag({
   key: "content.live-body-writer",
 });
 
+/**
+ * Switch pages to their live copy without a manual switch: on an editor's
+ * first open, and in the backfill sweep. It counts only together with the
+ * other two, for the page's owner; `server/live-copy/backfill.ts` evaluates
+ * it.
+ */
+export const LIVE_BODY_BACKFILL_FLAG = defineFeatureFlag({
+  key: "content.live-body-backfill",
+});
+
 export const CONTENT_FEATURE_FLAGS = defineFeatureFlags([
   LIVE_BODY_SHADOW_FLAG,
   LIVE_BODY_WRITER_FLAG,
+  LIVE_BODY_BACKFILL_FLAG,
 ]);

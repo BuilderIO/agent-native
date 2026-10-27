@@ -230,8 +230,9 @@ export default defineAction({
       generationComplete,
     },
     ctx,
-  ) =>
-    withDeckLock(deckId, async () => {
+  ) => {
+    let shouldTrackActionGenerationCompletion = false;
+    return withDeckLock(deckId, async () => {
       await assertAccess("deck", deckId, "editor");
       const db = getDb();
 
@@ -369,6 +370,25 @@ export default defineAction({
         };
       }
 
+      const generationAttemptId =
+        typeof generationContext?.generationAttemptId === "string"
+          ? generationContext.generationAttemptId
+          : undefined;
+      shouldTrackActionGenerationCompletion = Boolean(
+        generationComplete &&
+        generationAttemptId &&
+        generationContext?.generationMode === "action" &&
+        generationContext.completedAttemptId !== generationAttemptId,
+      );
+      if (shouldTrackActionGenerationCompletion && generationAttemptId) {
+        deck.generationContext = {
+          ...((deck.generationContext as Record<string, unknown> | undefined) ??
+            generationContext ??
+            {}),
+          completedAttemptId: generationAttemptId,
+        };
+      }
+
       const newSlideId =
         slideId ??
         `slide-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -486,6 +506,22 @@ export default defineAction({
       if (layout) newSlide.layout = layout;
       if (notes !== undefined) newSlide.notes = notes;
 
+      const shouldTrackNonActionFirstOutput = Boolean(
+        generationAttemptId &&
+        generationContext &&
+        generationContext.generationMode !== "action" &&
+        generationContext.firstOutputAttemptId !== generationAttemptId &&
+        isRealSlide(newSlide),
+      );
+      if (shouldTrackNonActionFirstOutput && generationAttemptId) {
+        deck.generationContext = {
+          ...((deck.generationContext as Record<string, unknown> | undefined) ??
+            generationContext ??
+            {}),
+          firstOutputAttemptId: generationAttemptId,
+        };
+      }
+
       const insertIndex =
         typeof position === "number"
           ? Math.max(0, Math.min(position, slides.length))
@@ -574,10 +610,6 @@ export default defineAction({
           error instanceof Error && error.name ? error.name : "unknown_error";
       }
 
-      const generationAttemptId =
-        typeof generationContext?.generationAttemptId === "string"
-          ? generationContext.generationAttemptId
-          : undefined;
       const generationStartedAt =
         typeof generationContext?.generationStartedAt === "number" &&
         Number.isFinite(generationContext.generationStartedAt) &&
@@ -585,11 +617,7 @@ export default defineAction({
           ? generationContext.generationStartedAt
           : undefined;
       const browserSessionId = getRequestContext()?.browserSessionId;
-      if (
-        shouldRepairTitle &&
-        generationAttemptId &&
-        generationContext?.generationMode !== "action"
-      ) {
+      if (generationAttemptId && shouldTrackNonActionFirstOutput) {
         noteGenerationFirstOutput(ctx?.turnId || ctx?.runId, {
           deckId,
           generationAttemptId,
@@ -631,11 +659,7 @@ export default defineAction({
           ctx,
         );
       }
-      if (
-        generationComplete &&
-        generationAttemptId &&
-        generationContext?.generationMode === "action"
-      ) {
+      if (shouldTrackActionGenerationCompletion && generationAttemptId) {
         const generationEndedAt = Date.now();
         track(
           "generation_completed",
@@ -685,7 +709,8 @@ export default defineAction({
       };
 
       return base;
-    }),
+    });
+  },
   link: ({ result, args }) => {
     const deckId =
       result && typeof result === "object"

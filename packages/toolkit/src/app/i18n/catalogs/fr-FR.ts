@@ -135,6 +135,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleOther": "Autre",
   "onboarding.roleOtherInputLabel": "Décrivez votre rôle",
   "onboarding.skipForNow": "Ignorer pour l’instant",
+  "onboarding.builderProvisionFailedDetail":
+    "Impossible de créer votre compte Builder.io. Réessayez ou connectez-vous avec un compte existant.",
   "onboarding.saveRoleError": "Impossible d’enregistrer votre rôle.",
   "onboarding.builderCreateAccount": "Utiliser Builder.io",
   "onboarding.builderSignInWithAccount":
@@ -479,6 +481,12 @@ const messages: ToolkitAgentChatTranslation = {
   "history.copyLink": "Copier le lien",
   "history.linkCopied": "Lien copié",
   "history.copyLinkFailed": "Impossible de copier le lien",
+  "history.onlyYou": "Vous seul",
+  "history.hide": "Masquer de ma liste",
+  "history.hidden": "Masqué de votre liste",
+  "history.undo": "Annuler",
+  "history.hideFailed": "Impossible de masquer le chat",
+  "history.unhideFailed": "Impossible de rétablir le chat",
   "integrations.availableSection": "Intégrations disponibles",
   "integrations.connectedSection": "Connecté",
   "integrations.goToApiKeys": "Aller aux clés API",
@@ -1230,6 +1238,11 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.scheduleTaskPrefix": "Créer une tâche récurrente : ",
   "composer.selectedReferences": "Références sélectionnées",
   "composer.sendMessage": "Envoyer un message",
+  "composer.select": "Sélectionner",
+  "composer.selectContextFull":
+    "Le contexte est plein. Retirez un élément avant d’en sélectionner un autre.",
+  "composer.selectContextTooLarge":
+    "Cet objet est trop volumineux pour être ajouté comme contexte.",
   "composer.skill.added": 'Compétence "{{name}}" ajoutée',
   "composer.skill.back": "Retour",
   "composer.skill.content": "Contenu",
@@ -2046,6 +2059,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.approvalA2AReview":
     "Approuvé sur la page de vérification des actions de l’agent",
   "settings.audit.approvalMcpClient": "Accepté par le client MCP (non vérifié)",
+  "settings.audit.approvalMcpReview":
+    "Approuvé sur la page de vérification des actions MCP",
+  "settings.audit.approvalCliPrompt":
+    "Approuvé à l’invite de la CLI (non vérifié)",
+  "settings.audit.approvalCliFlag": "Relancé avec --approved (non vérifié)",
   "settings.audit.changedBy": "Modifié par",
   "settings.audit.close": "Fermer",
   "settings.audit.empty": "Aucune modification sur cette période.",
@@ -2347,6 +2365,10 @@ const messages: ToolkitAgentChatTranslation = {
     "Impossible de modifier {{lab}}. Réessayez.",
   "settingsShell.appGroup.mcpAbout":
     "Connectez {{app}} à Claude, ChatGPT, Cursor ou toute application d’IA compatible avec MCP. Cette application peut alors travailler dans {{app}} pour vous. Elle ne voit que ce que vous pouvez voir.",
+  "settingsShell.appGroup.mcpAppCards":
+    "Cartes d’application dans les applications de chat",
+  "settingsShell.appGroup.mcpAppCardsDescription":
+    "Les outils affichent des cartes interactives, comme un brouillon d’e-mail que vous pouvez modifier et envoyer, dans les applications de chat compatibles avec MCP Apps, comme Claude et ChatGPT. Après avoir modifié ce réglage, reconnectez cette application dans votre application de chat.",
   "settingsShell.appGroup.mcpFootnote":
     "Pour les outils que l’agent utilise lui-même, consultez {{integrations}}.",
   "settingsShell.appGroup.newAutomation": "Nouvelle automatisation",

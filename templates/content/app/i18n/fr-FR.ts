@@ -2,6 +2,7 @@ import { commentAttributionMessagesByLocale } from "../../shared/comment-attribu
 import { buildMessagesForLocale } from "../i18n-data";
 
 const database = {
+  fitToWidth: "Ajuster à la largeur",
   githubLinkTitle: "Lier un dossier GitHub",
   githubNewCollectionTitle: "Nouvelle collection à partir d’un dossier GitHub",
   githubLinkDescription:
@@ -693,6 +694,16 @@ const editor = {
     purple: "Violet",
     pink: "Rose",
     red: "Rouge",
+    defaultText: "Texte par défaut",
+    defaultBackground: "Arrière-plan par défaut",
+    textChoice: "Texte : {{color}}",
+    backgroundChoice: "Arrière-plan : {{color}}",
+  },
+  blockMenu: {
+    label: "Actions du bloc",
+    duplicate: "Dupliquer",
+    delete: "Supprimer",
+    insertBelow: "Insérer un bloc en dessous",
   },
   noDocumentSelected: "Aucun document sélectionné",
   registryBlockLoadError:
@@ -1389,6 +1400,14 @@ const exactEnglish = {
       "Le texte autour de cette suggestion a changé, elle ne peut donc pas être appliquée. Elle reste en attente : refusez-la ou proposez à nouveau la modification.",
     proposalUnplaceable:
       "L’une de ces suggestions ne peut pas être appliquée, car le texte autour d’elle a changé : aucune n’a donc été appliquée. Elles restent toutes en attente : acceptez-les ou refusez-les une par une.",
+    suggestionAcceptFailed: "Impossible d’accepter la suggestion",
+    suggestionRejectFailed: "Impossible de refuser la suggestion",
+    proposalAcceptFailed: "Impossible d’accepter les suggestions",
+    proposalRejectFailed: "Impossible de refuser les suggestions",
+    suggestionDecisionReverted:
+      "Elle est de nouveau en attente. Tout ce que vous avez saisi depuis est conservé.",
+    proposalDecisionReverted:
+      "Elles sont de nouveau en attente. Tout ce que vous avez saisi depuis est conservé.",
     suggestionAmendmentFailed: "Impossible d’enregistrer la suggestion",
     suggestionAmendmentResolved:
       "Cette suggestion a été modifiée ailleurs. Votre brouillon non enregistré est toujours ici.",

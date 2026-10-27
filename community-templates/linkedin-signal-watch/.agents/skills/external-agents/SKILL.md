@@ -52,12 +52,12 @@ strict URL, SSRF, size, redirect, schema, and exact callback validation; URL-lik
 client ids never fall back to dynamic registration. Traditional non-URL clients
 continue to use public-client dynamic registration.
 
-Actions marked `needsApproval` use MCP 2026 `input_required` elicitation. The
-approval is bound to the authenticated caller, exact action, exact arguments,
-and expiry, and its durable grant is consumed atomically before the action runs.
-If the host cannot complete the approval exchange, the predicate throws, the
-state is invalid or replayed, or durable storage is unavailable, the action
-fails closed.
+Actions marked `needsApproval` ask through MCP 2026 `input_required`
+elicitation. A client that can't prompt (every stateless 2025-era client),
+declines, or cancels gets a tool result linking to the app's review page, where
+only the same signed-in user and org decide. After Approve, the identical call
+runs once within ten minutes. Grants bind caller, action, arguments, expiry, and
+fail closed.
 
 Claude and ChatGPT can cache custom connector tool/resource metadata. After
 changing MCP App metadata or the shared `embedApp()` shell, validate with a
@@ -519,7 +519,8 @@ before telling the user they are unauthenticated.
 - Don't hand-write product UI in `mcpApp.resource.html`; use a real React
   route/component and embed it with `embedApp()`.
 - Don't test Claude full-app embeds against raw Vite dev modules and conclude
-  production is broken; use `pnpm exec agent-native start`, a preview deploy, or prod.
+  production is broken; use `pnpm exec agent-native start` with `DATABASE_URL`
+  set to Postgres and `BETTER_AUTH_SECRET` set, a preview deploy, or prod.
 - Don't scope the `navigate` write to the agent token, or pass privileged
   state through the deep link — it's a pure pointer.
 - Don't invent a new navigation mechanism; bridge to the existing

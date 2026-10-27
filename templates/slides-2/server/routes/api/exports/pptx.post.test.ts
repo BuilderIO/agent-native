@@ -122,7 +122,7 @@ describe("slides pptx export route", () => {
     expect(result).toEqual({ error: "Deck not found" });
   });
 
-  it("marks only a Google Slides build step, without passing it to the action", async () => {
+  it("marks only the export build step without passing it to the action", async () => {
     const buildSteps: boolean[] = [];
     mockRun.mockImplementation(async () => {
       buildSteps.push(inGoogleSlidesBuildStep());

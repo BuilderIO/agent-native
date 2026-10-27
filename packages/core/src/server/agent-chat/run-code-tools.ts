@@ -1,6 +1,7 @@
 import type { ActionEntry } from "../../agent/production-agent.js";
 import { getAppConfig } from "../../app-config/index.js";
 import type { SandboxCodeEvaluator } from "../../coding-tools/run-code.js";
+import { frameworkMcpTools } from "../../mcp/framework-tools.js";
 
 export async function loadRunCodeToolEntries(
   supplier: () => Record<string, ActionEntry>,
@@ -20,7 +21,7 @@ export async function loadRunCodeToolEntries(
   for (const name of runCodeOptions?.appActionNames ?? []) {
     delete entries[name];
   }
-  return entries;
+  return frameworkMcpTools(entries);
 }
 
 async function createRunCodeToolEntries(

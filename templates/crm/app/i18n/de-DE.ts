@@ -634,11 +634,10 @@ const messages = {
     automate: "Automatisieren",
     reviewNewClipsCalls: "Neue Clips-Anrufe prüfen",
     reviewDescription:
-      "Bereite eine Prüfungsregel für diesen CRM-Datensatz vor, ohne Clips-Medien oder Transkripte zu kopieren.",
-    disabledAutomationDescription:
-      "Dies startet deaktiviert und bleibt an {{name}} gebunden. Nach ausdrücklicher Aktivierung darf jeder neue Clip diesem Datensatz nur seine zugriffsgeprüfte Aufzeichnungsseiten-Referenz anhängen.",
+      "Das Einrichten von Anrufautomatisierungen von CRM zu Clips ist noch nicht verfügbar.",
+    disabledAutomationDescription: "Ausgewählter CRM-Datensatz: {{name}}.",
     handoffDescription:
-      "Die Übergabe bewahrt nur eine undurchsichtige Clip-ID, eine dauerhafte {{path}}-Seiten-URL und den Aufnahmezeitpunkt. Sie lehnt Ereignis-URLs, Medien, Zugriffstoken, Transkripte, abgeleitete Datensätze und Provider-Schreibvorgänge ab.",
+      "Das automatische Anhängen von {{path}}-Seitenlinks ist nicht verfügbar.",
     manageAutomations: "Automatisierungen verwalten",
     configureWithAgent: "Mit Agent konfigurieren",
     editField: "Feld bearbeiten",
