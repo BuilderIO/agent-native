@@ -16,6 +16,7 @@ import { INITIAL_TOOL_NAMES } from "../lib/initial-tool-names.js";
 
 export default createAgentChatPlugin({
   appId: "clips",
+  mcp: { appApprovalPage: true },
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,
   durableBackgroundRuns: true,

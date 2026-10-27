@@ -24,6 +24,7 @@ const lockPrimaryBlocksFields = vi.fn(
 const persistBlocksFieldIdentity = vi.fn(async () => ({}));
 const present = vi.fn(
   async (
+    _client: unknown,
     _documentId: string,
   ): Promise<
     Array<{ clientId: number; state: string; lastSeen: number }>
@@ -31,7 +32,8 @@ const present = vi.fn(
 );
 vi.mock("@agent-native/core/collab", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/collab")>()),
-  loadAwarenessRows: present,
+  loadAwarenessRows: vi.fn(async () => []),
+  loadAwarenessRowsWith: present,
 }));
 vi.mock("@agent-native/core/feature-flags", () => ({
   isFeatureFlagEnabled: vi.fn(async () => true),
@@ -1252,6 +1254,8 @@ describe("accepting into the live copy", () => {
       statusCode: 409,
       errorCode: "suggestion_conflict",
     });
+    // A serverless pool's one connection is this transaction's.
+    expect(present).toHaveBeenCalledWith(tx, "doc-1");
     expect(storedBody()).toBeUndefined();
     expect(coordination.ydoc.persist).not.toHaveBeenCalled();
   });
@@ -1309,6 +1313,7 @@ describe("accepting into the live copy", () => {
       ),
     );
     const accepted = "The sleepy dog sleeps.\nSecond paragraph.";
+    expect(present).toHaveBeenCalledWith(tx, "doc-1");
     expect(liveMarkdown(coordination.ydoc.doc)).toBe(accepted);
     expect(storedBody()).toBe(accepted);
     expect(collabRevision()).toBe(1);

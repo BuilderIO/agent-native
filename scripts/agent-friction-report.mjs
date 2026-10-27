@@ -55,6 +55,17 @@ const SLOW_EDITOR_RUNTIME_REGEX_CASES = [
   [false, "add it to memory so you remember next time"],
   [false, "the list query is so slow in production"],
 ];
+const SNAPSHOT_DIFF_REVIEW_RE =
+  /\b(?:snapshot output|inline snapshots?)\b[^.!?\n]{0,100}\b(?:for reading|readable|reviewers? read|diff)\b|\breviewers?\b[^.!?\n]{0,80}\b(?:read|review)\b[^.!?\n]{0,80}\bsnapshot(?: output)?\b[^.!?\n]{0,80}\bdiff\b/i;
+const SNAPSHOT_DIFF_REVIEW_REGEX_CASES = [
+  [true, "Snapshot output is for reading; reviewers read its diff."],
+  [
+    true,
+    "Keep inline snapshots readable so reviewers can read the behavior diff.",
+  ],
+  [false, "Vitest writes an inline snapshot for this test."],
+  [false, "The generated snapshot file changed."],
+];
 const AUTH_PAGE_BACKGROUND_REGRESSION_RE =
   /\b(?:signup|sign[ -]?in|auth(?:entication)?|homepage|home page)\b[^.!?\n]{0,200}\b(?:wave|background|graphic|welcome|webgl)\b[^.!?\n]{0,100}\b(?:again|over and over|revert\w*|wrong|missing|flash|not|should always|never)\b|\b(?:welcome|fallback|graphic)\b[^.!?\n]{0,100}\b(?:flash|revert\w*|wrong|missing|not)\b[^.!?\n]{0,100}\b(?:signup|sign[ -]?in|auth(?:entication)?|homepage|home page)\b/i;
 const AUTH_PAGE_BACKGROUND_REGRESSION_CASES = [
@@ -4026,18 +4037,31 @@ if (process.argv.includes("--self-test")) {
         SLOW_EDITOR_RUNTIME_RE.test(message) !== expected,
     ),
   );
+  failures.push(
+    ...SNAPSHOT_DIFF_REVIEW_REGEX_CASES.filter(
+      ([expected, message]) =>
+        SNAPSHOT_DIFF_REVIEW_RE.test(message) !== expected,
+    ),
+  );
   if (failures.length > 0) {
     console.error("Feedback regex self-test failed:", failures);
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + MOUNTED_NAVIGATION_PATH_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + PROMO_ARTWORK_READABILITY_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + PR_REVIEW_DISPOSITION_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length + LEGACY_LINE_NORMALIZATION_CASES.length + FEEDBACK_REPLY_DETAIL_REGEX_CASES.length + FEEDBACK_OPEN_WITHOUT_QUESTION_REGEX_CASES.length + FEEDBACK_CHANNEL_COVERAGE_REGEX_CASES.length + FEEDBACK_SWEEP_LIFETIME_REGEX_CASES.length + A2A_OVERDELEGATION_REGEX_CASES.length + COMMUNITY_PR_HANDLING_REGEX_CASES.length + 1} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + MOUNTED_NAVIGATION_PATH_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + PROMO_ARTWORK_READABILITY_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + PR_REVIEW_DISPOSITION_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + SNAPSHOT_DIFF_REVIEW_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length + LEGACY_LINE_NORMALIZATION_CASES.length + FEEDBACK_REPLY_DETAIL_REGEX_CASES.length + FEEDBACK_OPEN_WITHOUT_QUESTION_REGEX_CASES.length + FEEDBACK_CHANNEL_COVERAGE_REGEX_CASES.length + FEEDBACK_SWEEP_LIFETIME_REGEX_CASES.length + A2A_OVERDELEGATION_REGEX_CASES.length + COMMUNITY_PR_HANDLING_REGEX_CASES.length + 1} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
 }
 
 const PATTERNS = [
+  {
+    key: "snapshot-oracle-diff",
+    label: "Had to clarify snapshot output is reviewed as a diff",
+    fixedBy:
+      ".agents/skills/adding-tests-and-ci snapshot review bullet (2026-10-26)",
+    re: SNAPSHOT_DIFF_REVIEW_RE,
+  },
   {
     key: "no-failing-test-first",
     label: "Had to ask for a failing test before the fix",
@@ -4326,7 +4350,7 @@ const PATTERNS = [
     key: "feedback-eyes-missed",
     label: "Had to demand correct 👀 ownership and release",
     fixedBy:
-      ".agents/skills/review-latest-feedback + feedback:inventory-check exact-root and owned-mark reconciliation (2026-10-16)",
+      ".agents/skills/review-latest-feedback (every 👀 closes with ✅ or 🎫 plus a reply in the same run, 2026-10-26)",
     re: FEEDBACK_EYES_RE,
   },
   {
@@ -4334,7 +4358,7 @@ const PATTERNS = [
     label:
       "Had to ask for checkmark/ticket reactions matching feedback outcomes",
     fixedBy:
-      ".agents/skills/review-latest-feedback + feedback:inventory-check per-scope ✅, owned-mark, completed-handoff, and exact status checks (2026-10-16)",
+      ".agents/skills/review-latest-feedback (reaction contract table, 2026-10-26)",
     re: FEEDBACK_STATUS_REACTIONS_RE,
   },
   {
@@ -4361,7 +4385,7 @@ const PATTERNS = [
     key: "e2e-issue-fanout",
     label: "Had to stop per-test E2E issue creation",
     fixedBy:
-      ".agents/skills/review-latest-feedback/references/ci-red-report.md (2026-10-08)",
+      ".agents/skills/review-latest-feedback (one grouped #qa-agent-native message per run, 2026-10-26)",
     re: E2E_ISSUE_FANOUT_RE,
     lineSensitive: true,
   },
@@ -4369,21 +4393,21 @@ const PATTERNS = [
     key: "feedback-channel-coverage",
     label: "Had to ask for feedback-channel or parent-report coverage",
     fixedBy:
-      "feedback:inventory-check required independent source-receipt parity + review-latest-feedback channel-inventory procedure (2026-10-17)",
+      ".agents/skills/review-latest-feedback (open 👀 items first, then each channel read to the window start, 2026-10-26)",
     re: FEEDBACK_CHANNEL_COVERAGE_RE,
   },
   {
     key: "feedback-sweep-unbounded",
     label: "Had to stop an open-ended feedback sweep",
     fixedBy:
-      ".agents/skills/review-latest-feedback/references/channel-inventory.md + feedback:inventory-check fixed window and bounded retry (2026-10-20)",
+      ".agents/skills/review-latest-feedback (5-day window, 15-minute collect budget, 2026-10-26)",
     re: FEEDBACK_SWEEP_LIFETIME_RE,
   },
   {
     key: "feedback-attachment-coverage",
     label: "Had to ask the feedback sweep to preserve attachment-only evidence",
     fixedBy:
-      "feedback:inventory-check thread attachment metadata + review-latest-feedback attachment inspection guidance (2026-10-16)",
+      ".agents/skills/review-latest-feedback (open screenshots and attachments first, 2026-10-26)",
     re: FEEDBACK_ATTACHMENT_COVERAGE_RE,
   },
   {
@@ -4520,13 +4544,18 @@ if (scanned === 0)
 report();
 
 async function scan(file, read) {
-  let stream;
   try {
-    stream = createReadStream(file, { encoding: "utf8" });
-  } catch {
-    process.stderr.write(`[friction] unreadable: ${file}\n`);
-    return;
+    await scanLines(file, read);
+  } catch (error) {
+    // Codex archives rollouts while the report runs; the open error surfaces
+    // asynchronously from the stream, not from createReadStream.
+    if (error?.code !== "ENOENT" && error?.code !== "EACCES") throw error;
+    process.stderr.write(`[friction] unreadable: ${file} (${error.code})\n`);
   }
+}
+
+async function scanLines(file, read) {
+  const stream = createReadStream(file, { encoding: "utf8" });
   for await (const line of createInterface({
     input: stream,
     crlfDelay: Infinity,

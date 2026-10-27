@@ -78,7 +78,10 @@ import {
   isHeldForRedaction,
   REDACTION_HOLD_MESSAGE,
 } from "../../../lib/pending-redactions.js";
-import { isRecordingExpiredForViewer } from "../../../lib/recording-page-access.js";
+import {
+  isRecordingExpiredForViewer,
+  isRecordingTrashedForViewer,
+} from "../../../lib/recording-page-access.js";
 import { getOrganizationRoleForEmail } from "../../../lib/recordings.js";
 import { fetchS3ObjectByUrl } from "../../../lib/s3-upload-provider.js";
 import {
@@ -377,9 +380,12 @@ export default defineEventHandler(async (event: H3Event) => {
       }
 
       const gate = recRow;
-      // The owner's context panel lists items for a trashed Clip, so the owner
-      // can still play them.
-      if (clipId && gate.trashedAt && role !== "owner") {
+      if (
+        isRecordingTrashedForViewer({
+          trashedAt: gate.trashedAt,
+          viewerIsOwner: role === "owner",
+        })
+      ) {
         setResponseStatus(event, 404);
         return { error: "Not found" };
       }

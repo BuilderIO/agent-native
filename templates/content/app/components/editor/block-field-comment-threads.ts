@@ -168,7 +168,11 @@ export function openReviewCountsByField({
   const add = (fieldId: string | null, count = 1) =>
     counts.set(fieldId, (counts.get(fieldId) ?? 0) + count);
   for (const thread of threads ?? []) {
-    if (thread.resolved || thread.property || !thread.quotedText?.trim())
+    if (
+      thread.resolved ||
+      thread.property ||
+      !(thread.block || thread.quotedText?.trim())
+    )
       continue;
     add(commentThreadFieldId(thread));
   }

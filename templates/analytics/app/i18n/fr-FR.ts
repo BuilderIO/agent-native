@@ -1501,6 +1501,21 @@ export default {
     columnShowHidden: "Afficher les colonnes masquées",
     columnName: "Nom de la colonne",
     columnResize: "Redimensionner la colonne",
+    metricComparisonVs: "par rapport à {{period}}",
+    metricComparisonPreviousPeriod: "la période précédente",
+    metricComparisonNoChange: "Aucun changement",
+    metricComparisonPoints: "{{value}} pt",
+    metricComparisonUp:
+      "En hausse de {{change}} par rapport à {{previous}}, {{period}}",
+    metricComparisonDown:
+      "En baisse de {{change}} par rapport à {{previous}}, {{period}}",
+    metricComparisonFlat:
+      "Aucun changement par rapport à {{previous}}, {{period}}",
+    metricComparisonBetter: "{{comparison}} (mieux)",
+    metricComparisonWorse: "{{comparison}} (moins bien)",
+    calloutSeverityCritical: "Critique",
+    calloutSeverityWarning: "Avertissement",
+    calloutSeverityInfo: "Information",
     rowBreakdownBy: "Ventiler par",
     rowBreakdownAll: "Tous",
     rowBreakdownOther: "Autres",

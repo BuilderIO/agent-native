@@ -611,6 +611,11 @@ function workspaceGatewayMcpUrl(appUrl: string): string | undefined {
   }
   const target = new URL(appUrl);
   if (gateway.origin !== target.origin) return undefined;
+  const requestOrigin = normalizeBaseUrl(getRequestContext()?.requestOrigin);
+  if (requestOrigin && new URL(requestOrigin).origin === gateway.origin) {
+    // Same-deployment embeds must use the mounted app endpoint, not call back into this gateway.
+    return undefined;
+  }
   const configuredBasePath = getConfiguredAppBasePath();
   const gatewayPath = gateway.pathname.replace(/\/+$/, "");
   const basePath =
@@ -1184,13 +1189,23 @@ function targetMcpErrorStatus(error: unknown): number | undefined {
 
 function targetMcpRequestDetails(input: {
   app: DispatchMcpAccessibleApp;
+  mcpUrl: string;
   url: string;
-}): { app: string; targetOrigin: string; targetPath: string } {
+}): {
+  app: string;
+  targetOrigin: string;
+  targetPath: string;
+  mcpOrigin: string;
+  mcpPath: string;
+} {
   const targetUrl = new URL(input.url);
+  const mcpUrl = new URL(input.mcpUrl);
   return {
     app: input.app.id,
     targetOrigin: targetUrl.origin,
     targetPath: targetUrl.pathname,
+    mcpOrigin: mcpUrl.origin,
+    mcpPath: mcpUrl.pathname,
   };
 }
 
@@ -1223,7 +1238,7 @@ function targetMcpRetryDelay(attempt: number): number {
 }
 
 async function callTargetCreateEmbedSession(input: {
-  app: DispatchMcpAccessibleApp;
+  mcpUrl: string;
   token: string;
   url: string;
   chrome?: "full" | "minimal";
@@ -1236,7 +1251,7 @@ async function callTargetCreateEmbedSession(input: {
         servers: {
           [serverId]: {
             type: "http",
-            url: appMcpUrl(input.app),
+            url: input.mcpUrl,
             headers: {
               Authorization: `Bearer ${input.token}`,
             },
@@ -1293,14 +1308,14 @@ type TargetMcpCredential = {
 };
 
 async function createTargetMcpUserCredentials(input: {
+  mcpUrl: string;
   ownerEmail: string;
   orgId?: string;
-  target: DispatchMcpAccessibleApp;
 }): Promise<{
   credentials: TargetMcpCredential[];
   loadOrgMemberCredential: () => Promise<TargetMcpCredential | undefined>;
 }> {
-  const audience = canonicalA2AAudience(appMcpUrl(input.target));
+  const audience = canonicalA2AAudience(input.mcpUrl);
   const orgDomain = input.orgId
     ? (await getOrgDomain(input.orgId))?.trim().toLowerCase() || undefined
     : undefined;
@@ -1500,13 +1515,15 @@ async function createEmbedSessionForResolvedApp(input: {
     });
   }
 
+  const targetMcpUrl = appMcpUrl(target.app);
   const targetCredentials = await createTargetMcpUserCredentials({
+    mcpUrl: targetMcpUrl,
     ownerEmail,
     ...(orgId !== undefined ? { orgId } : {}),
-    target: target.app,
   });
   const targetDetails = targetMcpRequestDetails({
     app: target.app,
+    mcpUrl: targetMcpUrl,
     url: target.url,
   });
   let parsed:
@@ -1524,7 +1541,7 @@ async function createEmbedSessionForResolvedApp(input: {
     });
     try {
       const result = await callTargetCreateEmbedSession({
-        app: target.app,
+        mcpUrl: targetMcpUrl,
         token: credential.token,
         url: target.url,
         ...(chrome !== undefined ? { chrome } : {}),

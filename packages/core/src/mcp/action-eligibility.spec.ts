@@ -57,6 +57,7 @@ describe("MCP input and framework eligibility", () => {
         },
         "unsafe-query-items": { ...read, tool: sqlTool, run: blocked },
         ...frameworkMcpTools({
+          "docs-search": { ...read, run: blocked },
           "new-runtime": {
             ...read,
             tool: { description: "Opaque runtime probe" },
@@ -97,7 +98,11 @@ describe("MCP input and framework eligibility", () => {
               ? ["list-items", "query-items", "tool-search"]
               : ["list-items", "query-items"],
           );
-          for (const name of ["unsafe-query-items", "new-runtime"]) {
+          for (const name of [
+            "unsafe-query-items",
+            "new-runtime",
+            "docs-search",
+          ]) {
             const result = await client.callTool({
               name,
               arguments: { sql: "SELECT 1" },
@@ -116,7 +121,7 @@ describe("MCP input and framework eligibility", () => {
               .map((item) => item.text ?? "")
               .join("\n");
             expect(text).not.toMatch(
-              /"name"\s*:\s*"(?:new-runtime|unsafe-query-items)"/,
+              /"name"\s*:\s*"(?:new-runtime|unsafe-query-items|docs-search)"/,
             );
           }
           expect(

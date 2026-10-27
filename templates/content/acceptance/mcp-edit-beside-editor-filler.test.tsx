@@ -24,7 +24,6 @@ import {
 } from "../shared/blocks-field-identity";
 import { createContentEditorStructuralSchema } from "../shared/content-editor-structural-schema";
 import { canonicalizeNfm, docToNfm, nfmToDoc } from "../shared/nfm";
-import { knownLossTest } from "./known-loss";
 
 // SF-02: an MCP edit that lands while the page is open is never lost. Here
 // the open editor's last block is not a paragraph, so the editor holds the
@@ -61,13 +60,6 @@ vi.mock("../app/components/editor/image-upload", async (importOriginal) => ({
   uploadVideoFile: async () => UPLOADED_SRC,
 }));
 
-const LEGACY_LOSS = {
-  lane: "unowned",
-  outcome: "SF-02",
-  reason:
-    "The open tab merges a saved snapshot with prefer-live against a base parsed from the saved body, which lacks the editor's trailing empty paragraph, so an MCP edit that inserts at the end of the base is dropped and the tab saves the page without it.",
-} as const;
-
 // The open tab waits out recent typing (1.5 s, rechecking every 700 ms)
 // before it merges a newer snapshot.
 const MERGE_SETTLE_MS = 3_000;
@@ -95,14 +87,23 @@ describe("SF-02 MCP edit beside the editor's trailing empty paragraph", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    // The server takes the tab's proposal for a newer saved body in as the
+    // live doc and returns it, as it does for a single open editor.
     vi.stubGlobal(
       "fetch",
-      vi.fn(
-        async () =>
-          new Response("{}", {
-            headers: { "content-type": "application/json" },
-          }),
-      ),
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const proposal =
+          String(input).includes("adopt-document-snapshot") &&
+          typeof init?.body === "string"
+            ? /"adoptionUpdateBase64":"([^"]+)"/.exec(init.body)?.[1]
+            : undefined;
+        return new Response(
+          JSON.stringify(
+            proposal ? { status: "adopted", stateBase64: proposal } : {},
+          ),
+          { headers: { "content-type": "application/json" } },
+        );
+      }),
     );
     container = document.createElement("div");
     document.body.append(container);
@@ -294,9 +295,11 @@ describe("SF-02 MCP edit beside the editor's trailing empty paragraph", () => {
       "the editor keeps an empty paragraph after the video",
     ).toBe(true);
 
+    const blockId = doc.firstChild?.attrs.blockId;
+    expect(blockId, "the id comments use for the video").toMatch(/^video-/);
     const saved = immediateSaves.at(-1);
     expect(saved, "the upload's save leaves that paragraph out").toBe(
-      `<video src="${UPLOADED_SRC}"></video>`,
+      `<video src="${UPLOADED_SRC}" id="${blockId}"></video>`,
     );
     await show({
       content: saved!,
@@ -342,47 +345,39 @@ describe("SF-02 MCP edit beside the editor's trailing empty paragraph", () => {
     expect(canonicalizeNfm(shownBody())).toBe(canonicalizeNfm(body));
   });
 
-  it(
-    "legacy page: the open tab keeps an MCP edit made beside a video it just uploaded",
-    knownLossTest(LEGACY_LOSS),
-    async () => {
-      const saved = await openPageWithJustUploadedVideo();
-      const edited = placeOverMcp(saved);
-      await show({
-        content: edited,
-        revision: "rev-3",
-        updatedAt: new Date(3_000).toISOString(),
-        collabRevision: null,
-      });
-      await settle(MERGE_SETTLE_MS);
+  it("legacy page: the open tab keeps an MCP edit made beside a video it just uploaded", async () => {
+    const saved = await openPageWithJustUploadedVideo();
+    const edited = placeOverMcp(saved);
+    await show({
+      content: edited,
+      revision: "rev-3",
+      updatedAt: new Date(3_000).toISOString(),
+      collabRevision: null,
+    });
+    await settle(MERGE_SETTLE_MS);
 
-      const nextSave = merges.at(-1)?.content ?? shownBody();
-      expect(
-        blocksDeletedBySave([saved, edited, nextSave]),
-        "blocks the tab's next save deletes",
-      ).toEqual([]);
-      expectNothingDropped(edited);
-    },
-  );
+    const nextSave = merges.at(-1)?.content ?? shownBody();
+    expect(
+      blocksDeletedBySave([saved, edited, nextSave]),
+      "blocks the tab's next save deletes",
+    ).toEqual([]);
+    expectNothingDropped(edited);
+  });
 
-  it(
-    "legacy page: the open tab keeps an MCP append after a closing heading",
-    knownLossTest(LEGACY_LOSS),
-    async () => {
-      const body = await openPageWithClosingHeading();
+  it("legacy page: the open tab keeps an MCP append after a closing heading", async () => {
+    const body = await openPageWithClosingHeading();
 
-      const appended = `${body}\n\nParagraph the agent appended over MCP.`;
-      await show({
-        content: appended,
-        revision: "rev-2",
-        updatedAt: new Date(3_000).toISOString(),
-        collabRevision: null,
-      });
-      await settle(MERGE_SETTLE_MS);
+    const appended = `${body}\n\nParagraph the agent appended over MCP.`;
+    await show({
+      content: appended,
+      revision: "rev-2",
+      updatedAt: new Date(3_000).toISOString(),
+      collabRevision: null,
+    });
+    await settle(MERGE_SETTLE_MS);
 
-      expectNothingDropped(appended);
-    },
-  );
+    expectNothingDropped(appended);
+  });
 
   it("switched page: an MCP edit through the live copy keeps every block beside a just-uploaded video", async () => {
     const saved = await openPageWithJustUploadedVideo();

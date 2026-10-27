@@ -19,6 +19,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   COLUMN_SIZING_ATTRIBUTE,
   ContentTableView,
+  fitTableColumns,
   READABLE_TABLE_COLUMN_MIN_WIDTH,
   READABLE_TABLE_MIN_WIDTH_PROPERTY,
   contentTableColumnSizing,
@@ -30,14 +31,19 @@ import { createVisualEditorExtensions } from "./VisualEditor";
 
 const schema = getSchema(createVisualEditorExtensions());
 
-function table(cells: Array<{ colspan?: number; colwidth?: number[] | null }>) {
-  return schema.nodes.table.create(null, [
-    schema.nodes.tableRow.create(
+function table(
+  cells: Array<{ colspan?: number; colwidth?: number[] | null }>,
+  attrs: Record<string, unknown> | null = null,
+) {
+  return schema.node("table", attrs, [
+    schema.node(
+      "tableRow",
       null,
       cells.map((attrs) =>
-        schema.nodes.tableCell.create(
+        schema.node(
+          "tableCell",
           { colspan: 1, colwidth: null, ...attrs },
-          schema.nodes.paragraph.create(),
+          schema.node("paragraph"),
         ),
       ),
     ),
@@ -106,6 +112,74 @@ describe("ContentTableView", () => {
     await vi.waitFor(() =>
       expect(floorOf(view)).toBe(`${400 + READABLE_TABLE_COLUMN_MIN_WIDTH}px`),
     );
+  });
+});
+
+describe("fit to width", () => {
+  function colgroup(...widths: string[]) {
+    const element = document.createElement("colgroup");
+    for (const width of widths) {
+      const col = document.createElement("col");
+      col.style.width = width;
+      element.append(col);
+    }
+    return element;
+  }
+
+  const widthsOf = (element: HTMLElement) =>
+    Array.from(element.children, (col) => (col as HTMLElement).style.width);
+
+  it("turns sized columns into shares, leaving unsized ones a readable floor", () => {
+    const element = colgroup("200px", "", "100px");
+    fitTableColumns(element);
+
+    const total = 300 + READABLE_TABLE_COLUMN_MIN_WIDTH;
+    expect(widthsOf(element)).toEqual([
+      `${((200 / total) * 100).toFixed(3)}%`,
+      "",
+      `${((100 / total) * 100).toFixed(3)}%`,
+    ]);
+  });
+
+  it("leaves columns no one has sized", () => {
+    const element = colgroup("", "");
+    fitTableColumns(element);
+
+    expect(widthsOf(element)).toEqual(["", ""]);
+  });
+
+  it("drops the readable floor while the table fits the page", () => {
+    const fitted = table([{}, { colwidth: [150] }], { fitPageWidth: true });
+    const view = new ContentTableView(fitted, 25);
+
+    expect(view.table.dataset.fitPageWidth).toBe("true");
+    expect(floorOf(view)).toBe("");
+
+    view.update(table([{}, { colwidth: [150] }], { fitPageWidth: false }));
+    expect(view.table.dataset.fitPageWidth).toBeUndefined();
+    expect(floorOf(view)).toBe(`${150 + READABLE_TABLE_COLUMN_MIN_WIDTH}px`);
+  });
+
+  it("keeps a table no one has sized content-sized, without the floor", () => {
+    const view = new ContentTableView(
+      table([{}, {}], { fitPageWidth: true }),
+      25,
+    );
+
+    expect(view.table.getAttribute(COLUMN_SIZING_ATTRIBUTE)).toBe("content");
+    expect(floorOf(view)).toBe("");
+  });
+
+  it("keeps its shares when an update writes the widths back in pixels", async () => {
+    const fitted = () =>
+      table([{ colwidth: [150] }, { colwidth: [50] }], { fitPageWidth: true });
+    const view = new ContentTableView(fitted(), 25);
+
+    expect(view.update(fitted())).toBe(true);
+    await Promise.resolve();
+
+    expect(widthsOf(view.colgroup)).toEqual(["75.000%", "25.000%"]);
+    expect(view.table.hasAttribute(COLUMN_SIZING_ATTRIBUTE)).toBe(false);
   });
 });
 

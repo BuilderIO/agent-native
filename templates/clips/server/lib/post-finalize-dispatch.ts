@@ -7,6 +7,7 @@ import {
   scopedAgentAccessResourceId,
   signShortLivedToken,
 } from "@agent-native/core/server";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 
 export type PostFinalizeJobKind =
   | "media-ready"
@@ -46,8 +47,11 @@ function resolveWorkerUrl(pathname: string): string {
 export function postFinalizeJobResourceId(
   recordingId: string,
   kind: PostFinalizeJobKind,
+  requestedByEmail?: string,
 ): string {
-  return `${recordingId}:${kind}`;
+  return requestedByEmail
+    ? `${recordingId}:${kind}:caller:${encodeURIComponent(requestedByEmail)}`
+    : `${recordingId}:${kind}`;
 }
 
 export async function dispatchPostFinalizeJob(args: {
@@ -60,15 +64,24 @@ export async function dispatchPostFinalizeJob(args: {
   regenerate?: boolean;
   replaceImportId?: string | null;
   requireAccepted?: boolean;
+  requestedByEmail?: string;
 }): Promise<void> {
-  const { requireAccepted = false, ...job } = args;
-  // Legacy token format on purpose: this only travels in the POST body to
-  // another build of this app, so a rolling deploy must verify what an older
-  // build minted, and an older build must verify what this one mints.
+  const {
+    requireAccepted = false,
+    requestedByEmail: suppliedCaller,
+    ...options
+  } = args;
+  const requestedByEmail =
+    args.kind === "transcript" || args.kind === "meeting-finalize"
+      ? (suppliedCaller ?? getRequestUserEmail())?.trim().toLowerCase()
+      : undefined;
+  const job = { ...options, ...(requestedByEmail ? { requestedByEmail } : {}) };
+  // Older owner-processing jobs keep their scope. Caller-bound transcript/meeting
+  // jobs must fail closed if routed to a worker that predates caller binding.
   const token = signShortLivedToken({
     resourceId: scopedAgentAccessResourceId(
       POST_FINALIZE_JOB_TOKEN_KIND,
-      postFinalizeJobResourceId(job.recordingId, job.kind),
+      postFinalizeJobResourceId(job.recordingId, job.kind, requestedByEmail),
     ),
     ttlSeconds: 10 * 60,
   });

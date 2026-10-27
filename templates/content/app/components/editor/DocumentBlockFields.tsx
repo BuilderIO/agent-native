@@ -2206,6 +2206,7 @@ function AdditionalBlockEditor({
       onPersistenceControllerChange={onPersistenceControllerChange}
       localFileMode
       onComment={comments?.onComment}
+      onBlockComment={comments?.onBlockComment}
       commentThreads={comments?.commentThreads}
       activeThreadId={comments?.activeThreadId}
       hoveredThreadId={comments?.hoveredThreadId}

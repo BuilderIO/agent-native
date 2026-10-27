@@ -70,7 +70,49 @@ de la même manière pour des exécutions manuelles simples et des scripts exist
 pnpm action reply-to-email --emailId thread-123 --body "Thanks!"
 ```
 
-C’est utile pour les boucles de développement d’agent, les scripts, et les tâches cron.
+Pour les appels `defineAction()`, la CLI évalue `needsApproval` sur les arguments préparés et analysés, avec les valeurs par défaut du schéma et l’appelant `cli`. Si stdin et stdout sont des TTY, elle affiche le nom de l’action et les arguments, puis demande `y/N`. Seuls `y` ou `yes` exécutent l’action.
+
+Sans ces deux TTY, la CLI demande à l’agent de solliciter l’accord de la personne. Après son accord pour cet appel précis, relancez les arguments exacts de la commande `pnpm action` d’origine en ajoutant `--approved` :
+
+```bash
+pnpm action reply-to-email --emailId thread-123 --body "Thanks!" --approved
+```
+
+`--approved` est une métadonnée réservée à la CLI, retirée avant l’analyse de l’entrée. Il ne prend pas de valeur : si autre chose qu’un drapeau ou un objet JSON le suit, l’appel est refusé, et une entrée nommée `approved` s’écrit `--approved=<value>`. Ce drapeau est sans effet indésirable sur les actions sans approbation obligatoire. La CLI ne peut pas vérifier qui l’a ajouté : un agent qui l’ajoute sans demander contourne la confirmation. Le drapeau rend l’approbation visible dans la commande que la personne approuve et dans le journal d’audit, qui la signale comme non vérifiée. Sous Windows sans `SHELL` POSIX, le refus indique la commande pour PowerShell et, si les guillemets diffèrent, pour cmd.exe. Sous Windows, pnpm transmet les arguments de l’action à cmd.exe depuis n’importe quel shell, et cmd.exe développe `%NAME%` même entre guillemets. Si un argument contient une telle variable, le refus ne propose pas de relancer avec `--approved` : la personne exécute la commande dans un terminal et vérifie les valeurs à la confirmation. Si les arguments contiennent un guillemet et l’un de `&`, `|`, `<`, `>` ou `^`, pnpm ne peut pas les transmettre intacts à cmd.exe : le refus n’affiche alors aucune commande, et la personne approuve l’appel dans l’app. Windows PowerShell 5.1 supprime chaque `"` à l’intérieur d’un argument : sous Windows sans `SHELL` POSIX, un argument contenant un guillemet double passe donc lui aussi par la confirmation plutôt que par une relance avec `--approved`.
+
+Le pont de développement local envoie les métadonnées d’approbation hors de `input` dans le corps JSON :
+
+```ts
+{ name, input, approved: true, approvalSource: "flag" }
+```
+
+Pour un appel protégé sans approbation, le pont renvoie HTTP `409` :
+
+```ts
+{
+  ok: false,
+  errorCode: "approval_required",
+  error: 'Action "<name>" requires human approval. Ask the person, then rerun with --approved.',
+  arguments: preparedArgs,
+  argumentsHash: prepared.argumentsHash,
+}
+```
+
+Après la confirmation en TTY, la CLI réessaie avec le `argumentsHash` de la réponse demandant l’approbation :
+
+```ts
+{
+  name,
+  input,
+  approved: true,
+  approvalSource: "prompt",
+  approvalArgumentsHash: challenge.argumentsHash,
+}
+```
+
+Le pont exécute une seule fois l’appel que la personne a examiné : une valeur par défaut qui change à chaque appel, comme un horodatage, garde la valeur affichée. Une confirmation sans appel conservé à exécuter (il a déjà été exécuté, 10 minutes sont passées ou le serveur de développement a redémarré) reçoit HTTP `409` avec `errorCode: "approval_expired"`. Relancez la commande pour l’examiner.
+
+`arguments` contient les arguments préparés. Ce contrat du pont de développement local ne modifie pas les [règles d’approbation de l’API HTTP publique des actions](/docs/actions-access-control#needs-approval). Un appel CLI protégé et approuvé inscrit `approval: "cli-prompt"` ou `approval: "cli-flag"` sur la ligne d’audit propre à l’action, avec l’appelant `cli`. Le journal d’audit affiche les deux comme non vérifiés, car seule la CLI voit l’invite.
 
 ## L’appeler depuis un autre agent (A2A) {#a2a}
 

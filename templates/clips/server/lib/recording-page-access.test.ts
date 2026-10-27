@@ -14,12 +14,19 @@ describe("isRecordingExpired", () => {
     expect(isRecordingExpired("2026-07-15T11:59:59.999Z", now)).toBe(true);
   });
 
-  it("keeps recordings with a future finite date available", () => {
-    expect(isRecordingExpired("2026-07-15T12:00:00.001Z", now)).toBe(false);
+  it.each([
+    "2026-07-15T12:00:00.001Z",
+    "2026-07-16T12:00:00.1Z",
+    "2026-07-16T12:00:00.123456Z",
+    "2026-07-16",
+    "2026-07-16T12:00:00",
+    "2026-07-15T11:00:00-02:00",
+  ])("keeps future ISO expiry %s available", (expiresAt) => {
+    expect(isRecordingExpired(expiresAt, now)).toBe(false);
   });
 
-  it.each(["not-a-date", "", null, undefined])(
-    "ignores non-finite or unset expiry %s",
+  it.each(["", null, undefined])(
+    "keeps unset expiry %s available",
     (expiresAt) => {
       expect(isRecordingExpired(expiresAt, now)).toBe(false);
     },
@@ -28,6 +35,25 @@ describe("isRecordingExpired", () => {
 
 describe("isRecordingExpiredForViewer", () => {
   const now = Date.parse("2026-07-15T12:00:00.000Z");
+
+  it.each([
+    "not-a-date",
+    "2030-02-30T12:00:00Z",
+    "12:30:00",
+    "123",
+    "2030-01-01T00:00:00+23:00",
+    "2030-01-01T00:00:00.1234567Z",
+  ])(
+    "withholds malformed expiry %s from viewers while preserving owner previews",
+    (expiresAt) => {
+      expect(
+        isRecordingExpiredForViewer({ expiresAt, viewerIsOwner: false, now }),
+      ).toBe(true);
+      expect(
+        isRecordingExpiredForViewer({ expiresAt, viewerIsOwner: true, now }),
+      ).toBe(false);
+    },
+  );
 
   it("keeps an owner's expired recording available", () => {
     expect(

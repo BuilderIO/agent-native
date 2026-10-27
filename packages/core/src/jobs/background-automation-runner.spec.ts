@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
 import type { AgentEngine, EngineEvent } from "../agent/engine/types.js";
@@ -173,6 +173,21 @@ describe("background automation identity scope", () => {
 });
 
 describe("MCP-managed automation callers", () => {
+  beforeAll(async () => {
+    await Promise.all([
+      import("../action.js"),
+      import("./tools.js"),
+      import("../agent/tool-search.js"),
+      import("../mcp/framework-tools.js"),
+      import("../../../../templates/analytics/actions/build-data-index.js"),
+      import("../server/agent-chat/script-entries.js"),
+      import("../server/email-actions.js"),
+      vi.importActual("../agent/production-agent.js"),
+      import("../agent/execution-fence.js"),
+      import("../agent/run-loop-with-resume.js"),
+    ]);
+  }, 120_000);
+
   it.each(
     ["slack", "email"].flatMap((platform) =>
       ["preflight", "delivery", "ordinary"].map((stage) => ({
@@ -252,6 +267,12 @@ describe("MCP-managed automation callers", () => {
       const { z } = await import("zod");
       const { createJobTools } = await import("./tools.js");
       const { attachToolSearch } = await import("../agent/tool-search.js");
+      const { frameworkMcpTool } = await import("../mcp/framework-tools.js");
+      const { default: buildDataIndex } =
+        await import("../../../../templates/analytics/actions/build-data-index.js");
+      const buildIndex = vi
+        .spyOn(buildDataIndex, "run")
+        .mockResolvedValue({ built: true } as never);
       const { createResourceScriptEntries } =
         await import("../server/agent-chat/script-entries.js");
       const { createCoreEmailActionEntries } =
@@ -269,6 +290,7 @@ describe("MCP-managed automation callers", () => {
         sent: true,
         caller: ctx?.caller,
       }));
+      const hiddenRead = vi.fn(async () => ({ hidden: true }));
       const registry = attachToolSearch({
         ...createJobTools(),
         ...(await createResourceScriptEntries()),
@@ -282,6 +304,45 @@ describe("MCP-managed automation callers", () => {
           description: "Send an internal application message.",
           mcpTool: false,
           run: async () => ({ sent: true }),
+        }),
+        "build-data-index": buildDataIndex,
+        "agent-hidden-read": defineAction({
+          description: "Read programmatic application state.",
+          agentTool: false,
+          readOnly: true,
+          run: hiddenRead,
+        }),
+        "mcp-only-read": defineAction({
+          description: "Read state through a direct MCP tool.",
+          agentTool: false,
+          mcpTool: true,
+          readOnly: true,
+          run: hiddenRead,
+        }),
+        "query-records": defineAction({
+          description: "Read application records using guarded SQL.",
+          schema: z.object({ sql: z.string() }),
+          readOnly: true,
+          mcpTool: false,
+          run: async () => ({ rows: [] }),
+        }),
+        "run-code": defineAction({
+          description: "Execute runtime code.",
+          run: async () => ({ executed: true }),
+        }),
+        "framework-runtime": frameworkMcpTool(
+          defineAction({
+            description: "Operate framework runtime state.",
+            run: async () => ({ changed: true }),
+          }),
+        ),
+        "call-agent": defineAction({
+          description: "Ask another app's agent.",
+          run: async () => ({ answered: true }),
+        }),
+        "attach-call-evidence": defineAction({
+          description: "Attach call evidence to a CRM record.",
+          run: async () => ({ attached: true }),
         }),
         "public-unapproved-send": defineAction({
           description:
@@ -313,7 +374,9 @@ describe("MCP-managed automation callers", () => {
         "manage-jobs",
         "resources",
         "core-send-email",
-        "internal-send",
+        "call-agent",
+        "run-code",
+        "framework-runtime",
       ];
       for (const name of blocked) expect(registry[name]).toBeDefined();
       vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
@@ -336,6 +399,25 @@ describe("MCP-managed automation callers", () => {
             }
           }
           if (mcpManaged) {
+            const hiddenNames = ["agent-hidden-read", "mcp-only-read"];
+            for (const name of hiddenNames) {
+              expect(opts.actions[name]).toBeUndefined();
+              await expect(
+                callTool({
+                  actions: opts.actions,
+                  name,
+                  callId: `hidden-${name}`,
+                }),
+              ).resolves.toMatchObject({
+                status: "failed",
+                output: `Unknown or unavailable tool: ${name}`,
+              });
+            }
+            const hiddenSearch = await opts.actions["tool-search"].run({
+              names: hiddenNames,
+            });
+            expect(hiddenSearch.results).toEqual([]);
+            expect(hiddenRead).not.toHaveBeenCalled();
             const discovered = await opts.actions["tool-search"].run({
               names: blocked,
             });
@@ -346,6 +428,16 @@ describe("MCP-managed automation callers", () => {
               actions: opts.actions,
               name: "public-read",
               callId: `public-read-${mcpManaged}`,
+              caller: opts.actionCaller,
+              requireWriteApproval: opts.requireWriteApproval,
+            }),
+          ).toMatchObject({ status: "completed" });
+          expect(
+            await callTool({
+              actions: opts.actions,
+              name: "query-records",
+              input: { sql: "SELECT 1" },
+              callId: `query-records-${mcpManaged}`,
               caller: opts.actionCaller,
               requireWriteApproval: opts.requireWriteApproval,
             }),
@@ -365,6 +457,8 @@ describe("MCP-managed automation callers", () => {
           for (const name of [
             "public-unapproved-send",
             "public-predicate-bypass",
+            "attach-call-evidence",
+            "internal-send",
           ]) {
             const result = await callTool({
               ...invocation,
@@ -375,6 +469,36 @@ describe("MCP-managed automation callers", () => {
               mcpManaged ? "approval_required" : "completed",
             );
           }
+          const buildInvocation = {
+            ...invocation,
+            name: "build-data-index",
+            input: { trigger: "scheduled" },
+            callId: `build-data-index-${mcpManaged}`,
+          };
+          const build = await callTool(buildInvocation);
+          if (mcpManaged) {
+            expect(build.status).toBe("approval_required");
+            expect(buildIndex).not.toHaveBeenCalled();
+            expect(invocation.isToolAlwaysAllowed).not.toHaveBeenCalled();
+            if (build.status !== "approval_required")
+              throw new Error("Missing build approval");
+            expect(
+              await callTool({
+                ...buildInvocation,
+                approvedToolCalls: [build.approvalKey],
+                consumeApproval: async () => true,
+              }),
+            ).toMatchObject({ status: "completed" });
+            expect(
+              await callTool({
+                ...buildInvocation,
+                callId: `${buildInvocation.callId}-again`,
+              }),
+            ).toMatchObject({ status: "approval_required" });
+          } else {
+            expect(build.status).toBe("completed");
+          }
+          expect(buildIndex).toHaveBeenCalledOnce();
           for (const action of ["list", "update"]) {
             const result = await callTool({
               ...invocation,
@@ -425,15 +549,21 @@ describe("MCP-managed automation callers", () => {
           };
         },
       );
-      await runBackgroundAutomation(
-        runOptions(precondition(`registry-${mcpManaged}`, { mcpManaged }), {
-          actionCaller: "automation",
-        }),
-        {
-          ...standardDeps,
-          getActions: () => registry,
-        },
-      );
+      try {
+        await expect(
+          runBackgroundAutomation(
+            runOptions(precondition(`registry-${mcpManaged}`, { mcpManaged }), {
+              actionCaller: "automation",
+            }),
+            {
+              ...standardDeps,
+              getActions: () => registry,
+            },
+          ),
+        ).resolves.toMatchObject({ status: "success" });
+      } finally {
+        buildIndex.mockRestore();
+      }
     },
   );
   it("refuses custom runners that cannot carry per-action approval", async () => {
@@ -465,7 +595,7 @@ describe("MCP-managed automation callers", () => {
       ).rejects.toMatchObject({
         errorCode: "config_invalid",
         message:
-          "Las automatizaciones gestionadas por MCP no pueden usar funciones sin aprobación por acción.",
+          "Las automatizaciones gestionadas por un agente externo no pueden usar funciones sin aprobación por acción.",
       });
       expect(runner).not.toHaveBeenCalled();
     } finally {
