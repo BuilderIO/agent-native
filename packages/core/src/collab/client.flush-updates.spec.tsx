@@ -130,7 +130,7 @@ describe("collab flushUpdates", () => {
   });
 
   it.each([200, 500])(
-    "flushes restored edits on a second pagehide after the first request settles with %s",
+    "sends restored edits before teardown while the first keepalive later settles with %s",
     async (firstStatus) => {
       const result = await mountReady();
       const originalFetch = vi.mocked(fetch).getMockImplementation()!;
@@ -151,29 +151,23 @@ describe("collab flushUpdates", () => {
       window.dispatchEvent(new Event("pageshow"));
       result.ydoc!.getText("t").insert(6, " after");
       window.dispatchEvent(new Event("pagehide"));
-      expect(
-        updateRequests.filter((request) => request.keepalive),
-      ).toHaveLength(1);
-      await act(async () => {
-        finishFirst(new Response("{}", { status: firstStatus }));
-        await vi.advanceTimersByTimeAsync(0);
-      });
-      expect(
-        updateRequests.filter((request) => request.keepalive),
-      ).toHaveLength(2);
+      const keepaliveRequests = updateRequests.filter(
+        (request) => request.keepalive,
+      );
+      expect(keepaliveRequests).toHaveLength(2);
       const received = new Y.Doc();
       try {
-        for (const request of updateRequests) {
-          const { update } = JSON.parse(String(request.body));
-          Y.applyUpdate(
-            received,
-            new Uint8Array(Buffer.from(update, "base64")),
-          );
-        }
+        const { update } = JSON.parse(String(keepaliveRequests[1]!.body));
+        Y.applyUpdate(received, new Uint8Array(Buffer.from(update, "base64")));
         expect(received.getText("t").toString()).toBe("before after");
       } finally {
         received.destroy();
       }
+      act(() => root.unmount());
+      await act(async () => {
+        finishFirst(new Response("{}", { status: firstStatus }));
+        await vi.advanceTimersByTimeAsync(0);
+      });
     },
   );
 

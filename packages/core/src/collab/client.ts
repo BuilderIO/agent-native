@@ -276,8 +276,6 @@ class CollabDocConnection {
   private pendingUpdates: Uint8Array[] = [];
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private updateInFlight = false;
-  private keepaliveInFlight = false;
-  private keepaliveRequested = false;
   private updateErrors = 0;
   private updateAbortController: AbortController | null = null;
   private updateHandlerAttached = false;
@@ -860,10 +858,6 @@ class CollabDocConnection {
   }
 
   private async flushPendingUpdates(keepalive = false): Promise<void> {
-    if (keepalive && this.keepaliveInFlight) {
-      this.keepaliveRequested = true;
-      return;
-    }
     if (
       !keepalive &&
       (this.disposed ||
@@ -880,8 +874,7 @@ class CollabDocConnection {
     const retiredKey = this.retiredUpdatesKey;
     const merged = toSend.length === 1 ? toSend[0] : Y.mergeUpdates(toSend);
     const controller = new AbortController();
-    if (keepalive) this.keepaliveInFlight = true;
-    else {
+    if (!keepalive) {
       this.updateInFlight = true;
       this.updateAbortController = controller;
     }
@@ -922,17 +915,11 @@ class CollabDocConnection {
       this.updateErrors++;
     } finally {
       clearTimeout(timeout);
-      if (keepalive) this.keepaliveInFlight = false;
-      else {
+      if (!keepalive) {
         this.updateInFlight = false;
         this.updateAbortController = null;
       }
-      if (keepalive && this.keepaliveRequested) {
-        this.keepaliveRequested = false;
-        void this.flushPendingUpdates(true);
-      } else {
-        this.scheduleUpdateRetry();
-      }
+      this.scheduleUpdateRetry();
     }
   }
 
