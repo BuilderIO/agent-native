@@ -871,6 +871,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     onBoardElementHover,
     onBoardElementClear,
     onBoardElementDblClickText,
+    onBoardFrameLabelRename,
     onBoardIframeHotkey,
     onBoardFigmaClipboardPaste,
     onBoardImagePaste,
@@ -12752,6 +12753,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                   onTextContentChange={onBoardTextContentChange}
                   onTextEditingStateChange={handleBoardTextEditingStateChange}
                   onElementDblClickText={onBoardElementDblClickText}
+                  onFrameLabelRename={onBoardFrameLabelRename}
                   pinMode={reviewPinMode}
                   commentPinsHidden={reviewCommentsHidden}
                   onExitPinMode={onExitReviewPinMode}

@@ -110,6 +110,37 @@ async function clickLabelSelection(browser: Browser): Promise<string[]> {
 }
 
 describe("editor chrome frame name labels", () => {
+  it("renames a board frame from its title", { timeout: 60_000 }, async () => {
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage();
+    try {
+      await page.setContent(content);
+      await page.evaluate(() => {
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "frame-label-rename")
+            (window as any).renamed = event.data;
+        });
+      });
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(true),
+      });
+      await page.locator("[data-agent-native-frame-label]").dblclick();
+      const input = page.locator("[data-agent-native-frame-label-input]");
+      expect(await input.count()).toBe(1);
+      await input.fill("Workspace");
+      await input.press("Enter");
+      await page.waitForFunction(() => Boolean((window as any).renamed));
+      expect(await page.evaluate(() => (window as any).renamed.name)).toBe(
+        "Workspace",
+      );
+      expect(
+        await page.evaluate(() => (window as any).renamed.payload.sourceId),
+      ).toBe("draft-frame-1");
+    } finally {
+      await browser.close();
+    }
+  });
+
   it(
     "selects a board frame once when its name label is clicked",
     { timeout: 60_000 },
