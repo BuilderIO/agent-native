@@ -3427,9 +3427,6 @@ fn type_text_unicode(_text: &str) {}
 #[tauri::command]
 pub async fn set_recording_state(app: AppHandle, active: bool) -> Result<(), String> {
     dlog!("[clips-tray] set_recording_state active={}", active);
-    if !active {
-        crate::cursor_effects::stop(&app);
-    }
     if let Some(state) = app.try_state::<RecordingActive>() {
         if let Ok(mut g) = state.0.lock() {
             *g = active;
@@ -3442,7 +3439,6 @@ pub async fn set_recording_state(app: AppHandle, active: bool) -> Result<(), Str
 #[tauri::command]
 pub async fn release_recording_state(app: AppHandle) -> Result<(), String> {
     dlog!("[clips-tray] release_recording_state");
-    crate::cursor_effects::stop(&app);
     if let Some(state) = app.try_state::<RecordingActive>() {
         if let Ok(mut g) = state.0.lock() {
             *g = false;

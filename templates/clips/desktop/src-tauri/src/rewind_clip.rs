@@ -1760,7 +1760,6 @@ pub(crate) fn rewind_clip_cancel(
     state: State<'_, RewindClipState>,
     startup_id: Option<String>,
 ) -> Result<(), String> {
-    crate::cursor_effects::stop(&app);
     let mut active_state = state.0.lock().map_err(|error| error.to_string())?;
     if startup_id.as_deref().is_some_and(|startup_id| {
         active_state
@@ -1777,6 +1776,9 @@ pub(crate) fn rewind_clip_cancel(
     let active = active_state.take();
     drop(active_state);
     if let Some(mut active) = active {
+        // Only the clip being cancelled owns the overlay; a stale cancel
+        // returned above and leaves a newer clip's effects running.
+        crate::cursor_effects::stop(&app);
         if let Some(lease_id) = active.lease_id.as_deref() {
             let _ = app
                 .state::<CaptureGraphState>()
