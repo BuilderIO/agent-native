@@ -117,6 +117,30 @@ import { Layout } from "@agent-native/dispatch/components";
 </Layout>;
 ```
 
+## Verify a community template branch
+
+Organization owners and admins can call `verify-curated-community-app` with
+`sourceId`, `appId`, and `branchName` to check an existing Builder branch in
+the organization's configured Builder project. Project selection and reviewed
+file pins come from Dispatch; callers cannot supply another project or hashes.
+
+The action uses the saved Builder connection with project read access. It
+requires a complete backup whose digest and immutable commit match the idle,
+clean branch before and after reading its Git bundle. Every regular file under
+`apps/<appId>` must match the reviewed template's exact path and Git blob hash;
+missing, extra, changed, or linked files fail verification. The result contains
+commit and file hashes, without file contents or signed download URLs.
+
+The server needs a writable temporary directory. Verification bounds pack
+decompression before a JavaScript Git reader opens an isolated object store,
+never checks out or executes app code, and removes its temporary files.
+Stale or partial backups,
+unverifiable identities, access errors, and size limits fail closed.
+
+Verification does not install an app, grant access, change Community Lab, or
+mark an app ready. Builder-mode community installs remain disabled pending
+verified generated-branch acceptance.
+
 ## What it's for
 
 Dispatch is the workspace control plane sitting above individual template
