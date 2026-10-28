@@ -779,18 +779,40 @@ export function dryRunEdits(
 
 const PREVIEW_CHARS = 300;
 const PREVIEW_COUNT = 5;
+// Characters are not stored bytes: CJK text is three bytes a character and a
+// quote costs two in JSON, so the counts above alone can overrun a row's result.
+const PREVIEW_MAX_BYTES = 4_096;
 
-/** Bounded before/after text, so a card can show what changed without storing the file. */
-export function previewEdits(
+function previewWithin(
   edits: readonly DesignEdit[],
+  chars: number,
 ): NonNullable<ReviewAgentResult["changes"]> {
   return edits.slice(0, PREVIEW_COUNT).map(({ search, replace }) => ({
-    before: search.slice(0, PREVIEW_CHARS),
-    after: replace.slice(0, PREVIEW_CHARS),
-    ...(search.length > PREVIEW_CHARS || replace.length > PREVIEW_CHARS
+    before: search.slice(0, chars),
+    after: replace.slice(0, chars),
+    ...(search.length > chars || replace.length > chars
       ? { truncated: true }
       : {}),
   }));
+}
+
+/**
+ * Bounded before/after text, so a card can show what changed without storing
+ * the file. It always fits a row: the text shortens until the stored form is
+ * small, and it never empties, because an empty `after` reads as a deletion.
+ */
+export function previewEdits(
+  edits: readonly DesignEdit[],
+): NonNullable<ReviewAgentResult["changes"]> {
+  for (let chars = PREVIEW_CHARS; chars > 1; chars = Math.floor(chars / 2)) {
+    const changes = previewWithin(edits, chars);
+    if (
+      Buffer.byteLength(JSON.stringify(changes), "utf8") <= PREVIEW_MAX_BYTES
+    ) {
+      return changes;
+    }
+  }
+  return previewWithin(edits, 1);
 }
 
 // ---------------------------------------------------------------------------

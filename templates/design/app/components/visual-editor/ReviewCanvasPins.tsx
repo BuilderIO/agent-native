@@ -111,6 +111,10 @@ import {
   type ReviewPopoverPlacement,
   type ReviewVisibleRegion,
 } from "./review-canvas-state";
+import {
+  registerReviewOverlayTarget,
+  useReviewOverlayTargets,
+} from "./review-overlay-targets";
 import { ReviewAgentRequestStatus } from "./ReviewAgentRequestStatus";
 import {
   type ReviewPinAuthor,
@@ -1239,16 +1243,24 @@ export function ReviewCanvasPins({
     };
   }, [cancelDraft, onClose, pendingRepromptId, t, targetId]);
 
+  const coveredTargets = useReviewOverlayTargets();
+  useEffect(() => {
+    if (targetId === null || hidden || !canvas) return;
+    return registerReviewOverlayTarget(targetId);
+  }, [canvas, hidden, targetId]);
   // A null `targetId` is dropped from the GET query, so the board's list arrives
-  // with every screen's threads; drawing those would pin each one a second time.
+  // with every screen's threads. A screen with its own overlay draws its own
+  // threads; the board draws only the rest, or each pin would show twice.
   const threads = useMemo(
     () =>
       buildReviewThreads(
-        (comments.data?.comments ?? []).filter(
-          (comment) => comment.targetId === targetId,
+        (comments.data?.comments ?? []).filter((comment) =>
+          targetId === null
+            ? comment.targetId === null || !coveredTargets.has(comment.targetId)
+            : comment.targetId === targetId,
         ),
       ),
-    [comments.data?.comments, targetId],
+    [comments.data?.comments, coveredTargets, targetId],
   );
   const discussion = comments.data?.discussion;
   const normalizedCurrentUserEmail =
@@ -1926,7 +1938,9 @@ export function ReviewCanvasPins({
       )
     ) {
       lastFocusNonceRef.current = focusRequest.nonce;
-      if (focusRequest.threadId) {
+      // A thread without an anchor has no pin to hold its card, and opening it
+      // would report a thread nobody can see.
+      if (focusRequest.threadId && parseReviewAnchor(focusRequest.anchor)) {
         setActiveThreadId(focusRequest.threadId);
       }
       focusRequest.onConsumed?.();
@@ -3138,14 +3152,16 @@ export function ReviewCanvasPins({
                       },
                       {
                         onSuccess: () => {
+                          // The user may have opened another thread while this
+                          // request was in flight; that one stays open.
                           if (
                             activeThreadIdRef.current === thread.root.threadId
                           ) {
                             focusReturnRef.current = focusReturnTo(
                               thread.root.threadId,
                             );
+                            setActiveThreadId(null);
                           }
-                          setActiveThreadId(null);
                           if (thread.root.status === "open") {
                             toast.success(t("review.resolved"), {
                               action: {
@@ -3287,8 +3303,8 @@ export function ReviewCanvasPins({
                       setDeleteCandidate(null);
                       if (activeThreadIdRef.current === candidate.threadId) {
                         focusReturnRef.current = returnTo;
+                        closeActiveThread();
                       }
-                      closeActiveThread();
                     },
                     onError: () => toast.error(t("review.postFailed")),
                   },

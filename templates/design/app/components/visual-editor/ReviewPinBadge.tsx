@@ -104,12 +104,11 @@ export function uniqueReviewPinAuthors(
   });
 }
 
+// An agent's comments carry its owner's email, so two agents of one owner share
+// it; an agent is told apart by its name.
 function authorKey(author: ReviewPinAuthor): string | null {
-  const identity =
-    author.email?.trim().toLowerCase() ||
-    author.name?.trim().toLowerCase() ||
-    author.agent?.kind ||
-    null;
-  if (!identity) return null;
-  return `${author.agent ? "agent" : "person"}:${identity}`;
+  const name = author.name?.trim().toLowerCase();
+  if (author.agent) return `agent:${name || author.agent.kind}`;
+  const identity = author.email?.trim().toLowerCase() || name;
+  return identity ? `person:${identity}` : null;
 }

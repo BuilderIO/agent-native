@@ -173,8 +173,16 @@ export default defineAction({
     let checks: ReadbackCheck[];
     if (result.editApplied) {
       // A retry after a partial apply: the design is already edited, so only
-      // what is saved is checked, against what was recorded.
-      checks = result.changes ?? [];
+      // what is saved is checked, against what was recorded. No record checks
+      // nothing, which would pass, so it stops instead.
+      if (!result.changes?.length) {
+        return errors.fail(
+          "The design was edited but no record of the edit was kept, so the saved screen cannot be verified. The request stays open for review.",
+          "verification_failed",
+          { statusCode: 409 },
+        );
+      }
+      checks = result.changes;
     } else {
       const attempts = (result.applyAttempts ?? 0) + 1;
       if (attempts > REVIEW_AGENT_LIMITS.applyAttemptsMax) {

@@ -83,8 +83,10 @@ import {
   expireStaleActiveRequests,
   listReviewAgentRequests,
   normalizeInstructions,
+  previewEdits,
   reconcileReviewAgentRun,
   recordEditApplied,
+  resultFitsRow,
   serializeReviewAgentRequest,
   startReviewAgentRequest,
   transitionReviewAgentRequest,
@@ -1337,6 +1339,36 @@ describe("review agent requests against PGlite", () => {
         status: "needs-input",
         errorCode: "cancelled_after_edit",
       });
+    });
+
+    it("keeps an ordinary edit's preview whole", () => {
+      expect(previewEdits([{ search: "Get started", replace: "Go" }])).toEqual([
+        { before: "Get started", after: "Go" },
+      ]);
+    });
+
+    it("shortens a preview of multi-byte or quote-heavy text until it fits a row", () => {
+      const texts = ["字".repeat(600), '"'.repeat(600), "😀".repeat(600)];
+      for (const text of texts) {
+        const changes = previewEdits(
+          Array.from({ length: 5 }, () => ({ search: text, replace: text })),
+        );
+        expect(changes).toHaveLength(5);
+        expect(resultFitsRow({ editApplied: true, changes })).toBe(true);
+        for (const change of changes) {
+          expect(change.truncated).toBe(true);
+          expect(change.before).not.toBe("");
+          expect(change.after).not.toBe("");
+        }
+      }
+    });
+
+    it("keeps a deletion a deletion when shortening", () => {
+      const [change] = previewEdits([
+        { search: "字".repeat(600), replace: "" },
+      ]);
+      expect(change?.after).toBe("");
+      expect(change?.before).not.toBe("");
     });
 
     it("refuses a result larger than a row may hold", async () => {

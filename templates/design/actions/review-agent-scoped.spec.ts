@@ -1417,6 +1417,55 @@ describe("scoped review agent actions", () => {
       expect(change.truncated).toBe(true);
     });
 
+    it("still records an edit whose preview is multi-byte text that would not fit a row", async () => {
+      const row = await insertRow({ status: "running" });
+      const paragraphs = Array.from({ length: 5 }, (_, index) =>
+        String.fromCharCode(0x4e00 + index).repeat(600),
+      );
+      await mocks.pglite.query("UPDATE design_files SET content = $1", [
+        `<html><body>${paragraphs.map((p) => `<p>${p}</p>`).join("")}</body></html>`,
+      ]);
+
+      const applied = await apply(row, {
+        edits: paragraphs.map((p) => ({ search: p, replace: `${p}改` })),
+      });
+
+      expect(applied.request.status).toBe("applied");
+      const stored = result(await readRow(row.id));
+      expect(stored).toMatchObject({
+        editApplied: true,
+        editsApplied: 5,
+        resolved: true,
+      });
+      expect(stored.changes).toHaveLength(5);
+      expect(
+        stored.changes.every(
+          (change: { before: string; after: string }) =>
+            change.before !== "" && change.after !== "",
+        ),
+      ).toBe(true);
+    });
+
+    it("stops a retry that has no record of the edit rather than passing it unchecked", async () => {
+      const row = await insertRow({
+        status: "running",
+        resultJson: JSON.stringify({
+          editApplied: true,
+          fileId: SCREEN_ID,
+          editsApplied: 1,
+        }),
+      });
+
+      expect(await refusal(applyReviewAgentChanges, apply(row))).toBe(
+        "verification_failed",
+      );
+
+      expect(mocks.editDesign).not.toHaveBeenCalled();
+      expect(mocks.reply).not.toHaveBeenCalled();
+      expect(mocks.resolve).not.toHaveBeenCalled();
+      expect((await readRow(row.id)).status).toBe("running");
+    });
+
     it("applies once, however many times it is called", async () => {
       const row = await insertRow({ status: "running" });
 

@@ -1560,6 +1560,36 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     expect(document.body.textContent).toContain("Keep this popover open");
   });
 
+  it("retires a focus request for a thread with no anchor without opening it", async () => {
+    reviewComments = [{ ...comment, anchor: null }];
+    const onActiveThreadChange = vi.fn();
+    const onConsumed = vi.fn();
+    await act(async () => {
+      root.render(
+        <ReviewCanvasPins
+          active={false}
+          onClose={vi.fn()}
+          canvasSelector=".review-test-canvas"
+          resourceType="design"
+          resourceId="design-1"
+          targetId="screen-1"
+          focusRequest={{
+            nonce: 1,
+            anchor: null,
+            targetId: "screen-1",
+            threadId: "thread-1",
+            onConsumed,
+          }}
+          onActiveThreadChange={onActiveThreadChange}
+          canPost
+          canResolve
+        />,
+      );
+    });
+    expect(onConsumed).toHaveBeenCalledTimes(1);
+    expect(onActiveThreadChange).not.toHaveBeenCalled();
+  });
+
   it("routes a nullable board focus only to the board surface", async () => {
     const boardCanvas = document.createElement("div");
     boardCanvas.id = "board-review-test-canvas";
@@ -1720,11 +1750,13 @@ describe("ReviewCanvasPins persisted thread popover", () => {
 
   // `targetId: null` cannot travel in a GET query string, so the board
   // overlay's list arrives with every screen's threads too. The mocked list is
-  // unscoped for the same reason: each overlay must keep to its own target.
+  // unscoped for the same reason: a screen overlay keeps to its own target, and
+  // the board draws a screen's threads only while that screen has no overlay.
   describe("overlay scope", () => {
     const boardGeometry = { x: 0, y: 0, width: 800, height: 600 };
     // A screen thread's worldPoint is the click mapped through the board's
-    // geometry, so the board would draw it away from the frame it lives on.
+    // geometry, so the board draws it away from the frame it lives on when the
+    // frame's own overlay is mounted.
     const resolvedOnScreen: ReviewComment = {
       ...comment,
       id: "comment-d",
@@ -1750,24 +1782,45 @@ describe("ReviewCanvasPins persisted thread popover", () => {
           `${pin.parentElement?.style.left},${pin.parentElement?.style.top}`,
       );
 
+    const boardOverlay = (active: boolean) => (
+      <ReviewCanvasPins
+        active={active}
+        onClose={vi.fn()}
+        canvasSelector=".review-test-canvas"
+        resourceType="design"
+        resourceId="design-1"
+        targetId={null}
+        boardGeometry={boardGeometry}
+        canPost
+        canResolve
+      />
+    );
+    const screenOverlay = (
+      <ReviewCanvasPins
+        active={false}
+        onClose={vi.fn()}
+        canvasSelector=".review-test-canvas"
+        resourceType="design"
+        resourceId="design-1"
+        targetId="screen-1"
+        screenId="screen-1"
+        canPost
+        canResolve
+      />
+    );
+    const sortedPinPositions = () => pinPositions().sort();
+
     it("draws a screen thread once, not again on the board, through a draft", async () => {
       reviewComments = [resolvedOnScreen, openOnBoard];
       await act(async () => {
         root.render(
-          <ReviewCanvasPins
-            active
-            onClose={vi.fn()}
-            canvasSelector=".review-test-canvas"
-            resourceType="design"
-            resourceId="design-1"
-            targetId={null}
-            boardGeometry={boardGeometry}
-            canPost
-            canResolve
-          />,
+          <>
+            {boardOverlay(true)}
+            {screenOverlay}
+          </>,
         );
       });
-      expect(pinPositions()).toEqual(["80px,60px"]);
+      expect(sortedPinPositions()).toEqual(["480px,240px", "80px,60px"]);
 
       await act(async () => {
         document
@@ -1780,7 +1833,11 @@ describe("ReviewCanvasPins persisted thread popover", () => {
             }),
           );
       });
-      expect(pinPositions()).toEqual(["80px,60px", "300px,240px"]);
+      expect(sortedPinPositions()).toEqual([
+        "300px,240px",
+        "480px,240px",
+        "80px,60px",
+      ]);
 
       await act(async () => {
         document
@@ -1789,7 +1846,38 @@ describe("ReviewCanvasPins persisted thread popover", () => {
             new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
           );
       });
-      expect(pinPositions()).toEqual(["80px,60px"]);
+      expect(sortedPinPositions()).toEqual(["480px,240px", "80px,60px"]);
+    });
+
+    it("draws a screen's thread on the board while that screen has no overlay", async () => {
+      reviewComments = [resolvedOnScreen, openOnBoard];
+      await act(async () => {
+        root.render(boardOverlay(false));
+      });
+      expect(sortedPinPositions()).toEqual(["640px,480px", "80px,60px"]);
+    });
+
+    it("hands a screen's thread to its overlay when it mounts, and takes it back when it unmounts", async () => {
+      reviewComments = [resolvedOnScreen, openOnBoard];
+      await act(async () => {
+        root.render(boardOverlay(false));
+      });
+      expect(sortedPinPositions()).toEqual(["640px,480px", "80px,60px"]);
+
+      await act(async () => {
+        root.render(
+          <>
+            {boardOverlay(false)}
+            {screenOverlay}
+          </>,
+        );
+      });
+      expect(sortedPinPositions()).toEqual(["480px,240px", "80px,60px"]);
+
+      await act(async () => {
+        root.render(boardOverlay(false));
+      });
+      expect(sortedPinPositions()).toEqual(["640px,480px", "80px,60px"]);
     });
 
     it("draws only its own screen's threads on a screen overlay", async () => {
@@ -5336,6 +5424,40 @@ describe("ReviewCanvasPins persisted thread popover", () => {
 
         expect(card()).toBeNull();
         expect(document.activeElement).toBe(pin());
+      });
+
+      it("leaves a thread opened meanwhile open when an earlier resolve finishes", async () => {
+        reviewComments = [
+          comment,
+          {
+            ...comment,
+            id: "comment-2",
+            threadId: "thread-2",
+            body: "Second thread",
+            anchor: { point: { xPct: 75, yPct: 70 } },
+          },
+        ];
+        await renderPins();
+        await openFromPin();
+        await act(async () =>
+          card()
+            ?.querySelector<HTMLButtonElement>(
+              'button[aria-label="review.resolve"]',
+            )
+            ?.click(),
+        );
+        await act(async () =>
+          document
+            .querySelectorAll<HTMLButtonElement>("[data-review-pin]")[1]
+            ?.click(),
+        );
+        expect(card()?.textContent).toContain("Second thread");
+
+        await act(async () =>
+          mocks.resolveMutate.mock.calls[0]?.[1]?.onSuccess(),
+        );
+
+        expect(card()?.textContent).toContain("Second thread");
       });
 
       it("returns focus to the pin once a comment is deleted", async () => {

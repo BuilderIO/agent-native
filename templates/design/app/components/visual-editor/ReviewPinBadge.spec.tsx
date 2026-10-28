@@ -223,4 +223,21 @@ describe("uniqueReviewPinAuthors", () => {
       { name: "Claude", agent: { kind: "claude" } },
     ]);
   });
+
+  it("tells agents that share their owner's email apart, and from the owner", () => {
+    const owner = { name: "Alex", email: "alex@example.com" };
+    const claude = {
+      name: "Claude",
+      email: "alex@example.com",
+      agent: { kind: "claude" as const },
+    };
+    const codex = {
+      name: "Codex",
+      email: "alex@example.com",
+      agent: { kind: "codex" as const },
+    };
+    expect(
+      uniqueReviewPinAuthors([owner, claude, codex, { ...claude }]),
+    ).toEqual([owner, claude, codex]);
+  });
 });
