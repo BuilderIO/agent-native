@@ -130,26 +130,48 @@ export function createDraftOutlines(
     const isRoot = container === doc.documentElement;
     const scrollX = isRoot ? 0 : container.scrollLeft;
     const scrollY = isRoot ? 0 : container.scrollTop;
+    // Every layout read comes before any write; interleaving them would force
+    // a synchronous layout per frame drawn.
+    const measured: {
+      element: Element;
+      entry: Entry;
+      rect: DOMRect | null;
+      radius: string | null;
+    }[] = [];
     live.forEach((entry, element) => {
       if (entry.leaving || now < entry.startAt) return;
       if (!element.isConnected) {
-        drop(element, entry);
+        measured.push({ element, entry, rect: null, radius: null });
         return;
       }
       const rect = element.getBoundingClientRect();
+      let radius: string | null = null;
+      if (!entry.box && rect.width / scaleX >= 6 && rect.height / scaleY >= 6) {
+        const style = view.getComputedStyle(element);
+        radius =
+          style.display === "inline" || style.visibility === "hidden"
+            ? null
+            : style.borderRadius || "0px";
+        if (radius === null) {
+          measured.push({ element, entry, rect: null, radius: null });
+          return;
+        }
+      }
+      measured.push({ element, entry, rect, radius });
+    });
+    measured.forEach(({ element, entry, rect, radius }) => {
+      if (!rect) {
+        drop(element, entry);
+        return;
+      }
       const width = rect.width / scaleX;
       const height = rect.height / scaleY;
       if (!entry.box) {
-        if (width < 6 || height < 6) {
+        if (radius === null) {
           if (now - entry.startAt > GIVE_UP_MS) drop(element, entry);
           return;
         }
-        const style = view.getComputedStyle(element);
-        if (style.display === "inline" || style.visibility === "hidden") {
-          drop(element, entry);
-          return;
-        }
-        show(entry, style.borderRadius || "0px", now);
+        show(entry, radius, now);
       }
       const box = entry.box;
       if (!box) return;

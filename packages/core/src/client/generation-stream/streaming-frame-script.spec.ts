@@ -167,6 +167,21 @@ describe("streaming frame script", () => {
     expect(runs).toEqual(['__ran("a")', '__ran("b")']);
   });
 
+  it("keeps the live scripts matching the source after an insert before two", async () => {
+    const post = startFrame();
+    post(
+      '<html><head></head><body><script>"a"</script><script>"b"</script></body></html>',
+    );
+    await settle();
+    post(
+      '<html><head></head><body><script>"x"</script><script>"a"</script><script>"b"</script></body></html>',
+    );
+    await settle();
+    expect(
+      Array.from(document.body.querySelectorAll("script"), (node) => node.text),
+    ).toEqual(['"x"', '"a"', '"b"']);
+  });
+
   it("inserts external scripts in order instead of async", async () => {
     const post = startFrame();
     post(

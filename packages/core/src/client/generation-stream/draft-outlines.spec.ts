@@ -274,6 +274,36 @@ describe("createDraftOutlines", () => {
     expect(boxes(container)).toHaveLength(2);
   });
 
+  it("measures every element in a frame before drawing any box", () => {
+    const container = build("<section><div>One</div><div>Two</div></section>");
+    const section = container.firstElementChild as Element;
+    const [first, second] = Array.from(section.children);
+    place(section, 100, 50, 400, 300);
+    if (first) place(first, 120, 60, 200, 40);
+    if (second) place(second, 120, 120, 200, 40);
+    createDraftOutlines(container, "#609ff8").track(section);
+    const layer = container.querySelector(':scope > [aria-hidden="true"]');
+
+    const order: string[] = [];
+    const rectMock = vi.mocked(Element.prototype.getBoundingClientRect);
+    const measure = rectMock.getMockImplementation();
+    rectMock.mockImplementation(function (this: Element) {
+      if (this !== container) order.push("read");
+      if (!measure) throw new Error("getBoundingClientRect is not mocked");
+      return measure.call(this);
+    });
+    const appendChild = Node.prototype.appendChild;
+    vi.spyOn(Node.prototype, "appendChild").mockImplementation(function <
+      T extends Node,
+    >(this: Node, node: T): T {
+      if (this === layer) order.push("write");
+      return appendChild.call(this, node) as T;
+    });
+
+    frameAt(200);
+    expect(order).toEqual(["read", "read", "read", "write", "write", "write"]);
+  });
+
   it("fades a frame once its box has held still, then removes it", () => {
     const container = build("<section></section>");
     const section = container.firstElementChild as Element;

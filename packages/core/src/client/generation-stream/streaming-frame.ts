@@ -100,7 +100,9 @@ function frameScript(token: string): string {
     });
   };
   // Matched by text, not position: a script inserted before another must not
-  // make the one after it look changed and run twice.
+  // make the one after it look changed and run twice. A script the frame made
+  // live has no streamed text for the morph to patch, so a node whose text
+  // no longer matches the source is swapped for an inert copy of it.
   var syncBodyScripts = function (parsedBody) {
     var wanted = parsedBody.querySelectorAll("script");
     var live = Array.prototype.slice.call(document.body.querySelectorAll("script")).filter(function (node) {
@@ -117,7 +119,13 @@ function frameScript(token: string): string {
       var left = ran.get(source.text) || 0;
       if (left > 0) {
         ran.set(source.text, left - 1);
-        ranScripts.set(node, source.text);
+        var kept = node;
+        if (node.text !== source.text && node.parentNode) {
+          kept = document.importNode(source, true);
+          node.parentNode.replaceChild(kept, node);
+          streamedNodes.add(kept);
+        }
+        ranScripts.set(kept, source.text);
         return;
       }
       runBodyScript(node, source);
