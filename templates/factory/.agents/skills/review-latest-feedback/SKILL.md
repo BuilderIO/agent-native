@@ -157,11 +157,12 @@ checkout, or the expected worktree is missing, create one
 (`git worktree add <path> origin/main`) and carry on. That is never a reason
 to stop.
 
-Window: the last 5 days for new reports (or from the timestamp or permalink
-the invocation gives), plus 14 days for open items.
+Window: roots posted in the last 5 days (or since the timestamp or permalink
+the invocation gives), for new reports and open items alike. Older threads
+are left as they are.
 
 - **Read the channels.** Use `slack_read_channel` with
-  `response_format: detailed` (paginate) back 14 days. Its output shows
+  `response_format: detailed` (paginate) back 5 days. Its output shows
   reaction counts but not who added them, so call `slack_get_reactions` on any
   root showing `eyes`, `white_check_mark`, `ticket`, `mag`, `yes-party`, or
   `upvote`. Don't rely on
