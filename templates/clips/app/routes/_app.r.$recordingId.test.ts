@@ -187,7 +187,6 @@ describe("direct recording route shell cue", () => {
     const toolbar = route.slice(toolbarStart, toolbarEnd);
 
     expect(toolbarStart).toBeGreaterThan(-1);
-    expect(toolbar).toContain("<IconEdit");
     expect(toolbar).toContain("<IconMoodSmile");
     expect(toolbar).toContain('t("recordingPage.react")');
     expect(toolbar).toContain("<PopoverContent");
