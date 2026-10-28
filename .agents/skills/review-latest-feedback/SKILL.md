@@ -159,7 +159,8 @@ to stop.
 
 Window: roots posted in the last 5 days (or since the timestamp or permalink
 the invocation gives), for new reports and open items alike. Older threads
-are left as they are.
+are left as they are, except reports listed under `Reports` in a sweep PR
+opened or merged in that window: those always get their close-out.
 
 - **Read the channels.** Use `slack_read_channel` with
   `response_format: detailed` (paginate) back 5 days. Its output shows
@@ -319,8 +320,10 @@ a one-line lesson in the recap and Steve will decide whether it goes in.
 
 This step is the only place a claimed report gets its closing reply. Run it
 after the merge for the threads in the PR's `Reports` section. If the merge
-happened outside this run, the next sweep runs it: when you collect, check
-each open item's sweep PR, and close out the reports of any that have merged.
+happened outside this run, the next sweep runs it: when you collect, list the
+sweep PRs merged in the window (`gh pr list --state merged --search
+"merged:>=<date>"`) and close out every report in their `Reports` sections
+that still lacks its ✅, however old the report is.
 Entries that aren't Slack threads get no Slack action: GitHub issues follow
 the issue rule below, and Sentry and Analytics issues are only listed in the
 recap.
